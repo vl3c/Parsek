@@ -115,6 +115,25 @@ namespace Parsek.Tests
         public void FillerAttachNode_IsTheOppositeNode(double y, string expected)
             => Assert.Equal(expected, PartParityStateWave.FillerAttachNode(y));
 
+        // ----- stowed pose -----
+
+        [Theory]
+        [InlineData(1f, 1f)]
+        [InlineData(0f, 0f)]
+        [InlineData(1.5f, 1f)]
+        [InlineData(-1f, 0f)]
+        [InlineData(float.NaN, 0f)]
+        public void CargoBayClosedAnimTime_IsTheClampedClosedPosition(float closed, float expected)
+            => Assert.Equal(expected, PartParityStateWave.CargoBayClosedAnimTime(closed));
+
+        [Fact]
+        public void GearStowedState_IsTheRetractedStateTheGearClassifierReads()
+        {
+            FlightRecorder.ClassifyGearState(PartParityStateWave.GearStowedStateString, out bool deployed, out bool retracted);
+            Assert.False(deployed);
+            Assert.True(retracted);
+        }
+
         // ----- primes -----
 
         [Fact]

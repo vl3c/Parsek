@@ -64,6 +64,10 @@ namespace Parsek.TestCommands
         internal readonly List<Transform> JettisonTransforms = new List<Transform>();
         internal string SignatureBefore;
 
+        /// <summary>The done signal already read reached before the press: the authored
+        /// stowed pose is the target, so a press would leave it (an <c>action-failed</c>).</summary>
+        internal bool ReachedBeforePress;
+
         // ----- press and wait (steps 3, 4) -----
         internal bool Pressed;
         internal string ActionResult;
@@ -241,6 +245,7 @@ namespace Parsek.TestCommands
             ConfigNode subject = GhostCoOrbitalRig.AuthorPartNode(info, ids[0], 0, Vector3.zero,
                 attachments.Count > 0 ? attachments : null, wc.RealVariant, null);
             if (light) AddCharge(subject);
+            AuthorStowedPose(subject, info, run.Option);
             parts.Add(subject);
             for (int i = 0; i < nodes.Count; i++)
             {
@@ -262,6 +267,36 @@ namespace Parsek.TestCommands
                 $"charge={(light ? LightChargeAmount.ToString("0", Ic) : "none")}");
             return ProtoVessel.CreateVesselNode(PartParityCaseRules.VesselName(wc.CaseId), VesselType.Probe,
                 placeholder, 0, parts.ToArray());
+        }
+
+        /// <summary>
+        /// The stowed pose of a family whose module spawns at its target by default (a lone
+        /// part's persistent fields are absent, so stock starts it at the field's initial
+        /// value): a landing gear's <c>ModuleWheelDeployment</c> starts Deployed unless its
+        /// <c>stateString</c> says Retracted, and a cargo bay whose <c>closedPosition</c> is 1
+        /// (the Mk2 and Mk3 bays) starts open at <c>animTime</c> 0. The stowed pose is written
+        /// into the subject's MODULE node at the module's prefab index.
+        /// </summary>
+        private static void AuthorStowedPose(ConfigNode subject, AvailablePart info, PartParityStateOption opt)
+        {
+            ConfigNode[] modules = subject.GetNodes("MODULE");
+            Part prefab = info.partPrefab;
+            if (modules.Length != prefab.Modules.Count) return;
+            int idx = opt.ModuleIndex;
+            if (idx < 0 || idx >= modules.Length) return;
+            if (opt.Family == PartParityStateRules.FamilyGear)
+            {
+                modules[idx].SetValue("stateString", PartParityStateWave.GearStowedStateString, true);
+                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] stateString={PartParityStateWave.GearStowedStateString}");
+            }
+            else if (opt.Family == PartParityStateRules.FamilyCargoBay)
+            {
+                ModuleCargoBay bay = prefab.FindModuleImplementing<ModuleCargoBay>();
+                if (bay == null) return;
+                float closed = PartParityStateWave.CargoBayClosedAnimTime(bay.closedPosition);
+                modules[idx].SetValue("animTime", closed.ToString("R", Ic), true);
+                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] animTime={closed.ToString("0.###", Ic)} (closedPosition={bay.closedPosition.ToString("0.###", Ic)})");
+            }
         }
 
         private static void AddCharge(ConfigNode part)
@@ -347,6 +382,8 @@ namespace Parsek.TestCommands
                 if (m is ModuleJettison j && j.jettisonTransform != null && !run.JettisonTransforms.Contains(j.jettisonTransform))
                     run.JettisonTransforms.Add(j.jettisonTransform);
             run.SignatureBefore = Signature(part, run.Option);
+            run.ReachedBeforePress = run.Option.Action != null
+                && PartParityStateRules.StateReached(run.Option, Observe(part, run.Option, out _, out _));
             ReadAnimation(part, out double clip, out double speed);
             run.TimeoutSeconds = PartParityStateRules.StateTimeoutSeconds(run.Option, clip, speed);
             if (run.Option.Family == PartParityStateRules.FamilyCabinLight
@@ -384,6 +421,18 @@ namespace Parsek.TestCommands
                 run.EndpointField = "context";
                 run.EndpointValue = run.Option.State;
                 ParsekLog.Verbose(Tag, $"case {wc.CaseId}: context case, nothing pressed");
+                return;
+            }
+            if (run.ReachedBeforePress)
+            {
+                // Pressing would leave the target (every toggle the sweep presses flips it).
+                Observe(part, run.Option, out string f0, out string v0);
+                run.ActionResult = PartParityStateRules.ActionRefused;
+                run.Done = true;
+                wc.Status = TestCommandPartParitySweep.SetupActionFailed;
+                wc.Detail = wc.Detail ?? "already " + run.Option.State + " before the press (" + f0 + "=" + v0 +
+                    "): the authored stowed pose reads as the target";
+                ParsekLog.Warn(Tag, $"case {wc.CaseId}: {wc.Detail}; not pressed");
                 return;
             }
             run.Pressed = true;

@@ -153,6 +153,21 @@ namespace Parsek.TestCommands
         /// filler's <c>bottom</c>, any other its <c>top</c>.</summary>
         internal static string FillerAttachNode(double subjectNodeY) => subjectNodeY > 0.0 ? "bottom" : "top";
 
+        // ----- the stowed pose (D.3 step 1) -----
+
+        /// <summary>The <c>ModuleWheelDeployment.stateString</c> a gear case spawns with (a
+        /// lone gear part with no value starts Deployed).</summary>
+        internal const string GearStowedStateString = "Retracted";
+
+        /// <summary>The <c>ModuleAnimateGeneric.animTime</c> of a closed bay: its
+        /// <c>closedPosition</c> clamped to 0..1 (0 when unreadable), so a bay whose closed
+        /// end is 1 (Mk2, Mk3) spawns closed.</summary>
+        internal static float CargoBayClosedAnimTime(float closedPosition)
+        {
+            if (float.IsNaN(closedPosition) || float.IsInfinity(closedPosition)) return 0f;
+            return Math.Min(1f, Math.Max(0f, closedPosition));
+        }
+
         // ----- the stepped primes (D.5) -----
 
         /// <summary>How many 1 s primes follow a sun tracker's first prime (10 steps cover
