@@ -2439,6 +2439,50 @@ view and layer (`event:fx-far:smoke:smoke-missing`).
 - Gates: the press gate (D.6) counts the four families, so an engine that never ignites, an RCS
   that never fires, a heat write that never reaches its level or a lamp that never lights reads
   INVALID(parity-state-press) when more than half a family fails. No new INVALID class.
+- F1 as built (2026-11-23). The contract lives in `PartParityFxRules.cs` (families and
+  predicates, words, the `plate` context, exclusions, the RCS input rule, the control subjects,
+  the renderer layer rule, the timeouts and the wave bound, every E.4 constant and threshold
+  default, the 8-bit tile helpers, the FX control judges), the FX control ids and sets, setup
+  statuses, `fx=` parse and `settings.fx` in `TestCommandPartParitySweep.cs`, and the FX key
+  tables and `FxAtlasRows` in `PartParityJson.cs`; every literal is mirrored in
+  `harness/lib/partparity.py` and hlib's arg table, pinned by `PartParitySourceSyncTests`'
+  `test_the_fx_*` cells and `PartParitySweepSourceSyncTests.test_the_fx_arg_mirrors_the_c_sharp`.
+  Decisions it took:
+  - `fx=` names no `states=` and at most `contexts=air` beside it, else `fx-arg-invalid`
+    (`FxCombinationValid`: a P6 state word or an orbit context would be silently ignored).
+  - Until F3, a well-formed FX run is REJECTED `fx-runs-not-built` (`FxRunsBuilt`, hlib
+    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 flips both and drops the refusal.
+  - `settings.fx` is written by an FX run only, so every PP-1 to PP-6 manifest keeps its
+    settings byte for byte; `partparity.control_set` reads a missing `fx` as `none`.
+  - The orbit FX run plans the `alone` and `plate` cases, the air FX run the `air` plume cases
+    (`PartParityFxRules.KeySelected`). An air-breathing engine is detected by a `PROPELLANT`
+    named `IntakeAir`; `fx-needs-air` is listed by an orbit run only (`ExclusionApplies`).
+    `fx-reentry-camera` and `fx-blackbody` are in the reason table but no part writes them.
+  - Each FX option carries two indices: `ModuleIndex`, the prefab index the same-word
+    tiebreak and the case id read (`turbojet--default--burn-low-m2--air`), and
+    `RecorderKeyIndex`, the index the recorder keys the case's events by: a plume or rcs
+    module's position among the part's `as ModuleEngines` / `as ModuleRCS` modules (the
+    recorder's engine and RCS caches, `EncodeEngineKey`'s `midx`; `RCSBlock.v2` is prefab 1,
+    key 0), the prefab index for heat and lamps. F3 matches recorded events and builds keys
+    from `RecorderKeyIndex`, never from `ModuleIndex`.
+  - `ChooseRcsInput` ranks by the nozzles at half the strongest or more, then the smallest
+    spread and the largest mean over EVERY nozzle that fires (above 0.01), so a weak extra
+    nozzle counts against a direction. E0 U2 saw the spike's rule predict 3 nozzles on stock
+    `RCSblock.01.small` where stock fired none; the rule does not explain that case, so F3's
+    press check (`rcs-input-mismatch`) stays the authority.
+  - A Waterfall part's plume and rcs cases carry `reference = waterfall`; its heat and plate
+    cases do not (the plate case's flame layer is F4's to treat as reference).
+  - The point-light control is optional: no eligible subject records `n/a`, which
+    `ControlsState` counts as met (`OptionalControlIds`, `ControlsNotApplicable`). The Python
+    controls check learns `n/a` in F4.
+  - The sidecar gains `fx`, `fxAtlas` and `strip` (null on every non-FX case), written through
+    `PartParityJson.KeyedBlock` from per-key JSON fragments, so F3 fills them without editing a
+    mirrored table.
+  - Committed part lists `Source/Parsek.Tests/Fixtures/PartParity/fx-parts-<profile>.txt`
+    (derived from the state-parts fixtures and each install's ConfigCache) pin the E.1 counts:
+    stock-minimal 43 + 31 orbit plume, 14 air plume, 7 rcs, 32 heat, 15 plate, 12
+    throttle-locked, 7 needs-air, 8 ablator; modded-compat 60 + 42, 14, 19, 26, 18, 18, 7, 12,
+    with 109 reference cases.
 
 ### E.6 Waterfall installs and the Waterfall-free profile
 

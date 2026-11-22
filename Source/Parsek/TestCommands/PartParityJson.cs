@@ -169,6 +169,15 @@ namespace Parsek.TestCommands
 
         /// <summary>The id of the same part and skin at <c>stowed</c> / <c>alone</c>; null for a stowed case.</summary>
         internal string StowedCaseId;
+
+        /// <summary>An FX case's <c>fx</c>, <c>fxAtlas</c> and <c>strip</c> blocks (design E.5) as
+        /// JSON fragments per key of <see cref="PartParityJson.FxKeys"/>,
+        /// <see cref="PartParityJson.FxAtlasKeys"/> and <see cref="PartParityJson.FxStripKeys"/>
+        /// (<see cref="PartParityJson.KeyedBlock"/> writes every key, null when absent); null for
+        /// every other case.</summary>
+        internal Dictionary<string, string> Fx;
+        internal Dictionary<string, string> FxAtlas;
+        internal Dictionary<string, string> Strip;
     }
 
     /// <summary>One <c>controls[]</c> entry of the manifest.</summary>
@@ -273,6 +282,7 @@ namespace Parsek.TestCommands
             "tags", "skin", "state", "context", "measure", "atlas", "framing", "ghostRootOffsetM",
             "layers", "flags", "views", "structure", "setup", "log",
             "stateProof", "structureStart", "stowedCaseId",
+            "fx", "fxAtlas", "strip",
         };
 
         internal static readonly string[] SkinKeys =
@@ -347,6 +357,68 @@ namespace Parsek.TestCommands
 
         internal static readonly string[] ContextNodeKeys = { "node", "part" };
 
+        // ----- the FX blocks (design E.5), every key always written, null when not measured -----
+
+        /// <summary>The keys of an FX case's <c>fx</c> block.</summary>
+        internal static readonly string[] FxKeys =
+        {
+            "family", "module", "moduleIndex", "engineMode", "throttle", "drive", "warmupS", "plateau",
+            "hold", "rcs", "samples", "framing", "layers", "cullingMask", "views", "particles",
+            "structure", "inventory", "plate", "reference",
+        };
+
+        internal static readonly string[] FxDriveKeys = { "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat" };
+
+        /// <summary><c>warmupS</c>, <c>plateau</c>, <c>particles</c>, <c>layers</c> and
+        /// <c>inventory</c> are keyed by side (<c>ghostAll</c> on an rcs case only).</summary>
+        internal static readonly string[] FxSideKeys = { "real", "ghost", "ghostStart", "ghostAll" };
+
+        internal static readonly string[] FxPlateauKeys = { "signal", "settled", "waitS" };
+
+        internal static readonly string[] FxHoldKeys = { "maxDriftM", "stepM", "steps" };
+
+        internal static readonly string[] FxRcsKeys = { "input", "predicted", "fired", "nozzles", "ghostHidden", "powerRatio" };
+
+        internal static readonly string[] FxFramingKeys = { "near", "far", "clamped" };
+
+        /// <summary>One side's renderer keys per layer.</summary>
+        internal static readonly string[] FxLayerKeys = { "body", "flame", "smoke" };
+
+        /// <summary>One <c>fx.views[]</c> entry: a route, FX view and layer.</summary>
+        internal static readonly string[] FxViewKeys =
+            { "view", "route", "layer", "width", "height", "axis", "real", "ghost", "compare", "splitHalf" };
+
+        internal static readonly string[] FxAxisKeys = { "originPx", "dirPx" };
+
+        /// <summary>One side's measures of one tile, all from the 8-bit tile.</summary>
+        internal static readonly string[] FxSideMeasureKeys =
+        {
+            "corePx", "envelopePx", "saturatedPx", "originPx", "lengthPx", "widthPx", "coreCentroid",
+            "meanColor", "chromaticity", "luminance", "hueHistogram",
+        };
+
+        /// <summary>The ghost-minus-real comparison of one tile (the E.4 measures).</summary>
+        internal static readonly string[] FxCompareKeys =
+        {
+            "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
+            "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1", "brightnessRatio",
+            "coreIou",
+        };
+
+        internal static readonly string[] FxSplitHalfKeys = { "even", "odd" };
+
+        internal static readonly string[] FxHalfKeys = { "samples", "real", "ghost", "compare" };
+
+        internal static readonly string[] FxParticleKeys = { "count", "speed", "direction", "size", "alongP95", "acrossP95" };
+
+        internal static readonly string[] FxStructureKeys = { "fxMissingOnGhost", "fxExtraOnGhost", "fxDiffers", "lightsDiffer" };
+
+        internal static readonly string[] FxPlateKeys = { "litPct", "lightType", "range", "spotAngle", "cullingMask" };
+
+        internal static readonly string[] FxAtlasKeys = { "file", "rows", "cols", "tile" };
+
+        internal static readonly string[] FxStripKeys = { "file", "frames" };
+
         // ----- atlas rows (design D.2) -----
 
         /// <summary>A stowed case's atlas rows, top-down.</summary>
@@ -360,6 +432,25 @@ namespace Parsek.TestCommands
         /// stowed one. The live capture reads its rows here, so it holds no literal of its own.</summary>
         internal static string[] AtlasRowsFor(bool isStateCase)
             => (string[])(isStateCase ? StateAtlasRows : StowedAtlasRows).Clone();
+
+        /// <summary>An FX case's FX atlas rows, top-down (design E.5); its columns are
+        /// <see cref="PartParityFxRules.Views"/>.</summary>
+        internal static readonly string[] FxAtlasRows =
+            { "real-flame", "ghost-flame", "ghost-start-flame", "real-smoke", "ghost-smoke", "ghost-start-smoke" };
+
+        /// <summary>An rcs case's FX atlas rows: the six, then the all-nozzle ghost (R4).</summary>
+        internal static readonly string[] RcsFxAtlasRows =
+        {
+            "real-flame", "ghost-flame", "ghost-start-flame", "real-smoke", "ghost-smoke", "ghost-start-smoke",
+            "ghost-all-flame", "ghost-all-smoke",
+        };
+
+        /// <summary>The FX atlas rows of a case (a fresh copy); the live capture reads them here.</summary>
+        internal static string[] FxAtlasRowsFor(bool isRcsCase)
+            => (string[])(isRcsCase ? RcsFxAtlasRows : FxAtlasRows).Clone();
+
+        /// <summary>The strip's rows (design E.5): the real part and the event-route ghost.</summary>
+        internal static readonly string[] StripRows = { "real", "ghost" };
 
         internal static readonly string[] MatteKeys = { "opaque", "edge", "inverted" };
 
@@ -734,8 +825,40 @@ namespace Parsek.TestCommands
                 M("stateProof", StateProofBlock(c.StateProof)),
                 M("structureStart", StructureBlock(c.StructureStart)),
                 M("stowedCaseId", Str(c.StowedCaseId)),
+                M("fx", KeyedBlock(FxKeys, c.Fx)),
+                M("fxAtlas", KeyedBlock(FxAtlasKeys, c.FxAtlas)),
+                M("strip", KeyedBlock(FxStripKeys, c.Strip)),
             };
             return TopLevel(members);
+        }
+
+        /// <summary>
+        /// One block of a key table: <c>null</c> when <paramref name="fragments"/> is null, else
+        /// an object with every key of <paramref name="keys"/> in table order, each the JSON
+        /// fragment given for it or <c>null</c>. A fragment under a key the table does not hold
+        /// is not written (<see cref="UnknownKeys"/> names them for a test).
+        /// </summary>
+        internal static string KeyedBlock(string[] keys, IDictionary<string, string> fragments)
+        {
+            if (fragments == null) return "null";
+            var members = new KeyValuePair<string, string>[keys.Length];
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string v = fragments.TryGetValue(keys[i], out string f) && !string.IsNullOrEmpty(f) ? f : "null";
+                members[i] = M(keys[i], v);
+            }
+            return Obj(members);
+        }
+
+        /// <summary>The keys of <paramref name="fragments"/> that <paramref name="keys"/> lacks, in ordinal order.</summary>
+        internal static List<string> UnknownKeys(string[] keys, IDictionary<string, string> fragments)
+        {
+            var unknown = new List<string>();
+            if (fragments == null) return unknown;
+            foreach (string k in fragments.Keys)
+                if (System.Array.IndexOf(keys, k) < 0) unknown.Add(k);
+            unknown.Sort(string.CompareOrdinal);
+            return unknown;
         }
 
         /// <summary>
