@@ -123,7 +123,7 @@ Click: `ParsekLog.Info("UI", "Mission Profile button: tree=... mission=... name=
 |---|---|---|
 | Time | 100 | First row: the launch date (the Log's first cell, through the same date-formatter delegate `FormatStepTimes` takes, so the pure builder never calls `KSPUtil`). Every other row: `T+h:mm:ss` from the mission start (`StructureTimeFormatter.FormatElapsed`, floored, hours unbounded). Child lines keep the mission clock (Apollo GET / MET). |
 | Element | expands | The tree: indent + caret (phases and vessel headers) + the element label (section 3). |
-| Location | 150 | Where it happens, never a repeat of the label: `Kerbin, Launch Pad`, `Kerbin`, `Mun`, `Kerbin, Shores`, `Kerbin -> Mun` for a transfer (the Log's `StructureLocationFormatter` words). An orbit phase is labelled `Kerbin orbit` and located `Kerbin`. |
+| Location | 150 | Where it happens, never a repeat of the label; on an event only when it differs from its phase's location or names a site or biome (owner decision 2026-11-22): `Kerbin, Launch Pad`, `Kerbin`, `Mun`, `Kerbin, Shores`, `Kerbin -> Mun` for a transfer (the Log's `StructureLocationFormatter` words). An orbit phase is labelled `Kerbin orbit` and located `Kerbin`. |
 | Duration | 80 | Phases and burns: `3m 52s`, `2h 26m`, `4d 2h` (KSP 6-hour days). Instant events: empty. |
 | Spent | 74 | Delta-v spent: per burn, per phase (the sum of its burns, ascent and landing included) and per vessel line, from the game's own delta-v recorded at each step (section 8.1). Flights recorded before that: burns only, `~` estimate (4.6) or `-`. |
 | Left | 74 | Delta-v left after the burn, at the phase end, at a staging that dropped fuel, and at the line's end (8.1). Empty for flights recorded before that. |
@@ -220,14 +220,13 @@ never becomes a line (as in the Missions tab).
 | EVA / Board | `EVA: <kerbal>` / `Boarded: <kerbal>` | EVA / Board branch points |
 | Ground parts | `Part placed: <part>` / `Inventory transfer` | `GroundPartPlaced` / `InventoryTransfer` branch points, on the EVA line that made them |
 | Parachutes | `Parachutes deployed` | first `ParachuteSemiDeployed` / `ParachuteDeployed` of a reentry |
-| Gear | `Landing legs down` | first `GearDeployed` of a descent |
 | Touchdown / Splashdown | `Touchdown` / `Splashdown` | surface boundary at the end of a descent / reentry (splashdown when the terminal or the boundary point says splashed) |
 | Re-flown | `Flown again from here` | the rewind UT of a supersede bridge (section 5) |
 | Recovery | `Recovered` | terminal Recovered |
 | End | `End: Orbiting Kerbin`, `End: Landed`, `End: Destroyed` | terminal state (the Log's `FormatEndLabel` words); none for a leg that ends Docked / Boarded into a line that continues |
 
-Fairing jettison, lights, solar panels, antennas, RCS, throttle and robotics are Log material, never
-profile rows (Q10).
+Fairing jettison, landing gear, lights, solar panels, antennas, RCS, throttle and robotics are Log
+material, never profile rows (Q10, Q14).
 
 ## 4. Deriving the elements (the phase analyzer)
 
@@ -438,7 +437,10 @@ side after the undock is named, never expanded, when it belongs to another missi
   summed (a total without ascent and landing would read as the mission's delta-v); `-` with a reason
   where neither source exists.
 - Mission summary: the Summary block of section 3 (bodies and landing sites, crew and EVA time,
-  career results, craft facts) plus the total duration in the root row. Maximum altitude: open (Q11).
+  career results, craft facts) plus the total duration in the root row. Maximum altitude appears only
+  as the result of a phase that shows no orbit: a suborbital flight, an aircraft flight, an aborted
+  ascent, a flyby (`reached 85 km`; owner decision 2026-11-22), from the frame points at the
+  per-section maximum.
 
 ### 4.7 Data gaps
 
@@ -708,15 +710,10 @@ Interview of 2026-11-22 (owner answers, quoted where the wording matters):
 | Q12 | Summary contents | Bodies and landing sites, crew and EVA time, career results, craft facts. |
 | Q13 | Columns | Time, Element, Location, Duration, Spent, Left, Orbit / result. |
 
-Still open:
-- Q11 Maximum altitude: the owner asked whether it is relevant. For a flight that reaches orbit it
-  repeats the apoapsis the orbit cells already show; it matters only where no orbit is shown (a
-  suborbital hop, an aircraft flight, an aborted ascent, a flyby). Proposal: drop it from the summary
-  and show it only as the result of those phases ("Suborbital flight, reached 85 km").
-- Q14 Redundant elements: the owner wants to see the design (mockup round 2) and may cut rows or
-  cells, for example the `Atmosphere exit` event (the Ascent row already ends there), `Liftoff` (the
-  Launch row is a second before), `Landing legs down`, the vessel header's Spent / Left (the Summary
-  could carry them), or the Location column on events inside a one-body phase.
+| Q11 | Maximum altitude | Only as the result of a phase that shows no orbit (4.6). |
+| Q14 | Redundant elements | Remove `Landing legs down` rows; events show a Location only where it differs from their phase or names a site or biome. Liftoff, Atmosphere exit and the vessel row's Spent / Left stay. |
+
+No questions remain open for P1a / P1b.
 
 ## 15. Review record (2026-11-22)
 
@@ -805,7 +802,6 @@ stored-frame vector computation returns (11.1), which can differ for burns with 
 | T+6:02:19 | Descent | Mun | 22m 48s | | |
 | T+6:02:19 | Descent burn | Mun | 4s | - | falling (coast to the surface) |
 | T+6:24:11 | Landing burn | Mun | 51s | - | |
-| T+6:24:28 | Landing legs down | Mun | | | |
 | T+6:25:08 | Touchdown | Mun | | | landed 3,854 m |
 | T+6:25:08 | On the surface | Mun | 1m 54s | | |
 | T+6:27:03 | End: Landed | Mun | | | |
