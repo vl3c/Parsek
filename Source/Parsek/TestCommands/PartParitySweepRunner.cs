@@ -410,10 +410,14 @@ namespace Parsek.TestCommands
                 {
                     keysById.TryGetValue(d.CrashedCaseId, out PartParityCaseKey key);
                     var k = key ?? new PartParityCaseKey { Part = d.CrashedCaseId };
-                    WriteSidecar(ctx, PartParityJson.BuildCrashedSidecar(k, d.CrashedCaseId,
+                    PartParityCaseSidecar crashedSidecar = PartParityJson.BuildCrashedSidecar(k, d.CrashedCaseId,
                         solo
                             ? "a previous process died while this case ran alone (isolation rerun, stale inflight.txt)"
-                            : "a previous process died while this case was in flight (stale inflight.txt)"));
+                            : "a previous process died while this case was in flight (stale inflight.txt)");
+                    // A crashed state case still names its family and state (design D.2).
+                    crashedSidecar.StateProof = PartParityStateWave.CrashedStateProof(k.StateOption);
+                    if (crashedSidecar.StateProof != null) crashedSidecar.StowedCaseId = PartParityStateWave.StowedCaseId(k);
+                    WriteSidecar(ctx, crashedSidecar);
                     ParsekLog.Warn(Tag, $"case {d.CrashedCaseId}: setup fault crashed (recorded from the stale inflight.txt, " +
                         $"solo={(solo ? "true" : "false")}, skipped)");
                 }
@@ -856,7 +860,6 @@ namespace Parsek.TestCommands
             // The jettison debris and the start-route / stowed ghosts first (design D.3 step 6).
             try { PartParityStateDriver.DestroyStateParts(wc); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: state parts destroy threw {ex.GetType().Name}: {ex.Message}"); }
-            PartParityStateDriver.DestroyStateParts(wc);
             if (wc.PlantedCube != null)
             {
                 try { UnityEngine.Object.Destroy(wc.PlantedCube); }

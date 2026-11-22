@@ -162,7 +162,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
 | `PartEventFidelity` | 6 | 6 | 0 | 0 | 0 | 5 | H37 (sixth cell, wheel damage, added 2026-11-07 and not yet flown) | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
-| `PartParity` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (2026-11-21, P2 of the part ghost parity tool, `design-part-ghost-parity.md`). One FLIGHT cell, `AllowBatchExecution = false` (it spawns and removes one-part vessels around the active vessel and skips unless that vessel is in a stable orbit): a Ctrl+Shift+T entry that resets `parsek-partparity/ingame/` and runs one sweep step over the eight controls plus the first five stock parts. The lanes drive the same engine through the `PartParitySweep` seam verb, not `RunTests`, so no batch tally exists to pin | C |
+| `PartParity` | 2 | 0 | 0 | 0 | 2 | 2 | NOT DRIVEN (2026-11-21, P2 of the part ghost parity tool, `design-part-ghost-parity.md`; the second cell 2026-11-22, P6 S3). Two FLIGHT cells, `AllowBatchExecution = false` (it spawns and removes one-part vessels around the active vessel and skips unless that vessel is in a stable orbit): a Ctrl+Shift+T entry that resets `parsek-partparity/ingame/` and runs one sweep step over the eight controls plus the first five stock parts; `SweepStateAcceptanceSet` runs one `states=all` step per P6 acceptance part (`parsek-partparity/ingame-state-<n>/`, the nine orbit-state controls on the first). The lanes drive the same engine through the `PartParitySweep` seam verb, not `RunTests`, so no batch tally exists to pin | C |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
@@ -245,9 +245,9 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-21: **151 categories / 720 declarations**.
+Totals, re-derived from the table on 2026-11-22: **151 categories / 721 declarations**.
 Buckets **A 116 categories (419 declarations)**, **B 31 categories (291 declarations)**,
-**C 4 categories (9 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
+**C 4 categories (10 declarations)**: the 2026-11-22 P6 S3 state cell made `PartParity` 2 (C 9 -> 10); the 2026-11-21 orbit-route spawn clearance added the
 undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**, the 2026-11-21 ladder ghost fix
 added the undriven FLIGHT category `LadderGhost` 1, and the same day P2 of the part ghost parity
 tool added the single-run FLIGHT category `PartParity` 1 (the merge of `origin/main` into the

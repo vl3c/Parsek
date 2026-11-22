@@ -1267,11 +1267,42 @@ Per family:
   an orbit state wave uses every other slot (up to 4 cases, 80 m apart, 60 m or more from the host).
 - Step time box: a wave starts only when `elapsed + worstCase(bucket) <= maxSeconds` (480, under the
   540 s seam cap), where `worstCase` is the wave's bound, not the last wave's wall: spawn cap 20 s +
-  the bucket's state timeout (20 s long, 5 s quick) + the tracking cap (10 s, sun trackers only) +
-  capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long bucket
-  about 57 s, quick about 32 s, air (D.4) about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full
-  15 s each followed by the 4 s canopy window, capture, teardown). Pure,
-  `PartParitySweepPlan.WaveWorstCaseSeconds`.
+  the bucket's state timeout (20 s long, 5 s quick) + the longest settle cap of the wave's families
+  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (10 s, sun trackers
+  only) + capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long
+  bucket about 57 s, quick about 32 s (about 36 s with an airbrake or a cabin light), air (D.4)
+  about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each followed by the 4 s canopy
+  window, capture, teardown). Pure, `PartParitySweepPlan.WaveWorstCaseSeconds`.
+
+BUILT (S3, 2026-11-22): `Source/Parsek/TestCommands/PartParityStateDriver.cs` (live) and
+`PartParityStateWave.cs` (pure, xUnit `PartParityStateWaveTests`). A state run's waves hold one
+bucket each: `PartParityStateWave.PickWave` takes the case at the cursor and the next cases of the
+same `state:<bucket>` kind further down the queue (stable partition, `BringToCursor`), a stowed wave
+is today's leading run unchanged; slots `PlanStateWave` (+60, -60, +140, -140); admission
+`AdmitWave` (a stowed wave keeps `ShouldStartWave`). The phase runs after the stowed settle, per
+case under the runner's guard: stowed inputs (snapshot, `PartTrackingSets` seeded, seeds at `t0`,
+the part's `ModuleJettison.jettisonTransform`s, the pressed modules' KSPField signature), the press
+(`BaseEvent.Invoke` / `BaseAction.Invoke(None, Activate)`, every jettison module; `eventVisible` is
+the event's `guiActive && active`), then every frame the pollers (every `PartStatePoller` family
+into `PartParityPollSink`), the done signal, refused (signature unchanged and no Animation playing
+two frames on), the timeout, the settle (no Animation playing for the family's minimum, capped at
+the 5 s stowed cap and tagged still-animating; a sun tracker's `panelRotationTransform` and an
+airbrake's `transformName` transform sampled each frame for the stillness window). A throw in any
+of these stages is the case's `action-failed` (`actionResult = threw`). The stacked context authors
+the subject as the root and `fuelTankSmallFlat` on each node by its opposite stack node
+(`FillerAttachNode`: a node above the origin meets the filler's `bottom`). Stock reparents an
+`isFairing` shroud under the part on its bottom node (decompiled `SetupJettisonState`), and its
+`Jettison` sets `isJettisoned` with no visual change (the shroud leaves with the stage below), so
+the real side is the subject part's own renderers plus its jettison transforms wherever they live,
+shown before the jettison and hidden after; every filler renderer is hidden on every side. Teardown
+(`DestroyStateParts`, from `DestroyCase`, so both the wave teardown and `StepContext.Cleanup`)
+destroys the start and stowed ghosts and every jettison object no longer under a `Part`, one Verbose
+`debris destroyed n=` line per case. A crashed state case's sidecar (stale `inflight.txt`) carries
+`stateProof` with its family, state and `reached = false` (`CrashedStateProof`).
+The manifest's `profile` is now the install directory's name (`ProfileNameOf` resolves the
+`KSP_x64_Data/../` root with `Path.GetFullPath` first; it read `..` before, section 8), its
+`settings` gain `states`, `contexts` and `controlSet` on every run, and a state run's exclusions
+join `exclusions[]` with their D.1 reasons.
 
 ### D.4 Parachutes in the air (owner ruling R1)
 
@@ -1368,6 +1399,24 @@ so no shortcut sets a pose:
   (`GhostPartEventApplyTally.Flush`) is captured in the case log for the detail.
 - The capture primitive (4.4) renders N sides instead of two, each with every other side's
   renderers `forceRenderingOff`, two clears each: about 0.3 s per case instead of 0.15 s.
+
+BUILT (S3, 2026-11-22): `GhostCoOrbitalRig.TryBuildGhostFromSnapshot(snapshot, recId, name, events,
+vesselName, pid, startUT)`, with `TryBuildGhostFromLiveVessel` a wrapper that backs up the live
+snapshot and calls it (the stowed path builds exactly as before). The three ghosts are built in
+the state branch of the case preparation (`PartParityStateDriver.Prepare`), each parented at zero
+offset under the real part and read back through `GhostStateReached` over the engine's own info
+(deployable infos by part pid for every deploy family, `lightInfos` / cabin-light colour changers
+with `lightPlaybackStates.isOn`, `jettisonInfos` with each transform's `activeSelf`, the
+parachute canopy scale against its sampled poses). The prime schedules are pure
+(`PartParityStateWave.EventRoutePrimeUTs` / `StartRoutePrimeUTs`, one prime, or eleven 1 s apart
+for a sun tracker); the event route's clip is its own deployable info's clamped clip (3 s when it
+has none). `startFirstFrame.atTarget` is the start route's outcome right after its first prime;
+the sun angles are each pivot's angle from the stowed reference's neutral rotation. The capture
+is `PartParityCapture.CaptureSides` (the two-side `CaptureView` calls it with the same two sides
+in the same order); `start` measures real against side 3, `stowedRef` real against side 4, and
+the atlas composes rows from `wc.RealTiles`, `wc.GhostTiles`, `wc.GhostStartTiles`,
+`wc.GhostStowedTiles` (the S1 guard `TheAtlasTileOrder_IsTheAtlasRowLabelOrder` reads that
+composition). The stacked stowed context case builds only its event-route ghost (two rows).
 
 ### D.6 Verdicts, flags, setup faults, controls, gates
 

@@ -69,6 +69,7 @@ namespace Parsek.TestCommands
                 + $"filter={args.Filter} limit={args.Limit.ToString(ic)} "
                 + $"shard={args.ShardK.ToString(ic)}/{args.ShardN.ToString(ic)} "
                 + $"controls={(args.Controls ? "true" : "false")} "
+                + $"states={TestCommandPartParitySweep.FormatStates(args)} contexts={TestCommandPartParitySweep.FormatContexts(args)} "
                 + $"maxSeconds={args.MaxSeconds.ToString(ic)} host={active.vesselName} "
                 + $"dir={TestCommandPartParitySweep.RelativeLabelDir(args.Label)}");
             partParityRoutine = StartCoroutine(PartParitySweepRoutine(partParityArmId, args));

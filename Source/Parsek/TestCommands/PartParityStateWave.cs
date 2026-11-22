@@ -256,6 +256,22 @@ namespace Parsek.TestCommands
             return list;
         }
 
+        /// <summary>The <c>stateProof</c> of a state or context case that crashed before its
+        /// sidecar (design D.2): its option, never reached, no press result; null for a stowed
+        /// case (no option).</summary>
+        internal static PartParityStateProof CrashedStateProof(PartParityStateOption o)
+        {
+            if (o == null) return null;
+            return new PartParityStateProof
+            {
+                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex, State = o.State,
+                Action = o.Action, Reached = false,
+                Nodes = o.NodeNames != null && o.NodeNames.Count > 0
+                    ? o.NodeNames.ConvertAll(n => new PartParityContextNode { Node = n, Part = FillerPartName })
+                    : null,
+            };
+        }
+
         /// <summary>The id of the same part and skin at <c>stowed</c> / <c>alone</c> (the
         /// viewer pairs a state case with it); null for a stowed / alone case itself.</summary>
         internal static string StowedCaseId(PartParityCaseKey key)
