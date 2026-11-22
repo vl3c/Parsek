@@ -1496,6 +1496,47 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   `state-not-recorded`, `start-pose-not-first-frame`, `state-invisible`), beside verdict, source and
   search. Regression mode pairs by case id and route.
 
+BUILT (S5, `harness/tools/part_parity_view.py`; Python only, no flight). Every verdict, route,
+flag and gate on the page is partparity's (`judge_case`, `judge_view`, `start_views`,
+`check_controls` with the sidecars, `check_state_press`, `case_row_problems`,
+`run_shape_problem`, `control_set_disagreement`, `state_flag_counts`); the viewer derives none.
+
+- Rows. A case row carries `isState` / `isRest` (`stowed` / `alone`), `stateLabel` (the state,
+  with the context when it is not `alone`), `family`, `routes` (`event` / `start`: each
+  `RouteJudgement` plus its trigger line and minimum IoU), `stateFlags`, `stateProof`,
+  `stowedCaseId`, and per view the `start` block and the `stowedRef` counts, each with its
+  `judge_view` verdict. A reason `<route>:<reason>` reads `<route> route: <phrase>`, a flag
+  reason in words; a shape blob's px and % collapse per view and per route.
+- Grouping. A part's skins are its stowed (`stowed` / `alone`) cases, ordered as before; a
+  state or context case joins the skin of its paired stowed case, else the skin of the same
+  name, else a skin of its own (a state sweep loaded alone). Inside a skin the stowed case
+  comes first, then the context cases, then the families in the D.1 order, each family's
+  states in the `KNOWN_STATES` order. A skin holding only its stowed case renders exactly as
+  before P6, so a stowed sweep's page is unchanged.
+- The view row of a state case: STOWED | REAL | GHOST event route | GHOST start route |
+  DIFFERENCE (real vs the event ghost), each caption naming its row. STOWED is the paired
+  stowed case's REAL tile (`stowedPair`, same profile) when its sweep is loaded, else the
+  case's own `ghost-stowed` row with a dashed border and the caption "reference, not judged".
+  The 1:1 dialog adds the start-route difference and, when paired, the stowed ghost too.
+- Merge. Sweeps of one profile merge into one part list. Each loaded sweep has a key (its
+  label, `-<n>` on a repeat); a control's row id is `<profile>/<sweep>/<control>`, so the
+  controls of a stowed sweep and its state sweeps never collide, and the controls section
+  lists them per sweep with the set kind (`stowed`, `orbit`, `air`). A part case id loaded
+  twice in one profile keeps the first and is the sweep box's duplicates line (bad).
+- Header per sweep: the control set and its gate (state controls re-judged from their
+  sidecars), the press gate per family, the state flag counts, the writer cross-checks.
+- Filters: State (the word, the tiebreak dropped), Family and State flags (the four kinds),
+  shown only when a state case is loaded.
+- Regression: rows pair by profile and key (the case id; for a control the set kind and
+  id); a state case adds `event.` / `start.` changes (verdict, shape and colour blob, IoU)
+  and the state flags added or dropped.
+- Proof: the PP-1 `2026-11-22_0033` and PP-2 `2026-11-22_1157_run2` stowed sites rebuilt
+  with this viewer equal the S4-branch viewer's on every verdict count, the part list, each
+  group's verdict, trigger and case order, and each case's verdict, reasons, trigger,
+  measures and view verdicts (2318 cases, 1080 parts, 16 controls); only the control row ids
+  gain the sweep key. A synthetic stowed + orbit state + air state set (the S4 test helpers)
+  shows each part's states side by side with no duplicate line (`test_part_parity_view`).
+
 ### D.8 Wall-time budget
 
 Per case today: about 0.7 s at waves of up to 8 (spawn and settle dominate, Appendix C). Orbit state
