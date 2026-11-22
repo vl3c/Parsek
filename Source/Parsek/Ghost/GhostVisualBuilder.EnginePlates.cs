@@ -86,6 +86,38 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: <see cref="SelectJettisonNames"/>, corrected for a persisted
+        /// <c>activejettisonName</c> the selected variant does not show. Stock
+        /// <c>ModuleJettison</c> re-resolves its shroud on every variant apply
+        /// (<c>onVariantApplied</c> -> <c>CheckAttachNode</c> ->
+        /// <c>FetchActiveMeshTransform(jettisonName)</c>, KSP 1.12.5 decompiled): the FIRST
+        /// listed transform that is active wins and becomes the new active name. The ghost
+        /// clones only the variant's own meshes, so "active" reads as "has a ghost clone":
+        /// when the persisted name has none, the first listed name that does is used; when
+        /// none has one, nothing is.
+        /// </summary>
+        internal static List<string> SelectJettisonNamesForGhost(
+            string jettisonNameList, string activeJettisonName, System.Func<string, bool> hasGhostClone)
+        {
+            List<string> names = SelectJettisonNames(jettisonNameList, activeJettisonName);
+            if (names.Count != 1 || hasGhostClone == null)
+                return names;
+            string active = activeJettisonName != null ? activeJettisonName.Trim() : null;
+            if (string.IsNullOrEmpty(active) || !string.Equals(names[0], active, System.StringComparison.Ordinal))
+                return names;
+            if (hasGhostClone(active))
+                return names;
+
+            List<string> all = SelectJettisonNames(jettisonNameList, null);
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (hasGhostClone(all[i]))
+                    return new List<string> { all[i] };
+            }
+            return new List<string>();
+        }
+
+        /// <summary>
         /// The snapshot's ModuleJettison MODULE nodes in order, so the n-th prefab
         /// ModuleJettison reads the n-th node.
         /// </summary>

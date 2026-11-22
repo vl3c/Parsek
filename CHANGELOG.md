@@ -114,6 +114,10 @@ Not released yet.
   switch far away or merge after a crash gets its predicted fall instead of freezing, a probe still
   beside its parent no longer ends Landed at a wrong spot, and committed flights no longer pick up
   part events afterwards. (ABANDONED-STAGE-B4)
+- **Ghosts no longer knock nearby craft.** The first replay of some parts, such as the Clydesdale
+  booster, could shove a real vessel parked close by, break it apart or lower its orbit. Building
+  those ghosts no longer touches the physics of anything around them.
+  (GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL)
 - **Reverting a flight no longer leaves its rewind save behind.** After a Revert to Launch, the
   hidden save Parsek made when the flight staged stayed in the save folder. It is now deleted with
   the revert, unless a quicksave you made during that flight still needs it.
@@ -142,6 +146,62 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The ReStock Mk2 lander can keeps both hatches on its ghost.** Its replay drew one hatch on top
+  of the other, so one was missing at rest and slid through the cabin when the doors moved. Both
+  hatches now sit and move where the real part has them. (GHOST-POSE-DUPLICATE-PATHS)
+- **Spot light heads face the right way on their ghosts.** With ReStock installed, the replay of
+  the spot lights drew the lamp head turned around. Adjustable lights now show their head at the
+  angle the real light was set to. (GHOST-LIGHT-MOVEMENT-TRANSFORM)
+- **ReStock struts and fuel lines reach their target on their ghosts.** With ReStock installed, a
+  strut or fuel line replay kept its default short stub pointing the default way. It now
+  stretches to the part it connects to, with its texture stretched as on the real part, and
+  shows only its base when unconnected. (GHOST-RESTOCK-LINKED-MESH)
+- **Engine gimbal pistons and service bay door pistons sit right on their ghosts.** Their replays
+  showed the piston rods twisted about their own length. They are now aimed the way the real
+  part aims them, and follow the engine's gimbal and the doors as they move.
+  (GHOST-LOOKAT-CONSTRAINT)
+- **The ion engine's ring and the scanner's screen are dark on their ghosts when off.** Their
+  replays showed the glow and the lit screen the real parts only show when running or switched on.
+  The ghost now starts the way the real part looks, and a running ion engine still lights up.
+  (GHOST-ANIMATION-REST-STATE)
+- **ReStock engines no longer glow on their ghosts at rest.** A stopped ReStock engine's replay
+  showed an orange nozzle and a white-hot core where the real engine is dark. Its ghost now starts
+  dark like the real one, colour effects touch only the parts of the model the real part colours,
+  and the KV pods' windows show the colour the real pod shows. (GHOST-COLORCHANGER-GAPS)
+- **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
+  line and its far end even when the real strut or fuel line had no target. It now shows only the
+  base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
+- **ReStock Skiff engines with the orange shroud lose it like the real engine.** On the alternate
+  shroud variant, the replay kept the orange shroud on even where the real engine had none. The
+  ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
+- **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
+  its lens even while the real light was off. A light's lens and flare now follow the light:
+  dark when it is off, lit in the light's colour when it is on, and lights and cabin windows
+  keep switching after the replay flies fast through the air. (GHOST-LIGHT-LENS-GLOWS-OFF)
+- **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
+  drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
+  real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)
+- **Inflatable parts start deflated on their ghosts.** The stock inflatable heat shield and the
+  ReStock inflatable airlocks were replayed fully inflated even when the real part was packed.
+  They now start packed and inflate on the replay when the real part did.
+  (GHOST-INFLATABLE-SPAWNS-INFLATED)
+- **Hinge ghosts no longer show the piston arm.** The Alligator and G-32W hinges drew the bars
+  and knuckles that the real hinge hides in flight. The ghost now shows the hinge as the real part
+  does. (GHOST-HINGE-PISTON-ARM)
+- **A flag part's ghost shows one flag, not all of them.** The replay of every flag part drew
+  every size, both orientations and the panel and plain flags on top of each other. It now shows
+  only the flag the real part shows. (GHOST-FLAG-ALL-MESHES)
+- **A part's flag keeps its look on the ghost when a paint variant is chosen.** Picking the gold
+  or silver finish of the RoveMate also repainted its flag on the replay. The flag now stays a
+  flag, as on the real part. (GHOST-VARIANT-RESKINS-FLAG)
+- **Painted tank and nose cone variants look right on their ghosts.** A variant's bump texture was
+  loaded the wrong way, which also spoiled that texture for the real parts until a restart. Ghosts
+  of Size3 tanks and the orange nose cones now match the real part, and the real part stays
+  unharmed. (GHOST-VARIANT-BUMPMAP-CONVERTED)
+- **Heat shield ghosts are no longer black.** Every heat shield replay, and the shields on the
+  ReStock pods, drew the shield fully charred from the first frame. A shield now starts the colour
+  the real one shows, from how much ablator it had left, and still darkens during reentry.
+  (GHOST-HEATSHIELD-BLACK)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.

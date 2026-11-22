@@ -711,3 +711,11 @@ reason = "the Tracking Station scene addon"
 [type.fields]
 tsTailPositionLogKeys = "process: rate-limit keys of the per-frame tail line, composed from the recording id alone, so an entry never goes stale"
 tsTailSlideLogKeys = "process: rate-limit keys of the per-frame tail-slide line, composed from the recording id alone, so an entry never goes stale"
+
+[[type]]
+name = "Parsek.GhostVisualBuilder"
+reason = "the ghost mesh builder; only the statics below are tagged, the rest stay in the untagged pin set"
+[type.fields]
+hingePistonTransformsField = "process: reflection cache of a stock field"
+hingePistonTransformsFieldResolved = "process: resolve-once latch for that reflection cache"
+animationRestSampleCache = "process: prefab-derived animation rest-state sample cache, cleared with ClearAnimateHeatCache"

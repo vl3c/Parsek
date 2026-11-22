@@ -330,8 +330,10 @@ namespace Parsek
             frameLazyReentryBuildCount++;
             state.reentryFxPendingBuild = false;  // One-shot: clear even if build fails.
             var built = GhostVisualBuilder.TryBuildReentryFx(
-                state.ghost, state.heatInfos, recIdx, vesselName);
+                state.ghost, state.heatInfos, recIdx, vesselName,
+                GhostPlaybackLogic.CollectGhostOwnedMaterials(state));
             state.reentryFxInfo = built;
+            GhostPlaybackLogic.InvalidateLightLensAndFlareWrites(state);
             // Count actual builds only — the counter semantic is "FX objects produced",
             // used by the diagnostics `reentryFx built X` line. A failed TryBuildReentryFx
             // (returns null) is observable via `deferred - built > expected` and is NOT
