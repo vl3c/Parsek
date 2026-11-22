@@ -252,8 +252,17 @@ namespace Parsek.Tests
             int hook = driver.IndexOf("if (run.Air && run.Pressed) PartParityAirContext.StepFull(wc, run, part, now, animating);", StringComparison.Ordinal);
             int reached = driver.IndexOf("if (!run.Reached)", step, StringComparison.Ordinal);
             Assert.True(step >= 0 && hook > step && reached > hook, $"step={step} hook={hook} reached={reached}");
-            Assert.Contains("VesselSpawner.SpawnAtPosition(node, body, lat, lon, alt, orbitalVel, ut,", air);
+            Assert.Contains("GhostCoOrbitalRig.SpawnInAir(node, body, lat, lon, alt, PartParityStateRules.AirSpawnDescentMps,", air);
             Assert.DoesNotContain("SpawnCoOrbital", air);
+            string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string rig = File.ReadAllText(Path.Combine(root, "Source", "Parsek", "InGameTests", "GhostCoOrbitalRig.cs"));
+            int spawn = rig.IndexOf("internal static uint SpawnInAir(", StringComparison.Ordinal);
+            Assert.True(spawn >= 0);
+            string body = rig.Substring(spawn, rig.IndexOf("return pid;", spawn, StringComparison.Ordinal) - spawn);
+            // An inertial velocity (surface + rotating frame) and an upright surface-relative rotation.
+            Assert.Contains("Vector3d orbitalVel = surfaceVel + body.getRFrmVel(worldPos);", body);
+            Assert.Contains("VesselSpawner.SpawnAtPosition(vesselNode, body, lat, lon, altitudeAsl, orbitalVel, ut,", body);
+            Assert.Contains("surfaceRelativeRotation: srfRel", body);
             // The capture of an air case runs its prepare and every view in one frame.
             int prepare = air.IndexOf("PartParityCaseCapture.Prepare(ctx, wc)", StringComparison.Ordinal);
             int view = air.IndexOf("PartParityCaseCapture.CaptureView(ctx, wc, v)", StringComparison.Ordinal);

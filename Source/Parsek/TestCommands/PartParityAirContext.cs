@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.InGameTests;
 using UnityEngine;
 using WaveCase = Parsek.TestCommands.PartParitySweepRunner.WaveCase;
 using StepContext = Parsek.TestCommands.PartParitySweepRunner.StepContext;
@@ -248,19 +249,10 @@ namespace Parsek.TestCommands
             CelestialBody body = ctx.Host != null ? ctx.Host.mainBody : FlightGlobals.GetHomeBody();
             PartParityAirPlan.SlotLatLon(slot, count, body.Radius, out double lat, out double lon);
             double alt = PartParityStateRules.AirSpawnAltitudeM;
-            Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
-            Vector3d up = (worldPos - body.position).normalized;
-            Vector3d northPos = body.GetWorldSurfacePosition(lat + 0.001, lon, alt);
-            Vector3d north = Vector3d.Exclude(up, northPos - worldPos).normalized;
-            Quaternion worldRot = Quaternion.LookRotation((Vector3)north, (Vector3)up);
-            Quaternion srfRel = Quaternion.Inverse(body.bodyTransform.rotation) * worldRot;
-            // SpawnAtPosition reads an inertial (orbital) velocity: the surface velocity plus
-            // the body's rotating-frame velocity at the spawn point.
-            Vector3d surfaceVel = -up * PartParityStateRules.AirSpawnDescentMps;
-            Vector3d orbitalVel = surfaceVel + body.getRFrmVel(worldPos);
-            double ut = Planetarium.GetUniversalTime();
-            wc.Pid = VesselSpawner.SpawnAtPosition(node, body, lat, lon, alt, orbitalVel, ut,
-                surfaceRelativeRotation: srfRel);
+            // Through VesselSpawner.SpawnAtPosition, upright, falling at 10 m/s (the rig holds the
+            // spawn call beside its co-orbital twin).
+            wc.Pid = GhostCoOrbitalRig.SpawnInAir(node, body, lat, lon, alt, PartParityStateRules.AirSpawnDescentMps,
+                wc.CaseId, Tag);
             wc.SpawnRealtime = Time.realtimeSinceStartup;
             double padDistance = PartParityAirPlan.SurfaceDistanceM(lat, lon, PartParityAirPlan.PadLatitudeDeg,
                 PartParityAirPlan.PadLongitudeDeg, body.Radius);
