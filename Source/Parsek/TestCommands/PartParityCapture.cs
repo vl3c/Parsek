@@ -72,6 +72,10 @@ namespace Parsek.TestCommands
         internal double Far;
         internal int SceneLightsOff;
         internal string Error;
+
+        /// <summary>Every side's tile, in side order (the first two are Real and Ghost).</summary>
+        internal byte[][] Sides;
+        internal PartParityMatteStats[] SideMattes;
     }
 
     /// <summary>
@@ -162,6 +166,18 @@ namespace Parsek.TestCommands
         internal PartParityViewShot CaptureView(
             Transform partT, PartParityAabb sharedLocal, double orthoSize, string view,
             IList<Renderer> all, IList<Renderer> showReal, IList<Renderer> showGhost, int cullingMask)
+            => CaptureSides(partT, sharedLocal, orthoSize, view, all, new[] { showReal, showGhost }, cullingMask);
+
+        /// <summary>
+        /// As <see cref="CaptureView"/> for N sides (design D.5: real, the event-route ghost, the
+        /// start-route ghost, the stowed reference), rendered in order, each with every other
+        /// renderer of <paramref name="all"/> forced off, two clears each. The first two sides
+        /// land in <c>Real</c> / <c>Ghost</c> (a two-side call is exactly the stowed capture);
+        /// every side, the first two included, lands in <c>Sides</c> / <c>SideMattes</c>.
+        /// </summary>
+        internal PartParityViewShot CaptureSides(
+            Transform partT, PartParityAabb sharedLocal, double orthoSize, string view,
+            IList<Renderer> all, IList<IList<Renderer>> sides, int cullingMask)
         {
             var shot = new PartParityViewShot { View = view, OrthoSize = orthoSize };
             if (!TryViewAxes(view, out Vector3 dirLocal, out Vector3 upLocal, out bool perspective))
@@ -197,8 +213,13 @@ namespace Parsek.TestCommands
                 RenderSettings.ambientLight = new Color(0.25f, 0.25f, 0.25f, 1f);
                 QualitySettings.pixelLightCount = 4;
 
-                shot.Real = RenderSide(saved, showReal, out shot.RealMatte);
-                shot.Ghost = RenderSide(saved, showGhost, out shot.GhostMatte);
+                int n = sides != null ? sides.Count : 0;
+                shot.Sides = new byte[n][];
+                shot.SideMattes = new PartParityMatteStats[n];
+                for (int s = 0; s < n; s++)
+                    shot.Sides[s] = RenderSide(saved, sides[s], out shot.SideMattes[s]);
+                if (n > 0) { shot.Real = shot.Sides[0]; shot.RealMatte = shot.SideMattes[0]; }
+                if (n > 1) { shot.Ghost = shot.Sides[1]; shot.GhostMatte = shot.SideMattes[1]; }
             }
             catch (Exception ex)
             {

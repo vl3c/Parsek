@@ -268,7 +268,7 @@ namespace Parsek.TestCommands
             foreach (var p in ctx.Planned)
                 if (!ctx.Known.ContainsKey(p.CaseId)) n++;
             if (ctx.Args.Controls)
-                foreach (string id in TestCommandPartParitySweep.ControlIds)
+                foreach (string id in ctx.ControlSet)
                     if (!ctx.Known.ContainsKey(id)) n++;
             return n;
         }
@@ -302,7 +302,7 @@ namespace Parsek.TestCommands
             }
             Directory.CreateDirectory(ctx.LabelDir);
             ParsekLog.Info(Tag, $"reset: label={ctx.Args.Label} dir={ctx.LabelDir} removedFiles={removed.ToString(Ic)}");
-            ctx.Succeed(false, 0, 0, 0, 0, 0, TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, null));
+            ctx.Succeed(false, 0, 0, 0, 0, 0, TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, null, ctx.ControlSet));
         }
 
         private static bool AdmitHost(StepContext ctx)
@@ -330,13 +330,22 @@ namespace Parsek.TestCommands
                 ctx.EntriesByName[e.Name] = e;
                 keys.AddRange(PartParitySkinRules.CaseKeys(e));
             }
-            ctx.Planned = TestCommandPartParitySweep.SelectCases(keys, ctx.Args);
+            // A state run (design Appendix D.2) plans ONLY its state and context cases; a
+            // stowed run reads exactly the stowed keys, in today's order.
+            List<PartParityCaseKey> stateKeys = null;
+            if (TestCommandPartParitySweep.IsStateRun(ctx.Args)) stateKeys = EnumerateStates(ctx);
+            ctx.Planned = TestCommandPartParitySweep.PlanCases(keys, stateKeys, ctx.Args);
             LogSkinCounts(ctx, keys);
+            if (stateKeys != null)
+                ParsekLog.Info(Tag, PartParityStateRules.FormatCounts(TestCommandPartParitySweep.FormatStates(ctx.Args),
+                    TestCommandPartParitySweep.FormatContexts(ctx.Args), stateKeys, ctx.Planned.Count, ctx.StateExclusions));
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
-                foreach (string id in TestCommandPartParitySweep.ControlIds) LoadKnownSidecar(ctx, id);
+                foreach (string id in ctx.ControlSet) LoadKnownSidecar(ctx, id);
             var keysById = new Dictionary<string, PartParityCaseKey>(StringComparer.Ordinal);
             foreach (var k in keys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
+            if (stateKeys != null)
+                foreach (var k in stateKeys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
             ResolveStaleInflight(ctx, keysById);
             ParsekLog.Info(Tag, $"step start: label={ctx.Args.Label} op=run parts={ctx.Entries.Count.ToString(Ic)} " +
                 $"excluded={ctx.Exclusions.Count.ToString(Ic)} planned={ctx.Planned.Count.ToString(Ic)} " +
@@ -344,7 +353,22 @@ namespace Parsek.TestCommands
                 $"filter={ctx.Args.Filter} shard={ctx.Args.ShardK.ToString(Ic)}/{ctx.Args.ShardN.ToString(Ic)} " +
                 $"tile={ctx.Args.Tile.ToString(Ic)} views={string.Join(",", ctx.Args.Views.ToArray())} " +
                 $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} staleInflight={ctx.StaleInflight ?? "<none>"} " +
-                $"isolate={ctx.Isolate.Count.ToString(Ic)}");
+                $"isolate={ctx.Isolate.Count.ToString(Ic)} states={TestCommandPartParitySweep.FormatStates(ctx.Args)} " +
+                $"contexts={TestCommandPartParitySweep.FormatContexts(ctx.Args)} controlSet={ctx.ControlSet.Length.ToString(Ic)}");
+        }
+
+        /// <summary>Every state and context case the install offers (design D.1), at each
+        /// part's base skin (ruling R2), with its exclusions.</summary>
+        private static List<PartParityCaseKey> EnumerateStates(StepContext ctx)
+        {
+            var all = new PartParityStateEnumeration();
+            foreach (var e in ctx.Entries)
+            {
+                PartParityStatePart sp = PartParityStateDriver.BuildStatePart(e.Info);
+                all.AddRange(PartParityStateRules.Enumerate(sp, PartParityCaseRules.DefaultCaseKey(e)));
+            }
+            ctx.StateExclusions.AddRange(all.Exclusions);
+            return all.Cases;
         }
 
         /// <summary>The per-step case counts by skin kind (design 3.2): every case the install

@@ -149,21 +149,45 @@ namespace Parsek.InGameTests
                 return false;
             }
             mutateSnapshot?.Invoke(snapshot);
-            double t0 = Planetarium.GetUniversalTime();
+            return TryBuildGhostFromSnapshot(snapshot, recordingId, ghostRootName, seedEvents,
+                real.vesselName, real.persistentId, double.NaN, out ghost, out failReason);
+        }
+
+        /// <summary>
+        /// Builds a ghost from a SAVED snapshot (design-part-ghost-parity Appendix D.5), so a
+        /// caller can build after the real vessel has moved on: the part parity sweep's event
+        /// route builds from the stowed snapshot it took before the press. The throwaway
+        /// recording starts at <paramref name="startUT"/> (now when NaN) and carries
+        /// <paramref name="events"/> as its part events; everything else is
+        /// <see cref="TryBuildGhostFromLiveVessel(Vessel, string, string, List{PartEvent}, Action{ConfigNode}, out LiveGhost, out string)"/>.
+        /// </summary>
+        internal static bool TryBuildGhostFromSnapshot(
+            ConfigNode snapshot, string recordingId, string ghostRootName, List<PartEvent> events,
+            string vesselName, uint vesselPersistentId, double startUT,
+            out LiveGhost ghost, out string failReason)
+        {
+            ghost = null;
+            failReason = null;
+            if (snapshot == null)
+            {
+                failReason = "no snapshot";
+                return false;
+            }
+            double t0 = double.IsNaN(startUT) ? Planetarium.GetUniversalTime() : startUT;
             var rec = new Recording
             {
                 RecordingId = recordingId,
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
-                VesselName = real.vesselName,
-                VesselPersistentId = real.persistentId,
+                VesselName = vesselName,
+                VesselPersistentId = vesselPersistentId,
                 ExplicitStartUT = t0,
                 ExplicitEndUT = t0 + 100.0,
                 GhostVisualSnapshot = snapshot.CreateCopy(),
                 VesselSnapshot = snapshot.CreateCopy(),
             };
-            if (seedEvents != null)
-                rec.PartEvents.AddRange(seedEvents);
+            if (events != null)
+                rec.PartEvents.AddRange(events);
             GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(rec, ghostRootName);
             if (build == null || build.root == null)
             {

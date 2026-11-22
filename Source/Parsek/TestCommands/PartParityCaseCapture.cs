@@ -39,6 +39,11 @@ namespace Parsek.TestCommands
 
         internal static void Prepare(StepContext ctx, WaveCase wc)
         {
+            if (wc.State != null)
+            {
+                PartParityStateDriver.Prepare(ctx, wc);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform partT = part.transform;
             wc.Skin = PartParitySkinRules.NewProof(wc.SkinOption, wc.RealVariant, wc.Entry?.B9Modules);
@@ -122,7 +127,7 @@ namespace Parsek.TestCommands
         /// snapshot PART's persistentId); then the ghost-defect flags. One Verbose line names
         /// every value and the live member the real side was read from.
         /// </summary>
-        private static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
+        internal static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
         {
             PartParitySkinProof proof = wc.Skin;
             proof.Snapshot = PartParitySkinRules.SnapshotSkin(snapPart, proof);
@@ -234,7 +239,7 @@ namespace Parsek.TestCommands
                 $"tile={ctx.Capture.Tile.ToString(Ic)}");
         }
 
-        private static void Frame(WaveCase wc)
+        internal static void Frame(WaveCase wc)
         {
             wc.Framing = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
             foreach (var d in wc.Framing.Dropped) wc.Flags.Add(PartParityFramingRule.DroppedFlag(d));
@@ -348,6 +353,11 @@ namespace Parsek.TestCommands
 
         internal static void CaptureView(StepContext ctx, WaveCase wc, string view)
         {
+            if (wc.State != null)
+            {
+                PartParityStateDriver.CaptureView(ctx, wc, view);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform ghostRoot = wc.Ghost != null && wc.Ghost.Build != null && wc.Ghost.Build.root != null
                 ? wc.Ghost.Build.root.transform : null;
@@ -420,6 +430,7 @@ namespace Parsek.TestCommands
             if (e != null) { s.ModelUrls.AddRange(e.ModelUrls); s.Tags.AddRange(e.Tags); }
             if (wc.ControlId != null) s.Tags.Add(TagControl);
             s.Flags.AddRange(wc.Flags);
+            if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));
@@ -440,7 +451,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = PartParityJson.AtlasRowsFor(false),
+                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }
@@ -459,8 +470,10 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[] atlas = PartParityImage.BuildAtlas(
-                new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }, wc.CapturedViews.Count, tile, out int w, out int h);
+            byte[][][] rows = wc.State != null
+                ? PartParityStateDriver.AtlasRows(wc)
+                : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
+            byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);
             FileIOUtils.SafeWriteBytes(PartParityPng.EncodeRgba(w, h, atlas),
                 Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.AtlasFileName(wc.CaseId)), PartParitySweepRunner.Tag);
             int thumbView = Math.Max(0, wc.CapturedViews.IndexOf(TestCommandPartParitySweep.ViewSideA));
