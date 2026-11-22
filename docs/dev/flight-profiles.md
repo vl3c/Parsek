@@ -26,7 +26,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 ## Never used by any lane
 
 - Seam verbs (of 63 implemented): none
-- Dimension values (2 of 252 registry values): D1 `sub-2-point-drop`, D13 `pid-dedup`
+- Dimension values (2 of 251 registry values): D1 `sub-2-point-drop`, D13 `pid-dedup`
 - In-game test categories (3 of 151 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`, `LadderGhost`, `PartParity`
 
 ## Lanes per family
@@ -854,7 +854,7 @@ Per registry dimension: values claimed by at least one lane, then the claimed va
 | D8 | 18/18 | epoch-isolation 1, recalc-from-ut0 1, ers-els-routing 2, route 2, tombstones 3 +13 |
 | D9 | 18/18 | rewind-to-launch-repeat 1, world-preservation 1, seal-stash-fly 2 +15 |
 | D10 | 22/22 | candidate-detection 1, docked-depot-origin 1, inter-body-nth-window 1 +19 |
-| D11 | 18/18 | clone 1, default-mission 1, eccentric-inclined-targets 1, land-dock-dual-constraint 1 +14 |
+| D11 | 17/17 | default-mission 1, eccentric-inclined-targets 1, land-dock-dual-constraint 1 +14 |
 | D12 | 9/9 | crew-swap 1, dead-crew-strip 1, missed-endut-auto-free 1, rescue-marker 1 +5 |
 | D13 | 9/10 | ksc-exclusion 1, situation-correction 1, surface-orbit-reseed 1, terrain-correction 1 +5 |
 | D14 | 35/35 | dres 1, eeloo 1, moho 1, reward-multipliers 1, vessel-budget 1, zero-starting-funds 1 +29 |
@@ -1225,7 +1225,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GUI-29-census-wide-windows-1280 | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 on main after #1... |
 | GUI-3-census-logistics-routes | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
 | GUI-30-census-stock-screens-sandbox | operator | fresh-sandbox | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-29 on the post-main... |
-| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
+| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | CLONE CAPTURES REMOVED 2026-11-22 WITH TH... |
 | GUI-5-census-career-ksc | operator | career-earned-ksc | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 for the Career w... |
 | GUI-6-census-flight-playback | operator | gloops-airshow +inj part-showcase | seam | - | time-jump | - | RESHAPED AND RE-FLOWN PASS 2026-10-06 |
 | GUI-7-census-flight-recording | operator | b1-pad-craft | seam | Kerbin | - | - | RE-FLOWN PASS 2026-10-04 |

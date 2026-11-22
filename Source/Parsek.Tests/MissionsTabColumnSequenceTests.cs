@@ -264,11 +264,12 @@ namespace Parsek.Tests
             Assert.Equal(before, after);
         }
 
-        // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): Clone / Delete
-        // share column A, "Warp to..." fills column B and is ALWAYS drawn (greyed when it cannot
-        // act), Log follows it, and the line-2 loop row spans column B plus the Log slot, so its
-        // left edge is Warp's left edge and its right edge is Log's right edge. Inside the row,
-        // "Loop [x] every" fills column B under Warp and the period fills the Log slot under Log.
+        // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): "Warp to..."
+        // fills column B and is ALWAYS drawn (greyed when it cannot act), Log follows it, and the
+        // line-2 loop row spans column B plus the Log slot, so its left edge is Warp's left edge
+        // and its right edge is Log's right edge. Inside the row, "Loop [x] every" fills column B
+        // under Warp and the period fills the Log slot under Log. No Clone / Delete column: the
+        // grid's first control on either line is Warp / the loop row.
         [Fact]
         public void TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines()
         {
@@ -304,7 +305,6 @@ namespace Parsek.Tests
             string prepared = ReadPreparedSource();
             string line1 = MethodBody(prepared, "DrawMissionNameCell");
             string line2 = MethodBody(prepared, "DrawMissionSummaryNameCell");
-            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line1);   // Clone
             Assert.Contains("GUILayout.Width(InteractButtonWidth)", line1);    // Log
             // Warp is drawn in every Advanced state: no loop-state branch and no blank slot.
             Assert.Contains("DrawMissionWarpToWindowButton(", line1);
@@ -312,8 +312,15 @@ namespace Parsek.Tests
             Assert.DoesNotContain("LoopPlayback", line1);
             Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)",
                 MethodBody(prepared, "DrawMissionWarpToWindowButton"));
-            Assert.Contains("GUILayout.Width(LoopGridColumnAWidth)", line2);   // Delete
             Assert.Contains("DrawMissionLoopRow(", line2);
+            // The removed Clone / Delete column stays removed, on both lines.
+            foreach (string body in new[] { line1, line2 })
+            {
+                Assert.DoesNotContain("MissionStore.Clone", body);
+                Assert.DoesNotContain("MissionStore.Delete", body);
+                Assert.DoesNotContain("\"Clone\"", body);
+                Assert.DoesNotContain("\"Delete\"", body);
+            }
 
             string row = MethodBody(prepared, "DrawMissionLoopRow");
             Assert.Contains("GUILayout.Width(LoopCellWidth)", row);
