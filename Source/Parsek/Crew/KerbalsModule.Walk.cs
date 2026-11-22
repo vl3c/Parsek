@@ -98,6 +98,7 @@ namespace Parsek
                     TreeId = rec.TreeId,
                     StartUT = rec.StartUT,
                     EndUT = rec.EndUT,
+                    RecoveryEndUT = RecoveryHoldEndUT(rec),
                     ParentBranchPointId = rec.ParentBranchPointId,
                     ChildBranchPointId = rec.ChildBranchPointId,
                     VesselPid = rec.VesselPersistentId,
@@ -765,7 +766,9 @@ namespace Parsek
                 RecordingMeta ownerMeta;
                 if (!recordingMeta.TryGetValue(c.OwnerRecordingId, out ownerMeta))
                     continue;
-                if (!RecoveryClosesHold(recordingId, holdMeta.TreeId, holdMeta.EndUT,
+                // A predicted touchdown is measured from its predicted descent start, the
+                // same end the recovery row writer picked its owner by.
+                if (!RecoveryClosesHold(recordingId, holdMeta.TreeId, holdMeta.RecoveryEndUT,
                         c.OwnerRecordingId, ownerMeta.TreeId, c.RecoveryUT))
                     continue;
                 if (c.RecoveryUT < best)

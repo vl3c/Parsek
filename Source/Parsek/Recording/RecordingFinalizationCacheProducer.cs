@@ -10,6 +10,9 @@ namespace Parsek
         public string ReferenceBodyName;
         public bool ReferenceBodyHasAtmosphere;
         public double ReferenceBodyAtmosphereDepth;
+        // The shared Orbiting line of the reference body (OrbitClearance: deletion altitude
+        // or highest terrain); the ORBITING-situation extrapolation cutoff reads it.
+        public double ReferenceBodyPeriapsisFloorAltitude;
         public double Inclination;
         public double Eccentricity;
         public double SemiMajorAxis;
@@ -26,6 +29,9 @@ namespace Parsek
         Vessel.Situations Situation { get; }
         string BodyName { get; }
         bool IsInAtmosphere { get; }
+        // Below the body's 1 kPa deletion altitude (OrbitClearance.ResolveDeletionAltitude):
+        // where stock deletes a packed, unattended vessel. IsInAtmosphere is the atmosphere top.
+        bool IsBelowDeletionAltitude { get; }
         bool IsPacked { get; }
         bool IsLoaded { get; }
         double Latitude { get; }
@@ -183,6 +189,37 @@ namespace Parsek
             IList<TrackSection> unflushedTrackSections,
             out RecordingFinalizationCache cache)
         {
+            bool stockDeletion = vessel != null
+                && IsStockOnRailsDeletionRefresh(reason, vessel.IsPacked, vessel.IsLoaded, vessel.Situation);
+            bool success = TryBuildFromLiveVesselCore(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                unflushedTrackSections,
+                stockDeletion,
+                out cache);
+            if (!stockDeletion || IsAlreadyClassifiedDestroyedSkip(cache))
+                return success;
+
+            return CoerceStockDeletionCache(cache, refreshUT, success);
+        }
+
+        private static bool TryBuildFromLiveVesselCore(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
+            bool stockDeletion,
+            out RecordingFinalizationCache cache)
+        {
             string recordingId = recording?.RecordingId;
             uint vesselPid = ResolveVesselPid(recording, vessel);
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
@@ -220,7 +257,15 @@ namespace Parsek
             // for residual parts) before they reach the surface-terminal
             // branch and re-stamp Landed on the same transient LANDED
             // situation.
-            if (IsDestroyRefreshReason(reason))
+            //
+            // A background_destroy on a PACKED, airborne vessel is not a crash
+            // Parsek watched: it is stock deleting an unattended vessel on rails
+            // (above 1 kPa outside the pack range, or below the terrain). It takes
+            // the normal extrapolation path below so the cache carries the fall to
+            // where the vessel would hit (owner ruling Q1a), with no eager stamp,
+            // so the confirmed-destruction apply can still land that tail; the
+            // outer TryBuildFromLiveVessel coerces the result to Destroyed.
+            if (IsDestroyRefreshReason(reason) && !stockDeletion)
                 return CompleteRefresh(
                     cache, PopulateDestroyEventTerminalCache(recording, cache, refreshUT, reason, vessel.Situation),
                     recordingsExamined, 0, 1);
@@ -231,15 +276,18 @@ namespace Parsek
             RecordingFinalizationOrbitView orbit;
             if (!vessel.TryGetOrbit(out orbit))
             {
-                if (cache.LastWasInAtmosphere)
+                if (ShouldTakeAtmosphericDeletionFallback(cache, vessel, requirePacked: false, "vessel-orbit-null"))
                     return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
                 return CompleteRefresh(cache, Fail(cache, "vessel-orbit-null"), recordingsExamined, 0, 0);
             }
 
-            double cutoffAltitude = orbit.ReferenceBodyHasAtmosphere && orbit.ReferenceBodyAtmosphereDepth > 0.0
-                ? orbit.ReferenceBodyAtmosphereDepth
-                : 0.0;
+            // Owner ruling Q3: the ORBITING cutoff is the shared periapsis floor (deletion
+            // altitude or highest terrain), not the atmosphere top.
+            double cutoffAltitude = IsFinite(orbit.ReferenceBodyPeriapsisFloorAltitude)
+                && orbit.ReferenceBodyPeriapsisFloorAltitude > 0.0
+                    ? orbit.ReferenceBodyPeriapsisFloorAltitude
+                    : 0.0;
 
             if (!BallisticExtrapolator.ShouldExtrapolate(
                     vessel.Situation,
@@ -361,7 +409,7 @@ namespace Parsek
                         0);
                 }
 
-                if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
+                if (ShouldTakeAtmosphericDeletionFallback(cache, vessel, requirePacked: true, "default-finalizer-declined"))
                     return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
                 return CompleteRefresh(cache, Fail(cache, "default-finalizer-declined"), recordingsExamined, 0, 0);
@@ -380,9 +428,14 @@ namespace Parsek
             cache.TerminalPosition = result.terminalPosition;
             cache.TerrainHeightAtEnd = result.terrainHeightAtEnd;
             cache.PredictedSegments = ClonePredictedSegments(result.appendedOrbitSegments);
+            cache.PredictedDescentPoints = result.predictedDescentPoints != null
+                ? new List<TrajectoryPoint>(result.predictedDescentPoints)
+                : new List<TrajectoryPoint>();
             cache.TailStartsAtUT = cache.PredictedSegments.Count > 0
                 ? cache.PredictedSegments[0].startUT
-                : refreshUT;
+                : cache.PredictedDescentPoints.Count > 0
+                    ? cache.PredictedDescentPoints[0].ut
+                    : refreshUT;
 
             if (!cache.TerminalOrbit.HasValue
                 && (cache.TerminalState == TerminalState.Orbiting
@@ -428,7 +481,8 @@ namespace Parsek
             double refreshUT,
             FinalizationCacheOwner owner,
             string reason,
-            out RecordingFinalizationCache cache)
+            out RecordingFinalizationCache cache,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodiesOverride = null)
         {
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
             cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
@@ -438,12 +492,184 @@ namespace Parsek
 
             cache.LastObservedBodyName = segment.bodyName;
             cache.LastSituation = Vessel.Situations.ORBITING;
+
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies =
+                bodiesOverride ?? TryResolveLiveExtrapolationBodies(recordingId, refreshUT);
+            ExtrapolationBody body = null;
+            if (bodies == null
+                || !bodies.TryGetValue(segment.bodyName, out body)
+                || body == null)
+            {
+                // No body facts (headless, or FlightGlobals not ready): the on-rails segment
+                // cannot be checked against the periapsis floor, so it keeps the stable-orbit
+                // cache it always had.
+                ParsekLog.VerboseRateLimited("FinalizerCache",
+                    $"on-rails-floor-unchecked.{vesselPid}",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "On-rails orbit floor unchecked: rec={0} pid={1} body={2} - body facts unavailable; " +
+                        "caching the segment as Orbiting",
+                        recordingId ?? "(pending)",
+                        vesselPid,
+                        segment.bodyName),
+                    30.0);
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+            double periapsisFloor = body.PeriapsisFloorAltitude;
+            if (OrbitClearance.IsBoundOrbitClear(
+                    segment.eccentricity,
+                    periapsisRadius,
+                    body.Radius,
+                    periapsisFloor))
+            {
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            // Owner ruling Q3: an on-rails conic that is unbound or whose low point does not
+            // clear the floor is not a stable orbit. Propagate it drag-free from now, exactly
+            // like the scene-exit finalizer would, so the cache carries the predicted tail
+            // and its real ending (ground impact, deletion periapsis, SOI hand-off).
+            ParsekLog.Verbose("FinalizerCache", string.Format(
+                CultureInfo.InvariantCulture,
+                "On-rails orbit below floor: rec={0} pid={1} body={2} ecc={3:F4} periapsisAlt={4:F0} " +
+                "floor={5:F0} deletionAlt={6:F0}; extrapolating the drag-free tail",
+                recordingId ?? "(pending)",
+                vesselPid,
+                segment.bodyName,
+                segment.eccentricity,
+                periapsisRadius - body.Radius,
+                periapsisFloor,
+                body.DeletionAltitude));
             return CompleteRefresh(
                 cache,
-                PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                PopulateOnRailsExtrapolatedCache(cache, segment, body, bodies, refreshUT),
                 recordingsExamined,
                 0,
                 0);
+        }
+
+        private static bool PopulateOnRailsExtrapolatedCache(
+            RecordingFinalizationCache cache,
+            OrbitSegment segment,
+            ExtrapolationBody body,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double refreshUT)
+        {
+            if (!BallisticExtrapolator.TryPropagate(
+                    segment,
+                    body.GravitationalParameter,
+                    refreshUT,
+                    out Vector3d position,
+                    out Vector3d velocity))
+            {
+                return Fail(cache, "on-rails-propagate-failed");
+            }
+
+            var startState = new BallisticStateVector
+            {
+                ut = refreshUT,
+                bodyName = segment.bodyName,
+                position = position,
+                velocity = velocity,
+                orbitalFrameRotation = segment.orbitalFrameRotation
+            };
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                startState,
+                bodies,
+                IncompleteBallisticSceneExitFinalizer.ResolveLiveExtrapolationLimits(),
+                warnOnSubSurfaceStart: false);
+
+            if (result.segments == null
+                || (result.segments.Count == 0 && result.terminalState != TerminalState.Destroyed)
+                || !IsFinite(result.terminalUT))
+            {
+                return Fail(cache, "on-rails-extrapolation-failed");
+            }
+
+            var segments = new List<OrbitSegment>(result.segments.Count);
+            for (int i = 0; i < result.segments.Count; i++)
+            {
+                if (result.segments[i].endUT > result.segments[i].startUT)
+                    segments.Add(result.segments[i]);
+            }
+            TerminalState terminalState =
+                IncompleteBallisticSceneExitFinalizer.ApplyPeriapsisFloorToExtrapolatedTerminal(
+                    result.terminalState,
+                    segments,
+                    bodies,
+                    cache.RecordingId);
+
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = terminalState;
+            cache.TerminalUT = result.terminalUT;
+            cache.TerminalBodyName = !string.IsNullOrEmpty(result.terminalBodyName)
+                ? result.terminalBodyName
+                : segment.bodyName;
+            cache.PredictedSegments = ClonePredictedSegments(segments);
+            cache.TailStartsAtUT = cache.PredictedSegments.Count > 0
+                ? cache.PredictedSegments[0].startUT
+                : refreshUT;
+            cache.TerminalOrbit = null;
+            if ((terminalState == TerminalState.Orbiting || terminalState == TerminalState.SubOrbital)
+                && cache.PredictedSegments.Count > 0)
+            {
+                cache.TerminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
+                    cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
+            }
+
+            ParsekLog.Info("FinalizerCache", string.Format(
+                CultureInfo.InvariantCulture,
+                "On-rails tail extrapolated: rec={0} pid={1} terminal={2} terminalUT={3:F3} body={4} " +
+                "segments={5} failure={6}",
+                cache.RecordingId ?? "(pending)",
+                cache.VesselPersistentId,
+                terminalState,
+                result.terminalUT,
+                cache.TerminalBodyName ?? "(null)",
+                cache.PredictedSegments.Count,
+                result.failureReason));
+            return Accept(cache);
+        }
+
+        // Body facts for the on-rails floor check, or null when FlightGlobals is not
+        // available (headless tests, scene teardown). Kept out of line so the live read
+        // never JITs into a caller a test drives.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static IReadOnlyDictionary<string, ExtrapolationBody> TryResolveLiveExtrapolationBodies(
+            string recordingId,
+            double refreshUT)
+        {
+            try
+            {
+                if (!IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable(recordingId))
+                    return null;
+                return IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                        recordingId,
+                        refreshUT,
+                        out Dictionary<string, ExtrapolationBody> bodies)
+                    ? bodies
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("FinalizerCache", "on-rails-bodies-unavailable",
+                    "On-rails body facts unavailable: " + ex.GetType().Name,
+                    30.0);
+                return null;
+            }
         }
 
         internal static bool TryBuildAlreadyClassifiedDestroyedSkip(
@@ -653,6 +879,12 @@ namespace Parsek
                 && vessel.altitude < vessel.mainBody.atmosphereDepth;
         }
 
+        internal static bool IsBelowDeletionAltitude(Vessel vessel)
+        {
+            return IsInAtmosphere(vessel)
+                && vessel.altitude < OrbitClearance.ResolveDeletionAltitude(vessel.mainBody);
+        }
+
         internal static string BuildVesselDigest(Vessel vessel, bool hasMeaningfulThrust)
         {
             if (vessel == null)
@@ -712,6 +944,7 @@ namespace Parsek
                 || !cache.TerminalState.HasValue
                 || !IsFinite(observedUT)
                 || (cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                || (cache.PredictedDescentPoints != null && cache.PredictedDescentPoints.Count > 0)
                 || !IsObservedStableTerminal(cache.TerminalState.Value))
             {
                 return false;
@@ -928,6 +1161,39 @@ namespace Parsek
             return Accept(cache);
         }
 
+        /// <summary>
+        /// The "stock deletes it now" fallback for a refresh that produced no tail: only for a
+        /// vessel below the deletion altitude (stock deletes a packed vessel only where the
+        /// pressure is above 1 kPa), so one in the thin upper atmosphere keeps its previous
+        /// cache instead of being stamped Destroyed. Logs the skip.
+        /// </summary>
+        internal static bool ShouldTakeAtmosphericDeletionFallback(
+            RecordingFinalizationCache cache,
+            IRecordingFinalizationVesselView vessel,
+            bool requirePacked,
+            string declineContext)
+        {
+            if (cache == null || vessel == null || !cache.LastWasInAtmosphere)
+                return false;
+            if (requirePacked && !(vessel.IsPacked || !vessel.IsLoaded))
+                return false;
+            if (vessel.IsBelowDeletionAltitude)
+                return true;
+
+            ParsekLog.VerboseRateLimited("FinalizerCache",
+                "atmo-deletion-skip." + cache.VesselPersistentId,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Atmospheric deletion fallback skipped: pid={0} body={1} alt={2:F1} context={3} " +
+                    "(above the deletion altitude; stock keeps a packed vessel there)",
+                    cache.VesselPersistentId,
+                    vessel.BodyName ?? "(unknown)",
+                    vessel.Altitude,
+                    declineContext ?? "(none)"),
+                minIntervalSeconds: 30.0);
+            return false;
+        }
+
         private static bool PopulateAtmosphericDeletionCache(
             RecordingFinalizationCache cache,
             double terminalUT)
@@ -1021,7 +1287,179 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(reason)) return false;
             return string.Equals(reason, "destroy_event", StringComparison.Ordinal)
-                || string.Equals(reason, "background_destroy", StringComparison.Ordinal);
+                || string.Equals(reason, BackgroundDestroyRefreshReason, StringComparison.Ordinal);
+        }
+
+        internal const string BackgroundDestroyRefreshReason = "background_destroy";
+        internal const string StockDeletionNoFallDeclineReason = "stock-deletion-no-predicted-fall";
+
+        /// <summary>
+        /// True when a destroy refresh is stock deleting an unattended vessel on rails rather
+        /// than a crash Parsek watched in physics. Stock (decompiled <c>Vessel</c>, KSP 1.12.5)
+        /// deletes a PACKED, non-active vessel that is not landed or splashed when it sits
+        /// above 1 kPa outside the active vessel's pack range, and an unloaded vessel below the
+        /// terrain, firing <c>onVesselWillDestroy</c> while it is still packed. Only the
+        /// background path (<see cref="BackgroundDestroyRefreshReason"/>) qualifies: stock never
+        /// deletes the active vessel this way. A surface situation keeps the destroy-event
+        /// branch, whose eager stamp stops a transient LANDED re-stamp.
+        /// </summary>
+        internal static bool IsStockOnRailsDeletionRefresh(
+            string reason,
+            bool isPacked,
+            bool isLoaded,
+            Vessel.Situations situation)
+        {
+            return string.Equals(reason, BackgroundDestroyRefreshReason, StringComparison.Ordinal)
+                && (isPacked || !isLoaded)
+                && !IsSurfaceTerminalSituation(situation);
+        }
+
+        /// <summary>
+        /// True when <paramref name="cache"/> carries a predicted fall that ends after
+        /// <paramref name="refreshUT"/>: an applicable Destroyed terminal later than the
+        /// refresh with at least one predicted segment or a chute descent to draw it.
+        /// </summary>
+        internal static bool IsPredictedFallCache(RecordingFinalizationCache cache, double refreshUT)
+        {
+            if (!IsPotentiallyApplicableCache(cache)
+                || !IsFinite(refreshUT)
+                || cache.TerminalUT <= refreshUT + RecordingFinalizationCacheApplier.UtEpsilon)
+            {
+                return false;
+            }
+            return cache.TerminalState.Value == TerminalState.Destroyed
+                && ((cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                    || RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache));
+        }
+
+        /// <summary>
+        /// The ending of a stock deletion is always Destroyed: the vessel is gone, and so is a
+        /// chuted craft's crew (owner ruling 2026-11-21: Parsek never saves or spawns what stock
+        /// killed or deleted). A predicted impact (Destroyed, with orbit segments or a chute
+        /// descent) is kept with its tail; a predicted touchdown (Landed / Splashed: a ballistic
+        /// ground contact or a chute descent the deletion beat) becomes Destroyed at the same UT
+        /// with the same tail, and a chute touchdown is marked to end quietly
+        /// (<see cref="RecordingFinalizationCache.QuietEnd"/>: the ghost comes down under its
+        /// canopies and ends with no explosion); anything else (a stable or open orbit, a decline, a failure) carries
+        /// no fall and becomes "Destroyed now" at the refresh UT with no tail, so
+        /// <see cref="ResolveStockOnRailsDeletionCache"/> can still prefer an earlier fall.
+        /// </summary>
+        private static bool CoerceStockDeletionCache(
+            RecordingFinalizationCache cache,
+            double refreshUT,
+            bool success)
+        {
+            TerminalState? fresh = cache.TerminalState;
+            string outcome;
+            bool carriesTail = (cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                || RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache);
+            if (success
+                && fresh.HasValue
+                && (fresh.Value == TerminalState.Landed || fresh.Value == TerminalState.Splashed)
+                && IsFinite(cache.TerminalUT)
+                && cache.TerminalUT >= refreshUT
+                && carriesTail)
+            {
+                cache.TerminalState = TerminalState.Destroyed;
+                cache.TerminalOrbit = null;
+                cache.TerminalPosition = null;
+                cache.TerrainHeightAtEnd = null;
+                cache.QuietEnd = RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache);
+                outcome = cache.QuietEnd ? "chute-touchdown-quiet-end" : "touchdown-as-impact";
+            }
+            else if (success
+                && fresh == TerminalState.Destroyed
+                && IsFinite(cache.TerminalUT)
+                && cache.TerminalUT >= refreshUT - RecordingFinalizationCacheApplier.UtEpsilon
+                && (carriesTail
+                    || cache.TerminalUT <= refreshUT + RecordingFinalizationCacheApplier.UtEpsilon))
+            {
+                // A future impact needs the tail that reaches it; a Destroyed with no
+                // tail is only honest at the deletion itself.
+                outcome = "predicted-impact";
+            }
+            else
+            {
+                cache.Status = FinalizationCacheStatus.Fresh;
+                cache.DeclineReason = StockDeletionNoFallDeclineReason;
+                cache.TerminalState = TerminalState.Destroyed;
+                cache.TerminalUT = refreshUT;
+                cache.TerminalBodyName = cache.LastObservedBodyName;
+                cache.TerminalOrbit = null;
+                cache.TerminalPosition = null;
+                cache.TerrainHeightAtEnd = null;
+                cache.TailStartsAtUT = refreshUT;
+                cache.PredictedSegments = new List<OrbitSegment>();
+                cache.PredictedDescentPoints = new List<TrajectoryPoint>();
+                outcome = "destroyed-now";
+            }
+
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Stock deletion refresh: rec={0} pid={1} outcome={2} extrapolated={3} " +
+                    "terminalUT={4:F3} refreshUT={5:F3} segments={6} eagerRecordingStamp=False " +
+                    "descentPoints={7} quietEnd={8}",
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    outcome,
+                    success && fresh.HasValue ? fresh.Value.ToString() : "(none)",
+                    cache.TerminalUT,
+                    refreshUT,
+                    cache.PredictedSegments?.Count ?? 0,
+                    cache.PredictedDescentPoints?.Count ?? 0,
+                    cache.QuietEnd));
+            return true;
+        }
+
+        /// <summary>
+        /// Picks the cache a stock deletion keeps (owner ruling Q1a): the fresh refresh when it
+        /// carries a predicted fall, else the previous applicable cache when IT carries a fall
+        /// still ahead of the deletion (marked Stale: it is older than the deletion), else the
+        /// fresh "Destroyed now". Mutates only <paramref name="previous"/>'s staleness fields
+        /// when it is chosen.
+        /// </summary>
+        internal static RecordingFinalizationCache ResolveStockOnRailsDeletionCache(
+            RecordingFinalizationCache previous,
+            RecordingFinalizationCache refreshed,
+            double refreshUT,
+            out string source)
+        {
+            RecordingFinalizationCache chosen;
+            if (IsPredictedFallCache(refreshed, refreshUT))
+            {
+                source = "fresh-fall";
+                chosen = refreshed;
+            }
+            else if (IsPredictedFallCache(previous, refreshUT))
+            {
+                source = "previous-fall";
+                previous.Status = FinalizationCacheStatus.Stale;
+                previous.LastObservedUT = refreshUT;
+                previous.RefreshReason = refreshed?.RefreshReason ?? BackgroundDestroyRefreshReason;
+                chosen = previous;
+            }
+            else
+            {
+                source = "destroyed-now";
+                chosen = refreshed;
+            }
+
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Stock deletion cache: rec={0} pid={1} source={2} terminal={3} terminalUT={4:F3} " +
+                    "refreshUT={5:F3} segments={6} previousTerminal={7} previousTerminalUT={8:F3}",
+                    chosen?.RecordingId ?? "(pending)",
+                    chosen != null ? chosen.VesselPersistentId : 0u,
+                    source,
+                    chosen?.TerminalState?.ToString() ?? "(null)",
+                    chosen != null ? chosen.TerminalUT : double.NaN,
+                    refreshUT,
+                    chosen?.PredictedSegments?.Count ?? 0,
+                    previous?.TerminalState?.ToString() ?? "(none)",
+                    previous != null ? previous.TerminalUT : double.NaN));
+            return chosen;
         }
 
         private static bool Accept(RecordingFinalizationCache cache)
@@ -1329,6 +1767,7 @@ namespace Parsek
                 ?? vessel.orbit?.referenceBody?.name
                 ?? "(unknown-body)";
             public bool IsInAtmosphere => RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            public bool IsBelowDeletionAltitude => RecordingFinalizationCacheProducer.IsBelowDeletionAltitude(vessel);
             public bool IsPacked => vessel.packed;
             public bool IsLoaded => vessel.loaded;
             public double Latitude => vessel.latitude;
@@ -1352,6 +1791,7 @@ namespace Parsek
                     ReferenceBodyName = referenceBody.name,
                     ReferenceBodyHasAtmosphere = referenceBody.atmosphere,
                     ReferenceBodyAtmosphereDepth = referenceBody.atmosphereDepth,
+                    ReferenceBodyPeriapsisFloorAltitude = OrbitClearance.ResolvePeriapsisFloorAltitude(referenceBody),
                     Inclination = source.inclination,
                     Eccentricity = source.eccentricity,
                     SemiMajorAxis = source.semiMajorAxis,

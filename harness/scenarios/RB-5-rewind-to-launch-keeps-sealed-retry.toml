@@ -123,8 +123,12 @@ count = { min = 3, max = 16 }
 required = [
   # Preconditions (RB-4's): a two-controllable split authored a point, the non-focus slot was
   # promoted open, two re-flies started and completed, and the seal closed the slot.
+  # The booster still in the air under canopy at the SCENE-EXIT commit ends Destroyed at the
+  # exit (owner ruling Q14, 2026-11-21; RE-PINNED, NOT FLOWN), so its slot opens as `crashed`
+  # (before Q14: `predictedTouchdown`, rulings Q4 / Q4c; before Q4: `stableLeafUnconcluded`).
+  # Ordered before the first re-fly's StartInvoke so a re-fly's own commit cannot meet it.
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",
   "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",

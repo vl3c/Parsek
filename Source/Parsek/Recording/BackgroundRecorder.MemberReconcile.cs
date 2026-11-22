@@ -78,7 +78,16 @@ namespace Parsek
             /// No event ended it (vessel-budget prune): closed at its last known UT with the
             /// situation its own recorded data supports.
             /// </summary>
-            ClosedAtLastKnownUT = 1
+            ClosedAtLastKnownUT = 1,
+
+            /// <summary>
+            /// No event ended it and its recorded state was a fall or an open coast: it follows
+            /// that path from its last recorded orbit or sample to the ending the path reaches
+            /// (a predicted impact, or the coast at the extrapolation horizon), the tail a
+            /// missing-vessel commit applies from a finalization cache
+            /// (<see cref="TryBuildDroppedMemberRecordedTail"/>).
+            /// </summary>
+            ClosedOnRecordedTail = 2
         }
 
         internal struct MissingMemberClosePlan
@@ -199,6 +208,7 @@ namespace Parsek
         {
             int debris = 0;
             int closed = 0;
+            int onTail = 0;
             int leftToEvent = 0;
             var pids = new List<string>();
             var ids = new List<string>();
@@ -228,6 +238,13 @@ namespace Parsek
                         outcomes.Add(string.Format(CultureInfo.InvariantCulture,
                             "{0}:kept-{1}@{2}", missing[i].VesselPid, plan.Terminal, endText));
                     }
+                    else if (plan.Outcome == MissingMemberCloseOutcome.ClosedOnRecordedTail)
+                    {
+                        onTail++;
+                        outcomes.Add(string.Format(CultureInfo.InvariantCulture,
+                            "{0}:tail-{1}@{2}({3})",
+                            missing[i].VesselPid, plan.Terminal, endText, plan.Evidence));
+                    }
                     else
                     {
                         closed++;
@@ -243,7 +260,8 @@ namespace Parsek
                 "scene (debris={2}; likely dropped by the stock vessel budget or KSC " +
                 "declutter at save): reason={3} pids=[{4}] recIds=[{5}] - closed={6} " +
                 "(situation terminal at last known UT, no Destroyed) keptTerminal={7} " +
-                "(already ended by a recovery/termination event) outcomes=[{8}]",
+                "(already ended by a recovery/termination event) followedRecordedTail={9} " +
+                "(predicted ending from the member's own recorded path) outcomes=[{8}]",
                 missing != null ? missing.Count : 0,
                 backgroundMapCount,
                 debris,
@@ -252,7 +270,8 @@ namespace Parsek
                 string.Join(",", ids.ToArray()),
                 closed,
                 leftToEvent,
-                string.Join(",", outcomes.ToArray()));
+                string.Join(",", outcomes.ToArray()),
+                onTail);
         }
 
         /// <summary>
@@ -264,14 +283,39 @@ namespace Parsek
         /// A member with no terminal yet is stamped with its situation terminal at its last
         /// known UT (<see cref="DecideMissingMemberClose"/>); one that already carries a
         /// terminal (a declutter autoclean the recovery path stamped Recovered) keeps it.
+        /// A member whose own recorded state is a fall or an open coast (the situation rule
+        /// says SubOrbital) instead follows that path to its natural ending, applied as a
+        /// finalization cache built from its last recorded orbit or sample
+        /// (<see cref="TryBuildDroppedMemberRecordedTail"/>), so its ghost does not stop in
+        /// mid-air at the save. A predicted impact is marked predicted, not observed.
         /// This deliberately does not route through <see cref="EndDebrisRecording"/>: a
-        /// restored on-rails member has no finalization cache, so that path stamps
-        /// Destroyed, which would replay a pruned debris as an explosion.
-        /// No sidecar write: nothing is appended to the trajectory here, and the terminal
+        /// restored member has no finalization cache, so that path stamps Destroyed at the
+        /// drop itself, which would replay a pruned debris as an explosion in mid-air.
+        /// No sidecar write here: an applied tail marks the files dirty, and the terminal
         /// fields travel in the tree metadata the next save writes.
         /// Returns the missing count.
         /// </summary>
         internal int CloseMissingBackgroundMembersAtLoad(Func<uint, bool> vesselExists, string reason)
+        {
+            return CloseMissingBackgroundMembersAtLoad(
+                vesselExists,
+                reason,
+                ResolveLiveDroppedMemberBodies,
+                TryReseedLiveRecordedPoint);
+        }
+
+        /// <summary>
+        /// The load-time check with its two live inputs injected: the body facts the
+        /// extrapolator needs (resolved at most once, and only when a member has a recorded
+        /// path to follow; null when unavailable) and the orbit reseed of a recorded sample
+        /// (live: <see cref="IncompleteBallisticSceneExitFinalizer.TryBuildReseededSegmentFromRecordedPoint"/>;
+        /// null when the reseed fails).
+        /// </summary>
+        internal int CloseMissingBackgroundMembersAtLoad(
+            Func<uint, bool> vesselExists,
+            string reason,
+            Func<IReadOnlyDictionary<string, ExtrapolationBody>> resolveBodies,
+            Func<Recording, TrajectoryPoint, OrbitSegment?> reseedPoint)
         {
             if (tree == null || tree.BackgroundMap == null || vesselExists == null)
                 return 0;
@@ -290,12 +334,27 @@ namespace Parsek
 
             int mapCountBefore = tree.BackgroundMap.Count;
             var plans = new List<MissingMemberClosePlan>(missing.Count);
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies = null;
+            bool bodiesResolved = false;
             for (int i = 0; i < missing.Count; i++)
             {
                 Recording rec;
                 tree.Recordings.TryGetValue(missing[i].RecordingId, out rec);
                 MissingMemberClosePlan plan = DecideMissingMemberClose(rec);
-                plans.Add(plan);
+                // The member stopped existing at its last known UT; nothing is appended there.
+                double closeUT = plan.EndUT;
+
+                if (rec != null
+                    && plan.Outcome == MissingMemberCloseOutcome.ClosedAtLastKnownUT
+                    && IsRecordedTailEvidence(plan.Evidence))
+                {
+                    if (!bodiesResolved)
+                    {
+                        bodiesResolved = true;
+                        bodies = resolveBodies != null ? resolveBodies() : null;
+                    }
+                    TryCloseDroppedMemberOnRecordedTail(rec, bodies, reseedPoint, ref plan);
+                }
 
                 if (rec != null && plan.Outcome == MissingMemberCloseOutcome.ClosedAtLastKnownUT)
                 {
@@ -314,17 +373,413 @@ namespace Parsek
                         ParsekFlight.PopulateTerminalPositionFromLastPoint(rec, plan.Terminal);
                     }
                 }
+                plans.Add(plan);
 
                 // The normal "stops being recorded" shape: drop every per-vessel tracking
                 // structure, then the map entry. The restored member's on-rails state has no
                 // open orbit segment, so nothing is appended at closeUT.
-                OnVesselRemovedFromBackground(missing[i].VesselPid, plan.EndUT);
+                OnVesselRemovedFromBackground(missing[i].VesselPid, closeUT);
                 tree.BackgroundMap.Remove(missing[i].VesselPid);
             }
 
             ParsekLog.Info("BgRecorder",
                 FormatMissingBackgroundMembersSummary(missing, plans, mapCountBefore, reason));
             return missing.Count;
+        }
+
+        /// <summary>The refresh reason a dropped member's recorded-tail cache carries.</summary>
+        internal const string DroppedFromSaveRefreshReason = "dropped_from_save";
+
+        /// <summary>
+        /// True for the two pieces of SubOrbital evidence a recorded path can be followed
+        /// from: the last orbit segment (unbound, or its low point under the floor) and the
+        /// last recorded sample with no surface reading. Every other verdict (Orbiting,
+        /// Landed, Splashed, no trajectory) keeps the situation stamp.
+        /// </summary>
+        internal static bool IsRecordedTailEvidence(string evidence)
+        {
+            return string.Equals(evidence, "last-orbit-segment-unstable", StringComparison.Ordinal)
+                || string.Equals(evidence, "last-point", StringComparison.Ordinal);
+        }
+
+        private static void TryCloseDroppedMemberOnRecordedTail(
+            Recording rec,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            Func<Recording, TrajectoryPoint, OrbitSegment?> reseedPoint,
+            ref MissingMemberClosePlan plan)
+        {
+            RecordingFinalizationCache cache;
+            string source;
+            string declineReason;
+            if (!TryBuildDroppedMemberRecordedTail(
+                    rec,
+                    plan.Evidence,
+                    bodies,
+                    reseedPoint,
+                    out cache,
+                    out source,
+                    out declineReason))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Load check: dropped member rec={0} pid={1} keeps the {2} stamp " +
+                        "(evidence={3}; recorded tail declined: {4})",
+                        rec.RecordingId ?? "(null)",
+                        rec.VesselPersistentId,
+                        plan.Terminal,
+                        plan.Evidence ?? "(none)",
+                        declineReason ?? "(none)"));
+                return;
+            }
+
+            var options = new RecordingFinalizationCacheApplyOptions
+            {
+                ConsumerPath = "BackgroundRecorder.droppedFromSave",
+                AllowStale = false
+            };
+            RecordingFinalizationCacheApplyResult result;
+            if (!RecordingFinalizationCacheApplier.TryApply(rec, cache, options, out result))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Load check: dropped member rec={0} pid={1} keeps the {2} stamp " +
+                        "(recorded tail from {3} rejected by the applier: {4})",
+                        rec.RecordingId ?? "(null)",
+                        rec.VesselPersistentId,
+                        plan.Terminal,
+                        source,
+                        result.Status));
+                return;
+            }
+
+            plan.Outcome = MissingMemberCloseOutcome.ClosedOnRecordedTail;
+            plan.Terminal = result.TerminalState ?? plan.Terminal;
+            plan.EndUT = result.TerminalUT;
+            plan.Evidence = "recorded-tail:" + source;
+            ParsekLog.Info("BgRecorder",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Load check: dropped member rec={0} pid={1} follows its recorded path from " +
+                    "{2}: terminal={3} terminalUT={4:F1} tailStartUT={5:F1} appendedSegments={6}",
+                    rec.RecordingId ?? "(null)",
+                    rec.VesselPersistentId,
+                    source,
+                    plan.Terminal,
+                    result.TerminalUT,
+                    cache.TailStartsAtUT,
+                    result.AppendedSegmentCount));
+        }
+
+        /// <summary>
+        /// Builds the finalization cache a dropped member would have carried had it been
+        /// refreshed while its vessel existed, from its own recorded data only: the last
+        /// orbit segment (evidence <c>last-orbit-segment-unstable</c>), propagated from its
+        /// end, or the orbit reseeded from the last body-fixed recorded sample (evidence
+        /// <c>last-point</c>), both run through
+        /// <see cref="RecordingFinalizationCacheProducer.TryBuildFromStableOrbitSegment"/>
+        /// (periapsis floor check, then the drag-free extrapolation to the ground, the
+        /// deletion altitude, an SOI hand-off or the horizon). Adopted only when it carries a
+        /// predicted tail ending Destroyed or SubOrbital: a predicted Orbiting, Landed or
+        /// Splashed ending would make a vessel stock removed spawnable, so those keep the
+        /// situation stamp. Declines a sample under an open parachute (no drag model), a
+        /// Relative-section sample with no body-fixed reading, and a body with no facts
+        /// (the floor could not be checked).
+        /// </summary>
+        internal static bool TryBuildDroppedMemberRecordedTail(
+            Recording rec,
+            string evidence,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            Func<Recording, TrajectoryPoint, OrbitSegment?> reseedPoint,
+            out RecordingFinalizationCache cache,
+            out string source,
+            out string declineReason)
+        {
+            cache = null;
+            source = null;
+            declineReason = null;
+            if (rec == null)
+            {
+                declineReason = "no-recording";
+                return false;
+            }
+            if (bodies == null)
+            {
+                declineReason = "body-facts-unavailable";
+                return false;
+            }
+
+            OrbitSegment segment;
+            double refreshUT;
+            if (string.Equals(evidence, "last-orbit-segment-unstable", StringComparison.Ordinal))
+            {
+                if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+                {
+                    declineReason = "no-orbit-segment";
+                    return false;
+                }
+                segment = rec.OrbitSegments[rec.OrbitSegments.Count - 1];
+                refreshUT = IsFiniteUT(segment.endUT) && segment.endUT >= segment.startUT
+                    ? segment.endUT
+                    : segment.startUT;
+                source = "last-orbit-segment";
+            }
+            else if (string.Equals(evidence, "last-point", StringComparison.Ordinal))
+            {
+                TrajectoryPoint point;
+                if (!ParsekFlight.TryResolveLastPointBodyFixed(
+                        rec, "Load check dropped member", out point))
+                {
+                    declineReason = "last-point-not-body-fixed";
+                    return false;
+                }
+                uint chutePid;
+                if (IncompleteBallisticSceneExitFinalizer.TryFindOpenParachuteAtUT(
+                        rec, point.ut, out chutePid))
+                {
+                    declineReason = string.Format(CultureInfo.InvariantCulture,
+                        "open-parachute pid={0}", chutePid);
+                    return false;
+                }
+                OrbitSegment? reseeded = reseedPoint != null ? reseedPoint(rec, point) : null;
+                if (!reseeded.HasValue)
+                {
+                    declineReason = reseedPoint == null ? "reseed-unavailable" : "reseed-failed";
+                    return false;
+                }
+                segment = reseeded.Value;
+                refreshUT = point.ut;
+                source = "last-point";
+            }
+            else
+            {
+                declineReason = "evidence-" + (evidence ?? "(none)");
+                return false;
+            }
+
+            if (!IsFiniteUT(refreshUT))
+            {
+                declineReason = "start-ut-non-finite";
+                return false;
+            }
+            ExtrapolationBody body;
+            if (string.IsNullOrEmpty(segment.bodyName)
+                || !bodies.TryGetValue(segment.bodyName, out body)
+                || body == null)
+            {
+                // TryBuildFromStableOrbitSegment would cache an unchecked segment as Orbiting.
+                declineReason = "body-unknown:" + (segment.bodyName ?? "(null)");
+                return false;
+            }
+
+            RecordingFinalizationCache built;
+            bool success = RecordingFinalizationCacheProducer.TryBuildFromStableOrbitSegment(
+                rec.RecordingId,
+                rec.VesselPersistentId,
+                segment,
+                refreshUT,
+                FinalizationCacheOwner.BackgroundOnRails,
+                DroppedFromSaveRefreshReason,
+                out built,
+                bodies);
+            if (!success || built == null || built.Status != FinalizationCacheStatus.Fresh)
+            {
+                declineReason = "no-cache:" + (built?.DeclineReason ?? "(none)");
+                return false;
+            }
+            if (!built.TerminalState.HasValue
+                || (built.TerminalState.Value != TerminalState.Destroyed
+                    && built.TerminalState.Value != TerminalState.SubOrbital))
+            {
+                declineReason = "ending-not-adopted:" + (built.TerminalState?.ToString() ?? "(null)");
+                return false;
+            }
+            if (built.PredictedSegments == null || built.PredictedSegments.Count == 0)
+            {
+                declineReason = "no-predicted-tail";
+                return false;
+            }
+
+            cache = built;
+            return true;
+        }
+
+        // Body facts for the dropped-member tail, or null when FlightGlobals is not available
+        // (headless tests, scene teardown). Kept out of line so the live read never JITs into
+        // a caller a test drives.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static IReadOnlyDictionary<string, ExtrapolationBody> ResolveLiveDroppedMemberBodies()
+        {
+            try
+            {
+                if (!IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable("dropped-member"))
+                    return null;
+                Dictionary<string, ExtrapolationBody> bodies;
+                return IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                        "dropped-member",
+                        ReadLiveUniversalTimeForDroppedMember(),
+                        out bodies)
+                    ? bodies
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    "Load check: body facts unavailable for dropped-member tails: " + ex.GetType().Name);
+                return null;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadLiveUniversalTimeForDroppedMember()
+        {
+            return Planetarium.GetUniversalTime();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static OrbitSegment? TryReseedLiveRecordedPoint(Recording recording, TrajectoryPoint point)
+        {
+            OrbitSegment segment;
+            string failureReason;
+            if (IncompleteBallisticSceneExitFinalizer.TryBuildReseededSegmentFromRecordedPoint(
+                    recording,
+                    point,
+                    "dropped-member",
+                    out segment,
+                    out failureReason))
+                return segment;
+            ParsekLog.Verbose("BgRecorder",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Load check: reseed of the last recorded sample of rec={0} at ut={1:F2} failed: {2}",
+                    recording?.RecordingId ?? "(null)",
+                    point.ut,
+                    failureReason ?? "(none)"));
+            return null;
+        }
+
+        /// <summary>One live background member whose finalization cache a restore rebuilds.</summary>
+        internal struct RestoreCacheRebuildTarget
+        {
+            public uint VesselPid;
+            public string RecordingId;
+        }
+
+        /// <summary>The refresh reason of the cache a restore rebuilds for a live member.</summary>
+        internal const string RestoreRebuildRefreshReason = "restore_rebuild";
+
+        /// <summary>
+        /// Pure selection for the restore rebuild: every <c>BackgroundMap</c> entry whose
+        /// recording exists, is not sealed Destroyed, has no terminal yet, and whose vessel is
+        /// in the loaded scene. Sorted by pid so the summary line is stable.
+        /// </summary>
+        internal static List<RestoreCacheRebuildTarget> SelectRestoreCacheRebuildTargets(
+            RecordingTree tree,
+            Func<uint, bool> vesselExists)
+        {
+            var targets = new List<RestoreCacheRebuildTarget>();
+            if (tree == null || tree.BackgroundMap == null || tree.Recordings == null
+                || vesselExists == null)
+                return targets;
+
+            foreach (var kvp in tree.BackgroundMap)
+            {
+                Recording rec;
+                if (string.IsNullOrEmpty(kvp.Value)
+                    || !tree.Recordings.TryGetValue(kvp.Value, out rec)
+                    || rec == null
+                    || rec.VesselDestroyed
+                    || rec.TerminalStateValue.HasValue
+                    || !vesselExists(kvp.Key))
+                    continue;
+                targets.Add(new RestoreCacheRebuildTarget
+                {
+                    VesselPid = kvp.Key,
+                    RecordingId = kvp.Value
+                });
+            }
+
+            targets.Sort((a, b) => a.VesselPid.CompareTo(b.VesselPid));
+            return targets;
+        }
+
+        /// <summary>The cache owner a live member's vessel state implies.</summary>
+        internal static FinalizationCacheOwner ResolveRestoreCacheOwner(bool loaded, bool packed)
+        {
+            return loaded && !packed
+                ? FinalizationCacheOwner.BackgroundLoaded
+                : FinalizationCacheOwner.BackgroundOnRails;
+        }
+
+        /// <summary>
+        /// Run once when a recorder is attached to a restored tree (an F9 or a resumed save):
+        /// the finalization caches are in-memory only, so every background member starts with
+        /// none, and an on-rails member gets no periodic refresh until it opens an orbit
+        /// segment (a warp checkpoint, an SOI change, going off rails). Without this, a member
+        /// that ends before its next refresh (stock deleting it on rails, a commit after it is
+        /// gone) is finalized with no cache, by situation inference. Forces one refresh per
+        /// live member from its vessel now (<see cref="SelectRestoreCacheRebuildTargets"/>)
+        /// and logs ONE summary. <paramref name="refresher"/> replaces the live forced
+        /// refresh (tests). Returns the number of members refreshed.
+        /// </summary>
+        internal int RebuildFinalizationCachesAfterRestore(
+            Func<uint, Vessel> findVessel,
+            string reason,
+            Action<Vessel, string, FinalizationCacheOwner> refresher = null)
+        {
+            if (tree == null || tree.BackgroundMap == null || findVessel == null)
+                return 0;
+
+            List<RestoreCacheRebuildTarget> targets = SelectRestoreCacheRebuildTargets(
+                tree,
+                pid => !ReferenceEquals(findVessel(pid), null));
+            int refreshed = 0;
+            int applicable = 0;
+            int loaded = 0;
+            var outcomes = new List<string>(targets.Count);
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Vessel v = findVessel(targets[i].VesselPid);
+                if (ReferenceEquals(v, null))
+                    continue;
+                FinalizationCacheOwner owner = ResolveRestoreCacheOwner(v.loaded, v.packed);
+                if (owner == FinalizationCacheOwner.BackgroundLoaded)
+                    loaded++;
+                if (refresher != null)
+                    refresher(v, targets[i].RecordingId, owner);
+                else
+                    RefreshFinalizationCacheForVessel(
+                        v,
+                        targets[i].RecordingId,
+                        owner,
+                        RestoreRebuildRefreshReason,
+                        force: true);
+                refreshed++;
+
+                RecordingFinalizationCache cache;
+                finalizationCaches.TryGetValue(targets[i].VesselPid, out cache);
+                if (RecordingFinalizationCacheProducer.IsPotentiallyApplicableCache(cache))
+                    applicable++;
+                outcomes.Add(string.Format(CultureInfo.InvariantCulture,
+                    "{0}:{1}/{2}",
+                    targets[i].VesselPid,
+                    cache != null ? cache.Status.ToString() : "none",
+                    cache?.TerminalState?.ToString() ?? "-"));
+            }
+
+            ParsekLog.Info("BgRecorder",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Restore cache rebuild: reason={0} map={1} liveMembers={2} refreshed={3} " +
+                    "loaded={4} onRails={5} applicable={6} outcomes=[{7}]",
+                    string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                    tree.BackgroundMap.Count,
+                    targets.Count,
+                    refreshed,
+                    loaded,
+                    refreshed - loaded,
+                    applicable,
+                    string.Join(",", outcomes.ToArray())));
+            return refreshed;
         }
 
         internal struct BackgroundStateDriftSummary

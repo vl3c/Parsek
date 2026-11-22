@@ -68,11 +68,18 @@ namespace Parsek
         private const double DistanceTolerance = 1e-6;
         private const double VectorTolerance = 1e-6;
 
-        internal static TrackSection BuildOpenCheckpointSection(double startUT)
+        /// <summary>
+        /// An empty checkpoint section. Only the on-rails background recorder passes a label
+        /// other than ExoBallistic: a span packed below the atmosphere top is Atmospheric
+        /// (BackgroundRecorder.ResolveOnRailsCheckpointEnvironment).
+        /// </summary>
+        internal static TrackSection BuildOpenCheckpointSection(
+            double startUT,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
             return new TrackSection
             {
-                environment = SegmentEnvironment.ExoBallistic,
+                environment = environment,
                 referenceFrame = ReferenceFrame.OrbitalCheckpoint,
                 startUT = startUT,
                 source = TrackSectionSource.Checkpoint,
@@ -83,19 +90,27 @@ namespace Parsek
             };
         }
 
-        internal static TrackSection BuildClosedCheckpointSection(OrbitSegment segment)
+        internal static TrackSection BuildClosedCheckpointSection(
+            OrbitSegment segment,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
-            TrackSection section = BuildOpenCheckpointSection(segment.startUT);
+            TrackSection section = BuildOpenCheckpointSection(segment.startUT, environment);
             section.endUT = segment.endUT;
             section.checkpoints.Add(segment);
             return section;
         }
 
+        /// <summary>
+        /// Appends a closed on-rails segment as a checkpoint section labelled
+        /// <paramref name="environment"/> (the label the appended section, or the empty shell
+        /// it fills, carries).
+        /// </summary>
         internal static bool TryAppendClosedCheckpointSection(
             Recording rec,
             OrbitSegment segment,
             bool markDirty,
-            out string skipReason)
+            out string skipReason,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
             skipReason = null;
             if (rec == null)
@@ -152,7 +167,7 @@ namespace Parsek
             for (int i = 0; i < uncoveredSegments.Count; i++)
             {
                 OrbitSegment uncoveredSegment = uncoveredSegments[i];
-                if (TryAttachToLastEmptyCheckpointSection(rec.TrackSections, uncoveredSegment))
+                if (TryAttachToLastEmptyCheckpointSection(rec.TrackSections, uncoveredSegment, environment))
                 {
                     AppendFlatOrbitCache(rec, uncoveredSegment);
                     continue;
@@ -160,7 +175,7 @@ namespace Parsek
 
                 removedEmptyShells +=
                     RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, uncoveredSegment);
-                rec.TrackSections.Add(BuildClosedCheckpointSection(uncoveredSegment));
+                rec.TrackSections.Add(BuildClosedCheckpointSection(uncoveredSegment, environment));
                 AppendFlatOrbitCache(rec, uncoveredSegment);
                 addedNewSection = true;
             }
@@ -517,12 +532,13 @@ namespace Parsek
 
         private static bool TryAttachToLastEmptyCheckpointSection(
             List<TrackSection> sections,
-            OrbitSegment segment)
+            OrbitSegment segment,
+            SegmentEnvironment environment)
         {
             if (sections == null || sections.Count == 0)
                 return false;
 
-            return TryAttachToEmptyCheckpointSection(sections, sections.Count - 1, segment);
+            return TryAttachToEmptyCheckpointSection(sections, sections.Count - 1, segment, environment);
         }
 
         private static bool TryAttachToAnyEmptyCheckpointSection(
@@ -534,7 +550,7 @@ namespace Parsek
 
             for (int i = 0; i < sections.Count; i++)
             {
-                if (TryAttachToEmptyCheckpointSection(sections, i, segment))
+                if (TryAttachToEmptyCheckpointSection(sections, i, segment, SegmentEnvironment.ExoBallistic))
                     return true;
             }
 
@@ -563,6 +579,9 @@ namespace Parsek
                 {
                     List<OrbitSegment> clippedSegments =
                         BuildSegmentsOutsidePhysicalSections(section.checkpoints[c], sections);
+                    // Load-time repair: the replacement is relabelled ExoBallistic as it always
+                    // was, so a committed flight's sections (and the cuts read from them) do not
+                    // change under a newer build.
                     for (int j = 0; j < clippedSegments.Count; j++)
                         replacements.Add(BuildClosedCheckpointSection(clippedSegments[j]));
                 }
@@ -621,7 +640,10 @@ namespace Parsek
                         if (TryTrimOrbitSegmentToRange(
                                 checkpoint, ranges[r].StartUT, ranges[r].EndUT, out clipped))
                         {
-                            replacements.Add(BuildClosedCheckpointSection(clipped));
+                            // Live append only (data being recorded now): a clipped piece
+                            // keeps the label of the section it was cut from, so an
+                            // Atmospheric on-rails span stays Atmospheric.
+                            replacements.Add(BuildClosedCheckpointSection(clipped, section.environment));
                         }
                     }
                 }
@@ -881,7 +903,8 @@ namespace Parsek
         private static bool TryAttachToEmptyCheckpointSection(
             List<TrackSection> sections,
             int index,
-            OrbitSegment segment)
+            OrbitSegment segment,
+            SegmentEnvironment environment)
         {
             TrackSection section = sections[index];
             if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint
@@ -895,7 +918,7 @@ namespace Parsek
             section.checkpoints = new List<OrbitSegment> { segment };
             if (section.frames == null)
                 section.frames = new List<TrajectoryPoint>();
-            section.environment = SegmentEnvironment.ExoBallistic;
+            section.environment = environment;
             section.source = TrackSectionSource.Checkpoint;
             section.minAltitude = float.NaN;
             section.maxAltitude = float.NaN;

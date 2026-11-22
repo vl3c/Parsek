@@ -9129,6 +9129,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if isinstance(recordings_block, dict) and saveparse.SAMPLING_BLOCK in recordings_block:
         errors.extend(samplingq.validate_sampling_expectations(
             recordings_block.get(saveparse.SAMPLING_BLOCK)))
+    # The sixth block: how each named vessel's recording ENDED (endingsq.py).
+    if isinstance(recordings_block, dict) and saveparse.ENDINGS_BLOCK in recordings_block:
+        errors.extend(endingsq.validate_endings_expectations(
+            recordings_block.get(saveparse.ENDINGS_BLOCK)))
     # The fourth M-C2 block: the ROUTES node. Top-level beside `rewind` because
     # that is where it lives in the save.
     if saveparse.ROUTES_BLOCK in expectations:
@@ -9429,6 +9433,7 @@ import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the re
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
 import partparity  # noqa: E402  (the part ghost parity pure sibling; same reason - the [expectations.partParity] surface is validated by the module that evaluates it)
 import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
+import endingsq  # noqa: E402  (the recording-ending pure sibling; the [expectations.recordings.endings] surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(

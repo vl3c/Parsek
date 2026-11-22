@@ -21,12 +21,20 @@ namespace Parsek
         // TrackSection field or EnvironmentHysteresis here would resurrect the eccentric-orbit
         // chain-explosion failure mode flagged in
         // `docs/dev/research/extending-rewind-to-stable-leaves.md` §S16; do not.
+        //
+        // `packedInsideAtmosphere` is a fixed fact of the on-rails span, not a classification:
+        // it is set once when the span opens (pack / backgrounding below the atmosphere top),
+        // kept through every warp checkpoint and time-jump re-capture, and cleared only at an
+        // SOI change (a new body). Every checkpoint section the span closes carries the one
+        // label it implies (Atmospheric while set, ExoBallistic otherwise), so the span can
+        // never toggle environments however its conic dips in and out of the atmosphere.
         private class BackgroundOnRailsState
         {
             public uint vesselPid;
             public string recordingId;
             public bool hasOpenOrbitSegment;
             public OrbitSegment currentOrbitSegment;
+            public bool packedInsideAtmosphere;
             public bool isLanded;
             public double lastExplicitEndUpdate;
         }

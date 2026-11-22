@@ -18,7 +18,12 @@ namespace Parsek
         ///
         /// Decision table:
         ///   TerminalState == null           -> Unknown (recording still active or legacy)
-        ///   TerminalState == Destroyed      -> Dead (vessel destroyed with crew aboard)
+        ///   TerminalState == Destroyed      -> Dead (vessel destroyed with crew aboard, whether
+        ///                                      KSP destroyed it or Parsek predicted the crash:
+        ///                                      owner ruling Q6c)
+        ///   Destroyed, remnant survives     -> Aboard (an identity loss over a wreck KSP still
+        ///                                      keeps), except Dead when KSP destroyed the
+        ///                                      kerbal's part or the end snapshot lacks him (Q6b)
         ///   TerminalState == Recovered      -> Recovered
         ///   TerminalState == Boarded        -> if in snapshot: Aboard, else Unknown
         ///   TerminalState == Docked         -> if in snapshot: Aboard, else Unknown
@@ -216,7 +221,9 @@ namespace Parsek
         internal static KerbalEndState InferCrewEndState(
             string crewName,
             TerminalState? terminalState,
-            HashSet<string> snapshotCrew)
+            HashSet<string> snapshotCrew,
+            bool remnantSurvives = false,
+            bool partDestroyed = false)
         {
             // No terminal state -> recording still active or legacy data
             if (!terminalState.HasValue)
@@ -228,7 +235,37 @@ namespace Parsek
 
             var ts = terminalState.Value;
 
-            // Vessel destroyed -> all crew aboard are dead
+            // A Destroyed ending sealed over a remnant KSP still keeps (a breakup wreck that
+            // lost the recorded controllers): the vessel was not destroyed, so the ending kills
+            // no one by itself. A kerbal dies only when KSP destroyed the part he sat in
+            // (owner ruling Q6b), read from the recording's part deaths, or when the remnant's
+            // end snapshot no longer carries him (his part died, or he left it). With no end
+            // snapshot he stays with the remnant.
+            if (ts == TerminalState.Destroyed && remnantSurvives)
+            {
+                if (partDestroyed)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True " +
+                        "part destroyed -> Dead (KSP destroyed his part)");
+                    return KerbalEndState.Dead;
+                }
+                if (snapshotCrew != null && !snapshotCrew.Contains(crewName))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True " +
+                        "inSnapshot=False -> Dead (not aboard the remnant KSP still has)");
+                    return KerbalEndState.Dead;
+                }
+                ParsekLog.Verbose(Tag,
+                    $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True -> Aboard " +
+                    "(identity lost, the remnant and his part survive)");
+                return KerbalEndState.Aboard;
+            }
+
+            // Vessel destroyed -> all crew aboard are dead. A crash Parsek predicted counts
+            // the same as one KSP carried out (owner ruling Q6c: if it's destroyed, the crew
+            // is dead).
             if (ts == TerminalState.Destroyed)
             {
                 ParsekLog.Verbose(Tag,
@@ -239,6 +276,18 @@ namespace Parsek
             // Vessel recovered -> all crew are recovered
             if (ts == TerminalState.Recovered)
             {
+                // Except a kerbal whose part KSP destroyed before the recovery (a breakup
+                // remnant the player recovered): stock killed him, so he stays dead (owner
+                // rulings Q6b, P-STOCK). The recovery nulls the end snapshot, so his part is
+                // his start seat, unless the recovered vessel's crew names him (the caller
+                // then passes partDestroyed false: stock recovered him).
+                if (partDestroyed)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Recovered " +
+                        "part destroyed -> Dead (KSP destroyed his part before the recovery)");
+                    return KerbalEndState.Dead;
+                }
                 ParsekLog.Verbose(Tag,
                     $"InferCrewEndState: crew='{crewName}' terminalState=Recovered -> Recovered");
                 return KerbalEndState.Recovered;
@@ -275,7 +324,23 @@ namespace Parsek
         internal static HashSet<string> CollectCrewCarriedAwayBySplit(
             Recording rec, RecordingTree tree, IReadOnlyDictionary<string, string> replacements)
         {
+            return CollectCrewCarriedAwayBySplit(rec, tree, replacements, out _);
+        }
+
+        /// <summary>
+        /// As above, and also the seats a BREAKUP piece (a Breakup or JointBreak child) took:
+        /// <see cref="CrewSeatKey"/> of each kerbal and the part he sat in at the child's start.
+        /// A parent end snapshot that still lists the kerbal in that very part is older than the
+        /// breakup (a breakup never hands a part back), so the piece, not the parent, holds him
+        /// (owner ruling Q6b). An undock or EVA child can come back (dock, board), so its seats
+        /// are not collected. Pure given the tree.
+        /// </summary>
+        internal static HashSet<string> CollectCrewCarriedAwayBySplit(
+            Recording rec, RecordingTree tree, IReadOnlyDictionary<string, string> replacements,
+            out HashSet<string> breakupSeats)
+        {
             var result = new HashSet<string>(StringComparer.Ordinal);
+            breakupSeats = new HashSet<string>(StringComparer.Ordinal);
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
                 || tree?.BranchPoints == null || tree.Recordings == null)
                 return result;
@@ -322,7 +387,77 @@ namespace Parsek
                     ReverseMapCrewNames(crew, replacements, null);
                     for (int k = 0; k < crew.Count; k++)
                         result.Add(crew[k]);
+                    if (bp.Type == BranchPointType.Breakup || bp.Type == BranchPointType.JointBreak)
+                    {
+                        foreach (var seat in ExtractCrewPartPids(child.GhostVisualSnapshot, replacements))
+                            breakupSeats.Add(CrewSeatKey(seat.Key, seat.Value));
+                    }
                 }
+            }
+            return result;
+        }
+
+        /// <summary>The key of one kerbal in one part, for the breakup seat set.</summary>
+        internal static string CrewSeatKey(string crewName, uint partPid)
+        {
+            return (crewName ?? "") + "\n" + partPid.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Each kerbal of a vessel snapshot mapped to the persistentId of the first PART that
+        /// lists him, stand-ins reverse-mapped to their originals. A part with no readable
+        /// persistentId maps to 0. Empty for a null snapshot.
+        /// </summary>
+        internal static Dictionary<string, uint> ExtractCrewPartPids(
+            ConfigNode snapshot, IReadOnlyDictionary<string, string> replacements)
+        {
+            var result = new Dictionary<string, uint>(StringComparer.Ordinal);
+            if (snapshot == null)
+                return result;
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                string[] names = partNode.GetValues("crew");
+                if (names == null || names.Length == 0)
+                    continue;
+                uint pid;
+                string pidText = partNode.GetValue("persistentId");
+                if (pidText == null
+                    || !uint.TryParse(pidText, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                    pid = 0;
+                var crew = new List<string>(names.Length);
+                for (int i = 0; i < names.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(names[i]))
+                        crew.Add(names[i]);
+                }
+                if (replacements != null)
+                    ReverseMapCrewNames(crew, replacements, null);
+                for (int i = 0; i < crew.Count; i++)
+                {
+                    if (!result.ContainsKey(crew[i]))
+                        result[crew[i]] = pid;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The parts KSP destroyed while this recording recorded them: the persistentId of
+        /// every <see cref="PartEventType.Destroyed"/> and
+        /// <see cref="PartEventType.ParachuteDestroyed"/> part event. Pure.
+        /// </summary>
+        internal static HashSet<uint> CollectDestroyedPartPids(Recording rec)
+        {
+            var result = new HashSet<uint>();
+            if (rec?.PartEvents == null)
+                return result;
+            for (int i = 0; i < rec.PartEvents.Count; i++)
+            {
+                PartEvent evt = rec.PartEvents[i];
+                if (evt.partPersistentId != 0
+                    && (evt.eventType == PartEventType.Destroyed
+                        || evt.eventType == PartEventType.ParachuteDestroyed))
+                    result.Add(evt.partPersistentId);
             }
             return result;
         }
@@ -437,11 +572,28 @@ namespace Parsek
             TerminalState? updated,
             string context)
         {
+            return InvalidateCrewEndStatesForTerminalStamp(rec, previous, updated, context, false);
+        }
+
+        /// <summary>
+        /// The observer itself. <paramref name="predictedChanged"/> is true when the stamp
+        /// moved <see cref="Recording.TerminalPredicted"/> or
+        /// <see cref="Recording.TerminalRemnantSurvives"/>: a Destroyed verdict that turned
+        /// from a surviving remnant to a destroyed vessel (or back) is a real change of the crew
+        /// answer even when the terminal value did not change, so it re-infers like an X->Y stamp.
+        /// </summary>
+        internal static bool InvalidateCrewEndStatesForTerminalStamp(
+            Recording rec,
+            TerminalState? previous,
+            TerminalState? updated,
+            string context,
+            bool predictedChanged)
+        {
             if (rec == null) return false;
 
             // Retraction, or no actual change: nothing to re-infer against.
             if (!updated.HasValue) return false;
-            if (previous.HasValue && previous.Value == updated.Value) return false;
+            if (previous.HasValue && previous.Value == updated.Value && !predictedChanged) return false;
 
             // Nothing to invalidate. A crewless recording resolves with a null dictionary
             // (PopulateCrewEndStates' "no crew in ghost snapshot" branch) — re-running it
@@ -777,8 +929,45 @@ namespace Parsek
             bool useGhostOnlyChainHandoffFallback = ShouldUseGhostOnlyChainHandoffEndState(rec);
             // The tree that owns the recording: a commit preview passes its pending tree, whose
             // split branch points are not committed yet.
+            HashSet<string> breakupSeats;
             HashSet<string> carriedAway = CollectCrewCarriedAwayBySplit(
-                rec, ownerTree ?? RecordingStore.FindCommittedTreeById(rec.TreeId), replacements);
+                rec, ownerTree ?? RecordingStore.FindCommittedTreeById(rec.TreeId), replacements,
+                out breakupSeats);
+
+            // Owner ruling Q6b: where each kerbal sat. The end snapshot names his last seat; a
+            // kerbal it does not list keeps his start seat. A seat a breakup piece took is not
+            // on this vessel any more, whatever an older end snapshot says, and a part KSP
+            // destroyed is a death for the kerbal in it.
+            Dictionary<string, uint> startSeats = ExtractCrewPartPids(rec.GhostVisualSnapshot, replacements);
+            Dictionary<string, uint> endSeats = ExtractCrewPartPids(rec.VesselSnapshot, replacements);
+            HashSet<uint> destroyedParts = CollectDestroyedPartPids(rec);
+            // The crew stock recovered with the vessel (read from the recovered vessel at the
+            // recovery, when the end snapshot that names the last seats was dropped): a kerbal
+            // stock recovered is Recovered whatever his start seat says.
+            HashSet<string> stockRecovered = null;
+            if (rec.TerminalStateValue == TerminalState.Recovered && rec.RecoveredCrewNames != null)
+            {
+                var recoveredList = new List<string>(rec.RecoveredCrewNames);
+                ReverseMapCrewNames(recoveredList, replacements, null);
+                stockRecovered = new HashSet<string>(recoveredList);
+            }
+            for (int i = 0; i < startingCrew.Count; i++)
+            {
+                string name = startingCrew[i];
+                uint endSeat;
+                if (endSeats.TryGetValue(name, out endSeat) && endSeat != 0
+                    && breakupSeats.Contains(CrewSeatKey(name, endSeat))
+                    && endCrewSet.Remove(name))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"PopulateCrewEndStates: crew='{name}' part={endSeat.ToString(CultureInfo.InvariantCulture)} " +
+                        $"recording='{rec.RecordingId}' was carried away by a breakup piece -- the end " +
+                        "snapshot predates the breakup, the piece's recording holds him");
+                }
+            }
+            // No end snapshot: the surviving-remnant inference keeps the crew aboard rather than
+            // reading "absent from a snapshot that does not exist" as lost.
+            HashSet<string> inferenceEndCrew = rec.VesselSnapshot != null ? endCrewSet : null;
 
             rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
             int aboardCount = 0, deadCount = 0, recoveredCount = 0, unknownCount = 0;
@@ -786,9 +975,28 @@ namespace Parsek
             for (int i = 0; i < startingCrew.Count; i++)
             {
                 string name = startingCrew[i];
+                uint seat;
+                if (!endSeats.TryGetValue(name, out seat) || !endCrewSet.Contains(name))
+                    startSeats.TryGetValue(name, out seat);
+                bool partDestroyed = seat != 0 && destroyedParts.Contains(seat);
+                if (partDestroyed && stockRecovered != null && stockRecovered.Contains(name))
+                {
+                    partDestroyed = false;
+                    ParsekLog.Verbose(Tag,
+                        $"PopulateCrewEndStates: crew='{name}' part={seat.ToString(CultureInfo.InvariantCulture)} " +
+                        $"recording='{rec.RecordingId}' start seat was destroyed, but stock recovered him " +
+                        "with the vessel (he left that part before it died)");
+                }
+                if (partDestroyed)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"PopulateCrewEndStates: crew='{name}' part={seat.ToString(CultureInfo.InvariantCulture)} " +
+                        $"recording='{rec.RecordingId}' sat in a part KSP destroyed");
+                }
                 var state = useGhostOnlyChainHandoffFallback
                     ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
-                    : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
+                    : InferCrewEndState(name, rec.TerminalStateValue, inferenceEndCrew,
+                        rec.TerminalRemnantSurvives, partDestroyed);
                 state = ApplySplitDeparture(name, state, endCrewSet, carriedAway, rec.RecordingId);
                 rec.CrewEndStates[name] = state;
 
@@ -883,7 +1091,9 @@ namespace Parsek
                 && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName))
                 && (!rec.TerminalStateValue.HasValue
                     || rec.TerminalStateValue == TerminalState.Boarded
-                    || rec.TerminalStateValue == TerminalState.Destroyed
+                    // A predicted crash takes the handoff's Dead like a confirmed one (owner
+                    // ruling Q6c); only a surviving remnant (Q6b) is decided per part.
+                    || (rec.TerminalStateValue == TerminalState.Destroyed && !rec.TerminalRemnantSurvives)
                     || rec.TerminalStateValue == TerminalState.Recovered);
         }
 

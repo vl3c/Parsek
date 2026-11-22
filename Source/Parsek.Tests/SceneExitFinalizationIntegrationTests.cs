@@ -3352,16 +3352,17 @@ namespace Parsek.Tests
         private const double ControlledChildRecoveredEccentricity = 0.01;
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingInsideAtmosphere_IsSubOrbital()
+        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingBelowDeletionAltitude_IsSubOrbital()
         {
-            // Mirror of the two cells above (operator ruling 2026-09-27): the same recovery
-            // returning Orbiting on an orbit whose periapsis is inside Kerbin's atmosphere
-            // (700000 * 0.95 - 600000 = 65 km) is a decaying flight. The recovery path applies
-            // the same periapsis floor as commit and spawn, so it ships SubOrbital with no
-            // terminal orbit rather than an Orbiting verdict the spawn would refuse.
+            // Mirror of the two cells above (operator ruling 2026-09-27, owner ruling Q3): the
+            // same recovery returning Orbiting on an orbit whose periapsis is under Kerbin's
+            // deletion altitude (700000 * 0.87 - 600000 = 9 km) is a decaying flight. The
+            // recovery path applies the same periapsis floor as commit and spawn, so it ships
+            // SubOrbital with no terminal orbit rather than an Orbiting verdict the spawn would
+            // refuse.
             IncompleteBallisticFinalizationResult result =
                 RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount,
-                    eccentricity: 0.05);
+                    eccentricity: 0.13);
 
             Assert.True(built);
             Assert.Equal(2, extrapolateCallCount);
@@ -3370,6 +3371,21 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Extrapolator]")
                 && l.Contains("downgraded to SubOrbital")
                 && l.Contains("parent-anchored-controlled-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingInsideAtmosphereAboveDeletionAltitude_StaysOrbiting()
+        {
+            // Owner ruling Q3: periapsis 700000 * 0.95 - 600000 = 65 km is inside the atmosphere
+            // but above the deletion altitude, so the recovered Orbiting verdict stands.
+            IncompleteBallisticFinalizationResult result =
+                RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount,
+                    eccentricity: 0.05);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.True(result.terminalOrbit.HasValue);
         }
 
         private IncompleteBallisticFinalizationResult RunParentAnchoredControlledChildRecovery(
@@ -3959,8 +3975,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
+        public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_KeepsPatchesUpToTheNodeAndPropagatesFromIt()
         {
+            // B12: the stock coast up to a pending maneuver node is real (nobody makes the
+            // burn), so the patch that ends at the node is kept and the tail continues from
+            // its end on the unburned conic; the live orbit is not resampled.
             var rec = new Recording
             {
                 RecordingId = "scene-exit-maneuver-discard",
@@ -4020,22 +4039,24 @@ namespace Parsek.Tests
                 },
                 (startState, extrapolationBodies) =>
                 {
-                    Assert.Equal("Kerbin", startState.bodyName);
+                    Assert.Equal("Mun", startState.bodyName);
+                    Assert.Equal(150.0, startState.ut, 6);
                     return new ExtrapolationResult
                     {
                         terminalState = TerminalState.Destroyed,
                         terminalUT = 240.0,
-                        terminalBodyName = "Kerbin",
+                        terminalBodyName = "Mun",
                         segments = new List<OrbitSegment>
                         {
                             new OrbitSegment
                             {
-                                bodyName = "Kerbin",
-                                startUT = 120.0,
+                                bodyName = "Mun",
+                                startUT = 150.0,
                                 endUT = 240.0,
-                                semiMajorAxis = 650000.0,
-                                eccentricity = 0.2,
-                                inclination = 1.0
+                                semiMajorAxis = 250000.0,
+                                eccentricity = 0.01,
+                                inclination = 2.0,
+                                isPredicted = true
                             }
                         }
                     };
@@ -4043,19 +4064,21 @@ namespace Parsek.Tests
                 out IncompleteBallisticFinalizationResult result);
 
             Assert.True(built);
-            Assert.True(sampledLiveState);
-            Assert.Equal(0, result.patchedSegmentCount);
+            Assert.False(sampledLiveState);
+            Assert.Equal(1, result.patchedSegmentCount);
             Assert.Equal(1, result.extrapolatedSegmentCount);
             Assert.Equal(TerminalState.Destroyed, result.terminalState);
             Assert.Equal(240.0, result.terminalUT);
-            Assert.Single(result.appendedOrbitSegments);
-            Assert.Equal("Kerbin", result.appendedOrbitSegments[0].bodyName);
-            Assert.DoesNotContain(result.appendedOrbitSegments, segment => segment.bodyName == "Mun");
+            Assert.Equal(2, result.appendedOrbitSegments.Count);
+            Assert.Equal(100.0, result.appendedOrbitSegments[0].startUT);
+            Assert.Equal(150.0, result.appendedOrbitSegments[0].endUT);
+            Assert.Equal(150.0, result.appendedOrbitSegments[1].startUT);
+            Assert.All(result.appendedOrbitSegments, segment => Assert.Equal("Mun", segment.bodyName));
             Assert.Contains(logLines, l =>
                 l.Contains("[Parsek][INFO][PatchedSnapshot]") &&
                 l.Contains("scene-exit-maneuver-discard") &&
                 l.Contains("maneuver-node boundary detected") &&
-                l.Contains("discarding stock patched-conic tail"));
+                l.Contains("keeping 1 stock patch(es) up to the node at UT=150.0"));
         }
 
         [Fact]
@@ -5017,7 +5040,8 @@ namespace Parsek.Tests
                     Name = "Kerbin",
                     GravitationalParameter = 3.5316e12,
                     Radius = 600000.0,
-                    AtmosphereDepth = 70000.0
+                    AtmosphereDepth = 70000.0,
+                    DeletionAltitude = OrbitClearanceTestValues.KerbinDeletionAltitude
                 }
             };
         }

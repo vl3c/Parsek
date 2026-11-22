@@ -134,7 +134,14 @@ required = [
   "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+  # The booster is still in the air under canopy at the SCENE-EXIT commit. Since owner ruling
+  # Q14 (2026-11-21; RE-PINNED, NOT FLOWN) leaving the flight there is stock's "mission will
+  # be lost" case: the booster ends Destroyed at the exit (probe booster, no crew; quiet ghost
+  # end, no spawn) and its slot stays open as a crash (`crashed`). Before Q14: its PREDICTED
+  # touchdown, `predictedTouchdown ... terminal=Landed predicted=True` (Q4 / Q4c); before Q4:
+  # `stableLeafUnconcluded ... terminal=SubOrbital`. Ordered before the re-fly's StartInvoke so
+  # the re-fly's own commit cannot meet it.
+  "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   # --- THE LATER ACCEPT ---
   "kscaction action=accept-contract target=offered-first applied=true manifestKind=\\S+ observedAfter=state=Active funds=\\S+ contract=[0-9a-f-]{36}",
   # --- ACT 2: the invoke's patch holds the accepted contract out of stock ---
@@ -155,6 +162,8 @@ forbidden = [
   "kscaction refused",
   "warptout refused",
   "Tombstoned [1-9][0-9]* career actions",
+  # The pre-Q14 open-slot verdict at the exit commit (owner ruling Q14).
+  "reason=predictedTouchdown [\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "Merge dominance check sess=\\S+ result=refuse",
 ]
 

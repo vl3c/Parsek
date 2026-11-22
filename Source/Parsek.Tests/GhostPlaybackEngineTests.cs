@@ -629,7 +629,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointOutsideOrbitSegment_ReturnsFalse()
+        public void ShouldUseOrbitTailPlayback_AfterLastFlatPointOutsideOrbitSegment_SlidesNotBridges()
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 158.971);
             traj.EndUTOverride = 1971.0;
@@ -642,7 +642,11 @@ namespace Parsek.Tests
                 isPredicted = true,
             });
 
-            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
+            // A 41 s gap is past the bridge cap: no back-propagated bridge, a slide instead
+            // (owner ruling L5), which the orbit-tail dispatch carries.
+            Assert.False(GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(traj, 161.482, out _, out _));
+            Assert.True(GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(traj, 161.482, out _, out _, out _));
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 161.482));
         }
 
         [Fact]
@@ -714,7 +718,10 @@ namespace Parsek.Tests
                 isPredicted = true,
             });
 
-            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 500.0));
+            Assert.False(GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(traj, 500.0, out _, out _));
+            // Owner ruling L5: the gap is not bridged, the ghost slides across it to the tail.
+            Assert.True(GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(traj, 500.0, out _, out _, out _));
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 500.0));
         }
 
         [Fact]
@@ -874,7 +881,9 @@ namespace Parsek.Tests
                 semiMajorAxis = 700000.0,
                 isPredicted = true,
             });
-            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(beyondCap, playbackUT));
+            Assert.False(GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(beyondCap, playbackUT, out _, out _));
+            Assert.False(GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(atCap, playbackUT, out _, out _, out _));
+            Assert.True(GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(beyondCap, playbackUT, out _, out _, out _));
         }
 
         [Fact]

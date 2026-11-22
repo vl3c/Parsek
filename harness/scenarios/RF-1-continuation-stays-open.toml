@@ -9,8 +9,12 @@ id = "RF-1-continuation-stays-open"
 #
 # This lane asserts the OPEN branch of the same contract, on the same craft, the same
 # fixture and the same mission, with ONE mission parameter moved: the booster is STILL
-# UNDER CANOPY when the scene exits. So the non-focus child's recording closes
-# `terminal=SubOrbital`, the classifier answers `stableLeafUnconcluded`, the slot is
+# UNDER CANOPY when the scene exits. Leaving the flight with a chuted craft still in the
+# air is stock's "mission will be lost" case (owner ruling Q14, 2026-11-21), so the
+# non-focus child's recording closes `terminal=Destroyed` at the exit (quiet ghost end, no
+# spawn) and the classifier answers `crashed` (before Q14: a PREDICTED chute touchdown,
+# `predictedTouchdown` ... `terminal=Landed`, rulings Q4 / Q4c; before Q4:
+# `stableLeafUnconcluded` ... `terminal=SubOrbital`), the slot is
 # promoted `CommittedProvisional`, the RewindPoint is NOT reaped - and then this lane does
 # the thing no lane in the suite has ever done: it RE-FLIES that slot, through an id it
 # reads at runtime off a RewindPoint KSP physics authored during this very flight.
@@ -297,7 +301,10 @@ siblingDownTimeoutSeconds = 240
 #    slot REJECTs `refly-gate`), so it witnesses the gate's positive branch.
 #  - D9 `unfinished-flights-stash` <- `IsUnfinishedFlight=true ...
 #    reason=stableLeafUnconcluded slot=1 ... terminal=SubOrbital` (1) + `CommitTree
-#    promoted ... slot=1 ... to CommittedProvisional` (1).
+#    promoted ... slot=1 ... to CommittedProvisional` (1). Since owner ruling Q4c
+#    (2026-11-21) the same two lines read `reason=predictedTouchdown ... terminal=Landed
+#    predicted=True`, and since owner ruling Q14 (2026-11-21, later) `reason=crashed
+#    terminal=Destroyed` (see GROUP 3); the claim rides the re-pinned pair.
 #  - D1 `auto-record-launch` <- `Recording started` (6). The pattern is generic; the
 #    cell comes from the lane shape (no StartRecording step before the mission,
 #    `autoRecordOnLaunch=true` in step 2). The run's Verbose `Auto-record started (first
@@ -344,9 +351,28 @@ count = { min = 2, max = 8 }
 #    focusSlot=0 terminal=SubOrbital side=child`   (Verbose, UnfinishedFlightClassifier)
 #   `CommitTree promoted rec=81e48efe... vessel='GS1 Auto-Chute Booster Probe' slot=1
 #    rp=rp_6881c324... reason=stableLeafUnconcluded to CommittedProvisional`  (Info)
-# `terminal=SubOrbital` is pinned inside the first pattern rather than left loose: it is
-# the classifier INPUT that makes the slot qualify, and a run whose booster closed
-# `Destroyed` or `Landed` instead would be a different experiment reading green.
+# RE-PINNED 2026-11-21 (owner rulings Q4 / Q4c, NOT FLOWN on the new tokens): a stage left
+# under open chutes no longer closes SubOrbital in mid-air. The booster is still inside the
+# physics bubble, loaded and under canopy at the scene-exit commit (stock has not deleted
+# it, so Q4d's Destroyed / quiet-end case does not apply), so the finalizer predicts its
+# chute descent to a touchdown: `terminal=Landed` (or `Splashed`) with `TerminalPredicted`,
+# and the classifier keeps the slot open with the new reason `predictedTouchdown`
+# (`IsUnfinishedFlight=true ... reason=predictedTouchdown slot=1 focusSlot=0
+# terminal=Landed predicted=True`), promoted `CommittedProvisional` as before. The terminal
+# stays pinned inside the pattern (Landed or Splashed, plus `predicted=True`): a run whose
+# booster closed `Destroyed`, or a flown Landed (`stableTerminal`), is a different
+# experiment. The two GS-1 flight-3 readings above are the pre-change history.
+# RE-PINNED AGAIN 2026-11-21 (owner ruling Q14, NOT FLOWN on the new tokens; the C# is
+# branch asr-fix-exit): the commit is a SCENE EXIT with the booster still in the air under
+# its six canopies (flight 2 measured `canopy=Deployed openChutes=6` at it). Leaving the
+# flight there is stock's "mission will be lost" case, so the booster now ends `Destroyed`
+# at the exit (probe booster: no crew to kill; quiet ghost end, no explosion, no spawn) and
+# its slot stays open as a crash: `IsUnfinishedFlight=true ... reason=crashed
+# terminal=Destroyed side=child` (the Destroyed branch carries no slot / focusSlot detail)
+# and `CommitTree promoted ... slot=1 ... reason=crashed to CommittedProvisional`. Both are
+# ORDERED before the re-fly's StartInvoke: RF-1's own re-fly fork closed `reason=crashed`
+# before Q4 too (header), so an unordered token could be met by the fork alone. The
+# Q4 / Q4c `predictedTouchdown` verdict before the re-fly is forbidden (the pre-Q14 build).
 #
 # GROUP 4 - THE REWINDPOINT SURVIVED. `ReapOrphanedRPs: reaped=0 remaining=1` is GS-1's
 # reap token with both numbers inverted, and it is the strongest single statement this
@@ -388,8 +414,8 @@ required  = ["Recording started",
              "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
              "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
              "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-             "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
-             "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+             "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+             "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
              "ReapOrphanedRPs: reaped=0 remaining=1",
              "listhandles kind=rewindpoints count=1 truncated=false",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
@@ -430,7 +456,9 @@ required  = ["Recording started",
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "reason=sealedTipClosed",
              "not re-deriving MergeState",
-             "Reaped rp="]
+             "Reaped rp=",
+             # The pre-Q14 open-slot verdict at the exit commit (owner ruling Q14).
+             "reason=predictedTouchdown [\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke"]
 
 # REPORT-ONLY (no `gating` key). The windows are what the seed and GS-1 flight 3 PREDICT.
 #
@@ -461,10 +489,19 @@ rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY. `terminalStates` is GS-1's row with the booster moved from `Landed` to
-# `SubOrbital`, which is this lane's whole subject expressed in save form: the pod lands
-# (Landed >= 1) and the booster does not (SubOrbital >= 1). A run that read `Landed = 2`
-# flew GS-1, not this.
+# `terminalStates`: until 2026-11-21 this was GS-1's row with the booster moved from
+# `Landed` to `SubOrbital` (pod Landed 1, booster SubOrbital 1). Since owner ruling Q4 the
+# booster's ending is its PREDICTED touchdown, so the save reads the pod's flown Landed plus
+# the booster's predicted Landed: `Landed >= 2`. What separates this lane from GS-1 is now
+# the open slot (the predictedTouchdown pair and the armed `rewindPoints = 1` above), not
+# the terminal kind. The re-fly's own fork is not pinned: it read `Destroyed` (crashed)
+# before the change and may now read a predicted Landed too if its chutes are open at the
+# merge; either keeps `Landed >= 2`. RE-PINNED, NOT FLOWN on the new window; the block keeps
+# its armed status.
+# RE-PINNED AGAIN for owner ruling Q14 (2026-11-21, NOT FLOWN): the booster ends Destroyed
+# at the scene exit, so the save reads the pod's flown Landed plus the booster's Destroyed
+# (`Landed >= 1, Destroyed >= 1`); the re-fly's fork (Destroyed before Q4, possibly Landed
+# now) is still not pinned and either keeps both floors.
 [expectations.recordings.structure]
 # ARMED 2026-09-29 (branch `arm-batch2`) off the reading `2026-09-29_1520` (PASS attempt 1, the
 # first current-code flight after the SaveGame-before-reload fix): trees 1, committedTrees 1,
@@ -474,7 +511,7 @@ gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 2 }
-terminalStates = { Landed = { min = 1 }, SubOrbital = { min = 1 } }
+terminalStates = { Landed = { min = 1 }, Destroyed = { min = 1 } }
 branchPoints   = { JointBreak = { min = 1 } }
 
 [runtime]

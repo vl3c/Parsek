@@ -1007,7 +1007,9 @@ namespace Parsek.InGameTests
                 atmosphereDepth: kerbin.atmosphereDepth,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: periAlt,
-                apoapsisAltitude: apoAlt);
+                apoapsisAltitude: apoAlt,
+                maxTerrainAltitude: OrbitClearance.ResolveMaxTerrainAltitude(kerbin),
+                deletionAltitude: OrbitClearance.ResolveDeletionAltitude(kerbin));
 
             // The whole point of the fix: the recording's stale segment alone would
             // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
@@ -1142,7 +1144,9 @@ namespace Parsek.InGameTests
                 atmosphereDepth: kerbin.atmosphereDepth,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: periAlt,
-                apoapsisAltitude: apoAlt);
+                apoapsisAltitude: apoAlt,
+                maxTerrainAltitude: OrbitClearance.ResolveMaxTerrainAltitude(kerbin),
+                deletionAltitude: OrbitClearance.ResolveDeletionAltitude(kerbin));
             InGameAssert.AreEqual(
                 TerminalOrbitSpawnSafetyAction.SpawnNow,
                 decision.Action,
@@ -3718,6 +3722,9 @@ namespace Parsek.InGameTests
                         && vessel.altitude < body.atmosphereDepth;
                 }
             }
+            public bool IsBelowDeletionAltitude =>
+                IsInAtmosphere
+                && vessel.altitude < OrbitClearance.ResolveDeletionAltitude(vessel.mainBody ?? vessel.orbit?.referenceBody);
             public bool IsPacked => vessel.packed;
             public bool IsLoaded => vessel.loaded;
             public double Latitude => vessel.latitude;
@@ -3742,6 +3749,7 @@ namespace Parsek.InGameTests
                     ReferenceBodyName = body.name,
                     ReferenceBodyHasAtmosphere = body.atmosphere,
                     ReferenceBodyAtmosphereDepth = body.atmosphereDepth,
+                    ReferenceBodyPeriapsisFloorAltitude = OrbitClearance.ResolvePeriapsisFloorAltitude(body),
                     Inclination = source?.inclination ?? 0.0,
                     Eccentricity = 1.0,
                     SemiMajorAxis = source?.semiMajorAxis ?? body.Radius + System.Math.Max(0.0, vessel.altitude),
@@ -12938,8 +12946,8 @@ namespace Parsek.InGameTests
         // ─────────────────────────────────────────────────────────────
 
         [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
-            Description = "Destroyed background cache trims predicted tail to the stock deletion UT")]
-        public void RecordingFinalization_BackgroundDestroyedCache_TrimsAtDeletionUT()
+            Description = "Destroyed background cache keeps the predicted fall past the stock deletion UT")]
+        public void RecordingFinalization_BackgroundDestroyedCache_KeepsFallPastDeletionUT()
         {
             uint vesselPid = 910001u;
             var tree = MakeRuntimeFinalizationTree(
@@ -12974,11 +12982,11 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
                 InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
-                InGameAssert.ApproxEqual(130.0, rec.ExplicitEndUT);
+                InGameAssert.ApproxEqual(180.0, rec.ExplicitEndUT);
                 InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
                 InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
                     "Appended cache tail must stay marked predicted");
-                InGameAssert.ApproxEqual(130.0, rec.OrbitSegments[0].endUT);
+                InGameAssert.ApproxEqual(180.0, rec.OrbitSegments[0].endUT);
                 AssertRuntimeFinalizationLog(
                     logLines,
                     "[Parsek][INFO][BgRecorder]",
@@ -27170,6 +27178,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27267,6 +27276,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => TerminalState.Destroyed;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27367,6 +27377,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue =>
             _terminalDestroyed ? TerminalState.Destroyed : (TerminalState?)null;
         public SurfacePosition? SurfacePos => null;
@@ -27418,6 +27429,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27501,6 +27513,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27569,6 +27582,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;

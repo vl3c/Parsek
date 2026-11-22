@@ -337,6 +337,10 @@ namespace Parsek
 
             if (committed.Count == 0) return;
 
+            // One live-vessel set per frame for the predicted-tail hide below (the cache is
+            // otherwise only invalidated by the FLIGHT and Tracking Station passes).
+            GhostPlaybackLogic.InvalidateVesselCache();
+
             var supersedes = CurrentRecordingSupersedes();
             var retirements = CurrentRecordingRewindRetirements();
 
@@ -546,6 +550,27 @@ namespace Parsek
                             kscGhosts.Remove(i);
                             loggedGhostSpawn.Remove(i);
                         }
+                        continue;
+                    }
+                    // Owner ruling Q1b, FLIGHT parity: past its last real sample the predicted
+                    // tail is not drawn while the vessel it predicts is still in the world.
+                    if (GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
+                            rec, currentUT, loopingLike: false, RealVesselExistsForRecordingDelegate))
+                    {
+                        if (kscGhosts.ContainsKey(i))
+                        {
+                            ParsekLog.Verbose("KSCGhost",
+                                $"Ghost #{i} \"{rec.VesselName}\" on its predicted tail beside the live vessel - destroying");
+                            DestroyKscGhost(kscGhosts[i], i);
+                            kscGhosts.Remove(i);
+                            loggedGhostSpawn.Remove(i);
+                        }
+                        ParsekLog.VerboseRateLimited(
+                            "PredictedTakeover",
+                            "ksc-predicted-tail-live-vessel-" + (rec.RecordingId ?? "idx-" + i),
+                            $"Predicted tail ghost hidden (KSC): rec={rec.RecordingId ?? "(null)"} " +
+                            $"vessel='{rec.VesselName}' pid={rec.VesselPersistentId} - the vessel it predicts is live",
+                            5.0);
                         continue;
                     }
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
@@ -1679,6 +1704,13 @@ namespace Parsek
         /// Filter recordings for KSC ghost display. Combines structural eligibility
         /// with the user's visibility toggle.
         /// </summary>
+        /// <summary>
+        /// The launch-gated real-vessel check the predicted-tail hide reads, cached so the
+        /// per-frame pass allocates no delegate.
+        /// </summary>
+        private static readonly Func<Recording, bool> RealVesselExistsForRecordingDelegate =
+            GhostPlaybackLogic.RealVesselExistsForRecording;
+
         internal static bool ShouldShowInKSC(Recording rec)
         {
             return ShouldShowInKSC(rec, CurrentRecordingSupersedes(), CurrentRecordingRewindRetirements());
@@ -1821,7 +1853,10 @@ namespace Parsek
                     targetUT,
                     TryLookupKscSurfacePose,
                     TryResolveRecordedKscAnchorFrame,
-                    out pose))
+                    out pose,
+                    TryLookupKscBodyState,
+                    TryLookupKscTailTurn,
+                    ResolveKscReplayOffsetSeconds(targetUT)))
             {
                 if (pose.FailureReason == "relative-anchor-unresolved")
                 {
@@ -1898,6 +1933,35 @@ namespace Parsek
             return positioned || hasValidPose;
         }
 
+        internal bool TryLookupKscTailTurn(
+            string bodyName,
+            double shiftSeconds,
+            out GhostPlaybackLogic.TailPlanetTurn turn)
+        {
+            return GhostPlaybackLogic.TryResolveTailPlanetTurn(LookupBody(bodyName), shiftSeconds, out turn);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ResolveKscReplayOffsetSeconds(double targetUT)
+        {
+            return Planetarium.fetch != null ? targetUT - Planetarium.GetUniversalTime() : 0.0;
+        }
+
+        internal bool TryLookupKscBodyState(
+            string bodyName,
+            out Vector3d bodyWorldPos,
+            out double gravParameter)
+        {
+            bodyWorldPos = Vector3d.zero;
+            gravParameter = 0.0;
+            CelestialBody body = LookupBody(bodyName);
+            if (body == null)
+                return false;
+            bodyWorldPos = body.position;
+            gravParameter = body.gravParameter;
+            return true;
+        }
+
         internal bool TryLookupKscSurfacePose(
             string bodyName,
             double latitude,
@@ -1917,6 +1981,18 @@ namespace Parsek
                 ? body.bodyTransform.rotation
                 : Quaternion.identity;
             return true;
+        }
+
+        /// <summary>
+        /// Distance from the KSC camera to a ghost, or NaN when there is no camera or ghost.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static double ResolveKscCameraDistance(GameObject ghost)
+        {
+            if (ghost == null) return double.NaN;
+            Camera cam = PlanetariumCamera.Camera;
+            if (cam == null) return double.NaN;
+            return (ghost.transform.position - cam.transform.position).magnitude;
         }
 
         /// <summary>
@@ -1964,13 +2040,27 @@ namespace Parsek
             if (state == null || state.ghost == null) return;
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
+            if (GhostPlaybackLogic.IsQuietDestroyedEnd(rec))
+            {
+                state.explosionFired = true;
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("KSCGhost", $"quiet-end-{recIdx}",
+                    $"Quiet end for ghost #{recIdx} \"{rec.VesselName}\": stock deleted it under its chutes; " +
+                    "the ghost came down and ends with no explosion");
+                return;
+            }
 
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            float warpRate = TimeWarp.CurrentRate;
+            double viewDistance = ResolveKscCameraDistance(state.ghost);
+            if (!GhostPlaybackLogic.ShouldPlayExplosionFx(
+                    warpRate, isWatched: false, viewDistanceMeters: viewDistance,
+                    maxVisibleMeters: DistanceThresholds.KscGhosts.CullDistanceMeters))
             {
                 state.explosionFired = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {WarpThresholds.FxSuppress}x");
+                    $"Explosion skipped for ghost #{recIdx} \"{rec.VesselName}\": out of view at warp > {WarpThresholds.FxSuppress}x " +
+                    $"(cameraDist={RenderingZoneManager.FormatDistanceForLog(viewDistance)}); ghost just ends");
                 return;
             }
 

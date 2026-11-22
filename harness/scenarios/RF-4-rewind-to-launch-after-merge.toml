@@ -272,9 +272,16 @@ count = { min = 2, max = 12 }
 # PRECONDITION rather than its subject: without a two-controllable split there is no
 # RewindPoint, and without an open slot there is nothing to re-fly. A lane whose subject is
 # what a rollback does must not be able to pass on a run that never made a fork.
+# RE-PINNED 2026-11-21 (owner rulings Q4 / Q4c): the booster, loaded and under canopy at the
+# scene-exit commit, now ends on its PREDICTED touchdown, so the open slot's promotion reads
+# `reason=predictedTouchdown` (RF-1's measured `stableLeafUnconcluded` is the pre-change form).
+# RE-PINNED AGAIN 2026-11-21 (owner ruling Q14, NOT FLOWN): the commit is a SCENE EXIT with the
+# booster still in the air, stock's "mission will be lost" case, so it ends Destroyed at the
+# exit and the promotion reads `reason=crashed`, ordered before the re-fly's StartInvoke so
+# the re-fly's own commit cannot meet it.
 required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",

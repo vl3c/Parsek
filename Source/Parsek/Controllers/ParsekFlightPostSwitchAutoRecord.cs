@@ -1087,6 +1087,28 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Owner ruling Q1b: a fresh post-switch recording starts on a vessel whose recording
+        /// in the live tree already ended in a prediction, so that prediction is dropped and
+        /// the ended recording stops at its last real sample instead of replaying a predicted
+        /// ending beside the real flight.
+        /// </summary>
+        private void DropPredictedEndingOfEndedRecording(Vessel v, double currentUT)
+        {
+            if (host.activeTree == null || v == null)
+                return;
+            string leafId = PredictedTakeoverLeaf.ResolveInTree(
+                host.activeTree, v.persistentId,
+                v.id != Guid.Empty ? v.id.ToString("N") : null);
+            if (string.IsNullOrEmpty(leafId)
+                || !host.activeTree.Recordings.TryGetValue(leafId, out Recording leaf))
+            {
+                return;
+            }
+            ParsekFlight.DropPredictedEndingForLiveTakeover(
+                leaf, v, currentUT, "PostSwitchAutoRecord.StartFreshRecording");
+        }
+
         private void SeedPostSwitchAlignmentWindow(Vessel v, ParsekFlight.PostSwitchAutoRecordState state)
         {
             if (v == null || state == null || host.recorder == null || !host.recorder.IsRecording)
@@ -1470,6 +1492,7 @@ namespace Parsek
                     return false;
 
                 case ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording:
+                    DropPredictedEndingOfEndedRecording(v, currentUT);
                     PrepareActiveTreeForFreshPostSwitchRecording(v, state, currentUT);
                     host.StartRecording(suppressStartScreenMessage: true);
                     if (host.IsRecording)

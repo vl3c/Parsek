@@ -87,6 +87,9 @@ namespace Parsek.Tests.SaveRoundTrip
                 rec.MergeState = MergeState.NotCommitted;
                 // The PRE_REFLY_ANCHOR node is written only for the snapshot's own session.
                 rec.PreReFlyAnchorSessionId = "anchor-session-" + rec.RecordingId;
+                // terminalPredicted is kept only beside a Destroyed ending.
+                if (rec.TerminalPredicted)
+                    rec.TerminalStateValue = TerminalState.Destroyed;
                 CanonicalizeRouteProof(rec);
             });
 

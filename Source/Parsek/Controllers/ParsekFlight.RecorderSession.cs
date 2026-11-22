@@ -392,7 +392,13 @@ namespace Parsek
             activeTree.ActiveRecordingId = backgroundRecordingId;
             Recording promotedRec;
             if (activeTree.Recordings.TryGetValue(backgroundRecordingId, out promotedRec))
+            {
                 ClearFlushedDestructionFlagForResume(promotedRec, "PromoteRecordingFromBackground");
+                // Owner ruling Q1b: the player flies the vessel again, so a predicted ending
+                // its recording kept is dropped before the recorder appends the real flight.
+                DropPredictedEndingForLiveTakeover(
+                    promotedRec, newVessel, SafeCurrentUtForResumeAnchor(), "PromoteRecordingFromBackground");
+            }
 
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
@@ -477,7 +483,15 @@ namespace Parsek
             // UpdateOnRails tick could advance its end UT past the save.
             HashSet<uint> livePids = TryBuildLiveVesselPidSet();
             if (livePids != null && activeTree.BackgroundMap.Count > 0)
+            {
                 backgroundRecorder.CloseMissingBackgroundMembersAtLoad(livePids.Contains, reason);
+                // The finalization caches are in-memory only, so a restored tree's members
+                // start with none: rebuild each live member's from its vessel now, before any
+                // of them can end (an on-rails member gets no periodic refresh until it opens
+                // an orbit segment).
+                backgroundRecorder.RebuildFinalizationCachesAfterRestore(
+                    FlightRecorder.FindVesselByPid, reason);
+            }
         }
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)

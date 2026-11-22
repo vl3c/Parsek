@@ -545,6 +545,17 @@ namespace Parsek
                 return true;
             }
 
+            // A predicted chute touchdown (or a predicted final orbit, Q8) whose craft stock held
+            // in this timeline and then deleted (Vessel.CheckKill or a crash on rails: no
+            // terminal event reaches the committed recording):
+            // never spawned or re-spawned (owner rulings P-STOCK / Q4d). After a rewind to
+            // before the flight the stamp is cleared and the replay spawns it as usual.
+            if (PredictedTouchdownStockFate.ShouldRefuseSpawnAsStockDeleted(rec, out string stockDeletedReason))
+            {
+                reason = stockDeletedReason;
+                return true;
+            }
+
             // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
             // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
             // This catches cases where TerminalState is null/Landed but the snapshot was

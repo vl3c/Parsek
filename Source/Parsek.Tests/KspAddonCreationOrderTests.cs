@@ -26,6 +26,11 @@ namespace Parsek.Tests
             "Instantly once Parsek.ParsekHarmony",
             "SpaceCentre Parsek.ParsekKSC",
             "TrackingStation Parsek.ParsekTrackingStation",
+            // The predicted-crash reconciler host subscribes to no GameEvents and acts only
+            // seconds after FlightGlobals is ready, so its place after the scene controllers
+            // cannot matter (it reads ParsekFlight.Instance in Update, after its Awake). FLIGHT
+            // only: FlightGlobals.ready (and stock's CheckKill) needs an active vessel.
+            "Flight Parsek.PredictedCrashReconcilerFlight",
             "Instantly once Parsek.SaveFileLoadIntentAddon",
             "Instantly once Parsek.WarpToTimeConsumer",
             "EveryScene Parsek.GuiTreeRecorderPump",

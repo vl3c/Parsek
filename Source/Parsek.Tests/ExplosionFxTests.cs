@@ -151,6 +151,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_PredictedTailPastLastPoint_FollowsTheTail()
+        {
+            // L4: debris that lost a part and then was extrapolated to the ground must not explode
+            // at that first lost part and skip the rest of its tail.
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 300.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0, endUT = 300.0, bodyName = "Kerbin",
+                semiMajorAxis = 650000.0, eccentricity = 0.1, isPredicted = true
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.5,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+
+            Assert.True(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+            Assert.False(GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT));
+            Assert.True(double.IsNaN(explosionUT));
+            Assert.False(GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, 100.0));
+            Assert.True(GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, 300.0));
+        }
+
+        [Fact]
+        public void HasPredictedTailPastLastPoint_RecordedSegmentOnly_False()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 20.0 });
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 20.0, endUT = 300.0, isPredicted = false });
+            Assert.False(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+            rec.OrbitSegments[0] = new OrbitSegment { startUT = 5.0, endUT = 15.0, isPredicted = true };
+            Assert.False(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+        }
+
+        [Fact]
         public void TryGetEarlyDestroyedDebrisExplosionUT_OnlyEndDestroyedEvent_ReturnsFalse()
         {
             var rec = new Recording
@@ -514,6 +558,62 @@ namespace Parsek.Tests
         public void ShouldSuppressVisualFx_Above10x_Suppresses()
         {
             Assert.True(GhostPlaybackLogic.ShouldSuppressVisualFx(50f));
+        }
+
+        // --- Owner ruling L2: the crash explosion plays at any warp when the ghost is in view ---
+
+        [Theory]
+        [InlineData(1f, 1.0e9, true)]        // low warp: always plays, as before
+        [InlineData(10f, 1.0e9, true)]
+        [InlineData(50f, 1000.0, true)]      // high warp, close: plays
+        [InlineData(1000f, 49000.0, true)]
+        [InlineData(1000f, 50000.0, false)]  // high warp, past the mesh cutoff: just ends
+        [InlineData(100000f, 2.0e6, false)]
+        public void ShouldPlayExplosionFx_HighWarp_PlaysOnlyInView(
+            float warpRate, double viewDistance, bool expected)
+        {
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldPlayExplosionFx(
+                warpRate, isWatched: false, viewDistanceMeters: viewDistance,
+                maxVisibleMeters: GhostPlaybackLogic.ExplosionInViewMaxMeters));
+        }
+
+        [Fact]
+        public void ShouldPlayExplosionFx_HighWarp_WatchedGhost_Plays()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldPlayExplosionFx(
+                1000f, isWatched: true, viewDistanceMeters: double.NaN,
+                maxVisibleMeters: GhostPlaybackLogic.ExplosionInViewMaxMeters));
+        }
+
+        [Fact]
+        public void ShouldPlayExplosionFx_HighWarp_UnknownDistance_Ends()
+        {
+            Assert.False(GhostPlaybackLogic.ShouldPlayExplosionFx(
+                1000f, isWatched: false, viewDistanceMeters: double.NaN,
+                maxVisibleMeters: GhostPlaybackLogic.ExplosionInViewMaxMeters));
+            Assert.False(GhostPlaybackLogic.ShouldPlayExplosionFx(
+                1000f, isWatched: false, viewDistanceMeters: double.PositiveInfinity,
+                maxVisibleMeters: GhostPlaybackLogic.ExplosionInViewMaxMeters));
+        }
+
+        [Fact]
+        public void ExplosionInViewMaxMeters_IsTheMeshLodCutoff()
+        {
+            // An explosion is "in view" exactly where an unwatched ghost mesh still draws.
+            Assert.Equal(DistanceThresholds.GhostFlight.LoopSimplifiedMeters,
+                GhostPlaybackLogic.ExplosionInViewMaxMeters);
+        }
+
+        [Fact]
+        public void ResolveExplosionViewDistance_PrefersTheRenderDistance()
+        {
+            var state = new GhostPlaybackState { lastDistance = 9000.0, lastRenderDistance = 1200.0 };
+            Assert.Equal(1200.0, GhostPlaybackLogic.ResolveExplosionViewDistance(state));
+
+            state.lastRenderDistance = double.NaN;
+            Assert.Equal(9000.0, GhostPlaybackLogic.ResolveExplosionViewDistance(state));
+
+            Assert.True(double.IsNaN(GhostPlaybackLogic.ResolveExplosionViewDistance(null)));
         }
     }
 }

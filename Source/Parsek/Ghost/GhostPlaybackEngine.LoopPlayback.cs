@@ -1392,6 +1392,18 @@ namespace Parsek
                 positioner.InterpolateAndPositionRelative(
                     index, traj, state, loopUT, suppressFx, target);
             }
+            else if (ShouldPositionLoopFromOrbitTail(traj, loopUT))
+            {
+                // Past the last recorded point a loop cycle rides the same orbit tail the
+                // non-loop ghost does, including its continuity blend off the last point, so the
+                // tail start no longer teleports every cycle.
+                ParsekLog.VerboseRateLimited("Engine", "loop-orbit-tail-" + index,
+                    "Loop ghost #" + index + " \"" + (traj.VesselName ?? "?") + "\" follows its orbit tail at loopUT="
+                        + loopUT.ToString("F1", CultureInfo.InvariantCulture)
+                        + " cycle=" + (state != null ? state.loopCycleIndex : -1).ToString(CultureInfo.InvariantCulture),
+                    5.0);
+                positioner.PositionFromOrbit(index, traj, state, loopUT);
+            }
             else
             {
                 positioner.PositionLoop(index, traj, state, loopUT, suppressFx);

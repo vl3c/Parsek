@@ -28358,6 +28358,37 @@ def kxrw_last_pair_hold_applies(params: "KxrwParams") -> bool:
             and hold == hold and hold > 0.0)
 
 
+def kxrw_upper_burn_step(state: "KxrwState", snapshot: TelemetrySnapshot,
+                         burn_seconds: float) -> Tuple["KxrwState", List[Action]]:
+    """One frame of the ASR-1 upper-stage burn inside COAST-EXIT. Stamps the start
+    on the first finite UT (an unreadable click frame delays the cut rather than
+    skipping the burn; `flightMaxSeconds` bounds a clock that never reads), keeps the
+    peak available thrust and throttle readback, and on the frame the burn has run
+    `burn_seconds` of game time cuts the throttle and releases the autopilot."""
+    st = state
+    if not _is_finite(st.upper_burn_start_ut) and _is_finite(snapshot.ut):
+        st = replace(st, upper_burn_start_ut=snapshot.ut)
+    thrust = getattr(snapshot, "available_thrust", float("nan"))
+    if _is_finite(thrust) and (not _is_finite(st.upper_burn_peak_thrust)
+                               or thrust > st.upper_burn_peak_thrust):
+        st = replace(st, upper_burn_peak_thrust=thrust)
+    throttle = getattr(snapshot, "throttle", float("nan"))
+    if _is_finite(throttle) and (not _is_finite(st.upper_burn_peak_throttle)
+                                 or throttle > st.upper_burn_peak_throttle):
+        st = replace(st, upper_burn_peak_throttle=throttle)
+    if (_is_finite(snapshot.ut) and _is_finite(st.upper_burn_start_ut)
+            and snapshot.ut - st.upper_burn_start_ut >= burn_seconds):
+        return (replace(st, upper_burn_done=True, upper_burn_end_ut=snapshot.ut),
+                [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+    return st, []
+
+
+# The ASR-1 row's floors: an engine the stage click lit reports kN of available
+# thrust (the Poodle ~250 kN), and a throttle that went up reads near 1.
+KXRW_UPPER_BURN_MIN_THRUST_N = 1000.0
+KXRW_UPPER_BURN_MIN_THROTTLE = 0.5
+
+
 def kxrw_coast_exit_gate_met(altitude: float, situation: str,
                              min_altitude: float,
                              accepted: Tuple[str, ...]) -> bool:
@@ -28516,6 +28547,15 @@ class KxrwParams:
     # got there - a core discarded too low, an ascent that under-performed - which
     # is a MISSION give-up rather than a Parsek finding, and it says so by name.
     coast_exit_frames: int = 600
+    # THE UPPER-STAGE BURN (ASR-1 / ASR-5; opt-in, 0 = off). Game seconds the top
+    # stack burns its Poodle at full throttle, pointed prograde, at the START of
+    # COAST-EXIT, before the gate is read. Its only job is DISTANCE: without it the
+    # discarded core and the unpowered stack ride one ballistic arc a few metres
+    # apart, so the probe-cored core never leaves the physics bubble. A 10 s burn
+    # (~170 m/s on the ~14.5 t stack) carries the stack past the 2.25 km load range
+    # within seconds of the cut while the arc stays SUB_ORBITAL. 0 keeps COAST-EXIT
+    # byte-identical to RF-9's (nothing staged, nothing throttled).
+    coast_exit_upper_burn_seconds: float = 0.0
 
     # --- the IMPACT PROFILE (opt-in; see the section header) ----------------
     # FALSE is the default and it is load-bearing exactly as `part_sweep_steps`'
@@ -28720,6 +28760,8 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
             str(x) for x in params.get("coastExitSituations", ("SUB_ORBITAL",))),
         coast_exit_debounce_frames=int(params.get("coastExitDebounceFrames", 2)),
         coast_exit_frames=int(params.get("coastExitFrames", 600)),
+        coast_exit_upper_burn_seconds=float(
+            params.get("coastExitUpperBurnSeconds", 0.0)),
         # `bool(...)` rather than a bare read: hlib's schema check already rejects
         # a non-bool at ADMIT, and this is the machine's own fail-safe for a params
         # dict that reached it unvalidated (the sweep vocabulary's shape exactly).
@@ -28887,6 +28929,15 @@ class KxrwState:
     coast_exit_ut: float = float("nan")
     coast_exit_altitude: float = float("nan")
     coast_exit_situation: str = ""
+    # The upper-stage burn's evidence (inert unless `coast_exit_upper_burn_seconds`
+    # > 0): when it started and ended (game time), the peak AVAILABLE thrust seen
+    # during it (an engine the stage click lit) and the peak throttle readback
+    # (the throttle really went up). Commanded is not observed: the row reads these.
+    upper_burn_start_ut: float = float("nan")
+    upper_burn_end_ut: float = float("nan")
+    upper_burn_done: bool = False
+    upper_burn_peak_thrust: float = float("nan")
+    upper_burn_peak_throttle: float = float("nan")
 
     # --- the seam bridge ----------------------------------------------------
     tree_probe: int = 0
@@ -29799,6 +29850,14 @@ def kxrw_decide(state: KxrwState,
             # gate above - reading it here keeps that exclusion in one place rather
             # than making the sweep helper answer a question that is not its own.
             if p.coast_exit_profile:
+                if p.coast_exit_upper_burn_seconds > 0.0:
+                    # ASR-1: light the next stage (istg 1, the Poodle - the core's
+                    # decoupler was istg 2) and burn prograde; COAST-EXIT times it.
+                    return (_kxrw_enter(replace(state, coast_exit_streak=0),
+                                        KXRW_COAST_EXIT, snapshot.ut),
+                            [Action(ACTION_AP_POINT_PROGRADE),
+                             Action(ACTION_ACTIVATE_STAGE),
+                             Action(ACTION_SET_THROTTLE, 1.0)])
                 return (_kxrw_enter(replace(state, coast_exit_streak=0),
                                     KXRW_COAST_EXIT, snapshot.ut),
                         [])
@@ -29844,6 +29903,13 @@ def kxrw_decide(state: KxrwState,
     # waited" is a COMMANDED reading of that; the debounced altitude + situation
     # pair is an OBSERVED one, and B1's inert chute is what commanded readings cost.
     if state.phase == KXRW_COAST_EXIT:
+        if p.coast_exit_upper_burn_seconds > 0.0 and not state.upper_burn_done:
+            burn_state, burn_actions = kxrw_upper_burn_step(
+                state, snapshot, p.coast_exit_upper_burn_seconds)
+            if not burn_state.upper_burn_done:
+                return burn_state, burn_actions
+            # The cut frame reads no gate: the stack is still accelerating on it.
+            return replace(burn_state, coast_exit_streak=0), burn_actions
         in_gate = kxrw_coast_exit_gate_met(
             snapshot.altitude, snapshot.situation,
             p.coast_exit_min_altitude, p.coast_exit_situations)
@@ -31306,6 +31372,28 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
                                if _is_finite(getattr(state, "core_discard_ut",
                                                      float("nan"))) else None),
              "frameCap": params.coast_exit_frames})
+        if float(getattr(params, "coast_exit_upper_burn_seconds", 0.0) or 0.0) > 0.0:
+            # ASR-1: the stack really burned away from the core. OBSERVED, not
+            # commanded: an engine lit (available thrust) and the throttle read up.
+            peak_t = getattr(state, "upper_burn_peak_thrust", float("nan"))
+            peak_q = getattr(state, "upper_burn_peak_throttle", float("nan"))
+            burned = bool(getattr(state, "upper_burn_done", False)
+                          and _is_finite(peak_t)
+                          and peak_t >= KXRW_UPPER_BURN_MIN_THRUST_N
+                          and _is_finite(peak_q)
+                          and peak_q >= KXRW_UPPER_BURN_MIN_THROTTLE)
+            start = getattr(state, "upper_burn_start_ut", float("nan"))
+            end = getattr(state, "upper_burn_end_ut", float("nan"))
+            upper = AssertionOutcome(
+                "upperStageBurned", burned,
+                peak_t if _is_finite(peak_t) else None,
+                {"burnSeconds": params.coast_exit_upper_burn_seconds,
+                 "startUT": start if _is_finite(start) else None,
+                 "endUT": end if _is_finite(end) else None,
+                 "peakThrottle": peak_q if _is_finite(peak_q) else None,
+                 "minThrustN": KXRW_UPPER_BURN_MIN_THRUST_N,
+                 "minThrottle": KXRW_UPPER_BURN_MIN_THROTTLE})
+            return [core, boosters, span_row, coast_exit, upper]
         return [core, boosters, span_row, coast_exit]
 
     tree_id = getattr(state, "tree_id", "") or ""

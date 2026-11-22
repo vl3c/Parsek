@@ -3227,8 +3227,22 @@ namespace Parsek.Display
                     List<OrbitSegment> memberCoalesced = chainRunMemberSegsScratch[mi];
                     if (memberCoalesced == null || memberCoalesced.Count == 0) continue;
                     List<int> arcIndices = forwardArcIndexScratch;
+                    // A member with no map ProtoVessel that can never get one (a crash or landing
+                    // ending) has no stock line for the arc its head sits on: draw it here.
+                    bool includeCurrentArc = ShouldForwardDrawCurrentArc(
+                        GhostMapPresence.GetGhostVesselPidForRecording(member.index),
+                        GhostMapPresence.ResolveMapPresenceEligibilityTerminal(member.rec, out _));
                     SelectForwardArcSegmentIndices(
-                        memberCoalesced, winStart, winStop, headUT, surface, arcIndices);
+                        memberCoalesced, winStart, winStop, headUT, surface, arcIndices,
+                        includeCurrentArc);
+                    if (includeCurrentArc && arcIndices.Count > 0)
+                        ParsekLog.VerboseRateLimited(DriverTag, "fwd-current-arc." + member.rec.RecordingId,
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Forward pass draws the current arc (no stock line: no map vessel, terminal={0}): " +
+                                "rec={1} headUT={2:F1} arcs={3}",
+                                member.rec.TerminalStateValue?.ToString() ?? "none",
+                                member.rec.RecordingId, headUT, arcIndices.Count),
+                            5.0);
                     if (arcIndices.Count > 0)
                     {
                         // Key on the ACTUAL selected segment set (+ re-aim window), NOT on

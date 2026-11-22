@@ -22,8 +22,10 @@ namespace Parsek.Tests
     ///      fields (only `BackgroundVesselState` for loaded mode does).
     ///   2. `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`, so the
     ///      env-classification path never runs while on rails.
-    ///   3. Packed/on-rails closes may emit only OrbitalCheckpoint/ExoBallistic
-    ///      TrackSections, never per-orbit Atmospheric/ExoBallistic toggles.
+    ///   3. Packed/on-rails closes may emit only OrbitalCheckpoint TrackSections carrying
+    ///      ONE label per on-rails span (ExoBallistic, or Atmospheric for a span packed below
+    ///      the atmosphere top, fixed until an SOI change), never per-orbit
+    ///      Atmospheric/ExoBallistic toggles (BackgroundOnRailsAtmosphereConicTests).
     ///   4. Same-class adjacent checkpoint sections are not splittable boundaries,
     ///      including ExoBallistic SOI transitions that #547 keeps cohesive.
     ///

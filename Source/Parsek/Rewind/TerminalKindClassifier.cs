@@ -42,6 +42,11 @@ namespace Parsek
                     return TerminalKind.Crashed;
                 case TerminalState.Landed:
                 case TerminalState.Splashed:
+                    // A touchdown Parsek predicted (a chute descent) is still in flight: the
+                    // slot stays re-flyable (owner ruling Q4c).
+                    if (rec.TerminalPredicted)
+                        return TerminalKind.InFlight;
+                    return TerminalKind.Landed;
                 case TerminalState.Recovered:
                 case TerminalState.Docked:
                 case TerminalState.Boarded:

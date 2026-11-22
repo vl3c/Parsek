@@ -160,6 +160,24 @@ namespace Parsek
         /// <see cref="Recording.VesselDestroyed"/>, so reaching it for a pocket would
         /// undo both halves of <see cref="ApplyDisassembledTerminal"/>'s contract.
         /// </summary>
+        /// <summary>
+        /// A confirmed destruction sealed from the finalization cache sets
+        /// <see cref="Recording.VesselDestroyed"/> like the live fallback
+        /// (<see cref="ApplyTerminalDestruction"/>) does, so the two endings carry the same
+        /// flag. Returns true when the flag was set.
+        /// </summary>
+        internal static bool MarkConfirmedDestroyedAfterCacheApply(bool cacheApplied, Recording rec)
+        {
+            if (!cacheApplied || rec == null || rec.TerminalStateValue != TerminalState.Destroyed)
+                return false;
+            if (!rec.VesselDestroyed)
+            {
+                rec.VesselDestroyed = true;
+                rec.MarkFilesDirty();
+            }
+            return true;
+        }
+
         internal static bool ShouldApplyTerminalDestructionOnDeferredDestruction(
             bool isPhantomCrash,
             bool disassembled,
@@ -486,7 +504,14 @@ namespace Parsek
             if (TryHandleDeferredDestructionAbort(
                     pending.vesselPid,
                     destructionOutcome,
-                    pid => backgroundRecorder?.OnVesselBackgrounded(pid),
+                    pid =>
+                    {
+                        // The vessel is alive (only unloaded): take back a Destroyed the
+                        // destroy refresh stamped eagerly before the recorder re-attaches.
+                        backgroundRecorder?.ClearEagerDestroyStampAfterFalseDestroy(
+                            pid, pending.recordingId);
+                        backgroundRecorder?.OnVesselBackgrounded(pid);
+                    },
                     Log,
                     message => ParsekLog.Info("Flight", message)))
             {
@@ -555,6 +580,7 @@ namespace Parsek
                     requireDestroyedTerminal: true,
                     confirmedDestroyed: true,
                     out cacheResult);
+                MarkConfirmedDestroyedAfterCacheApply(cacheApplied, rec);
             }
 
             if (ShouldApplyTerminalDestructionOnDeferredDestruction(

@@ -80,5 +80,14 @@ namespace Parsek
         public double? TerrainHeightAtEnd;
 
         public List<OrbitSegment> PredictedSegments = new List<OrbitSegment>();
+
+        // A predicted chute descent (owner ruling Q4): body-fixed points from the refresh to
+        // touchdown, appended by the applier as a TrackSectionSource.Predicted section. Empty
+        // for every other ending. In memory only, like the rest of the cache.
+        public List<TrajectoryPoint> PredictedDescentPoints = new List<TrajectoryPoint>();
+
+        // A chute touchdown stock deleted the vessel ahead of: its Destroyed ending replays the
+        // descent and ends without the explosion (Recording.QuietDestroyedEnd).
+        public bool QuietEnd;
     }
 }

@@ -51,9 +51,9 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        // FLYING and SUB_ORBITAL are not here: a bound coast in either whose periapsis clears
+        // the cutoff is a stable orbit (AbandonedStageAccuracyTests.ShouldExtrapolate_*).
         [Theory]
-        [InlineData((int)Vessel.Situations.FLYING)]
-        [InlineData((int)Vessel.Situations.SUB_ORBITAL)]
         [InlineData((int)Vessel.Situations.ESCAPING)]
         public void ShouldExtrapolate_UnstableFlightStates_ReturnTrue(int situationValue)
         {
@@ -197,15 +197,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_SuborbitalKerbin_TerminatesAtAtmoEntry()
+        public void Extrapolate_SuborbitalKerbin_TerminatesAtSurfaceImpact()
         {
+            // Owner ruling Q2: a fall ends at ground / water impact, not at the atmosphere top.
             var bodies = new Dictionary<string, ExtrapolationBody>
             {
                 ["Kerbin"] = MakeBody(
                     "Kerbin",
                     KerbinGravParameter,
                     KerbinRadius,
-                    atmosphereDepth: KerbinAtmosphereDepth)
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    terrainAltitude: (double latitude, double longitude, out double altitude) =>
+                    {
+                        altitude = 0.0;
+                        return true;
+                    })
             };
 
             ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
@@ -224,7 +230,7 @@ namespace Parsek.Tests
             Assert.Equal(result.terminalUT, result.segments[0].endUT, 6);
 
             double terminalAltitude = Altitude(result.terminalPosition, KerbinRadius);
-            Assert.InRange(terminalAltitude, KerbinAtmosphereDepth - 100.0, KerbinAtmosphereDepth + 100.0);
+            Assert.InRange(terminalAltitude, -1.0, 100.0);
             Assert.Equal(ExtrapolationFailureReason.None, result.failureReason);
         }
 
@@ -461,7 +467,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_StableOrbit_HitsHorizonCap()
+        public void Extrapolate_StableOrbit_EndsOnItsStableConicAtOnce()
         {
             double circularAltitude = 100000.0;
             double radius = KerbinRadius + circularAltitude;
@@ -483,7 +489,9 @@ namespace Parsek.Tests
                 bodies,
                 limits);
 
-            double expectedTerminalUT = limits.maxHorizonYears * 365.0 * 24.0 * 60.0 * 60.0;
+            // Owner ruling Q8: a stable start is its own final orbit; the tail ends one settle
+            // span in, not at the horizon.
+            double expectedTerminalUT = BallisticExtrapolator.FinalConicSettleSeconds;
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
             Assert.Single(result.segments);
             Assert.Equal(expectedTerminalUT, result.terminalUT, 4);
@@ -492,7 +500,8 @@ namespace Parsek.Tests
             Assert.True(result.segments[0].isPredicted);
             Assert.InRange(Altitude(result.terminalPosition, KerbinRadius), circularAltitude - 5.0, circularAltitude + 5.0);
             Assert.Contains(logLines, l => l.Contains("[Extrapolator]") && l.Contains("Start: body=Kerbin"));
-            Assert.Contains(logLines, l => l.Contains("Terminal reason=horizon-cap"));
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=" + BallisticExtrapolator.TerminalReasonStableConic));
+            Assert.DoesNotContain(logLines, l => l.Contains("Terminal reason=horizon-cap"));
         }
 
         [Fact]
@@ -576,13 +585,21 @@ namespace Parsek.Tests
                     soiSampleStep = 60.0
                 });
 
-            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            // The Star-relative conic is open and the Star has no parent: nothing can change it,
+            // so the tail ends on it at once (owner ruling Q8) as an escape (SubOrbital on an
+            // open conic, spawned on its path per Q10), not at the horizon.
+            Assert.Equal(TerminalState.SubOrbital, result.terminalState);
+            Assert.True(result.endedOnFinalConic);
             Assert.Equal("Star", result.terminalBodyName);
             Assert.Equal(2, result.segments.Count);
             Assert.Equal("Home", result.segments[0].bodyName);
             Assert.Equal("Star", result.segments[1].bodyName);
+            Assert.True(result.segments[1].eccentricity > 1.0);
             Assert.Equal(result.segments[0].endUT, result.segments[1].startUT, 6);
+            Assert.Equal(result.segments[0].endUT, result.finalConicStartUT, 6);
+            Assert.Equal(result.segments[1].endUT, result.terminalUT, 6);
             Assert.True(result.segments[0].endUT < result.terminalUT);
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=" + BallisticExtrapolator.TerminalReasonFinalEscape));
         }
 
         [Fact]

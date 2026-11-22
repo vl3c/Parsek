@@ -157,7 +157,8 @@ namespace Parsek
                     out string targetRecordingId,
                     out CommittedSpawnedVesselRestoreAction action,
                     activeVesselGuid,
-                    liveUT))
+                    liveUT,
+                    ReadTakeoverCoastEvidence(activeVessel, liveUT)))
             {
                 // A match refused only because its recording runs past the live clock (a
                 // stock revert or a load put the vessel back before its committed future):
@@ -201,7 +202,20 @@ namespace Parsek
                 activeTree.Recordings.TryGetValue(targetRecordingId, out Recording targetRec);
                 ResumedPartCoverage coverage = ResumedSpawnPartCoverage.Evaluate(
                     targetRec, CollectLivePartPersistentIds(activeVessel));
-                if (coverage.Covered)
+                if (coverage.Covered
+                    && IsDebrisPastLifetimeAtTakeover(activeTree, targetRec, liveUT))
+                {
+                    // A debris recording past its 60 s limit would end the instant it resumed
+                    // (CheckActiveDebrisLifetime) and re-predict the fall; flown again, the
+                    // piece records as a plain continuation segment instead, as a Fly /
+                    // Switch-To consume makes it (owner rulings Q13, Q1b).
+                    ParsekLog.Info("Flight",
+                        $"TryRestoreCommittedTreeForSpawnedActiveVessel: rec={targetRecordingId} " +
+                        $"pid={activeVesselPid} is debris past its lifetime; continuing in a new segment");
+                    continuedInSegment = TryContinueRestoredSpawnInNewSegment(
+                        targetRecordingId, activeVessel, action, coverage, out restored);
+                }
+                else if (coverage.Covered)
                 {
                     ParsekLog.Verbose("Flight",
                         $"TryRestoreCommittedTreeForSpawnedActiveVessel: rec={targetRecordingId} " +
@@ -255,6 +269,20 @@ namespace Parsek
             StartCoroutine(DeferredResumeScreenMessage());
             RecorderStateLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
+        }
+
+        /// <summary>
+        /// Pure: is <paramref name="target"/> a debris recording whose 60 s lifetime (read from
+        /// the tree, <see cref="BackgroundRecorder.TryResolveDebrisExpiryUT"/>) is over at
+        /// <paramref name="liveUT"/>? A non-finite clock or an unresolved lifetime reads false.
+        /// </summary>
+        internal static bool IsDebrisPastLifetimeAtTakeover(RecordingTree tree, Recording target, double liveUT)
+        {
+            if (target == null || !target.IsDebris || double.IsNaN(liveUT) || double.IsInfinity(liveUT))
+                return false;
+            return BackgroundRecorder.TryResolveDebrisExpiryUT(
+                    target, tree, out double expiryUT, out _, out _)
+                && liveUT >= expiryUT;
         }
 
         private System.Collections.IEnumerator DeferredResumeScreenMessage()
@@ -388,7 +416,13 @@ namespace Parsek
             Recording resumedRec;
             if (activeTree.Recordings != null
                 && activeTree.Recordings.TryGetValue(recordingId, out resumedRec))
+            {
                 ClearFlushedDestructionFlagForResume(resumedRec, "ResumeCommittedActiveRecording");
+                // Owner ruling Q1b: the resumed recording continues the real flight, so a
+                // predicted ending it kept is dropped (a no-op after the committed-tree take).
+                DropPredictedEndingForLiveTakeover(
+                    resumedRec, activeVessel, SafeCurrentUtForResumeAnchor(), "ResumeCommittedActiveRecording");
+            }
 
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
@@ -2266,13 +2300,46 @@ namespace Parsek
                 "recorded future; resuming would record over it)");
         }
 
+        /// <summary>
+        /// The live vessel's orbit at a takeover, for the coast decision of
+        /// <see cref="PredictedEndingTakeover.DropPredictedEndingForTakeover"/> (owner ruling
+        /// Q1b): null for no vessel, no orbit, or a vessel on the ground (its orbit says nothing
+        /// about a coast), which keeps the cut at the last real sample.
+        /// </summary>
+        internal static TakeoverCoastEvidence? ReadTakeoverCoastEvidence(Vessel v, double ut)
+        {
+            if (ReferenceEquals(v, null) || v.orbit == null || ReferenceEquals(v.mainBody, null))
+                return null;
+            if (v.situation == Vessel.Situations.LANDED || v.situation == Vessel.Situations.SPLASHED
+                || v.situation == Vessel.Situations.PRELAUNCH)
+                return null;
+            return new TakeoverCoastEvidence
+            {
+                LiveOrbit = FlightRecorder.CreateOrbitSegmentFromVessel(v, ut),
+                GravParameter = v.mainBody.gravParameter,
+            };
+        }
+
+        /// <summary>
+        /// <see cref="PredictedEndingTakeover.DropPredictedEndingForTakeover"/> for a takeover by
+        /// the live vessel <paramref name="v"/>: its orbit decides whether the predicted coast up
+        /// to the takeover is kept.
+        /// </summary>
+        internal static PredictedEndingDropResult DropPredictedEndingForLiveTakeover(
+            Recording rec, Vessel v, double takeoverUT, string context)
+        {
+            return PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                rec, takeoverUT, context, ReadTakeoverCoastEvidence(v, takeoverUT));
+        }
+
         internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(
             uint activeVesselPid,
             out RecordingTree tree,
             out string recordingId,
             out CommittedSpawnedVesselRestoreAction action,
             string activeVesselGuid = null,
-            double liveUT = double.NaN)
+            double liveUT = double.NaN,
+            TakeoverCoastEvidence? coastEvidence = null)
         {
             tree = null;
             recordingId = null;
@@ -2309,6 +2376,17 @@ namespace Parsek
                     $"TryTakeCommittedTreeForSpawnedVesselRestore: matched tree '{committedTree.TreeName}' " +
                     $"recording '{targetRecordingId}' for pid={activeVesselPid}, but could not prepare a restore action");
                 return false;
+            }
+
+            // Owner ruling Q1b: the player flies this vessel again, so a predicted ending the
+            // committed recording kept (the crash or landing Parsek extrapolated after it stopped
+            // watching) is dropped from the clone the flight continues from. The committed copy
+            // keeps it until the clone is committed over it (copy-on-write), and a discard keeps it.
+            if (liveTree.Recordings != null
+                && liveTree.Recordings.TryGetValue(targetRecordingId, out Recording takeoverRec))
+            {
+                PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                    takeoverRec, liveUT, "TryTakeCommittedTreeForSpawnedVesselRestore", coastEvidence);
             }
 
             // The resumed recording's cutoff is the resume instant when its end (a predicted
@@ -2449,7 +2527,10 @@ namespace Parsek
             if (rec.TerminalStateValue.HasValue)
             {
                 TerminalState terminalState = rec.TerminalStateValue.Value;
-                if (terminalState == TerminalState.Destroyed
+                // A crash Parsek only predicted while KSP still had the vessel is no ending
+                // once the live vessel is taken over (owner ruling Q1b): the restore drops the
+                // prediction (PredictedEndingTakeover) and the flight continues from it.
+                if ((terminalState == TerminalState.Destroyed && !rec.TerminalPredicted)
                     || terminalState == TerminalState.Recovered
                     || terminalState == TerminalState.Docked
                     || terminalState == TerminalState.Boarded)

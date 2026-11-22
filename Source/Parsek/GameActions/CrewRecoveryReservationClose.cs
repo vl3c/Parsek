@@ -43,6 +43,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the end UT that decides whether <paramref name="rec"/> ended before a
+        /// recovery (<see cref="KerbalsModule.RecoveryHoldEndUT"/>, the rule the crew hold
+        /// closure reads too: a predicted chute touchdown is measured from its predicted
+        /// descent start, every other recording from its end).
+        /// </summary>
+        internal static double OwnerEndUT(Recording rec)
+        {
+            return KerbalsModule.RecoveryHoldEndUT(rec);
+        }
+
+        /// <summary>
         /// The committed recordings the recovered vessel continues, one per tree: among the
         /// matches (<see cref="IsRecoveredVesselRecording"/>) that ended at or before the
         /// recovery, the one with the latest end in each tree (a recording with no tree is
@@ -65,7 +76,7 @@ namespace Parsek
                 var rec = effectiveRecordings[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                 if (!IsRecoveredVesselRecording(rec, livePid, liveGuid)) continue;
-                if (rec.EndUT > recoveryUT + KerbalsModule.RecoveryClosureEndToleranceSeconds)
+                if (OwnerEndUT(rec) > recoveryUT + KerbalsModule.RecoveryClosureEndToleranceSeconds)
                     continue;
 
                 string group = string.IsNullOrEmpty(rec.TreeId)
@@ -156,7 +167,7 @@ namespace Parsek
                     Recording held;
                     if (!recordingsById.TryGetValue(action.RecordingId, out held)) continue;
                     if (!KerbalsModule.RecoveryClosesHold(
-                            held.RecordingId, held.TreeId, held.EndUT,
+                            held.RecordingId, held.TreeId, OwnerEndUT(held),
                             owner.RecordingId, owner.TreeId, recoveryUT))
                         continue;
 
