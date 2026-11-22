@@ -87,7 +87,7 @@ namespace Parsek.Tests
         #region Trigger set and request acceptance
 
         [Theory]
-        [InlineData(DeltaVTrigger.Start, true)]
+        [InlineData(DeltaVTrigger.Start, false)]
         [InlineData(DeltaVTrigger.BurnStart, false)]
         [InlineData(DeltaVTrigger.BurnEnd, true)]
         [InlineData(DeltaVTrigger.Staging, true)]
@@ -240,10 +240,10 @@ namespace Parsek.Tests
         public void DecideOne_BadDelay_ReadsAsZero()
         {
             Assert.Equal(DeltaVRequestOutcome.Complete,
-                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.Start, 0.0, DeltaVSnapshotTracker.SettleMarginSeconds,
+                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.Staging, 0.0, DeltaVSnapshotTracker.SettleMarginSeconds,
                     Readiness(delay: double.NaN)));
             Assert.Equal(DeltaVRequestOutcome.Complete,
-                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.Start, 0.0, DeltaVSnapshotTracker.SettleMarginSeconds,
+                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.Staging, 0.0, DeltaVSnapshotTracker.SettleMarginSeconds,
                     Readiness(delay: -4.0)));
         }
 
@@ -251,7 +251,7 @@ namespace Parsek.Tests
         public void Decide_KeepsWaitingRequestsAndCountsTheirTicks()
         {
             var tracker = new DeltaVSnapshotTracker();
-            tracker.Request(DeltaVTrigger.Start, 0.0);
+            tracker.Request(DeltaVTrigger.Staging, 0.0);
             Assert.Empty(tracker.Decide(0.1, Readiness()));
             Assert.Empty(tracker.Decide(0.2, Readiness()));
             Assert.Equal(1, tracker.PendingCount);
@@ -262,6 +262,43 @@ namespace Parsek.Tests
             Assert.Equal(2, decision.SettleTicks);
             Assert.Equal(1.0, decision.WaitedSeconds, 6);
             Assert.Equal(0, tracker.PendingCount);
+        }
+
+        [Fact]
+        public void Request_BurnStartWhileBurnEndPending_WithdrawsTheEndAndFilesNothing()
+        {
+            // A throttle flicker near engine cut-off (DV-1 2026-11-22_1908: four BurnStart
+            // snapshots inside one second): the engines came back before the end was read.
+            var tracker = new DeltaVSnapshotTracker();
+            Assert.Null(tracker.Request(DeltaVTrigger.BurnEnd, 10.0));
+            Assert.Equal("burn-resumed", tracker.Request(DeltaVTrigger.BurnStart, 10.2));
+            Assert.Equal(0, tracker.PendingCount);
+            Assert.False(tracker.HasPending(DeltaVTrigger.BurnEnd));
+
+            // The real cut-off later files its end as usual.
+            Assert.Null(tracker.Request(DeltaVTrigger.BurnEnd, 12.0));
+            Assert.True(tracker.HasPending(DeltaVTrigger.BurnEnd));
+        }
+
+        [Fact]
+        public void Request_BurnStartWithNoPendingEnd_IsFiled()
+        {
+            var tracker = new DeltaVSnapshotTracker();
+            Assert.Null(tracker.Request(DeltaVTrigger.Staging, 10.0));
+            Assert.Null(tracker.Request(DeltaVTrigger.BurnStart, 10.1));
+            Assert.True(tracker.HasPending(DeltaVTrigger.BurnStart));
+            Assert.True(tracker.HasPending(DeltaVTrigger.Staging));
+        }
+
+        [Fact]
+        public void DecideOne_FreshStart_ReadsOnTheFirstReadyTick()
+        {
+            // A launch's engines ignite in the same second the recording starts; a settled
+            // Start read would describe the vessel after that burn had already run.
+            Assert.Equal(DeltaVRequestOutcome.Complete,
+                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.Start, 100.0, 100.0, Readiness(delay: 1.0)));
+            Assert.Equal(DeltaVRequestOutcome.Wait,
+                DeltaVSnapshotTracker.DecideOne(DeltaVTrigger.SwitchIn, 100.0, 100.0, Readiness(delay: 1.0)));
         }
 
         [Fact]

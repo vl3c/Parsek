@@ -507,6 +507,12 @@ later change.
 - The GUI census lanes (GUI-1 / GUI-2) photograph it opened on their densest mission; the window is
   added to the seam's window table, `TestCommandUiAction.cs` vocabulary and `hlib` (the
   `GuiCensusSeamVerbTests` byte-equality cells move in the same commit).
+- The GUI mirror (`harness/tools/gui_mirror.py`, `docs/dev/design-gui-mirror.md`) is updated in P1b
+  (owner request 2026-11-22): `LAYOUT_EPOCHS` gets a `profile` entry and a new `missions` instant (the
+  button column changes), the census lanes are re-flown so the mirror shows the Missions tab with the
+  new buttons (Basic and Advanced) and the Profile window opened on a mission, the gallery states
+  `profile-mun-return` / `profile-empty` are photographed as mocked captures, and the page is rebuilt
+  from that census. The screenshots and the rebuilt page are sent to the owner with the P1b PR.
 
 ## 8. Derived versus stored
 
@@ -544,7 +550,11 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   `OperatingStageInfo` of `DeltaVStageInfo` with `stage`, `deltaVinVac`, `stageBurnTime`), records
   the UT it was taken, and is written as unknown 3 s after that wait. A burn start describes the
   vessel BEFORE the burn, so it reads on the first ready tick, before the new figures replace the
-  old; the end reads at once (there is no later frame) and takes the last computed figures without the
+  old; so does a fresh recording start, which follows no vessel event (a launch ignites in the same
+  second, and a settled read would describe the vessel after that burn: DV-1's first flight read
+  Start 0.8 s after the first burn start); a burn start that arrives while a burn end is still
+  pending withdraws that end and files nothing (a throttle flicker, not a new burn: DV-1's first
+  flight wrote four burn starts inside one second at MechJeb's cut-off); the end reads at once (there is no later frame) and takes the last computed figures without the
   `FlightGlobals.ready` gate, because stock clears that flag in `FlightGlobals.OnSceneChange` on the
   same `onGameSceneLoadRequested` that stops the recorder at scene exit (review finding, 2026-11-22). A request of a kind already pending keeps the
   first. `GameSettings.DELTAV_CALCULATIONS_ENABLED` off means no snapshots. As built (P1a): an end

@@ -77,12 +77,15 @@ namespace Parsek
         /// <summary>
         /// True for the triggers whose snapshot must describe the vessel AFTER the event, so
         /// they wait for the stock recalculation. A burn start describes the vessel before the
-        /// burn, and the end of a recording has no later frame to wait for.
+        /// burn, a fresh recording start follows no vessel event (waiting would let a launch
+        /// burn run first and read the vessel after it), and the end of a recording has no
+        /// later frame to wait for.
         /// </summary>
         internal static bool RequiresSettle(DeltaVTrigger trigger)
         {
             switch (trigger)
             {
+                case DeltaVTrigger.Start:
                 case DeltaVTrigger.BurnStart:
                 case DeltaVTrigger.End:
                     return false;
@@ -110,16 +113,34 @@ namespace Parsek
         /// <summary>
         /// Files a request. A second request of a kind already pending keeps the first (its
         /// wait is already running); past <see cref="MaxPendingRequests"/> a request is refused.
-        /// Returns null when filed, otherwise the reason.
+        /// A burn start while a burn end is still pending means the engines came back before
+        /// the end was read (a throttle flicker): the burn never ended, so the pending end is
+        /// withdrawn and no start is filed ("burn-resumed"). Returns null when filed,
+        /// otherwise the reason.
         /// </summary>
         internal string Request(DeltaVTrigger trigger, double now)
         {
+            if (trigger == DeltaVTrigger.BurnStart && RemovePending(DeltaVTrigger.BurnEnd))
+                return "burn-resumed";
             if (HasPending(trigger))
                 return "coalesced";
             if (pending.Count >= MaxPendingRequests)
                 return "pending-full";
             pending.Add(new PendingRequest { Trigger = trigger, RequestedAt = now, Ticks = 0 });
             return null;
+        }
+
+        private bool RemovePending(DeltaVTrigger trigger)
+        {
+            for (int i = 0; i < pending.Count; i++)
+            {
+                if (pending[i].Trigger == trigger)
+                {
+                    pending.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>Seeds the engine state at recording start: a running engine there is no burn start.</summary>
