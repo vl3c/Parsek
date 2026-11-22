@@ -467,15 +467,10 @@ namespace Parsek
 
                 // Owner ruling 2026-11-22: a low point among the peaks whose ground scan found
                 // no crash ends where the scan stopped checking, unless a child sphere is
-                // entered before then.
-                bool groundScanEndCandidate = IsGroundScanEndCandidate(
-                    stopOnFinalConic,
-                    localCutoff.HasValue,
-                    parentExit.HasValue ? parentExit.Value.UT : double.PositiveInfinity,
-                    groundScanEndUT,
-                    currentState.ut);
-                if (groundScanEndCandidate)
-                    childSearchEndUT = Math.Min(childSearchEndUT, groundScanEndUT);
+                // entered before then (NaN: no such ending on this conic).
+                double groundScanStopUT = ResolveGroundScanEndUT(
+                    stopOnFinalConic, localCutoff, parentExit, groundScanEndUT, currentState.ut);
+                childSearchEndUT = MinIgnoringNaN(childSearchEndUT, groundScanStopUT);
 
                 // Owner ruling Q8: a stable conic is the flight's final orbit unless a child
                 // sphere is entered within one period; an open conic around a body with no
@@ -500,15 +495,15 @@ namespace Parsek
                     suppressedImmediateChildEntryBodyName,
                     suppressedImmediateUT);
 
-                if (groundScanEndCandidate && !childEntry.HasValue)
-                {
-                    EndAtGroundScanEnd(
+                if (TryEndAtGroundScanEnd(
                         ref result,
                         orbit,
                         currentBody,
                         currentState,
-                        groundScanEndUT,
-                        soiTransitions);
+                        groundScanStopUT,
+                        childEntry.HasValue,
+                        soiTransitions))
+                {
                     return result;
                 }
 
@@ -1652,20 +1647,48 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Ends the extrapolation where the ground scan stopped checking (owner ruling
-        /// 2026-11-22): one segment to <paramref name="groundScanEndUT"/>, Orbiting. The low
-        /// point sits among the peaks, so the periapsis is under the floor; the result says so
-        /// (<see cref="ExtrapolationResult.endedAtGroundScanEnd"/>) and stock decides from the
-        /// spawn on.
+        /// The conic's ground-scan-end UT when it ends there (<see cref="IsGroundScanEndCandidate"/>),
+        /// else NaN.
         /// </summary>
-        private static void EndAtGroundScanEnd(
+        private static double ResolveGroundScanEndUT(
+            bool stopOnFinalConic,
+            EventCandidate? localCutoff,
+            EventCandidate? parentExit,
+            double groundScanEndUT,
+            double conicStartUT)
+        {
+            double parentExitUT = parentExit.HasValue ? parentExit.Value.UT : double.PositiveInfinity;
+            return IsGroundScanEndCandidate(
+                    stopOnFinalConic, localCutoff.HasValue, parentExitUT, groundScanEndUT, conicStartUT)
+                ? groundScanEndUT
+                : double.NaN;
+        }
+
+        /// <summary>Pure: the smaller of the two, ignoring a NaN <paramref name="b"/>.</summary>
+        internal static double MinIgnoringNaN(double a, double b)
+        {
+            return double.IsNaN(b) ? a : Math.Min(a, b);
+        }
+
+        /// <summary>
+        /// Ends the extrapolation where the ground scan stopped checking (owner ruling
+        /// 2026-11-22) when the conic has such an ending (<paramref name="groundScanEndUT"/>
+        /// not NaN) and no child sphere is entered first: one segment to that UT, Orbiting. The
+        /// low point sits among the peaks, so the periapsis is under the floor; the result says
+        /// so (<see cref="ExtrapolationResult.endedAtGroundScanEnd"/>) and stock decides from
+        /// the spawn on. False (and nothing changed) otherwise.
+        /// </summary>
+        private static bool TryEndAtGroundScanEnd(
             ref ExtrapolationResult result,
             TwoBodyOrbit orbit,
             ExtrapolationBody currentBody,
             BallisticStateVector currentState,
             double groundScanEndUT,
+            bool childEntryFirst,
             int soiTransitions)
         {
+            if (double.IsNaN(groundScanEndUT) || childEntryFirst)
+                return false;
             result.segments.Add(CreateSegment(
                 orbit,
                 currentBody.Name,
@@ -1693,6 +1716,7 @@ namespace Parsek
                 currentBody.PeriapsisFloorAltitude,
                 Magnitude(endPosition) - currentBody.Radius,
                 soiTransitions));
+            return true;
         }
 
         private static EventCandidate? FindParentExit(
