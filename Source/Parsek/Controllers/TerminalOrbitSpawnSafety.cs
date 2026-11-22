@@ -63,6 +63,7 @@ namespace Parsek
         internal const string ReasonNoFutureSafeUT = "no-future-safe-ut";
         internal const string ReasonSpawnedVesselDied = "spawned-terminal-orbit-vessel-died";
         internal const string ReasonTerminalOrbitResolutionFailed = "terminal-orbit-resolution-failed";
+        internal const string ReasonGroundScanEndOrbit = "ground-scan-end-orbit";
 
         /// <summary>
         /// Pure spawn-safety decision for a recorded terminal orbit propagated to the spawn UT.
@@ -72,7 +73,11 @@ namespace Parsek
         /// deletion altitude <paramref name="deletionAltitude"/>, or the highest terrain
         /// <paramref name="maxTerrainAltitude"/>): CannotSpawnSafely.
         /// Commit classification reads the same floor, so a recording reaches this branch only
-        /// through a verdict real play does not produce.</item>
+        /// through a verdict real play does not produce. The one exception is
+        /// <paramref name="groundScanEndOrbit"/> (<see cref="Recording.GroundScanEndOrbit"/>,
+        /// owner ruling 2026-11-22): a low point among the peaks whose ground scan found no
+        /// crash spawns on its orbit and stock decides from then on, so the floor is not read
+        /// and a spawn now carries <see cref="ReasonGroundScanEndOrbit"/>.</item>
         /// <item>Propagated altitude under the atmosphere top plus <paramref name="safetyMargin"/>
         /// while the orbit climbs above it later: DeferUntilSafe.</item>
         /// <item>Otherwise SpawnNow, including an orbit whose apoapsis never reaches the margin
@@ -87,7 +92,8 @@ namespace Parsek
             double periapsisAltitude,
             double apoapsisAltitude,
             double maxTerrainAltitude,
-            double deletionAltitude)
+            double deletionAltitude,
+            bool groundScanEndOrbit = false)
         {
             double safeAltitude = ComputeSafeAltitude(atmosphereDepth, safetyMargin);
             double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
@@ -124,6 +130,8 @@ namespace Parsek
 
             if (!(periapsisAltitude > periapsisFloor))
             {
+                if (groundScanEndOrbit)
+                    return EvaluateGroundScanEndOrbit(inputs);
                 return BuildDecision(
                     TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
                     ReasonPeriapsisBelowSafeAltitude,
@@ -174,6 +182,41 @@ namespace Parsek
                     safeAltitude,
                     periapsisAltitude,
                     periapsisFloor),
+                inputs);
+        }
+
+        /// <summary>
+        /// The ground-scan-end ending under its periapsis floor (owner ruling 2026-11-22): it
+        /// still waits for a climb out of the atmosphere band like any orbit, and otherwise
+        /// spawns now.
+        /// </summary>
+        private static TerminalOrbitSpawnSafetyDecision EvaluateGroundScanEndOrbit(DecisionInputs inputs)
+        {
+            if (inputs.CurrentAltitude < inputs.SafeAltitude
+                && IsFinite(inputs.ApoapsisAltitude)
+                && inputs.ApoapsisAltitude >= inputs.SafeAltitude)
+            {
+                return BuildDecision(
+                    TerminalOrbitSpawnSafetyAction.DeferUntilSafe,
+                    ReasonCurrentAltitudeBelowSafeAltitude,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "propagated altitude {0:F1}m is below safe altitude {1:F1}m",
+                        inputs.CurrentAltitude,
+                        inputs.SafeAltitude),
+                    inputs);
+            }
+
+            return BuildDecision(
+                TerminalOrbitSpawnSafetyAction.SpawnNow,
+                ReasonGroundScanEndOrbit,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "periapsis {0:F1}m is under the periapsis floor {1:F1}m but the ground scan found no " +
+                    "crash, so the orbit spawns now and stock decides (propagated altitude {2:F1}m)",
+                    inputs.PeriapsisAltitude,
+                    inputs.PeriapsisFloorAltitude,
+                    inputs.CurrentAltitude),
                 inputs);
         }
 

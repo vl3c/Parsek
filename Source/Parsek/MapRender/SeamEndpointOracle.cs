@@ -198,6 +198,142 @@ namespace Parsek.MapRender
                 outsideSoi: ratio > tol);
         }
 
+        // --- FAITHFUL PHASE-LOCKED SEEDS: the destination's bounded phase residual ---
+
+        /// <summary>The tolerance is <see cref="DefaultRatioTolerance"/>: a re-aimed seed, no seed, or a
+        /// non-loop sample (loop shift 0).</summary>
+        internal const string ToleranceSourceDefault = "default";
+        /// <summary>A faithful seed whose loop shift holds the destination inside the PhaseLock band:
+        /// the tolerance carries the destination's phase residual.</summary>
+        internal const string ToleranceSourcePhaseLock = "phase-lock";
+        /// <summary>A faithful seed whose loop shift leaves the destination OUTSIDE the PhaseLock band
+        /// (not phase-locked at this shift): no allowance, the default tolerance applies.</summary>
+        internal const string ToleranceSourceFaithfulUnlocked = "faithful-unlocked";
+        /// <summary>A faithful seed whose destination has no usable period / speed / SOI: no
+        /// allowance, the default tolerance applies.</summary>
+        internal const string ToleranceSourceFaithfulNoBodyData = "faithful-no-body-data";
+        /// <summary>A faithful seed read on a clock that does NOT move its epoch by the loop shift
+        /// (<c>raw</c>: the recorded epoch at the recorded instant; <c>assumed-live</c>: neither
+        /// convention). The allowance's geometry does not hold there, so the default applies.</summary>
+        internal const string ToleranceSourceFaithfulUnshiftedClock = "faithful-unshifted-clock";
+
+        /// <summary>The ratio tolerance one sample is judged against, and why.</summary>
+        internal readonly struct RatioToleranceDecision
+        {
+            internal double Tolerance { get; }
+            /// <summary>One of the <c>ToleranceSource*</c> constants.</summary>
+            internal string Source { get; }
+            /// <summary>The destination's circular phase error at the loop shift (seconds); NaN when
+            /// not computed.</summary>
+            internal double PhaseResidualSeconds { get; }
+            /// <summary>The PhaseLock band for the destination (seconds); NaN when not computed.</summary>
+            internal double PhaseLockBoundSeconds { get; }
+
+            internal RatioToleranceDecision(
+                double tolerance, string source, double phaseResidualSeconds, double phaseLockBoundSeconds)
+            {
+                Tolerance = tolerance;
+                Source = source;
+                PhaseResidualSeconds = phaseResidualSeconds;
+                PhaseLockBoundSeconds = phaseLockBoundSeconds;
+            }
+
+            internal static RatioToleranceDecision Default(string source, double residual, double bound)
+            {
+                return new RatioToleranceDecision(DefaultRatioTolerance, source, residual, bound);
+            }
+        }
+
+        /// <summary>
+        /// PURE: the ratio tolerance for one seam sample.
+        ///
+        /// <para><b>Why a faithful seed needs its own tolerance.</b> <see cref="DefaultRatioTolerance"/>
+        /// is calibrated for arcs whose geometry reaches the destination AT the seam instant (re-aimed
+        /// arcs, and a faithful arc on its recorded clock). A faithful loop replay renders the recorded
+        /// conic with its epoch moved by the loop shift, so the arc reaches the recorded encounter point
+        /// at <c>seam + loopShift</c>; the destination is there only if the shift is a whole number of
+        /// its orbit periods. PhaseLock schedules the relaunch so the destination's phase error stays
+        /// inside <c>MissionPeriodicity.ToleranceSecondsFor</c> (SOI radius / orbital speed, the
+        /// time the body takes to cross its own sphere; <c>docs/dev/done/plans/zero-drift-reschedule.md</c>),
+        /// not at zero. A same-parent moon cadence therefore leaves a bounded residual by design: GS-13's
+        /// Mun replay, loopShift 280142.5 s = two Mun periods + 2173.8 s, put the Mun about 1179 km
+        /// (0.485 of its sphere) from the recorded encounter point and read ratio 1.0526.</para>
+        ///
+        /// <para><b>The allowance.</b> The destination moves at most <c>residual x speed</c> from where it
+        /// was at the recorded seam, and the arc was on the sphere there, so the arc sits within
+        /// <c>1 + residual x speed / SOI</c> of the SOI radius. The tolerance is
+        /// <c>DefaultRatioTolerance + residual x speed / SOI</c> (the default's measurement slack kept, so
+        /// a zero residual is exactly the default). Granted only when the residual is inside the
+        /// PhaseLock band; a shift that is not phase-locked keeps the default and the lens still reports
+        /// it. Re-aimed and seedless samples keep the default unchanged.</para>
+        ///
+        /// <para><b>Only on the shifted clock.</b> The argument needs the conic's epoch moved by exactly
+        /// the shift (the <c>baked</c> convention, <c>seamUT = recordedSeamUT + loopShift</c>), so the
+        /// caller passes <paramref name="shiftedClock"/> and the shift it actually applied
+        /// (<c>seamUT - recordedSeamUT</c>). On a <c>raw</c> frame both the conic and the destination are
+        /// read at the recorded instant and there is no residual to allow; an <c>assumed-live</c> frame
+        /// matches neither convention. Both keep the default.</para>
+        ///
+        /// <para>Primitive-only like the rest of this oracle: the caller
+        /// (<c>MapRenderProbe.ResolveSeamRatioTolerance</c>) reads the destination's period, mean speed and
+        /// SOI from an <c>IBodyInfo</c> and the band from <c>MissionPeriodicity.ToleranceSecondsFor</c>.</para>
+        ///
+        /// <para>The residual is the circular phase error against the destination's own orbit period
+        /// about its parent, because both the rendered conic and the destination are propagated in that
+        /// parent's frame (<c>getTruePositionAtUT</c>), where the destination's position repeats with
+        /// that period. The speed is <c>IBodyInfo.OrbitalVelocity</c>, the
+        /// same mean speed the band is derived from.</para>
+        /// </summary>
+        internal static RatioToleranceDecision ResolveRatioTolerance(
+            bool faithfulSeed, bool shiftedClock, double loopShiftSeconds,
+            double destinationOrbitPeriodSeconds, double destinationOrbitalSpeed,
+            double destinationSoiRadius, double phaseLockBoundSeconds)
+        {
+            if (!faithfulSeed)
+                return RatioToleranceDecision.Default(ToleranceSourceDefault, double.NaN, double.NaN);
+            if (!shiftedClock)
+                return RatioToleranceDecision.Default(ToleranceSourceFaithfulUnshiftedClock, double.NaN, double.NaN);
+            if (!IsFinite(loopShiftSeconds) || loopShiftSeconds == 0.0)
+                return RatioToleranceDecision.Default(ToleranceSourceDefault, double.NaN, double.NaN);
+
+            double period = destinationOrbitPeriodSeconds;
+            double speed = destinationOrbitalSpeed;
+            double soi = destinationSoiRadius;
+            double bound = phaseLockBoundSeconds;
+            if (!IsFinite(period) || period <= 0.0
+                || !IsFinite(speed) || speed <= 0.0
+                || !IsFinite(soi) || soi <= 0.0
+                || !IsFinite(bound) || bound <= 0.0)
+                return RatioToleranceDecision.Default(ToleranceSourceFaithfulNoBodyData, double.NaN, bound);
+
+            double residual = CircularPhaseErrorSeconds(loopShiftSeconds, period);
+            if (!IsFinite(residual))
+                return RatioToleranceDecision.Default(ToleranceSourceFaithfulNoBodyData, residual, bound);
+            if (residual > bound)
+                return RatioToleranceDecision.Default(ToleranceSourceFaithfulUnlocked, residual, bound);
+
+            double tolerance = DefaultRatioTolerance + residual * speed / soi;
+            if (!IsFinite(tolerance))
+                return RatioToleranceDecision.Default(ToleranceSourceFaithfulNoBodyData, residual, bound);
+            return new RatioToleranceDecision(tolerance, ToleranceSourcePhaseLock, residual, bound);
+        }
+
+        /// <summary>
+        /// PURE: the distance (seconds) from <paramref name="deltaSeconds"/> to the nearest whole
+        /// multiple of <paramref name="period"/>. The same arithmetic as
+        /// <c>MissionPeriodicity.CircularPhaseError</c>, restated here so this primitive-only oracle
+        /// names no Missions type (SeamEndpointOracleTests pins the two equal).
+        /// </summary>
+        internal static double CircularPhaseErrorSeconds(double deltaSeconds, double period)
+        {
+            if (!IsFinite(period) || period <= 0.0)
+                return 0.0;
+            double m = deltaSeconds % period;
+            if (m < 0.0)
+                m += period;
+            return Math.Min(m, period - m);
+        }
+
         // --- PER-PASS ACCOUNTING: the anti-vacuity half of the instrument ---
         //
         // MEASURED GAP (five re-flights, 2026-08-09): the raise above fired zero times and NOTHING in

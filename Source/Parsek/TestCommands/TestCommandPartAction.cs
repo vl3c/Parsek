@@ -95,7 +95,7 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo, Rotor }
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo, Rotor, Chute }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -138,6 +138,12 @@ namespace Parsek.TestCommands
                 Kind = ReadingKind.Rotor, Flag = motorEngaged, StoredScience = rpmLimit,
                 DataStored = torqueLimit,
             };
+
+        /// <summary>A parachute's observed <c>ModuleParachute.deploymentState</c> name
+        /// (<c>STOWED</c>, <c>ACTIVE</c> = armed, <c>SEMIDEPLOYED</c>, <c>DEPLOYED</c>,
+        /// <c>CUT</c>), read after the press, so a lane can tell an armed chute from an open one.</summary>
+        internal static PartActionModuleReading Chute(string deploymentState)
+            => new PartActionModuleReading { Kind = ReadingKind.Chute, Name = deploymentState };
     }
 
     /// <summary>The warp context of a press, read right after it: the target vessel's
@@ -956,7 +962,9 @@ namespace Parsek.TestCommands
         /// (<c>ModuleEngines.EngineIgnited</c>); a hinge or rotation servo
         /// <c>servo:target=&lt;F2&gt;</c> (its commanded <c>targetAngle</c>, degrees); a rotor
         /// <c>rotor:engaged=0|1 rpmLimit=&lt;F2&gt; torqueLimit=&lt;F2&gt;</c> (<c>servoMotorIsEngaged</c>,
-        /// the RPM the motor drives it to and the torque limit, percent). Invariant culture;
+        /// the RPM the motor drives it to and the torque limit, percent); a parachute
+        /// <c>chute:state=&lt;deploymentState&gt;</c> (<c>ModuleParachute.deploymentState</c>,
+        /// <c>ACTIVE</c> when armed). Invariant culture;
         /// empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
@@ -995,6 +1003,9 @@ namespace Parsek.TestCommands
                         parts.Add("rotor:engaged=" + (r.Flag ? "1" : "0")
                             + " rpmLimit=" + r.StoredScience.ToString("F2", ic)
                             + " torqueLimit=" + r.DataStored.ToString("F2", ic));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Chute:
+                        parts.Add("chute:state=" + (r.Name ?? string.Empty));
                         break;
                 }
             }

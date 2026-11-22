@@ -90,6 +90,12 @@ namespace Parsek
         // finalConicStartUT is the UT the flight entered it.
         public bool endedOnFinalConic;
         public double finalConicStartUT;
+        // Owner ruling 2026-11-22: the tail ended Orbiting where the ground scan of a closed
+        // conic whose low point sits among the body's peaks stopped checking (the later-pass
+        // scan budget, or the horizon) without finding a crash. Its periapsis is under the
+        // periapsis floor by construction; the finalizer keeps it Orbiting and the spawn
+        // safety check lets this ending through (Recording.GroundScanEndOrbit).
+        public bool endedAtGroundScanEnd;
     }
 
     internal sealed class ExtrapolationBody
@@ -160,6 +166,8 @@ namespace Parsek
         // Terminal reasons of a final-conic ending (owner ruling Q8, the `Terminal reason=` token).
         internal const string TerminalReasonStableConic = "stable-conic";
         internal const string TerminalReasonFinalEscape = "final-escape";
+        // Terminal reason of a ground-scan-end ending (owner ruling 2026-11-22).
+        internal const string TerminalReasonGroundScanEnd = "ground-scan-end";
         // A final-conic ending keeps this much of the final conic (at most a quarter of a
         // closed conic's period): a positive span in the final body, so the recording's last
         // segment, its terminal orbit and its endpoint all name that body, and the spawn sits
@@ -448,13 +456,21 @@ namespace Parsek
                     currentState.ut,
                     horizonUT,
                     parentExit,
-                    ref result.failureReason);
+                    ref result.failureReason,
+                    out double groundScanEndUT);
 
                 double childSearchEndUT = horizonUT;
                 if (parentExit.HasValue)
                     childSearchEndUT = Math.Min(childSearchEndUT, parentExit.Value.UT);
                 if (localCutoff.HasValue)
                     childSearchEndUT = Math.Min(childSearchEndUT, localCutoff.Value.UT);
+
+                // Owner ruling 2026-11-22: a low point among the peaks whose ground scan found
+                // no crash ends where the scan stopped checking, unless a child sphere is
+                // entered before then (NaN: no such ending on this conic).
+                double groundScanStopUT = ResolveGroundScanEndUT(
+                    stopOnFinalConic, localCutoff, parentExit, groundScanEndUT, currentState.ut);
+                childSearchEndUT = MinIgnoringNaN(childSearchEndUT, groundScanStopUT);
 
                 // Owner ruling Q8: a stable conic is the flight's final orbit unless a child
                 // sphere is entered within one period; an open conic around a body with no
@@ -478,6 +494,18 @@ namespace Parsek
                     limits,
                     suppressedImmediateChildEntryBodyName,
                     suppressedImmediateUT);
+
+                if (TryEndAtGroundScanEnd(
+                        ref result,
+                        orbit,
+                        currentBody,
+                        currentState,
+                        groundScanStopUT,
+                        childEntry.HasValue,
+                        soiTransitions))
+                {
+                    return result;
+                }
 
                 if ((stableFinalCandidate || finalEscapeCandidate) && !childEntry.HasValue)
                 {
@@ -719,8 +747,10 @@ namespace Parsek
             double startUT,
             double horizonUT,
             EventCandidate? parentExit,
-            ref ExtrapolationFailureReason failureReason)
+            ref ExtrapolationFailureReason failureReason,
+            out double groundScanEndUT)
         {
+            groundScanEndUT = double.NaN;
             double searchLimitUT = parentExit.HasValue ? Math.Min(horizonUT, parentExit.Value.UT) : horizonUT;
             bool closedConic = orbit.IsElliptic && !double.IsInfinity(orbit.Period);
             double firstPassEndUT = closedConic ? Math.Min(searchLimitUT, startUT + orbit.Period) : searchLimitUT;
@@ -739,7 +769,8 @@ namespace Parsek
                     currentBody,
                     startUT,
                     searchLimitUT,
-                    ref failureReason);
+                    ref failureReason,
+                    out groundScanEndUT);
             }
             return localCutoff;
         }
@@ -1459,16 +1490,21 @@ namespace Parsek
         /// point dips below the body's highest terrain: each pass samples only the stretch below
         /// the peaks (<see cref="ExtrapolationBody.MaxTerrainAltitude"/>), and the body-fixed
         /// coordinates move with the body's rotation, so a later pass reads different ground.
-        /// Bounded by <see cref="MaxLaterPassTerrainSamples"/>; when the budget runs out the
-        /// conic is left to its other events (logged).
+        /// Bounded by <see cref="MaxLaterPassTerrainSamples"/>. When no pass meets the ground,
+        /// <paramref name="scannedUntilUT"/> is where the scan stopped checking: the end UT
+        /// when every pass up to it was read, else (the budget ran out) the end of the last
+        /// pass read plus the final-conic settle span, kept above the peaks (before the next
+        /// pass's stretch under them). NaN when no later-pass scan ran or it found an impact.
         /// </summary>
         private static EventCandidate? FindLaterPassTerrainImpact(
             TwoBodyOrbit orbit,
             ExtrapolationBody body,
             double startUT,
             double endUT,
-            ref ExtrapolationFailureReason failureReason)
+            ref ExtrapolationFailureReason failureReason,
+            out double scannedUntilUT)
         {
+            scannedUntilUT = double.NaN;
             if (body == null || body.TerrainAltitude == null || endUT <= startUT)
                 return null;
             double peakAltitude = body.MaxTerrainAltitude;
@@ -1506,10 +1542,16 @@ namespace Parsek
 
             int samplesUsed = 0;
             int passes = 0;
+            double lastScannedUT = startUT;
             while (periapsisUT - halfWindowSeconds < endUT)
             {
                 if (samplesUsed >= MaxLaterPassTerrainSamples)
                 {
+                    scannedUntilUT = ResolveGroundScanStopUT(
+                        lastScannedUT,
+                        periapsisUT - halfWindowSeconds,
+                        endUT,
+                        ResolveFinalConicSettleSeconds(orbit.Period));
                     ParsekLog.Verbose(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
                         "Later-pass terrain scan budget spent: body={0} passes={1} samples={2} lastPeriapsisUT={3:F3} " +
@@ -1536,6 +1578,7 @@ namespace Parsek
                         MaxLocalCutoffSamples);
                     samplesUsed += samples.Count;
                     passes++;
+                    lastScannedUT = windowEnd;
                     if (samples.Count > 1)
                     {
                         EventCandidate? hit = FindSurfaceCrossing(orbit, body, samples, ref failureReason);
@@ -1559,7 +1602,121 @@ namespace Parsek
                 periapsisUT += orbit.Period;
             }
 
+            scannedUntilUT = endUT;
             return null;
+        }
+
+        /// <summary>
+        /// Pure: where a later-pass ground scan whose budget ran out stops checking: the end
+        /// of the last pass it read plus <paramref name="settleSeconds"/>, but no later than
+        /// the start of the next pass's stretch under the peaks (the vessel is above every peak
+        /// between the two) nor <paramref name="endUT"/>. A next stretch that begins at once
+        /// (a conic always under the peaks) keeps the end of the last pass read.
+        /// </summary>
+        internal static double ResolveGroundScanStopUT(
+            double lastScannedUT,
+            double nextStretchStartUT,
+            double endUT,
+            double settleSeconds)
+        {
+            double stopUT = lastScannedUT + Math.Max(0.0, settleSeconds);
+            if (nextStretchStartUT < stopUT)
+                stopUT = Math.Max(lastScannedUT, nextStretchStartUT);
+            return Math.Min(stopUT, endUT);
+        }
+
+        /// <summary>
+        /// Pure (owner ruling 2026-11-22): does this conic end where its ground scan stopped
+        /// checking? The stop is on (the default), no surface or deletion event was found, a
+        /// later-pass scan ran and stopped at <paramref name="groundScanEndUT"/> after the
+        /// conic's start, and the conic does not leave its body's sphere first.
+        /// </summary>
+        internal static bool IsGroundScanEndCandidate(
+            bool stopOnFinalConic,
+            bool hasLocalCutoff,
+            double parentExitUT,
+            double groundScanEndUT,
+            double conicStartUT)
+        {
+            return stopOnFinalConic
+                && !hasLocalCutoff
+                && !double.IsNaN(groundScanEndUT)
+                && !double.IsInfinity(groundScanEndUT)
+                && groundScanEndUT > conicStartUT
+                && groundScanEndUT < parentExitUT - ImmediateEventEpsilon;
+        }
+
+        /// <summary>
+        /// The conic's ground-scan-end UT when it ends there (<see cref="IsGroundScanEndCandidate"/>),
+        /// else NaN.
+        /// </summary>
+        private static double ResolveGroundScanEndUT(
+            bool stopOnFinalConic,
+            EventCandidate? localCutoff,
+            EventCandidate? parentExit,
+            double groundScanEndUT,
+            double conicStartUT)
+        {
+            double parentExitUT = parentExit.HasValue ? parentExit.Value.UT : double.PositiveInfinity;
+            return IsGroundScanEndCandidate(
+                    stopOnFinalConic, localCutoff.HasValue, parentExitUT, groundScanEndUT, conicStartUT)
+                ? groundScanEndUT
+                : double.NaN;
+        }
+
+        /// <summary>Pure: the smaller of the two, ignoring a NaN <paramref name="b"/>.</summary>
+        internal static double MinIgnoringNaN(double a, double b)
+        {
+            return double.IsNaN(b) ? a : Math.Min(a, b);
+        }
+
+        /// <summary>
+        /// Ends the extrapolation where the ground scan stopped checking (owner ruling
+        /// 2026-11-22) when the conic has such an ending (<paramref name="groundScanEndUT"/>
+        /// not NaN) and no child sphere is entered first: one segment to that UT, Orbiting. The
+        /// low point sits among the peaks, so the periapsis is under the floor; the result says
+        /// so (<see cref="ExtrapolationResult.endedAtGroundScanEnd"/>) and stock decides from
+        /// the spawn on. False (and nothing changed) otherwise.
+        /// </summary>
+        private static bool TryEndAtGroundScanEnd(
+            ref ExtrapolationResult result,
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            BallisticStateVector currentState,
+            double groundScanEndUT,
+            bool childEntryFirst,
+            int soiTransitions)
+        {
+            if (double.IsNaN(groundScanEndUT) || childEntryFirst)
+                return false;
+            result.segments.Add(CreateSegment(
+                orbit,
+                currentBody.Name,
+                currentState.ut,
+                groundScanEndUT,
+                currentState.orbitalFrameRotation));
+            orbit.GetStateAtUT(groundScanEndUT, out Vector3d endPosition, out Vector3d endVelocity);
+            result.terminalState = TerminalState.Orbiting;
+            result.terminalUT = groundScanEndUT;
+            result.terminalBodyName = currentBody.Name;
+            result.terminalPosition = endPosition;
+            result.terminalVelocity = endVelocity;
+            result.endedAtGroundScanEnd = true;
+            ParsekLog.Info(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Terminal reason={0}: body={1} enteredUT={2:F3} ut={3:F3} ecc={4:F5} sma={5:F1} " +
+                "periapsisAlt={6:F1} floor={7:F1} endAlt={8:F1} soiTransitions={9}",
+                TerminalReasonGroundScanEnd,
+                currentBody.Name,
+                currentState.ut,
+                groundScanEndUT,
+                orbit.Eccentricity,
+                orbit.SemiMajorAxis,
+                orbit.PeriapsisRadius - currentBody.Radius,
+                currentBody.PeriapsisFloorAltitude,
+                Magnitude(endPosition) - currentBody.Radius,
+                soiTransitions));
+            return true;
         }
 
         private static EventCandidate? FindParentExit(

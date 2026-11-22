@@ -12548,8 +12548,8 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
                        # CT-3: `structure` armed 2026-11-22 off its two reading runs
-                       # `2026-11-22_1135` / `_1242` (vesselNames {Damaged Kerbin AS-P
-                       # Satellite NV5SQ: 1} on both, mismatches 0): the rebuilt repair
+                       # `2026-11-22_1135` / `_1242` (vesselNames: Damaged Kerbin AS-P
+                       # Satellite NV5SQ 1 on both, mismatches 0): the rebuilt repair
                        # contract's satellite re-spawned exactly once (todo
                        # CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4).
                        "CT-3-vessel-repair-rebuilt-at-space-center.toml",
@@ -15693,7 +15693,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

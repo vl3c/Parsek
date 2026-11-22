@@ -90,6 +90,10 @@ namespace Parsek.Tests.SaveRoundTrip
                 // terminalPredicted is kept only beside a Destroyed ending.
                 if (rec.TerminalPredicted)
                     rec.TerminalStateValue = TerminalState.Destroyed;
+                // groundScanEnd is kept only beside a predicted Orbiting ending, which cannot
+                // share this record with the Destroyed-only markers; its round trip is pinned
+                // by GroundScanEndOrbitTests.Codec_RoundTripsTheMarkerSparse.
+                rec.GroundScanEndOrbit = false;
                 CanonicalizeRouteProof(rec);
             });
 

@@ -804,6 +804,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -975,6 +976,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -1153,6 +1155,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -1324,6 +1327,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -1498,6 +1502,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -1676,6 +1681,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -1848,6 +1854,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2021,6 +2028,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2192,6 +2200,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2371,6 +2380,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2549,6 +2559,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2722,6 +2733,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=True|thrust=False
@@ -2905,6 +2917,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=False|thrust=False
@@ -3078,6 +3091,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=False|thrust=False
@@ -3250,6 +3264,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=False|thrust=False
@@ -3433,6 +3448,7 @@
   finalizationCaches:
     CachedAtUT=200
     DeclineReason=null
+    GroundScanEnd=False
     LastHadMeaningfulThrust=False
     LastObservedBodyName=Kerbin
     LastObservedOrbitDigest=Kerbin|sit=0|atmo=False|thrust=False

@@ -123,8 +123,10 @@ namespace Parsek
             recording.StampTerminalState(
                 cache.TerminalState.Value, "RecordingFinalizationCacheApplier",
                 predicted: IsPredictedDestroyedTerminal(cache, options)
-                    || (appendedDescentPoints > 0 && IsPredictedTouchdownCache(cache)),
-                quietEnd: cache.QuietEnd && appendedDescentPoints > 0);
+                    || (appendedDescentPoints > 0 && IsPredictedTouchdownCache(cache))
+                    || IsGroundScanEndCache(cache, retainedSegments),
+                quietEnd: cache.QuietEnd && appendedDescentPoints > 0,
+                groundScanEnd: IsGroundScanEndCache(cache, retainedSegments));
             MarkPredictedFinalOrbit(recording, CountPredicted(retainedSegments), "RecordingFinalizationCacheApplier");
             ApplyTerminalMetadata(recording, cache, retainedSegments);
             if (appendedDescentPoints > 0 && recording.TerminalPosition.HasValue)
@@ -529,6 +531,19 @@ namespace Parsek
                     recording.TerminalStateValue,
                     predictedTailSegments));
             return true;
+        }
+
+        /// <summary>
+        /// Pure: does this cache carry the ground-scan-end Orbiting ending (owner ruling
+        /// 2026-11-22) with its predicted tail retained? Without the tail the ending is not the
+        /// scan's, so it is not stamped as one.
+        /// </summary>
+        internal static bool IsGroundScanEndCache(RecordingFinalizationCache cache, IList<OrbitSegment> retainedSegments)
+        {
+            return cache != null
+                && cache.GroundScanEnd
+                && cache.TerminalState == TerminalState.Orbiting
+                && CountPredicted(retainedSegments) > 0;
         }
 
         internal static int CountPredicted(IList<OrbitSegment> segments)

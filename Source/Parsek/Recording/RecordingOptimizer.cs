@@ -1448,7 +1448,8 @@ namespace Parsek
                     predicted: absorbed.TerminalPredicted,
                     remnantSurvives: absorbed.TerminalRemnantSurvives,
                     quietEnd: absorbed.QuietDestroyedEnd,
-                    recoveredCrew: absorbed.RecoveredCrewNames);
+                    recoveredCrew: absorbed.RecoveredCrewNames,
+                    groundScanEnd: absorbed.GroundScanEndOrbit);
                 target.StockHeldVesselUT = absorbed.StockHeldVesselUT;
 
                 // Mirror of the split's MergeState carry (see
@@ -2121,6 +2122,8 @@ namespace Parsek
             original.TerminalRemnantSurvives = false;
             second.QuietDestroyedEnd = original.QuietDestroyedEnd;
             original.QuietDestroyedEnd = false;
+            second.GroundScanEndOrbit = original.GroundScanEndOrbit;
+            original.GroundScanEndOrbit = false;
             second.RecoveredCrewNames = original.RecoveredCrewNames;
             original.RecoveredCrewNames = null;
             second.StockHeldVesselUT = original.StockHeldVesselUT;

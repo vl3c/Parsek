@@ -640,6 +640,8 @@ namespace Parsek.TestCommands
                     readings.Add(PartActionModuleReading.Radiator(rad.IsCooling));
                 else if (module is ModuleEngines eng)
                     readings.Add(PartActionModuleReading.Engine(eng.EngineIgnited));
+                else if (module is ModuleParachute chute)
+                    readings.Add(PartActionModuleReading.Chute(chute.deploymentState.ToString()));
                 else if (TestCommandPartAction.IsServoModuleName(module?.moduleName)
                     && module.Fields != null && module.Fields["targetAngle"] != null
                     && module.Fields["targetAngle"].GetValue(module) is float target)

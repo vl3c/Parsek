@@ -1035,6 +1035,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # onto a Kerbin escape hyperbola (harness/tools/build_kerbin_escape_probe_stack.py),
         # so it carries gs2's inert node.
         "kerbin-escape-probe-stack": True,
+        # gs1-armed-chute-drop is gs1-two-stage-pad with the GS1 craft lifted 62 km above
+        # the pad (harness/tools/build_gs1_armed_chute_drop.py), so it carries gs1's node.
+        "gs1-armed-chute-drop": True,
         # The LABX-1 harvest (`2026-10-17_1957`, situation gate ORBITING): the LABX
         # Orbital Lab parked in LKO, SANDBOX, with the forge base's inert node (two
         # dead MILESTONE_STATE rows, the eva2 / gs2 shape) and zero recording state.
