@@ -62,6 +62,8 @@ Not released yet.
 
 ### Fixed
 
+- **Jet engine thrust reversers show on ghosts.** A Wheesley or Goliath reverser you deploy is
+  recorded and its ghost shows it deployed. (THRUST-REVERSER-NOT-RECORDED)
 - **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
   above the part, instead of turned or hanging upside down. (GHOST-CHUTE-CANOPY-AIM)
 - **RealChute stages are seen under their chutes.** With RealChute, a stage left under open chutes

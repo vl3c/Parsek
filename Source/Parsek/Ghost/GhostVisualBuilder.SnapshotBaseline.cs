@@ -255,8 +255,12 @@ namespace Parsek
                     case "ModuleAeroSurface":
                     case "ModuleControlSurface":
                     case "ModuleRobotArmScanner":
-                    case "ModuleAnimateHeat":
                         hasDedicatedAnimateHandler = true;
+                        continue;
+                    // ModuleAnimateHeat drives only its own heat clip and is not in
+                    // HasDedicatedAnimateHandler either, so a thrust reverser beside it keeps
+                    // its standalone read.
+                    case "ModuleAnimateHeat":
                         continue;
                 }
 

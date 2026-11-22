@@ -878,7 +878,7 @@ namespace Parsek.TestCommands
         internal static readonly string[] DedicatedHandlerModuleNames =
         {
             ModuleRetractableLadder, ModuleAnimationGroup, ModuleAeroSurface, ModuleControlSurface,
-            ModuleRobotArmScanner, ModuleAnimateHeat,
+            ModuleRobotArmScanner,
         };
 
         private static int FirstImplementing(IList<PartParityStateModule> mods, string typeName)
