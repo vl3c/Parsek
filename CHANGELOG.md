@@ -62,6 +62,10 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the
+  puffs at once, not at its next RCS change. (GHOST-RCS-DARK-AFTER-FX-SUPPRESSION)
+- **Ghost engines leave no smoke trail in space.** Their smoke thins out high up and is gone in
+  vacuum, as on the real engine. (GHOST-SMOKE-IN-VACUUM)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
   ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
 - **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above
