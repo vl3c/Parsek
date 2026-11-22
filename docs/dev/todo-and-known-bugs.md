@@ -276,18 +276,20 @@ Expected outcome, wrong level: a loaded crash's `background_destroy` refresh sta
 
 The two lanes' count windows predate the version-3 burn cuts; re-pin from their first version-3 flight as OPTIMIZER-SPLIT-RULES-V3's lane list says.
 
-## ASR-FINAL-FLIGHT-2026-11-21: the second flight of the abandoned-stage lanes and their guards [FILED 2026-11-21 from run `asr-final` on V's PC (DLL from integration aac6491f0, ~22:30); OPEN until the lanes re-pinned since (Q14, ASR-5 `ut=680`) and the new ASR-6 / ASR-7 / ASR-9 fly green on a DLL with every fix]
+## ~~ASR-FINAL-FLIGHT-2026-11-21~~: the second flight of the abandoned-stage lanes and their guards [FILED 2026-11-21 from run `asr-final` on V's PC (DLL from integration aac6491f0, ~22:30); CLOSED 2026-11-22: every re-pinned lane and the new ASR-5 / ASR-6 / ASR-7 / ASR-9 flew green in runner runs `asr-final3` (DLL sha256 prefix 4100fd71 from 74fa5fab4, 30 / 30 PASS) and `asr-final4` (DLL e972dfd2 from 1ed9893a6, 10 / 10 PASS); run ids and walls in the lanes' `docs/dev/autotest-status.md` rows; B11 / B12 stay with the split task]
 
 23 PASS: ASR-1, ASR-2, ASR-3, ASR-4, RF-1, RF-C1, RF-L2, RB-4, RB-5, RF-4, QL-4, QL-4b, QL-4c, QL-2c, QL-7, GS-1, GS-7, GS-10, GS-11, CA-1, H9, H10, H19. Watch points held: chutes Deployed x6 at every commit, RF-C1 no end spawn, the ASR-1 probe went on rails.
 - PARSEK-FAIL: B11 and B12 (`recordings.count 12 > max 9`), the split task's (ABANDONED-STAGE-B11-B12-SPLIT-COUNT).
 - INVALID: ASR-5 (`WarpToUT ut=280` is backward on `eva2-lko-crewed`; fixed 90f356aa2, `ut=680`) and QL-2b (the booster already down; origin/main changed QL-2b).
 - Product bug found: the ASR-1 probe, alive on rails at 93.7 km, finalized Destroyed by the no-solver fallback with its tail discarded (ABANDONED-STAGE-NOSOLVER-UNLOADED, fixed d280a7272).
 
+Settled 2026-11-22. `asr-final3` (V's PC, 2 slots, ~01:15 local): 30 / 30 PASS, all attempt 1 but GS-11 (attempt 2 after an autopilot flake): first green flights of ASR-1, ASR-2, ASR-3, ASR-4, ASR-5, ASR-6, ASR-7 and ASR-9; RF-1, RF-C1, RF-L2, RB-4, RB-5, RF-4, QL-7 green on the Q14 re-pin (`reason=crashed`); QL-4, QL-4b, QL-4c, QL-2b, QL-2c green on the predicted-touchdown re-pin; GS-1, CA-1, GS-7, GS-10, GS-11, H9, H10, H19, L13, VN-14 green as guards. `asr-final4` (~02:30, after the split fix 3a35c3ae3 and the in-flight commit fix 82231e4d9): 10 / 10 PASS attempt 1 (ASR-1, ASR-5, ASR-6, ASR-2, RF-1, QL-4, GS-7, GS-10, GS-11, H19): the optimizer split keeps the probe core's predicted fall (predicted 1, end altitude 0 on ASR-1 and ASR-5), and ASR-6's taken-over core gets no re-predicted row.
+
 ## ABANDONED-STAGE-LANES-OWED: lanes still to author for the abandoned-stage work [FILED 2026-11-21; OPEN: ASR-8 and the crash-contradiction lane]
 
 - ASR-8 (armed chutes: a stage whose chutes are staged but still armed at the commit crashes, Q10b, while a craft that opens them in range lands): NOT authored, it needs a new host (no committed fixture leaves a stage with armed, unopened chutes out of range).
 - A predicted-crash stage that stock keeps and that lands intact in physics range ends Landed (the crash reconciler's live proof): not authored.
-- Done: the Q4c / `predictedTouchdown` re-pins (95e2ac6db), the Q14 re-pins (3d15a4b96 / a8b167775: ASR-2, RF-1, RF-C1, RF-L2, RB-4, RB-5, RF-4, QL-7), ASR-6 (TS Fly takeover), ASR-7 (touchdown kept after an in-flight commit, stock-held stamp) and ASR-9 (escape -> Sun final orbit, fixture `kerbin-escape-probe-stack`), all never flown; status in `docs/dev/autotest-status.md`.
+- Done: the Q4c / `predictedTouchdown` re-pins (95e2ac6db), the Q14 re-pins (3d15a4b96 / a8b167775: ASR-2, RF-1, RF-C1, RF-L2, RB-4, RB-5, RF-4, QL-7), ASR-6 (TS Fly takeover), ASR-7 (touchdown kept after an in-flight commit, stock-held stamp) and ASR-9 (escape -> Sun final orbit, fixture `kerbin-escape-probe-stack`), all live-proven 2026-11-22 (ASR-FINAL-FLIGHT-2026-11-21); status in `docs/dev/autotest-status.md`.
 
 ## ~~ASR-READING-FLIGHT-2026-11-21~~: the first flights of ASR-1..ASR-5; three PARSEK-FAILs, all lane-spec errors [FILED 2026-11-21 from runner run `asr-reading` on V's PC (2 slots, automation DLL sha256 prefix c88cb2b9, integration 8f237810d, before the reconciler); CLOSED 2026-11-21: re-pinned in 95e2ac6db (ASR-1 / ASR-5 `WarpToUT` so the core packs, debris tail minimum dropped, ASR-4 expects the active stack SubOrbital) and 90f356aa2 (ASR-5 `ut=680` on its own fixture's clock); ASR-1 / ASR-4 green on the re-pin in ASR-FINAL-FLIGHT-2026-11-21]
 
