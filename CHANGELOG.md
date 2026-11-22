@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **ReStock struts and fuel lines reach their target on their ghosts.** With ReStock installed, a
+  strut or fuel line replay kept its default short stub pointing the default way. It now
+  stretches to the part it connects to, with its texture stretched as on the real part, and
+  shows only its base when unconnected. (GHOST-RESTOCK-LINKED-MESH)
 - **Engine gimbal pistons and service bay door pistons sit right on their ghosts.** Their replays
   showed the piston rods twisted about their own length. They are now aimed the way the real
   part aims them, and follow the engine's gimbal and the doors as they move.

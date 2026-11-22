@@ -802,16 +802,59 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
+        internal const string StockLinkedMeshModuleName = "CModuleLinkedMesh";
+        internal const string ReStockLinkedMeshModuleName = "ModuleRestockLinkedMesh";
+
+        /// <summary>
+        /// The part config's linked-mesh MODULE node: the one named
+        /// <paramref name="linkedMeshModuleName"/> (the prefab module implementing
+        /// CModuleLinkedMesh, e.g. ReStock's ModuleRestockLinkedMesh subclass), else null.
+        /// </summary>
+        private static ConfigNode FindLinkedMeshModuleNode(ConfigNode partConfig, string linkedMeshModuleName)
         {
-            if (partConfig == null) return false;
+            if (partConfig == null || string.IsNullOrEmpty(linkedMeshModuleName)) return null;
             ConfigNode[] modules = partConfig.GetNodes("MODULE");
             for (int m = 0; m < modules.Length; m++)
             {
-                if (modules[m].GetValue("name") == "CModuleLinkedMesh")
-                    return true;
+                if (modules[m].GetValue("name") == linkedMeshModuleName)
+                    return modules[m];
             }
-            return false;
+            return null;
+        }
+
+        /// <summary>
+        /// ReStock's <c>stretchAxis</c> ("y" = 1, anything else = 0, as its OnStart reads it)
+        /// and <c>stretchTextures</c> (space-separated, default <c>_MainTex</c>).
+        /// </summary>
+        internal static void ParseReStockStretch(ConfigNode moduleNode, out string[] textures, out int axisIndex)
+        {
+            string axis = moduleNode?.GetValue("stretchAxis") ?? "x";
+            axisIndex = axis != "y" ? 0 : 1;
+            string list = moduleNode?.GetValue("stretchTextures") ?? "_MainTex";
+            textures = list.Split(' ');
+        }
+
+        /// <summary>
+        /// ReStock <c>UpdateStretch</c>: stretch = line z scale / part scaleFactor; the texture
+        /// scale on the stretched axis is the stretch and its offset (1 - stretch) / 2, the
+        /// other axis keeps scale 1 and offset 0.
+        /// </summary>
+        internal static void ComputeReStockTextureStretch(float lineLocalScaleZ, float scaleFactor,
+            int axisIndex, out Vector2 scale, out Vector2 offset)
+        {
+            float stretch = scaleFactor != 0f ? lineLocalScaleZ / scaleFactor : lineLocalScaleZ;
+            scale = Vector2.one;
+            offset = Vector2.zero;
+            if (axisIndex == 1)
+            {
+                scale.y = stretch;
+                offset.y = (1f - stretch) / 2f;
+            }
+            else
+            {
+                scale.x = stretch;
+                offset.x = (1f - stretch) / 2f;
+            }
         }
 
         /// <summary>
@@ -823,6 +866,17 @@ namespace Parsek
             ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
             uint persistentId, string partName,
             out CompoundPartData data)
+            => TryParseCompoundPartData(partNode, partConfig, isCompoundPart, persistentId, partName,
+                StockLinkedMeshModuleName, out data);
+
+        /// <summary>
+        /// <paramref name="linkedMeshModuleName"/> is the moduleName of the prefab module that
+        /// implements CModuleLinkedMesh (stock's own, or a subclass such as ReStock's).
+        /// </summary>
+        internal static bool TryParseCompoundPartData(
+            ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
+            uint persistentId, string partName, string linkedMeshModuleName,
+            out CompoundPartData data)
         {
             data = new CompoundPartData
             {
@@ -833,7 +887,8 @@ namespace Parsek
 
             // Only process parts that have CModuleLinkedMesh — avoids false positives
             // from non-compound parts that happen to have a PARTDATA node.
-            if (!HasCModuleLinkedMesh(partConfig))
+            ConfigNode linkedMeshModule = FindLinkedMeshModuleNode(partConfig, linkedMeshModuleName);
+            if (linkedMeshModule == null)
                 return false;
 
             ConfigNode partData = partNode.GetNode("PARTDATA");
@@ -862,22 +917,13 @@ namespace Parsek
                 uint.TryParse(targetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture,
                     out data.targetPersistentId);
 
-            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
-            // uses obj_line, strut uses obj_strut).
-            if (partConfig != null)
-            {
-                ConfigNode[] modules = partConfig.GetNodes("MODULE");
-                for (int m = 0; m < modules.Length; m++)
-                {
-                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
-                    {
-                        data.lineObjName = modules[m].GetValue("lineObjName") ?? data.lineObjName;
-                        data.targetAnchorName = modules[m].GetValue("targetAnchorName") ?? data.targetAnchorName;
-                        data.targetCapName = modules[m].GetValue("targetCapName") ?? data.targetCapName;
-                        break;
-                    }
-                }
-            }
+            // Read transform names from the linked-mesh module config (varies: fuel line
+            // uses obj_line, strut uses obj_strut, ReStock line / strut).
+            data.lineObjName = linkedMeshModule.GetValue("lineObjName") ?? data.lineObjName;
+            data.targetAnchorName = linkedMeshModule.GetValue("targetAnchorName") ?? data.targetAnchorName;
+            data.targetCapName = linkedMeshModule.GetValue("targetCapName") ?? data.targetCapName;
+            if (linkedMeshModuleName == ReStockLinkedMeshModuleName)
+                ParseReStockStretch(linkedMeshModule, out data.stretchTextures, out data.stretchAxisIndex);
 
             return true;
         }
@@ -899,9 +945,14 @@ namespace Parsek
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName)
         {
+            // The module is found by TYPE: ReStock replaces CModuleLinkedMesh with its
+            // ModuleRestockLinkedMesh subclass, whose config node carries that name.
+            CompoundParts.CModuleLinkedMesh linkedMesh =
+                prefab.FindModuleImplementing<CompoundParts.CModuleLinkedMesh>();
+            string linkedMeshModuleName = linkedMesh != null ? linkedMesh.moduleName : StockLinkedMeshModuleName;
             CompoundPartData data;
             if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
-                    prefab is CompoundPart, persistentId, partName, out data))
+                    prefab is CompoundPart, persistentId, partName, linkedMeshModuleName, out data))
                 return null;
 
             var compoundPartInfo = new CompoundPartGhostInfo
@@ -981,6 +1032,8 @@ namespace Parsek
                 if (ghostTargetCap != null)
                     ghostTargetCap.rotation = ghostLine.rotation;
 
+                if (data.stretchTextures != null)
+                    ApplyReStockLineTextureStretch(ghostLine, data, prefab.scaleFactor, partName, persistentId);
             }
             else
             {
@@ -988,6 +1041,47 @@ namespace Parsek
             }
 
             return compoundPartInfo;
+        }
+
+        /// <summary>
+        /// ReStock <c>UpdateStretch</c> on the ghost: the first material of each line renderer
+        /// (stock reads <c>Renderer.material</c>; cloned here, the prefab's is shared) gets the
+        /// stretched texture scale and offset for every listed texture property it has.
+        /// </summary>
+        private static void ApplyReStockLineTextureStretch(Transform ghostLine, CompoundPartData data,
+            float scaleFactor, string partName, uint persistentId)
+        {
+            ComputeReStockTextureStretch(ghostLine.localScale.z, scaleFactor, data.stretchAxisIndex,
+                out Vector2 scale, out Vector2 offset);
+            MeshRenderer[] renderers = ghostLine.GetComponentsInChildren<MeshRenderer>(true);
+            int written = 0;
+            for (int r = 0; r < renderers.Length; r++)
+            {
+                Material[] slots = renderers[r].sharedMaterials;
+                if (slots == null || slots.Length == 0 || slots[0] == null) continue;
+                var clone = new Material(slots[0]);
+                bool any = false;
+                for (int t = 0; t < data.stretchTextures.Length; t++)
+                {
+                    string property = data.stretchTextures[t];
+                    if (string.IsNullOrEmpty(property) || !clone.HasProperty(property)) continue;
+                    clone.SetTextureScale(property, scale);
+                    clone.SetTextureOffset(property, offset);
+                    any = true;
+                }
+                if (!any)
+                {
+                    Object.Destroy(clone);
+                    continue;
+                }
+                slots[0] = clone;
+                renderers[r].materials = slots;
+                written++;
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"compound-stretch-{partName}",
+                $"  Compound part '{partName}' pid={persistentId}: ReStock texture stretch " +
+                $"scale=({scale.x.ToString("0.###", CultureInfo.InvariantCulture)}," +
+                $"{scale.y.ToString("0.###", CultureInfo.InvariantCulture)}) on {written} renderer(s)", 60.0);
         }
 
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,

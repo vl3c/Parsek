@@ -724,6 +724,10 @@ namespace Parsek
         public string lineObjName;
         public string targetAnchorName;
         public string targetCapName;
+        // ReStock's ModuleRestockLinkedMesh texture stretch: the shader texture properties it
+        // rescales (null when the module is not ReStock's) and the stretched axis (0 = x, 1 = y).
+        public string[] stretchTextures;
+        public int stretchAxisIndex;
     }
 
     internal class CompoundPartGhostInfo

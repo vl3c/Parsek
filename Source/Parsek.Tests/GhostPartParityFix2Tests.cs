@@ -339,5 +339,90 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ReStock linked mesh
+
+        private static ConfigNode ReStockStrutConfig()
+        {
+            var part = new ConfigNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleRestockLinkedMesh");
+            module.AddValue("lineObjName", "strut");
+            module.AddValue("targetAnchorName", "strut_target_anchor");
+            module.AddValue("targetCapName", "strut_target_cap");
+            module.AddValue("stretchAxis", "x");
+            module.AddValue("stretchTextures", "_MainTex _BumpMap");
+            return part;
+        }
+
+        private static ConfigNode ConnectedStrutSnapshot()
+        {
+            var part = new ConfigNode("PART");
+            var data = part.AddNode("PARTDATA");
+            data.AddValue("pos", "0,1,2");
+            data.AddValue("rot", "0,0,0,1");
+            data.AddValue("tpersID", "4242");
+            return part;
+        }
+
+        [Fact]
+        public void LinkedMesh_ReStockSubclass_ParsesUnderItsOwnModuleName()
+        {
+            bool parsed = GhostVisualBuilder.TryParseCompoundPartData(
+                ConnectedStrutSnapshot(), ReStockStrutConfig(), true, 7u, "strutConnector",
+                "ModuleRestockLinkedMesh", out CompoundPartData data);
+            Assert.True(parsed);
+            Assert.Equal("strut", data.lineObjName);
+            Assert.Equal("strut_target_anchor", data.targetAnchorName);
+            Assert.Equal("strut_target_cap", data.targetCapName);
+            Assert.Equal(4242u, data.targetPersistentId);
+            Assert.Equal(new[] { "_MainTex", "_BumpMap" }, data.stretchTextures);
+            Assert.Equal(0, data.stretchAxisIndex);
+
+            // The literal stock name finds nothing on a ReStock part: the pre-fix behaviour.
+            Assert.False(GhostVisualBuilder.TryParseCompoundPartData(
+                ConnectedStrutSnapshot(), ReStockStrutConfig(), true, 7u, "strutConnector", out _));
+        }
+
+        [Fact]
+        public void LinkedMesh_StockModule_HasNoTextureStretch()
+        {
+            var part = new ConfigNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "CModuleLinkedMesh");
+            module.AddValue("lineObjName", "obj_strut");
+            Assert.True(GhostVisualBuilder.TryParseCompoundPartData(
+                ConnectedStrutSnapshot(), part, true, 7u, "strutConnector", out CompoundPartData data));
+            Assert.Null(data.stretchTextures);
+        }
+
+        [Fact]
+        public void LinkedMesh_ReStockStretch_AxisAndDefaults()
+        {
+            var node = new ConfigNode("MODULE");
+            GhostVisualBuilder.ParseReStockStretch(node, out string[] textures, out int axis);
+            Assert.Equal(new[] { "_MainTex" }, textures);
+            Assert.Equal(0, axis);
+            node.AddValue("stretchAxis", "y");
+            GhostVisualBuilder.ParseReStockStretch(node, out _, out axis);
+            Assert.Equal(1, axis);
+        }
+
+        [Fact]
+        public void LinkedMesh_ReStockStretch_ScaleAndOffsetOnTheStretchedAxis()
+        {
+            GhostVisualBuilder.ComputeReStockTextureStretch(2.5f, 1.25f, 0, out Vector2 scale, out Vector2 offset);
+            Assert.Equal(2f, scale.x, 0.0001f);
+            Assert.Equal(1f, scale.y);
+            Assert.Equal(-0.5f, offset.x, 0.0001f);
+            Assert.Equal(0f, offset.y);
+
+            GhostVisualBuilder.ComputeReStockTextureStretch(0.625f, 1.25f, 1, out scale, out offset);
+            Assert.Equal(1f, scale.x);
+            Assert.Equal(0.5f, scale.y, 0.0001f);
+            Assert.Equal(0.25f, offset.y, 0.0001f);
+        }
+
+        #endregion
     }
 }
