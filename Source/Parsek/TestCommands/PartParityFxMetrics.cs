@@ -50,9 +50,10 @@ namespace Parsek.TestCommands
         /// <summary>[x, y] mean of the core pixel centres; null with no core.</summary>
         internal double[] CoreCentroid;
 
-        /// <summary>The core's principal-axis angle against the exhaust axis, degrees in
-        /// (-90, 90]; null on the axis view, with no core, or for an isotropic core. Not
-        /// written: the direction compare reads it.</summary>
+        /// <summary>The core's direction against the exhaust axis, degrees in (-180, 180]: the
+        /// line from the centroid of its upstream half to that of its downstream half
+        /// (<see cref="PartParityFxMetrics.CoreDirectionDeg"/>); null on the axis view, with no
+        /// core, or when a half is empty. Not written: the direction compare reads it.</summary>
         internal double? CoreAxisDeg;
 
         /// <summary>[r, g, b] mean tile colour over the core's unsaturated pixels; null when
@@ -257,7 +258,6 @@ namespace Parsek.TestCommands
             int unsaturated = 0;
             double tMin = double.PositiveInfinity, tMax = double.NegativeInfinity;
             double sMin = double.PositiveInfinity, sMax = double.NegativeInfinity;
-            long coreSumXX = 0, coreSumYY = 0, coreSumXY = 0;
             for (int p = 0; p < n; p++)
             {
                 int i = p * 4;
@@ -284,9 +284,6 @@ namespace Parsek.TestCommands
                 m.CorePx++;
                 coreSumX += x;
                 coreSumY += y;
-                coreSumXX += (long)x * x;
-                coreSumYY += (long)y * y;
-                coreSumXY += (long)x * y;
                 if (saturated) { m.SaturatedPx++; continue; }
                 unsaturated++;
                 uR += r;
@@ -302,7 +299,7 @@ namespace Parsek.TestCommands
                 m.WidthPx = sMax - sMin;
             }
             if (hasAxis && m.CorePx > 0)
-                m.CoreAxisDeg = CoreAxisDeg(m.CorePx, coreSumX, coreSumY, coreSumXX, coreSumYY, coreSumXY, ux, uy);
+                m.CoreAxisDeg = CoreDirectionDeg(m.Core, width, m.CoreCentroid, ox, oy, ux, uy);
             if (unsaturated > 0)
             {
                 m.MeanColor = new[] { (double)uR / unsaturated, (double)uG / unsaturated, (double)uB / unsaturated };
@@ -391,9 +388,9 @@ namespace Parsek.TestCommands
         /// <summary>
         /// The comparison of one tile, ghost minus real (E.4). On a side view: the origin
         /// delta, the lateral offset (the core centroids' across-axis positions, ghost minus
-        /// real), the length and width ratios, and the direction (the core's principal-axis
-        /// angle against the exhaust axis, ghost minus real, wrapped into (-90, 90]: a
-        /// translation or a length change leaves it unchanged, only a turn moves it). On the axis
+        /// real), the length and width ratios, and the direction (<see cref="CoreDirectionDeg"/>,
+        /// ghost minus real, wrapped into (-180, 180]: a translation or a length change leaves it
+        /// unchanged, only a turn moves it). On the axis
         /// view: the core area ratio and the distance between the core centroids over the
         /// nozzle diameter (the difference of their offsets from the nozzle point). On every
         /// view: the chromaticity distance, the hue histograms' L1 distance (each normalized
@@ -417,7 +414,7 @@ namespace Parsek.TestCommands
                                         - AcrossPx(real.CoreCentroid[0], real.CoreCentroid[1], ox, oy, ux, uy);
                 }
                 if (real.CoreAxisDeg.HasValue && ghost.CoreAxisDeg.HasValue)
-                    c.DirectionDeg = WrapHalfTurn(ghost.CoreAxisDeg.Value - real.CoreAxisDeg.Value);
+                    c.DirectionDeg = WrapDeg(ghost.CoreAxisDeg.Value - real.CoreAxisDeg.Value);
             }
             else if (string.Equals(view, PartParityFxRules.ViewFxBottom, StringComparison.Ordinal))
             {
@@ -443,27 +440,40 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// The principal-axis angle of a core against the exhaust axis, in (-90, 90] degrees:
-        /// the exact integer central moments <c>Cxx = n Sxx - Sx^2</c>, <c>Cyy = n Syy - Sy^2</c>,
-        /// <c>Cxy = n Sxy - Sx Sy</c> (pixel indices; the half-pixel centre offset cancels), the
-        /// image orientation <c>0.5 atan2(2 Cxy, Cxx - Cyy)</c>, minus the axis angle
-        /// <c>atan2(uy, ux)</c>, wrapped. Null for an isotropic core (Cxy = 0 and Cxx = Cyy),
-        /// which has no axis.
+        /// The direction of a core against the exhaust axis, degrees in (-180, 180]: the core
+        /// is split at its centroid's along-axis position <c>tc</c> (upstream: t &lt; tc;
+        /// downstream: the rest), each half's centroid is taken from its integer index sums,
+        /// and the direction is <c>atan2(s_down - s_up, t_down - t_up)</c>. A translation or a
+        /// length change leaves it unchanged and a turn moves it by the turn, and it stays
+        /// well conditioned for a round core (the halves' centroids sit about a radius apart).
+        /// Null when a half is empty.
         /// </summary>
-        internal static double? CoreAxisDeg(int n, long sx, long sy, long sxx, long syy, long sxy, double ux, double uy)
+        internal static double? CoreDirectionDeg(bool[] core, int width, double[] centroid,
+            double ox, double oy, double ux, double uy)
         {
-            long cxx = n * sxx - sx * sx, cyy = n * syy - sy * sy, cxy = n * sxy - sx * sy;
-            if (cxy == 0 && cxx == cyy) return null;
-            double orientation = 0.5 * Math.Atan2(2.0 * cxy, (double)(cxx - cyy)) * 180.0 / Math.PI;
-            double axis = Math.Atan2(uy, ux) * 180.0 / Math.PI;
-            return WrapHalfTurn(orientation - axis);
+            if (core == null || centroid == null || width <= 0) return null;
+            double tc = AlongPx(centroid[0], centroid[1], ox, oy, ux, uy);
+            long ux0 = 0, uy0 = 0, dx0 = 0, dy0 = 0;
+            int nu = 0, nd = 0;
+            for (int p = 0; p < core.Length; p++)
+            {
+                if (!core[p]) continue;
+                int x = p % width, y = p / width;
+                if (AlongPx(x + 0.5, y + 0.5, ox, oy, ux, uy) < tc) { ux0 += x; uy0 += y; nu++; }
+                else { dx0 += x; dy0 += y; nd++; }
+            }
+            if (nu == 0 || nd == 0) return null;
+            double[] up = PixelMean(ux0, uy0, nu), down = PixelMean(dx0, dy0, nd);
+            double dt = AlongPx(down[0], down[1], ox, oy, ux, uy) - AlongPx(up[0], up[1], ox, oy, ux, uy);
+            double ds = AcrossPx(down[0], down[1], ox, oy, ux, uy) - AcrossPx(up[0], up[1], ox, oy, ux, uy);
+            return Math.Atan2(ds, dt) * 180.0 / Math.PI;
         }
 
-        /// <summary>An angle between two lines wrapped into (-90, 90].</summary>
-        internal static double WrapHalfTurn(double d)
+        /// <summary>An angle difference wrapped into (-180, 180].</summary>
+        internal static double WrapDeg(double d)
         {
-            while (d > 90.0) d -= 180.0;
-            while (d <= -90.0) d += 180.0;
+            while (d > 180.0) d -= 360.0;
+            while (d <= -180.0) d += 360.0;
             return d;
         }
 
@@ -623,12 +633,13 @@ namespace Parsek.TestCommands
             double ax = axis[0] / al, ay = axis[1] / al, az = axis[2] / al;
             long total = 0;
             double speedSum = 0.0, dirSum = 0.0, sizeSum = 0.0;
-            int moving = 0;
+            int moving = 0, withVelocity = 0, sampleCount = 0;
             var along = new List<double>();
             var across = new List<double>();
             foreach (IList<PartParityFxParticle> sample in samples)
             {
                 if (sample == null) continue;
+                sampleCount++;
                 total += sample.Count;
                 foreach (PartParityFxParticle q in sample)
                 {
@@ -646,6 +657,7 @@ namespace Parsek.TestCommands
                         double vx = q.Velocity[0], vy = q.Velocity[1], vz = q.Velocity[2];
                         double sp = Math.Sqrt(vx * vx + vy * vy + vz * vz);
                         speedSum += sp;
+                        withVelocity++;
                         if (sp > 0.0)
                         {
                             double cos = (vx * ax + vy * ay + vz * az) / sp;
@@ -655,11 +667,12 @@ namespace Parsek.TestCommands
                     }
                 }
             }
-            st.Count = (double)total / samples.Count;
+            if (sampleCount == 0) return st;
+            st.Count = (double)total / sampleCount;
             st.Near = along.Count;
             if (st.Near > 0)
             {
-                st.Speed = speedSum / st.Near;
+                if (withVelocity > 0) st.Speed = speedSum / withVelocity;
                 st.Size = sizeSum / st.Near;
                 st.AlongP95 = PartParityMetrics.NearestRankPercentile(along, PartParityFxRules.FramingPercentile);
                 st.AcrossP95 = PartParityMetrics.NearestRankPercentile(across, PartParityFxRules.FramingPercentile);

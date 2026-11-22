@@ -355,21 +355,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WrapHalfTurn_KeepsTheLinesShortWay()
+        public void WrapDeg_KeepsTheShortWay()
         {
-            Assert.Equal(-10.0, PartParityFxMetrics.WrapHalfTurn(170.0), 12);
-            Assert.Equal(90.0, PartParityFxMetrics.WrapHalfTurn(-90.0), 12);
-            Assert.Equal(80.0, PartParityFxMetrics.WrapHalfTurn(-100.0), 12);
+            Assert.Equal(-10.0, PartParityFxMetrics.WrapDeg(350.0), 12);
+            Assert.Equal(180.0, PartParityFxMetrics.WrapDeg(-180.0), 12);
+            Assert.Equal(170.0, PartParityFxMetrics.WrapDeg(-190.0), 12);
         }
 
         [Fact]
-        public void CoreAxisDeg_AnIsotropicCore_HasNoAxis_AVerticalBandOnAVerticalAxisReadsZero()
+        public void CoreDirectionDeg_ReadsTheHalvesLine_NullWithAnEmptyHalf()
         {
-            // A 2 x 2 square: Cxy = 0, Cxx = Cyy.
-            Assert.Null(PartParityFxMetrics.CoreAxisDeg(4, 2, 2, 2, 2, 1, 1.0, 0.0));
-            // A 1 x 3 column (x = 0, y = 0..2) against a downward axis.
-            Assert.Equal(0.0, PartParityFxMetrics.CoreAxisDeg(3, 0, 3, 0, 5, 0, 0.0, 1.0).Value, 12);
-            Assert.Equal(90.0, PartParityFxMetrics.CoreAxisDeg(3, 0, 3, 0, 5, 0, 1.0, 0.0).Value, 12);
+            // A 1 x 3 column (x = 0, y = 0..2) against a downward axis, then a sideways one.
+            var column = new[] { true, true, true };
+            double[] c = { 0.5, 1.5 };
+            Assert.Equal(0.0, PartParityFxMetrics.CoreDirectionDeg(column, 1, c, 0.5, 0.0, 0.0, 1.0).Value, 12);
+            // Across the axis every pixel sits at one t: no upstream half.
+            Assert.Null(PartParityFxMetrics.CoreDirectionDeg(column, 1, c, 0.0, 0.0, 1.0, 0.0));
+            // One pixel: no upstream half.
+            Assert.Null(PartParityFxMetrics.CoreDirectionDeg(new[] { true }, 1, new[] { 0.5, 0.5 }, 0.0, 0.0, 1.0, 0.0));
+        }
+
+        [Theory]
+        [InlineData(12.0, 5.0)]
+        [InlineData(10.0, 5.0)]
+        [InlineData(9.0, 4.0)]
+        public void ARoundCore_AgainstItself_NeverFailsDirection(double length, double halfWidth)
+        {
+            // The noise floor for a compact core (an RCS puff, a short flame): the even samples
+            // against the odd ones, and two seeds against each other, over 40 seeds.
+            double worst = 0.0;
+            for (uint seed = 1; seed <= 40; seed++)
+            {
+                var p = new FxPlume { Seed = seed, Length = length, HalfWidth = halfWidth };
+                var q = p.Clone();
+                q.Seed = seed + 1000;
+                PartParityFxViewResult r = Measure(p, q);
+                Assert.DoesNotContain(PartParityFxRules.MeasureDirection, r.FailingMeasures(false));
+                Assert.DoesNotContain(PartParityFxRules.MeasureDirection,
+                    PartParityFxMetrics.FailingMeasures(Flame, r.RealEven, r.RealOdd,
+                        PartParityFxMetrics.Compare(r.RealEven, r.RealOdd, SideA, p.Axis()), false));
+                worst = Math.Max(worst, Math.Abs(r.Compare.DirectionDeg ?? 0.0));
+            }
+            Assert.True(worst < PartParityFxRules.DirectionFailDeg, "worst direction " + worst);
         }
 
         [Fact]
@@ -492,6 +519,18 @@ namespace Parsek.Tests
             Assert.Equal((20 * 2.0 + 3 * 4.0) / 23.0, st.Size.Value, 12);
             Assert.Equal(19.0, st.AlongP95.Value, 12);
             Assert.Equal(3.0, st.AcrossP95.Value, 12);
+        }
+
+        [Fact]
+        public void ReduceParticles_NullSamplesAndVelocities_LeaveTheDenominators()
+        {
+            var s1 = new List<PartParityFxParticle> { P(0, -1, 0, 0, -4, 0), new PartParityFxParticle { Position = new[] { 0.0, -2.0, 0.0 } } };
+            var st = PartParityFxMetrics.ReduceParticles(new List<IList<PartParityFxParticle>> { s1, null },
+                new[] { 0.0, 0.0, 0.0 }, new[] { 0.0, -1.0, 0.0 }, PartParityFxRules.FramingNearParticleM);
+            Assert.Equal(2.0, st.Count);
+            Assert.Equal(2, st.Near);
+            Assert.Equal(4.0, st.Speed.Value, 12);
+            Assert.Equal(0.0, st.DirectionDeg.Value, 12);
         }
 
         [Fact]

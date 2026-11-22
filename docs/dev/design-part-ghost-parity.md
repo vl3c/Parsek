@@ -2326,7 +2326,7 @@ Per route (event, start), FX view and layer:
 | lateral offset | distance of the core centroid from the axis line, ghost minus real | side, far | more than max(4 px, 5 % of the real length) | half that |
 | length | envelope extent along the axis from its origin | side, far | differs by more than 25 % of the real | 12.5 % |
 | width | largest envelope extent across the axis | side, far | 30 % | 15 % |
-| direction | angle between the axis and the core's principal axis, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 5 deg |
+| direction | angle between the axis and the line through the centroids of the core's upstream and downstream halves, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 5 deg |
 | cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.8, 1.25] |
 | colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | a quarter of each |
 | brightness | mean luminance ratio ghost / real over the core's unsaturated pixels, beside each side's saturated share | all | - | outside [0.5, 2.0] |
@@ -2403,14 +2403,19 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
 - Compare (`Compare`, every key of `FxCompareKeys`, ghost minus real; null where undefined): on
   a side view `originDeltaPx`, `lateralOffsetPx` (s of the ghost core centroid minus s of the
   real one), `lengthRatio`, `widthRatio` (null when the real extent is 0), and `directionDeg`:
-  the difference of the two cores' principal-axis angles against the exhaust axis, from the
-  exact integer central moments (`Cxx = n Sxx - Sx^2`, `Cyy`, `Cxy = n Sxy - Sx Sy`; angle
-  `0.5 atan2(2 Cxy, Cxx - Cyy) - atan2(uy, ux)`), wrapped into (-90, 90], null for an isotropic
-  core. That replaces the E.4 table's "origin-to-core-centroid line": a line drawn from any
-  point on the axis moves with a lateral shift (so a shifted plume would also fail direction)
-  and a line drawn from the plume's own first pixels starts at a corner when the plume turns, so
-  only the principal axis is unchanged by a translation or a length change and moved exactly by
-  a turn. On the axis view: `crossSectionAreaRatio` (ghost core / real core) and
+  each core is split at its centroid's t (upstream t < tc, downstream the rest), each half's
+  centroid is taken from its integer index sums, the side's direction is
+  `atan2(s_down - s_up, t_down - t_up)`, and `directionDeg` is ghost minus real wrapped into
+  (-180, 180] (null when a half is empty). That replaces the E.4 table's
+  "origin-to-core-centroid line": a line drawn from a point on the axis moves with a lateral
+  shift (a shifted plume would also fail direction), a line from the plume's first pixels
+  starts at a corner when the plume turns, and the core's principal axis (tried first, rejected
+  in review) is ill-conditioned for a near-round core (a perfect 11 x 10 px puff read up to
+  90 deg between its own sample halves). The half-centroid line is unchanged by a translation or
+  a length change, moved by a turn, and stays well conditioned (worst 6.5 deg, under the 10 deg
+  fail line, for a 9 x 8 px core against itself over 40 seeds; `ARoundCore_AgainstItself_*`),
+  so a compact core can still warn on direction from noise alone, which the reading runs
+  re-pin. On the axis view: `crossSectionAreaRatio` (ghost core / real core) and
   `crossSectionOffset` (the distance between the two core centroids, which is the difference of
   their offsets from the nozzle point, over `axis.nozzleDiameterPx`). On every view:
   `chromaDistance` (Euclidean, chromaticity), `hueL1` (the histograms each normalized to sum 1,
@@ -2435,9 +2440,10 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   call it with `FramingNearParticleM`.
 - RCS (R4): `FormatRcsReportedOnly` writes the reported-only length, width and brightness ratios
   beside `rcsPowerRatio`; `AtlasRowFor(side, layer)` names a side's FX atlas row.
-- Exact recompute. Integers (counts, extents along an axis-aligned axis, bin sums) and the
-  float measures are computed from the written tile alone, in one order of operations, so a
-  Python transcription reproduces them. The committed fixture
+- Exact recompute. Counts and bin sums are integers; t and s (so origin, length and width) are
+  whole or half pixels only along an axis-aligned `dirPx` and otherwise floats; every value is
+  computed from the written tile alone, in one order of operations, so a Python transcription
+  reproduces it (exactly where integral, within 1e-9 otherwise). The committed fixture
   `Source/Parsek.Tests/Fixtures/PartParity/fx/` (`fxfixtureplume--default--burn-full--aae6c591`:
   `.fx.png`, 6 rows x 4 views of 64 px, 16 samples, and its `.part.json`, whose `fx.views[]`
   hold 16 entries) is rebuilt by `PARSEK_WRITE_PART_PARITY_FX_FIXTURE=1 dotnet test --filter
