@@ -288,7 +288,7 @@ body = "On 2026-11-14 the merge flow reaches its host instance only through <spa
 
 [[findings.items]]
 title = "The two recorders share one part poller."
-body = "Since 2026-11-14 (#2597) <span class=\"id\">FlightRecorder</span> and <span class=\"id\">BackgroundRecorder</span> run fifteen part-polling families through <span class=\"id\">PartStatePoller</span>, about 680 duplicated lines gone from each, at the cost of three more text-knot members (435 to 438 types that day) and no semantic residue; engine, RCS, light, robotic and EVA polling still differ per side and stay in each recorder."
+body = "Since 2026-11-14 (#2597) <span class=\"id\">FlightRecorder</span> and <span class=\"id\">BackgroundRecorder</span> run fifteen part-polling families through <span class=\"id\">PartStatePoller</span>, about 680 duplicated lines gone from each, at the cost of three more text-knot members (435 to 438 types that day) and no semantic residue; engine, RCS, robotic and EVA polling still differ per side and stay in each recorder, and light polls through <span class=\"id\">PartStatePoller</span> for the active recorder only, the background recorder keeping its own loop."
 
 [[findings.items]]
 title = "History lags the split."

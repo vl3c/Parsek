@@ -77,8 +77,9 @@ delivers the plan's daily cadence.
   seam commands each with the seam verdict the run REQUIRES to proceed, optionally
   plus an M-A3 autorun-batch env configuration. The `autopilot` driver kind is
   RESERVED for M-B1 and rejected by v1 spec validation.
-- **Automation instance**: a provisioned KSP directory (M-A6), one of two
-  profiles (`stock-minimal`, `modded-compat`), carrying a
+- **Automation instance**: a provisioned KSP directory (M-A6), one of the
+  profiles in `hlib.INSTANCE_PROFILES` (`stock-minimal`, `modded-compat`,
+  `stock-tree`, `modded-restock`), carrying a
   `provision-manifest.json` the harness admits against.
 - **Admission**: the pre-launch gate that compares the instance's provision
   manifest against the pins the harness expects (reusing the M-A6 pure
@@ -464,7 +465,7 @@ own `[expectations.logContracts]` does not declare (such a signature could never
 match, so the quarantine would silently stop absorbing its defect).
 
 Spec-validation rules (pure, `hlib.validate_spec`): `id` unique + filename-safe;
-`tier` in the enum; `instanceProfile` in `{stock-minimal, modded-compat}`;
+`tier` in the enum; `instanceProfile` in `hlib.INSTANCE_PROFILES`;
 `fixture.injectedRecordings` in `{none, all-synthetic}` (v1 value set; any other
 value rejected, per S4); `driver.kind == "seam"` (autopilot rejected); the FIRST
 step is a `LoadGame` (the boot handshake owner) whose `save` arg is exactly
@@ -1170,8 +1171,8 @@ its runner died. The same boundary refreshes the held slot locks; one no longer
 ours stops the selection `INVALID(slot-locked)`.
 
 **kRPC ports, stamped.** Ports are derived, never parsed: profile base
-(stock-minimal 50000, stock-tree 50020, modded-compat 50040) + `2*(k-1)` for
-RPC, + 1 for the stream. Before EVERY launch, serial or slot, run.py writes the
+(stock-minimal 50000, stock-tree 50020, modded-compat 50040, modded-restock
+50060) + `2*(k-1)` for RPC, + 1 for the stream. Before EVERY launch, serial or slot, run.py writes the
 golden kRPC settings with the instance's slot ports (`provlib.stamp_krpc_settings`,
 the bytes provisioning stamps; written only when they differ) and passes the
 same ports to the mission. It then refuses `INVALID(port-busy)` when either
@@ -2168,11 +2169,13 @@ runs sequentially and each script builds for itself.
    only for a lane that drives `PartParitySweep`. Right after the drive, inside
    the lock, `run.py` MOVES each swept label directory out of the instance into
    `results/<runId>_partparity/<label>/`, so the row reads it in place and the
-   pipelined private copy never carries it. Four instrument gates from the
+   pipelined private copy never carries it. Five instrument gates from the
    start, each a terminal INVALID placed ahead of the contract verifiers
    (`parity-host-damaged` when the C# host-integrity guard stopped the sweep,
-   ranked first, `parity-controls`, `parity-instrument` for a Python recompute
-   of the shape measures that disagrees with the C# sidecar,
+   ranked first, `parity-controls`, `parity-state-press` when more than half of
+   one family's state cases of a state run failed their press or timed out
+   (`design-part-ghost-parity.md` D.6), `parity-instrument` for a Python
+   recompute of the shape measures that disagrees with the C# sidecar,
    `parity-incomplete`); the
    per-part verdicts are report-only until `[expectations.partParity] gating =
    true`, then PARSEK-FAIL (part-parity). Over a driver-INVALID run the row is
@@ -2256,7 +2259,8 @@ retry_policy)` maps to the taxonomy:
   attempt cap), instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
   timeout, analyzer-error, spec invalid, fixture STALE / fixture-authoring
   (BASELINE-FORBIDDEN-only), or the part ghost parity instrument gates
-  (parity-host-damaged / parity-controls / parity-instrument / parity-incomplete, terminal). Retryable-once for driver / tooling
+  (parity-host-damaged / parity-controls / parity-state-press / parity-instrument /
+  parity-incomplete, terminal). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
   INVALID is terminal and adds a flake-ledger entry (plan section 10 "two invalids
   => quarantine entry"). The one exception is a deterministic seam error, which is

@@ -39,6 +39,15 @@ namespace Parsek.TestCommands
 
         internal static void Prepare(StepContext ctx, WaveCase wc)
         {
+            if (wc.State != null)
+            {
+                // The real part's depth masks are repaired before the state branch reads its
+                // renderers, the same repair, line, flags and setup fault as a stowed case.
+                RepairDepthMasks(wc, wc.Real.rootPart);
+                RepairColorChangerLeaks(wc, wc.Real.rootPart, wc.State.JettisonTransforms);
+                PartParityStateDriver.Prepare(ctx, wc);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform partT = part.transform;
             wc.Skin = PartParitySkinRules.NewProof(wc.SkinOption, wc.RealVariant, wc.Entry?.B9Modules);
@@ -46,6 +55,8 @@ namespace Parsek.TestCommands
             wc.SkinRealMember = realMember;
 
             if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh) PlantCube(ctx, wc, part);
+            RepairDepthMasks(wc, part);
+            RepairColorChangerLeaks(wc, part, null);
 
             var realRenderers = new List<Renderer>(part.GetComponentsInChildren<Renderer>(true));
             wc.RealRecords = Records(partT, realRenderers, wc.RealLayers, null,
@@ -67,6 +78,55 @@ namespace Parsek.TestCommands
             }
             Frame(wc);
         }
+
+        /// <summary>
+        /// Brings the real part's depth masks to the look the player sees before anything
+        /// reads the real renderers and before the ghost is parented under the part
+        /// (<see cref="PartParityDepthMaskRepair"/>): one summary line per case that has a
+        /// depth-mask module (Warn when a module stayed unrepaired, which makes the case the
+        /// <c>depth-mask-unrepaired</c> setup fault; Info when it repaired; Verbose when every
+        /// module was intact), none for any other part.
+        /// </summary>
+        private static void RepairDepthMasks(WaveCase wc, Part part)
+        {
+            List<PartParityDepthMaskRepair.ModuleResult> results = PartParityDepthMaskRepair.Repair(part);
+            if (results.Count == 0) return;
+            PartParityDepthMaskRepair.Count(results, out int repaired, out int unrepaired);
+            wc.Flags.AddRange(PartParityDepthMaskRepair.CaseFlags(results));
+            wc.DepthMaskUnrepaired = unrepaired;
+            if (unrepaired > 0) wc.Detail = wc.Detail ?? PartParityDepthMaskRepair.UnrepairedDetail(results);
+            string line = PartParityDepthMaskRepair.SummaryLine(wc.CaseId, part.partInfo?.name, results);
+            if (unrepaired > 0) ParsekLog.Warn(PartParitySweepRunner.Tag, line);
+            else if (repaired > 0) ParsekLog.Info(PartParitySweepRunner.Tag, line);
+            else ParsekLog.Verbose(PartParitySweepRunner.Tag, line);
+        }
+
+        /// <summary>
+        /// Resets the real part's colour-changer leaks (<see cref="PartParityColorChangerLeakRepair"/>)
+        /// on its own renderers and on its jettison transforms wherever they live (stock reparents
+        /// a stacked shroud under the part below), before anything reads the real renderers. One
+        /// Info line and the flag <c>colorchanger-leak-repaired:&lt;n&gt;</c> when it reset any.
+        /// </summary>
+        private static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
+        {
+            // Mesh renderers only, the set the capture records and photographs (an engine's
+            // idle FX quads carry a colour changer's _TintColor too and draw nothing here).
+            var candidates = new List<Renderer>();
+            foreach (Renderer r in part.GetComponentsInChildren<Renderer>(true))
+                if (IsMeshRenderer(r) && r.GetComponentInParent<Part>() == part) candidates.Add(r);
+            if (jettisonTransforms != null)
+                foreach (Transform t in jettisonTransforms)
+                    if (t != null)
+                        foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
+                            if (IsMeshRenderer(r) && !candidates.Contains(r)) candidates.Add(r);
+            int n = PartParityColorChangerLeakRepair.Repair(part, candidates, out string detail);
+            if (n == 0) return;
+            wc.Flags.Add(PartParityColorChangerLeakRepair.Flag(n));
+            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: colour-changer leak repaired n={n} " +
+                $"part={part.partInfo?.name} renderers=[{detail}] candidates={candidates.Count}");
+        }
+
+        private static bool IsMeshRenderer(Renderer r) => r is MeshRenderer || r is SkinnedMeshRenderer;
 
         /// <summary>The three controls that photograph no ghost.</summary>
         internal static bool BuildsGhost(string controlId)
@@ -122,7 +182,7 @@ namespace Parsek.TestCommands
         /// snapshot PART's persistentId); then the ghost-defect flags. One Verbose line names
         /// every value and the live member the real side was read from.
         /// </summary>
-        private static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
+        internal static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
         {
             PartParitySkinProof proof = wc.Skin;
             proof.Snapshot = PartParitySkinRules.SnapshotSkin(snapPart, proof);
@@ -234,9 +294,10 @@ namespace Parsek.TestCommands
                 $"tile={ctx.Capture.Tile.ToString(Ic)}");
         }
 
-        private static void Frame(WaveCase wc)
+        internal static void Frame(WaveCase wc)
         {
             wc.Framing = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
+            PartParityStateDriver.StampCanopy(wc, wc.Framing.Structure, "event");
             foreach (var d in wc.Framing.Dropped) wc.Flags.Add(PartParityFramingRule.DroppedFlag(d));
             if (wc.Framing.GhostOutsideReal) wc.Flags.Add(PartParityFramingRule.FlagGhostOutsideRealBounds);
             if (wc.Ghost != null && !wc.RealLayers.SetEquals(wc.GhostLayers)) wc.Flags.Add(FlagGhostLayerDiffers);
@@ -336,7 +397,7 @@ namespace Parsek.TestCommands
             rec.BoundsMax = new double[] { max.x, max.y, max.z };
         }
 
-        private static string RelativePath(Transform root, Transform t)
+        internal static string RelativePath(Transform root, Transform t)
         {
             var segs = new List<string>();
             for (Transform cur = t; cur != null && cur != root; cur = cur.parent) segs.Add(cur.name);
@@ -348,6 +409,11 @@ namespace Parsek.TestCommands
 
         internal static void CaptureView(StepContext ctx, WaveCase wc, string view)
         {
+            if (wc.State != null)
+            {
+                PartParityStateDriver.CaptureView(ctx, wc, view);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform ghostRoot = wc.Ghost != null && wc.Ghost.Build != null && wc.Ghost.Build.root != null
                 ? wc.Ghost.Build.root.transform : null;
@@ -392,6 +458,8 @@ namespace Parsek.TestCommands
             if (wc.Status != null) return wc.Status;
             if (PartParitySkinRules.SkinNotApplied(wc.Skin))
                 return TestCommandPartParitySweep.SetupSkinNotApplied;
+            if (wc.DepthMaskUnrepaired > 0)
+                return TestCommandPartParitySweep.SetupDepthMaskUnrepaired;
             return wc.StillAnimating ? TestCommandPartParitySweep.SetupStillAnimating : TestCommandPartParitySweep.SetupOk;
         }
 
@@ -420,6 +488,7 @@ namespace Parsek.TestCommands
             if (e != null) { s.ModelUrls.AddRange(e.ModelUrls); s.Tags.AddRange(e.Tags); }
             if (wc.ControlId != null) s.Tags.Add(TagControl);
             s.Flags.AddRange(wc.Flags);
+            if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));
@@ -440,7 +509,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = new[] { "real", "ghost" },
+                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }
@@ -459,8 +528,10 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[] atlas = PartParityImage.BuildAtlas(
-                new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }, wc.CapturedViews.Count, tile, out int w, out int h);
+            byte[][][] rows = wc.State != null && wc.State.FourRows
+                ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray() }
+                : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
+            byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);
             FileIOUtils.SafeWriteBytes(PartParityPng.EncodeRgba(w, h, atlas),
                 Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.AtlasFileName(wc.CaseId)), PartParitySweepRunner.Tag);
             int thumbView = Math.Max(0, wc.CapturedViews.IndexOf(TestCommandPartParitySweep.ViewSideA));
@@ -542,10 +613,14 @@ namespace Parsek.TestCommands
                 Tile = ctx.Args.Tile,
                 Views = new List<string>(ctx.Args.Views),
                 Controls = controls,
-                Exclusions = ctx.Exclusions,
+                Exclusions = new List<PartParityExclusion>(ctx.Exclusions),
             };
+            // A state run's exclusions (design D.1), each with its reason.
+            foreach (PartParityStateExclusion x in ctx.StateExclusions)
+                mf.Exclusions.Add(new PartParityExclusion { Part = x.Part, Reason = x.Reason });
             mf.GameDataMods.AddRange(GameDataMods());
             AddSettings(ctx, mf.Settings);
+            mf.Settings.AddRange(TestCommandPartParitySweep.StateSettings(ctx.Args));
             var crashed = new List<string>();
             foreach (var p in ctx.Planned)
             {
@@ -568,7 +643,7 @@ namespace Parsek.TestCommands
             mf.Progress = new PartParityProgress
             {
                 Complete = done, Cases = ctx.Planned.Count, CompleteCases = complete, SetupFaults = faults,
-                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls)),
+                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls), ctx.ControlSet),
                 Crashed = crashed,
                 HostDamaged = ctx.HostDamage != null,
                 HostDamage = ctx.HostDamage?.Reason,
@@ -588,10 +663,29 @@ namespace Parsek.TestCommands
             return o;
         }
 
-        private static string ProfileName()
+        /// <summary>The install's directory name (design 8): the KSP root path ends in
+        /// <c>KSP_x64_Data/../</c>, so it is resolved to its full path first (the last segment
+        /// of the raw path was <c>..</c>).</summary>
+        private static string ProfileName() => ProfileNameOf(KSPUtil.ApplicationRootPath);
+
+        internal static string ProfileNameOf(string rootPath)
         {
-            string root = (KSPUtil.ApplicationRootPath ?? string.Empty).TrimEnd('/', '\\');
-            return Path.GetFileName(root);
+            // Resolves "." and ".." itself over both separators: KSP's root path is
+            // "<install>/KSP_x64_Data/../" and Path.GetFullPath only understands the host's
+            // own separator, so a Windows path would not resolve on a mono host.
+            if (string.IsNullOrEmpty(rootPath)) return string.Empty;
+            var segments = new List<string>();
+            foreach (string seg in rootPath.Split('/', '\\'))
+            {
+                if (seg.Length == 0 || seg == ".") continue;
+                if (seg == "..")
+                {
+                    if (segments.Count > 0) segments.RemoveAt(segments.Count - 1);
+                    continue;
+                }
+                segments.Add(seg);
+            }
+            return segments.Count > 0 ? segments[segments.Count - 1] : string.Empty;
         }
 
         private static List<string> GameDataMods()

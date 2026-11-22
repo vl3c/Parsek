@@ -40,6 +40,38 @@ namespace Parsek
         // animate nothing under the canopy (stock canopies), so those chutes keep the
         // root-only pose. Each entry carries the bone's own local pose per stage.
         public List<CanopyBonePose> canopyBones;
+
+        // Stock aims an open canopy along the airflow every physics tick
+        // (ModuleParachute.FixedUpdate: canopy.rotation = LookRotation(+-dragVectorDir, up),
+        // then a spread tilt for a symmetry group), so the sampled clip rotation is never what
+        // the player sees. These are that rule's inputs, read from the prefab module at build.
+        // partTransform is the ghost stand-in for the part's own transform (stock base.transform).
+        // aimCanopy is false for an EVA chute (ModuleEvaChute poses its canopy kerbal-relative)
+        // and for a module that sets dontRotateParachute.
+        public Transform partTransform;
+        public bool aimCanopy;
+        public bool invertCanopy = true;
+        public float rotationSpeedDegPerSec = 90f;
+        public float spreadAngleDeg;
+        public int symmetryCount;
+        // Runtime aim state: the stage being aimed (Stowed = not aiming), whether the world
+        // rotation below holds a real aim, and the UT of that aim (NaN = snap on the next aim).
+        public CanopyPoseStage canopyAimStage;
+        public bool canopyAimSeeded;
+        public Quaternion canopyAimWorldRot;
+        public double canopyAimUT = double.NaN;
+        public CanopyAimSource canopyAimLastSource;
+    }
+
+    /// <summary>Where a ghost canopy's aim direction came from (see GhostPlaybackLogic.ResolveCanopyAimForward).</summary>
+    internal enum CanopyAimSource
+    {
+        /// <summary>The ghost's own surface-relative velocity (stock's dragVectorDir).</summary>
+        Airflow,
+        /// <summary>No usable velocity: the part is taken to fall straight down the body's gravity.</summary>
+        Gravity,
+        /// <summary>No velocity and no body: the part is taken to fall along its own -Y.</summary>
+        PartUp
     }
 
     internal enum CanopyPoseStage
@@ -97,6 +129,10 @@ namespace Parsek
         public Vector3 dScale;
         public Vector3 dPos;
         public Quaternion dRot;
+        // True when dPos / dRot are the clip's end pose read in the sampled model's frame (the
+        // sdPos / sdRot pair is in that frame whenever semiDeployedSampled). The builder moves
+        // them into the ghost canopy's parent frame, which is what localPosition reads.
+        public bool deployedInModelFrame;
         public List<CanopyBoneSample> bones;
     }
 
@@ -193,6 +229,15 @@ namespace Parsek
         public Vector3 deployedScale;
     }
 
+    /// <summary>One material colour a deploy clip animates, at its stowed and deployed ends.</summary>
+    internal struct DeployableColorState
+    {
+        public Material material;
+        public string property;
+        public Color stowed;
+        public Color deployed;
+    }
+
     internal class DeployableGhostInfo
     {
         public uint partPersistentId;
@@ -216,6 +261,12 @@ namespace Parsek
         public float transitionTargetFraction;
         /// <summary>The part's FXModuleLookAtConstraint pairs, re-aimed after every pose write.</summary>
         public List<LookAtConstraintGhostInfo> lookAtConstraints;
+        /// <summary>
+        /// Material colours the deploy clip animates (ReStock's SurfaceScanner 'screenon' turns
+        /// the screen on and moves nothing), written at the same fraction as the transforms.
+        /// Null when the clip animates no colour.
+        /// </summary>
+        public List<DeployableColorState> colors;
 
         /// <summary>
         /// S6: the ghost-side clone of the part's <c>panelBreakTransform</c> subtree — what stock
@@ -420,6 +471,16 @@ namespace Parsek
         public List<ConverterLoopTransformState> transforms;
         /// <summary>The running clip's own length, clamped by ClampDeployableClipSeconds.</summary>
         public float clipLengthSeconds = 3f;
+        /// <summary>
+        /// True when the loop runs while the ModuleAnimationGroup is DEPLOYED rather than while a
+        /// converter runs: stock's <c>CheckForActivity</c> plays the active clip whenever the
+        /// group is deployed and any <c>IAnimatedModule</c> on the part reports active, and every
+        /// non-converter one (ModuleResourceScanner, ModuleGPS, ModuleOrbitalSurveyor) reports
+        /// active as soon as the deploy enables it; <c>alwaysActive</c> does the same. Driven by
+        /// the DeployableExtended / Retracted events and the snapshot's isDeployed instead of the
+        /// converter edges (the M4435 orbital scanner's 'miniscanner' / ReStock 'Spin').
+        /// </summary>
+        public bool followsDeploy;
         /// <summary>True while the part's converter is running and the loop should advance.</summary>
         public bool active;
         /// <summary>

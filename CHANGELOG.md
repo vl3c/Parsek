@@ -24,6 +24,8 @@ Not released yet.
 
 ### Changed
 
+- **Missions: Clone and Delete are gone.** Each flight keeps one mission (an old copy is dropped
+  on load), and interval rows no longer repeat their vessel's Fly / Seal.
 - **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching keeps
   falling and explodes where it hits ground or sea, not in mid-air. (ABANDONED-STAGE-D1)
 - **Stages left under open parachutes come down and land.** The replay shows the stage under its
@@ -65,6 +67,16 @@ Not released yet.
 
 ### Fixed
 
+- **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
+  ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
+- **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above
+  the body as on the real antenna. (GHOST-RESTOCK-COMMDISH-DEPLOY-POSE)
+- **Jet engine thrust reversers show on ghosts.** A Wheesley or Goliath reverser you deploy is
+  recorded and its ghost shows it deployed. (THRUST-REVERSER-NOT-RECORDED)
+- **Airbrakes already out stay out on the replay.** A replay that starts with airbrakes deployed
+  shows them out from the first frame. (GHOST-AIRBRAKE-START-NOT-DEPLOYED)
+- **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
+  above the part, instead of turned or hanging upside down. (GHOST-CHUTE-CANOPY-AIM)
 - **RealChute stages are seen under their chutes.** With RealChute, a stage left under open chutes
   comes down under them instead of crashing. (ABANDONED-STAGE-REALCHUTE-LOADED)
 - **Predicted paths show on the map and at the Space Center.** A ghost past its last point moves

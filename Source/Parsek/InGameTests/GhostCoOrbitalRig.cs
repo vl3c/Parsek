@@ -115,6 +115,35 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Spawns the authored vessel in the air at (<paramref name="lat"/>, <paramref name="lon"/>,
+        /// <paramref name="altitudeAsl"/>) over <paramref name="body"/> (the part parity air context,
+        /// design-part-ghost-parity.md D.4): upright (its +Y along the local up, +Z north), moving
+        /// straight down at <paramref name="descentMps"/> relative to the surface. SpawnAtPosition
+        /// reads an inertial velocity, so the body's rotating-frame velocity at the spawn point is
+        /// added to the surface velocity. Returns the spawned pid, 0 when the spawn failed.
+        /// </summary>
+        internal static uint SpawnInAir(
+            ConfigNode vesselNode, CelestialBody body, double lat, double lon, double altitudeAsl,
+            double descentMps, string label, string logTag)
+        {
+            Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, altitudeAsl);
+            Vector3d up = (worldPos - body.position).normalized;
+            Vector3d northPos = body.GetWorldSurfacePosition(lat + 0.001, lon, altitudeAsl);
+            Vector3d north = Vector3d.Exclude(up, northPos - worldPos).normalized;
+            Quaternion worldRot = Quaternion.LookRotation((Vector3)north, (Vector3)up);
+            Quaternion srfRel = Quaternion.Inverse(body.bodyTransform.rotation) * worldRot;
+            Vector3d surfaceVel = -up * descentMps;
+            Vector3d orbitalVel = surfaceVel + body.getRFrmVel(worldPos);
+            double ut = Planetarium.GetUniversalTime();
+            uint pid = VesselSpawner.SpawnAtPosition(vesselNode, body, lat, lon, altitudeAsl, orbitalVel, ut,
+                surfaceRelativeRotation: srfRel);
+            ParsekLog.Info(logTag, $"spawn {label}: pid={pid.ToString(IC)} in the air lat={lat.ToString("0.00000", IC)} " +
+                $"lon={lon.ToString("0.00000", IC)} alt={altitudeAsl.ToString("0", IC)}m descent={descentMps.ToString("0.0", IC)}m/s " +
+                $"orbitalSpeed={orbitalVel.magnitude.ToString("0.0", IC)}m/s body={body.name}");
+            return pid;
+        }
+
+        /// <summary>
         /// Builds a ghost from <paramref name="real"/>'s own snapshot, the way playback would:
         /// a throwaway recording starting now carries the snapshot, the timeline builder makes
         /// the ghost, and the engine's build-and-initialise seam
@@ -149,21 +178,45 @@ namespace Parsek.InGameTests
                 return false;
             }
             mutateSnapshot?.Invoke(snapshot);
-            double t0 = Planetarium.GetUniversalTime();
+            return TryBuildGhostFromSnapshot(snapshot, recordingId, ghostRootName, seedEvents,
+                real.vesselName, real.persistentId, double.NaN, out ghost, out failReason);
+        }
+
+        /// <summary>
+        /// Builds a ghost from a SAVED snapshot (design-part-ghost-parity Appendix D.5), so a
+        /// caller can build after the real vessel has moved on: the part parity sweep's event
+        /// route builds from the stowed snapshot it took before the press. The throwaway
+        /// recording starts at <paramref name="startUT"/> (now when NaN) and carries
+        /// <paramref name="events"/> as its part events; everything else is
+        /// <see cref="TryBuildGhostFromLiveVessel(Vessel, string, string, List{PartEvent}, Action{ConfigNode}, out LiveGhost, out string)"/>.
+        /// </summary>
+        internal static bool TryBuildGhostFromSnapshot(
+            ConfigNode snapshot, string recordingId, string ghostRootName, List<PartEvent> events,
+            string vesselName, uint vesselPersistentId, double startUT,
+            out LiveGhost ghost, out string failReason)
+        {
+            ghost = null;
+            failReason = null;
+            if (snapshot == null)
+            {
+                failReason = "no snapshot";
+                return false;
+            }
+            double t0 = double.IsNaN(startUT) ? Planetarium.GetUniversalTime() : startUT;
             var rec = new Recording
             {
                 RecordingId = recordingId,
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
-                VesselName = real.vesselName,
-                VesselPersistentId = real.persistentId,
+                VesselName = vesselName,
+                VesselPersistentId = vesselPersistentId,
                 ExplicitStartUT = t0,
                 ExplicitEndUT = t0 + 100.0,
                 GhostVisualSnapshot = snapshot.CreateCopy(),
                 VesselSnapshot = snapshot.CreateCopy(),
             };
-            if (seedEvents != null)
-                rec.PartEvents.AddRange(seedEvents);
+            if (events != null)
+                rec.PartEvents.AddRange(events);
             GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(rec, ghostRootName);
             if (build == null || build.root == null)
             {

@@ -1,0 +1,137 @@
+schema = 1
+id = "PP-3-part-parity-states-stock"
+tier = "operator"
+# PART GHOST PARITY, STOCK INSTALL, DEPLOYED STATE CASES IN ORBIT (phase P6 of
+# docs/dev/design-part-ghost-parity.md, Appendix D, row S6 of D.10). PP-1 photographs every
+# stock part STOWED beside its Parsek ghost; this lane photographs every part that
+# transforms in its transformed state (deployed, open, lit, jettisoned) beside THREE ghosts
+# (D.5): the event route (the stowed snapshot plus the part events the recorder's own pollers
+# recorded while stock moved the real part, primed to the end of the clip), the start route
+# (the deployed snapshot, the first frame of a recording that starts deployed) and the stowed
+# reference. Owner rulings R2 / R3 (2026-11-22): state cases run at the base skin only, in
+# their own report-only lanes, never in PP-1 / PP-2. The parachutes are not posed in vacuum
+# (R1): their air cases are PP-5's.
+#
+# WHAT THE LANE FLIES. PP-1's host and setup: `eva2-lko-crewed` (sandbox, every part
+# available, the 13-part Kerbal X Probe ORBITING Kerbin at ~100 km) boots into FLIGHT, turns
+# every auto-record setting off (no case vessel may be recorded), turns verbose logging on
+# (the per-case lines are verbose-tier), warps on rails to UT 1900 (FGV-1's sunlit window),
+# clears the label directory (`op=reset`), runs TWO time-boxed `op=run states=all` steps and
+# quits. `states=all` with no `contexts=` plans every state case and the stacked context
+# cases (`alone` and `stacked`, never `air`) and NO stowed / alone case (design D.2), so
+# nothing of PP-1 is repeated; `skins=` is not passed (it governs stowed cases only).
+# `controls=true` runs the orbit state control set: PP-1's eight plus
+# `ctl-state-events-dropped` (the Communotron 16 deployed with its event-route ghost built
+# WITHOUT the polled events, which must fail on shape).
+#
+# CASES (design D.1, measured by S1 on 2026-11-22 over the post-patch ConfigCache): 94
+# single-part state cases, 66 shroud cases (jettisoned and the stacked stowed case), the 5
+# fairing parts are excluded `fairing-contexts-pending` until S8, plus 9 controls: 169
+# cases. Each step logs the exact counts on its `state cases:` Info line. The two thrust
+# reversers became cases later (todo THRUST-REVERSER-NOT-RECORDED): 96 single-part states.
+#
+# STEP SIZING (design D.8). Measured: the stowed-free state run plans 160 cases (+9 controls)
+# and sweeps them in ~536 s at the 25 s sun-tracker cap (~3.3 s per case: four-case waves, the
+# longest clip of the wave, four atlas rows). Two `op=run maxSeconds=480` steps hold 960 s, so
+# ~420 s of margin; the first step ends at ~135 cases, the second finishes.
+#
+# GATES. (1) The partParity verifier row, from the start: the run's control set (recomputed
+# from the manifest's settings) behaved, the state controls re-judged from their sidecars
+# (else INVALID(parity-controls)); no family's press path broke (more than half of one
+# family's state cases action-failed / state-timeout is INVALID(parity-state-press)); the
+# Python recompute of the four-row state atlases agrees with the C# sidecars (else
+# INVALID(parity-instrument)); the sweep reached done and every planned case has a complete
+# sidecar or a recorded setup fault (else INVALID(parity-incomplete)); the host survived
+# (else INVALID(parity-host-damaged)). (2) The part verdicts are REPORT-ONLY
+# (`[expectations.partParity] gating = false`). (3) The log pins as a second guard: the
+# run-step summary line with `crashed=0` and `controls=ok`, the seam applier's OK line, the
+# step's `state cases:` line (proof the step planned a state run), and no `[Parsek][ERROR]`.
+#
+# READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp3/` into
+# `harness/results/<runId>_partparity/pp3/`, where the row writes `partparity-verdicts.json`.
+# The viewer (`harness/tools/part_parity_view.py stock=<pp1 dir> stock=<pp3 dir>`) shows each
+# part's stowed and deployed cases side by side. Every ghost-visual defect a case shows is
+# filed in docs/dev/todo-and-known-bugs.md with its case id.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - PP-1
+# flies the same host, but its two 540 s steps are already near full and a state run plans
+# no stowed case (D.2), so the two cannot share a step. (2) No idle waits: the one game-time
+# wait is an explicit-UT WarpToUT on rails. (3) The time box is the measurement itself. (4)/(5)
+# no burns, no coasts. (6) `[retry] policy = "none"`: a retry's `op=reset` would clear the
+# files a reading run exists to keep. (7) Recording count pinned at 0. (8)/(9) tier operator
+# by purpose (a report-only reading lane), flight_efficiency.py after the first green flight.
+#
+# LIVE-PROVEN 2026-11-22 (branch `part-parity-p6-s6`, stock-minimal): reading flight
+# `2026-11-22_1627` (`limit=20`: 20 cases + 9 controls in 64.8 s, PASS); first full flight
+# `2026-11-22_1634` PASS attempt 1 (622 s wall, 426.3 s + 86.0 s of sweep), whose nine tracking
+# panels all hit the 10 s sun-tracker cap (todo PARTPARITY-SUN-TRACKER-CAP); re-flown at the
+# 25 s cap as `2026-11-22_1656` PASS attempt 1 (638 s wall, 413.6 s + 122.6 s of sweep, 160
+# cases, controls ok, press ok, complete, recompute 13 / 0 mismatches; report-only verdicts
+# 123 pass / 16 warn / 20 fail / 1 error, no tracker still moving).
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S6, `2026-11-22_1656`): every transforming stock part in its deployed / open / lit / jettisoned state beside its Parsek ghosts (event route, start route, stowed reference) in LKO over two PartParitySweep states=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+instanceProfile = "stock-minimal"
+tags = ["part-parity", "ghost-visual", "flown", "PP-3"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp3", op = "reset" }, expect = "OK", budget = 120 },
+  # Two time-boxed state steps over every orbit state case; the second resumes.
+  { cmd = "PartParitySweep", args = { label = "pp3", op = "run", states = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp3", op = "run", states = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 claim: the part verdicts are report-only, so no part-event family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design D.6); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp3 op=run ok=true label=pp3 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp3 elapsed=[0-9.]+s label=pp3 done=(true|false) ",
+  # The step planned an orbit state run (design D.2, PartParityStateRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] state cases: states=all contexts=none install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The step budgets: LoadGame 300, the warp 120, the reset 120, two 540 s run steps (1620 s;
+# PP-1's 1800).
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

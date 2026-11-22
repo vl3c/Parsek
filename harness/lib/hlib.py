@@ -111,8 +111,11 @@ ON_REQUEST_TIERS: Tuple[str, ...] = ("operator", "longhaul")
 LONGHAUL_MIN_P50_SECONDS: float = 1800.0
 
 # The provisioned instance profiles (design + M-A6). stock-tree is stock-minimal
-# minus the two tech-tree mods, the scripted campaign program's host.
-INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat", "stock-tree")
+# minus the two tech-tree mods, the scripted campaign program's host;
+# modded-restock is modded-compat minus the four Waterfall folders, the host of
+# the judged ReStock plume cases (part ghost parity P8, design E.6).
+INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat", "stock-tree",
+                                      "modded-restock")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
 # broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Three named fixture
@@ -937,9 +940,10 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "DumpMapGeometry", "MapCamera",
     # ADDITIVE (62 -> 63 implemented, reserved unchanged at 4), the part ghost parity tool
     # (docs/dev/design-part-ghost-parity.md section 7).
-    #   PartParitySweep label=<label> [op=reset|run] [filter=] [source=] [skins=] [views=]
-    #     [tile=] [shard=k/n] [limit=] [controls=] [maxSeconds=60..480], FLIGHT with an
-    #     orbiting active vessel, TWO-PHASE, 540 s: one time-boxed step of the sweep (real
+    #   PartParitySweep label=<label> [op=reset|run] [filter=] [source=] [skins=] [states=]
+    #     [contexts=] [views=] [tile=] [shard=k/n] [limit=] [controls=] [maxSeconds=60..480],
+    #     FLIGHT with an orbiting active vessel (an air run, contexts=air: a host at the
+    #     pad), TWO-PHASE, 540 s: one time-boxed step of the sweep (real
     #     one-part vessels spawned co-orbital, each beside its ghost, photographed and
     #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
     #     cases= complete= crashed= setupFaults= controls= wall= hostDamaged= hostDamage=`.
@@ -3213,12 +3217,6 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
     # it in the applier for the same reason).
     "mock",
-    # Coverage wave 6 (D11 `clone`): `clone` is the Missions tab's Clone button body,
-    # MissionStore.Clone - a new Mission over the same tree carrying the source's include
-    # set and loop configuration. Like `select` it writes MISSION state that persists with
-    # the save, so a lane using it runs on a throwaway staged fixture. `window=missions`
-    # only, plus the OPTIONAL `mission=` selector op=select takes.
-    "clone",
     # `warp` presses the Real Spawn Control table's FIRST row warp button through the
     # button's own click body (SpawnControlUI.ExecuteRowWarp), and refuses when the table
     # has no row or the button is drawn disabled. Takes `window=` (only `spawncontrol`,
@@ -3614,7 +3612,7 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit", "clone", "warp")
+    "state", "sort", "select", "edit", "warp")
 
 # The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasWarpButton:
 # the Real Spawn Control table (its first row's warp button) and the Timeline ("Warp to
@@ -5220,13 +5218,23 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
 # a widened sweep would overrun its step budget, a narrowed one would read as complete.
 PARTPARITY_VERB = "PartParitySweep"
 PARTPARITY_ARG_KEYS: Tuple[str, ...] = (
-    "label", "op", "filter", "source", "skins", "views", "tile", "shard", "limit",
-    "controls", "maxSeconds",
+    "label", "op", "filter", "source", "skins", "states", "contexts", "views", "tile",
+    "shard", "limit", "controls", "maxSeconds",
 )
 PARTPARITY_OP_VALUES: Tuple[str, ...] = ("reset", "run")
 PARTPARITY_SKINS_VALUES: Tuple[str, ...] = ("default", "all")
 PARTPARITY_CONTROLS_VALUES: Tuple[str, ...] = ("true", "false")
 PARTPARITY_VIEWS_TOKENS: Tuple[str, ...] = ("required", "all")
+# states= / contexts= (design-part-ghost-parity.md D.2; TryParseStates / TryParseContexts
+# over PartParityStateRules.KnownStates / KnownContexts): `none` (the default, a stowed
+# run), `all` (states only) or a csv of known names; `air` stands alone in contexts=.
+PARTPARITY_NONE_TOKEN = "none"
+PARTPARITY_STATES_ALL_TOKEN = "all"
+PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
+    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
+)
+PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
+PARTPARITY_AIR_CONTEXT = "air"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5240,9 +5248,10 @@ PARTPARITY_DEFAULT_MAX_SECONDS = 480
 PARTPARITY_REASONS: Tuple[str, ...] = (
     "label-arg-missing", "label-arg-invalid", "op-arg-invalid",
     "filter-arg-invalid", "source-arg-invalid", "skins-arg-invalid",
+    "states-arg-invalid", "contexts-arg-invalid",
     "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
-    "no-active-vessel", "host-not-orbiting",
+    "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
 # Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
 # subkind (nothing was refused; the runner may already have spawned vessels).
@@ -5262,9 +5271,22 @@ PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
 #                      complete sidecar nor a recorded setup fault
 #   parity-host-damaged  the C# host-integrity guard stopped the sweep: the host vessel
 #                      lost parts, left its orbit or vanished, so the unrun cases are the
-#                      instrument's fault (partparity ranks it ahead of the other three)
+#                      instrument's fault (partparity ranks it ahead of the other four)
+#   parity-state-press a state run (design-part-ghost-parity.md D.6) where more than half
+#                      of one family's state cases ended action-failed or state-timeout:
+#                      that family's press / wait / poll path is broken, so its `error`
+#                      cases say nothing about its ghosts
+# When one run trips several, partparity.combine names one, in the order host-damaged >
+# controls > state-press > instrument > incomplete (the D.6 order: the press gate after
+# the controls, before the recompute); classify_verdict takes that subkind as given.
 PARTPARITY_INVALID_SUBKINDS: Tuple[str, ...] = (
     "parity-controls", "parity-instrument", "parity-incomplete", "parity-host-damaged",
+    "parity-state-press",
+)
+# partparity.combine's ranking of the subkinds above, first wins.
+PARTPARITY_INVALID_SUBKIND_ORDER: Tuple[str, ...] = (
+    "parity-host-damaged", "parity-controls", "parity-state-press", "parity-instrument",
+    "parity-incomplete",
 )
 PARTPARITY_PARSEK_FAIL_SUBKIND = "part-parity"
 
@@ -5388,6 +5410,27 @@ def _partparity_source_ok(text: str) -> bool:
     return all(item and _PARTPARITY_ID_CHARS_RE.fullmatch(item) for item in text.split(","))
 
 
+def _partparity_states_ok(text: str) -> bool:
+    """TryParseStates: ``none``, ``all``, or a csv of known state words."""
+    if text in (PARTPARITY_NONE_TOKEN, PARTPARITY_STATES_ALL_TOKEN):
+        return True
+    if not text:
+        return False
+    return all(item in PARTPARITY_STATE_VALUES for item in text.split(","))
+
+
+def _partparity_contexts_ok(text: str) -> bool:
+    """TryParseContexts: ``none`` or a csv of known contexts; ``air`` only alone."""
+    if text == PARTPARITY_NONE_TOKEN:
+        return True
+    if not text:
+        return False
+    items = text.split(",")
+    if not all(item in PARTPARITY_CONTEXT_VALUES for item in items):
+        return False
+    return PARTPARITY_AIR_CONTEXT not in items or set(items) == {PARTPARITY_AIR_CONTEXT}
+
+
 def _partparity_views_ok(text: str) -> bool:
     """TryParseViews: ``required``, ``all``, or a csv of known view names."""
     if text in PARTPARITY_VIEWS_TOKENS:
@@ -5411,7 +5454,8 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     delegates to); every other arg is optional and, when present, must parse exactly as
     ``TestCommandPartParitySweep.TryParseArgs`` parses it: ``op`` reset|run, ``filter`` a
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
-    ``skins`` default|all, ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
+    of contexts (``air`` alone), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5460,6 +5504,12 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     shaped("source", _partparity_source_ok,
            "a csv of [A-Za-z0-9._-] source names with no empty item", "source-arg-invalid")
     closed("skins", PARTPARITY_SKINS_VALUES, "skins-arg-invalid")
+    shaped("states", _partparity_states_ok,
+           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_STATE_VALUES),
+           "states-arg-invalid")
+    shaped("contexts", _partparity_contexts_ok,
+           "'none' or a csv of %s ('air' alone)" % ", ".join(PARTPARITY_CONTEXT_VALUES),
+           "contexts-arg-invalid")
     shaped("views", _partparity_views_ok,
            "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
            "views-arg-invalid")
@@ -6000,20 +6050,11 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
     # include chain above. It was an arm of it once, which made an op=select step carrying
     # no mission= fall through to "only op=select reads it, but this step is op=select".
-    if op not in ("target", "select", "clone") and "mission" in step_args:
+    if op not in ("target", "select") and "mission" in step_args:
         errors.append(
-            "driver.steps[%d].args.mission: only op=target, op=select and op=clone read "
-            "it, but this step is op=%s -- the arg would be silently ignored"
+            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
+            "this step is op=%s -- the arg would be silently ignored"
             % (index, op))
-
-    if op == "clone":
-        window_name = str(window) if window is not None else None
-        if window_name in UIACTION_WINDOW_VALUES and window_name != "missions":
-            errors.append(
-                "driver.steps[%d].args.%s: only the 'missions' window has a Clone "
-                "button, so op=clone against %r answers REJECTED "
-                "clone-unsupported-window"
-                % (index, UIACTION_WINDOW_KEY, window_name))
 
     if op == "edit":
         window_name = str(window) if window is not None else None
@@ -13260,6 +13301,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "filter-arg-invalid": "driver-arg",
     "source-arg-invalid": "driver-arg",
     "skins-arg-invalid": "driver-arg",
+    "states-arg-invalid": "driver-arg",
+    "contexts-arg-invalid": "driver-arg",
     "views-arg-invalid": "driver-arg",
     "tile-arg-invalid": "driver-arg",
     "shard-arg-invalid": "driver-arg",
@@ -13267,6 +13310,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "controls-arg-invalid": "driver-arg",
     "maxseconds-arg-invalid": "driver-arg",
     "host-not-orbiting": "driver-gate",
+    "host-not-at-pad": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
     # game would not start from (the wrong scene, another save loaded, stock's main-menu
     # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
@@ -13768,7 +13812,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      part-parity instrument (controls / recompute / completeness) -> INVALID (no retry)
+      part-parity instrument (host-damaged > controls > state-press > recompute >
+          completeness, the row names one) -> INVALID (no retry)
       log-contract / results / anomaly / unity-exception / expectation /
           save-structure / render-composition / ghost-lifecycle / part-parity /
           ledger -> PARSEK-FAIL
@@ -13839,8 +13884,10 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
         if base is None and verifiers.get("part_parity_invalid", False):
             # The part ghost parity instrument did not prove itself (a control not
-            # `ok`, a Python recompute that disagrees with the C# measures, a sweep
-            # that did not finish, or a host the integrity guard found damaged). Nothing the row measured is evidence about the
+            # `ok`, a family whose state press mostly failed, a Python recompute that
+            # disagrees with the C# measures, a sweep that did not finish, or a host
+            # the integrity guard found damaged; the row has already picked one by
+            # PARTPARITY_INVALID_SUBKIND_ORDER). Nothing the row measured is evidence about the
             # ghost, and the lane's step-line pins would read the same fault as a
             # log-contract red, so this INVALID is placed ahead of every contract
             # verifier. Terminal: a retry re-runs `op=reset` and discards the sweep.
@@ -14047,7 +14094,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
-    "views-arg-invalid",
+    "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",

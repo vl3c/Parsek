@@ -20,6 +20,14 @@ import tempfile
 PROFILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles")
 
 
+def _every_profile_file():
+    """Every committed profile file, so a new profile is held to the cross-profile
+    contracts the moment it is added (no hand-kept list to forget)."""
+    names = sorted(f for f in os.listdir(PROFILES_DIR) if f.endswith(".toml"))
+    assert names, "no profile files under %s" % PROFILES_DIR
+    return names
+
+
 class RealProfileFileTests(unittest.TestCase):
     """Guards BLOCKER 1: a bare `stackComponents` key placed AFTER a
     `[[optionalMods]]` array-of-tables header binds to that table entry (not the
@@ -44,6 +52,14 @@ class RealProfileFileTests(unittest.TestCase):
         p = self._load("modded-compat.toml")
         self.assertEqual(p.get("stackComponents"), self.EXPECTED_STACK)
         self.assertTrue(p.get("devSourcedMods"), "modded-compat devSourcedMods must be non-empty")
+
+    def test_every_profile_stack_and_devmods(self):
+        for name in _every_profile_file():
+            p = self._load(name)
+            self.assertEqual(p.get("stackComponents"), self.EXPECTED_STACK, name)
+            self.assertTrue(p.get("devSourcedMods"), "%s devSourcedMods must be non-empty" % name)
+            for entry in p.get("optionalMods", []):
+                self.assertNotIn("stackComponents", entry, name)
 
     def test_modded_compat_stack_not_swallowed_by_optionalmods(self):
         # The precise BLOCKER 1 regression: the stack list must be top-level, and
@@ -71,7 +87,7 @@ class RealProfileFileTests(unittest.TestCase):
     }
 
     def test_every_profile_pins_the_unattended_settings(self):
-        for name in ("stock-minimal.toml", "modded-compat.toml", "stock-tree.toml"):
+        for name in _every_profile_file():
             settings = self._load(name).get("settings", {})
             for key, want in self.UNATTENDED_SETTINGS.items():
                 self.assertEqual(
@@ -87,7 +103,7 @@ class RealProfileFileTests(unittest.TestCase):
     }
 
     def test_every_profile_pins_the_player_default_vessel_budget(self):
-        for name in ("stock-minimal.toml", "modded-compat.toml", "stock-tree.toml"):
+        for name in _every_profile_file():
             settings = self._load(name).get("settings", {})
             for key, want in self.PLAYER_DEFAULT_SETTINGS.items():
                 self.assertEqual(
@@ -126,6 +142,46 @@ class StockTreeProfileTests(unittest.TestCase):
             if key in ("name", "instanceDir", "devSourcedMods"):
                 continue
             self.assertEqual(sm.get(key), st.get(key), "stock-tree differs from stock-minimal at %r" % key)
+
+
+class ModdedRestockProfileTests(unittest.TestCase):
+    """modded-restock (part ghost parity P8, design-part-ghost-parity.md E.6, owner
+    ruling R6) is modded-compat minus EXACTLY the four Waterfall folders, so ReStock's
+    own particle plumes are judged on ReStock parts. Any other difference would make a
+    plume verdict on it say nothing about the modded-compat install it stands beside,
+    so the profiles are compared key for key and can only drift on purpose."""
+
+    WATERFALL_FOLDERS = ["Waterfall", "WaterfallRestock", "RestockWaterfallExpansion",
+                         "StockWaterfallEffects"]
+
+    def _load(self, name):
+        with open(os.path.join(PROFILES_DIR, name), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_modded_restock_drops_exactly_the_waterfall_folders(self):
+        mc = self._load("modded-compat.toml")
+        mr = self._load("modded-restock.toml")
+        self.assertTrue(set(self.WATERFALL_FOLDERS) <= set(mc["devSourcedMods"]),
+                        "modded-compat no longer carries all four Waterfall folders; "
+                        "re-derive modded-restock")
+        self.assertEqual([m for m in mc["devSourcedMods"] if m not in self.WATERFALL_FOLDERS],
+                         mr["devSourcedMods"])
+        self.assertFalse(set(self.WATERFALL_FOLDERS) & set(mr["devSourcedMods"]))
+        self.assertFalse([m for m in mr["devSourcedMods"] if "waterfall" in m.lower()],
+                         "a Waterfall-named folder rides modded-restock")
+        self.assertTrue({"ReStock", "ReStockPlus", "B9PartSwitch"} <= set(mr["devSourcedMods"]))
+
+    def test_modded_restock_matches_modded_compat_everywhere_else(self):
+        mc = self._load("modded-compat.toml")
+        mr = self._load("modded-restock.toml")
+        self.assertEqual("modded-restock", mr["name"])
+        self.assertEqual("automation/modded-restock", mr["instanceDir"])
+        self.assertNotEqual(mc["instanceDir"], mr["instanceDir"])
+        for key in set(mc) | set(mr):
+            if key in ("name", "instanceDir", "devSourcedMods"):
+                continue
+            self.assertEqual(mc.get(key), mr.get(key),
+                             "modded-restock differs from modded-compat at %r" % key)
 
 
 class PhaseInstallEmptyStackTests(unittest.TestCase):

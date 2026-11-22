@@ -365,11 +365,57 @@ namespace Parsek.TestCommands
             uint flightId = GhostCoOrbitalRig.UniqueFlightIds(1)[0];
             ConfigNode part = GhostCoOrbitalRig.AuthorPartNode(info, flightId, 0, Vector3.zero, null, variantName, null);
             b9Authored = PartParitySkinRules.AuthorB9Subtype(part, skin);
+            List<string> pose = AuthorStowedPose(part, info.partPrefab, -1);
+            if (pose.Count > 0)
+                ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {caseId}: authored stowed pose {string.Join("; ", pose.ToArray())}");
             Orbit src = anchor.orbit;
             var placeholder = new Orbit(src.inclination, src.eccentricity, src.semiMajorAxis, src.LAN,
                 src.argumentOfPeriapsis, src.meanAnomalyAtEpoch, src.epoch, src.referenceBody);
             return ProtoVessel.CreateVesselNode(
                 PartParityCaseRules.VesselName(caseId), VesselType.Probe, placeholder, 0, new[] { part });
+        }
+
+        /// <summary>
+        /// The stowed pose of a part whose modules spawn transformed by default (design D.3,
+        /// todo PARTPARITY-STOWED-POSE-NOT-STOWED): a lone part's persistent fields are absent,
+        /// so stock starts each at its initial value, and a <c>ModuleWheelDeployment</c> then
+        /// starts Deployed, a cargo bay whose <c>closedPosition</c> is 1 (the Mk2 and Mk3 bays)
+        /// open at <c>animTime</c> 0. Writes <c>stateString = Retracted</c> into every gear
+        /// module's MODULE node, and into a cargo bay's deploy module (its
+        /// <c>DeployModuleIndex</c>, a <c>ModuleAnimateGeneric</c>) the closed
+        /// <c>animTime</c> with the <c>animSwitch</c> that matches it. With
+        /// <paramref name="onlyModuleIndex"/> &gt;= 0 only that module index is written. The
+        /// MODULE nodes are the authored part's, one per prefab module in prefab order. Returns
+        /// one description per value written.
+        /// </summary>
+        internal static List<string> AuthorStowedPose(ConfigNode partNode, Part prefab, int onlyModuleIndex)
+        {
+            var written = new List<string>();
+            if (partNode == null || prefab == null || prefab.Modules == null) return written;
+            ConfigNode[] modules = partNode.GetNodes("MODULE");
+            if (modules.Length != prefab.Modules.Count) return written;
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule m = prefab.Modules[i];
+                if (m is ModuleWheels.ModuleWheelDeployment && (onlyModuleIndex < 0 || onlyModuleIndex == i))
+                {
+                    modules[i].SetValue("stateString", PartParityStateWave.GearStowedStateString, true);
+                    written.Add($"{m.moduleName}[{i.ToString(Ic)}] stateString={PartParityStateWave.GearStowedStateString}");
+                }
+                else if (m is ModuleCargoBay bay)
+                {
+                    int t = bay.DeployModuleIndex;
+                    if (t < 0 || t >= prefab.Modules.Count || !(prefab.Modules[t] is ModuleAnimateGeneric)) continue;
+                    if (onlyModuleIndex >= 0 && onlyModuleIndex != t) continue;
+                    float closed = PartParityStateWave.CargoBayClosedAnimTime(bay.closedPosition);
+                    bool animSwitch = PartParityStateWave.AnimSwitchAt(closed);
+                    modules[t].SetValue("animTime", closed.ToString("R", Ic), true);
+                    modules[t].SetValue("animSwitch", animSwitch ? "True" : "False", true);
+                    written.Add($"{prefab.Modules[t].moduleName}[{t.ToString(Ic)}] animTime={closed.ToString("0.###", Ic)} " +
+                        $"animSwitch={(animSwitch ? "True" : "False")} (closedPosition={bay.closedPosition.ToString("0.###", Ic)})");
+                }
+            }
+            return written;
         }
 
         /// <summary>The live part's selected variant name, null when it has no variant module.</summary>

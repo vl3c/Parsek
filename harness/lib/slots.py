@@ -35,6 +35,7 @@ PROFILE_PORT_BASE: Dict[str, int] = {
     "stock-minimal": 50000,
     "stock-tree": 50020,
     "modded-compat": 50040,
+    "modded-restock": 50060,
 }
 
 # Copies a profile may have (ports for copy k must fit the profile's block).

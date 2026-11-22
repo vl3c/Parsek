@@ -635,6 +635,11 @@ namespace Parsek
             // UpdateActiveRobotics is: it must run on every visible frame, including for a
             // recording that carries no part events at all.
             GhostPlaybackLogic.UpdateSynthesizedMotion(state, ut);
+
+            // An open parachute canopy turns toward the airflow, as stock's does every physics
+            // tick; here for the same every-visible-frame reason (a snapshot-baseline canopy can
+            // be open in a recording with no part events).
+            GhostPlaybackLogic.UpdateParachuteCanopyAim(state, ut);
         }
 
         /// <summary>The FX teardown of a suppressed frame in <see cref="ApplyFrameVisuals"/>:

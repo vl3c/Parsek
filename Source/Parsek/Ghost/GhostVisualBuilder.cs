@@ -1366,6 +1366,9 @@ namespace Parsek
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             parachuteInfo = TryBuildParachuteInfo(prefab, partName, persistentId,
                 cloneMap, modelRoot, partRoot.transform, ref meshCount, ref added);
+            if (parachuteInfo != null)
+                parachuteInfo.symmetryCount = GhostPlaybackLogic.StockParachuteSymmetryCount(
+                    partNode != null ? partNode.GetValues("sym").Length : 0);
 
             // Detect jettison parts (shrouds/fairings) via cloneMap.
             jettisonInfo = ResolveJettisonTransforms(
@@ -1515,8 +1518,12 @@ namespace Parsek
             // Material / active-state clips the live part holds at rest (the ion engine's glow,
             // ReStock's scanner screen): written after the heat, light and colour-changer infos
             // so it reuses their material clones and leaves their properties to them.
+            // A standalone ModuleAnimateGeneric deploy clip that animates only colours joins the
+            // deployable info here, so its deploy event switches the colours.
             ApplyAnimationRestStates(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
-                heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName);
+                heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName,
+                hasStandaloneAnimateGenericDeploy ? standaloneAnimateGenericAnimName : null,
+                ref deployableInfo);
 
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);

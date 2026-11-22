@@ -170,6 +170,7 @@ namespace Parsek
                                     result.dPos = tempClone.transform.InverseTransformPoint(cloneCanopy.position);
                                     result.dRot = Quaternion.Inverse(tempClone.transform.rotation) * cloneCanopy.rotation;
                                     deployedSampled = true;
+                                    result.deployedInModelFrame = true;
                                 }
                                 if (boneTransforms != null)
                                 {
@@ -200,6 +201,7 @@ namespace Parsek
                 result.dScale = Vector3.one;
                 result.dPos = Vector3.zero;
                 result.dRot = Quaternion.identity;
+                result.deployedInModelFrame = false;
             }
 
             canopyCache[key] = result;
@@ -1087,6 +1089,7 @@ namespace Parsek
             string[] paths = GetTransformPaths(allTransforms, root);
             bool[] first = MarkFirstPathOccurrences(paths);
             int duplicates = 0;
+            int scaledParentKept = 0;
             for (int i = 0; i < allTransforms.Length; i++)
             {
                 if (!first[i])
@@ -1105,16 +1108,62 @@ namespace Parsek
                 float posDelta = (dPos - stowed.pos).sqrMagnitude;
                 float rotDelta = Quaternion.Angle(dRot, stowed.rot);
                 float scaleDelta = (dScale - stowed.scale).sqrMagnitude;
+                // The same move measured in the clone root's frame: a local offset is scaled by
+                // every ancestor, and an exporter that bakes a 100x scale into a parent (ReStock's
+                // commDish 'Dish') turns a 5 mm local step into a 0.5 m world move.
+                float rootPosDelta = posDelta > PoseDeltaPositionSqrThreshold
+                    ? posDelta
+                    : RootFramePositionDeltaSqr(allTransforms[i], root, dPos - stowed.pos);
 
-                if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
+                if (IsSampledPoseDelta(posDelta, rootPosDelta, rotDelta, scaleDelta))
                 {
+                    if (posDelta <= PoseDeltaPositionSqrThreshold && rootPosDelta > PoseDeltaPositionSqrThreshold)
+                        scaledParentKept++;
                     result.Add((path, stowed.pos, stowed.rot, stowed.scale, dPos, dRot, dScale));
                 }
             }
             if (duplicates > 0)
                 ParsekLog.Verbose("GhostVisual",
                     $"  Pose sampling: skipped {duplicates} transform(s) whose path repeats an earlier one (first match kept)");
+            if (scaledParentKept > 0)
+                ParsekLog.Verbose("GhostVisual",
+                    $"  Pose sampling: kept {scaledParentKept} transform(s) whose local move is under the threshold but whose move under a scaled parent is not");
             return result;
+        }
+
+        /// <summary>Squared position change (local units, or root-frame units) a sampled pose must exceed.</summary>
+        internal const float PoseDeltaPositionSqrThreshold = 0.0001f;
+        /// <summary>Rotation change in degrees a sampled pose must exceed.</summary>
+        internal const float PoseDeltaRotationDegThreshold = 0.01f;
+        /// <summary>Squared scale change a sampled pose must exceed.</summary>
+        internal const float PoseDeltaScaleSqrThreshold = 0.0001f;
+
+        /// <summary>
+        /// Pure: whether a transform's stowed -&gt; deployed change is a sampled pose. A position
+        /// move counts when it passes the threshold in the transform's own local units OR in the
+        /// clone root's frame (<paramref name="rootPositionDeltaSqr"/>), so a move under an
+        /// ancestor scaled by 100 is kept while every move the local test already kept stays kept.
+        /// </summary>
+        internal static bool IsSampledPoseDelta(
+            float localPositionDeltaSqr, float rootPositionDeltaSqr, float rotationDeltaDeg, float scaleDeltaSqr)
+        {
+            return localPositionDeltaSqr > PoseDeltaPositionSqrThreshold
+                || rootPositionDeltaSqr > PoseDeltaPositionSqrThreshold
+                || rotationDeltaDeg > PoseDeltaRotationDegThreshold
+                || scaleDeltaSqr > PoseDeltaScaleSqrThreshold;
+        }
+
+        /// <summary>
+        /// The squared length of a local position change expressed in <paramref name="root"/>'s
+        /// frame: through the parent's current local-to-world matrix, back through the root's.
+        /// The parent's current pose is the deployed one; rotation does not change a length, so
+        /// only the scales on the chain matter.
+        /// </summary>
+        private static float RootFramePositionDeltaSqr(Transform t, Transform root, Vector3 localDelta)
+        {
+            Transform parent = t.parent;
+            if (parent == null || root == null) return localDelta.sqrMagnitude;
+            return root.InverseTransformVector(parent.TransformVector(localDelta)).sqrMagnitude;
         }
     }
 }

@@ -350,7 +350,7 @@ values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-prod
           "route-x-rewind", "route-endpoint-rebind-render"]
 
 [D11]  # missions / periodicity / re-aim
-values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",
+values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap",
           "phase-lock", "zero-drift-schedule", "reaim-lambert", "loiter-compression",
           "arrival-hold", "eccentric-inclined-targets", "heliocentric-parking-departure",
           "station-phase-lock", "multi-moon-config-hold", "land-dock-dual-constraint",

@@ -60,15 +60,15 @@ namespace Parsek.Tests
             return null;
         }
 
-        // catches P10: a clone that excludes a vessel drew the same Log as its original.
-        // The clone's own include toggle is the Missions vessel-row toggle, applied to the
-        // clone; the probe's End row is the one row only that vessel owns.
+        // catches P10: a mission that excludes a vessel drew the same Log as an untrimmed
+        // mission over the same tree. The include toggle is the Missions vessel-row toggle;
+        // the probe's End row is the one row only that vessel owns.
         [Fact]
-        public void Clone_ExcludingAVessel_ShowsFewerRows_OriginalUnchanged()
+        public void ExcludingAVessel_ShowsFewerRows_UntrimmedMissionUnchanged()
         {
             RecordingTree tree = LoadDockingTree();
             var original = new Mission("orig", DockingTreeId, "Kerbal X #2");
-            Mission clone = original.Clone("copy");
+            var clone = new Mission("trimmed", DockingTreeId, "Kerbal X #2 trimmed");
             MissionVesselRow probe = FindRow(tree, ProbeHeadId);
             Assert.NotNull(probe);
             Assert.True(MissionVesselRowBuilder.ApplyVesselInclusion(probe, false, clone.ExcludedIntervalKeys) > 0);

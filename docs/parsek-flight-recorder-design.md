@@ -1078,6 +1078,14 @@ A single Recording can be split at a TrackSection boundary where the environment
 3. Both resulting halves are **≥ 5 seconds** long
 4. Both resulting halves hold trajectory payload: the recording's actual sampled bounds (points, orbit segments, playable track sections, never an explicit or terminal bound) strictly straddle the cut (`SplitHalvesCarryPayload`). The 5-second test reads `StartUT` / `EndUT`, which an explicit bound can carry past the samples (a crash UT after the last sample), so without this a cut there left a half with no sample, whose `StartUT` read the 0.0 fallback.
 
+The optimizer's candidate scan (`FindSplitCandidatesForOptimizer`) never offers a cut in five kinds of recording, each counted in its one summary line:
+
+- a recording cut under a newer build's split rules (`IsSplitRuleVersionNewerThanBuild`): held verbatim, not even normalized;
+- a recording with fewer than two TrackSections;
+- a superseded recording: the supersede row names it by id, so a fresh-id second half would be named by no row and play again;
+- a recording with a player loop range;
+- a `NotCommitted` recording, which is a live Re-Fly attempt, not a committed row (mirror of `MergeInto`'s `NotCommitted` refusal and of ERS skipping it). The session marker and the supersede commit name the attempt by id and read its terminal state, and a split would move that terminal onto a fresh-id second half nothing names. This matters on the merge-journal finisher's path: the finisher clears the marker before its own optimizer pass, so the marker deferral no longer covers the attempt there. It is cut on a later pass once the merge has committed it (`kept N NotCommitted recording(s) whole`, todo OPTIMIZER-SPLITS-LIVE-REFLY-PROVISIONAL). The Re-Fly HEAD / TIP split (`RecordingTreeSplitter`) calls `SplitAtUT` directly and is not affected.
+
 **Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. The player's row settings (`Hidden`, `PlaybackEnabled`, the whole-recording loop, the seal, the groups) stay on both halves, and a recording with a loop range is never split. The end-of-flight fields (the terminal, the end snapshot, `VesselSituation`, the dock and route-transfer partner, the route windows not closed before the cut) go to the second half. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase` (the first half of a launch-site start from the section where it leaves the site, since the pad time stays with the ascent):
 
 | SegmentEnvironment | Phase |

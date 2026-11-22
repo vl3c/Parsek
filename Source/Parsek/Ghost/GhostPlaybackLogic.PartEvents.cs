@@ -82,6 +82,25 @@ namespace Parsek
             // in one frame is a no-op: the progress is a pure function of the event UT, so the
             // second pass recomputes the same fraction and writes the same pose.
             UpdateActiveDeployables(state, currentUT);
+            // Same reason again: the KSC-scene and preview ghosts reach only ApplyPartEvents.
+            // A second call in one frame holds (same UT), so the flight engine's call is a no-op.
+            UpdateParachuteCanopyAim(state, currentUT);
+        }
+
+        /// <summary>
+        /// A deploy also starts (a retract stops) the part's deploy-driven ModuleAnimationGroup
+        /// loop, the orbital scanner's spin, keyed on the recorded event UT. Tallied only for a
+        /// part that has one, so a plain deployable adds no converter-loop line.
+        /// </summary>
+        internal static void RecordDeployDrivenLoop(
+            GhostPartEventApplyTally tally, GhostPlaybackState state, PartEvent evt, bool deployed)
+        {
+            if (!HasDeployDrivenLoop(state, evt.partPersistentId)) return;
+            tally.Record(
+                evt.eventType,
+                GhostPartEventSurface.ConverterLoop,
+                evt.partPersistentId,
+                ApplyDeployDrivenLoopStateWithOutcome(state, evt.partPersistentId, deployed, evt.ut));
         }
 
         /// <summary>
@@ -203,6 +222,7 @@ namespace Parsek
                         evt.partPersistentId,
                         ApplyDeployableStateWithOutcome(
                             state, evt, deployed: true, immediate: false));
+                    RecordDeployDrivenLoop(tally, state, evt, deployed: true);
                     break;
                 case PartEventType.DeployableRetracted:
                     tally.Record(
@@ -211,6 +231,7 @@ namespace Parsek
                         evt.partPersistentId,
                         ApplyDeployableStateWithOutcome(
                             state, evt, deployed: false, immediate: false));
+                    RecordDeployDrivenLoop(tally, state, evt, deployed: false);
                     break;
                 // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
                 // broke (stock flings the subtree off as debris), so there is no pose to
@@ -885,6 +906,7 @@ namespace Parsek
             semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
             semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
             ApplyCanopyBonePoses(semiInfo, CanopyPoseStage.SemiDeployed);
+            BeginCanopyAim(state, semiInfo, CanopyPoseStage.SemiDeployed);
             if (semiInfo.capTransform != null)
                 semiInfo.capTransform.gameObject.SetActive(false);
             return GhostPartEventOutcome.Applied;
@@ -937,6 +959,7 @@ namespace Parsek
                 else
                 {
                     bool touched = false;
+                    StopCanopyAim(cutInfo);
                     if (cutInfo.canopyTransform != null)
                     {
                         cutInfo.canopyTransform.localScale = Vector3.zero;
@@ -987,6 +1010,7 @@ namespace Parsek
                 else
                 {
                     bool touched = false;
+                    StopCanopyAim(repackInfo);
                     if (repackInfo.canopyTransform != null)
                     {
                         repackInfo.canopyTransform.localScale = repackInfo.stowedCanopyScale;
@@ -1029,6 +1053,7 @@ namespace Parsek
                 ParachuteGhostInfo destroyedInfo;
                 if (state.parachuteInfos.TryGetValue(partPersistentId, out destroyedInfo))
                 {
+                    StopCanopyAim(destroyedInfo);
                     if (destroyedInfo.canopyTransform != null)
                         destroyedInfo.canopyTransform.localScale = Vector3.zero;
                 }
@@ -1643,6 +1668,7 @@ namespace Parsek
                     info.canopyTransform.localPosition = info.deployedCanopyPos;
                     info.canopyTransform.localRotation = info.deployedCanopyRot;
                     ApplyCanopyBonePoses(info, CanopyPoseStage.Deployed);
+                    BeginCanopyAim(state, info, CanopyPoseStage.Deployed);
                     if (info.capTransform != null)
                         info.capTransform.gameObject.SetActive(false);
                     usedRealCanopy = true;

@@ -53,6 +53,80 @@ namespace Parsek.TestCommands
         internal PartParityViewMeasures Measures;
         internal PartParityMatteStats? RealMatte;
         internal PartParityMatteStats? GhostMatte;
+
+        /// <summary>A state case's start route (real vs ghost-start), the full measure set of a
+        /// view (its <see cref="View"/> is not written); null for a stowed case (design D.2).</summary>
+        internal PartParityViewRecord Start;
+
+        /// <summary>A state case's stowed reference (real vs ghost-stowed), written with the
+        /// shape keys only (<see cref="PartParityJson.StowedRefKeys"/>); null for a stowed case.</summary>
+        internal PartParityViewMeasures StowedRef;
+    }
+
+    /// <summary>One recorded part event of a state case's event route.</summary>
+    internal sealed class PartParityStateEvent
+    {
+        internal string Type;
+        internal double? Ut;
+        internal uint? Pid;
+        internal int? Midx;
+    }
+
+    /// <summary>One context filler: the attach node and the part put on it.</summary>
+    internal sealed class PartParityContextNode
+    {
+        internal string Node;
+        internal string Part;
+    }
+
+    /// <summary>The <c>stateProof</c> block of a state or context case (design D.2): what was
+    /// pressed, whether the state was reached, what the event route recorded and how each
+    /// ghost route read. Every key is always written; null when not measured.</summary>
+    internal sealed class PartParityStateProof
+    {
+        internal string Family;
+        internal string Module;
+        internal int? ModuleIndex;
+        internal string State;
+        internal string Action;
+        internal bool? EventVisible;
+
+        /// <summary>One of <see cref="PartParityStateRules.ActionResults"/>.</summary>
+        internal string ActionResult;
+        internal bool? Reached;
+        internal double? WaitS;
+
+        /// <summary>The stock field the done signal read, and its value.</summary>
+        internal string EndpointField;
+        internal string EndpointValue;
+
+        /// <summary>The event route's recorded events; null when not measured.</summary>
+        internal List<PartParityStateEvent> Events;
+
+        /// <summary>One of <see cref="PartParityStateRules.GhostOutcomes"/> per route.</summary>
+        internal string GhostEvent;
+        internal string GhostStart;
+
+        /// <summary>The start route at its first frame (before any stepped prime).</summary>
+        internal bool? StartFirstFrameAtTarget;
+        internal double? StartFirstFrameTrackerDeg;
+
+        /// <summary>A sun tracker's target angle, the event route's angle and the start
+        /// route's first-frame angle, degrees.</summary>
+        internal double? SunTargetDeg;
+        internal double? SunEventDeg;
+        internal double? SunStartFirstFrameDeg;
+
+        /// <summary>An air case's canopy airflow tilt and wobble at capture, degrees.</summary>
+        internal double? CanopyTiltDeg;
+        internal double? CanopyWobbleDeg;
+
+        /// <summary>An air case's canopy transform name (<c>ModuleParachute.canopyName</c>);
+        /// the judge's canopy cap reads renderers at or under it (design D.4, D.6).</summary>
+        internal string CanopyTransform;
+
+        /// <summary>The context's filler parts by node; null when the context has none.</summary>
+        internal List<PartParityContextNode> Nodes;
     }
 
     /// <summary>The <c>setup</c> block.</summary>
@@ -86,6 +160,15 @@ namespace Parsek.TestCommands
         internal PartParityStructureDiff Structure;
         internal PartParitySetup Setup;
         internal List<string> Log = new List<string>();
+
+        /// <summary>The state proof (design D.2); null for a stowed case.</summary>
+        internal PartParityStateProof StateProof;
+
+        /// <summary>The structural diff of the start-route ghost; null for a stowed case.</summary>
+        internal PartParityStructureDiff StructureStart;
+
+        /// <summary>The id of the same part and skin at <c>stowed</c> / <c>alone</c>; null for a stowed case.</summary>
+        internal string StowedCaseId;
     }
 
     /// <summary>One <c>controls[]</c> entry of the manifest.</summary>
@@ -118,6 +201,12 @@ namespace Parsek.TestCommands
         internal double? MinIou;
         internal int? MissingRendered;
         internal int? ExtraRendered;
+
+        /// <summary>A state case's family, press result and whether it reached its state
+        /// (the setup summary of design D.2); null for a stowed case.</summary>
+        internal string Family;
+        internal string ActionResult;
+        internal bool? Reached;
     }
 
     /// <summary>One <c>exclusions[]</c> entry: a part the sweep did not capture, and why.</summary>
@@ -183,6 +272,7 @@ namespace Parsek.TestCommands
             "schema", "caseId", "part", "title", "source", "partUrl", "modelUrls", "category",
             "tags", "skin", "state", "context", "measure", "atlas", "framing", "ghostRootOffsetM",
             "layers", "flags", "views", "structure", "setup", "log",
+            "stateProof", "structureStart", "stowedCaseId",
         };
 
         internal static readonly string[] SkinKeys =
@@ -213,7 +303,63 @@ namespace Parsek.TestCommands
             "bbox", "centroid", "touchesBorder",
             "colorOverlapPx", "colorOverPx", "colorBlobPx", "colorP99", "colorBlockMax",
             "iou", "matte",
+            "start", "stowedRef",
         };
+
+        /// <summary>The keys of a view's <c>start</c> block: the full measure set of a view,
+        /// without its name.</summary>
+        internal static readonly string[] StartKeys =
+        {
+            "width", "height",
+            "realPx", "ghostPx", "andPx", "orPx", "realOnlyPx", "ghostOnlyPx",
+            "realOnlyTolPx", "ghostOnlyTolPx", "realOnlyBlobPx", "ghostOnlyBlobPx",
+            "realOnlyBlobPct", "ghostOnlyBlobPct",
+            "bbox", "centroid", "touchesBorder",
+            "colorOverlapPx", "colorOverPx", "colorBlobPx", "colorP99", "colorBlockMax",
+            "iou", "matte",
+        };
+
+        /// <summary>The keys of a view's <c>stowedRef</c> block, exactly the shape keys the
+        /// recompute checks for it (design D.2, D.6): the masks' pixel counts, the one-sided
+        /// counts, the tolerant mismatch counts and the two largest blobs with their percentages.</summary>
+        internal static readonly string[] StowedRefKeys =
+        {
+            "realPx", "ghostPx", "realOnlyPx", "ghostOnlyPx", "realOnlyTolPx", "ghostOnlyTolPx",
+            "realOnlyBlobPx", "ghostOnlyBlobPx", "realOnlyBlobPct", "ghostOnlyBlobPct",
+        };
+
+        internal static readonly string[] StateProofKeys =
+        {
+            "family", "module", "moduleIndex", "state", "action", "eventVisible", "actionResult",
+            "reached", "waitS", "endpoint", "events", "ghostEvent", "ghostStart",
+            "startFirstFrame", "sunTracker", "canopy", "nodes",
+        };
+
+        internal static readonly string[] EndpointKeys = { "field", "value" };
+
+        internal static readonly string[] StateEventKeys = { "type", "ut", "pid", "midx" };
+
+        internal static readonly string[] StartFirstFrameKeys = { "atTarget", "trackerDeg" };
+
+        internal static readonly string[] SunTrackerKeys = { "targetDeg", "eventDeg", "startFirstFrameDeg" };
+
+        internal static readonly string[] CanopyKeys = { "tiltDeg", "wobbleDeg", "transform" };
+
+        internal static readonly string[] ContextNodeKeys = { "node", "part" };
+
+        // ----- atlas rows (design D.2) -----
+
+        /// <summary>A stowed case's atlas rows, top-down.</summary>
+        internal static readonly string[] StowedAtlasRows = { "real", "ghost" };
+
+        /// <summary>A state case's atlas rows, top-down: the real part, the event-route ghost,
+        /// the start-route ghost, the stowed reference ghost.</summary>
+        internal static readonly string[] StateAtlasRows = { "real", "ghost", "ghost-start", "ghost-stowed" };
+
+        /// <summary>The atlas rows of a case (a fresh copy): four for a state case, two for a
+        /// stowed one. The live capture reads its rows here, so it holds no literal of its own.</summary>
+        internal static string[] AtlasRowsFor(bool isStateCase)
+            => (string[])(isStateCase ? StateAtlasRows : StowedAtlasRows).Clone();
 
         internal static readonly string[] MatteKeys = { "opaque", "edge", "inverted" };
 
@@ -227,7 +373,7 @@ namespace Parsek.TestCommands
 
         internal static readonly string[] TransformDiffKeys =
         {
-            "key", "positionDeltaM", "rotationDeltaDeg", "scaleDeltaPct",
+            "key", "positionDeltaM", "rotationDeltaDeg", "scaleDeltaPct", "canopyPivotDistanceM",
         };
 
         internal static readonly string[] FieldDiffKeys = { "key", "field", "real", "ghost" };
@@ -246,7 +392,7 @@ namespace Parsek.TestCommands
         {
             "index", "caseId", "part", "title", "source", "skin", "state", "context", "sidecar",
             "setupStatus", "maxShapeBlobPx", "maxColorBlobPx", "minIou", "missingRendered",
-            "extraRendered",
+            "extraRendered", "family", "actionResult", "reached",
         };
 
         internal static readonly string[] ExclusionKeys = { "part", "reason" };
@@ -423,9 +569,19 @@ namespace Parsek.TestCommands
         internal static string ViewBlock(PartParityViewRecord v)
         {
             if (v == null) return "null";
+            var members = new List<KeyValuePair<string, string>> { M("view", Str(v.View)) };
+            members.AddRange(MeasureMembers(v));
+            members.Add(M("start", v.Start == null ? "null" : Obj(MeasureMembers(v.Start).ToArray())));
+            members.Add(M("stowedRef", StowedRefBlock(v.StowedRef)));
+            return Obj(members.ToArray());
+        }
+
+        /// <summary>A view's measure members, <c>width</c> to <c>matte</c> (<see cref="StartKeys"/>).</summary>
+        private static List<KeyValuePair<string, string>> MeasureMembers(PartParityViewRecord v)
+        {
             PartParityViewMeasures m = v.Measures ?? new PartParityViewMeasures();
-            return Obj(
-                M("view", Str(v.View)),
+            return new List<KeyValuePair<string, string>>
+            {
                 M("width", Int(m.Width)), M("height", Int(m.Height)),
                 M("realPx", Int(m.RealPx)), M("ghostPx", Int(m.GhostPx)),
                 M("andPx", Int(m.AndPx)), M("orPx", Int(m.OrPx)),
@@ -440,7 +596,64 @@ namespace Parsek.TestCommands
                 M("colorBlobPx", Int(m.ColorBlobPx)), M("colorP99", Num(m.ColorP99)),
                 M("colorBlockMax", Num(m.ColorBlockMax)),
                 M("iou", Num(m.Iou)),
-                M("matte", Pair(MatteBlock(v.RealMatte), MatteBlock(v.GhostMatte))));
+                M("matte", Pair(MatteBlock(v.RealMatte), MatteBlock(v.GhostMatte))),
+            };
+        }
+
+        /// <summary>The <c>stowedRef</c> block: only <see cref="StowedRefKeys"/>.</summary>
+        internal static string StowedRefBlock(PartParityViewMeasures m)
+        {
+            if (m == null) return "null";
+            return Obj(
+                M("realPx", Int(m.RealPx)), M("ghostPx", Int(m.GhostPx)),
+                M("realOnlyPx", Int(m.RealOnlyPx)), M("ghostOnlyPx", Int(m.GhostOnlyPx)),
+                M("realOnlyTolPx", Int(m.RealOnlyTolPx)), M("ghostOnlyTolPx", Int(m.GhostOnlyTolPx)),
+                M("realOnlyBlobPx", Int(m.RealOnlyBlobPx)), M("ghostOnlyBlobPx", Int(m.GhostOnlyBlobPx)),
+                M("realOnlyBlobPct", Num(m.RealOnlyBlobPct)), M("ghostOnlyBlobPct", Num(m.GhostOnlyBlobPct)));
+        }
+
+        private static string BoolOrNull(bool? v) => v.HasValue ? Bool(v.Value) : "null";
+
+        private static string UIntOrNull(uint? v) => v.HasValue ? v.Value.ToString(Ic) : "null";
+
+        /// <summary>The <c>stateProof</c> block (<see cref="StateProofKeys"/>); null for a stowed case.</summary>
+        internal static string StateProofBlock(PartParityStateProof p)
+        {
+            if (p == null) return "null";
+            string events = "null";
+            if (p.Events != null)
+            {
+                var items = new List<string>();
+                foreach (var e in p.Events)
+                    if (e != null)
+                        items.Add(Obj(M("type", Str(e.Type)), M("ut", Num(e.Ut)),
+                            M("pid", UIntOrNull(e.Pid)), M("midx", IntOrNull(e.Midx))));
+                events = Arr(items);
+            }
+            string nodes = "null";
+            if (p.Nodes != null)
+            {
+                var items = new List<string>();
+                foreach (var n in p.Nodes)
+                    if (n != null) items.Add(Obj(M("node", Str(n.Node)), M("part", Str(n.Part))));
+                nodes = Arr(items);
+            }
+            return Obj(
+                M("family", Str(p.Family)), M("module", Str(p.Module)),
+                M("moduleIndex", IntOrNull(p.ModuleIndex)), M("state", Str(p.State)),
+                M("action", Str(p.Action)), M("eventVisible", BoolOrNull(p.EventVisible)),
+                M("actionResult", Str(p.ActionResult)), M("reached", BoolOrNull(p.Reached)),
+                M("waitS", Num(p.WaitS)),
+                M("endpoint", Obj(M("field", Str(p.EndpointField)), M("value", Str(p.EndpointValue)))),
+                M("events", events),
+                M("ghostEvent", Str(p.GhostEvent)), M("ghostStart", Str(p.GhostStart)),
+                M("startFirstFrame", Obj(M("atTarget", BoolOrNull(p.StartFirstFrameAtTarget)),
+                    M("trackerDeg", Num(p.StartFirstFrameTrackerDeg)))),
+                M("sunTracker", Obj(M("targetDeg", Num(p.SunTargetDeg)), M("eventDeg", Num(p.SunEventDeg)),
+                    M("startFirstFrameDeg", Num(p.SunStartFirstFrameDeg)))),
+                M("canopy", Obj(M("tiltDeg", Num(p.CanopyTiltDeg)), M("wobbleDeg", Num(p.CanopyWobbleDeg)),
+                    M("transform", Str(p.CanopyTransform)))),
+                M("nodes", nodes));
         }
 
         internal static string StructureBlock(PartParityStructureDiff d)
@@ -454,7 +667,8 @@ namespace Parsek.TestCommands
             foreach (var t in d.TransformDiffers)
                 transform.Add(Obj(
                     M("key", Str(t.Key)), M("positionDeltaM", Num(t.PositionDeltaM)),
-                    M("rotationDeltaDeg", Num(t.RotationDeltaDeg)), M("scaleDeltaPct", Num(t.ScaleDeltaPct))));
+                    M("rotationDeltaDeg", Num(t.RotationDeltaDeg)), M("scaleDeltaPct", Num(t.ScaleDeltaPct)),
+                    M("canopyPivotDistanceM", Num(t.CanopyPivotDistanceM))));
             return Obj(
                 M("realRenderers", Int(d.RealRenderers)), M("ghostRenderers", Int(d.GhostRenderers)),
                 M("pairs", Int(d.Pairs)),
@@ -517,6 +731,9 @@ namespace Parsek.TestCommands
                 M("structure", StructureBlock(c.Structure)),
                 M("setup", SetupBlock(c.Setup)),
                 M("log", StrArray(c.Log)),
+                M("stateProof", StateProofBlock(c.StateProof)),
+                M("structureStart", StructureBlock(c.StructureStart)),
+                M("stowedCaseId", Str(c.StowedCaseId)),
             };
             return TopLevel(members);
         }
@@ -570,7 +787,8 @@ namespace Parsek.TestCommands
                     M("sidecar", Str(s.Sidecar)), M("setupStatus", Str(s.SetupStatus)),
                     M("maxShapeBlobPx", IntOrNull(s.MaxShapeBlobPx)), M("maxColorBlobPx", IntOrNull(s.MaxColorBlobPx)),
                     M("minIou", Num(s.MinIou)), M("missingRendered", IntOrNull(s.MissingRendered)),
-                    M("extraRendered", IntOrNull(s.ExtraRendered))));
+                    M("extraRendered", IntOrNull(s.ExtraRendered)), M("family", Str(s.Family)),
+                    M("actionResult", Str(s.ActionResult)), M("reached", BoolOrNull(s.Reached))));
             var exclusions = new List<string>();
             foreach (var e in mf.Exclusions)
                 exclusions.Add(Obj(M("part", Str(e.Part)), M("reason", Str(e.Reason))));

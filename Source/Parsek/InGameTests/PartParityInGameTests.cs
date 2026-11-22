@@ -57,6 +57,70 @@ namespace Parsek.InGameTests
                 "controls did not behave (" + payload + "); read controls[] in parsek-partparity/" + Label + "/manifest.json");
         }
 
+        /// <summary>The state filter's acceptance parts (design D.10 S3): one of every orbit
+        /// family, the stacked engine shroud and the top-node jet shroud.</summary>
+        internal static readonly string[] StateAcceptanceParts =
+        {
+            "longAntenna", "solarPanels4", "GearSmall", "mk2CargoBayS", "telescopicLadder",
+            "spotLight1", "mk1pod.v2", "airbrake1", "liquidEngine2", "turboFanSize2",
+        };
+
+        /// <summary>The label prefix of the state cell; each part runs under its own label
+        /// (<c>ingame-state-&lt;n&gt;</c>), one step per label, since a filter names one glob.</summary>
+        internal const string StateLabelPrefix = "ingame-state-";
+
+        [InGameTest(Category = "PartParity", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            BatchSkipReason = "Isolated-run only - spawns, presses and removes one-part vessels around the active vessel; needs a stable orbit.",
+            Description = "Part ghost parity, state filter: the acceptance parts at every orbit state (states=all) photographed on three ghosts into parsek-partparity/ingame-state-<n>/")]
+        public IEnumerator SweepStateAcceptanceSet()
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null)
+                InGameAssert.Skip("no active vessel");
+            if (active.situation != Vessel.Situations.ORBITING)
+                InGameAssert.Skip("the state sweep spawns co-orbital and needs an orbiting active vessel (situation=" + active.situation + ")");
+
+            for (int i = 0; i < StateAcceptanceParts.Length; i++)
+            {
+                string label = StateLabelPrefix + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                PartParitySweepArgs stateArgs = StateArgs(label, PartParitySweepOp.Reset);
+                PartParitySweepStepResult reset = null;
+                IEnumerator r = PartParitySweepRunner.RunStep(stateArgs, res => reset = res);
+                try { while (r.MoveNext()) yield return r.Current; }
+                finally { PartParitySweepRunner.DisposeNested(r); }
+                InGameAssert.IsTrue(reset != null && reset.Ok, "state reset failed for " + label + ": " + Describe(reset));
+
+                PartParitySweepStepResult step = null;
+                IEnumerator run = PartParitySweepRunner.RunStep(StateArgs(label, PartParitySweepOp.Run, StateAcceptanceParts[i]),
+                    x => step = x);
+                try { while (run.MoveNext()) yield return run.Current; }
+                finally { PartParitySweepRunner.DisposeNested(run); }
+                InGameAssert.IsTrue(step != null && step.Ok, "state run failed for " + label + ": " + Describe(step));
+                string payload = TestCommandPartParitySweep.FormatPayload(step.Payload);
+                ParsekLog.Info(PartParitySweepRunner.Tag, "ingame state sweep " + StateAcceptanceParts[i] + ": " + payload);
+                InGameAssert.IsTrue(Value(step, "done") == "true", "the state step did not finish inside its time box: " + payload);
+                InGameAssert.IsTrue(Value(step, "setupFaults") == "0",
+                    StateAcceptanceParts[i] + " has a state setup fault (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+            }
+        }
+
+        /// <summary>One state step's args: every state at the orbit contexts, the controls on
+        /// the first label only (they are the same for every label).</summary>
+        private static PartParitySweepArgs StateArgs(string label, PartParitySweepOp op, string filter = null)
+        {
+            return new PartParitySweepArgs
+            {
+                Label = label,
+                Op = op,
+                Filter = filter ?? TestCommandPartParitySweep.DefaultFilter,
+                States = new List<string>(PartParityStateRules.KnownStates),
+                StatesAll = true,
+                Controls = label == StateLabelPrefix + "1",
+                MaxSeconds = TestCommandPartParitySweep.MaxMaxSeconds,
+            };
+        }
+
         private static PartParitySweepArgs Args(PartParitySweepOp op)
         {
             return new PartParitySweepArgs

@@ -180,7 +180,7 @@ namespace Parsek.TestCommands
             {
                 // The label's first run step: admit the host and record what it was.
                 if (!AdmitHost(ctx)) yield break;
-                ctx.HostBaseline = CaptureHostBaseline(ctx.Host);
+                ctx.HostBaseline = CaptureHostBaseline(ctx.Host, TestCommandPartParitySweep.IsAirRun(a));
                 WriteHostBaseline(ctx.LabelDir, ctx.HostBaseline);
                 PlanStep(ctx);
             }
@@ -206,16 +206,19 @@ namespace Parsek.TestCommands
         // host integrity (design 4.1)
         // =====================================================================================
 
-        private static PartParityHostBaseline CaptureHostBaseline(Vessel host)
+        private static PartParityHostBaseline CaptureHostBaseline(Vessel host, bool air)
         {
             var b = new PartParityHostBaseline
             {
                 Pid = host.persistentId,
                 PartCount = host.parts != null ? host.parts.Count : 0,
                 Situation = host.situation.ToString(),
+                // An air run's host stays PRELAUNCH / LANDED (host.txt mode=air, design D.2).
+                Air = air,
             };
             ParsekLog.Info(Tag, $"host baseline: pid={b.Pid.ToString(Ic)} name={host.vesselName} parts={b.PartCount.ToString(Ic)} " +
-                $"situation={b.Situation} (the integrity guard compares every later check against it)");
+                $"situation={b.Situation} mode={(air ? PartParityHostIntegrity.ModeAir : PartParityHostIntegrity.ModeOrbit)} " +
+                "(the integrity guard compares every later check against it)");
             return b;
         }
 
@@ -236,7 +239,7 @@ namespace Parsek.TestCommands
         /// <summary>True when the host is damaged (now or earlier this step). On the first
         /// trip: records the damage on disk (every later step of the label stops at once),
         /// writes the one Warn line, and leaves the caller to stop.</summary>
-        private static bool CheckHost(StepContext ctx, string where)
+        internal static bool CheckHost(StepContext ctx, string where)
         {
             if (ctx.HostDamage != null) return true;
             if (ctx.HostBaseline == null) return false;
@@ -268,7 +271,7 @@ namespace Parsek.TestCommands
             foreach (var p in ctx.Planned)
                 if (!ctx.Known.ContainsKey(p.CaseId)) n++;
             if (ctx.Args.Controls)
-                foreach (string id in TestCommandPartParitySweep.ControlIds)
+                foreach (string id in ctx.ControlSet)
                     if (!ctx.Known.ContainsKey(id)) n++;
             return n;
         }
@@ -302,17 +305,18 @@ namespace Parsek.TestCommands
             }
             Directory.CreateDirectory(ctx.LabelDir);
             ParsekLog.Info(Tag, $"reset: label={ctx.Args.Label} dir={ctx.LabelDir} removedFiles={removed.ToString(Ic)}");
-            ctx.Succeed(false, 0, 0, 0, 0, 0, TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, null));
+            ctx.Succeed(false, 0, 0, 0, 0, 0, TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, null, ctx.ControlSet));
         }
 
         private static bool AdmitHost(StepContext ctx)
         {
             Vessel active = FlightGlobals.ActiveVessel;
-            bool orbiting = active != null && active.situation == Vessel.Situations.ORBITING && active.orbit != null;
-            string refusal = TestCommandPartParitySweep.DecideHostAdmission(active != null, orbiting);
+            // The args-aware rule (design D.2, D.4): an orbit run needs an orbiting host, an
+            // air run one PRELAUNCH or LANDED within 500 m of the pad.
+            string refusal = PartParityAirContext.DecideAdmission(ctx.Args, active, out string detail);
             if (refusal != null)
             {
-                ctx.Refuse(refusal, active == null ? "no active vessel" : "situation=" + active.situation);
+                ctx.Refuse(refusal, detail);
                 return false;
             }
             ctx.Host = active;
@@ -330,13 +334,22 @@ namespace Parsek.TestCommands
                 ctx.EntriesByName[e.Name] = e;
                 keys.AddRange(PartParitySkinRules.CaseKeys(e));
             }
-            ctx.Planned = TestCommandPartParitySweep.SelectCases(keys, ctx.Args);
+            // A state run (design Appendix D.2) plans ONLY its state and context cases; a
+            // stowed run reads exactly the stowed keys, in today's order.
+            List<PartParityCaseKey> stateKeys = null;
+            if (TestCommandPartParitySweep.IsStateRun(ctx.Args)) stateKeys = EnumerateStates(ctx);
+            ctx.Planned = TestCommandPartParitySweep.PlanCases(keys, stateKeys, ctx.Args);
             LogSkinCounts(ctx, keys);
+            if (stateKeys != null)
+                ParsekLog.Info(Tag, PartParityStateRules.FormatCounts(TestCommandPartParitySweep.FormatStates(ctx.Args),
+                    TestCommandPartParitySweep.FormatContexts(ctx.Args), stateKeys, ctx.Planned.Count, ctx.StateExclusions));
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
-                foreach (string id in TestCommandPartParitySweep.ControlIds) LoadKnownSidecar(ctx, id);
+                foreach (string id in ctx.ControlSet) LoadKnownSidecar(ctx, id);
             var keysById = new Dictionary<string, PartParityCaseKey>(StringComparer.Ordinal);
             foreach (var k in keys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
+            if (stateKeys != null)
+                foreach (var k in stateKeys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
             ResolveStaleInflight(ctx, keysById);
             ParsekLog.Info(Tag, $"step start: label={ctx.Args.Label} op=run parts={ctx.Entries.Count.ToString(Ic)} " +
                 $"excluded={ctx.Exclusions.Count.ToString(Ic)} planned={ctx.Planned.Count.ToString(Ic)} " +
@@ -344,7 +357,22 @@ namespace Parsek.TestCommands
                 $"filter={ctx.Args.Filter} shard={ctx.Args.ShardK.ToString(Ic)}/{ctx.Args.ShardN.ToString(Ic)} " +
                 $"tile={ctx.Args.Tile.ToString(Ic)} views={string.Join(",", ctx.Args.Views.ToArray())} " +
                 $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} staleInflight={ctx.StaleInflight ?? "<none>"} " +
-                $"isolate={ctx.Isolate.Count.ToString(Ic)}");
+                $"isolate={ctx.Isolate.Count.ToString(Ic)} states={TestCommandPartParitySweep.FormatStates(ctx.Args)} " +
+                $"contexts={TestCommandPartParitySweep.FormatContexts(ctx.Args)} controlSet={ctx.ControlSet.Length.ToString(Ic)}");
+        }
+
+        /// <summary>Every state and context case the install offers (design D.1), at each
+        /// part's base skin (ruling R2), with its exclusions.</summary>
+        private static List<PartParityCaseKey> EnumerateStates(StepContext ctx)
+        {
+            var all = new PartParityStateEnumeration();
+            foreach (var e in ctx.Entries)
+            {
+                PartParityStatePart sp = PartParityStateDriver.BuildStatePart(e.Info);
+                all.AddRange(PartParityStateRules.Enumerate(sp, PartParityCaseRules.DefaultCaseKey(e)));
+            }
+            ctx.StateExclusions.AddRange(all.Exclusions);
+            return all.Cases;
         }
 
         /// <summary>The per-step case counts by skin kind (design 3.2): every case the install
@@ -386,10 +414,14 @@ namespace Parsek.TestCommands
                 {
                     keysById.TryGetValue(d.CrashedCaseId, out PartParityCaseKey key);
                     var k = key ?? new PartParityCaseKey { Part = d.CrashedCaseId };
-                    WriteSidecar(ctx, PartParityJson.BuildCrashedSidecar(k, d.CrashedCaseId,
+                    PartParityCaseSidecar crashedSidecar = PartParityJson.BuildCrashedSidecar(k, d.CrashedCaseId,
                         solo
                             ? "a previous process died while this case ran alone (isolation rerun, stale inflight.txt)"
-                            : "a previous process died while this case was in flight (stale inflight.txt)"));
+                            : "a previous process died while this case was in flight (stale inflight.txt)");
+                    // A crashed state case still names its family and state (design D.2).
+                    crashedSidecar.StateProof = PartParityStateWave.CrashedStateProof(k.StateOption, k.State);
+                    if (crashedSidecar.StateProof != null) crashedSidecar.StowedCaseId = PartParityStateWave.StowedCaseId(k);
+                    WriteSidecar(ctx, crashedSidecar);
                     ParsekLog.Warn(Tag, $"case {d.CrashedCaseId}: setup fault crashed (recorded from the stale inflight.txt, " +
                         $"solo={(solo ? "true" : "false")}, skipped)");
                 }
@@ -469,19 +501,25 @@ namespace Parsek.TestCommands
             ctx.Capture = PartParityCapture.Create(ctx.Args.Tile);
             int cursor = 0;
             double lastWave = 0.0;
+            bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
             while (cursor < queue.Count)
             {
                 if (CheckHost(ctx, "before wave " + (ctx.WavesDone + 1).ToString(Ic))) yield break;
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
-                if (!TestCommandPartParitySweep.ShouldStartWave(elapsed, ctx.Args.MaxSeconds, lastWave))
+                List<int> picked = PickWave(queue, cursor, air, out string kind, out double trackerCap);
+                if (!PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, trackerCap,
+                        FamiliesOf(queue, picked), ctx.WavesDone == 0))
                 {
                     ParsekLog.Info(Tag, $"time box: elapsed={elapsed.ToString("0.0", Ic)}s lastWave={lastWave.ToString("0.0", Ic)}s " +
-                        $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)}; {(queue.Count - cursor).ToString(Ic)} case(s) left for the next step");
+                        $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} kind={kind}; {(queue.Count - cursor).ToString(Ic)} case(s) left for the next step");
                     yield break;
                 }
-                List<WaveCase> wave = TakeWave(queue, ref cursor);
+                queue = PartParityStateWave.BringToCursor(queue, cursor, picked);
+                List<WaveCase> wave = TakeWave(queue, ref cursor, kind, picked.Count, air);
                 float waveStart = Time.realtimeSinceStartup;
-                IEnumerator w = RunWave(ctx, wave);
+                // The one dispatch hook of the air context (design D.4): every wave of an air
+                // run, its stowed controls included, spawns over the showcase band.
+                IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);
                 try { while (w.MoveNext()) yield return w.Current; }
                 finally { DisposeNested(w); }
                 lastWave = Time.realtimeSinceStartup - waveStart;
@@ -506,7 +544,7 @@ namespace Parsek.TestCommands
             var normal = new List<WaveCase>();
             if (ctx.Args.Controls)
             {
-                foreach (string id in TestCommandPartParitySweep.ControlIds)
+                foreach (string id in ctx.ControlSet)
                     ResumeOrQueue(ctx, id, () => BuildControlCase(ctx, id), solo, normal);
             }
             foreach (var p in ctx.Planned)
@@ -545,18 +583,69 @@ namespace Parsek.TestCommands
         private static WaveCase BuildPartCase(StepContext ctx, PartParityPlannedCase p)
         {
             ctx.EntriesByName.TryGetValue(p.Key.Part, out PartParityPartEntry e);
-            return new WaveCase
+            var wc = new WaveCase
             {
                 CaseId = p.CaseId, Index = p.Index, Key = p.Key, Entry = e, SkinOption = p.Key.SkinOption,
                 RealVariant = PartParitySkinRules.RealVariant(p.Key.SkinOption, e?.BaseVariant), Views = ctx.Args.Views,
             };
+            if (p.Key.StateOption != null) wc.State = PartParityStateDriver.NewRun(p.Key, e, dropEvents: false);
+            return wc;
         }
 
-        private static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor)
+        /// <summary>The queue positions the next wave takes (design D.3): a stowed wave as
+        /// today, a state wave one bucket from the cursor on; the kind and the slowest sun
+        /// tracker's cap (0 for none) come back for the admission.</summary>
+        private static List<int> PickWave(List<WaveCase> queue, int cursor, bool air, out string kind, out double trackerCap)
         {
+            var kinds = queue.ConvertAll(c => PartParityStateWave.WaveKind(c.Key));
+            var solo = queue.ConvertAll(c => c.Solo);
+            List<int> picked = PartParityStateWave.PickWave(kinds, solo, cursor,
+                PartParitySweepPlan.MaxWaveCases, air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases);
+            kind = kinds[cursor];
+            trackerCap = 0.0;
+            foreach (int i in picked)
+                if (queue[i].State != null && queue[i].State.SunTracker)
+                    trackerCap = Math.Max(trackerCap, queue[i].State.TrackerCapSeconds);
+            return picked;
+        }
+
+        private static List<string> FamiliesOf(List<WaveCase> queue, List<int> picked)
+        {
+            var families = new List<string>();
+            foreach (int i in picked)
+                if (queue[i].Key?.StateOption != null) families.Add(queue[i].Key.StateOption.Family);
+            return families;
+        }
+
+        private static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor, string kind, int count, bool air)
+        {
+            if (air)
+            {
+                // An air wave places its cases on the showcase band by slot (design D.4).
+                List<WaveCase> airWave = queue.GetRange(cursor, count);
+                cursor += count;
+                return airWave;
+            }
+            if (kind != PartParityStateWave.KindStowed)
+            {
+                // A state wave: every other slot (design D.3), one bucket.
+                List<double> stateOffsets = PartParityStateWave.PlanStateWave(count);
+                var stateWave = new List<WaveCase>();
+                for (int i = 0; i < stateOffsets.Count; i++)
+                {
+                    WaveCase wc = queue[cursor + i];
+                    wc.AlongTrackM = stateOffsets[i];
+                    stateWave.Add(wc);
+                }
+                cursor += stateWave.Count;
+                return stateWave;
+            }
             var soloFlags = new List<bool>();
             for (int i = cursor; i < queue.Count && soloFlags.Count <= PartParitySweepPlan.MaxWaveCases; i++)
+            {
+                if (PartParityStateWave.WaveKind(queue[i].Key) != PartParityStateWave.KindStowed) break;
                 soloFlags.Add(queue[i].Solo);
+            }
             int candidates = PartParitySweepPlan.WaveCandidateCount(soloFlags);
             var sizes = new List<double>();
             for (int i = cursor; i < cursor + candidates; i++)
@@ -591,6 +680,14 @@ namespace Parsek.TestCommands
                 try { while (settle.MoveNext()) yield return settle.Current; }
                 finally { DisposeNested(settle); }
             }
+            if (ctx.HostDamage == null && wave.Exists(c => c.State != null))
+            {
+                // Design D.3 steps 2 to 4: stowed inputs, the press, the wait and the settle.
+                IEnumerator phase = PartParityStateDriver.RunPhase(ctx, wave, where => CheckHost(ctx, where),
+                    (c, stage, body) => Guard(ctx, c, stage, body));
+                try { while (phase.MoveNext()) yield return phase.Current; }
+                finally { DisposeNested(phase); }
+            }
 
             int unrun = 0;
             foreach (var wc in wave)
@@ -622,7 +719,7 @@ namespace Parsek.TestCommands
 
         /// <summary>Runs one synchronous stage of a case; an exception becomes a case flag and
         /// (before capture) the case's setup detail, never a step failure.</summary>
-        private static void Guard(StepContext ctx, WaveCase wc, string stage, Action body)
+        internal static void Guard(StepContext ctx, WaveCase wc, string stage, Action body)
         {
             try { body(); }
             catch (Exception ex)
@@ -636,6 +733,16 @@ namespace Parsek.TestCommands
                 // case is not captured; a throw in one view or in the write keeps the rest.
                 if (stage == "spawn") wc.Status = wc.Status ?? TestCommandPartParitySweep.SetupSpawnTimeout;
                 else if (stage == "prepare") wc.Status = wc.Status ?? TestCommandPartParitySweep.SetupCrashed;
+                else if (stage.StartsWith("state-", StringComparison.Ordinal))
+                {
+                    // A press, wait or poll that threw ends the case as a press fault.
+                    wc.Status = wc.Status ?? TestCommandPartParitySweep.SetupActionFailed;
+                    if (wc.State != null)
+                    {
+                        wc.State.ActionResult = wc.State.ActionResult ?? PartParityStateRules.ActionThrew;
+                        wc.State.Done = true;
+                    }
+                }
             }
         }
 
@@ -645,6 +752,25 @@ namespace Parsek.TestCommands
             {
                 wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
                 wc.Detail = wc.Detail ?? "part not loaded";
+                return;
+            }
+            if (wc.State != null)
+            {
+                // A state or context case: the subject plus its context fillers (design D.3).
+                ConfigNode stateNode = PartParityStateDriver.AuthorVesselNode(wc, ctx.Host, out string stateFail);
+                if (stateNode == null)
+                {
+                    wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
+                    wc.Detail = wc.Detail ?? stateFail ?? "state vessel node not authored";
+                    return;
+                }
+                wc.Pid = GhostCoOrbitalRig.SpawnCoOrbital(stateNode, ctx.Host, wc.AlongTrackM, wc.CaseId, Tag);
+                wc.SpawnRealtime = Time.realtimeSinceStartup;
+                if (wc.Pid == 0)
+                {
+                    wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
+                    wc.Detail = "SpawnAtPosition returned pid=0";
+                }
                 return;
             }
             ConfigNode node = PartParityCaseAuthoring.AuthorVesselNode(
@@ -662,7 +788,7 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static IEnumerator WaitReady(StepContext ctx, List<WaveCase> wave)
+        internal static IEnumerator WaitReady(StepContext ctx, List<WaveCase> wave)
         {
             while (true)
             {
@@ -691,7 +817,7 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static IEnumerator WaitSettled(StepContext ctx, List<WaveCase> wave)
+        internal static IEnumerator WaitSettled(StepContext ctx, List<WaveCase> wave)
         {
             while (true)
             {
@@ -723,7 +849,7 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        private static IEnumerator TearDownWave(StepContext ctx, List<WaveCase> wave)
+        internal static IEnumerator TearDownWave(StepContext ctx, List<WaveCase> wave)
         {
             foreach (var wc in wave) DestroyCase(wc);
             float deadline = Time.realtimeSinceStartup + (float)PartParitySweepPlan.VesselGoneTimeoutSeconds;
@@ -747,6 +873,9 @@ namespace Parsek.TestCommands
         internal static void DestroyCase(WaveCase wc)
         {
             if (wc == null) return;
+            // The jettison debris and the start-route / stowed ghosts first (design D.3 step 6).
+            try { PartParityStateDriver.DestroyStateParts(wc); }
+            catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: state parts destroy threw {ex.GetType().Name}: {ex.Message}"); }
             if (wc.PlantedCube != null)
             {
                 try { UnityEngine.Object.Destroy(wc.PlantedCube); }
@@ -808,7 +937,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The case's real vessel is gone (Unity's null reads a destroyed object as
         /// null), has no root part, or is DEAD.</summary>
-        private static bool CaseVesselLost(WaveCase wc)
+        internal static bool CaseVesselLost(WaveCase wc)
         {
             Vessel v = wc.Real;
             bool present = v != null;
@@ -816,7 +945,7 @@ namespace Parsek.TestCommands
                 present && v.state == Vessel.State.DEAD);
         }
 
-        private static void BeginCaseLog(StepContext ctx, WaveCase wc)
+        internal static void BeginCaseLog(StepContext ctx, WaveCase wc)
         {
             Action<string> prior = ParsekLog.TestObserverForTesting;
             ctx.PriorObserver = prior;
@@ -828,7 +957,7 @@ namespace Parsek.TestCommands
             };
         }
 
-        private static void EndCaseLog(StepContext ctx)
+        internal static void EndCaseLog(StepContext ctx)
         {
             if (!ctx.ObserverInstalled) return;
             ParsekLog.TestObserverForTesting = ctx.PriorObserver;
@@ -836,23 +965,27 @@ namespace Parsek.TestCommands
             ctx.ObserverInstalled = false;
         }
 
-        private static void FinishCase(StepContext ctx, WaveCase wc)
+        internal static void FinishCase(StepContext ctx, WaveCase wc)
         {
             PartParityCaseSidecar sidecar = PartParityCaseCapture.BuildSidecar(ctx, wc);
             if (wc.RealTiles.Count > 0)
                 PartParityCaseCapture.WritePictures(ctx, wc, sidecar);
             WriteSidecar(ctx, sidecar);
             ClearIsolated(ctx, wc.CaseId);
-            if (wc.ControlId != null) JudgeAndLogControl(sidecar);
+            if (wc.ControlId != null) JudgeAndLogControl(sidecar, wc.State != null);
             string status = sidecar.Setup?.Status ?? TestCommandPartParitySweep.SetupOk;
             if (TestCommandPartParitySweep.IsSetupFault(status))
                 ParsekLog.Warn(Tag, $"case {wc.CaseId}: setup fault {status} detail={sidecar.Setup?.Detail ?? "<none>"}");
             ParsekLog.Verbose(Tag, PartParityCaseCapture.DescribeCase(wc, sidecar));
         }
 
-        private static void JudgeAndLogControl(PartParityCaseSidecar s)
+        private static void JudgeAndLogControl(PartParityCaseSidecar s, bool stateControl)
         {
-            string outcome = PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Structure, out string detail);
+            string detail;
+            string outcome = stateControl
+                ? PartParitySweepPlan.JudgeStateControl(s.StateProof?.Reached == true, s.StateProof?.Events?.Count ?? 0,
+                    s.Views, s.Setup?.Status, out detail)
+                : PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Structure, out detail);
             ParsekLog.Info(Tag, $"control {s.CaseId}: outcome={outcome} subject={s.Part ?? "<none>"} " +
                 $"setup={s.Setup?.Status ?? "<none>"} detail={detail ?? "<none>"}");
         }
@@ -865,13 +998,13 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>Names the case(s) in flight, atomically (a torn file would name nothing).</summary>
-        private static void WriteInflight(StepContext ctx, IList<string> caseIds, bool solo)
+        internal static void WriteInflight(StepContext ctx, IList<string> caseIds, bool solo)
         {
             FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(TestCommandPartParitySweep.FormatInflight(caseIds, solo)),
                 Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.InflightFileName), Tag);
         }
 
-        private static void DeleteInflight(StepContext ctx)
+        internal static void DeleteInflight(StepContext ctx)
         {
             string path = Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.InflightFileName);
             if (File.Exists(path)) File.Delete(path);
@@ -888,6 +1021,9 @@ namespace Parsek.TestCommands
                 CaseId = id, Index = -1, ControlId = id,
                 Views = new List<string>(TestCommandPartParitySweep.RequiredViews),
             };
+            if (id == TestCommandPartParitySweep.ControlStateEventsDropped
+                || id == TestCommandPartParitySweep.ControlStateEventsDroppedAir)
+                return BuildStateControlCase(ctx, id, wc);
             string part = ControlPart(ctx, id, out string ghostVariant, out string why);
             wc.Key = new PartParityCaseKey { Part = part ?? why };
             if (part != null && ctx.EntriesByName.TryGetValue(part, out PartParityPartEntry e))
@@ -899,6 +1035,34 @@ namespace Parsek.TestCommands
             wc.GhostVariant = ghostVariant;
             if (wc.Entry == null)
                 wc.Detail = "control subject not loaded: " + (part ?? why);
+            return wc;
+        }
+
+        /// <summary>A state control (design D.6): the subject's own state case (the
+        /// Communotron 16 at deployed, the Mk16 at semi in the air) with its event-route ghost
+        /// built WITHOUT the polled events.</summary>
+        private static WaveCase BuildStateControlCase(StepContext ctx, string id, WaveCase wc)
+        {
+            bool air = id == TestCommandPartParitySweep.ControlStateEventsDroppedAir;
+            string part = air ? PartParitySweepPlan.ControlAirPart : PartParitySweepPlan.ControlStatePart;
+            string state = air ? PartParityStateRules.StateSemi : PartParityStateRules.StateDeployed;
+            wc.Key = new PartParityCaseKey { Part = part };
+            if (!ctx.EntriesByName.TryGetValue(part, out PartParityPartEntry e))
+            {
+                wc.Detail = "control subject not loaded: " + part;
+                return wc;
+            }
+            wc.Entry = e;
+            wc.RealVariant = e.BaseVariant;
+            PartParityStatePart sp = PartParityStateDriver.BuildStatePart(e.Info);
+            foreach (PartParityCaseKey k in PartParityStateRules.Enumerate(sp, PartParityCaseRules.DefaultCaseKey(e)).Cases)
+            {
+                if (k.State != state) continue;
+                wc.Key = k;
+                wc.State = PartParityStateDriver.NewRun(k, e, dropEvents: true);
+                break;
+            }
+            if (wc.State == null) wc.Detail = "control subject has no " + state + " case: " + part;
             return wc;
         }
 
@@ -921,6 +1085,9 @@ namespace Parsek.TestCommands
                     }
                     why = "no colour-variant candidate";
                     return null;
+                case TestCommandPartParitySweep.ControlRealVsReal when TestCommandPartParitySweep.IsAirRun(ctx.Args):
+                    // An air run's real-vs-real control photographs an armed, falling chute (D.2).
+                    return PartParitySweepPlan.ControlAirPart;
                 default:
                     return PartParitySweepPlan.ControlTankPart;
             }
@@ -945,7 +1112,7 @@ namespace Parsek.TestCommands
                 if (TestCommandPartParitySweep.IsSetupFault(status)) faults++;
             }
             var outcomes = JudgeAllControls(ctx);
-            string controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, ConvertOutcomes(outcomes));
+            string controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, ConvertOutcomes(outcomes), ctx.ControlSet);
             bool controlsDone = !ctx.Args.Controls || AllControlsRan(ctx);
             int next = PartParitySweepPlan.NextIncomplete(completeFlags);
             // A damaged host never reads as done: the sweep stopped, it did not finish.
@@ -959,17 +1126,24 @@ namespace Parsek.TestCommands
         {
             var list = new List<PartParityControlRecord>();
             if (!ctx.Args.Controls) return list;
-            foreach (string id in TestCommandPartParitySweep.ControlIds)
+            bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
+            foreach (string id in ctx.ControlSet)
             {
                 var rec = new PartParityControlRecord
                 {
-                    Id = id, Subject = PartParitySweepPlan.ControlSubject(id),
+                    Id = id, Subject = PartParitySweepPlan.ControlSubject(id, air),
                     Required = PartParitySweepPlan.ControlRequired(id),
                     Outcome = TestCommandPartParitySweep.ControlsPending,
                 };
                 if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
                 {
-                    rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, s.Structure, out string detail);
+                    string detail;
+                    if (id == TestCommandPartParitySweep.ControlStateEventsDropped
+                        || id == TestCommandPartParitySweep.ControlStateEventsDroppedAir)
+                        rec.Outcome = PartParitySweepPlan.JudgeStateControl(s.StateProof?.Reached == true,
+                            s.StateProof?.Events?.Count ?? 0, s.Views, s.Setup?.Status, out detail);
+                    else
+                        rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, s.Structure, out detail);
                     rec.Detail = (s.Part != null ? "part=" + s.Part + " " : string.Empty) + (detail ?? string.Empty);
                 }
                 list.Add(rec);
@@ -986,7 +1160,7 @@ namespace Parsek.TestCommands
 
         private static bool AllControlsRan(StepContext ctx)
         {
-            foreach (string id in TestCommandPartParitySweep.ControlIds)
+            foreach (string id in ctx.ControlSet)
                 if (!ctx.Known.ContainsKey(id)) return false;
             return true;
         }
@@ -1035,6 +1209,14 @@ namespace Parsek.TestCommands
             /// <summary>Owed a solo run (<c>isolate.txt</c>): flies in a wave of its own.</summary>
             internal bool Solo;
 
+            /// <summary>A state or context case's live state (design D.3 to D.5); null for a
+            /// stowed case, whose path is unchanged.</summary>
+            internal PartParityStateRun State;
+            /// <summary>A state case's start-route and stowed-reference tiles (atlas rows 3
+            /// and 4); empty for a stowed or a context case.</summary>
+            internal List<byte[]> GhostStartTiles = new List<byte[]>();
+            internal List<byte[]> GhostStowedTiles = new List<byte[]>();
+
             internal uint Pid;
             internal float SpawnRealtime;
             internal float ReadyRealtime;
@@ -1067,6 +1249,8 @@ namespace Parsek.TestCommands
 
             /// <summary>The live member the real skin was read from (the skin proof's log line).</summary>
             internal string SkinRealMember;
+            /// <summary>Depth-mask modules the real-side repair could not fix (design 4.2 step 0).</summary>
+            internal int DepthMaskUnrepaired;
 
             internal List<string> CapturedViews = new List<string>();
             internal List<byte[]> RealTiles = new List<byte[]>();
@@ -1093,6 +1277,13 @@ namespace Parsek.TestCommands
             internal List<PartParityPartEntry> Entries = new List<PartParityPartEntry>();
             internal readonly Dictionary<string, PartParityPartEntry> EntriesByName = new Dictionary<string, PartParityPartEntry>(StringComparer.Ordinal);
             internal readonly List<PartParityExclusion> Exclusions = new List<PartParityExclusion>();
+
+            /// <summary>The state run's exclusions (design D.1), named in the manifest beside
+            /// the stowed ones; empty for a stowed run.</summary>
+            internal readonly List<PartParityStateExclusion> StateExclusions = new List<PartParityStateExclusion>();
+
+            /// <summary>The run's control set (design D.2), a function of the args.</summary>
+            internal string[] ControlSet;
             internal List<PartParityPlannedCase> Planned = new List<PartParityPlannedCase>();
             internal readonly Dictionary<string, PartParityCaseSidecar> Known = new Dictionary<string, PartParityCaseSidecar>(StringComparer.Ordinal);
             /// <summary>The ids a stale <c>inflight.txt</c> named at step start, for the step
@@ -1110,7 +1301,11 @@ namespace Parsek.TestCommands
             internal bool ObserverInstalled;
             internal PartParitySweepStepResult Result;
 
-            internal StepContext(PartParitySweepArgs args) { Args = args; }
+            internal StepContext(PartParitySweepArgs args)
+            {
+                Args = args;
+                ControlSet = TestCommandPartParitySweep.ControlSetFor(args);
+            }
 
             internal void Refuse(string reason, string detail)
             {

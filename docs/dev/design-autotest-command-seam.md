@@ -2790,8 +2790,7 @@ the flag, so the op calls it and reports the row count it produced (`steps=`). `
 resolves on rungs - the id itself, the display NAME, then the tree's own name - because a
 census spec names what a reviewer can read off the window while a `${step.field}` chain
 carries an id. `mission=` tries the Mission's OWN id
-first, the only name a clone has that its source does not share (the `copy=` an
-`op=clone` payload returns), then the tree id (the tree's original mission); the Log it
+first, then the tree id (the tree's one mission); the Log it
 opens is that ONE mission's, its excluded intervals' rows dropped, and the reported `id=`
 stays the tree id. `route=` is REFUSED as `target-route-retired` (alone or beside
 `mission=`): the route Log was retired 2026-10-01 and a route's `Log` button opens the Log of
@@ -3453,17 +3452,9 @@ state writes and logs nothing), resolves against the same flattened rows `vessel
 check reads the one key's own membership. Unticking a vessel's launch interval start-trims
 the loop: the loop unit keeps the vessel but its span starts at the separation.
 
-`op=clone window=missions [mission=<id>]` (coverage wave 6, D11 `clone`) is the Missions
-tab's Clone button, whose whole body is `MissionStore.Clone(mission)` - a second Mission
-over the same tree carrying the source's include set and loop configuration, inserted
-after its source, with the store's `Cloned mission '<src>' -> '<src> copy' (tree=<id>)`
-line. The mission resolver is `op=select`'s (a named `mission=`, else the first mission over
-a committed tree). Two-phase: the settle refuses (`ERROR clone-not-applied`) unless the copy
-is still in the store, the store grew by exactly one and the copy's tree is the source's.
-OK payload: `op=clone window= mission= copy= name= missions= excluded= links= loop=`, the
-last three being what the copy CARRIED. Like `op=select` it edits the save, so a lane using
-it runs on a throwaway staged fixture, and it is exempt from the window-open and host-UI
-gates for the same reason. REJECTED `clone-unsupported-window` / `clone-no-mission`.
+`op=clone` (coverage wave 6, the Missions tab's Clone button body) was removed on
+2026-11-22 with the Clone button itself: a mission can no longer be cloned, and
+`MissionStore.Load` drops a legacy clone. The token now parses as an unknown op.
 
 `op=edit window=missions field= key= [draft=] [commit=]` puts one of the in-place rename
 editors into edit mode. Every one of these editors is a LAYOUT change and not a restyle - a
@@ -5685,18 +5676,26 @@ pair and measures the difference. Full contract (cases, capture, files, measures
 `docs/dev/design-part-ghost-parity.md`, section 7 for the verb.
 
 **Grammar.** `cmd=PartParitySweep label=<label> [op=reset|run] [filter=<glob>] [source=<csv>]
-[skins=default|all] [views=required|all|<csv>] [tile=256..1024] [shard=<k>/<n>] [limit=<n>]
-[controls=true|false] [maxSeconds=60..480]`. `label` is REQUIRED and filename-safe,
-`CaptureScreenshot`'s rule by delegation. Every present arg that does not parse is REJECTED with
-its own token, never clamped: `label-arg-missing`, `label-arg-invalid`, `op-arg-invalid`,
-`filter-arg-invalid`, `source-arg-invalid`, `skins-arg-invalid`, `views-arg-invalid`,
+[skins=default|all] [states=none|all|<csv>] [contexts=none|<csv>] [views=required|all|<csv>]
+[tile=256..1024] [shard=<k>/<n>] [limit=<n>] [controls=true|false] [maxSeconds=60..480]`. `label`
+is REQUIRED and filename-safe, `CaptureScreenshot`'s rule by delegation. `states=` / `contexts=`
+(both default `none`) select the deployed-state and context cases instead of the stowed sweep
+(part ghost parity design, Appendix D.2; `air` stands alone in `contexts=`). Every present arg
+that does not parse is REJECTED with its own token, never clamped: `label-arg-missing`,
+`label-arg-invalid`, `op-arg-invalid`, `filter-arg-invalid`, `source-arg-invalid`,
+`skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `views-arg-invalid`,
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
-`maxseconds-arg-invalid` (the parse order).
+`maxseconds-arg-invalid` (the parse order). A well-formed `contexts=air` step parses like any
+other (the interim `air-runs-not-built` refusal was dropped when design D.10 S7 built the air
+context).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
-arg parse the applier admits the host (`TestCommandPartParitySweep.DecideHostAdmission`):
+arg parse the applier admits the host (`PartParityAirContext.DecideAdmission`, the runner's own
+rule over `TestCommandPartParitySweep.DecideHostAdmission(args, ...)`):
 REJECTED `no-active-vessel` or `host-not-orbiting` (the active vessel's situation is not
-`ORBITING`; the co-orbital spawns need an orbiting host). On admission it starts the capture
+`ORBITING`; the co-orbital spawns need an orbiting host). An air run (`contexts=air`) instead
+needs a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED `host-not-at-pad`
+(detail `situation=<s> distanceToPad=<m>m`; design D.4). On admission it starts the capture
 engine's step coroutine (`PartParitySweepRunner.RunStep`), driving its enumerator by hand so a
 throw inside it ends the step at once. `op=reset` clears `<KSP root>/parsek-partparity/<label>/`;
 `op=run` processes cases in the stable order until its `maxSeconds` time box ends and resumes

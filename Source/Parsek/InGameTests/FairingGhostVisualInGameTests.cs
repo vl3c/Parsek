@@ -188,74 +188,10 @@ namespace Parsek.InGameTests
         private const float CaptureTimeoutSeconds = 15f;
         private const double GhostGapMeters = 1.2;
 
-        private static readonly string[] PayloadProbeCandidates = { "probeCoreOcto.v2", "probeCoreOcto", "probeCoreSphere.v2" };
-        private static readonly string[] UpperStageCandidates = { "fuelTankSmall", "fuelTankSmallFlat", "fuelTank" };
-
-        private enum NoseShape { Capped, OpenTop }
-
-        private enum SkirtKind { Fairing, EnginePlate, EngineShroud }
-
-        private sealed class FairingConfig
-        {
-            public int Number;
-            public string Name;
-            public string FairingPart;
-            // Heights in units of the part's baseRadius; radii in units of baseRadius except
-            // the last one of a capped shape, which is the part's capRadius exactly.
-            public double[] HeightsOverBase;
-            public double[] RadiiOverBase;
-            public NoseShape Nose;
-            public bool Interstage;
-            public bool ColourVariant;
-            public bool PayloadOnTop;
-            public double AlongTrackMeters;
-            public double CameraElevationDeg;
-            public SkirtKind Kind;
-        }
-
-        private static List<FairingConfig> BuildConfigs()
-        {
-            return new List<FairingConfig>
-            {
-                new FairingConfig
-                {
-                    Number = 1, Name = "plain-capped", FairingPart = "fairingSize1",
-                    HeightsOverBase = new[] { 0.0, 1.6, 3.2, 4.4 },
-                    RadiiOverBase = new[] { 1.0, 1.25, 1.25, 0.0 },
-                    Nose = NoseShape.Capped, PayloadOnTop = true,
-                    AlongTrackMeters = 70.0, CameraElevationDeg = 12.0,
-                },
-                new FairingConfig
-                {
-                    Number = 2, Name = "interstage-truss", FairingPart = "fairingSize2",
-                    HeightsOverBase = new[] { 0.0, 0.8, 2.1, 2.9 },
-                    RadiiOverBase = new[] { 1.0, 1.05, 1.05, 0.0 },
-                    Nose = NoseShape.Capped, Interstage = true,
-                    AlongTrackMeters = -70.0, CameraElevationDeg = 18.0,
-                },
-                new FairingConfig
-                {
-                    Number = 3, Name = "open-top", FairingPart = "fairingSize2",
-                    HeightsOverBase = new[] { 0.0, 1.0, 2.0 },
-                    RadiiOverBase = new[] { 1.0, 1.05, 1.05 },
-                    Nose = NoseShape.OpenTop,
-                    AlongTrackMeters = 140.0, CameraElevationDeg = 25.0,
-                },
-                new FairingConfig
-                {
-                    Number = 4, Name = "colour-variant", FairingPart = "fairingSize1",
-                    HeightsOverBase = new[] { 0.0, 1.6, 3.2, 4.4 },
-                    RadiiOverBase = new[] { 1.0, 1.25, 1.25, 0.0 },
-                    Nose = NoseShape.Capped, ColourVariant = true, PayloadOnTop = true,
-                    AlongTrackMeters = -140.0, CameraElevationDeg = 12.0,
-                },
-            };
-        }
-
         /// <summary>Per-configuration live state, torn down by <see cref="TearDownConfig"/>.</summary>
         private sealed class ConfigRun
         {
-            public FairingConfig Config;
+            public FairingGhostConfig Config;
             public uint SpawnedPid;
             public Vessel Real;
             public Part FairingPart;
@@ -299,7 +235,7 @@ namespace Parsek.InGameTests
 
             var failures = new List<string>();
             var captured = new List<string>();
-            var configs = BuildConfigs();
+            var configs = FairingGhostAuthoring.FairingConfigs();
             ConfigRun run = null;
             bool uiHidden = false;
             bool cameraSuspended = false;
@@ -310,7 +246,7 @@ namespace Parsek.InGameTests
 
                 for (int ci = 0; ci < configs.Count; ci++)
                 {
-                    FairingConfig cfg = configs[ci];
+                    FairingGhostConfig cfg = configs[ci];
                     run = new ConfigRun { Config = cfg };
 
                     // ---- spawn the real stock vessel ------------------------------------------
@@ -449,29 +385,6 @@ namespace Parsek.InGameTests
         // Engine skirts: engine plate shroud + mount pattern, engine shroud
         // =====================================================================================
 
-        private static readonly string[] PlateCandidates = { "EnginePlate2", "EnginePlate1p5" };
-        private static readonly string[] PlateEngineCandidates = { "liquidEngine3.v2", "liquidEngine3" };
-        private static readonly string[] ShroudEngineCandidates = { "liquidEngine2.v2", "liquidEngine2", "liquidEngine.v2" };
-        private static readonly string[] SkirtTankCandidates = { "fuelTank", "fuelTankSmall" };
-        private static readonly string[] SkirtLowerCandidates = { "fuelTankSmallFlat", "fuelTankSmall" };
-
-        private static List<FairingConfig> BuildSkirtConfigs()
-        {
-            return new List<FairingConfig>
-            {
-                new FairingConfig
-                {
-                    Number = 5, Name = "engine-plate", Kind = SkirtKind.EnginePlate,
-                    AlongTrackMeters = 70.0, CameraElevationDeg = 15.0,
-                },
-                new FairingConfig
-                {
-                    Number = 6, Name = "engine-shroud", Kind = SkirtKind.EngineShroud,
-                    AlongTrackMeters = -70.0, CameraElevationDeg = 12.0,
-                },
-            };
-        }
-
         [InGameTest(Category = "FairingGhostVisual", Scene = GameScenes.FLIGHT,
             Description = "Snapshot series: a stock engine plate (shroud + two-engine mount) and an engine shroud beside their Parsek ghosts, intact / separated / rebuilt after separation, written to Screenshots/fgv-5-*.png and fgv-6-*.png")]
         public IEnumerator EngineSkirtGhostsBesideRealVessels_SnapshotSeries()
@@ -492,7 +405,7 @@ namespace Parsek.InGameTests
 
             var failures = new List<string>();
             var captured = new List<string>();
-            var configs = BuildSkirtConfigs();
+            var configs = FairingGhostAuthoring.SkirtConfigs();
             ConfigRun run = null;
             bool uiHidden = false;
             bool cameraSuspended = false;
@@ -503,14 +416,14 @@ namespace Parsek.InGameTests
                 uiHidden = true;
                 for (int ci = 0; ci < configs.Count; ci++)
                 {
-                    FairingConfig cfg = configs[ci];
+                    FairingGhostConfig cfg = configs[ci];
                     run = new ConfigRun { Config = cfg };
                     ConfigNode vesselNode = BuildSkirtVesselNode(cfg, active, run, out string authorFail);
                     if (vesselNode == null)
                     {
                         // Making History's engine plates may be absent on an install: say so, no red.
                         ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: SKIPPED, vessel not authored: {authorFail}");
-                        if (cfg.Kind != SkirtKind.EnginePlate || !authorFail.StartsWith("no part known", StringComparison.Ordinal))
+                        if (cfg.Kind != FairingSkirtKind.EnginePlate || !authorFail.StartsWith("no part known", StringComparison.Ordinal))
                             failures.Add($"config {cfg.Number} {cfg.Name}: vessel not authored ({authorFail})");
                         run = null;
                         continue;
@@ -578,7 +491,7 @@ namespace Parsek.InGameTests
                     Vessel lowerVessel = null;
                     try
                     {
-                        ModuleDecouple plateDecoupler = cfg.Kind == SkirtKind.EnginePlate
+                        ModuleDecouple plateDecoupler = cfg.Kind == FairingSkirtKind.EnginePlate
                             ? run.FairingPart.FindModuleImplementing<ModuleDecouple>() : null;
                         if (plateDecoupler != null)
                             plateDecoupler.Decouple();
@@ -663,84 +576,12 @@ namespace Parsek.InGameTests
                 InGameAssert.Fail("FGV-1 skirts: " + failures.Count + " problem(s): " + string.Join("; ", failures.ToArray()));
         }
 
-        private static ConfigNode BuildSkirtVesselNode(FairingConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
+        private static ConfigNode BuildSkirtVesselNode(FairingGhostConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
         {
-            failReason = null;
-            var parts = new List<ConfigNode>();
-            if (cfg.Kind == SkirtKind.EnginePlate)
-            {
-                AvailablePart plate = FirstKnownPart(PlateCandidates);
-                AvailablePart probe = FirstKnownPart(PayloadProbeCandidates);
-                AvailablePart tank = FirstKnownPart(SkirtLowerCandidates);
-                AvailablePart engine = FirstKnownPart(PlateEngineCandidates);
-                if (plate == null) { failReason = "no part known (" + string.Join(",", PlateCandidates) + ")"; return null; }
-                if (probe == null || tank == null || engine == null) { failReason = "probe, tank or engine part missing"; return null; }
-                Part pp = plate.partPrefab;
-                AttachNode top = pp.FindAttachNode("top"), bottom = pp.FindAttachNode("bottom");
-                AttachNode n1 = pp.FindAttachNode("N2_1"), n2 = pp.FindAttachNode("N2_2");
-                AttachNode probeBottom = probe.partPrefab.FindAttachNode("bottom");
-                AttachNode tankTop = tank.partPrefab.FindAttachNode("top");
-                AttachNode engTop = engine.partPrefab.FindAttachNode("top");
-                if (top == null || bottom == null || n1 == null || n2 == null || probeBottom == null || tankTop == null || engTop == null)
-                {
-                    failReason = "attach nodes missing on plate / probe / tank / engine";
-                    return null;
-                }
-                var ids = GhostCoOrbitalRig.UniqueFlightIds(5);
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(plate, ids[0], 0, Vector3.zero,
-                    new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 }, { "N2_1", 3 }, { "N2_2", 4 } }, null,
-                    (module, name) =>
-                    {
-                        if (name == "ModuleDynamicNodes")
-                        {
-                            module.AddValue("setIndex", "1");
-                            module.AddValue("NodeSetIdx", "1");
-                        }
-                    }));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(probe, ids[1], 0, top.position - probeBottom.position,
-                    new Dictionary<string, int> { { "bottom", 0 } }, null, null));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[2], 0, bottom.position - tankTop.position,
-                    new Dictionary<string, int> { { "top", 0 } }, null, null));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[3], 0, n1.position - engTop.position,
-                    new Dictionary<string, int> { { "top", 0 } }, null, null));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[4], 0, n2.position - engTop.position,
-                    new Dictionary<string, int> { { "top", 0 } }, null, null));
-                run.MaxFairingRadius = 1.4;
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {plate.name} mount=Double (NodeSetIdx 1) " +
-                    $"engines={engine.name}x2 on N2_1/N2_2 below={tank.name} on bottom top={probe.name}");
-            }
-            else
-            {
-                AvailablePart tank = FirstKnownPart(SkirtTankCandidates);
-                AvailablePart engine = FirstKnownPart(ShroudEngineCandidates);
-                AvailablePart lower = FirstKnownPart(SkirtLowerCandidates);
-                if (tank == null || engine == null || lower == null) { failReason = "tank, engine or lower part missing"; return null; }
-                AttachNode tankBottom = tank.partPrefab.FindAttachNode("bottom");
-                AttachNode engTop = engine.partPrefab.FindAttachNode("top");
-                AttachNode engBottom = engine.partPrefab.FindAttachNode("bottom");
-                AttachNode lowerTop = lower.partPrefab.FindAttachNode("top");
-                if (tankBottom == null || engTop == null || engBottom == null || lowerTop == null)
-                {
-                    failReason = "attach nodes missing on tank / engine / lower part";
-                    return null;
-                }
-                var ids = GhostCoOrbitalRig.UniqueFlightIds(3);
-                Vector3 enginePos = tankBottom.position - engTop.position;
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[0], 0, Vector3.zero,
-                    new Dictionary<string, int> { { "bottom", 1 } }, null, null));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[1], 0, enginePos,
-                    new Dictionary<string, int> { { "top", 0 }, { "bottom", 2 } }, null, null));
-                parts.Add(GhostCoOrbitalRig.AuthorPartNode(lower, ids[2], 1, enginePos + engBottom.position - lowerTop.position,
-                    new Dictionary<string, int> { { "top", 1 } }, null, null));
-                run.MaxFairingRadius = 0.9;
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {tank.name} > {engine.name} > {lower.name} (shroud shown by the part below)");
-            }
-            Orbit placeholder = new Orbit(
-                anchor.orbit.inclination, anchor.orbit.eccentricity, anchor.orbit.semiMajorAxis,
-                anchor.orbit.LAN, anchor.orbit.argumentOfPeriapsis, anchor.orbit.meanAnomalyAtEpoch,
-                anchor.orbit.epoch, anchor.orbit.referenceBody);
-            return ProtoVessel.CreateVesselNode(
-                "FGV-" + cfg.Number.ToString(IC) + " " + cfg.Name, VesselType.Ship, placeholder, 0, parts.ToArray());
+            FairingAuthoredVessel v = FairingGhostAuthoring.BuildSkirtVessel(cfg, anchor, Tag, null, false, null, out failReason);
+            if (v == null) return null;
+            run.MaxFairingRadius = v.MaxFairingRadius;
+            return v.Node;
         }
 
         /// <summary>The skirt part (plate or engine) and the part on its bottom node.</summary>
@@ -752,7 +593,7 @@ namespace Parsek.InGameTests
             {
                 Part p = run.Real.parts[i];
                 if (p == null) continue;
-                bool isSkirt = run.Config.Kind == SkirtKind.EnginePlate
+                bool isSkirt = run.Config.Kind == FairingSkirtKind.EnginePlate
                     ? p.FindModuleImplementing<ModuleDynamicNodes>() != null
                     : p.FindModuleImplementing<ModuleJettison>() != null && p.FindAttachNode("bottom") != null
                         && p.FindAttachNode("bottom").attachedPart != null;
@@ -843,169 +684,13 @@ namespace Parsek.InGameTests
         // Vessel authoring
         // =====================================================================================
 
-        private static ConfigNode BuildVesselNode(FairingConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
+        private static ConfigNode BuildVesselNode(FairingGhostConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
         {
-            failReason = null;
-            AvailablePart fairingInfo = PartLoader.getPartInfoByName(cfg.FairingPart);
-            if (fairingInfo == null || fairingInfo.partPrefab == null)
-            {
-                failReason = "no prefab for " + cfg.FairingPart;
-                return null;
-            }
-            Part fairingPrefab = fairingInfo.partPrefab;
-            ModuleProceduralFairing fairingModulePrefab = fairingPrefab.FindModuleImplementing<ModuleProceduralFairing>();
-            if (fairingModulePrefab == null)
-            {
-                failReason = cfg.FairingPart + " prefab has no ModuleProceduralFairing";
-                return null;
-            }
-            double baseRadius = fairingModulePrefab.baseRadius;
-            double capRadius = fairingModulePrefab.capRadius;
-
-            // Cross-sections: radii scale with the part's base radius; a capped nose ends at
-            // the part's capRadius exactly (stock caps only then).
-            var heights = new List<double>();
-            var radii = new List<double>();
-            for (int i = 0; i < cfg.HeightsOverBase.Length; i++)
-            {
-                heights.Add(cfg.HeightsOverBase[i] * baseRadius);
-                bool last = i == cfg.HeightsOverBase.Length - 1;
-                radii.Add(last && cfg.Nose == NoseShape.Capped ? capRadius : cfg.RadiiOverBase[i] * baseRadius);
-            }
-            bool capped = FairingGhostVisualMath.EndsAtCapRadius(radii, capRadius);
-            double maxR = 0.0;
-            for (int i = 0; i < radii.Count; i++) maxR = Math.Max(maxR, radii[i]);
-            run.MaxFairingRadius = maxR;
-
-            string variant = null;
-            if (cfg.ColourVariant)
-            {
-                ModulePartVariants variants = fairingPrefab.FindModuleImplementing<ModulePartVariants>();
-                List<string> offered = variants != null ? variants.GetVariantNames() : null;
-                string baseName = fairingPrefab.baseVariant != null ? fairingPrefab.baseVariant.Name : null;
-                variant = FairingGhostVisualMath.ChooseColourVariant(offered, baseName);
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: variants offered=[{(offered != null ? string.Join(",", offered.ToArray()) : "")}] " +
-                    $"base={baseName ?? "<none>"} chosen={variant ?? "<none>"}");
-                if (variant == null)
-                {
-                    failReason = cfg.FairingPart + " offers no non-base colour variant";
-                    return null;
-                }
-                run.VariantName = variant;
-            }
-
-            // Optional second part: a payload on the top node, or an upper stage on an
-            // interstage node.
-            AvailablePart childInfo = null;
-            string parentNodeId = null;
-            if (cfg.PayloadOnTop)
-            {
-                childInfo = FirstKnownPart(PayloadProbeCandidates);
-                parentNodeId = "top";
-            }
-            else if (cfg.Interstage)
-            {
-                childInfo = FirstKnownPart(UpperStageCandidates);
-                var candidates = new List<KeyValuePair<string, double>>();
-                foreach (string id in new[] { "interstage02a", "interstage02b" })
-                {
-                    AttachNode n = fairingPrefab.FindAttachNode(id);
-                    if (n != null)
-                        candidates.Add(new KeyValuePair<string, double>(id, n.orientation.y));
-                }
-                parentNodeId = FairingGhostVisualMath.PickUpwardNode(candidates, "interstage02b");
-                var described = new List<string>();
-                foreach (var kv in candidates)
-                {
-                    AttachNode n = fairingPrefab.FindAttachNode(kv.Key);
-                    described.Add($"{kv.Key}@pos={FormatVector(n.position)} orient={FormatVector(n.orientation)}");
-                }
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: interstage nodes [{string.Join("; ", described.ToArray())}] chosen={parentNodeId}");
-                if (childInfo == null)
-                {
-                    failReason = "no upper-stage part known (" + string.Join(",", UpperStageCandidates) + ")";
-                    return null;
-                }
-            }
-
-            var parts = new List<ConfigNode>();
-            uint fairingFlightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
-            var fairingAtt = new Dictionary<string, int>();
-            if (childInfo != null && parentNodeId != null)
-                fairingAtt[parentNodeId] = 1;
-            ConfigNode fairingNode = GhostCoOrbitalRig.AuthorPartNode(fairingInfo, fairingFlightId, 0, Vector3.zero, fairingAtt, variant,
-                (module, name) =>
-                {
-                    if (name == "ModuleProceduralFairing")
-                    {
-                        module.AddValue("nArcs", "3");
-                        module.AddValue("isCapped", capped ? "True" : "False");
-                        module.AddValue("interstageCraftID", "0");
-                        module.AddValue("fsm", "st_idle");
-                        for (int i = 0; i < heights.Count; i++)
-                        {
-                            ConfigNode x = module.AddNode("XSECTION");
-                            x.AddValue("h", heights[i].ToString("R", IC));
-                            x.AddValue("r", radii[i].ToString("R", IC));
-                        }
-                    }
-                    else if (name == "ModuleStructuralNodeToggle")
-                    {
-                        module.AddValue("showMesh", "True");
-                        module.AddValue("showNodes", cfg.Interstage ? "True" : "False");
-                    }
-                    else if (name == "ModuleStructuralNode")
-                    {
-                        module.AddValue("spawnState", "False");
-                        module.AddValue("visibilityState", "True");
-                    }
-                });
-            parts.Add(fairingNode);
-
-            if (childInfo != null && parentNodeId != null)
-            {
-                AttachNode parentNode = fairingPrefab.FindAttachNode(parentNodeId);
-                AttachNode childBottom = childInfo.partPrefab.FindAttachNode("bottom");
-                if (parentNode == null || childBottom == null)
-                {
-                    failReason = $"attach nodes missing (parent {parentNodeId}={(parentNode != null)}, child bottom={(childBottom != null)})";
-                    return null;
-                }
-                Vector3 childPos = parentNode.position - childBottom.position;
-                uint childFlightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
-                if (childFlightId == fairingFlightId)
-                    childFlightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
-                var childAtt = new Dictionary<string, int> { { "bottom", 0 } };
-                ConfigNode childNode = GhostCoOrbitalRig.AuthorPartNode(childInfo, childFlightId, 0, childPos, childAtt, null, null);
-                parts.Add(childNode);
-                ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: child part {childInfo.name} on {cfg.FairingPart}.{parentNodeId} " +
-                    $"at root-local {FormatVector(childPos)}");
-            }
-
-            var sections = new List<string>();
-            for (int i = 0; i < heights.Count; i++)
-                sections.Add(heights[i].ToString("F3", IC) + "/" + radii[i].ToString("F3", IC));
-            ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {cfg.FairingPart} baseRadius={baseRadius.ToString("F3", IC)} " +
-                $"capRadius={capRadius.ToString("F3", IC)} isCapped={capped} xsections(h/r)=[{string.Join(" ", sections.ToArray())}] " +
-                $"interstage={cfg.Interstage} variant={variant ?? "<base>"} parts={parts.Count.ToString(IC)}");
-
-            Orbit placeholder = new Orbit(
-                anchor.orbit.inclination, anchor.orbit.eccentricity, anchor.orbit.semiMajorAxis,
-                anchor.orbit.LAN, anchor.orbit.argumentOfPeriapsis, anchor.orbit.meanAnomalyAtEpoch,
-                anchor.orbit.epoch, anchor.orbit.referenceBody);
-            return ProtoVessel.CreateVesselNode(
-                "FGV-" + cfg.Number.ToString(IC) + " " + cfg.Name, VesselType.Ship, placeholder, 0, parts.ToArray());
-        }
-
-        private static AvailablePart FirstKnownPart(string[] candidates)
-        {
-            for (int i = 0; i < candidates.Length; i++)
-            {
-                AvailablePart info = PartLoader.getPartInfoByName(candidates[i]);
-                if (info != null && info.partPrefab != null)
-                    return info;
-            }
-            return null;
+            FairingAuthoredVessel v = FairingGhostAuthoring.BuildFairingVessel(cfg, anchor, Tag, null, out failReason);
+            if (v == null) return null;
+            run.MaxFairingRadius = v.MaxFairingRadius;
+            run.VariantName = v.VariantName;
+            return v.Node;
         }
 
         private static void ResolveLiveParts(ConfigRun run)
@@ -1085,7 +770,7 @@ namespace Parsek.InGameTests
         private IEnumerator SeparateUpperStage(
             ConfigRun run, List<string> captured, List<string> failures)
         {
-            FairingConfig cfg = run.Config;
+            FairingGhostConfig cfg = run.Config;
             if (run.UpperPart == null || run.UpperPid == 0)
             {
                 failures.Add($"config {cfg.Number} {cfg.Name}: no upper part to separate");

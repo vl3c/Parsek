@@ -247,7 +247,7 @@ namespace Parsek.Tests
             string runner = RunnerSource();
             string destroy = MethodText(runner, "internal static void DestroyCase(");
             Assert.Contains("UnityEngine.Object.Destroy(wc.PlantedCube);", destroy);
-            Assert.Contains("DestroyCase(wc)", MethodText(runner, "private static IEnumerator TearDownWave("));
+            Assert.Contains("DestroyCase(wc)", MethodText(runner, "internal static IEnumerator TearDownWave("));
             Assert.Contains("DestroyCase(wc)", MethodText(runner, "internal string Cleanup("));
         }
 
@@ -255,7 +255,9 @@ namespace Parsek.Tests
         public void Runner_StaleInflightRecordsAreWrittenBeforeTheDelete()
         {
             string body = MethodText(RunnerSource(), "private static void ResolveStaleInflight(");
-            int crashed = body.IndexOf("WriteSidecar(ctx, PartParityJson.BuildCrashedSidecar(", StringComparison.Ordinal);
+            int crashed = body.IndexOf("WriteSidecar(ctx, crashedSidecar);", StringComparison.Ordinal);
+            Assert.True(body.IndexOf("PartParityJson.BuildCrashedSidecar(", StringComparison.Ordinal) is int built
+                && built >= 0 && built < crashed, "the crashed sidecar is built before it is written");
             int isolate = body.IndexOf("WriteIsolate(ctx.LabelDir, isolate);", StringComparison.Ordinal);
             int delete = body.IndexOf("File.Delete(path);", StringComparison.Ordinal);
             Assert.True(crashed >= 0 && isolate > crashed && delete > isolate,
@@ -264,7 +266,8 @@ namespace Parsek.Tests
             string plan = MethodText(RunnerSource(), "private static void PlanStep(");
             Assert.Contains("foreach (var k in keys) keysById[", plan);
             Assert.True(plan.IndexOf("ResolveStaleInflight(ctx, keysById);", StringComparison.Ordinal)
-                > plan.IndexOf("SelectCases(", StringComparison.Ordinal));
+                > plan.IndexOf("PlanCases(", StringComparison.Ordinal));
+            Assert.True(plan.IndexOf("PlanCases(", StringComparison.Ordinal) >= 0);
         }
     }
 }
