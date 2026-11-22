@@ -239,6 +239,8 @@ namespace Parsek
         public string shaderColorName;
         public Color fadedColor;
         public bool fadeToColor;
+        /// <summary>The renderer's own material instance, made on the first tint write.</summary>
+        public Material material;
         /// <summary>The quantized fade level last written (<see cref="GhostPlaybackLogic.QuantizeSmokeTrailAirDensity"/>):
         /// -1 never written, 0 hidden, 1..N drawn.</summary>
         public int appliedLevel = -1;

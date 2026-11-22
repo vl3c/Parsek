@@ -126,7 +126,7 @@ namespace Parsek
                     int level = QuantizeSmokeTrailAirDensity(airDensity);
                     if (level == 0) hidden++; else drawn++;
                     if (level == fade.appliedLevel) continue;
-                    ApplySmokeTrailFade(fade, level, airDensity);
+                    ApplySmokeTrailFade(state, fade, level, airDensity);
                     changed++;
                 }
             }
@@ -159,7 +159,8 @@ namespace Parsek
         // Renderer / Material ECalls; NoInlining keeps them out of UpdateEngineSmokeTrailFades,
         // which a headless test calls.
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void ApplySmokeTrailFade(GhostSmokeTrailFade fade, int level, float airDensity)
+        private static void ApplySmokeTrailFade(
+            GhostPlaybackState state, GhostSmokeTrailFade fade, int level, float airDensity)
         {
             fade.appliedLevel = level;
             if (level == 0)
@@ -167,7 +168,19 @@ namespace Parsek
                 fade.renderer.enabled = false;
                 return;
             }
-            Material material = fade.renderer.material;
+            Material material = fade.material;
+            if (material == null)
+            {
+                // Renderer.material clones the shared material once; the clone is registered with
+                // the ghost so DestroyGhostResources frees it with the others.
+                material = fade.renderer.material;
+                fade.material = material;
+                if (material != null)
+                {
+                    if (state.materials == null) state.materials = new System.Collections.Generic.List<Material>();
+                    state.materials.Add(material);
+                }
+            }
             if (material != null && !string.IsNullOrEmpty(fade.shaderColorName))
                 material.SetColor(fade.shaderColorName,
                     ComputeSmokeTrailTint(fade.maxAlpha, fade.fadeToColor, fade.fadedColor, airDensity));
@@ -207,7 +220,12 @@ namespace Parsek
         private static bool TryComputeBodyAirDensity(string bodyName, double altitude, out double density)
         {
             density = 0.0;
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            // Plain loop: no predicate closure on a per-frame path.
+            CelestialBody body = null;
+            var bodies = FlightGlobals.Bodies;
+            if (bodies != null)
+                for (int i = 0; i < bodies.Count; i++)
+                    if (bodies[i] != null && bodies[i].name == bodyName) { body = bodies[i]; break; }
             if (body == null) return false;
             if (!IsInsideAtmosphere(body.atmosphere, body.atmosphereDepth, altitude)) return true;
             double pressure = body.GetPressure(altitude);
