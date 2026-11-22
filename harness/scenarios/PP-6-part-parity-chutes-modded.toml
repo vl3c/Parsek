@@ -64,9 +64,16 @@ tier = "operator"
 # "none"`: a retry's `op=reset` would clear the files a reading run exists to keep. (7)
 # Recording count pinned at 0. (8)/(9) tier operator by purpose (a report-only reading
 # lane), flight_efficiency.py after the first green flight.
-description = "AUTHORED 2026-11-22 (part ghost parity P6 S7): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+#
+# LIVE-PROVEN 2026-11-22 on its first flight
+# (`2026-11-22_1715_PP-6-part-parity-chutes-modded`, PASS attempt 1) after the reading flight
+# of its Mk16 / Mk16-XL cases (a local, uncommitted spec): 10 cases, every chute reached semi
+# and full for real with its events recorded and was captured inside the canopy window,
+# controls ok, complete, recompute 0 mismatches; the 10 report-only fails are todo
+# GHOST-CHUTE-CANOPY-AIM.
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1715`): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "pending-flight", "PP-6"]
+tags = ["part-parity", "ghost-visual", "flown", "PP-6"]
 
 [fixture]
 saveTemplate = "fixtures/saves/b1-pad-craft"
@@ -83,8 +90,10 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
   # The per-case lines are verbose-tier.
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # Clear the label directory so no earlier run's files mix in.
-  { cmd = "PartParitySweep", args = { label = "pp6", op = "reset" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in. The reset step carries
+  # contexts=air too: the applier admits every step by its run kind, and this host is on the
+  # pad, not in orbit (an orbit-kind reset would be REJECTED host-not-orbiting).
+  { cmd = "PartParitySweep", args = { label = "pp6", op = "reset", contexts = "air" }, expect = "OK", budget = 120 },
   # One time-boxed air step over every chute at semi and full.
   { cmd = "PartParitySweep", args = { label = "pp6", op = "run", contexts = "air", states = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },

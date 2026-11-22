@@ -1449,6 +1449,52 @@ Own lanes: PP-5 (stock-minimal, label `pp5`) and PP-6 (modded-compat, label `pp6
 They cannot share PP-3 / PP-4's flight: the orbit sweep needs an orbiting host, the air cases a
 host at the pad, and a lane stages one fixture.
 
+BUILT (S7, 2026-11-22): `Source/Parsek/TestCommands/PartParityAirContext.cs`, the pure rules in
+`PartParityAirPlan` (xUnit `PartParityAirContextTests`) and the live half in
+`PartParityAirContext`.
+
+- Admission. The runner and the seam applier both call `PartParityAirContext.DecideAdmission`,
+  which reads the active vessel's situation and its surface distance to the pad (on the home body
+  only) into `TestCommandPartParitySweep.DecideHostAdmission(args, ...)`; one Info `air
+  admission:` line per air step. The applier admits EVERY step by its run kind, the reset
+  included, so an air lane's reset carries `contexts=air`. The first run step writes the host
+  baseline with `Air = true` (`host.txt` `mode=air`).
+- Dispatch. One hook in `PartParitySweepRunner.RunWaves`: every wave of an air run, its stowed
+  controls included, runs `PartParityAirContext.RunWave`; an air state wave holds up to
+  `MaxAirWaveCases` (5). The air run's `ctl-real-vs-real` photographs the Mk16, armed by stock's
+  Deploy in the capture frame; `ctl-empty` / `ctl-ghost-absent` keep the small tank.
+- Spawn. `GhostCoOrbitalRig.SpawnInAir` (beside `SpawnCoOrbital`, so the production materializer
+  pin is unchanged) through `VesselSpawner.SpawnAtPosition`: 1600 m above sea level, slots 40 m
+  apart along the band 200 m east of the pad, upright (+Y up, +Z north), the inertial velocity
+  the surface's 10 m/s down plus `body.getRFrmVel`. Every `ModuleParachute` MODULE node gets
+  `deployAltitude = 500` (see step 1 above).
+- Chute sequence. The state driver's press and wait, unchanged; a full case's wait calls
+  `PartParityAirContext.StepFull` once the chute is SEMIDEPLOYED and still: `deployAltitude`
+  -> 5000 and the timeout restarted at the 15 s full wait. Both air states start with the 10 s
+  semi timeout.
+- Capture. Once done (after the settle), each frame at its end the case measures the canopy
+  (`tilt` = angle between the part's +Y and `(invertCanopy ? -1 : 1) * dragVectorDir`, `wobble`
+  = angle between `canopy.forward` and that aim) and captures at the first frame under 3 deg, or
+  at 4 s tagged `canopy-wobble:<deg>` (a state flag), recording `stateProof.canopy` (`tiltDeg`,
+  `wobbleDeg`, `transform` = `canopyName`). The prepare (depth-mask repair included) and every
+  view run in that ONE frame, so the structural records, the pictures and the measured angles
+  are of one pose; the sidecar is written and the case destroyed at once, so no chute falls
+  longer than it must. Before the capture the state is re-read: a chute that left its state
+  (a semi stock opened fully) is `state-timeout`.
+- Guards. A case under 300 m above the terrain is ended `died-settling` and destroyed; a wave
+  running past 120 s ends its remaining cases `state-timeout`. Neither fired in the first flights.
+- Live (2026-11-22, harness runs `2026-11-22_1713_PP-5-part-parity-chutes-stock` and
+  `_1715_PP-6-part-parity-chutes-modded`, PASS attempt 1, about 30 s of sweep each): all five
+  chutes of each install reached semi (1.7 to 3.5 s after the press) and full (4.9 to 13 s) for
+  real with `ParachuteSemiDeployed` / `ParachuteDeployed` recorded, every capture inside the
+  canopy window (tilt + wobble 0.5 to 2.2 deg, none timed out, 1205 m or more above the
+  terrain), the four air controls ok, no case vessel left. Every air case reads `fail`
+  (report-only) because the ghost canopy keeps the model's pose while stock re-aims the live
+  one (stock: a 90 or 180 deg turn about the canopy axis; ReStock: the Mk16's canopy upside
+  down), far beyond the canopy cap: todo GHOST-CHUTE-CANOPY-AIM; the ReStock semi read-back:
+  todo PARTPARITY-RESTOCK-SEMI-READBACK. The 3 deg window caught every case at its first done
+  frame, so it needs no re-pin (D.12).
+
 ### D.5 The ghost side: three ghosts per state case
 
 All three are built through the D2 seam (`GhostCoOrbitalRig`, `GhostPlaybackEngine.
