@@ -446,7 +446,7 @@ namespace Parsek.Tests
         [Fact]
         public void WaveWorstCase_IsTheBucketsBound()
         {
-            Assert.Equal(56.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, true), 6);
+            Assert.Equal(71.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, true), 6);
             Assert.Equal(46.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, false,
                 new[] { "deployable", "gear" }), 6);
             Assert.Equal(31.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
