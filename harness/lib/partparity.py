@@ -640,13 +640,15 @@ def canopy_cap_for(sidecar: Dict) -> Optional[CanopyCap]:
     """The canopy cap of an air case (design D.4), or None (no cap). It needs: context
     ``air``; numeric ``stateProof.canopy.tiltDeg`` and ``wobbleDeg`` whose absolute sum is
     under ``CANOPY_WINDOW_DEG`` (the capture found its window; a timeout capture is not
-    capped) and no ``canopy-wobble:<deg>`` tag (the same timeout, as the C# side tags it);
-    a non-empty ``stateProof.canopy.transform`` naming the canopy transform. The bound is
-    |tilt| + |wobble| + 1 deg, never over ``CANOPY_ROTATION_CEILING_DEG``."""
+    capped) and no ``canopy-wobble:<deg>`` marker in ``tags`` or ``flags`` (the same
+    timeout, wherever the C# side writes it); a non-empty ``stateProof.canopy.transform``
+    naming the canopy transform. The bound is |tilt| + |wobble| + 1 deg, never over
+    ``CANOPY_ROTATION_CEILING_DEG``."""
     if not isinstance(sidecar, dict) or sidecar.get("context") != CONTEXT_AIR:
         return None
-    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
-    if any(isinstance(t, str) and t.startswith(TAG_CANOPY_WOBBLE_PREFIX) for t in tags):
+    markers = [m for key in ("tags", "flags")
+               for m in (sidecar.get(key) if isinstance(sidecar.get(key), list) else [])]
+    if any(isinstance(m, str) and m.startswith(TAG_CANOPY_WOBBLE_PREFIX) for m in markers):
         return None
     proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
     canopy = proof.get("canopy") if isinstance(proof.get("canopy"), dict) else {}
@@ -690,7 +692,7 @@ def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
             return False
         rot, pos, scl = (_num(t.get("rotationDeltaDeg")), _num(t.get("positionDeltaM")),
                          _num(t.get("scaleDeltaPct")))
-        if rot is None or rot > cap.bound_deg:
+        if rot is None or abs(rot) > cap.bound_deg:
             return False
         if pos is None or pos > STRUCTURE_POSITION_TOLERANCE_M:
             return False
@@ -849,9 +851,10 @@ def press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
       * a state case (``is_state_case``) needs a ``stateProof`` with a non-null ``action``;
       * a proof whose ``action`` is non-null needs ``actionResult == "invoked"`` and
         ``reached == true``, whatever the case's state;
-      * a proof whose ``action`` is null on a stowed-state case (the stacked stowed
-        context case: no press is required) is not checked, nor is a case with no proof
-        and a stowed state (every pre-P6 sidecar).
+      * a proof whose ``action`` is null on a stowed-state case must be the stacked
+        stowed context case (context ``stacked``, ``reached == true``: no press is
+        required); a case with no proof and a stowed state (every pre-P6 sidecar, every
+        plain stowed case) is not checked.
     Returns the problem, or None. judge_case makes such a case ``error`` and
     evaluate_sweep lists it as a recompute mismatch, INVALID(parity-instrument): the
     sidecar contradicts itself, so neither its verdict nor its status can be trusted."""
@@ -868,8 +871,16 @@ def press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
             sidecar.get("state"), status) if state_case else None
     action = proof.get("action")
     if action is None:
-        return "press-proof: state=%s setup=%s but stateProof.action=null" % (
-            sidecar.get("state"), status) if state_case else None
+        if state_case:
+            return "press-proof: state=%s setup=%s but stateProof.action=null" % (
+                sidecar.get("state"), status)
+        # The one stowed shape that carries a proof: the stacked stowed context case,
+        # which presses nothing but must show its context reached.
+        if sidecar.get("context") == CONTEXT_STACKED and proof.get("reached") is True:
+            return None
+        return "press-proof: state=%s context=%s setup=%s stateProof.action=null reached=%s " \
+               "(only a reached stacked stowed case may skip the press)" % (
+                   sidecar.get("state"), sidecar.get("context"), status, proof.get("reached"))
     result, reached = proof.get("actionResult"), proof.get("reached")
     if result == ACTION_RESULT_INVOKED and reached is True:
         return None
@@ -888,7 +899,8 @@ def case_row_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Li
     the row's and the sidecar's ``state`` and ``context`` must be equal (a state dropped to
     null on either side is a problem). Also, anywhere: a sidecar whose ``stateProof.action``
     is non-null while its ``state`` is not a state case (a press on a case judged as
-    stowed). A missing sidecar is completeness's, not this check's."""
+    stowed), and a ``stateProof.state`` that differs from the sidecar's ``state``. A missing
+    sidecar is completeness's, not this check's."""
     problems: List[str] = []
     for entry in manifest.get("cases") or []:
         if not isinstance(entry, dict) or not isinstance(entry.get("caseId"), str):
@@ -907,6 +919,9 @@ def case_row_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Li
                 and not is_state_case(ss):
             problems.append("%s stateProof.action=%s on a case whose state is %s"
                             % (cid, proof.get("action"), ss))
+        if isinstance(proof, dict) and proof.get("state") != ss:
+            problems.append("%s stateProof.state=%s sidecar state=%s"
+                            % (cid, proof.get("state"), ss))
     return problems
 
 
