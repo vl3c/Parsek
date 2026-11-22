@@ -88,6 +88,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A deploy also starts (a retract stops) the part's deploy-driven ModuleAnimationGroup
+        /// loop, the orbital scanner's spin, keyed on the recorded event UT. Tallied only for a
+        /// part that has one, so a plain deployable adds no converter-loop line.
+        /// </summary>
+        internal static void RecordDeployDrivenLoop(
+            GhostPartEventApplyTally tally, GhostPlaybackState state, PartEvent evt, bool deployed)
+        {
+            if (!HasDeployDrivenLoop(state, evt.partPersistentId)) return;
+            tally.Record(
+                evt.eventType,
+                GhostPartEventSurface.ConverterLoop,
+                evt.partPersistentId,
+                ApplyDeployDrivenLoopStateWithOutcome(state, evt.partPersistentId, deployed, evt.ut));
+        }
+
+        /// <summary>
         /// One consumed part event: routes it to its family's applier and tallies every surface
         /// the applier reports on. The flags and the placed-target set are the walk's own and
         /// accumulate across the events of one frame.
@@ -206,6 +222,7 @@ namespace Parsek
                         evt.partPersistentId,
                         ApplyDeployableStateWithOutcome(
                             state, evt, deployed: true, immediate: false));
+                    RecordDeployDrivenLoop(tally, state, evt, deployed: true);
                     break;
                 case PartEventType.DeployableRetracted:
                     tally.Record(
@@ -214,6 +231,7 @@ namespace Parsek
                         evt.partPersistentId,
                         ApplyDeployableStateWithOutcome(
                             state, evt, deployed: false, immediate: false));
+                    RecordDeployDrivenLoop(tally, state, evt, deployed: false);
                     break;
                 // S6: a break is a SNAP, never an animation. The panel is gone in the frame it
                 // broke (stock flings the subtree off as debris), so there is no pose to

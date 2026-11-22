@@ -184,6 +184,10 @@ namespace Parsek.TestCommands
 
         /// <summary>An FGV separation: the leaving part is no longer on the case vessel.</summary>
         internal bool? SeparatedPartGone;
+
+        /// <summary>An animation group's own deploy clip has finished (not playing, or
+        /// clamped at its end); null when the module has no deploy clip.</summary>
+        internal bool? DeployClipDone;
     }
 
     /// <summary>A ghost's own playback state for one state case after its prime (design D.5),
@@ -363,6 +367,7 @@ namespace Parsek.TestCommands
         internal const string JettisonDefaultBottomNode = "bottom";
         internal const string KeyIgnoreNodes = "ignoreNodes";                    // ModuleJettison, default false
         internal const string KeyCheckBottomNode = "checkBottomNode";            // ModuleJettison, default false
+        internal const string KeyAutoDeploy = "autoDeploy";                      // ModuleAnimationGroup, default false
 
         // ----- exclusions (D.1) -----
 
@@ -379,6 +384,7 @@ namespace Parsek.TestCommands
         internal const string ExcludeNotPolled = "not-polled";
         internal const string ExcludeNoAnimation = "no-animation";
         internal const string ExcludeFairingNoContext = "fairing-no-context";
+        internal const string ExcludeAutoDeploy = "auto-deploy";
 
         /// <summary>Every exclusion reason a state run writes.</summary>
         internal static readonly string[] ExclusionReasons =
@@ -386,7 +392,7 @@ namespace Parsek.TestCommands
             ExcludeGroundDeploy, ExcludeNoPose, ExcludeFairingBay, ExcludeBayDeployNotAnimated,
             ExcludeCsDeploySign, ExcludeJettisonBlockedByNode, ExcludeJettisonNodeMissing,
             ExcludeP7Robotics, ExcludeP8Heat, ExcludeP8Fx, ExcludeNotPolled, ExcludeNoAnimation,
-            ExcludeFairingNoContext,
+            ExcludeFairingNoContext, ExcludeAutoDeploy,
         };
 
         internal const string ContextFgv1 = "fgv-1-plain-capped";
@@ -486,10 +492,23 @@ namespace Parsek.TestCommands
         internal const double ChuteFullTimeoutSeconds = 15.0;
 
         internal const double LightSettleSeconds = 1.0;
+        // Stock ModuleLight fades its lens in over lightBrightenSpeed GAME seconds (decompiled
+        // FixedUpdate: _EmissiveColor = Lerp(black, lightColor, currentTime / lightBrightenSpeed)),
+        // 2.5 s on every stock and ReStock light cfg, so a light settles for that long plus this
+        // pad (never under LightSettleSeconds, never over LightSettleCapSeconds).
+        internal const double LightBrightenPadSeconds = 0.5;
+        internal const double LightSettleCapSeconds = 5.0;
         internal const double CabinLightPadSeconds = 0.5;
         internal const double CabinLightSettleCapSeconds = 5.0;
 
         internal const double SunTrackerStillDeg = 0.1;
+
+        /// <summary>The angle a tracker may still be short of its aim when it counts as
+        /// settled. Over a window W the exponential slew turns a remaining angle r by
+        /// <c>r (1 - exp(-trackingSpeed W))</c>, so the still rule for one tracker is that
+        /// turn at r = 0.85 deg (<see cref="SunTrackerStillDegFor"/>): 0.1 deg over 0.5 s at
+        /// 0.25 (the panels' rule), 0.04 deg at a radiator's 0.1.</summary>
+        internal const double SunTrackerRemainingDeg = 0.85;
         internal const double SunTrackerWindowSeconds = 0.5;
         // Stock slews a tracking pivot by Quaternion.Lerp(current, aim, deltaTime * trackingSpeed)
         // (decompiled ModuleDeployablePart, trackingSpeed 0.25 on every stock tracking panel): an
@@ -497,6 +516,14 @@ namespace Parsek.TestCommands
         // once under 0.85 deg remain, which from the worst 180 deg takes ln(180 / 0.85) / 0.25 =
         // 21.4 s; 10 s left the panels 1 to 14 deg short (PP-3 2026-11-22_1634).
         internal const double SunTrackerCapSeconds = 25.0;
+
+        /// <summary>The <c>trackingSpeed</c> the 25 s cap was derived at (every stock tracking
+        /// solar panel).</summary>
+        internal const double SunTrackerReferenceSpeed = 0.25;
+
+        /// <summary>No tracker's cap exceeds this (a mod's near-zero speed would hold a wave
+        /// for minutes); a tracker still moving there is tagged still-tracking.</summary>
+        internal const double SunTrackerMaxCapSeconds = 90.0;
 
         internal const double AirbrakeStillDeg = 0.05;
         internal const double AirbrakeWindowSeconds = 0.5;
@@ -605,12 +632,17 @@ namespace Parsek.TestCommands
             if (ladder >= 0) acc.Case(FamilyLadder, mods[ladder], StateDeployed, ActionExtend);
 
             // Animation group: PollAnimationGroups (exact name, every module). On a Breaking
-            // Ground part (a ModuleGroundPart) it deploys only once placed on a surface.
+            // Ground part (a ModuleGroundPart) it deploys only once placed on a surface. One
+            // with autoDeploy deploys itself and hides Deploy / Retract (decompiled
+            // ModuleAnimationGroup.OnLoad: isDeployed = true, both events and the three
+            // actions inactive), so the player never sees it stowed and there is nothing to
+            // press: the stowed case judges the only pose it has (the stock ISRU).
             bool groundPart = FirstImplementing(mods, TypeGroundPart) >= 0;
             foreach (PartParityStateModule m in mods)
             {
                 if (m == null || !m.Named(ModuleAnimationGroup)) continue;
                 if (groundPart) acc.Exclude(FamilyAnimationGroup, m, ExcludeGroundDeploy);
+                else if (ParseBool(m.Value(KeyAutoDeploy), false)) acc.Exclude(FamilyAnimationGroup, m, ExcludeAutoDeploy);
                 else acc.Case(FamilyAnimationGroup, m, StateDeployed, ActionDeployModule);
             }
         }
@@ -987,8 +1019,12 @@ namespace Parsek.TestCommands
                 case FamilyGear:
                     FlightRecorder.ClassifyGearState(o.GearState, out bool gearDeployed, out _);
                     return gearDeployed;
-                case FamilyLadder:
                 case FamilyAnimationGroup:
+                    // The classifier reads isDeployed, which DeployModule sets before its clip
+                    // plays (a ReStock drill's 10.7 s clip outlasted the settle cap): done once
+                    // the module's own deploy clip has finished too.
+                    return o.ClassifierDeployed == true && o.DeployClipDone != false;
+                case FamilyLadder:
                 case FamilyAnimateGeneric:
                 case FamilyAirbrake:
                     return o.ClassifierDeployed == true;
@@ -1054,15 +1090,17 @@ namespace Parsek.TestCommands
             }
         }
 
-        /// <summary>The settle after the done signal (D.1): a light 1 s; a cabin light
+        /// <summary>The settle after the done signal (D.1): a light its lens fade
+        /// (<see cref="LightSettleFor"/>, 3 s at stock's 2.5 s); a cabin light
         /// <c>1 / animRate + 0.5 s</c>, at most 5 s; every other family the existing settle
         /// rule's minimum (no Animation playing, 0.5 s).</summary>
-        internal static double PostDoneSettleSeconds(string family, double animRate)
+        internal static double PostDoneSettleSeconds(string family, double animRate,
+            double lightBrightenSeconds = double.NaN)
         {
             switch (family)
             {
                 case FamilyLight:
-                    return LightSettleSeconds;
+                    return LightSettleFor(lightBrightenSeconds);
                 case FamilyCabinLight:
                     if (double.IsNaN(animRate) || double.IsInfinity(animRate) || animRate <= 0.0)
                         return CabinLightSettleCapSeconds;
@@ -1073,7 +1111,8 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The longest settle a family can add after its done signal, for the wave
-        /// bound: a cabin light its 5 s cap, an airbrake its 5 s stillness cap, a light 1 s,
+        /// bound: a cabin light its 5 s cap, an airbrake its 5 s stillness cap, a light its
+        /// 5 s fade cap,
         /// every other family the 0.5 s minimum settle.</summary>
         internal static double SettleCapSeconds(string family)
         {
@@ -1081,15 +1120,78 @@ namespace Parsek.TestCommands
             {
                 case FamilyCabinLight: return CabinLightSettleCapSeconds;
                 case FamilyAirbrake: return AirbrakeCapSeconds;
-                case FamilyLight: return LightSettleSeconds;
+                case FamilyLight: return LightSettleCapSeconds;
                 default: return PartParitySweepPlan.MinSettleSeconds;
             }
+        }
+
+        /// <summary>
+        /// One tracker's cap (D.3). Stock slews by <c>Lerp(current, aim, deltaTime *
+        /// trackingSpeed)</c> (decompiled <c>ModuleDeployablePart.CalculateTracking</c>), an
+        /// exponential approach with time constant <c>1 / trackingSpeed</c>, so the 25 s cap
+        /// derived at 0.25 scales by <c>0.25 / trackingSpeed</c>: 62.5 s for a folding radiator
+        /// at 0.1. At most <see cref="SunTrackerMaxCapSeconds"/>; an unreadable or
+        /// non-positive speed reads as 0.25.
+        /// </summary>
+        internal static double SunTrackerCapSecondsFor(double trackingSpeed)
+        {
+            if (double.IsNaN(trackingSpeed) || double.IsInfinity(trackingSpeed) || trackingSpeed <= 0.0)
+                trackingSpeed = SunTrackerReferenceSpeed;
+            return Math.Min(SunTrackerMaxCapSeconds, SunTrackerCapSeconds * SunTrackerReferenceSpeed / trackingSpeed);
+        }
+
+        /// <summary>
+        /// A light's settle after its done signal (D.1): its own <c>lightBrightenSpeed</c> plus
+        /// <see cref="LightBrightenPadSeconds"/>, at least <see cref="LightSettleSeconds"/> and
+        /// at most <see cref="LightSettleCapSeconds"/>; the cap when the speed is unreadable.
+        /// </summary>
+        internal static double LightSettleFor(double lightBrightenSeconds)
+        {
+            if (double.IsNaN(lightBrightenSeconds) || double.IsInfinity(lightBrightenSeconds) || lightBrightenSeconds < 0.0)
+                return LightSettleCapSeconds;
+            return Math.Min(LightSettleCapSeconds, Math.Max(LightSettleSeconds, lightBrightenSeconds + LightBrightenPadSeconds));
         }
 
         /// <summary>A sun tracker has settled when its pivot turned less than 0.1 deg over the
         /// last 0.5 s (D.3).</summary>
         internal static bool SunTrackerSettled(double pivotDeltaDegOverWindow)
             => !double.IsNaN(pivotDeltaDegOverWindow) && pivotDeltaDegOverWindow < SunTrackerStillDeg;
+
+        /// <summary>One tracker's still threshold over <see cref="SunTrackerWindowSeconds"/>:
+        /// the turn its own slew makes there with <see cref="SunTrackerRemainingDeg"/> left
+        /// (an unreadable or non-positive speed reads as 0.25).</summary>
+        internal static double SunTrackerStillDegFor(double trackingSpeed)
+        {
+            if (double.IsNaN(trackingSpeed) || double.IsInfinity(trackingSpeed) || trackingSpeed <= 0.0)
+                trackingSpeed = SunTrackerReferenceSpeed;
+            return SunTrackerRemainingDeg * (1.0 - Math.Exp(-trackingSpeed * SunTrackerWindowSeconds));
+        }
+
+        /// <summary>A tracker of <paramref name="trackingSpeed"/> has settled when its pivot
+        /// turned less than <see cref="SunTrackerStillDegFor"/> over the window.</summary>
+        internal static bool SunTrackerSettled(double pivotDeltaDegOverWindow, double trackingSpeed)
+            => !double.IsNaN(pivotDeltaDegOverWindow) && pivotDeltaDegOverWindow < SunTrackerStillDegFor(trackingSpeed);
+
+        /// <summary>
+        /// The angle in degrees between two unit quaternions [x, y, z, w], exact for small
+        /// angles: <c>2 atan2(|v|, |w|)</c> of <c>conj(a) * b</c> in double. Unity's
+        /// <c>Quaternion.Angle</c> returns 0 below about 0.16 deg (its <c>IsEqualUsingDot</c>
+        /// test, dot > 1 - 1e-6), which made the still rule read 0 with a radiator still
+        /// 3 deg short of its aim.
+        /// </summary>
+        internal static double PreciseAngleDeg(double[] a, double[] b)
+        {
+            if (a == null || b == null || a.Length != 4 || b.Length != 4) return double.NaN;
+            double ax = -a[0], ay = -a[1], az = -a[2], aw = a[3];
+            double bx = b[0], by = b[1], bz = b[2], bw = b[3];
+            double w = aw * bw - ax * bx - ay * by - az * bz;
+            double x = aw * bx + ax * bw + ay * bz - az * by;
+            double y = aw * by - ax * bz + ay * bw + az * bx;
+            double z = aw * bz + ax * by - ay * bx + az * bw;
+            double v = Math.Sqrt(x * x + y * y + z * z);
+            if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;
+            return 2.0 * Math.Atan2(v, Math.Abs(w)) * 180.0 / Math.PI;
+        }
 
         /// <summary>An airbrake has settled when its surface transform turned less than 0.05 deg
         /// over the last 0.5 s (D.3).</summary>

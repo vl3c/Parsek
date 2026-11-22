@@ -592,6 +592,12 @@ namespace Parsek
                         prefab, module, persistentId, partName, modelNode);
                     if (loop != null)
                     {
+                        loop.followsDeploy = AnimationGroupLoopFollowsDeploy(
+                            TryGetModuleBoolFieldOrDefault(module, "alwaysActive"),
+                            HasEnableDrivenAnimatedModule(prefab));
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"converter-loop-driver-{partName}",
+                            $"    ConverterLoop '{partName}' pid={persistentId}: driver=" +
+                            (loop.followsDeploy ? "deploy" : "converter"), 60.0);
                         if (result.converterLoops == null)
                             result.converterLoops = new List<ConverterLoopGhostInfo>();
                         result.converterLoops.Add(loop);
@@ -609,6 +615,38 @@ namespace Parsek
                 $"sunTrackers={(result.sunTrackers != null ? result.sunTrackers.Count : 0)} " +
                 $"converterLoops={(result.converterLoops != null ? result.converterLoops.Count : 0)}", 30.0);
             return result;
+        }
+
+        /// <summary>
+        /// Pure: whether a ModuleAnimationGroup's active loop follows the group's deploy state
+        /// rather than a converter. Stock <c>CheckForActivity</c> (KSP 1.12.5, decompiled) plays
+        /// the active clip while the group is deployed and ANY <c>IAnimatedModule</c> on the part
+        /// reports active (or <c>alwaysActive</c> is set). ModuleResourceScanner, ModuleGPS and
+        /// ModuleOrbitalSurveyor report plain <c>isEnabled</c>, which the group's deploy sets, so
+        /// a part with one spins whenever deployed. A <c>BaseConverter</c> (drills, ISRUs) reports
+        /// <c>IsActivated</c> and stays on the recorded converter edges; ModuleGroundPart reports
+        /// <c>isEnabled</c> AND its experiment's <c>Enabled</c>, ModuleOrbitalScanner the overlay
+        /// state, neither of which is recorded, so those keep the loop stopped as before.
+        /// </summary>
+        internal static bool AnimationGroupLoopFollowsDeploy(bool alwaysActive, bool hasEnableDrivenAnimatedModule)
+            => alwaysActive || hasEnableDrivenAnimatedModule;
+
+        /// <summary>Pure: the stock IAnimatedModule types whose ModuleIsActive is plain isEnabled.</summary>
+        internal static bool IsEnableDrivenAnimatedModuleName(string moduleName)
+            => moduleName == "ModuleResourceScanner"
+               || moduleName == "ModuleGPS"
+               || moduleName == "ModuleOrbitalSurveyor";
+
+        private static bool HasEnableDrivenAnimatedModule(Part prefab)
+        {
+            if (prefab?.Modules == null) return false;
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule m = prefab.Modules[i];
+                if (m != null && IsEnableDrivenAnimatedModuleName(m.GetType().Name))
+                    return true;
+            }
+            return false;
         }
 
         private static GimbalGhostInfo TryBuildGimbalInfo(

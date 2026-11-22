@@ -254,12 +254,51 @@ namespace Parsek
                 }
             }
 
+            if (info.colors != null && info.colors.Count > 0)
+            {
+                WriteDeployableColors(info.colors, fraction, atStowed, atDeployed);
+                applied = true;
+            }
+
             if (applied)
             {
                 info.deployFraction = fraction;
                 ApplyLookAtConstraints(info.lookAtConstraints);
             }
             return applied;
+        }
+
+        /// <summary>
+        /// Pure: the colour a deploy clip shows at <paramref name="fraction"/> along
+        /// stowed(0) -&gt; deployed(1); the ends take the exact stored colour.
+        /// </summary>
+        internal static Color ResolveDeployableColor(Color stowed, Color deployed, float fraction)
+        {
+            if (fraction <= 1e-4f) return stowed;
+            if (fraction >= 1f - 1e-4f) return deployed;
+            return Color.Lerp(stowed, deployed, fraction);
+        }
+
+        /// <summary>True when the info has something to pose: a transform or a colour.</summary>
+        internal static bool HasDeployablePose(DeployableGhostInfo info)
+            => info != null
+               && ((info.transforms != null && info.transforms.Count > 0)
+                   || (info.colors != null && info.colors.Count > 0));
+
+        // Material.SetColor is an ECall; NoInlining keeps it out of the methods xUnit calls
+        // (an info built headless carries no colours and never reaches here).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void WriteDeployableColors(
+            List<DeployableColorState> colors, float fraction, bool atStowed, bool atDeployed)
+        {
+            float t = atStowed ? 0f : (atDeployed ? 1f : fraction);
+            for (int i = 0; i < colors.Count; i++)
+            {
+                DeployableColorState c = colors[i];
+                if (c.material == null || string.IsNullOrEmpty(c.property)) continue;
+                c.material.SetColor(c.property, ResolveDeployableColor(c.stowed, c.deployed, t));
+            }
         }
 
         /// <summary>
@@ -556,7 +595,7 @@ namespace Parsek
                 // is in the state the event asks for), and a pose-less one is a
                 // resolution failure. That keeps the cargo-bay cascade below falling
                 // through to jettison panels on precisely the same condition as before.
-                return info.transforms.Count > 0
+                return HasDeployablePose(info)
                     ? GhostPartEventOutcome.Applied
                     : GhostPartEventOutcome.NoResolvedVisual;
             }

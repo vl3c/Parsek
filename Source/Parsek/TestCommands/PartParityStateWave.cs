@@ -105,7 +105,7 @@ namespace Parsek.TestCommands
         /// inside the box. The first wave of a step always starts.
         /// </summary>
         internal static bool AdmitWave(string kind, double elapsedSeconds, int maxSeconds,
-            double lastWaveSeconds, int cases, bool anySunTracker, IEnumerable<string> families = null,
+            double lastWaveSeconds, int cases, double trackerCapSeconds, IEnumerable<string> families = null,
             bool firstWaveOfStep = false)
         {
             if (kind == null || kind == KindStowed)
@@ -114,7 +114,7 @@ namespace Parsek.TestCommands
             // the planning), so a box shorter than one worst case still makes progress.
             if (firstWaveOfStep) return true;
             return PartParitySweepPlan.ShouldStartStateWave(elapsedSeconds, maxSeconds,
-                PartParitySweepPlan.WaveWorstCaseSeconds(BucketOfKind(kind), cases, anySunTracker, families));
+                PartParitySweepPlan.WaveWorstCaseSeconds(BucketOfKind(kind), cases, trackerCapSeconds, families));
         }
 
         /// <summary>The bucket a <c>state:&lt;bucket&gt;</c> kind names (Long when unreadable).</summary>

@@ -565,6 +565,13 @@ namespace Parsek.TestCommands
             if (chute == null) return;
             Transform canopy = string.IsNullOrEmpty(chute.canopyName) ? null : part.FindModelTransform(chute.canopyName);
             wc.State.CanopyTransform = canopy != null ? chute.canopyName : null;
+            if (canopy != null)
+            {
+                // The capture runs in this same frame, so the pivot and the real records share
+                // one pose (the records' frame: PartParityCaseCapture.Record).
+                Vector3 lp = part.transform.InverseTransformPoint(canopy.position);
+                wc.State.CanopyPivotLocal = new double[] { lp.x, lp.y, lp.z };
+            }
             Vector3 drag = part.dragVectorDir;
             if (canopy == null || drag == Vector3.zero) return;
             Vector3 aim = (chute.invertCanopy ? -1f : 1f) * drag;
