@@ -22,7 +22,7 @@ tier = "operator"
 #     only committed fixture that populates them without flying anything, which
 #     `RH-1-live-rp-handle-rewind` already proves by enumerating the same three.
 #
-# WHAT IT PHOTOGRAPHS (16 PNGs, each with a `<label>.gui.json` dump beside it):
+# WHAT IT PHOTOGRAPHS (22 PNGs, each with a `<label>.gui.json` dump beside it):
 #   - the Missions tab and the Recordings tab COLLAPSED and then fully EXPANDED, and then
 #     the Recordings tab collapsed again. The collapse is not decoration: `key=none` is
 #     the only way to photograph the tab's DEFAULT leaf-row form over a corpus big enough
@@ -35,12 +35,30 @@ tier = "operator"
 #     pinned wider than its own window is the class of defect the Milestones `Rewards`
 #     overflow belongs to, and the only way to see it is to command the floor;
 #   - the Structure window on a MISSION over a docked tree;
+#   - the Mission Profile on the SAME mission, in Advanced and in Basic (its Profile button
+#     sits above Log in both modes, `docs/dev/design-mission-profile.md` section 2.1);
 #   - both group-picker titles, `Manage Groups` and `Set Parent Group`;
-#   - the BASIC forms of the main, Missions and Timeline windows over the same corpus.
+#   - the BASIC forms of the main, Missions, Mission Profile and Timeline windows over the
+#     same corpus.
 #     The Basic Timeline capture carries an explicit `op=tab tab=overview` first, which is
 #     the inventory's own 6.1 row: GUI-1's Basic Timeline label inherits whatever filter
 #     the Advanced pass left selected, so it is a picture of the Re-Fly view under a label
-#     that does not say so.
+#     that does not say so;
+#   - a Log on a CLONE and on its original (see the clone block at the end of the steps);
+#   - two GALLERY states of the Mission Profile, LAST: `op=mock window=profile` hands the
+#     window a synthetic view model (`profile.mission.mun-return`, a Mun return from launch
+#     to recovery, and `profile.mission.empty`, the "This mission has no recorded flight."
+#     sentence) while the real draw code lays it out. Their labels follow the gallery's
+#     own derivation (`TestCommandUiMock.DeriveLabel`: `mock-<state id, dots to dashes>-
+#     <mode>`, `docs/dev/design-gui-state-gallery.md` 7.6), and each dump carries a `mock`
+#     block, so the mirror files them under the `mock` dataset rather than this fixture's.
+#     Each apply is paired with its `mockState=none` clear before the next step.
+#
+# THE PROFILE CAPTURES ARE NEVER FLOWN (added 2026-11-23 with the Mission Profile window,
+# P1b). They are QUESTIONS in the GUI-3 sense and sit after the Structure capture they
+# share a mission with: `op=target window=profile mission=Kerbal X #2` reaches the same
+# mission resolver the Structure target above already proved on this host. The gallery
+# pair is the newest question of all and goes last, after every real capture.
 #
 # STEP ORDER IS DEFENSIVE, the GUI-3 rule: a step whose answer is a QUESTION goes as late
 # as its own capture allows, because a driver-INVALID run still harvests every picture
@@ -145,7 +163,7 @@ tier = "operator"
 # `TimelineWindowUI` 520x150 was the resize-DRAG
 # floor, not a size the window can occupy - GUILayout expands it to its content - so
 # `bd-timeline-refly-minsize-advanced` is the smallest the Re-Fly view actually renders at.
-description = "GUI census wave 2, the docked-corpus Missions host: photograph the Missions and Recordings tabs collapsed and fully expanded over a 19-sidecar two-tree dock harvest, all four Timeline filter modes with three live RewindPoints, the Timeline at its own minimum size, the Structure window on a mission and both group-picker titles."
+description = "GUI census wave 2, the docked-corpus Missions host: photograph the Missions and Recordings tabs collapsed and fully expanded over a 19-sidecar two-tree dock harvest, all four Timeline filter modes with three live RewindPoints, the Timeline at its own minimum size, the Structure window and the Mission Profile on a mission, both group-picker titles, and the Mission Profile's two gallery states."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "missions", "GUI-4", "pending-operator"]
 
@@ -238,6 +256,16 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "bd-structure-mission-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
 
+  # --- the Mission Profile on the same mission (a QUESTION, never flown; see the header) ---
+  # The production opener the Missions tab's Profile button calls, through the same mission
+  # resolver as the Structure target above. 1000 x 520 is above the window's 480 x 160 floor
+  # and readable at the census frame.
+  { cmd = "UiAction", args = { op = "target", window = "profile", mission = "Kerbal X #2" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-profile-mission-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-profile-mission-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "profile" }, expect = "OK" },
+
   # --- both group-picker titles, over the Recordings tab that arms them ---
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
@@ -274,6 +302,14 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "bd-missions-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-missions-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # The Mission Profile in Basic: its button shows in both modes, so Basic can have it on
+  # screen and the picture is one a Basic player gets.
+  { cmd = "UiAction", args = { op = "target", window = "profile", mission = "Kerbal X #2" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "bd-profile-mission-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "bd-profile-mission-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "profile" }, expect = "OK" },
 
   # THE TIMELINE'S BASIC CAPTURE NAMES ITS OWN VIEW. Inventory section 6.1: the filter
   # mode is a persistent field, so a Basic capture with no `op=tab` inherits whatever the
@@ -314,6 +350,20 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "bd-structure-clone-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
 
+  # --- THE MISSION PROFILE GALLERY (never flown; see the header), LAST of all ---
+  # In Advanced (the pass above left the install there). `op=mock` opens the window at the
+  # state's own 960 x 420 rect, captures a baseline, installs the synthetic model and
+  # answers only after a drawn frame carried every witness string; the clear puts the
+  # window back. Labels per `TestCommandUiMock.DeriveLabel` (gallery design 7.6).
+  { cmd = "UiAction", args = { op = "mock", window = "profile", mockState = "profile.mission.mun-return" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "mock-profile-mission-mun-return-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mock-profile-mission-mun-return-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "mock", window = "profile", mockState = "none" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "mock", window = "profile", mockState = "profile.mission.empty" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "mock-profile-mission-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "mock-profile-mission-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "mock", window = "profile", mockState = "none" }, expect = "OK" },
+
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -334,19 +384,27 @@ allowedAnomalies = []
 # window would move the count.
 required = [
   # --- describe echoes, in step order ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
   # --- the expansion pair. `state=` carries the direction, which is what makes the two
   # captures either side of them a diff rather than two pictures of the same thing.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=none state=false changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
   # --- the targeted Structure open (`steps=` is the row count the rebuild produced) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=.* steps=[0-9]+",
+  # --- the targeted Mission Profile (the Advanced and the Basic open both match it;
+  # `steps=` is the profile's row count, at least one on a recorded mission) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=profile target=mission id=.* steps=[1-9][0-9]*",
+  # --- the two gallery states, each applied with a draw-produced read-back and cleared ---
+  "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock applied state=profile.mission.mun-return nodes=[0-9]+ readback=ok witness=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock clear cleared=true window=profile state=profile.mission.mun-return",
+  "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock applied state=profile.mission.empty nodes=[0-9]+ readback=ok witness=[1-9][0-9]*",
+  "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock clear cleared=true window=profile state=profile.mission.empty",
   # --- the clone's Log: the copy drops its probe, and the Log opened on it is the COPY's
   # (its own mission id on the window's open line, one row fewer than the original's) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select vessel mission=[0-9a-f]+ head=b07cfd6cc27d47e7a6fb497d9836e665 vessel=Kerbal X Probe include=false keysChanged=[1-9][0-9]*",
@@ -371,13 +429,17 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-timeline-refly-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-timeline-refly-minsize-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-mission-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-profile-mission-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-cloneoriginal-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-structure-clone-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-grouppicker-manage-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-grouppicker-setparent-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-main-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-missions-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-profile-mission-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=bd-timeline-overview-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mock-profile-mission-mun-return-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=mock-profile-mission-empty-advanced .*patched=17/17",
 ]
 # EMPTY, the census host decision: a 19-sidecar harvest's cold-OnLoad ERROR surface is not
 # what a LAYOUT review controls or observes. It is gated where it is attributable - `RH-1`
@@ -385,7 +447,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 16 captures and 16 dumps, each holding the FIFO head for a couple of frames, about 55
+# 22 captures and 22 dumps, each holding the FIFO head for a couple of frames, about 70
 # single-phase UI ops, and a cold load of a 10-vessel 19-sidecar sandbox save. Sized off
 # GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game batch on a 42 MB
 # career; this lane is smaller on every axis and drives no batch. Generous rather than

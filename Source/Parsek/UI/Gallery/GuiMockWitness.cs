@@ -101,6 +101,8 @@ namespace Parsek.UI.Gallery
                     AppendStructureCovered(payload.Structure, enumName, member, found);
                     AppendStructureBoolCovered(payload.Structure, cover, found);
                 }
+                if (payload.Profile != null)
+                    AppendProfileCovered(payload.Profile, enumName, member, found);
             }
             return found;
         }
@@ -111,6 +113,7 @@ namespace Parsek.UI.Gallery
             if (payload == null) return;
             if (payload.Kerbals.HasValue) AppendKerbals(payload.Kerbals.Value, tab, into);
             if (payload.Structure != null) AppendStructure(payload.Structure, into);
+            if (payload.Profile != null) AppendProfile(payload.Profile, into);
         }
 
         // ----- kerbals: covered -----
@@ -368,6 +371,40 @@ namespace Parsek.UI.Gallery
             {
                 Add(into, steps[i].Label);
                 Add(into, steps[i].Location);
+            }
+        }
+
+        // ----- profile -----
+
+        // The row a covered kind names: a phase kind's row label, or the Empty row's
+        // sentence. The Element cell is what the window draws for it.
+        private static void AppendProfileCovered(GuiMockProfile mock, string enumName,
+                                                 string member, List<string> into)
+        {
+            List<MissionProfileRow> rows = mock.Profile != null ? mock.Profile.Rows : null;
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionProfileRow row = rows[i];
+                bool hit = (enumName == "ProfilePhaseKind" && row.PhaseKind.HasValue
+                            && row.PhaseKind.Value.ToString() == member)
+                    || (enumName == "MissionProfileRowKind" && row.Kind.ToString() == member);
+                if (!hit) continue;
+                Add(into, row.Element);
+                return;
+            }
+        }
+
+        // BACKWARDS, like the Log: a profile's distinctive rows are its ending, and every
+        // flight starts with the same launch rows.
+        private static void AppendProfile(GuiMockProfile mock, List<string> into)
+        {
+            List<MissionProfileRow> rows = mock.Profile != null ? mock.Profile.Rows : null;
+            if (rows == null) return;
+            for (int i = rows.Count - 1; i >= 0 && into.Count < MaxWitnesses; i--)
+            {
+                Add(into, rows[i].Element);
+                Add(into, rows[i].Result);
             }
         }
 

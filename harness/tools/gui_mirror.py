@@ -127,10 +127,20 @@ LAYOUT_EPOCHS = {
     # PR #1867: section order, pressed equal-width option rows, reworded labels.
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
-    # PR #1984: the collapse caret sits under the mission's number in the # column,
-    # Watch (line 1) stacks over Rewind / Forward (line 2) in Interact, and the # header
-    # sits over the index numbers. First run on it: GUI-1-census-ksc 2026-10-03_1704.
-    "missions": {"utc": "2026-10-03T17:05:18Z", "pr": 1984},
+    # PLACEHOLDER - NOT A MEASURED INSTANT. THE SUPERVISOR REPLACES `utc` WITH THE
+    # `startedUtc` OF THE FIRST CENSUS RUN ON THE NEW LAYOUT AND `pr` WITH THE P1b PR
+    # NUMBER, IN THE SAME PR, BEFORE IT MERGES.
+    # Mission Profile P1b: the mission bar gains a Profile button above Log in both
+    # modes, and the Advanced loop grid is re-sized to 72 / 150 / 72 px columns, so
+    # every earlier Missions capture is the old layout. Previous epoch: PR #1984
+    # (GUI-1-census-ksc 2026-10-03_1704, 2026-10-03T17:05:18Z).
+    "missions": {"utc": "2026-11-23T00:00:00Z", "pr": 0},
+    # PLACEHOLDER - NOT A MEASURED INSTANT. THE SUPERVISOR REPLACES `utc` WITH THE
+    # `startedUtc` OF THE FIRST CENSUS RUN ON THE NEW LAYOUT AND `pr` WITH THE P1b PR
+    # NUMBER, IN THE SAME PR, BEFORE IT MERGES.
+    # Mission Profile P1b: the window is new, so no capture predates it; the epoch is
+    # its first layout.
+    "profile": {"utc": "2026-11-23T00:00:00Z", "pr": 0},
     # PR #1966. First run on it: GUI-3-census-logistics-routes 2026-10-03_1017.
     "logistics": {"utc": "2026-10-03T10:18:00Z", "pr": 1966},
 }

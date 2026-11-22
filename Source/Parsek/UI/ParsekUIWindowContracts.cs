@@ -86,6 +86,14 @@ namespace Parsek
         void OpenForRoute(string routeId, string displayTitle);
     }
 
+    // The Mission Profile: one instance, retargeted per mission (its Profile button).
+    internal interface IMissionProfileWindow
+    {
+        void DrawIfOpen(Rect mainWindowRect);
+        void ReleaseInputLock();
+        void OpenForMission(string treeId, string missionIdOrNull, string displayTitle);
+    }
+
     // The window set as ParsekUI receives it from its constructor's build callback.
     internal interface IParsekUIWindows
     {
@@ -98,5 +106,6 @@ namespace Parsek
         ILogisticsWindow Logistics { get; }
         IStructureLogWindow StructureList { get; }
         IStructureLogWindow RouteHistory { get; }
+        IMissionProfileWindow MissionProfile { get; }
     }
 }

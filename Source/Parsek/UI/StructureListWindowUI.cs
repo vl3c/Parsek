@@ -32,7 +32,8 @@ namespace Parsek
         private readonly ParsekUI parentUI;
 
         private bool isOpen;
-        private Rect windowRect;
+        // The shared log-table frame: rect, resize, scaled draw, position log, input lock.
+        private readonly LogTableWindowFrame frame;
         /// <summary>
         /// The live window rect, readable and writable from outside the draw pass.
         /// <para>Two consumers: an in-game test that needs the measured rect, and the
@@ -44,14 +45,11 @@ namespace Parsek
         /// </summary>
         internal Rect WindowRectForTesting
         {
-            get { return windowRect; }
-            set { windowRect = value; }
+            get { return frame.WindowRect; }
+            set { frame.WindowRect = value; }
         }
 
-        private bool hasInputLock;
-        private bool isResizing;
         private Vector2 scrollPos;
-        private Rect lastWindowRect;
 
         private const string InputLockId = "Parsek_StructureListWindow";
 
@@ -185,6 +183,8 @@ namespace Parsek
             instanceInputLockId = routeHistory ? RouteHistoryInputLockId : InputLockId;
             instanceTitlePrefix = routeHistory ? RouteHistoryTitlePrefix : WindowTitlePrefix;
             logName = routeHistory ? "Route History window" : "Structure window";
+            frame = new LogTableWindowFrame(instanceWindowIdKey, instanceInputLockId, logName,
+                routeHistory ? "RouteHistory" : "StructureList", MinWindowWidth, MinWindowHeight);
         }
 
         /// <summary>
@@ -486,7 +486,7 @@ namespace Parsek
 
         // The other side of a Dock branch point, through the dock-event graph (ERS-scoped by
         // its host cache, which rebuilds only when the committed topology moved).
-        private static string ResolveMergePartner(string treeId, BranchPoint bp, string viewerId)
+        internal static string ResolveMergePartner(string treeId, BranchPoint bp, string viewerId)
         {
             return MissionStructureListBuilder.DescribeMergePartnerFromGraph(
                 DockEventGraphCache.GetOrBuild(), treeId, bp, viewerId,
@@ -514,53 +514,13 @@ namespace Parsek
             if (Event.current != null && Event.current.type == EventType.Layout)
                 RefreshIfChanged();
 
-            if (windowRect.width < 1f)
-                windowRect = DefaultWindowRect(mainWindowRect, isRouteHistory);
-
-            ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
-                MinWindowWidth, MinWindowHeight, logName);
-
-            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
-            try
-            {
-                windowRect = ParsekUiScale.Window(
-                    instanceWindowIdKey.GetHashCode(),
-                    windowRect,
-                    DrawWindow,
-                    BuildWindowTitle(instanceTitlePrefix, title),
-                    opaqueWindowStyle,
-                    GUILayout.Width(windowRect.width),
-                    GUILayout.Height(windowRect.height)
-                );
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
-            parentUI.LogWindowPosition(isRouteHistory ? "RouteHistory" : "StructureList", ref lastWindowRect, windowRect);
-
-            if (windowRect.Contains(Event.current.mousePosition))
-            {
-                if (!hasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, instanceInputLockId);
-                    hasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseInputLock();
-            }
+            frame.Draw(parentUI, DefaultWindowRect(mainWindowRect, isRouteHistory),
+                BuildWindowTitle(instanceTitlePrefix, title), DrawWindow);
         }
 
         public void ReleaseInputLock()
         {
-            if (!hasInputLock) return;
-            InputLockManager.RemoveControlLock(instanceInputLockId);
-            hasInputLock = false;
+            frame.ReleaseInputLock();
         }
 
         private void DrawWindow(int windowID)
@@ -595,8 +555,7 @@ namespace Parsek
             if (GUILayout.Button("Close"))
                 Close();
 
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, logName);
-            GUI.DragWindow();
+            frame.DrawResizeHandleAndDrag();
         }
 
         /// <summary>
