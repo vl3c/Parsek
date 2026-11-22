@@ -5218,7 +5218,7 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
 # a widened sweep would overrun its step budget, a narrowed one would read as complete.
 PARTPARITY_VERB = "PartParitySweep"
 PARTPARITY_ARG_KEYS: Tuple[str, ...] = (
-    "label", "op", "filter", "source", "skins", "states", "contexts", "views", "tile",
+    "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "views", "tile",
     "shard", "limit", "controls", "maxSeconds",
 )
 PARTPARITY_OP_VALUES: Tuple[str, ...] = ("reset", "run")
@@ -5235,6 +5235,14 @@ PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
 )
 PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
+# fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules.ArgWords):
+# `none` (the default), `all` or a csv of FX words, with no states= and at most contexts=air
+# beside it (FxCombinationValid). Until the live FX engine lands (design E.9 piece F3,
+# TestCommandPartParitySweep.FxRunsBuilt) a well-formed fx= run is REJECTED fx-runs-not-built.
+PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+PARTPARITY_FX_ALL_TOKEN = "all"
+PARTPARITY_FX_RUNS_BUILT = False
+PARTPARITY_FX_RUNS_NOT_BUILT_REASON = "fx-runs-not-built"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5248,10 +5256,10 @@ PARTPARITY_DEFAULT_MAX_SECONDS = 480
 PARTPARITY_REASONS: Tuple[str, ...] = (
     "label-arg-missing", "label-arg-invalid", "op-arg-invalid",
     "filter-arg-invalid", "source-arg-invalid", "skins-arg-invalid",
-    "states-arg-invalid", "contexts-arg-invalid",
+    "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
     "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
-    "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
+    "fx-runs-not-built", "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
 # Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
 # subkind (nothing was refused; the runner may already have spawned vessels).
@@ -5431,6 +5439,24 @@ def _partparity_contexts_ok(text: str) -> bool:
     return PARTPARITY_AIR_CONTEXT not in items or set(items) == {PARTPARITY_AIR_CONTEXT}
 
 
+def _partparity_fx_ok(text: str) -> bool:
+    """TryParseFx: ``none``, ``all``, or a csv of FX words."""
+    if text in (PARTPARITY_NONE_TOKEN, PARTPARITY_FX_ALL_TOKEN):
+        return True
+    if not text:
+        return False
+    return all(item in PARTPARITY_FX_VALUES for item in text.split(","))
+
+
+def _partparity_fx_combination_ok(step_args: Dict) -> bool:
+    """FxCombinationValid: an fx= run names no states= and at most contexts=air (``none``
+    reads as absent, as the C# parse leaves it null)."""
+    states = str(step_args.get("states", PARTPARITY_NONE_TOKEN))
+    contexts = str(step_args.get("contexts", PARTPARITY_NONE_TOKEN))
+    return (states == PARTPARITY_NONE_TOKEN
+            and contexts in (PARTPARITY_NONE_TOKEN, PARTPARITY_AIR_CONTEXT))
+
+
 def _partparity_views_ok(text: str) -> bool:
     """TryParseViews: ``required``, ``all``, or a csv of known view names."""
     if text in PARTPARITY_VIEWS_TOKENS:
@@ -5455,7 +5481,9 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     ``TestCommandPartParitySweep.TryParseArgs`` parses it: ``op`` reset|run, ``filter`` a
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
     ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
-    of contexts (``air`` alone), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    of contexts (``air`` alone), ``fx`` none|all|a csv of FX words (no ``states`` and at most
+    ``contexts=air`` beside it; a well-formed FX run is refused ``fx-runs-not-built`` until the
+    live FX engine lands), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5510,6 +5538,15 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     shaped("contexts", _partparity_contexts_ok,
            "'none' or a csv of %s ('air' alone)" % ", ".join(PARTPARITY_CONTEXT_VALUES),
            "contexts-arg-invalid")
+    shaped("fx", _partparity_fx_ok,
+           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_FX_VALUES), "fx-arg-invalid")
+    fx_text = handle_shape_probe(step_args.get("fx")) if "fx" in step_args else None
+    fx_run = (fx_text is not None and fx_text != PARTPARITY_NONE_TOKEN
+              and _partparity_fx_ok(fx_text))
+    if fx_run and not _partparity_fx_combination_ok(step_args):
+        errors.append("driver.steps[%d].args.fx: an FX run plans FX cases only, so it names no "
+                      "states= and at most contexts=air; the seam answers REJECTED "
+                      "fx-arg-invalid" % index)
     shaped("views", _partparity_views_ok,
            "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
            "views-arg-invalid")
@@ -5522,6 +5559,11 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     closed("controls", PARTPARITY_CONTROLS_VALUES, "controls-arg-invalid")
     shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
            "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
+
+    if fx_run and not PARTPARITY_FX_RUNS_BUILT and not errors:
+        errors.append("driver.steps[%d].args.fx: an FX run is not built yet (design-part-ghost-"
+                      "parity.md E.9 piece F3); the seam answers REJECTED %s"
+                      % (index, PARTPARITY_FX_RUNS_NOT_BUILT_REASON))
 
     if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
             and str(step_args.get("op", "run")) == "run"):
@@ -13309,6 +13351,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "skins-arg-invalid": "driver-arg",
     "states-arg-invalid": "driver-arg",
     "contexts-arg-invalid": "driver-arg",
+    "fx-arg-invalid": "driver-arg",
+    "fx-runs-not-built": "driver-arg",
     "views-arg-invalid": "driver-arg",
     "tile-arg-invalid": "driver-arg",
     "shard-arg-invalid": "driver-arg",
@@ -14100,7 +14144,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
-    "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid",
+    "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
+    "fx-runs-not-built",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",

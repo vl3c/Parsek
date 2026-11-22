@@ -19238,6 +19238,54 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertLessEqual(hlib.PARTPARITY_MAX_SECONDS_RANGE[1],
                              hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
 
+    def test_the_fx_arg_mirrors_the_c_sharp(self):
+        # fx= (design-part-ghost-parity.md E.5): the words are PartParityFxRules', the parse
+        # reads them through TryParseFx and FxCombinationValid, and TryParseArgs refuses a
+        # well-formed FX run while FxRunsBuilt is false (the S1 pattern).
+        text, consts = self._pure()
+        fx_text = self._source("TestCommands", "PartParityFxRules.cs")
+        fx = self._string_consts(fx_text)
+        self.assertEqual(list(hlib.PARTPARITY_FX_VALUES), self._identifier_array(fx_text, "ArgWords", fx))
+        self.assertEqual(hlib.PARTPARITY_FX_ALL_TOKEN, fx["ArgAllToken"])
+        parse = text[text.index("internal static bool TryParseGrammar("):text.index(
+            "private static bool Reject(")]
+        self.assertIn("TryParseFx(raw, out List<string> fx, out bool fxAll)", parse)
+        self.assertIn("|| (fx != null && !FxCombinationValid(a)))", parse)
+        self.assertIn("{ rejectReason = FxArgInvalidReason; return Reject(\"fx\", raw, out rejectDetail); }", parse)
+        # The parse reads fx= after states= and contexts= (the combination rule needs both).
+        self.assertLess(parse.index('Get(args, "contexts")'), parse.index('Get(args, "fx")'))
+        combo = text[text.index("internal static bool FxCombinationValid("):]
+        combo = combo[:combo.index(";") + 1]
+        self.assertIn("a.States == null", combo)
+        self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
+                      combo)
+        m = re.search(r"internal const bool FxRunsBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "FxRunsBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_FX_RUNS_BUILT, m.group(1) == "true")
+        self.assertEqual(hlib.PARTPARITY_FX_RUNS_NOT_BUILT_REASON, consts["FxRunsNotBuiltReason"])
+        args = text[text.index("internal static bool TryParseArgs("):text.index(
+            "internal static bool TryParseGrammar(")]
+        self.assertIn("if (!FxRunsBuilt && IsFxRun(parsed))", args)
+        self.assertIn("rejectReason = FxRunsNotBuiltReason;", args)
+
+    def test_the_fx_validator_answers_what_the_seam_answers(self):
+        v = hlib.validate_part_parity_sweep_step
+        for step, reason in (
+                ({"label": "pp7", "fx": "plume"}, "fx-runs-not-built"),
+                ({"label": "pp7", "fx": "all", "contexts": "air"}, "fx-runs-not-built"),
+                ({"label": "pp7", "fx": "plume", "states": "all"}, "fx-arg-invalid"),
+                ({"label": "pp7", "fx": "plume", "contexts": "stacked"}, "fx-arg-invalid"),
+                ({"label": "pp7", "fx": "Plume"}, "fx-arg-invalid"),
+                ({"label": "pp7", "fx": "plume,"}, "fx-arg-invalid"),
+                ({"label": "pp7", "fx": "light"}, "fx-arg-invalid")):
+            with self.subTest(step=step):
+                errors = v(0, step)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(reason, errors[0])
+        # fx=none is no FX run: a P6 step beside it validates as before.
+        self.assertEqual([], v(0, {"label": "pp3", "fx": "none", "states": "all"}))
+        self.assertEqual([], v(0, {"label": "pp5", "fx": "none", "states": "all", "contexts": "air"}))
+
     def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
         text, consts = self._pure()
         self.assertEqual(list(hlib.PARTPARITY_REASONS),

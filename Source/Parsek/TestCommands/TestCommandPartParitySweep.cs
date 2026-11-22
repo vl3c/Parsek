@@ -83,6 +83,13 @@ namespace Parsek.TestCommands
         /// <summary>The <c>contexts=</c> names in canonical order, or null for <c>none</c>.</summary>
         internal List<string> Contexts;
 
+        /// <summary>The <c>fx=</c> words in canonical order (<c>all</c> resolves to every
+        /// <see cref="PartParityFxRules.ArgWords"/> word), or null for <c>none</c> (design E.5).</summary>
+        internal List<string> Fx;
+
+        /// <summary>True when <c>fx=all</c> (the manifest records the token, not the list).</summary>
+        internal bool FxAll;
+
         /// <summary>The views, in canonical order, deduplicated.</summary>
         internal List<string> Views = new List<string>(TestCommandPartParitySweep.RequiredViews);
 
@@ -122,6 +129,10 @@ namespace Parsek.TestCommands
         /// stowed case. Not part of the identity: the case id reads <see cref="State"/> and
         /// <see cref="Context"/>.</summary>
         internal PartParityStateOption StateOption;
+
+        /// <summary>What an FX case drives (design E.1); null for every other case. Not part of
+        /// the identity, like <see cref="StateOption"/>.</summary>
+        internal PartParityFxOption FxOption;
     }
 
     /// <summary>One case a step will consider, with its stable index and id.</summary>
@@ -170,6 +181,13 @@ namespace Parsek.TestCommands
         internal static string SidecarFileName(string caseId) => (caseId ?? string.Empty) + SidecarSuffix;
         internal static string AtlasFileName(string caseId) => (caseId ?? string.Empty) + AtlasSuffix;
         internal static string ThumbFileName(string caseId) => (caseId ?? string.Empty) + ThumbSuffix;
+
+        /// <summary>An FX case's accumulated FX atlas and its strip (design E.5).</summary>
+        internal const string FxAtlasSuffix = ".fx.png";
+        internal const string StripSuffix = ".strip.png";
+
+        internal static string FxAtlasFileName(string caseId) => (caseId ?? string.Empty) + FxAtlasSuffix;
+        internal static string StripFileName(string caseId) => (caseId ?? string.Empty) + StripSuffix;
 
         /// <summary>The label directory relative to the KSP root, forward slashes.</summary>
         internal static string RelativeLabelDir(string label) => RootDirName + "/" + (label ?? string.Empty);
@@ -242,10 +260,19 @@ namespace Parsek.TestCommands
         /// <summary>A state case's done signal did not arrive within its timeout (design D.3).</summary>
         internal const string SetupStateTimeout = "state-timeout";
 
+        /// <summary>A plate case whose REAL side lit less than <see cref="PartParityFxRules.PlateLitMinPct"/>
+        /// of the plate (design E.2): unmeasurable, never a pass.</summary>
+        internal const string SetupPlateNotLit = "plate-not-lit";
+
+        /// <summary>An rcs case whose fired nozzles differ from <see cref="PartParityFxRules.ChooseRcsInput"/>'s
+        /// prediction (design E.2, E0 U2).</summary>
+        internal const string SetupRcsInputMismatch = "rcs-input-mismatch";
+
         internal static readonly string[] SetupStatuses =
         {
             SetupOk, SetupSkinNotApplied, SetupSpawnTimeout, SetupStillAnimating,
             SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired, SetupActionFailed, SetupStateTimeout,
+            SetupPlateNotLit, SetupRcsInputMismatch,
         };
 
         /// <summary>True for a status that is a setup fault: anything but <c>ok</c> and
@@ -296,12 +323,46 @@ namespace Parsek.TestCommands
             ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlStateEventsDroppedAir,
         };
 
+        // The FX controls (design E.5); their subjects are PartParityFxRules.ChooseControlSubject's.
+        internal const string ControlFxRealVsReal = "ctl-fx-real-vs-real";
+        internal const string ControlFxPlumeOff = "ctl-fx-plume-off";
+        internal const string ControlFxPlumeShort = "ctl-fx-plume-short";
+        internal const string ControlFxPlumeHue = "ctl-fx-plume-hue";
+        internal const string ControlFxPlumeShift = "ctl-fx-plume-shift";
+        internal const string ControlFxSmokeDropped = "ctl-fx-smoke-dropped";
+        internal const string ControlHeatEventsDropped = "ctl-heat-events-dropped";
+        internal const string ControlPlateLightOff = "ctl-plate-light-off";
+        internal const string ControlPlateLightOffPoint = "ctl-plate-light-off-point";
+        internal const string ControlFxRealVsRealAir = "ctl-fx-real-vs-real-air";
+        internal const string ControlFxPlumeOffAir = "ctl-fx-plume-off-air";
+
+        /// <summary>An orbit FX run's controls (<c>fx=</c> without <c>contexts=air</c>).</summary>
+        internal static readonly string[] FxOrbitControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlFxRealVsReal, ControlFxPlumeOff, ControlFxPlumeShort,
+            ControlFxPlumeHue, ControlFxPlumeShift, ControlFxSmokeDropped, ControlHeatEventsDropped,
+            ControlPlateLightOff, ControlPlateLightOffPoint,
+        };
+
+        /// <summary>An air FX run's controls: the solid booster held burning in the air.</summary>
+        internal static readonly string[] FxAirControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
+        };
+
+        /// <summary>The controls an install may lack a subject for: recorded <c>n/a</c>, never
+        /// <c>bad</c> (E0 U9: no part on either install carries a point light).</summary>
+        internal static readonly string[] OptionalControlIds = { ControlPlateLightOffPoint };
+
         /// <summary>Every control id any run may plan.</summary>
         internal static readonly string[] AllControlIds =
         {
             ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlGhostScale90,
             ControlGhostRot90, ControlGhostFlip, ControlGhostMissingMesh, ControlWrongSkin,
             ControlStateEventsDropped, ControlStateEventsDroppedAir,
+            ControlFxRealVsReal, ControlFxPlumeOff, ControlFxPlumeShort, ControlFxPlumeHue,
+            ControlFxPlumeShift, ControlFxSmokeDropped, ControlHeatEventsDropped, ControlPlateLightOff,
+            ControlPlateLightOffPoint, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
         };
 
         internal const string ControlsOk = "ok";
@@ -311,6 +372,10 @@ namespace Parsek.TestCommands
         /// <summary><c>controls=false</c>: the step ran no controls (a dev run only; a lane
         /// whose controls never ran cannot pass).</summary>
         internal const string ControlsOff = "off";
+
+        /// <summary>An optional control (<see cref="OptionalControlIds"/>) with no subject on the
+        /// install: it counts as met.</summary>
+        internal const string ControlsNotApplicable = "n/a";
 
         // ----- refusals -----
 
@@ -322,12 +387,20 @@ namespace Parsek.TestCommands
         internal const string SkinsArgInvalidReason = "skins-arg-invalid";
         internal const string StatesArgInvalidReason = "states-arg-invalid";
         internal const string ContextsArgInvalidReason = "contexts-arg-invalid";
+        internal const string FxArgInvalidReason = "fx-arg-invalid";
         internal const string ViewsArgInvalidReason = "views-arg-invalid";
         internal const string TileArgInvalidReason = "tile-arg-invalid";
         internal const string ShardArgInvalidReason = "shard-arg-invalid";
         internal const string LimitArgInvalidReason = "limit-arg-invalid";
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
+
+        /// <summary>REJECTED: a well-formed <c>fx=</c> run while the live FX engine is not built
+        /// (design E.9: F3 lifts it); the grammar alone is <see cref="TryParseGrammar"/>.</summary>
+        internal const string FxRunsNotBuiltReason = "fx-runs-not-built";
+
+        /// <summary>False until the live FX engine (design E.9 piece F3) lands.</summary>
+        internal const bool FxRunsBuilt = false;
 
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
@@ -349,16 +422,16 @@ namespace Parsek.TestCommands
         {
             LabelArgMissingReason, LabelArgInvalidReason, OpArgInvalidReason,
             FilterArgInvalidReason, SourceArgInvalidReason, SkinsArgInvalidReason,
-            StatesArgInvalidReason, ContextsArgInvalidReason,
+            StatesArgInvalidReason, ContextsArgInvalidReason, FxArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
+            FxRunsNotBuiltReason, NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
         /// <summary>Every arg key the verb reads.</summary>
         internal static readonly string[] ArgKeys =
         {
-            "label", "op", "filter", "source", "skins", "states", "contexts", "views", "tile",
+            "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "views", "tile",
             "shard", "limit", "controls", "maxSeconds",
         };
 
@@ -376,6 +449,10 @@ namespace Parsek.TestCommands
         internal const string SettingContexts = "contexts";
         internal const string SettingControlSet = "controlSet";
 
+        /// <summary>The manifest setting an FX run records its <c>fx=</c> under (design E.5);
+        /// written only by an FX run, so every other run's settings stay what they were.</summary>
+        internal const string SettingFx = "fx";
+
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
 
         // ----- arg parse -----
@@ -386,13 +463,25 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
-        /// admission (<c>host-not-at-pad</c>). On a refusal <paramref name="rejectReason"/> is
-        /// the reason token and <paramref name="rejectDetail"/> the offending <c>key=value</c>.
+        /// admission (<c>host-not-at-pad</c>). An <c>fx=</c> run is refused
+        /// <c>fx-runs-not-built</c> (detail <c>fx=..</c>) while <see cref="FxRunsBuilt"/> is
+        /// false. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
-            => TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);
+        {
+            if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
+            if (!FxRunsBuilt && IsFxRun(parsed))
+            {
+                rejectReason = FxRunsNotBuiltReason;
+                rejectDetail = "fx=" + FormatFx(parsed);
+                parsed = null;
+                return false;
+            }
+            return true;
+        }
 
         /// <summary>
         /// The arg grammar alone: every arg of one step, each present one that does not parse
@@ -457,6 +546,16 @@ namespace Parsek.TestCommands
                 if (!TryParseContexts(raw, out List<string> contexts))
                 { rejectReason = ContextsArgInvalidReason; return Reject("contexts", raw, out rejectDetail); }
                 a.Contexts = contexts;
+            }
+
+            raw = Get(args, "fx");
+            if (raw != null)
+            {
+                if (!TryParseFx(raw, out List<string> fx, out bool fxAll)
+                    || (fx != null && !FxCombinationValid(a)))
+                { rejectReason = FxArgInvalidReason; return Reject("fx", raw, out rejectDetail); }
+                a.Fx = fx;
+                a.FxAll = fxAll;
             }
 
             raw = Get(args, "views");
@@ -649,6 +748,42 @@ namespace Parsek.TestCommands
             return true;
         }
 
+        /// <summary>
+        /// <c>none</c> (null), <c>all</c> (every <see cref="PartParityFxRules.ArgWords"/> word),
+        /// or a csv of FX words (canonical order, duplicates dropped, no empty item).
+        /// </summary>
+        internal static bool TryParseFx(string raw, out List<string> fx, out bool all)
+        {
+            fx = null;
+            all = false;
+            if (raw == ArgNoneToken) return true;
+            if (raw == PartParityFxRules.ArgAllToken)
+            {
+                fx = new List<string>(PartParityFxRules.ArgWords);
+                all = true;
+                return true;
+            }
+            return TryParseKnownCsv(raw, PartParityFxRules.ArgWords, out fx);
+        }
+
+        /// <summary>An <c>fx=</c> run plans FX cases only (design E.5), so it names no
+        /// <c>states=</c> and at most <c>contexts=air</c>: a P6 state word or an orbit context
+        /// beside it would be silently ignored. The parse reads <c>fx=</c> after both.</summary>
+        internal static bool FxCombinationValid(PartParitySweepArgs a)
+            => a.States == null
+               && (a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir));
+
+        /// <summary>The <c>fx=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
+        internal static string FormatFx(PartParitySweepArgs args)
+        {
+            if (args?.Fx == null) return ArgNoneToken;
+            return args.FxAll ? PartParityFxRules.ArgAllToken : string.Join(",", args.Fx.ToArray());
+        }
+
+        /// <summary>True when the step names <c>fx=</c> other than <c>none</c>: it plans ONLY
+        /// the FX cases of its families (design E.5).</summary>
+        internal static bool IsFxRun(PartParitySweepArgs args) => args?.Fx != null;
+
         /// <summary>The <c>states=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
         internal static string FormatStates(PartParitySweepArgs args)
         {
@@ -674,16 +809,19 @@ namespace Parsek.TestCommands
         internal static bool IsStateCase(PartParityCaseKey key)
             => key != null && !string.Equals(key.State ?? DefaultState, DefaultState, StringComparison.Ordinal);
 
-        /// <summary>The three manifest settings a run records its state selection under, in
-        /// order: <c>states</c>, <c>contexts</c>, <c>controlSet</c> (the ids, comma-joined).</summary>
+        /// <summary>The manifest settings a run records its selection under, in order:
+        /// <c>states</c>, <c>contexts</c>, <c>controlSet</c> (the ids, comma-joined), then
+        /// <c>fx</c> for an FX run only (a manifest without it reads <c>none</c>).</summary>
         internal static List<KeyValuePair<string, string>> StateSettings(PartParitySweepArgs args)
         {
-            return new List<KeyValuePair<string, string>>
+            var settings = new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>(SettingStates, FormatStates(args)),
                 new KeyValuePair<string, string>(SettingContexts, FormatContexts(args)),
                 new KeyValuePair<string, string>(SettingControlSet, string.Join(",", ControlSetFor(args))),
             };
+            if (IsFxRun(args)) settings.Add(new KeyValuePair<string, string>(SettingFx, FormatFx(args)));
+            return settings;
         }
 
         /// <summary>
@@ -691,11 +829,13 @@ namespace Parsek.TestCommands
         /// <c>partparity.control_set(settings)</c>: no <c>states=</c> / <c>contexts=</c> runs
         /// the eight stowed controls (<see cref="ControlIds"/>, so PP-1 / PP-2 are unchanged);
         /// an air run <see cref="AirControlIds"/>; any other state run
-        /// <see cref="OrbitStateControlIds"/>. <c>controls=false</c> runs none of them, but the
-        /// set is still the run's (the manifest records it).
+        /// <see cref="OrbitStateControlIds"/>; an FX run (design E.5)
+        /// <see cref="FxAirControlIds"/> or <see cref="FxOrbitControlIds"/>. <c>controls=false</c>
+        /// runs none of them, but the set is still the run's (the manifest records it).
         /// </summary>
         internal static string[] ControlSetFor(PartParitySweepArgs args)
         {
+            if (IsFxRun(args)) return (string[])(IsAirRun(args) ? FxAirControlIds : FxOrbitControlIds).Clone();
             if (!IsStateRun(args)) return (string[])ControlIds.Clone();
             return (string[])(IsAirRun(args) ? AirControlIds : OrbitStateControlIds).Clone();
         }
@@ -805,13 +945,24 @@ namespace Parsek.TestCommands
         /// matched by <see cref="PartParityStateRules.ContextClass"/>, so <c>fgv</c> selects
         /// every FGV context), never a <c>stowed</c> / <c>alone</c> case, then the same filter / source / shard /
         /// limit selection. <c>skins=</c> governs stowed cases only (state cases are at the
-        /// base skin, ruling R2).
+        /// base skin, ruling R2). An FX run (design E.5) plans ONLY the FX keys of its
+        /// <c>fx=</c> families, the air cases for <c>contexts=air</c> and the orbit ones
+        /// otherwise (<see cref="PartParityFxRules.KeySelected"/>), then the same selection.
         /// </summary>
         internal static List<PartParityPlannedCase> PlanCases(
             IEnumerable<PartParityCaseKey> stowedKeys, IEnumerable<PartParityCaseKey> stateKeys,
-            PartParitySweepArgs args)
+            PartParitySweepArgs args, IEnumerable<PartParityCaseKey> fxKeys = null)
         {
             if (args == null) args = new PartParitySweepArgs();
+            if (IsFxRun(args))
+            {
+                var fx = new List<PartParityCaseKey>();
+                bool air = IsAirRun(args);
+                if (fxKeys != null)
+                    foreach (var k in fxKeys)
+                        if (PartParityFxRules.KeySelected(k, args.Fx, air)) fx.Add(k);
+                return SelectCases(fx, args);
+            }
             if (!IsStateRun(args)) return SelectCases(stowedKeys, args);
             var kept = new List<PartParityCaseKey>();
             if (stateKeys != null)
@@ -1059,7 +1210,7 @@ namespace Parsek.TestCommands
                 foreach (string o in outcomes)
                 {
                     if (o == ControlsBad) return ControlsBad;
-                    if (o == ControlsOk) ok++;
+                    if (o == ControlsOk || o == ControlsNotApplicable) ok++;
                 }
             }
             int need = controlSet != null ? controlSet.Count : ControlIds.Length;
