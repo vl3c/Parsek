@@ -46,6 +46,7 @@ namespace Parsek.TestCommands
             wc.SkinRealMember = realMember;
 
             if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh) PlantCube(ctx, wc, part);
+            RepairDepthMasks(wc, part);
 
             var realRenderers = new List<Renderer>(part.GetComponentsInChildren<Renderer>(true));
             wc.RealRecords = Records(partT, realRenderers, wc.RealLayers, null,
@@ -66,6 +67,22 @@ namespace Parsek.TestCommands
                 wc.GhostRecords = new List<PartParityRendererRecord>();
             }
             Frame(wc);
+        }
+
+        /// <summary>
+        /// Brings the real part's depth masks to the look the player sees before anything
+        /// reads the real renderers (<see cref="PartParityDepthMaskRepair"/>): one summary line
+        /// per case that has a depth-mask module, none for any other part.
+        /// </summary>
+        private static void RepairDepthMasks(WaveCase wc, Part part)
+        {
+            List<PartParityDepthMaskRepair.ModuleResult> results = PartParityDepthMaskRepair.Repair(part);
+            if (results.Count == 0) return;
+            string flag = PartParityDepthMaskRepair.CaseFlag(results);
+            if (flag != null) wc.Flags.Add(flag);
+            string line = PartParityDepthMaskRepair.SummaryLine(wc.CaseId, part.partInfo?.name, results);
+            if (flag != null) ParsekLog.Info(PartParitySweepRunner.Tag, line);
+            else ParsekLog.Verbose(PartParitySweepRunner.Tag, line);
         }
 
         /// <summary>The three controls that photograph no ghost.</summary>

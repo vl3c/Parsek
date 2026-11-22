@@ -347,20 +347,6 @@ def is_non_visual(entry: Dict) -> bool:
     return bool(_NON_VISUAL_FALLBACK_RE.search(str(entry.get("key") or "")))
 
 
-def _has_skipped_depth_mask(entries: Any) -> bool:
-    """A rendered real-only depth mask: the C# ``nonVisual`` is ``depth-mask``, or (a
-    sidecar without the key) the leaf name contains ``mask``."""
-    for e in entries or []:
-        if not isinstance(e, dict) or e.get("rendered") is not True:
-            continue
-        if "nonVisual" in e:
-            if e.get("nonVisual") == "depth-mask":
-                return True
-        elif re.search(r"mask[^/]*$", str(e.get("key") or ""), re.IGNORECASE):
-            return True
-    return False
-
-
 def _rendered_entries(entries: Any) -> List[str]:
     """The keys of RENDERED structure entries that are not non-visual (``is_non_visual``)."""
     keys = []
@@ -378,9 +364,10 @@ def _rendered_entries(entries: Any) -> List[str]:
 TAG_CONTEXT_DEPENDENT = "context-dependent"
 REASON_CONTEXT_POSE = "context-pose:picture differences capped at warn"
 # A part whose real side carries a depth mask the ghost skips by design (owner ruling
-# 2026-11-22: ReStock depth masks stay skipped): the mask hides some of the real part's
-# own mesh, so its picture differences cap at warn the same way.
-REASON_DEPTH_MASK = "depth-mask:picture differences capped at warn"
+# 2026-11-22) is judged like any other: the capture repairs the real mask to the
+# depth-only look a player sees (PartParityDepthMaskRepair, design 4.2 step 0), so its
+# pictures match the ghost's. A mask the repair could not fix flags the sidecar
+# ``depth-mask-unrepaired:<n>`` and its picture difference fails as it should.
 
 
 SKIN_B9_MODULE = "ModuleB9PartSwitch"
@@ -469,9 +456,6 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
     if TAG_CONTEXT_DEPENDENT in tags and verdict == VERDICT_FAIL:
         verdict = VERDICT_WARN
         reasons.append(REASON_CONTEXT_POSE)
-    elif verdict == VERDICT_FAIL and _has_skipped_depth_mask(structure.get("missingOnGhost")):
-        verdict = VERDICT_WARN
-        reasons.append(REASON_DEPTH_MASK)
     missing = _rendered_entries(structure.get("missingOnGhost"))
     extra = _rendered_entries(structure.get("extraOnGhost"))
     if missing or extra:

@@ -331,19 +331,19 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict,
                          "a structural defect still fails on a context-dependent part")
 
-    def test_a_part_with_a_skipped_depth_mask_caps_picture_fails_at_warn(self):
+    def test_a_part_with_a_skipped_depth_mask_is_judged_on_its_pictures(self):
+        # The capture repairs the real mask (design 4.2 step 0), so a depth-mask part has no
+        # cap: its skipped mask is not a missing mesh, and a picture fail stays a fail.
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
-        side["views"][0]["colorBlobPx"] = 5000
         side["structure"]["missingOnGhost"] = [
             {"key": "a/RCSMask", "mesh": "", "rendered": True, "nonVisual": "depth-mask"}]
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(side).verdict)
+        side["views"][0]["colorBlobPx"] = 5000
         c = pp.judge_case(side)
-        self.assertEqual(pp.VERDICT_WARN, c.verdict)
-        self.assertIn(pp.REASON_DEPTH_MASK, c.reasons)
-        side["structure"]["missingOnGhost"] = [
-            {"key": "a/fx", "mesh": "", "rendered": True, "nonVisual": "fx"}]
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict, "an effect mesh caps nothing")
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertFalse(any(r.startswith("depth-mask") for r in c.reasons), c.reasons)
         side["structure"]["missingOnGhost"] = [{"key": "a/b/RCSMask", "mesh": "", "rendered": True}]
-        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(side).verdict, "pre-key sidecar: by name")
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict, "pre-key sidecar: no cap either")
 
     def test_a_non_visual_renderer_missing_on_the_ghost_is_not_a_missing_mesh(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
