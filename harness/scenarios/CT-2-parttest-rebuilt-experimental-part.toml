@@ -57,7 +57,8 @@ id = "CT-2-parttest-rebuilt-experimental-part"
 # 7: the recordings count pinned (21 host recordings counted off the fixture + H). 8-9 owed on
 # the first flight.
 #
-# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-contract-templates`), NEVER FLOWN.
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-contract-templates`); LIVE-PROVEN 2026-11-22
+# (2026-11-22_1132, PASS attempt 1).
 # =====================================================================================
 tier = "operator"
 description = "Part test contract rebuilt after a rewind (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4): on cs-career-mun3 a committed pad Flea, then the part test of the unpurchased Decoupler.1p5 (PartTest fd341164) accepted at the Space Center after its launch; a Rewind-to-Launch goes back before the accept, and the Space Center warp that reaches it rebuilds the contract and makes the part experimental again the way stock's PartTest.OnAccepted does, exactly once: a save, a Cold reload and a second warp add no second count."
