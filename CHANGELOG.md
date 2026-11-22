@@ -34,6 +34,10 @@ Not released yet.
   under its chutes; it appears where it touches down, Landed or Splashed, still offered for Re-Fly.
   Its landing speed is worked out from its chutes and the air: faster than about 12 m/s, or with
   its chutes staged but still closed, it crashes. (ABANDONED-STAGE-CHUTES)
+- **A crewed stage skimming the peaks of the Mun or Minmus now appears in orbit.** A stage left
+  on an orbit that dips among the mountains, with no crash found on its replay, used to keep its
+  crew tied up forever. It now ends a few days on, where the check stopped, and appears there with
+  its crew aboard; the game decides from then on. (ABANDONED-STAGE-CREWED-SUBORBITAL-RESERVED)
 - **A stage still under its chutes when you leave the flight is lost.** Going to the Space Center,
   the Tracking Station or the main menu, or switching to a far vessel, while a stage is still
   coming down ends it the way the game does: lost with its crew, its ghost coming down to the

@@ -609,7 +609,9 @@ namespace Parsek
                     result.terminalState,
                     segments,
                     bodies,
-                    cache.RecordingId);
+                    cache.RecordingId,
+                    result.endedAtGroundScanEnd);
+            cache.GroundScanEnd = IncompleteBallisticSceneExitFinalizer.IsGroundScanEndOrbit(terminalState, result);
 
             cache.Status = FinalizationCacheStatus.Fresh;
             cache.TerminalState = terminalState;

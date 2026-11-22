@@ -585,6 +585,18 @@ namespace Parsek
                 declineReason = "no-cache:" + (built?.DeclineReason ?? "(none)");
                 return false;
             }
+            if (built.GroundScanEnd && built.TerminalState == TerminalState.Orbiting)
+            {
+                // A vessel stock dropped from the save is never made spawnable: the
+                // ground-scan-end Orbiting ending (owner ruling 2026-11-22) keeps the floor's
+                // SubOrbital verdict here, with its tail.
+                built.GroundScanEnd = false;
+                built.TerminalState = TerminalState.SubOrbital;
+                ParsekLog.Verbose("BgRecorder", string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Dropped member {0}: ground-scan-end Orbiting kept SubOrbital (vessel gone from the save)",
+                    rec.RecordingId ?? "(null)"));
+            }
             if (!built.TerminalState.HasValue
                 || (built.TerminalState.Value != TerminalState.Destroyed
                     && built.TerminalState.Value != TerminalState.SubOrbital))

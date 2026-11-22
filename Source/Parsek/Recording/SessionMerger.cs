@@ -142,6 +142,7 @@ namespace Parsek
                 merged.TerminalPredicted = srcRec.TerminalPredicted;
                 merged.TerminalRemnantSurvives = srcRec.TerminalRemnantSurvives;
                 merged.QuietDestroyedEnd = srcRec.QuietDestroyedEnd;
+                merged.GroundScanEndOrbit = srcRec.GroundScanEndOrbit;
                 merged.RecoveredCrewNames = srcRec.RecoveredCrewNames != null
                     ? new List<string>(srcRec.RecoveredCrewNames)
                     : null;
