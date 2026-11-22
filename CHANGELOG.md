@@ -10,498 +10,278 @@ Not released yet.
 
 ### Added
 
-- **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly a real
-  Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
-  a comet grab.
+- **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly Klaw grabs, a
+  release, rock mining on a route, a Re-Fly across a grab and a comet grab.
 
-- **Dev: chained supply routes and many routes at once are tested.** A seeded test runs a hub
-  route feeding a depot that a second route draws from, through warps, saves and Re-Fly loads,
-  and a timing test runs 10 to 30 routes; the route tick also makes about half the garbage per
-  route it used to. (ROUTE-TICK-EVENT-LOG-SCANS)
+- **Dev: chained supply routes and many routes at once are tested.** A hub-and-depot chain and 10 to
+  30 routes run through warps, saves and Re-Fly loads.
 
-- **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
-  it now reports whether the vessel sits buried, hanging in the air, or away from its recorded
-  depth, on a line of its own that does not change the check's result yet.
+- **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea it
+  reports whether it sits buried, in the air or off its depth, without changing the result yet.
 
 ### Changed
 
-- **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching used to
-  explode in mid-air or at the edge of space on its replay. It now keeps falling along its path and
-  explodes where it hits the ground or the sea. A stage left on an orbit that only grazes thin air
-  stays in orbit and appears as a real vessel; one that dips deeper crashes on its first pass.
-  (ABANDONED-STAGE-D1)
-- **Stages left under open parachutes come down and land.** The replay shows the stage descending
-  under its chutes; it appears where it touches down, Landed or Splashed, still offered for Re-Fly.
-  Its landing speed is worked out from its chutes and the air: faster than about 12 m/s, or with
-  its chutes staged but still closed, it crashes. (ABANDONED-STAGE-CHUTES)
-- **A stage still under its chutes when you leave the flight is lost.** Going to the Space Center,
-  the Tracking Station or the main menu, or switching to a far vessel, while a stage is still
-  coming down ends it the way the game does: lost with its crew, its ghost coming down to the
-  ground with no explosion, nothing left there. If you keep flying, it lands as predicted.
-  (ABANDONED-STAGE-Q14)
-- **A stage the game deleted is never brought back.** When the game deletes a stage Parsek said
-  would land or settle in orbit, the replay no longer recreates it at its end: it ends lost with
-  its crew, the ghost coming down quietly. If the game keeps it flying instead, Parsek follows the
-  real stage. (ABANDONED-STAGE-STOCK-FATE)
+- **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching keeps
+  falling and explodes where it hits ground or sea, not in mid-air. (ABANDONED-STAGE-D1)
+- **Stages left under open parachutes come down and land.** The replay shows the stage under its
+  chutes and it appears where it lands; a landing too fast crashes. (ABANDONED-STAGE-CHUTES)
+- **A crewed stage skimming Mun or Minmus peaks appears in orbit.** It ends where the crash
+  check stopped, crew aboard, not tied up for good. (ABANDONED-STAGE-CREWED-SUBORBITAL-RESERVED)
+- **A stage still under its chutes when you leave the flight is lost.** Leaving while it is still
+  coming down ends it lost with its crew, as the game does. (ABANDONED-STAGE-Q14)
+- **A stage the game deleted is never brought back.** Its replay ends lost with its crew; if the
+  game keeps it flying, Parsek follows the real stage. (ABANDONED-STAGE-STOCK-FATE)
+- **A stage the game holds elsewhere appears where the game has it.** The replay follows the real
+  stage instead of the predicted orbit. (ABANDONED-STAGE-HELD-FINAL-ORBIT-NOT-COMPARED)
 - **The crew of a crashed stage are lost, as the game would have it.** A crewed stage whose replay
-  ends in a crash loses its crew, whether the game destroyed it or Parsek worked the crash out. In a
-  breakup only kerbals whose part was destroyed die, and no reputation is taken that the game did
-  not take. Flying the stage again keeps them alive. (ABANDONED-STAGE-C1)
-- **Recovering a stage Parsek said would crash brings it home.** Recover it from the Tracking
-  Station, the Space Center or in flight, before or after its predicted crash, and it ends Recovered
-  with its crew, each kerbal counted by the seat he was really in. A crash the game itself carried
-  out stays final. (ABANDONED-STAGE-RECOVERY)
-- **A stage on its way to the Sun settles into its final orbit.** A stage on an escape path is
-  followed until it settles on an orbit around the last body it reaches, and appears there as a real
-  vessel, crew aboard, when the replay gets there. It used to fly on for 50 years and never appear.
-  (ABANDONED-STAGE-L9)
-- **Flying an abandoned stage again takes it back.** Switching to, docking with, grabbing or
-  boarding a stage Parsek predicted a crash for drops the prediction, keeps the coast up to that
-  moment and records the stage for real from there; its ghost no longer shows beside the real stage.
-  If the game keeps a stage alive that Parsek said would crash, Parsek follows the game.
-  (ABANDONED-STAGE-P1)
-- **High time warp stays smooth with many supply routes in a long career.** A route's run used to
-  read through every route event the career had logged, several times, so warp slowed as the
-  career grew. It now reads only its own route's rows, and a tick where no route runs makes no
-  garbage per route. (ROUTE-TICK-EVENT-LOG-SCANS)
-- **New flights split the way a mission reads.** A reentry gets its own row from the first touch
-  of the air, skips included; aerobraking or an aerocapture is one row from the first pass; a
-  touch-and-go and an SOI change in space add no rows. New rows are named by their part of the
-  mission (ascent, space, aerobraking, reentry). Flights already on the timeline keep their rows,
-  and a big mission is split in one go. (OPTIMIZER-SPLIT-RULES-V2)
-- **New flights also split where a burn changes the orbit.** Reaching orbit, leaving it for
-  another body, being captured and deorbiting each start a new row: circularization, orbit,
-  transfer, deorbit or descent. Small corrections stay inside their row, a trip between planets
-  stays one row, and flights already on the timeline keep their rows. (OPTIMIZER-SPLIT-RULES-V3)
-- **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
-  trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
-  (REFLY-ROUTE-SOURCE-REFUSED)
-- **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
-  already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
-  this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
-  (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO)
-- **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
-  makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
-  its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
-- **A probe left on an escape trajectory becomes real at the end of its recording.** It used to
-  stay a replay that vanished. It now appears on its recorded path, in whichever planet's or the
-  Sun's reach it has got to by then, after the same orbit safety checks as an orbiting vessel.
-  A path that dips into an atmosphere or hits ground first still never spawns.
-  (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
-- **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
-  rock never drains the real rock (owner ruling 2026-11-15).
-- **A vessel you are not flying keeps one recording when it stages.** When it drops a stage or a
-  part breaks off, its recording carries on past the separation, as it does for the vessel you
-  fly, and pieces that come off together share one split. The Recordings list shows one row for
-  that vessel instead of two. (BG-SEPARATION-CLOSES-PARENT-RECORDING)
+  ends in a crash loses its crew; flying it again keeps them alive. (ABANDONED-STAGE-C1)
+- **Recovering a stage Parsek said would crash brings it home.** Recover it before or after the
+  predicted crash and it ends Recovered with its crew. (ABANDONED-STAGE-RECOVERY)
+- **A stage on its way to the Sun settles into its final orbit.** It appears there as a real vessel
+  when the replay gets there, instead of never. (ABANDONED-STAGE-L9)
+- **Flying an abandoned stage again takes it back.** Switching to, docking with or boarding it drops
+  the crash prediction and records it for real. (ABANDONED-STAGE-P1)
+- **High time warp stays smooth with many supply routes in a long career.** Each route now reads
+  only its own events, so warp no longer slows as the career grows.
+- **New flights split the way a mission reads.** Reentry and aerobraking get their own rows, rows
+  are named by mission part, and older flights keep theirs. (OPTIMIZER-SPLIT-RULES-V2)
+- **New flights also split where a burn changes the orbit.** Reaching orbit, a transfer, a capture
+  or a deorbit starts a new row; older flights keep theirs. (OPTIMIZER-SPLIT-RULES-V3)
+- **No Re-Fly on a flight a supply route uses.** The Fly button is greyed out and its tooltip says
+  to delete the route first. (REFLY-ROUTE-SOURCE-REFUSED)
+- **Deleting a supply route mid-trip now warns that its cargo will be lost.** The delete
+  confirmation says so when cargo is already aboard. (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO)
+- **A rock you let go of never becomes a Re-Fly slot.** A released asteroid or comet gets no rewind
+  point and never shows in Unfinished Flights. (ROCK-RELEASE-REFLY-SLOT)
+- **A probe on an escape path becomes real at its recording's end.** It used to vanish; it now
+  appears on its recorded path. (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
+- **Mining an asteroid on a supply route works like mining the ground.** A route that mines a rock
+  never drains the real rock.
+- **A vessel you are not flying keeps one recording when it stages.** It carries on past the
+  separation, so the Recordings list shows one row. (BG-SEPARATION-CLOSES-PARENT-RECORDING)
 
 ### Fixed
 
-- **Predicted paths are drawn on the map, in the Tracking Station and at the Space Center.** A
-  ghost past its last recorded point used to freeze there; it now moves along its predicted path
-  with a line under it, slides across a long gap instead of jumping, and explodes at the ground,
-  at any warp when it is in view. Looped replays reach the real crash site every time.
-  (ABANDONED-STAGE-R1)
-- **Predicted paths follow the real coast more closely.** A path no longer starts sideways or
-  lands off by about a degree per minute of age. It catches grazing moon passes and mountains on
-  airless moons, keeps the coast before a planned maneuver node, and a tumbling stage keeps
-  tumbling. An EVA kerbal or undocked craft you leave keeps its path instead of vanishing.
-  (ABANDONED-STAGE-B2)
-- **Quickload keeps the predicted paths of stages you left.** After an F9 or a save load during a
-  flight, the stages Parsek was following keep their predicted endings, and one the game removed
-  meanwhile follows its recorded fall instead of stopping in mid-air. (ABANDONED-STAGE-L8)
-- **Commit Flight no longer leaves stages hanging.** A stage still falling when you commit a flight,
-  switch far away or merge after a crash gets its predicted fall instead of freezing, a probe still
-  beside its parent no longer ends Landed at a wrong spot, and committed flights no longer pick up
-  part events afterwards. (ABANDONED-STAGE-B4)
-- **Ghosts no longer knock nearby craft.** The first replay of some parts, such as the Clydesdale
-  booster, could shove a real vessel parked close by, break it apart or lower its orbit. Building
-  those ghosts no longer touches the physics of anything around them.
-  (GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL)
-- **Reverting a flight no longer leaves its rewind save behind.** After a Revert to Launch, the
-  hidden save Parsek made when the flight staged stayed in the save folder. It is now deleted with
-  the revert, unless a quicksave you made during that flight still needs it.
-  (REVERT-LEAVES-REWIND-POINT-FILE)
-- **Hinges and rotation servos are recorded moving again.** A Breaking Ground hinge or rotation
-  servo was only seen moving while its part menu was open, so most replays showed it frozen at
-  its start angle. Its motion is now recorded however you move it, and the parts riding it
-  follow it on the replay. (RECORDER-SERVO-ANGLE-PAW-ONLY)
-- **Rotors keep spinning on the replay.** A Breaking Ground rotor was only seen spinning while its
-  part menu was open, and even then its replay stopped turning as soon as it reached a steady
-  speed. Its spin is now recorded however you run it, and the replayed rotor keeps turning until
-  the real one slows to a stop, then stops with it. (RECORDER-ROTOR-RPM-PAW-ONLY)
-- **Slow servo moves no longer bloat the recording.** A Breaking Ground servo moving slowly or
-  easing into its target was recorded as starting and stopping many times a second, and a hovering
-  rotor's small speed wobble was recorded four times a second. Each move is now recorded as one
-  start, a few positions and one stop. (RECORDER-ROBOTIC-MOTION-DEBOUNCE)
-- **The Alligator hinges and the G-32W Hinge replay at the right angle.** Their replay was bent 90
-  degrees away from the real hinge, at rest and through every swing. They now replay at the angle
-  the real hinge showed; the other hinges and servos replay as before.
-  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
-- **Mirrored hinges and rotation servos start their replay at the right angle.** The mirrored
-  half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
-  opposite way to the real part until it first moved. It now starts where the real part stood.
-  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
-- **A stowed ladder no longer shows extended on its ghost.** Every retractable ladder's replay drew
-  the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
-  recorded, folded or extended, and still slides out and back on the replay when it moved.
-  (GHOST-LADDER-SPAWNS-DEPLOYED)
-- **The ReStock Mk2 lander can keeps both hatches on its ghost.** Its replay drew one hatch on top
-  of the other, so one was missing at rest and slid through the cabin when the doors moved. Both
-  hatches now sit and move where the real part has them. (GHOST-POSE-DUPLICATE-PATHS)
-- **Spot light heads face the right way on their ghosts.** With ReStock installed, the replay of
-  the spot lights drew the lamp head turned around. Adjustable lights now show their head at the
-  angle the real light was set to. (GHOST-LIGHT-MOVEMENT-TRANSFORM)
-- **ReStock struts and fuel lines reach their target on their ghosts.** With ReStock installed, a
-  strut or fuel line replay kept its default short stub pointing the default way. It now
-  stretches to the part it connects to, with its texture stretched as on the real part, and
-  shows only its base when unconnected. (GHOST-RESTOCK-LINKED-MESH)
-- **Engine gimbal pistons and service bay door pistons sit right on their ghosts.** Their replays
-  showed the piston rods twisted about their own length. They are now aimed the way the real
-  part aims them, and follow the engine's gimbal and the doors as they move.
-  (GHOST-LOOKAT-CONSTRAINT)
-- **The ion engine's ring and the scanner's screen are dark on their ghosts when off.** Their
-  replays showed the glow and the lit screen the real parts only show when running or switched on.
-  The ghost now starts the way the real part looks, and a running ion engine still lights up.
-  (GHOST-ANIMATION-REST-STATE)
-- **ReStock engines no longer glow on their ghosts at rest.** A stopped ReStock engine's replay
-  showed an orange nozzle and a white-hot core where the real engine is dark. Its ghost now starts
-  dark like the real one, colour effects touch only the parts of the model the real part colours,
-  and the KV pods' windows show the colour the real pod shows. (GHOST-COLORCHANGER-GAPS)
-- **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
-  line and its far end even when the real strut or fuel line had no target. It now shows only the
-  base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
-- **ReStock Skiff engines with the orange shroud lose it like the real engine.** On the alternate
-  shroud variant, the replay kept the orange shroud on even where the real engine had none. The
-  ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
-- **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
-  its lens even while the real light was off. A light's lens and flare now follow the light:
-  dark when it is off, lit in the light's colour when it is on, and lights and cabin windows
-  keep switching after the replay flies fast through the air. (GHOST-LIGHT-LENS-GLOWS-OFF)
-- **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
-  drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
-  real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)
-- **Inflatable parts start deflated on their ghosts.** The stock inflatable heat shield and the
-  ReStock inflatable airlocks were replayed fully inflated even when the real part was packed.
-  They now start packed and inflate on the replay when the real part did.
-  (GHOST-INFLATABLE-SPAWNS-INFLATED)
-- **Hinge ghosts no longer show the piston arm.** The Alligator and G-32W hinges drew the bars
-  and knuckles that the real hinge hides in flight. The ghost now shows the hinge as the real part
-  does. (GHOST-HINGE-PISTON-ARM)
-- **A flag part's ghost shows one flag, not all of them.** The replay of every flag part drew
-  every size, both orientations and the panel and plain flags on top of each other. It now shows
-  only the flag the real part shows. (GHOST-FLAG-ALL-MESHES)
-- **A part's flag keeps its look on the ghost when a paint variant is chosen.** Picking the gold
-  or silver finish of the RoveMate also repainted its flag on the replay. The flag now stays a
+- **RealChute stages are seen under their chutes.** With RealChute, a stage left under open chutes
+  comes down under them instead of crashing. (ABANDONED-STAGE-REALCHUTE-LOADED)
+- **Predicted paths show on the map and at the Space Center.** A ghost past its last point moves
+  along its predicted path with a line, instead of freezing. (ABANDONED-STAGE-R1)
+- **Predicted paths follow the real coast more closely.** Paths no longer start sideways or land off
+  target, and a left EVA kerbal keeps its path. (ABANDONED-STAGE-B2)
+- **Quickload keeps the predicted paths of stages you left.** After an F9 or a load in flight,
+  stages keep their predicted endings. (ABANDONED-STAGE-L8)
+- **Commit Flight no longer leaves stages hanging.** A stage still falling when you commit, switch
+  far away or merge gets its predicted fall. (ABANDONED-STAGE-B4)
+- **Ghosts no longer knock nearby craft.** Building some ghosts, such as the Clydesdale's, could
+  shove or break a real vessel close by. (GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL)
+- **Reverting a flight no longer leaves its rewind save behind.** It is deleted with the revert
+  unless a quicksave still needs it. (REVERT-LEAVES-REWIND-POINT-FILE)
+- **Hinges and rotation servos are recorded moving again.** They used to record only while their
+  part menu was open. (RECORDER-SERVO-ANGLE-PAW-ONLY)
+- **Rotors keep spinning on the replay.** A rotor's spin is recorded however you run it and replays
+  until the real rotor stops. (RECORDER-ROTOR-RPM-PAW-ONLY)
+- **Slow servo moves no longer bloat the recording.** Each move is recorded as one start, a few
+  positions and one stop. (RECORDER-ROBOTIC-MOTION-DEBOUNCE)
+- **The Alligator hinges and the G-32W Hinge replay at the right angle.** They were bent 90 degrees
+  away from the real hinge. (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **Mirrored hinges and rotation servos start their replay at the right angle.** A mirrored or
+  Inverted servo no longer starts turned the opposite way. (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **A stowed ladder no longer shows extended on its ghost.** A ladder's replay starts folded or
+  extended, as recorded. (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The ReStock Mk2 lander can keeps both hatches on its ghost.** Both hatches sit and move where
+  the real part has them. (GHOST-POSE-DUPLICATE-PATHS)
+- **Spot light heads face the right way on their ghosts.** With ReStock, adjustable lights show
+  their head at the real angle. (GHOST-LIGHT-MOVEMENT-TRANSFORM)
+- **ReStock struts and fuel lines reach their target on their ghosts.** They stretch to the part
+  they connect to, as on the real part. (GHOST-RESTOCK-LINKED-MESH)
+- **Engine gimbal and service bay door pistons sit right on their ghosts.** They are no longer
+  twisted and follow the gimbal and doors. (GHOST-LOOKAT-CONSTRAINT)
+- **Ion engine rings and scanner screens are dark on ghosts when off.** A running ion engine still
+  lights up. (GHOST-ANIMATION-REST-STATE)
+- **ReStock engines no longer glow on their ghosts at rest.** A stopped engine's ghost starts dark
+  like the real one. (GHOST-COLORCHANGER-GAPS)
+- **A strut or fuel line attached to nothing shows no line on its ghost.** It shows only the base,
+  as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
+- **ReStock Skiff engines with the orange shroud lose it like the real engine.** The ghost shows and
+  drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
+- **A switched-off light's lens no longer glows on its ghost.** A light's lens and flare follow the
+  light: dark when off, lit when on. (GHOST-LIGHT-LENS-GLOWS-OFF)
+- **The MEM lander's adapter only shows when something is attached below it.** Its ghost follows the
+  real part's rule. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)
+- **Inflatable parts start deflated on their ghosts.** Heat shields and ReStock airlocks start
+  packed and inflate when the real part did. (GHOST-INFLATABLE-SPAWNS-INFLATED)
+- **Hinge ghosts no longer show the piston arm.** The ghost shows the hinge as the real part does.
+  (GHOST-HINGE-PISTON-ARM)
+- **A flag part's ghost shows one flag, not all of them.** It shows only the flag the real part
+  shows. (GHOST-FLAG-ALL-MESHES)
+- **A part's flag keeps its look on the ghost when a paint variant is chosen.** The flag stays a
   flag, as on the real part. (GHOST-VARIANT-RESKINS-FLAG)
-- **Painted tank and nose cone variants look right on their ghosts.** A variant's bump texture was
-  loaded the wrong way, which also spoiled that texture for the real parts until a restart. Ghosts
-  of Size3 tanks and the orange nose cones now match the real part, and the real part stays
-  unharmed. (GHOST-VARIANT-BUMPMAP-CONVERTED)
-- **Heat shield ghosts are no longer black.** Every heat shield replay, and the shields on the
-  ReStock pods, drew the shield fully charred from the first frame. A shield now starts the colour
-  the real one shows, from how much ablator it had left, and still darkens during reentry.
-  (GHOST-HEATSHIELD-BLACK)
-- **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
-  of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
-  An engine with a tank or decoupler under it keeps its shroud as before.
-  (GHOST-SHROUD-EMPTY-BOTTOM-NODE)
-- **Ghosts of ReStock parts look like the real parts again.** The LV-T45 boosters of a replayed
-  Kerbal X no longer show a skirt and a second shroud, and a deployed Mk16-XL parachute opens to
-  its full size instead of staying small and folded. (RESTOCK-GHOST-SKIRT-AND-CHUTE)
-- **A flight's rows settle when it is merged, not over the next loads.** Some rows Parsek split
-  were joined back to their neighbour only on a later load, so the rows changed again after
-  loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
-- **Every row of a new flight is named by its part of the mission.** A row Parsek never had to
-  split was labelled by its raw phase ("exo") beside rows named "space", and a reentry row that
-  flew back up to orbit when you continued it kept the name "reentry". (ROW-ROLE-STALE-OR-MISSING)
-- **A flight with a missing middle row still plays and follows as one flight.** When a row was
-  gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
-  stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
-- **A loop set on one row of a flight still loops just that part when you fly it again.** When
-  the new flight absorbed the old row, its loop, hide or ghost-off setting spread over the whole
-  flight and every row cut from it later. The loop now covers the old row's span only; a hide or
-  ghost-off on that row is not carried over. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
-- **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
-  milestones from the later part of a re-flown flight reached the career only on the next load,
-  and a vessel whose ending moved to the new part could fail to appear.
-  (UNION-COMMIT-STALE-INCOMING-TREE)
-- **A rescue or tourism contract still works after you go back in time.** If you go back to before
-  you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
-  again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
-  passengers become tourists again, unless your recorded future already ends that contract.
-  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
-- **A stranded rescue vessel still appears after a rewind or a discarded Re-fly.** When the moment
-  you went back to was already waiting to bring back a rescue's stranded kerbal or part, it now
-  appears at your next Space Center visit instead of never, so the contract can still be finished.
-  (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)
-- **Construction, repair and part test contracts still work after you go back in time.** If you
-  go back to before you accepted one, the craft to build on or repair reappears when the clock
-  reaches the accept again (at your next Space Center visit if you are elsewhere then), and the
-  part to test becomes usable again, unless your recorded future already ends that contract.
-  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
-- **One missing recording file no longer stops a mission from saving.** When one recording of a
-  mission had lost its file, every later save kept that mission exactly as it was before:
-  new flights in it, renames and other changes were silently not saved. The mission now saves
-  normally, and the recording with the missing file keeps pointing at its last saved files.
-  (SAVE-FREEZE-ON-MISSING-SIDECAR)
-- **Parts on robotic hinges, rotors and pistons move on the replay.** A ghost turned only the
-  servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
-  Everything on the moving side of a servo now moves with it, servos on servos included, and
-  parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
-- **In flight, committed events now happen at their time.** A launch pad a recorded flight
-  crashed into, a Space Center purchase or a contract outcome from your committed timeline now
-  takes effect when the flight clock reaches it, as at the Space Center, instead of at the next
-  warp exit or commit. A pad crash shows even while you record.
-  (FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS)
+- **Painted tank and nose cone variants look right on their ghosts.** Ghosts match the real part,
+  and the real part's texture is no longer spoiled. (GHOST-VARIANT-BUMPMAP-CONVERTED)
+- **Heat shield ghosts are no longer black.** A shield starts the colour the real one shows and
+  still darkens during reentry. (GHOST-HEATSHIELD-BLACK)
+- **A ghost engine with nothing below it no longer shows a shroud.** An engine with a tank or
+  decoupler under it keeps its shroud. (GHOST-SHROUD-EMPTY-BOTTOM-NODE)
+- **Ghosts of ReStock parts look like the real parts again.** LV-T45 boosters lose the extra skirt
+  and shroud, and the Mk16-XL chute opens fully. (RESTOCK-GHOST-SKIRT-AND-CHUTE)
+- **A flight's rows settle when it is merged, not over the next loads.** Rows no longer change again
+  after loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
+- **Every row of a new flight is named by its part of the mission.** No row keeps a raw phase name
+  or a stale "reentry" name. (ROW-ROLE-STALE-OR-MISSING)
+- **A flight with a missing middle row still plays and follows as one flight.** Watching and parent
+  links no longer stop at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
+- **A loop set on one row still loops just that part when you fly it again.** It no longer spreads
+  over the whole flight. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
+- **A flight you fly again keeps everything it earned after Parsek splits it.** Its science and
+  milestones reach the career at once, and its vessel appears. (UNION-COMMIT-STALE-INCOMING-TREE)
+- **A rescue or tourism contract still works after you go back in time.** The stranded kerbal or
+  part comes back when the clock reaches the accept again, and passengers become tourists again.
+- **A stranded rescue vessel still appears after a rewind or a discarded Re-fly.** It appears at
+  your next Space Center visit, so the contract can still be finished.
+- **Construction, repair and part test contracts still work after you go back in time.** The craft
+  to build on or repair comes back at the accept, and the test part is usable again.
+- **One missing recording file no longer stops a mission from saving.** Later changes to that
+  mission used to be silently dropped. (SAVE-FREEZE-ON-MISSING-SIDECAR)
+- **Parts on robotic hinges, rotors and pistons move on the replay.** Everything on the moving side
+  of a servo now moves with it. (GHOST-SERVO-CHILDREN-STATIC)
+- **In flight, committed events now happen at their time.** Pad crashes, purchases and contract
+  outcomes take effect when the flight clock reaches them.
 - **The last row of a split flight keeps its ending details.** Its situation text, docking partner
-  and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
-  (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
-- **Looping debris follows its own rocket.** A looping debris ghost could follow the loop of
-  another stage, or of an unrelated recording after one was removed from the list.
-  (LOOP-SYNC-PARENT-LINK-WRONG)
+  and dock windows no longer stay on the first row. (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
+- **Looping debris follows its own rocket.** It no longer follows the loop of another stage or an
+  unrelated recording. (LOOP-SYNC-PARENT-LINK-WRONG)
 - **A launch's first row is labelled by its ascent, not "surface".** The pad time stays with the
-  ascent, and the row used to be named after it. (LAUNCH-HEAD-LABELLED-SURFACE)
-- **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
-  piece used to come back visible, enabled and not looping. A flight with a loop range is now
-  never split or shortened. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
-- **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
-  taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
-  it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
-- **A lander resting on an asteroid or comet no longer appears inside the rock.** It now appears
-  just clear of the rock's surface and moves with it, drifting slowly as in stock. A vessel holding
-  the rock with the Klaw is still one vessel with the rock. (SPAWN-RESTING-ON-ROCK)
-- **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
-  looping, regrouping or turning off the ghost of another flight of the same mission while you
-  re-fly one part of it was undone by the merge, and a sealed slot could come back open with no
-  rewind point. These settings now always survive a merge. (MERGE-REVERTS-PLAYER-SETTINGS)
-- **Flying a finished vessel again keeps the new flight.** If the game reloaded while you flew
-  a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
-  your new flight away as a duplicate when you merged. The earlier flight now stays as it is
-  while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
-- **A probe that survives a crash keeps its ending.** When a crash destroyed the crewed part and a
-  probe-controlled piece flew on, that piece could be saved as destroyed once it was far away, so
-  it did not come back at the end of its replay. It now ends where it really is.
-  (SURVIVOR-DESTROYED-AT-SCENE-EXIT)
-- **A merge that adds nothing no longer says "Merged".** When the flight was already on the
-  timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
-  this flight is already in the timeline", and an automatic merge says nothing.
-  (MERGE-DUPLICATE-SKIP-TOASTS-MERGED)
-- **An interrupted Re-Fly merge no longer also says "Merged".** After "Merge interrupted - will
-  finish on next load" the game also showed the success message; it now shows only the first.
-  (REFLY-INTERRUPTED-MERGE-TOASTS-MERGED)
-- **A Re-Fly merge that keeps failing no longer blocks the save.** Every load retried it and failed,
-  and Discard stayed refused for good. Parsek now retries once, then hides the whole old flight
-  instead of cutting it; if that fails too it keeps the old flight as it was and lets you discard
-  the new attempt. (REFLY-MERGE-FINISHER-NEVER-CONVERGES)
-- **Timeline cuts never fall inside a time jump or a cheat teleport.** A Re-Fly whose rewind point
-  falls inside a time jump cuts the old flight just before the jump, and the timeline cleanup
-  moves a split out of a jump or a teleport (or skips it), so no replay slides across one.
+  ascent row. (LAUNCH-HEAD-LABELLED-SURFACE)
+- **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** A flight with a
+  loop range is never split. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
+- **A vessel that ends in orbit next to another no longer appears inside it.** It appears a few
+  metres away on its own orbit, or is held back. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
+- **A lander resting on an asteroid or comet no longer appears inside the rock.** It appears just
+  clear of the surface and moves with it. (SPAWN-RESTING-ON-ROCK)
+- **Changes you make during a Re-Fly are kept when it merges.** Seal, stash, hide, loop, group and
+  ghost settings on the mission's other flights survive. (MERGE-REVERTS-PLAYER-SETTINGS)
+- **Flying a finished vessel again keeps the new flight.** A reload during the flight no longer
+  makes the merge drop it as a duplicate. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
+- **A probe that survives a crash keeps its ending.** A probe piece that flew on is no longer saved
+  as destroyed. (SURVIVOR-DESTROYED-AT-SCENE-EXIT)
+- **A merge that adds nothing no longer says "Merged".** Clicking Merge says there is nothing new to
+  merge; an automatic merge says nothing. (MERGE-DUPLICATE-SKIP-TOASTS-MERGED)
+- **An interrupted Re-Fly merge no longer also says "Merged".** Only the "Merge interrupted" message
+  is shown. (REFLY-INTERRUPTED-MERGE-TOASTS-MERGED)
+- **A Re-Fly merge that keeps failing no longer blocks the save.** Parsek retries once, then falls
+  back, and you can discard the new attempt. (REFLY-MERGE-FINISHER-NEVER-CONVERGES)
+- **Timeline cuts never fall inside a time jump or a cheat teleport.** No replay slides across one.
   (CUT-INSIDE-TIME-JUMP-OR-TELEPORT)
-- **Vessels recorded close to a re-flown ship keep replaying.** A ghost recorded relative to the
-  old flight after the rewind point (one docking with it, say) lost its reference when the merge
-  cut the old flight and vanished early; it now follows the cut-off part of the old flight.
-  (REFLY-CUT-ORPHANS-RELATIVE-ANCHORS)
-- **A Re-Fly merge splits the new flight into its timeline rows at once.** The new attempt stayed
-  one long row until the next merge or game load; it is now split at atmosphere, landing and
-  sphere-of-influence changes as soon as the merge finishes.
-  (REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE)
-- **A Re-Fly that ends still in flight stays open to fly again.** When the merge could not find
-  the Re-Fly's slot, a flight that ended on a sub-orbital arc was sealed; it now stays open, as it
-  does when the slot is found. (REFLY-FALLBACK-SEALS-SUBORBITAL)
-- **A crash in the middle of a Re-Fly merge no longer brings the old flight back.** If the game
-  stopped right after the merge cut the old recording in two, the next load could join the two
-  halves again before the merge finished, so the old flight played beside the new one.
-  (REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS)
-- **Tidying the timeline no longer deletes a recording it could not join.** The cleanup that joins
-  pieces of one flight skipped joining onto a destroyed vessel's recording but still deleted the
-  other piece and its files. It now leaves both alone, and a crashed flight that was cut in two
-  keeps its crash on the later piece. (OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING)
-- **Switching to a falling booster no longer records it forever.** A dropped stage you switched to
-  kept recording until it crashed, unlike every other dropped stage. It now stays a dropped stage
-  and its recording ends 60 seconds after it separated, while you keep watching it.
-  (DEBRIS-LIFETIME-LOST-ON-PROMOTION)
-- **A crewed or probe-controlled vessel you are not flying records every breakup.** A vessel
-  that had already separated once from your rocket no longer ignored its own later separations
-  while in the background. Plain debris still records only the separation that made it.
-  (BG-BREAKUP-GENERATION-CAP)
-- **Time warp no longer cuts off a falling booster's replay.** Warping right after staging ended
-  the recording of every dropped stage at once. A dropped stage now keeps recording through the
-  warp until its usual 60 seconds are up. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
-- **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
-  Space Center, or committing the flight, while an engine or thruster was firing kept its plume
-  burning in the replay until the end. It now shuts off at the moment you left.
-  (FORCESTOP-LEAVES-ENGINES-LIT)
-- **A kerbal or probe that ended its flight right next to another vessel no longer ends up inside
-  the planet.** The end position could be read from a position measured from the nearby vessel,
-  which placed it far below the ground. (ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON)
-- **Destroyed flights all end the same way.** A craft destroyed far from you could keep the orbit
-  or landing spot it had when it died, unlike every other destroyed flight. All destroyed endings
-  now carry the same data. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
-- **A wreck is a wreck however close you were.** When a crash broke a craft so that no command
-  part survived, what was left was recorded as destroyed only if you had flown far away from it;
-  nearby it could be saved as landed and come back as a wreck at the end of its replay.
-  (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE)
-- **A crash stays a crash when the game hands you a surviving piece.** When a craft crashed and
-  the game switched to a piece that survived, the crashed craft could be saved as landed at the
-  impact point and come back intact at the end of its replay. (CRASH-HANDOFF-LOSES-DESTROYED)
-- **A save from a newer Parsek keeps its flights' endings.** A flight that ended in a way this
-  version does not know was saved back with no ending, and its end could then be cut away. The
-  ending is now kept as it was and the trajectory is left whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)
-- **A docked or boarded flight keeps its ending.** Recovering the ship it docked with, or the ship
-  a kerbal boarded, could rewrite the earlier flight as recovered and pay its recovery a second
-  time. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)
-- **Dropped boosters that were still burning stop their flame when their replay ends.** A spent
-  stage or booster whose recording ended while its engine still fired kept the flame lit to the
-  end of its replay. (DEBRIS-END-LEAVES-ENGINES-LIT)
-- **A recording now ends where the vessel was when it stopped.** Stopping, leaving the scene or
-  committing could end the replay a few seconds short of the vessel's real last position, and a
-  crash watched from another vessel could end the wreck in the air above the impact. The final
-  position is now sampled at the stop. (STOP-TAKES-NO-FINAL-SAMPLE)
-- **A separated vessel is never lost when two separations come close together.** Staging and
-  then undocking, going on EVA or docking within half a second, two separations in the same
-  frame, or a quicksave right after staging could leave a booster or satellite with no replay
-  and no ghost. Every separated vessel now gets its own recording.
-  (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
-- **Undocking a vessel you just switched to records both halves.** After switching with `]` to a
-  vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
-  kept; the piece that came off had no replay. Both now get their own recording.
-  (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
-- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** When
-  control moved to the ship leaving a probe-less depot, its flight was written into the depot's
-  recording and its replay followed the wrong vessel. Each now gets its own recording.
-  (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
-- **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
-  flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
-  continues its own mission; while the game refuses switching (under thrust, in the air) that
-  switch is refused too. Before, the vessel could be attached to the flight you left as if
-  launched from it; that no longer happens on any switch. (CYCLE-SWITCH-PRESWITCH-BYPASS)
-- **Switching to a vessel and only watching it no longer starts a recording for it.** A vessel
-  that just tumbles, turns with its orbit or drifts into another body's sphere of influence is not
-  treated as changed. Turning it yourself, firing an engine or any other change still starts one.
-  (POST-SWITCH-PASSIVE-MOTION-TRIGGERS)
-- **Watching a ship that docks and later undocks keeps the camera on that ship.** When the ship
-  you were watching docked to a station and then left it, the camera could stay with the station
-  instead. Watch now follows the ship you started watching through the undock.
-  (WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION)
-- **Planet packs with another home world get Space Center ghosts and routes.** With a pack whose
-  home planet is not Kerbin, the Space Center now replays flights launched from home and supply
-  routes launched from its launch sites count as Space Center routes again.
-  (PLANET-PACK-HOME-WORLD-LITERAL)
-- **Sealing a flight that was split in two now lets you make a supply route from it.** When an
-  Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
-  sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
-  count as finished, and "N flights can still be re-flown" counts flights, not recordings.
-  (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
-- **A ship keeps its own mission after you load a save.** After loading a save made in flight,
-  flying a ship from a finished mission again could start a new mission for it. It now continues
-  its own mission, as it does when you fly it without loading.
-  (COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH)
-- **A vessel whose landing spot is taken is placed back along its own path.** When another
-  vessel blocks the end spot, Parsek steps back along the recorded path; a lander that flew in
-  near a base could be put down far away in a random direction instead. (TIP-SPAWN-PLACEMENT)
-- **A vessel that ends under water appears at its depth.** A submarine or sunken pod now appears
-  where it ended, as its replay showed it, instead of jumping up to the surface. It is never put
-  inside the sea floor, and a boat recorded above the water still sits on it. (TIP-SPAWN-PLACEMENT)
-- **A vessel or kerbal that ends at sea is created in the water.** It was written as landed on
-  the water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
-- **A vessel whose whole crew died is never created as an empty capsule.** This now holds for the
-  last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
-  room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
-- **A vessel you terminate or delete stays gone.** Terminating or deleting a recording's end
-  vessel in the Tracking Station no longer brings it back in the next flight or after a load,
-  and its crew are no longer held for it. A vessel that keeps dying on arrival still gets its
-  retries, and the retry count now survives a save. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
-- **An end vessel whose spawn fails with no ghost on screen is tried again.** When a recording
-  ended out of view and its vessel could not be placed, it was never tried again in that scene.
-  It is now retried for a short while, like a recording whose ghost is still showing, and spawns
-  once. (SPAWN-FAILED-NO-GHOST-NEVER-RETRIED)
+- **Vessels recorded close to a re-flown ship keep replaying.** A ghost recorded relative to the old
+  flight follows its cut-off part instead of vanishing. (REFLY-CUT-ORPHANS-RELATIVE-ANCHORS)
+- **A Re-Fly merge splits the new flight into its timeline rows at once.** It no longer stays one
+  long row until the next load. (REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE)
+- **A Re-Fly that ends still in flight stays open to fly again.** A flight ending on a sub-orbital
+  arc is no longer sealed. (REFLY-FALLBACK-SEALS-SUBORBITAL)
+- **A crash in the middle of a Re-Fly merge no longer brings the old flight back.** The old flight
+  no longer plays beside the new one. (REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS)
+- **Tidying the timeline no longer deletes a recording it could not join.** Both pieces are left
+  alone. (OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING)
+- **Switching to a falling booster no longer records it forever.** It stays a dropped stage and its
+  recording ends 60 seconds after separation. (DEBRIS-LIFETIME-LOST-ON-PROMOTION)
+- **A crewed or probe-controlled vessel you are not flying records every breakup.** Its later
+  separations are no longer ignored. (BG-BREAKUP-GENERATION-CAP)
+- **Time warp no longer cuts off a falling booster's replay.** A dropped stage keeps recording
+  through warp for its usual 60 seconds. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
+- **Leaving the scene during a burn no longer leaves the replay's engines lit.** The plume shuts off
+  at the moment you left. (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A kerbal or probe ending beside a vessel no longer ends inside the planet.** Its end position is
+  now read correctly. (ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON)
+- **Destroyed flights all end the same way.** A craft destroyed far from you no longer keeps its
+  orbit or landing spot. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
+- **A wreck is a wreck however close you were.** A crash remnant with no command part is recorded as
+  destroyed, not landed. (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE)
+- **A crash stays a crash when the game hands you a surviving piece.** The crashed craft no longer
+  comes back intact at its replay's end. (CRASH-HANDOFF-LOSES-DESTROYED)
+- **A save from a newer Parsek keeps its flights' endings.** An ending this version does not know is
+  kept as it was, and the trajectory stays whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)
+- **A docked or boarded flight keeps its ending.** Recovering the ship it joined no longer rewrites
+  it as recovered or pays twice. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)
+- **Dropped boosters that were still burning stop their flame when their replay ends.** The flame no
+  longer stays lit. (DEBRIS-END-LEAVES-ENGINES-LIT)
+- **A recording now ends where the vessel was when it stopped.** The final position is sampled at
+  the stop, so replays no longer end short. (STOP-TAKES-NO-FINAL-SAMPLE)
+- **A separated vessel is never lost when two separations come close together.** Every separated
+  vessel gets its own recording. (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
+- **Undocking a vessel you just switched to records both halves.** The piece that came off now gets
+  its own replay. (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
+- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** Each gets
+  its own recording. (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
+- **The `[` and `]` keys switch missions like Switch-To does.** The flight you leave is merged
+  first, and the vessel you switch to continues its own mission. (CYCLE-SWITCH-PRESWITCH-BYPASS)
+- **Switching to a vessel and only watching it no longer starts a recording for it.** Tumbling or
+  drifting is not a change. (POST-SWITCH-PASSIVE-MOTION-TRIGGERS)
+- **Watching a ship that docks and later undocks keeps the camera on that ship.** It no longer stays
+  with the station after the undock. (WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION)
+- **Planet packs with another home world get Space Center ghosts and routes.** Flights and routes
+  launched from a home world other than Kerbin count as home. (PLANET-PACK-HOME-WORLD-LITERAL)
+- **Sealing a flight that was split in two now lets you make a supply route from it.** Sealed trips
+  count as finished. (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
+- **A ship keeps its own mission after you load a save.** Flying a ship from a finished mission
+  again no longer starts a new mission. (COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH)
+- **A vessel whose landing spot is taken is placed back along its own path.** It is no longer put
+  down far away in a random direction. (TIP-SPAWN-PLACEMENT)
+- **A vessel that ends under water appears at its depth.** It no longer jumps to the surface and is
+  never put inside the sea floor. (TIP-SPAWN-PLACEMENT)
+- **A vessel or kerbal that ends at sea is created in the water.** It is no longer written as landed
+  on the water. (TIP-SPAWN-PLACEMENT)
+- **A vessel whose whole crew died is never created as an empty capsule.** This now holds for every
+  chain end and fallback path. (TIP-SPAWN-PLACEMENT)
+- **A vessel you terminate or delete stays gone.** It no longer comes back in the next flight or
+  after a load, and its crew are freed. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
+- **An end vessel whose spawn fails with no ghost on screen is tried again.** It is retried for a
+  short while and spawns once. (SPAWN-FAILED-NO-GHOST-NEVER-RETRIED)
 - **An end vessel Parsek gave up on starts clean after a scene change.** After a quickload or a
-  Re-Fly start, a vessel Parsek had given up placing (no clear spot, crew lost) tried again but
-  kept half of the old "given up" state: a failed try was marked done in silence, and a vessel
-  that did appear was no longer watched for loss. Each load now starts it fresh.
-  (SPAWN-ABANDON-SURVIVES-LOAD)
-- **Loading a save into flight no longer skips a vessel that is still due.** Loading straight
-  into flight just after a replayed flight ended skipped that flight's end vessel and freed its
-  crew until the next scene change. The vessel now appears and its crew stay reserved.
-  (COLD-LOAD-DROPS-OWED-SPAWN)
-- **A Re-Fly no longer spawns end vessels of unrelated flights.** During a Re-Fly, recordings
-  of other missions from before the save could spawn their vessels again. Only the flight being
-  flown again is treated as replayed now. (REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL)
-- **Two vessels that end on one spot are no longer created inside each other.** When two
-  deliveries land on the same spot while you are in the Tracking Station or far away in flight,
-  the later one is now set down 15 m clear, as the Space Center already did, instead of in the
-  same place where they could explode on the next load. (SPAWN-TS-STACK-NO-DE-OVERLAP)
-- **A Re-Fly you kept open no longer closes by itself after a load.** Records broken by a ship
-  picked up again after a load counted as part of its earlier, already merged flight, so the
-  next load could seal its Re-Fly slot, and records from a flight you then rewound away were
-  kept. They now belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
-- **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
-  or splashdown on another body, recorded from there, now appears when you time-warp past its
-  end at the Space Center, not only on the next Tracking Station or flight visit. Like those
-  scenes, it now skips a vessel a later flight docks to or boards, and leaves a flight that
-  stopped in orbit with no ending to them, on Kerbin too. (KSC-END-SPAWN-SKIPS-OFF-KERBIN)
-- **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
-  boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
-  the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
-  (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
-- **Flying a supply route's ship again no longer breaks the route.** Merging a later flight of
-  the ship a route was built from could pause the route as "source changed" for good, although
-  its recorded run was untouched. The route now keeps running.
-  (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE)
-- **Supply routes no longer make cargo out of nothing.** A route starting docked at a depot
-  could take fuel another route had set aside there, and a route whose pickup came up short still
-  delivered the full amount. It now waits until the depot has enough beyond what other routes
-  reserved, and delivers only what it picked up, to the first stops first.
-  (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
-- **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Rolling on gear
-  wrote about 22 suspension events a second; suspension is no longer recorded, and replays of
-  older recordings keep the gear at rest instead of shifting the wheels out of place.
-  (RECORDER-GEAR-SUSPENSION-AS-ROBOTICS)
-- **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
-  grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
-  from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
-- **Ore drilled from a held rock now counts for a supply route.** Grabbing a rock, drilling it,
-  letting it go and flying the Ore to a station used to be refused as "delivered more than
-  harvested". The drilling now counts, so the route is made. (ROUTE-HELD-ROCK-HARVEST-UNCOUNTED)
-- **A grabbed rock's ghost has the rock's own shape and size.** A ghost ship carrying a rock, a
-  released rock's replay and the stand-in for a claimed rock after a rewind now show the real
-  rock instead of a small default lump. Comets get their rock but no tail. (ROCK-GHOST-PREFAB-MESH)
-- **A ship holding a rock checks for room at the rock's real size.** The clear-space check
-  before a vessel becomes real counted a big asteroid as one small part, so it could appear
-  inside a nearby vessel. (ROCK-SPAWN-BOUNDS-TOO-SMALL)
-- **A looped mission that starts in orbit keeps its own launch moon.** A loop that began in orbit
-  around one moon and later passed low over another was timed as if it had launched from the
-  second one. Its loops are now spaced around the moon it really started from.
-  (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
-- **The same holds when you never time-warp before that low pass.** A loop that started in orbit
-  and passed low over another moon before the first warp was still timed around that second moon.
-  It now keeps the moon it started from. (MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED)
-- **A flight resumed after a load saves its real end time.** A Re-Fly attempt, or any flight
-  picked up again after a quickload, kept the moment it resumed as its saved end even after it
-  flew on. Replays already used the real end; now the save says so too, and a ship that sheds a
-  part later in that flight is still treated as the ship that flew on. (REFLY-ATTEMPT-STALE-END-UT)
-- **A replaced flight that survived is no longer at risk of being marked destroyed.** Saving
-  a new version of a recorded flight could carry the old version's "destroyed" mark onto a
-  vessel that flew on. Not seen in play. (REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT)
-- **An empty recording no longer makes a later flight look like it started at time zero.** That
-  could let an unrelated later flight of the same vessel name stop an earlier flight's vessel
-  from appearing. Not seen in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
-- **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** The
-  discarded segment's vessels, a dangling split and a stale starting point no longer linger in
-  the kept part of the flight, and splits from before the segment stay as they were. Not seen in
-  play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
-- **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** That
-  ship's replay now waits for the docked stack instead of also becoming real on its own, and the
-  Missions window names it as the dock partner. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
-- **A Fly from the Tracking Station records after an unfinished flight is committed.** When the
-  Space Center committed an unfinished flight on load (leaving right after a quickload, or loading
-  a save that held one), the next Fly from the Tracking Station or a KSC marker started no
-  recording of that vessel. (AUTOMERGE-ON-BY-DEFAULT)
-- **Ended contracts no longer go missing from the Mission Control Archive.** A contract whose
-  committed outcome had passed could leave the active list after a load without ever showing up
-  as finished. It is now listed once the clock reaches its outcome; nothing is paid or charged
-  again. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
+  Re-Fly start, it starts fresh. (SPAWN-ABANDON-SURVIVES-LOAD)
+- **Loading a save into flight no longer skips a vessel that is still due.** The vessel appears and
+  its crew stay reserved. (COLD-LOAD-DROPS-OWED-SPAWN)
+- **A Re-Fly no longer spawns end vessels of unrelated flights.** Only the flight being flown again
+  is treated as replayed. (REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL)
+- **Two vessels that end on one spot are no longer created inside each other.** The later one is set
+  down 15 m clear. (SPAWN-TS-STACK-NO-DE-OVERLAP)
+- **A Re-Fly you kept open no longer closes by itself after a load.** Records from a ship picked up
+  again belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
+- **A vessel that ends away from Kerbin appears when you wait at the Space Center.** Warping past
+  its end there now spawns it. (KSC-END-SPAWN-SKIPS-OFF-KERBIN)
+- **A kerbal's walk back to a hatch replays correctly after a save.** The last stretch replays on
+  the kerbal's real path. (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
+- **Flying a supply route's ship again no longer breaks the route.** The route no longer pauses as
+  "source changed" and keeps running. (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE)
+- **Supply routes no longer make cargo out of nothing.** A route waits for unreserved cargo at the
+  depot and delivers only what it picked up. (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
+- **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Suspension is no
+  longer recorded. (RECORDER-GEAR-SUSPENSION-AS-ROBOTICS)
+- **Rock-mining trips carry no more ore than the drills produce.** A route credits at most what the
+  drill could mine in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
+- **Ore drilled from a held rock now counts for a supply route.** Such a route is no longer refused
+  as delivering more than harvested. (ROUTE-HELD-ROCK-HARVEST-UNCOUNTED)
+- **A grabbed rock's ghost has the rock's own shape and size.** It is no longer a small default
+  lump; comets get their rock but no tail. (ROCK-GHOST-PREFAB-MESH)
+- **A ship holding a rock checks for room at the rock's real size.** It can no longer appear inside
+  a nearby vessel. (ROCK-SPAWN-BOUNDS-TOO-SMALL)
+- **A looped mission that starts in orbit keeps its own launch moon.** Its loops are spaced around
+  the moon it started from. (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **The same holds when you never time-warp before that low pass.** The loop keeps the moon it
+  started from. (MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED)
+- **A flight resumed after a load saves its real end time.** The save records the real end instead
+  of the moment it resumed. (REFLY-ATTEMPT-STALE-END-UT)
+- **A replaced flight that survived is no longer at risk of being marked destroyed.** Not seen in
+  play. (REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT)
+- **An empty recording no longer makes a later flight look like it started at time zero.** Not seen
+  in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
+- **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** Not seen
+  in play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
+- **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** Its
+  replay waits for the docked stack. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
+- **A Fly from the Tracking Station records after an unfinished flight is committed.** It no longer
+  starts without a recording. (AUTOMERGE-ON-BY-DEFAULT)
+- **Ended contracts no longer go missing from the Mission Control Archive.** They are listed once
+  their outcome is reached. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 
 ## 1.0.2
 

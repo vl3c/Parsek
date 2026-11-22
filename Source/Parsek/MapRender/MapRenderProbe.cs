@@ -1978,12 +1978,18 @@ namespace Parsek
             internal string ClockConvention { get; }
             /// <summary>Whether the Director's fresh seed matched the covering recorded segment.</summary>
             internal string SeedKind { get; }
+            /// <summary>Why the oracle used the ratio tolerance it did (a
+            /// <c>SeamEndpointOracle.ToleranceSource*</c> constant); null on a skip.</summary>
+            internal string ToleranceSource { get; }
+            /// <summary>The destination's phase residual at the loop shift (seconds); NaN when not computed.</summary>
+            internal double PhaseResidualSeconds { get; }
 
             internal SeamEndpointSample(
                 bool sampled, string skipReason,
                 Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result,
                 string fromBody, string toBody, double recordedSeamUT, double seamUT,
-                string clockConvention, string seedKind)
+                string clockConvention, string seedKind,
+                string toleranceSource = null, double phaseResidualSeconds = double.NaN)
             {
                 Sampled = sampled;
                 SkipReason = skipReason;
@@ -1994,6 +2000,8 @@ namespace Parsek
                 SeamUT = seamUT;
                 ClockConvention = clockConvention;
                 SeedKind = seedKind;
+                ToleranceSource = toleranceSource;
+                PhaseResidualSeconds = phaseResidualSeconds;
             }
 
             internal static SeamEndpointSample Skip(string reason)
@@ -2149,14 +2157,58 @@ namespace Parsek
                 return SeamEndpointSample.Skip("propagation-threw");
             }
 
+            // A faithful loop replay on the shifted (baked) clock is judged against the destination's
+            // bounded PhaseLock residual, not the re-aim-calibrated default; the shift handed over is
+            // the one the clock mapping actually applied (SeamEndpointOracle.ResolveRatioTolerance).
+            Parsek.MapRender.SeamEndpointOracle.RatioToleranceDecision tolerance =
+                ResolveSeamRatioTolerance(
+                    string.Equals(seedKind, SeamSeedKindFaithful, System.StringComparison.Ordinal),
+                    string.Equals(clockConvention, SeamClockBaked, System.StringComparison.Ordinal),
+                    seamUT - recordedSeamUT, next.bodyName, Parsek.FlightGlobalsBodyInfo.Instance);
+
             Parsek.MapRender.SeamEndpointOracle.SeamEndpointResult result =
                 Parsek.MapRender.SeamEndpointOracle.Evaluate(
-                    endpointDist, toBody.sphereOfInfluence);
+                    endpointDist, toBody.sphereOfInfluence, tolerance.Tolerance);
 
             return new SeamEndpointSample(
                 true, null, result, covering.bodyName, next.bodyName,
-                recordedSeamUT, seamUT, clockConvention, seedKind);
+                recordedSeamUT, seamUT, clockConvention, seedKind,
+                tolerance.Source, tolerance.PhaseResidualSeconds);
         }
+
+        /// <summary>
+        /// The faithful-seed tolerance's body reads: the destination's orbit period, mean orbital speed
+        /// and SOI from <paramref name="bodyInfo"/>, and the PhaseLock band from
+        /// <see cref="Parsek.MissionPeriodicity.ToleranceSecondsFor"/> (the same band the relaunch
+        /// schedule is held inside), handed to the primitive-only
+        /// <see cref="Parsek.MapRender.SeamEndpointOracle.ResolveRatioTolerance"/>. Headless when
+        /// <paramref name="bodyInfo"/> is a fake; production passes <c>FlightGlobalsBodyInfo</c>.
+        /// </summary>
+        internal static Parsek.MapRender.SeamEndpointOracle.RatioToleranceDecision ResolveSeamRatioTolerance(
+            bool faithfulSeed, bool shiftedClock, double loopShiftSeconds,
+            string destinationBodyName, Parsek.IBodyInfo bodyInfo)
+        {
+            double period = double.NaN, speed = double.NaN, soi = double.NaN, bound = double.NaN;
+            if (faithfulSeed && shiftedClock && bodyInfo != null && !string.IsNullOrEmpty(destinationBodyName))
+            {
+                period = bodyInfo.OrbitPeriod(destinationBodyName);
+                speed = bodyInfo.OrbitalVelocity(destinationBodyName);
+                soi = bodyInfo.SoiRadius(destinationBodyName);
+                if (!double.IsNaN(period) && !double.IsInfinity(period) && period > 0.0)
+                    bound = Parsek.MissionPeriodicity.ToleranceSecondsFor(new Parsek.PhaseConstraint
+                    {
+                        Kind = Parsek.ConstraintKind.Orbital,
+                        BodyName = destinationBodyName,
+                        PeriodSeconds = period,
+                    }, bodyInfo);
+            }
+            return Parsek.MapRender.SeamEndpointOracle.ResolveRatioTolerance(
+                faithfulSeed, shiftedClock, loopShiftSeconds, period, speed, soi, bound);
+        }
+
+        /// <summary>The rendered conic's epoch is the recorded one moved by the loop shift (the
+        /// production director bake), so the seam instant is <c>recordedSeamUT + loopShift</c>.</summary>
+        internal const string SeamClockBaked = "baked";
 
         /// <summary>No Director seed was fresh at this probe frame, so the arc's provenance is unknown.</summary>
         internal const string SeamSeedKindNone = "no-seed";
@@ -2240,7 +2292,7 @@ namespace Parsek
             if (IsSynthEpochConventionBaked(
                     renderedEpoch, coveringEpoch, shift, out bool isRawConvention))
             {
-                clockConvention = "baked";
+                clockConvention = SeamClockBaked;
                 return recordedSeamUT + shift;
             }
             if (isRawConvention)
@@ -2357,7 +2409,24 @@ namespace Parsek
             }
             seamEndpointEvaluatedCount++;
             if (!result.OutsideSoi)
+            {
+                // A reading the default tolerance would have raised, absorbed by the faithful seed's
+                // PhaseLock allowance: logged so a lane can see the allowance at work.
+                if (result.Ratio > Parsek.MapRender.SeamEndpointOracle.DefaultRatioTolerance)
+                    ParsekLog.VerboseRateLimited(MapRenderTrace.Tag,
+                        "seam-endpoint-phase-lock-allowance:" + pidKey,
+                        string.Format(ic,
+                            "seam-endpoint phase-lock allowance: pid={0} fromBody={1} toBody={2} ratio={3} "
+                            + "tol={4} tolSource={5} phaseResidual={6}s loopShift={7}",
+                            pidKey, sample.FromBody ?? "(null)", sample.ToBody ?? "(null)",
+                            MapRenderTrace.FormatDouble(result.Ratio, "F4"),
+                            MapRenderTrace.FormatDouble(result.RatioTolerance, "F4"),
+                            sample.ToleranceSource ?? "(null)",
+                            MapRenderTrace.FormatDouble(sample.PhaseResidualSeconds, "F1"),
+                            MapRenderTrace.FormatDouble(loopShift, "F1")),
+                        5.0);
                 return;
+            }
             // Counted BEFORE the once-per-onset emit filter (mirrors the parity lens counting
             // overTolerance before its rate limit), so the summary reports what was MEASURED this pass
             // rather than what happened to be logged.
@@ -2379,7 +2448,8 @@ namespace Parsek
                 string.Format(ic,
                     "fromBody={0} toBody={1} seamUT={2} endpointDist={3}m soi={4}m ratio={5} "
                     + "tol={6} recordedSeamUT={7} clock={8} seed={9} loopShift={10} "
-                    + "rendOrbit=[sma={11} ecc={12} body={13}] lineActive={14}",
+                    + "rendOrbit=[sma={11} ecc={12} body={13}] lineActive={14} "
+                    + "tolSource={15} phaseResidual={16}s",
                     sample.FromBody ?? "(null)", sample.ToBody ?? "(null)",
                     MapRenderTrace.FormatDouble(sample.SeamUT, "F1"),
                     MapRenderTrace.FormatDouble(result.EndpointDistanceMeters, "F0"),
@@ -2392,7 +2462,9 @@ namespace Parsek
                     MapRenderTrace.FormatDouble(renderedOrbit.semiMajorAxis, "F0"),
                     MapRenderTrace.FormatDouble(renderedOrbit.eccentricity, "F4"),
                     renderedBody != null ? renderedBody.bodyName : "(null)",
-                    lineActive),
+                    lineActive,
+                    sample.ToleranceSource ?? "(null)",
+                    MapRenderTrace.FormatDouble(sample.PhaseResidualSeconds, "F1")),
                 recId);
         }
 

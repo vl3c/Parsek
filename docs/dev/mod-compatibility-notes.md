@@ -71,6 +71,13 @@ The one concrete interaction was benign: `FlightRecorder.ComputeApproachAltitude
 
 **Status:** Compatible. No code change is required for Parsek to coexist with Better Time Warp; the `StockWarpAltitudeLimits` snapshot is a small correctness hardening for the one altitude-limit interaction. Caveat (pre-existing, not mod-specific): the higher rates this mod unlocks amplify the known map-render-at-high-warp issues (warp-reseed lag, icon teleport) and make on-rails recording sample more coarsely — both already occur at stock 100000×. Verify in-game by grepping `KSP.log` for `[StockWarpLimits] captured stock timeWarpAltitudeLimits for N bodies` (N > 0 with the mod installed).
 
+## RealChute - abandoned-stage chute descent
+RealChute replaces stock `ModuleParachute` with its own `RealChuteModule` (one or more canopies per part). The abandoned-stage chute descent (`docs/parsek-recording-finalization-design.md`, "Chute descent") reads it on both halves with no reference to the RealChute assembly: an unloaded vessel from the persisted module node (`ParachuteProtoModuleRead`: one `PARACHUTE` child per canopy, `depState` NONE / STOWED / PREDEPLOYED / LOWDEPLOYED / DEPLOYED / CUT, `deploymentAlt`, `preDeployedDiameter`, `deployedDiameter`), and a loaded part by reflection over the module's public `parachutes` list and those same public `Parachute` fields into that node shape (`RealChuteLiveRead`; type matched by the name `RealChuteModule` on the module's type or a base). Only fields are read; no RealChute method runs. PREDEPLOYED / LOWDEPLOYED read as partly open, the most open canopy decides, a STOWED (armed) or CUT canopy does not count. For the landing-speed estimate the open canopies' area stands in for the stock drag values (one Cd assumed per canopy); stock drag and RealChute area are never summed together (a vessel with both open reads no drag and falls back).
+
+A RealChute version whose live shape differs (no `parachutes` field, no `depState`) logs `RealChute module not readable: ... reason=<why>` (Warn, rate-limited) and its canopies read as not open, the pre-fix behaviour. Stock installs carry no `RealChuteModule`, so nothing here runs there.
+
+**Status:** Field names read from RealChute's source (`Parachute.cs`, `RealChuteModule.cs`, github.com/StupidChris/RealChute master 5a2824c); xUnit-proven over stand-in types (`RealChuteLiveReadTests`). Not flown: RealChute is not in the modded-compat profile, so one in-game check is owed (todo ABANDONED-STAGE-REALCHUTE-LOADED). Ghost visuals of RealChute canopies are not covered by this section.
+
 ## Waterfall (incl. Stock Waterfall Effects) and ReStock / ReStock+ - ghost FX recovery
 
 Fully compatible; player-facing behavior is described in the README. The implementation contract

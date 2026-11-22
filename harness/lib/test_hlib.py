@@ -2304,13 +2304,13 @@ class SpecValidationRejectTests(unittest.TestCase):
     # roster lives HERE rather than in a doc, so arming costs a deliberate edit in
     # the file whose test reds when someone arms without one.
     #
-    # THE NAME AVOIDS THE SUBSTRING `ARMED_ALLOWLIST` ON PURPOSE, and a future
-    # sibling roster must do the same. `Cl3SpecArmedTests
-    # .test_it_is_on_the_save_structure_armed_allowlist` reads the save-structure
-    # roster OUT OF THIS FILE'S SOURCE with `re.search(r"ARMED_ALLOWLIST\s*=\s*\{
-    # ([^}]*)\}")`, which takes the FIRST match - so a second constant whose name
-    # ended in `ARMED_ALLOWLIST` and sat above it would silently hand CL-3 the wrong
-    # list. It did exactly that on the first draft of this roster.
+    # THE NAME AVOIDS `ARMED_ALLOWLIST` ON PURPOSE, and a future sibling roster
+    # must too. `Cl3SpecArmedTests.test_it_is_on_the_save_structure_armed_allowlist`
+    # reads the save-structure roster OUT OF THIS FILE'S SOURCE through the parser
+    # (`_read_armed_allowlist`: the set literal assigned to exactly that name), and
+    # reds when two such assignments exist. Its first form, a regex, took the first
+    # name ENDING in it (which this roster's first draft was) and stopped at the
+    # first `}`, so a braced comment inside the roster hid every entry after it.
     RUNTESTS_STRICT_ARMED_SPECS = {
         # career-ledger B.4, ARMED 2026-08-20 (wave C). Subject:
         # `career-earned-pad` - the save harness run
@@ -5064,10 +5064,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # FLIGHT-GHOST-POSITION-LANES-2026-11-20: the host for FlightGhostPosition's
     # relative-anchor cell, EVA-4's flight rewound and replayed, `total=3` literal with the
     # split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its
-    # `total=`. It leaves on its first flight.
+    # `total=`. LEFT on its first flight 2026-11-22_1123 (PASS attempt 1; passed=2 failed=0
+    # skipped=1, the pre-registered split; pinned whole).
+    # OSC-1-orbit-spawn-clearance-lko was authored on 2026-11-22 (the owed live proof of
+    # todos SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) and LEFT on
+    # its first flight, run 2026-11-22_1141 (PASS attempt 1; passed=4 failed=0 skipped=0;
+    # pinned whole) before it was committed.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
-        "GPOS-2-eva-chute-relative-ghost-position",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -5689,6 +5693,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `miner-rover-landed` with the drills deployed by the lane's own seam steps.
         # Authored 2026-11-06, never flown, INTERIM.
         "MINE-5a-rover-live-drill-harvest-cap": ("MiningHarvest", 2),
+        # The orbit-route spawn clearance's live proof (todos
+        # SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) on
+        # `eva2-lko-crewed`: four FLIGHT cells, two of them isolated-only (the rock
+        # push-out and the spawn gate's live lookup spawn vessels). Authored 2026-11-22 and
+        # flown green the same day (run 2026-11-22_1141, 4 of 4), pinned whole.
+        "OSC-1-orbit-spawn-clearance-lko": ("OrbitSpawnClearance", 4),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -5720,6 +5730,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
 
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 # OSC-1: ordinary 2 of the 4 OrbitSpawnClearance
+                                 # cells, isolated 4 (the rock and live-lookup cells).
+                                 "OSC-1-orbit-spawn-clearance-lko",
                                  # HV-1: H38's host and category, same 8-vs-46.
                                  "HV-1-harvest-route-analysis",
                                  "H38-logistics-isolated",
@@ -7028,6 +7041,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # needs. `loaded-vessel` and `logistics` are both silent about the situation.
         # Hence `orbiting`, implemented below beside `staging`.
         "AutoMergeCommit": "orbiting",
+        # Three of the four cells skip unless the active vessel is ORBITING, loaded and
+        # unpacked with part colliders (`RequireOrbitingActiveVessel`: the orbit-route
+        # clearance moves a spawn along an orbit, and the rock cell parks a PotatoRoid on
+        # the active vessel's orbit); a PRELAUNCH or LANDED host skips them all. Hence
+        # `orbiting`, the class `AutoMergeCommit` added.
+        "OrbitSpawnClearance": "orbiting",
     }
 
     # spec id -> the requirement THAT LANE's host is held to, consulted BEFORE
@@ -11171,8 +11190,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RSQ-2-rescue-rebuilt-in-flight-deferred.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on `cs-career-mun4` (stock-tree), the accept reached by a TimeJump in FLIGHT, the stranded pod deferred and listed, the list kept across a Cold load and drained at the next Space Center visit, a second visit adding nothing (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 1a); AUTHORED 2026-11-20, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1142`, runner run b3-flights-4); owed: the ordinary promotion call",
         "RSQ-3-rescue-deferral-kept-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-2's prefix on `cs-career-mun4` (stock-tree), a recording started while the deferral is listed writes its rewind save with the list, the session drains its own copy, and a rewind to that recording's launch keeps the rewind save's list (landed=1 session=0) so the landed Space Center regenerates the pod once, a second visit adding nothing (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD); AUTHORED 2026-11-21, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1145`, runner run b3-flights-4); owed: the ordinary promotion call",
         "RSQ-4-rescue-deferral-kept-across-discard-refly.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-3's prefix on `cs-career-mun4` (stock-tree), a two-command craft split on the pad after the in-flight deferral authors a rewind point holding the list, its stashed slot is Re-Flown and Discard Re-fly keeps the rewind point's list (landed=1, installed load DiscardReFly pending=1) so the landed Space Center regenerates the pod once, a second visit adding nothing (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD); AUTHORED 2026-11-21, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1148`, runner run b3-flights-4); owed: the ordinary promotion call",
-        "CT-2-parttest-rebuilt-experimental-part.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on `cs-career-mun3` (stock-tree, not in the nightly instance set): a part test (PartTest fd341164, the unpurchased Decoupler.1p5) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept makes the part experimental again once and a Cold reload adds no second count (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4); AUTHORED 2026-11-21, never flown; what is open is the flight, not a human review call; owed: the first flight, then the ordinary promotion call",
-        "CT-3-vessel-repair-rebuilt-at-space-center.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on the derived fixture `cs-career-mun4-vessel-repair` (cs-career-mun4 plus one Offered VesselRepairContract; stock-tree, not in the nightly instance set): the repair (df927e5a) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept re-spawns the damaged satellite once through VesselRepairContract.OnAccepted and a Cold reload adds no second one (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4); AUTHORED 2026-11-21, never flown; what is open is the flight, not a human review call; owed: the first flight, then the ordinary promotion call",
+        "CT-2-parttest-rebuilt-experimental-part.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on `cs-career-mun3` (stock-tree, not in the nightly instance set): a part test (PartTest fd341164, the unpurchased Decoupler.1p5) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept makes the part experimental again once and a Cold reload adds no second count (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4); AUTHORED 2026-11-21, first flight 2026-11-22_1132 PASS attempt 1; owed: the ordinary promotion call",
+        "CT-3-vessel-repair-rebuilt-at-space-center.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on the derived fixture `cs-career-mun4-vessel-repair` (cs-career-mun4 plus one Offered VesselRepairContract; stock-tree, not in the nightly instance set): the repair (df927e5a) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept re-spawns the damaged satellite once through VesselRepairContract.OnAccepted and a Cold reload adds no second one (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4); AUTHORED 2026-11-21, first flight 2026-11-22_1135 PASS attempt 1; owed: the ordinary promotion call",
         "AIR-3-plane-drone-midair-collision.toml": "tier=operator by the calibration discipline (the intercept from 0.5 s polls on raw elevator / aileron loops, the drone's fit under the wing and the parts the collision breaks are stock physics nobody has measured, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (2026-11-17): the Mallard releases a parachute drone of its own tree over the sea (derived craft `AIR Drone Carrier`) and flies into it on the drone's live position, committed at the Space Center, Rewound-to-Launch and both ghosts replayed there; AUTHORED 2026-11-17, FLOWN TWICE 2026-11-17 INVALID (autopilot-flake: 5.5 m vertical misses, then the drone reached the floor), re-tuned, RE-FLOWN TWICE INVALID (no release), the release fixed, FLOWN A FIFTH TIME (run 2026-11-17_1741, MISSION-OK) PARSEK-FAIL(expectation) on one spec error (no per-part visibility apply on the drone's ghost: it was destroyed whole and its ghost explodes at its end), re-pinned; FLOWN A SIXTH TIME (run 2026-11-17_2337, MISSION-OK) PARSEK-FAIL(expectation) on another spec error (the drone destroyed whole before its part deaths reached the background recorder), re-pinned; LIVE-PROVEN 2026-11-20 (run 2026-11-20_2206, PASS attempt 1, 783 s, the seventh flight); owed: the ordinary promotion call",
         "SPW-1-laythe-orbit-end-spawn-flight.toml": "tier=operator by the calibration discipline (the rewind window and the propagated Laythe orbit's placement verdict are unmeasured, first run is a calibration reading), NOT debt; todo END-SPAWN-LANES-2026-11-17 (the end-spawn program: far bodies, high warp, a busy player): a true end spawn of the Duna Rocket in Laythe orbit, in FLIGHT, from `laythe-park-nerv`, read with LeafVesselPlacement; AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-17 (run 2026-11-17_2312, PASS attempt 1, 111 s, first flight); owed: the ordinary promotion call",
         "SPW-2-duna-orbit-end-spawn-runway.toml": "tier=operator by the calibration discipline (the rewind window, the runway launch after it and the propagated Duna orbit's placement verdict are unmeasured, first run is a calibration reading), NOT debt; todo END-SPAWN-LANES-2026-11-17 (the end-spawn program: far bodies, high warp, a busy player): a true end spawn of DD1 in Duna orbit while the player sits on the runway, from `duna-park-probe`, read with LeafVesselPlacement; AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-17 (run 2026-11-17_2313, PASS attempt 1, 117 s, first flight); owed: the ordinary promotion call",
@@ -11576,7 +11595,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GPOS-1-kerbalx-ascent-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-20, LIVE-PROVEN on its first flight 2026-11-20_2302 at 269 s, batch split pinned whole), NOT debt; test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: GS-4's Kerbal X ascent in RF-9's coast-exit profile, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the replay, then the FlightGhostPosition batch reads the live ghosts by position; owed: the ordinary promotion call",
-        "GPOS-2-eva-chute-relative-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-21, never flown; its first run is the reading run that pins the batch split), NOT debt; todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: EVA-4's atmospheric EVA flown verbatim, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the kerbal's anchor-local Relative section, then the FlightGhostPosition batch reads the pod ghost and the anchor-placed kerbal ghost by position; owed: the first flight",
+        "GPOS-2-eva-chute-relative-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-21; first flight 2026-11-22_1123 PASS attempt 1 pinned the batch split), NOT debt; todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: EVA-4's atmospheric EVA flown verbatim, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the kerbal's anchor-local Relative section, then the FlightGhostPosition batch reads the pod ghost and the anchor-placed kerbal ghost by position; owed: the ordinary promotion call",
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # FLOWN GREEN 2026-08-27, same-day discipline: reading run
         # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two
@@ -12528,6 +12547,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
+                       # CT-3: `structure` armed 2026-11-22 off its two reading runs
+                       # `2026-11-22_1135` / `_1242` (vesselNames: Damaged Kerbin AS-P
+                       # Satellite NV5SQ 1 on both, mismatches 0): the rebuilt repair
+                       # contract's satellite re-spawned exactly once (todo
+                       # CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4).
+                       "CT-3-vessel-repair-rebuilt-at-space-center.toml",
                        # PWR-1/2/3: `recordings.sampling` armed 2026-10-02 (branch
                        # `physwarp-recording`) off the reading runs `2026-10-02_2102` /
                        # `_2057` / `_2108`; offline negative control in the status row.
@@ -15668,7 +15693,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

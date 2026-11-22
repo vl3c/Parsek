@@ -242,11 +242,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LowPointAmongThePeaks_NoImpactFound_StillCapsAtTheHorizonWithALog()
+        public void LowPointAmongThePeaks_NoImpactFound_EndsAtTheGroundScanEnd()
         {
             // Airless body, flat ground at the datum but peaks reported at 7 km: a periapsis at
-            // 5 km is under the floor (not stable) and never meets the ground, so only the
-            // horizon ends it, and the finalizer's floor check turns it SubOrbital.
+            // 5 km is under the floor (not stable) and never meets the ground. The scan reads
+            // every pass up to the horizon, so the tail ends there, where the scan stopped
+            // checking (owner ruling 2026-11-22), and the finalizer keeps it Orbiting.
             var bodies = new Dictionary<string, ExtrapolationBody>
             {
                 ["Mun"] = new ExtrapolationBody
@@ -277,12 +278,17 @@ namespace Parsek.Tests
             ExtrapolationResult result = BallisticExtrapolator.Extrapolate(start, bodies, limits);
 
             Assert.False(result.endedOnFinalConic);
+            Assert.True(result.endedAtGroundScanEnd);
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
             Assert.Equal(limits.maxHorizonYears * BallisticExtrapolator.SecondsPerYear, result.terminalUT, 3);
-            Assert.Contains(logLines, l => l.Contains("[WARN]")
-                && l.Contains("Terminal reason=horizon-cap")
-                && l.Contains("floor=7000.0")
-                && l.Contains("finalConicStop=True"));
+            Assert.Contains(logLines, l => l.Contains("[INFO]")
+                && l.Contains("Terminal reason=ground-scan-end")
+                && l.Contains("floor=7000.0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Terminal reason=horizon-cap"));
+            Assert.Equal(TerminalState.Orbiting,
+                IncompleteBallisticSceneExitFinalizer.ApplyPeriapsisFloorToExtrapolatedTerminal(
+                    result.terminalState, result.segments, bodies, "rec-peaks", result.endedAtGroundScanEnd));
+            // Without the marker the floor still turns the same tail SubOrbital.
             Assert.Equal(TerminalState.SubOrbital,
                 IncompleteBallisticSceneExitFinalizer.ApplyPeriapsisFloorToExtrapolatedTerminal(
                     result.terminalState, result.segments, bodies, "rec-peaks"));

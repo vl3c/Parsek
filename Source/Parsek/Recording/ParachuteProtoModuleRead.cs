@@ -18,7 +18,10 @@ namespace Parsek
     /// PREDEPLOYED, LOWDEPLOYED, DEPLOYED, CUT) and <c>deploymentAlt</c> (full deployment
     /// height above the ground). PREDEPLOYED and LOWDEPLOYED read as SEMIDEPLOYED; the most
     /// open canopy decides. The descent planner reads its rate from the vessel's own vertical
-    /// speed, as for a stock chute, so no RealChute field is needed for the rate.</item>
+    /// speed, as for a stock chute; the full-canopy estimate scales it by the open canopies'
+    /// area (<c>preDeployedDiameter</c> / <c>deployedDiameter</c>,
+    /// <see cref="TryReadRealChuteCanopyArea"/>). A LOADED RealChute module is read into the
+    /// same node shape by <c>RealChuteLiveRead</c>.</item>
     /// </list>
     /// The returned state is a stock-style <c>persistentState</c> string, so a caller that
     /// classifies stock chutes classifies all of them the same way. Pure.
@@ -105,6 +108,70 @@ namespace Parsek
                 default:
                     return null;
             }
+        }
+
+        /// <summary>Pure: the canopy state a stock-style <c>persistentState</c> string names
+        /// (DEPLOYED, SEMIDEPLOYED; anything else is not open).</summary>
+        internal static ParachuteCanopyState ClassifyPersistentState(string persistentState)
+        {
+            if (string.Equals(persistentState, Deployed, StringComparison.OrdinalIgnoreCase))
+                return ParachuteCanopyState.Deployed;
+            if (string.Equals(persistentState, SemiDeployed, StringComparison.OrdinalIgnoreCase))
+                return ParachuteCanopyState.SemiDeployed;
+            return ParachuteCanopyState.None;
+        }
+
+        /// <summary>
+        /// Pure: the summed canopy area (m^2) of a <c>RealChuteModule</c> node's OPEN canopies,
+        /// now and fully open, the RealChute counterpart of the stock chute drag sums. RealChute
+        /// pulls each canopy toward an area (<c>Parachute.DragForce</c>): PREDEPLOYED toward its
+        /// <c>preDeployedDiameter</c> area, LOWDEPLOYED and DEPLOYED toward its
+        /// <c>deployedDiameter</c> area; a canopy fully open has its deployed area. One drag
+        /// coefficient is assumed for every canopy (it cancels within one canopy; canopies of
+        /// different materials are weighted by area only). A canopy not open (stowed, cut, none,
+        /// unknown) adds nothing (owner ruling Q10b). An open canopy whose diameters are absent
+        /// or not positive makes both sums NaN, so the planner falls back.
+        /// False when <paramref name="moduleValues"/> is null; <paramref name="openCanopies"/>
+        /// counts the open canopies read.
+        /// </summary>
+        internal static bool TryReadRealChuteCanopyArea(
+            ConfigNode moduleValues, out double areaNow, out double areaFull, out int openCanopies)
+        {
+            areaNow = 0.0;
+            areaFull = 0.0;
+            openCanopies = 0;
+            if (moduleValues == null)
+                return false;
+            ConfigNode[] canopies = moduleValues.GetNodes(RealChuteCanopyNodeName);
+            for (int i = 0; i < canopies.Length; i++)
+            {
+                ConfigNode canopy = canopies[i];
+                string rawState = canopy?.GetValue("depState");
+                string mapped = MapRealChuteState(rawState);
+                if (Rank(mapped) < 1)
+                    continue;
+                openCanopies++;
+                double deployedDiameter = ParseFinite(canopy.GetValue("deployedDiameter"));
+                bool predeployed = string.Equals(
+                    rawState.Trim(), "PREDEPLOYED", StringComparison.OrdinalIgnoreCase);
+                double nowDiameter = predeployed
+                    ? ParseFinite(canopy.GetValue("preDeployedDiameter"))
+                    : deployedDiameter;
+                if (!(deployedDiameter > 0.0) || !(nowDiameter > 0.0))
+                {
+                    areaNow = double.NaN;
+                    areaFull = double.NaN;
+                    continue;
+                }
+                areaNow += CircleArea(nowDiameter);
+                areaFull += CircleArea(deployedDiameter);
+            }
+            return true;
+        }
+
+        private static double CircleArea(double diameter)
+        {
+            return Math.PI * diameter * diameter / 4.0;
         }
 
         private static int Rank(string persistentState)

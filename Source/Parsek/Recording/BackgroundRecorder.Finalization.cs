@@ -733,8 +733,10 @@ namespace Parsek
                 PredictedDescentPoints = cache.PredictedDescentPoints != null
                     ? new List<TrajectoryPoint>(cache.PredictedDescentPoints)
                     : new List<TrajectoryPoint>(),
-                QuietEnd = cache.QuietEnd
+                QuietEnd = cache.QuietEnd,
+                GroundScanEnd = cache.GroundScanEnd
             };
+            ScopeGroundScanEndToBackgroundEnd(cache, scoped);
 
             if (IsFiniteUT(scoped.TerminalUT)
                 && (!IsFiniteUT(scoped.TailStartsAtUT)
@@ -991,8 +993,41 @@ namespace Parsek
                 PredictedDescentPoints = source.PredictedDescentPoints != null
                     ? new List<TrajectoryPoint>(source.PredictedDescentPoints)
                     : new List<TrajectoryPoint>(),
-                QuietEnd = source.QuietEnd
+                QuietEnd = source.QuietEnd,
+                GroundScanEnd = source.GroundScanEnd
             };
+        }
+
+        /// <summary>
+        /// A ground-scan-end Orbiting ending (owner ruling 2026-11-22) pulled back to the close
+        /// time is no longer where the scan stopped checking, so it gets the floor's verdict
+        /// back: SubOrbital, without the marker.
+        /// </summary>
+        private static void ScopeGroundScanEndToBackgroundEnd(
+            RecordingFinalizationCache cache,
+            RecordingFinalizationCache scoped)
+        {
+            if (!scoped.GroundScanEnd
+                || !IsFiniteUT(scoped.TerminalUT)
+                || !IsFiniteUT(cache.TerminalUT)
+                || !(scoped.TerminalUT + RecordingFinalizationCacheApplier.UtEpsilon < cache.TerminalUT))
+            {
+                return;
+            }
+
+            scoped.GroundScanEnd = false;
+            if (scoped.TerminalState == TerminalState.Orbiting)
+                scoped.TerminalState = TerminalState.SubOrbital;
+            ParsekLog.Verbose("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Background end scope: ground-scan-end ending pulled back rec={0} pid={1} " +
+                    "cacheTerminalUT={2:F3} scopedTerminalUT={3:F3} terminal={4}",
+                    cache.RecordingId ?? "(null)",
+                    cache.VesselPersistentId,
+                    cache.TerminalUT,
+                    scoped.TerminalUT,
+                    scoped.TerminalState?.ToString() ?? "(null)"));
         }
 
         private bool RefreshFinalizationCacheForVessel(

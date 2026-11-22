@@ -78,17 +78,18 @@ id = "GS-13-mun-v3-chain-loop-replay"
 # and `line-blink` (docs/dev/design-map-ts-render-tracer.md Appendix A) are forbidden, and
 # they are not vacuous: the probe's `probe frame summary` must report a sampled ghost,
 # `phase=GhostCreated surface=ProtoIcon` must show the ghost's map presence was built, and
-# the faithful-parity summary must print with zero over-tolerance. The seam-endpoint
-# summary must print but its outside-SOI count is NOT forbidden: a phase-locked
-# same-parent moon replay is faithful (no re-aim), and its cadence leaves the Mun a phase
-# residual by design (MissionPeriodicity.ToleranceSecondsFor: SOI / Mun speed, about
-# 4478 s; docs/dev/done/plans/zero-drift-reschedule.md: the Mun only needs to be within
-# that width at the seam, the Mun-relative pieces self-anchor to the live Mun). At this
-# cadence the residual is 2173.8 s (5.63 deg, about 1179 km), and the first flight
-# (run 2026-11-22_0456) read one seam at ratio 1.0526 against SeamEndpointOracle's
-# 1.005, which is calibrated for re-aimed arcs. V6M's zero is a lens that never
-# measured (evaluated=0); here the transfer piece starts before the SOI seam, so it does.
-# Todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS.
+# the faithful-parity / seam-endpoint summaries must print with zero over-tolerance /
+# outside-SOI counts. The seam lens judges this faithful replay against the Mun's
+# PhaseLock residual, not the re-aim default: a phase-locked same-parent moon cadence
+# leaves the Mun a bounded phase residual by design (MissionPeriodicity.ToleranceSecondsFor:
+# SOI / Mun speed, about 4478 s; docs/dev/done/plans/zero-drift-reschedule.md). At this
+# cadence (loopShift 280142.5 s = two Mun periods + 2173.8 s, 5.63 deg, about 1179 km)
+# the Kerbin->Mun seam reads ratio 1.0526 (both pre-fix flights, 2026-11-22_0456 and
+# _0509, read it to four decimals), which raised against 1.005. With the faithful-seed
+# tolerance 1.005 + residual x speed / SOI (about 1.4904) the same reading passes and
+# prints `seam-endpoint phase-lock allowance:`, required below as the proof the lens
+# measured this seam rather than skipped it. Todo
+# SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS.
 #
 # WHAT IS NOT CHECKED, AND WHY. Watch-mode follow across the cuts (WatchModeController
 # `Auto-following: #A -> #B` / `TransferWatch re-target`, and the engine's `unit watch
@@ -116,7 +117,7 @@ id = "GS-13-mun-v3-chain-loop-replay"
 tier = "nightly"
 instanceProfile = "stock-minimal"
 tags = ["GS13", "loop-playback", "chain-handoff", "split-rule-v3", "map-render", "mun", "phase-lock", "recorded-fixture", "pending-flight"]
-description = "AUTHORED 2026-11-21; LIVE-PROVEN 2026-11-22 (run 2026-11-22_0509). The live check of ghost replay across split rule version 3's cuts: on mun-orbit-recorded-v3 (B11's 2026-11-21 product, a Kerbal X chain cut at 213.08 / 300.77 / 1872.79 / 21593.12 recorded UT into ascent, circularization, orbit, transfer and Mun orbit pieces) the mission loop replays cycle 0 from its predicted relaunch 280178.5, and each cut is crossed at 1x. Each cut must print the engine's chain-loop unit hand-off `camera-live member #A->#B at loopUT=<cut>`, which only prints when both pieces are live (no gap frame), with the map tracer on and icon-jump / line-blink forbidden (the seam-endpoint summary is pinned present, not gated)."
+description = "AUTHORED 2026-11-21; LIVE-PROVEN 2026-11-22 (run 2026-11-22_0509). The live check of ghost replay across split rule version 3's cuts: on mun-orbit-recorded-v3 (B11's 2026-11-21 product, a Kerbal X chain cut at 213.08 / 300.77 / 1872.79 / 21593.12 recorded UT into ascent, circularization, orbit, transfer and Mun orbit pieces) the mission loop replays cycle 0 from its predicted relaunch 280178.5, and each cut is crossed at 1x. Each cut must print the engine's chain-loop unit hand-off `camera-live member #A->#B at loopUT=<cut>`, which only prints when both pieces are live (no gap frame), with the map tracer on and icon-jump / line-blink forbidden (the seam-endpoint summary forbids outside-SOI readings, and the Kerbin->Mun seam must read through the faithful-seed PhaseLock allowance)."
 
 [fixture]
 saveTemplate       = "fixtures/saves/mun-orbit-recorded-v3"
@@ -185,6 +186,7 @@ required  = [
   "probe frame summary frame=[0-9]+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]* ",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "seam-endpoint phase-lock allowance: pid=\\d+ fromBody=Kerbin toBody=Mun ratio=1\\.05\\d\\d tol=1\\.4[89]\\d\\d tolSource=phase-lock phaseResidual=217\\d\\.\\ds",
   "exitmapview ok mapOpen=false",
 ]
 forbidden = [
@@ -200,6 +202,7 @@ forbidden = [
   "Optimization pass: split [1-9]",
   "Optimization pass: merged [1-9]",
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 
 # Report-only reading of the produced save: nothing in this lane writes a rewind row, and

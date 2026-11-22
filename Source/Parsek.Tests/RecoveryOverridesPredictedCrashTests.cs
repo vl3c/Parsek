@@ -18,8 +18,8 @@ namespace Parsek.Tests
     /// <item>A kerbal stock recovered with the vessel is Recovered even when his START seat is
     /// a part that later exploded (he moved by IVA first): the recovery carries the recovered
     /// vessel's crew, because it drops the end snapshot that names the last seats.</item>
-    /// <item>Q12b negative, and what a crewed SubOrbital ending (horizon cap / terrain scan
-    /// budget) does with its crew today.</item>
+    /// <item>Q12b negative, and the crew of a stage whose low point sits among the peaks and
+    /// whose ground scan found no crash (owner ruling 2026-11-22).</item>
     /// </list>
     /// </summary>
     [Collection("Sequential")]
@@ -479,12 +479,14 @@ namespace Parsek.Tests
             Assert.Empty(Rows(GameActionType.ReputationPenalty, StageId));
         }
 
-        // What a crewed SubOrbital ending (the horizon cap, or a low point among the peaks the
-        // terrain scan budget did not settle) does with its crew TODAY: the vessel never spawns
-        // (a bound SubOrbital is not a spawnable ending), the crew read Aboard, and Aboard holds
-        // the kerbal open-ended. Pinned so a change is a decision, not a drift.
+        // Owner ruling 2026-11-22: a crewed stage whose low point sits among the peaks and whose
+        // ground scan found no crash ends Orbiting where the scan stopped checking (predicted,
+        // groundScanEnd) and spawns there with its crew aboard; from then on stock decides. The
+        // crew stay reserved open-ended as on any orbit ending, because they are aboard the
+        // spawned vessel. Before the ruling the same stage ended SubOrbital at the horizon and
+        // never spawned, so its crew were held aboard nothing.
         [Fact]
-        public void CrewedSubOrbitalHorizonEnding_CrewAboard_NoSpawn_HeldOpenEnded()
+        public void CrewedGroundScanEndOrbit_CrewAboard_SpawnsOnItsOrbit()
         {
             var rec = new Recording
             {
@@ -501,13 +503,15 @@ namespace Parsek.Tests
                 startUT = 960.0, endUT = 960.0 + 0.002 * BallisticExtrapolator.SecondsPerYear, bodyName = "Mun",
                 semiMajorAxis = 212500, eccentricity = 0.035, isPredicted = true,
             });
-            rec.StampTerminalState(TerminalState.SubOrbital, "test-horizon-cap");
+            rec.StampTerminalState(TerminalState.Orbiting, "test-ground-scan-end",
+                predicted: true, groundScanEnd: true);
             rec.ExplicitEndUT = 960.0 + 0.002 * BallisticExtrapolator.SecondsPerYear;
-            Assert.False(rec.TerminalPredicted);
+            Assert.True(rec.TerminalPredicted);
+            Assert.True(rec.GroundScanEndOrbit);
             F.CommitTreeWith(F.Core(), rec);
 
             Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
-            Assert.False(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false).needsSpawn);
+            Assert.True(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false).needsSpawn);
             double clock = rec.EndUT + 1000.0;
             KerbalsModule.LiveClockUTProviderForTesting = () => clock;
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(clock, "test");
