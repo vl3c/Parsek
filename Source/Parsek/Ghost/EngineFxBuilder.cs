@@ -473,7 +473,7 @@ namespace Parsek
                         fxClone.transform.localRotation = legacyLocalRot;
                         fxClone.transform.localScale = child.localScale;
 
-                        GhostVisualBuilder.StripKspFxControllers(fxClone, info.kspEmitters);
+                        GhostVisualBuilder.StripKspFxControllers(fxClone, info.kspEmitters, info.smokeTrailFades);
 
                         int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
@@ -508,7 +508,7 @@ namespace Parsek
                     fxClone.transform.localRotation = child.localRotation;
                     fxClone.transform.localScale = child.localScale;
 
-                    GhostVisualBuilder.StripKspFxControllers(fxClone, info.kspEmitters);
+                    GhostVisualBuilder.StripKspFxControllers(fxClone, info.kspEmitters, info.smokeTrailFades);
 
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
@@ -656,7 +656,7 @@ namespace Parsek
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
 
-                            GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters);
+                            GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters, info.smokeTrailFades);
 
                             if (hasExhaustDir)
                             {
@@ -987,7 +987,7 @@ namespace Parsek
                         }
                     }
 
-                    GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters);
+                    GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters, info.smokeTrailFades);
 
                     int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)

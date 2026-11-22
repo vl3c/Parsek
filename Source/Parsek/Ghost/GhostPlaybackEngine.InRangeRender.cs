@@ -758,6 +758,10 @@ namespace Parsek
                 // both route through SetEngineEmission and are idempotent.
                 if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
                     GhostPlaybackLogic.RestoreActiveEngineFx(state);
+
+                // Stock fades engine smoke by air density every frame and hides it in vacuum
+                // (SmokeTrailControl). Last, so it sees every emission write of this frame.
+                GhostPlaybackLogic.UpdateEngineSmokeTrailFades(state);
             }
 
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
