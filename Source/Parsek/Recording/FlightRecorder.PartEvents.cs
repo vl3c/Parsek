@@ -719,7 +719,6 @@ namespace Parsek
                 bool hasAeroSurface = false;
                 bool hasControlSurface = false;
                 bool hasRobotArmScanner = false;
-                bool hasAnimateHeat = false;
                 bool hasDedicatedAnimateHandler =
                     deployable != null ||
                     p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
@@ -780,12 +779,13 @@ namespace Parsek
                     if (string.Equals(moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
                     {
                         coverage.AnimateHeatModules.Add($"{partRef}(midx={m})");
-                        hasAnimateHeat = true;
                     }
                 }
 
+                // Mirror of HasDedicatedAnimateHandler: ModuleAnimateHeat owns only its heat
+                // clip, so it does not hide a standalone animate generic (a thrust reverser).
                 if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat)
+                    hasAeroSurface || hasControlSurface || hasRobotArmScanner)
                     continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)

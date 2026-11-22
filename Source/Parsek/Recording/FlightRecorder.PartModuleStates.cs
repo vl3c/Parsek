@@ -1335,8 +1335,13 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if the part has a dedicated animation handler module (deployable, gear,
-        /// cargo bay, ladder, animation group, aero/control surface, robot arm, or animate heat).
+        /// cargo bay, ladder, animation group, aero/control surface, or robot arm).
         /// Parts with dedicated handlers are skipped by CheckAnimateGenericState to avoid duplicate events.
+        /// ModuleAnimateHeat is deliberately NOT one: it is a ModuleAnimationSetter that drives its
+        /// own heat clip (animName, set from ThermalAnim) and owns no ModuleAnimateGeneric, so a
+        /// standalone ModuleAnimateGeneric beside it (the jet engines' thrust reversers,
+        /// TF1ThrustReverser / TF2ThrustReverser next to TF1Heat / TF2Heat) is polled here while
+        /// CheckAnimateHeatState keeps the heat clip (todo THRUST-REVERSER-NOT-RECORDED).
         /// </summary>
         internal static bool HasDedicatedAnimateHandler(Part p)
         {
@@ -1353,7 +1358,6 @@ namespace Parsek
                 if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal)) return true;
                 if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal)) return true;
                 if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal)) return true;
-                if (string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal)) return true;
             }
             return false;
         }
