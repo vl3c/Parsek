@@ -730,12 +730,16 @@ Images are not published as an Artifact (a sweep is hundreds of MB; 16 MB page l
 
 ### 9.1 States and contexts
 
-A state case drives the stock action on the real part (the `PartAction` seam's module-event path:
-deploy, extend, arm-and-deploy chute, jettison, decouple), waits for the module's done signal, then
-seeds, snapshots and builds as in 4.2, so both the snapshot baseline (`SnapshotPartBaseline` /
-`ApplySnapshotBaselines`) and the seed-event path are tested. The Mk16-XL canopy (semi, full) lives
-here. Context cases author small assemblies on named attach nodes (FGV's `AuthorPartNode`) and frame
-on the subject part; FGV's six configurations become context cases.
+A state case drives the stock action on the real part (the module's own KSPEvent / KSPAction, as
+the `PartAction` seam presses one), waits for the module's done signal, then builds the ghost two
+ways a real recording plays it: from the stowed snapshot plus the transition events the recorder's
+own pollers emit for the action (a deploy during a recording), and from the deployed snapshot plus
+its start seeds (a recording that starts deployed), so the event path, the seed path and the
+snapshot baseline (`SnapshotPartBaseline` / `ApplySnapshotBaselines`) are all tested. The Mk16-XL
+canopy (semi, full) lives here. Context cases author small assemblies on named attach nodes (FGV's
+`AuthorPartNode`) and frame on the subject part; FGV's six configurations become context cases.
+The concrete P6 plan (families, actions, routes, case ids, verdicts, viewer, budget, work
+breakdown) is Appendix D.
 
 ### 9.2 Animation strips and GIFs
 
@@ -841,7 +845,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P3 (DONE 2026-11-22, Appendix C) | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. Flown 2026-11-22: PP-1 `2026-11-22_0033` and PP-2 `2026-11-22_0045` PASS attempt 1 after two reading pairs; 16 ghost defects fixed (PRs #2745, #2749), the detector re-ruled, 4 report-only fails left (todo GHOST-PARITY-RESIDUALS-2026-11-22). | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
-| P6 | States and contexts (9.1); FGV configurations migrated. | Chute and deployables covered. |
+| P6 | States and contexts (9.1); FGV configurations migrated. PLANNED 2026-11-22 (Appendix D): 11 transformation families, two ghost routes per state case, the `stacked` context for shrouds, the FGV fairing contexts, new report-only lanes PP-3 / PP-4. | Chute and deployables covered: every in-scope state case on both installs has a sidecar or a recorded setup fault, the state control behaves, the owner reads stowed and deployed side by side. |
 | P7 | Animation strips + GIF / APNG (9.2). | Antennas, panels, robotics scrubbed in lock-step. |
 | P8 | Plumes and FX (9.3). | Engine plumes compared on stock; reference-only on Waterfall. |
 
@@ -1007,3 +1011,283 @@ The 4 fails left are report-only and low priority (todo GHOST-PARITY-RESIDUALS-2
 Known non-defects: ReStock depth masks throw a NullReferenceException in `OnStart` on the real part
 (InfraredTelescope's cyan lens), and the ghost skipping masks stays (owner ruling 2026-11-22);
 suspension droop is left by ruling.
+
+## Appendix D. P6 plan: deployed state cases (2026-11-22)
+
+Status: PLAN, not built. P6 adds the `state` axis of 3.3: for every part that transforms, compare the
+real part and its ghost in the transformed state (deployed, open, lit, semi / full canopy,
+jettisoned), beside the existing stowed case. Stowed stays the existing rest case, unchanged: same
+case ids, same lanes, same order. Counts below were measured on 2026-11-22 from the post-patch
+part configs of both harness installs (`<umbrella>/automation/<profile>/GameData/ModuleManager.ConfigCache`:
+stock-minimal 478 parts, modded-compat 602, after the 3.1 exclusions).
+
+### D.1 Transformations in P6
+
+One state case per (part, family, module): a part with two families (the LY-35 gear also carries a
+light) gets one case per family, never the cross product, the B9 rule of 3.2. Detection is pure
+over the part's `partConfig` MODULE nodes and the prefab's module list (base types included, so a
+mod subclass matches), in a new `PartParityStateRules` (D.9 S1).
+
+| Family | Detected by | State word | Stock action pressed | Done signal (the stock field the recorder reads) | Recorder event (poller) | Stock / modded cases |
+| --- | --- | --- | --- | --- | --- | --- |
+| Deployable panel, antenna, radiator | `ModuleDeployablePart` subclass with a pose animation (`PartStateSeeder.DeployableHasNoPoseAnimation` false) | `deployed` | KSPEvent `Extend` | `deployState == EXTENDED` | `DeployableExtended` (`PollDeployables`) | 18 / 21 |
+| Landing gear, legs, wheels with deploy | `ModuleWheelDeployment` | `deployed` | KSPEvent `EventToggle` (when retracted) | `FlightRecorder.ClassifyGearState(stateString)` deployed | `GearDeployed` (`PollGear`) | 8 / 9 |
+| Ladder | `RetractableLadder` | `deployed` | KSPEvent `Extend` | `FlightRecorder.TryClassifyRetractableLadderState` deployed | `DeployableExtended` midx (`PollLadders`) | 2 / 2 |
+| Animation group (drills, scanners, ISRU) | `ModuleAnimationGroup`, in-orbit parts only | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed | `DeployableExtended` midx (`PollAnimationGroups`) | 5 / 4 |
+| Cargo and service bays | `ModuleCargoBay` whose `DeployModuleIndex` is a `ModuleAnimateGeneric` | `open` | the linked `ModuleAnimateGeneric` KSPEvent `Toggle` | `ClassifyCargoBayState` open | `CargoBayOpened` (`PollCargoBays`) | 11 / 14 |
+| Standalone animate generic (doors, inflatables, thrust reversers, port shields, Klaw, science doors) | `ModuleAnimateGeneric` on a part with no dedicated handler (`FlightRecorder.HasDedicatedAnimateHandler` false), one case per module | `deployed` (`deployed-m<k>` when a part has two) | KSPEvent `Toggle` (hidden events too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx (`PollAnimateGeneric`) | 12 / 17 |
+| Airbrake | `ModuleAeroSurface` | `deployed` | KSPAction `ActionToggleBrakes` (Activate) | `TryClassifyAeroSurfaceState` deployed | `DeployableExtended` midx (`PollAeroSurfaces`) | 1 / 1 |
+| Control surface and blade deploy | `ModuleControlSurface` | `deployed` | KSPAction `ActionExtend` | `FlightRecorder.TryClassifyControlSurfaceState` deployed | `DeployableExtended` midx (`PollControlSurfaces`) | 24 / 24 |
+| Parachute | `ModuleParachute` | `semi`, `full` | KSPEvent `Deploy`, then the posed canopy of D.3 | `deploymentState` SEMIDEPLOYED / DEPLOYED (`ClassifyParachuteState`) | `ParachuteSemiDeployed`, then `ParachuteDeployed` (`PollParachutes`) | 10 / 10 |
+| Light | `ModuleLight` | `lit` | KSPEvent `LightsOn` | `isOn` | `LightOn` (the recorder's light check, D.9 S2) | 15 / 18 |
+| Cabin light (colour changer) | `ModuleColorChanger` with `toggleInFlight = true` on a part with no `ModuleLight` | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s of colour ramp | `LightOn` (same) | 26 / 37 |
+| Engine shroud | `ModuleJettison` | `jettisoned`, in context `stacked` (D.3) | KSPEvent `Jettison` on every jettison module of the part | `isJettisoned` | `ShroudJettisoned` (`PollJettisons`) | 37 / 60 parts, 74 / 120 cases (stowed and jettisoned, both stacked) |
+| Procedural fairing | `ModuleProceduralFairing` | the FGV states (intact, `deployed`, separated / rebuilt) in the six FGV contexts | KSPEvent `DeployFairing`, FGV's own separation | FGV's existing checks | `FairingJettisoned` (`PollFairings`) | 18 / 18 |
+
+Totals of state and context cases: stock-minimal about 224 (132 single-part states, 74 shroud
+cases, 18 fairing cases), modded-compat about 295 (157, 120, 18). The counts are upper bounds read
+from configs; the live enumeration logs the exact ones (D.5).
+
+Excluded, each named in the manifest's exclusions with a reason (never silently dropped):
+
+- `ground-deploy`: the Breaking Ground deployed science parts (`DeployedCentralStation` and its six
+  siblings) and `groundAnchor`, whose animation group deploys only when placed on a surface.
+- `no-pose`: fixed solar panels (`solarPanels5`, `LgRadialSolarPanel`), whose module has no pose
+  animation; the recorder emits nothing for them by design.
+- `fairing-bay`: a `ModuleCargoBay` whose deploy module is a `ModuleProceduralFairing` (every
+  fairing base); the fairing family owns it.
+- `p7-robotics`: servos, rotors, pistons (22 parts): their states are continuous positions, which
+  the P7 strips sweep (9.2). `ModuleRobotArmScanner` (3) only extends while scanning a surface
+  feature: same reason.
+- `p8-heat`: `ModuleAnimateHeat` glow (16 / 13) and ablator char: temperature-driven material
+  properties, P8 (9.3).
+- `p8-fx`: engine plumes, RCS, light blink: particles and time-varying states, P8.
+- `broken`: a broken solar panel or wheel (`DeployableBroken`, `WheelBroken`): stock breaks a panel
+  into free debris and breaks a wheel only under load; not a pose the part keeps. Left out of P6.
+- Decouple: a decoupler looks the same after it fires; the split is a recording-tree matter.
+
+### D.2 Case identity
+
+- The case key gains a `StateOption` beside `SkinOption` (family, module name, module index, state
+  word, action): not part of the identity; the id reads `State` and `Context`.
+- The id rule is unchanged (5.2): `<part>--<skin>--<state>[--<context>]--<hash>`, the state written
+  because it is not `stowed`. Examples: `longantenna--default--deployed--<hash>`,
+  `parachutesingle--default--semi--<hash>`, `liquidengine2--default--jettisoned--stacked--<hash>`,
+  and the stacked stowed shroud case `liquidengine2--default--stowed--stacked--<hash>`.
+- Stowed case ids cannot move: the default state stays `stowed` and the default context `alone`,
+  and both are already in the hashed tuple (`CaseTuple`), so every existing id hashes exactly as
+  today. New verb args `states=none|all|<csv of state words>` and `contexts=none|stacked|fgv|all`
+  default to `none`, so a run without them plans exactly today's case list in today's order
+  (indexes, shards, resume `next=` and the recompute sample all depend on that order). An xUnit cell
+  pins a set of ids from the archived `2026-11-22_0033` / `_0045` manifests and the plan of a
+  `states=none` run.
+- State cases are planned at the BASE skin only (`skins=` keeps governing the stowed cases); the
+  cross product with skins is an open question (D.10).
+- Order: the existing stable order (part, skin ordinal, skin, state, context, all ordinal); a
+  state run is its own label (D.8), so the interleaving never touches a stowed sweep.
+- Sidecar (`parsek-part-parity-case/1`, additive keys only, every key always written, null when not
+  measured, stowed cases included):
+  - `stateProof`: `family`, `module`, `moduleIndex`, `state`, `action` (event or action name),
+    `eventVisible`, `actionResult` (`invoked|missing|threw|refused`), `reached` (bool), `waitS`,
+    `endpoint` (the stock field and value read), `posed` (`chute` or null), `events` (the recorded
+    events of the event route: type, ut, pid, midx), `ghostEvent` / `ghostStart` (`applied|no-info|
+    pose-not-sampled|not-reached`, D.4), `sunTracker` (target and applied angle, solar panels only).
+  - `atlas.rows`: `["real", "ghost", "ghost-start", "ghost-stowed"]` for a state case
+    (`["real", "ghost"]` for a stowed case, as today): rows 0 and 1 keep their meaning, so the
+    recompute and the viewer's existing tiles read them unchanged.
+  - Per view, `start` (real vs ghost-start, the full measure key set of a view) and `stowedRef`
+    (real vs ghost-stowed, shape counts and blobs only). `structureStart`: the structural diff of
+    the start-route ghost. `stowedCaseId`: the id of the same part / skin / context at `stowed`, so
+    the viewer pairs it without recomputing a hash.
+- Manifest: each case row adds `state`, `family`, `stateSetup` summary fields; `settings` records
+  `states=` / `contexts=`; one Info `state cases: states=<...> install=<n> (by family) planned=<n>
+  excluded=<n> (by reason)` per step, the `skin cases:` pattern of 7.
+- Regression keys (P5 baseline, viewer regression mode): `<caseId>/<view>` for the event route, as
+  today, plus `<caseId>/<view>/start`; `accepted.toml` entries name the route.
+- Source sync: the C# key table, the new arg keys and their refusal reasons in hlib (`validate`
+  hook and reason tables) pinned by the existing source-sync cells, extended.
+
+### D.3 The real side: reaching the state
+
+One case, in order (the 4.2 steps keep their order; the new ones are marked):
+
+1. Spawn and settle as today (4.1).
+2. NEW: stowed capture of the inputs, before any press: `TryBackupSnapshot` (the stowed snapshot),
+   `PartStateSeeder.SeedPartStates` into the case's own `PartTrackingSets` (the recorder's start
+   seeds), and the stowed seed events at `t0`.
+3. NEW: press. The module's own `BaseEvent.Invoke()` or `BaseAction.Invoke(new KSPActionParam(
+   KSPActionGroup.None, KSPActionType.Activate))`, exactly what a PAW click or an action group does
+   (the `PartAction` seam's mechanism; that seam's file is not touched). A missing event is
+   `action-failed` (`missing`), an exception `action-failed` (`threw`), a press after which the
+   module state has not left its start value two frames later `action-failed` (`refused`).
+4. NEW: wait for done, in real time. Every frame: the case runs the recorder's shared pollers over
+   the case vessel into a `PartParityPollSink : PartPollSink` (the case's own event list, tag
+   `PartParity`), with the tracking sets seeded in step 2, at the live UT, so the events are the
+   ones `FlightRecorder` would append for the same frames. Done = the family's done signal (D.1)
+   reads the target, then the existing settle rule (no `Animation` on the part playing, 0.5 s).
+   Timeout = `min(20 s, 2 x the clip length / |speed| read from the part's own Animation + 2 s)`,
+   then `state-timeout` (a setup fault). A done signal that reached the target while the poll
+   emitted no event is the finding flag `state-not-recorded` (a recorder blind spot), not a fault.
+   Waves wait in parallel, so a wave costs its longest clip; the planner groups state cases into
+   waves by clip-length bucket (short, under 2 s; long) so a light never waits for a cargo ramp.
+5. Records, ghosts, framing and views as 4.2 (step 1 records read AFTER the state is reached).
+
+Determinism in orbit, per family:
+
+- Sun-tracking solar panels (9 per install): stock rotates the pivot toward the Sun. The done rule
+  adds "pivot rotation changed by less than 0.1 deg over 0.5 s", cap 10 s, else the case is captured
+  and tagged `still-tracking` (judged, like `still-animating`). Both sides see the same Sun.
+- Parachutes: a stock chute in vacuum stays armed (`ACTIVE`) forever, and a chute forced to
+  `SEMIDEPLOYED` is cut by `UpdateCut` (atmosphere density 0) and wobbles its canopy with Perlin
+  noise in `FixedUpdate`. So the canopy is POSED: after the stock `Deploy` press, the case sets the
+  module's `enabled = false` (Unity stops its `FixedUpdate`; nothing else of the part changes),
+  then runs the statements of stock's own SEMIDEPLOYED transition (decompiled
+  `ModuleParachute.FixedUpdate`: cap inactive, canopy active, `deploymentState` and
+  `persistentState`, `PlayDeployAnimation(semiDeployedAnimation, semiDeploymentSpeed)` invoked by
+  reflection so a subclass's override runs) and waits for the animation to finish; `full` continues
+  with stock's DEPLOYED statements and `fullyDeployedAnimation`. The canopy is oriented by stock's
+  own expression for a straight vertical descent with one chute (`Quaternion.LookRotation(sign *
+  dragVectorDir, upwards)` with the drag vector along the part's +Y, `invertCanopy` honoured, no
+  spread angle, no wobble). Tag `posed-real:chute`; judged like any case (the posing is what makes
+  the canopy deterministic; its shape, scale and cap are stock's). The poll reads the posed
+  `deploymentState`, so the recorded events are the real ones.
+- Shrouds: a lone engine already hides its shroud (Appendix B finding 1), so the jettisoned state
+  needs the `stacked` context: the subject part as root plus a filler part (`fuelTankSmallFlat`)
+  on its bottom node, authored with `GhostCoOrbitalRig.AuthorPartNode`. The filler is hidden on
+  both sides (`forceRenderingOff`) and left out of the records and the framing (flag
+  `context-hidden:<n>`). `Jettison` throws the shroud off as a free physics object outside the part
+  hierarchy: the case keeps the jettison transforms read before the press and sets their renderers
+  `forceRenderingOff` (flag `jettison-debris-hidden:<n>`), so a drifting shroud never enters a view.
+  Fairing panels thrown by `DeployFairing` are handled the same way.
+- Gear and legs: deployed in free fall at full suspension droop: already tagged
+  `context-dependent`, so the 6 cap at `warn` (`context-pose`) applies unchanged.
+- Lights: the light rig (D5) switches every scene light off, the part's own `Light` included, so a
+  `lit` case compares the lens and window emission, not the beam. Colour changers settle for
+  `1 / animRate` s plus 0.5 s (cap 5 s).
+- Slots: a deployed part reaches well past its stowed bounds (the large solar arrays, the Mk3 cargo
+  ramp), and the wave plan sizes slots from stowed bounds, so a state wave uses every other slot (up to 4 cases, 80 m apart, at least 60 m from the host).
+
+### D.4 The ghost side: three ghosts per state case
+
+All three are built through the D2 seam (`GhostCoOrbitalRig`, `GhostPlaybackEngine.
+InitializeBuiltGhostVisuals`) and primed through `GhostPlaybackEngine.PrimeHiddenPartStateAtUT`,
+so no shortcut sets a pose:
+
+| Row | Route | Snapshot | Part events | Primed at | Plays like |
+| --- | --- | --- | --- | --- | --- |
+| `ghost` | event (judged) | stowed (step 2) | the stowed seeds at `t0` + the polled transition events at their UTs | the last event's UT + the clamped clip length (`GhostPlaybackLogic.ClampDeployableClipSeconds`) + 1 s, so the animated deploy path (`UpdateActiveDeployables`) completes; a second prime 10 s later lets sun tracking (20 deg/s slew) converge | a deploy recorded during a flight, at the end of its clip |
+| `ghost-start` | start (judged) | deployed (after step 4) | the deployed vessel's start seeds at `t1` | `t1` exactly: the first frame a player sees | a recording that starts deployed (a station, a split TIP, a Re-Fly) |
+| `ghost-stowed` | reference (not judged) | stowed | stowed seeds only | `t0` | the stowed ghost: tells whether the state is visible at all |
+
+- The rig gains `TryBuildGhostFromSnapshot(snapshot, recId, name, events)` beside
+  `TryBuildGhostFromLiveVessel` (which becomes a thin wrapper), so the event route builds from the
+  saved stowed snapshot after the real part has moved.
+- A ghost that cannot represent the state is read from the ghost's own playback state after the
+  prime, read-only (`PartParityStateRules.GhostStateReached`, over the engine's info dictionaries:
+  deployable fraction 1 and `currentDeployed`, parachute semi / deployed pose sampled and applied,
+  cargo bay open, ladder extended, light on, jettison transforms hidden): `applied`, `no-info` (the
+  builder built no info for the family), `pose-not-sampled`, `not-reached`. Anything but `applied`
+  on a route is the flag `state-not-modelled:<route>:<outcome>`. The engine's per-family apply tally
+  line (`GhostPartEventApplyTally.Flush`) is captured in the case log for the detail.
+- The capture primitive (4.4) renders N sides instead of two: each side with every other side's
+  renderers `forceRenderingOff`, two clears each; four rows cost about 0.3 s per case instead of
+  0.15 s.
+
+### D.5 Verdicts, flags, setup faults, controls
+
+- Thresholds: the 6 thresholds, unchanged. Each judged route is judged like a stowed case (the view
+  rules, the structural raise, the context and depth-mask caps); the case verdict is the worse of
+  the two routes, and each reason names its route (`start: shape blob 312 px in side-b`).
+- Flags: `state-not-modelled:<route>:<outcome>` raises the case to at least `warn` (the B9 rule:
+  a known unmodelled family is visible but not a picture fail by itself; the pictures still fail
+  it when they differ). `state-not-recorded` raises to at least `warn` for the same reason.
+  `state-invisible` (real vs `ghost-stowed` has no view blob at the warn level: the transformation
+  did not change the picture, so the case proves little) is report-only. `posed-real:chute`,
+  `still-tracking`, `context-hidden:<n>`, `jettison-debris-hidden:<n>` are tags.
+- Setup faults (case `error`, never a ghost finding, counted complete by the completeness gate):
+  `action-failed` (with `actionResult`), `state-timeout`, plus the existing ones. They join
+  `TestCommandPartParitySweep.SetupStatuses` and `IsSetupFault`.
+- State control `ctl-state-events-dropped` (one more 4.5 row; subject `longAntenna`, the
+  Communotron 16): the full state case, but the event-route ghost is built with the polled
+  transition events removed. Required: the press reached `deployed`, at least one event was
+  recorded, the event-route view fails on shape, and `stowedRef` fails too (the instrument sees the
+  state and a ghost that does not follow it). A run whose state control misbehaves is
+  INVALID(parity-controls), the existing gate.
+- INVALID conditions: unchanged gates (host, controls, recompute, completeness). The recompute
+  sample decodes rows 1, 2 and 3 of a state case's atlas against row 0 and checks every pair. A
+  sweep where most state cases are setup faults is NOT made INVALID by a new gate: each is an
+  `error` the row lists, and the state control already proves the press path works.
+
+### D.6 Viewer
+
+- Grouping part > skin > state > view. Inside a skin, one sub-block per state in the order stowed,
+  then the D.1 table order; a state sub-block carries its own verdict border and trigger line.
+- Stowed and deployed side by side: each state row shows REAL | GHOST | GHOST-START | DIFFERENCE
+  per view, and the stowed column beside it comes from the paired stowed case (`stowedCaseId`) when
+  its sweep is loaded, else from the case's own `ghost-stowed` row (labelled as a reference).
+- Sweeps of one profile merge: `stock=<pp1 dir> stock=<pp3 dir>` (or, once the manifest profile
+  is fixed, D.9 S3, by the manifest's own name) joins a stowed sweep and a state sweep into one part
+  list; a case id present in both is an error line in the sweeps box.
+- Filters: state (stowed / each state word), family, and "state flags" (`state-not-modelled`,
+  `state-not-recorded`, `state-invisible`), beside verdict, source and search. Regression mode
+  pairs by case id and route.
+
+### D.7 Wall-time budget
+
+Per case today: about 0.7 s (spawn and settle dominate, Appendix C). A state case adds its share of
+its wave's real-time wait and two more capture rows:
+
+| Install | Animated families (waves of 4, about 6 s wait each) | Quick families (control surfaces, lights, cabin lights) | Shroud cases (stacked, 2 parts) | Fairing contexts | Controls | Estimate |
+| --- | --- | --- | --- | --- | --- | --- |
+| stock-minimal | 67 cases, about 160 s | 65 cases, about 70 s | 74 cases, about 75 s | 18 cases, about 55 s | 9, about 25 s | about 385 s |
+| modded-compat | 78 cases, about 185 s | 79 cases, about 85 s | 120 cases, about 120 s | 18 cases, about 55 s | 9, about 25 s | about 470 s |
+
+Uncertainty about +-50 % (clip lengths are not measured). Lanes: two NEW lanes, `PP-3-part-parity-
+states-stock` (stock-minimal, label `pp3`) and `PP-4-part-parity-states-modded` (modded-compat,
+label `pp4`), tier `operator`, one slot each, report-only, fixture `eva2-lko-crewed`, FGV's setup,
+`op=reset`, then `op=run states=all contexts=all controls=true maxSeconds=480` steps: two on
+PP-3 (budget 540 each, `budgetSeconds = 1500`), three on PP-4 (`budgetSeconds = 2100`), sized again
+from the first flight's `wall=` (a `limit=20` reading flight first, as P2 did). Why new lanes and
+not more steps on PP-1 / PP-2: their case list, order, budget, pins and P5 baselines stay
+untouched, a state-sweep fault never turns a green stowed lane INVALID, and the two installs can
+fly at once on the parallel runner. The ids PP-3 / PP-4 are free on `origin/main` and on every open
+PR branch (checked 2026-11-22).
+
+### D.8 What P6 leaves ready for P7
+
+The P7 strips (9.2) reuse D.1's table (family, module, the done signal as t = 1) and the event
+route's prime (a strip frame is a prime at a fraction of the clip); the atlas keeps `rows` as a
+list and gains its frame axis as columns. Nothing in P6 fixes the atlas at four rows.
+
+### D.9 Work breakdown
+
+Ordered pull requests, each reviewable alone. Each PR updates only its own line in this appendix's
+status and its own todo / status rows, so parallel PRs do not conflict in docs.
+
+| # | PR | Files (disjoint where parallel) | Depends on | Acceptance |
+| --- | --- | --- | --- | --- |
+| S1 | Pure halves: `PartParityStateRules` (D.1 detection, exclusions, state words, action table, done-signal readers over plain values, clip timeout, wave buckets, `GhostStateReached` over plain inputs), the `states=` / `contexts=` args and refusals, the `StateOption` key, the sidecar / manifest key tables (D.2), the state control's judge, new setup statuses | `Source/Parsek/TestCommands/PartParityStateRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit; hlib arg tables + source-sync cells | none | `dotnet test` green; the stowed id pin and the `states=none` plan pin hold; enumeration counts on fixture part configs match D.1; harness lib suite green |
+| S2 | Recorder light poll extraction: the active recorder's per-part light body (ModuleLight and the toggle colour changer) moved to `PartStatePoller.PollLights`, called by `FlightRecorder.CheckLightState`; the background recorder untouched | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartModuleStates.cs` | none (parallel with S1) | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green |
+| S3 | Live engine: `PartParityStateDriver` (press, per-frame poll into `PartParityPollSink`, done / timeout, sun-tracking settle, chute posing, debris hiding), the three ghosts and the N-side capture, `GhostCoOrbitalRig.TryBuildGhostFromSnapshot`, the `stacked` context, the wave slot rule, the manifest `profile` fix (the install directory name, not `..`, 8), the in-game `PartParity` cell's state filter | `Source/Parsek/TestCommands/PartParityStateDriver.cs` (new), `PartParityCaseCapture.cs`, `PartParityCapture.cs`, `PartParitySweepRunner.cs`, `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs`, `PartParityInGameTests.cs` | S1, S2 | a dev-install Ctrl+Shift+T run over `longAntenna`, `solarPanels4`, `GearSmall`, `parachuteSingle`, `mk2CargoBayS`, `telescopicLadder`, `spotLight1`, `mk1pod.v2` (cabin light), `liquidEngine2` stacked: every case reaches its state, both routes write rows, sidecars parse; FGV-1 still green |
+| S4 | Harness row: the new keys in `partparity.py`'s reader, route-aware `judge_case`, the flags of D.5, the 4-row recompute, the state control's outcome, verdicts JSON | `harness/lib/partparity.py`, `harness/lib/test_partparity.py` | S1 (key table) | lib suite green on synthetic sidecars: worse-route verdict, each flag, recompute of rows 1-3, a mutated row reds INVALID(parity-instrument) |
+| S5 | Viewer: D.6 grouping, merge of sweeps by profile, the stowed column, filters, route-aware regression | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | S1 (key table), S4's verdict API | viewer tests green; a site built from a synthetic stowed + state sweep pair shows each part's states side by side |
+| S6 | Lanes: `PP-3` / `PP-4` specs, registry, lane catalog regen, hlib wiring cells, `autotest-status.md` rows | `harness/scenarios/PP-3-*.toml`, `PP-4-*.toml`, `harness/coverage/registry.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | S3, S4 | harness suites green; first flights on request: a `limit=20` reading flight each, then the full sweeps; findings filed in the todo list |
+| S7 | FGV migration: FGV's six configurations as `fgv-<n>-<name>` contexts of the fairing family (and the engine plate / shroud skirts), with FGV's states; FGV-1 kept until the sweep's fairing cases have flown green twice, then retired in its own PR | `PartParityStateRules.cs` (context table), `PartParityCaseAuthoring.cs`, FGV test file | S3 | the 18 fairing cases match FGV-1's verdicts on the same DLL |
+
+Parallel work: S1 and S2 at once (two agents, no shared file). After S1 merges: S3, S4 and S5 at
+once (three agents: `TestCommands/` + `InGameTests/`, `harness/lib/partparity.py`,
+`harness/tools/part_parity_view.py`); S4 and S5 build against S1's committed key table and
+synthetic sidecars, never against a flight. S6 after S3 and S4; S7 after S3. Each C# PR gets the
+end-of-task review; S2 carries its IL fold proof as its review evidence.
+
+### D.10 Open questions for the owner
+
+1. Parachutes in orbit are POSED (D.3: the module stopped, stock's own deploy statements and
+   animation run, the canopy at stock's straight-descent orientation). Accept that as the
+   reference, or leave chutes out of P6 until an atmospheric context exists (a drop from about
+   2 km on Kerbin, not deterministic: airflow orientation and wobble)?
+2. State cases at the base skin only (D.2), or every skin times every state (about 1.8 times the
+   state cases, roughly +4 min per install)? Variants rarely change an animated mesh; ReStock's
+   solar panel and antenna variants are the exception.
+3. New lanes PP-3 / PP-4 (D.7, recommended), or more steps on PP-1 / PP-2 so one lane per install
+   covers both?
