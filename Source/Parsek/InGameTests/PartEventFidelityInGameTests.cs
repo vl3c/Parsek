@@ -327,7 +327,7 @@ namespace Parsek.InGameTests
                     build = BuildGhost(partName, "parsektest-converter-loop", out state);
                     if (build != null)
                     {
-                        loop = FindConverterLoop(state);
+                        loop = FindConverterLoop(state, converterDrivenOnly: true);
                         if (loop != null) { usedPart = partName; break; }
                     }
                     DestroyBuild(ref build);
@@ -827,7 +827,10 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>A converter loop with at least one resolved, sampled transform.</summary>
-        private static ConverterLoopGhostInfo FindConverterLoop(GhostPlaybackState state)
+        // converterDrivenOnly skips a loop the deploy events drive (the orbital scanner), which
+        // the converter edges deliberately never touch.
+        private static ConverterLoopGhostInfo FindConverterLoop(
+            GhostPlaybackState state, bool converterDrivenOnly = false)
         {
             List<ConverterLoopGhostInfo> loops = state?.synthesizedMotionInfos?.converterLoops;
             if (loops == null) return null;
@@ -835,6 +838,7 @@ namespace Parsek.InGameTests
             {
                 ConverterLoopGhostInfo loop = loops[i];
                 if (loop?.transforms == null || loop.transforms.Count == 0) continue;
+                if (converterDrivenOnly && loop.followsDeploy) continue;
                 ConverterLoopTransformState ts = loop.transforms[0];
                 if (ts?.t != null && ts.phases != null && ts.phases.Length > 1) return loop;
             }

@@ -229,6 +229,15 @@ namespace Parsek
         public Vector3 deployedScale;
     }
 
+    /// <summary>One material colour a deploy clip animates, at its stowed and deployed ends.</summary>
+    internal struct DeployableColorState
+    {
+        public Material material;
+        public string property;
+        public Color stowed;
+        public Color deployed;
+    }
+
     internal class DeployableGhostInfo
     {
         public uint partPersistentId;
@@ -252,6 +261,12 @@ namespace Parsek
         public float transitionTargetFraction;
         /// <summary>The part's FXModuleLookAtConstraint pairs, re-aimed after every pose write.</summary>
         public List<LookAtConstraintGhostInfo> lookAtConstraints;
+        /// <summary>
+        /// Material colours the deploy clip animates (ReStock's SurfaceScanner 'screenon' turns
+        /// the screen on and moves nothing), written at the same fraction as the transforms.
+        /// Null when the clip animates no colour.
+        /// </summary>
+        public List<DeployableColorState> colors;
 
         /// <summary>
         /// S6: the ghost-side clone of the part's <c>panelBreakTransform</c> subtree — what stock
@@ -456,6 +471,16 @@ namespace Parsek
         public List<ConverterLoopTransformState> transforms;
         /// <summary>The running clip's own length, clamped by ClampDeployableClipSeconds.</summary>
         public float clipLengthSeconds = 3f;
+        /// <summary>
+        /// True when the loop runs while the ModuleAnimationGroup is DEPLOYED rather than while a
+        /// converter runs: stock's <c>CheckForActivity</c> plays the active clip whenever the
+        /// group is deployed and any <c>IAnimatedModule</c> on the part reports active, and every
+        /// non-converter one (ModuleResourceScanner, ModuleGPS, ModuleOrbitalSurveyor) reports
+        /// active as soon as the deploy enables it; <c>alwaysActive</c> does the same. Driven by
+        /// the DeployableExtended / Retracted events and the snapshot's isDeployed instead of the
+        /// converter edges (the M4435 orbital scanner's 'miniscanner' / ReStock 'Spin').
+        /// </summary>
+        public bool followsDeploy;
         /// <summary>True while the part's converter is running and the loop should advance.</summary>
         public bool active;
         /// <summary>

@@ -62,6 +62,10 @@ Not released yet.
 
 ### Fixed
 
+- **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
+  ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
+- **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above
+  the body as on the real antenna. (GHOST-RESTOCK-COMMDISH-DEPLOY-POSE)
 - **Jet engine thrust reversers show on ghosts.** A Wheesley or Goliath reverser you deploy is
   recorded and its ghost shows it deployed. (THRUST-REVERSER-NOT-RECORDED)
 - **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
