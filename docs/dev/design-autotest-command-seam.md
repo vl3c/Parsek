@@ -5685,18 +5685,23 @@ pair and measures the difference. Full contract (cases, capture, files, measures
 `docs/dev/design-part-ghost-parity.md`, section 7 for the verb.
 
 **Grammar.** `cmd=PartParitySweep label=<label> [op=reset|run] [filter=<glob>] [source=<csv>]
-[skins=default|all] [views=required|all|<csv>] [tile=256..1024] [shard=<k>/<n>] [limit=<n>]
-[controls=true|false] [maxSeconds=60..480]`. `label` is REQUIRED and filename-safe,
-`CaptureScreenshot`'s rule by delegation. Every present arg that does not parse is REJECTED with
-its own token, never clamped: `label-arg-missing`, `label-arg-invalid`, `op-arg-invalid`,
-`filter-arg-invalid`, `source-arg-invalid`, `skins-arg-invalid`, `views-arg-invalid`,
+[skins=default|all] [states=none|all|<csv>] [contexts=none|<csv>] [views=required|all|<csv>]
+[tile=256..1024] [shard=<k>/<n>] [limit=<n>] [controls=true|false] [maxSeconds=60..480]`. `label`
+is REQUIRED and filename-safe, `CaptureScreenshot`'s rule by delegation. `states=` / `contexts=`
+(both default `none`) select the deployed-state and context cases instead of the stowed sweep
+(part ghost parity design, Appendix D.2; `air` stands alone in `contexts=`). Every present arg
+that does not parse is REJECTED with its own token, never clamped: `label-arg-missing`,
+`label-arg-invalid`, `op-arg-invalid`, `filter-arg-invalid`, `source-arg-invalid`,
+`skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `views-arg-invalid`,
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
 `maxseconds-arg-invalid` (the parse order).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
 arg parse the applier admits the host (`TestCommandPartParitySweep.DecideHostAdmission`):
 REJECTED `no-active-vessel` or `host-not-orbiting` (the active vessel's situation is not
-`ORBITING`; the co-orbital spawns need an orbiting host). On admission it starts the capture
+`ORBITING`; the co-orbital spawns need an orbiting host). An air run (`contexts=air`) instead
+needs a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED `host-not-at-pad` (the
+pure rule is built; the applier wiring lands with the air context, design D.10 S7). On admission it starts the capture
 engine's step coroutine (`PartParitySweepRunner.RunStep`), driving its enumerator by hand so a
 throw inside it ends the step at once. `op=reset` clears `<KSP root>/parsek-partparity/<label>/`;
 `op=run` processes cases in the stable order until its `maxSeconds` time box ends and resumes

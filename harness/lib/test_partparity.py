@@ -863,7 +863,9 @@ class PartParitySourceSyncTests(unittest.TestCase):
     """Reads OUTSIDE harness/: the C# key tables, schema ids, statuses, control ids,
     file names and the measuring constants the reader and the recompute depend on
     (Source/Parsek/TestCommands/PartParityJson.cs, TestCommandPartParitySweep.cs,
-    PartParityMetrics.cs, comment-stripped), so a renamed C# key or a changed
+    PartParityMetrics.cs, PartParityHostIntegrity.cs, PartParityStateRules.cs, and
+    PartParityCaseCapture.cs only to see that it reads its atlas rows from
+    PartParityJson.AtlasRowsFor; comment-stripped), so a renamed C# key or a changed
     definition reds here rather than as a flight's INVALID(parity-instrument)."""
 
     @staticmethod
@@ -897,7 +899,15 @@ class PartParitySourceSyncTests(unittest.TestCase):
                            ("SetupKeys", pp.SETUP_KEYS), ("ManifestKeys", pp.MANIFEST_KEYS),
                            ("ControlKeys", pp.CONTROL_KEYS),
                            ("CaseSummaryKeys", pp.CASE_SUMMARY_KEYS),
-                           ("ProgressKeys", pp.PROGRESS_KEYS)):
+                           ("ProgressKeys", pp.PROGRESS_KEYS),
+                           ("StartKeys", pp.START_KEYS), ("StowedRefKeys", pp.STOWED_REF_KEYS),
+                           ("StateProofKeys", pp.STATE_PROOF_KEYS),
+                           ("EndpointKeys", pp.ENDPOINT_KEYS),
+                           ("StateEventKeys", pp.STATE_EVENT_KEYS),
+                           ("StartFirstFrameKeys", pp.START_FIRST_FRAME_KEYS),
+                           ("SunTrackerKeys", pp.SUN_TRACKER_KEYS),
+                           ("CanopyKeys", pp.CANOPY_KEYS),
+                           ("ContextNodeKeys", pp.CONTEXT_NODE_KEYS)):
             with self.subTest(table=cs):
                 self.assertEqual(list(mirror), self._string_array(text, cs))
         self.assertEqual(pp.MANIFEST_SCHEMA, self._const(text, "ManifestSchemaId"))
@@ -913,10 +923,10 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(pp.SIDECAR_SUFFIX, self._const(text, "SidecarSuffix"))
         self.assertEqual(pp.ATLAS_SUFFIX, self._const(text, "AtlasSuffix"))
         self.assertEqual(pp.THUMB_SUFFIX, self._const(text, "ThumbSuffix"))
-        statuses = {self._const(text, n) for n in (
-            "SetupOk", "SetupSkinNotApplied", "SetupSpawnTimeout", "SetupStillAnimating",
-            "SetupDiedSettling", "SetupCrashed", "SetupDepthMaskUnrepaired")}
-        self.assertEqual(set(pp.SETUP_STATUSES), statuses)
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.SETUP_STATUSES), self._ident_array(text, "SetupStatuses", consts))
+        self.assertEqual((pp.SETUP_ACTION_FAILED, pp.SETUP_STATE_TIMEOUT),
+                         (consts["SetupActionFailed"], consts["SetupStateTimeout"]))
         controls = [self._const(text, n) for n in (
             "ControlEmpty", "ControlGhostAbsent", "ControlRealVsReal", "ControlGhostScale90",
             "ControlGhostRot90", "ControlGhostFlip", "ControlGhostMissingMesh",
@@ -963,10 +973,990 @@ class PartParitySourceSyncTests(unittest.TestCase):
         flood = text[text.index("internal static int LargestBlob("):text.index("private static void Push(")]
         self.assertEqual(4, flood.count("Push(mask, seen, stack, ref top,"))
 
-    def test_the_atlas_rows_are_real_then_ghost(self):
-        text = self._source("PartParityCaseCapture.cs")
-        self.assertIn('Rows = new[] { "real", "ghost" }', text)
-        self.assertIn("new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }", text)
+    @staticmethod
+    def _string_consts(text):
+        return dict(re.findall(r'internal const string (\w+) = "([^"\\]*)";', text))
+
+    @staticmethod
+    def _ident_array(text, name, consts):
+        """The members of one C# array initializer of const identifiers, resolved."""
+        m = re.search(r"\b%s\s*=\s*\{(.*?)\};" % re.escape(name), text, flags=re.S)
+        if m is None:
+            raise AssertionError("array %s not found" % name)
+        return [consts[n] for n in re.findall(r"\b([A-Za-z_]\w*)\b", m.group(1))
+                if n != "TestCommandPartParitySweep"]
+
+    def test_the_atlas_rows_live_in_the_pure_writer(self):
+        # The row tables are PartParityJson's (AtlasRowsFor); the live capture reads its rows
+        # there, so it holds no literal of its own (design D.2).
+        text = self._source("PartParityJson.cs")
+        self.assertEqual(list(pp.ATLAS_ROWS), self._string_array(text, "StowedAtlasRows"))
+        self.assertEqual(list(pp.ATLAS_ROWS_STATE), self._string_array(text, "StateAtlasRows"))
+        self.assertIn("isStateCase ? StateAtlasRows : StowedAtlasRows", text)
+        capture = self._source("PartParityCaseCapture.cs")
+        self.assertIn("PartParityJson.AtlasRowsFor(", capture)
+        self.assertNotIn('"ghost-start"', capture)
+
+    def test_the_control_sets_and_the_state_settings(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS), self._ident_array(text, "ControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_ORBIT_STATE),
+                         self._ident_array(text, "OrbitStateControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_AIR), self._ident_array(text, "AirControlIds", consts))
+        self.assertEqual(list(pp.ALL_CONTROL_IDS), self._ident_array(text, "AllControlIds", consts))
+        self.assertEqual((pp.CONTROL_STATE_EVENTS_DROPPED, pp.CONTROL_STATE_EVENTS_DROPPED_AIR),
+                         (consts["ControlStateEventsDropped"], consts["ControlStateEventsDroppedAir"]))
+        self.assertEqual((pp.ARG_NONE, pp.STATES_ALL),
+                         (consts["ArgNoneToken"], consts["StatesAllToken"]))
+        self.assertEqual((pp.SETTING_STATES, pp.SETTING_CONTEXTS, pp.SETTING_CONTROL_SET),
+                         (consts["SettingStates"], consts["SettingContexts"],
+                          consts["SettingControlSet"]))
+        # ControlSetFor's three branches, by their code shape: no state run -> ControlIds,
+        # an air run -> AirControlIds, else OrbitStateControlIds. control_set mirrors them.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertIn("if (!IsStateRun(args)) return (string[])ControlIds.Clone();", body)
+        self.assertIn("IsAirRun(args) ? AirControlIds : OrbitStateControlIds", body)
+        self.assertIn("args != null && (args.States != null || args.Contexts != null)", text)
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set({}))
+        self.assertEqual(pp.CONTROL_IDS_AIR, pp.control_set({"contexts": "air"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"states": "all"}))
+
+    def test_the_state_rules_contract(self):
+        text = self._source("PartParityStateRules.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.FAMILIES), self._ident_array(text, "Families", consts))
+        self.assertEqual(list(pp.KNOWN_STATES), self._ident_array(text, "KnownStates", consts))
+        self.assertEqual(list(pp.KNOWN_CONTEXTS), self._ident_array(text, "KnownContexts", consts))
+        self.assertEqual(list(pp.ORBIT_CONTEXTS), self._ident_array(text, "OrbitContexts", consts))
+        self.assertEqual(list(pp.STATE_EXCLUSION_REASONS),
+                         self._ident_array(text, "ExclusionReasons", consts))
+        self.assertEqual(list(pp.ACTION_RESULTS), self._ident_array(text, "ActionResults", consts))
+        self.assertEqual(list(pp.GHOST_OUTCOMES), self._ident_array(text, "GhostOutcomes", consts))
+        sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
+        self.assertEqual(list(pp.PRESS_GATE_STATUSES),
+                         self._ident_array(text, "PressGateStatuses", sweep))
+        self.assertEqual(pp.STATE_TIEBREAK_PREFIX, consts["ModuleTiebreakPrefix"])
+        self.assertEqual(pp.STATE_STOWED, consts["StateStowed"])
+        self.assertEqual(pp.CONTEXT_AIR, consts["ContextAir"])
+        self.assertEqual((pp.ROUTE_EVENT, pp.ROUTE_START), (consts["RouteEvent"], consts["RouteStart"]))
+        for name, mirror in (
+                ("FlagStateNotModelledPrefix", pp.FLAG_STATE_NOT_MODELLED_PREFIX),
+                ("FlagStateNotRecorded", pp.FLAG_STATE_NOT_RECORDED),
+                ("FlagStartPoseNotFirstFrame", pp.FLAG_START_POSE_NOT_FIRST_FRAME),
+                ("FlagStateInvisible", pp.FLAG_STATE_INVISIBLE),
+                ("FlagSunTrackerFirstFramePrefix", pp.FLAG_SUN_TRACKER_FIRST_FRAME_PREFIX),
+                ("TagStillTracking", pp.TAG_STILL_TRACKING),
+                ("TagCanopyWobblePrefix", pp.TAG_CANOPY_WOBBLE_PREFIX),
+                ("TagContextHiddenPrefix", pp.TAG_CONTEXT_HIDDEN_PREFIX),
+                ("TagJettisonDebrisHiddenPrefix", pp.TAG_JETTISON_DEBRIS_HIDDEN_PREFIX)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+        host = self._string_consts(self._source("PartParityHostIntegrity.cs"))
+        self.assertEqual(pp.HOST_MODE_AIR, host["ModeAir"])
+
+
+class PartParityStateReaderTests(unittest.TestCase):
+    """The P6 readers (design D.2): the control set a manifest's settings recompute to, the
+    atlas rows of a case, the state-case test."""
+
+    def test_control_set_reads_the_settings(self):
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set(None))
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set({"states": "none", "contexts": "none"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"states": "deployed,lit"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"contexts": "stacked"}))
+        self.assertEqual(pp.CONTROL_IDS_AIR, pp.control_set({"states": "all", "contexts": "air"}))
+        self.assertEqual(9, len(pp.CONTROL_IDS_ORBIT_STATE))
+        self.assertEqual(len(pp.ALL_CONTROL_IDS), len(set(pp.ALL_CONTROL_IDS)))
+
+    def test_atlas_rows_and_state_cases(self):
+        self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False))
+        self.assertEqual(("real", "ghost", "ghost-start", "ghost-stowed"), pp.atlas_rows_for(True))
+        self.assertFalse(pp.is_state_case("stowed"))
+        self.assertFalse(pp.is_state_case(None))
+        self.assertTrue(pp.is_state_case("deployed-m3"))
+
+    def test_the_new_setup_statuses_are_faults_and_known(self):
+        for status in pp.PRESS_GATE_STATUSES:
+            self.assertIn(status, pp.SETUP_STATUSES)
+            self.assertTrue(pp.is_setup_fault(status))
+
+    def test_the_view_blocks_are_subsets_of_the_view_keys(self):
+        self.assertEqual(pp.VIEW_KEYS[1:-2], pp.START_KEYS)
+        self.assertTrue(set(pp.STOWED_REF_KEYS) <= set(pp.START_KEYS))
+
+
+# ---------------------------------------------------------------------------
+# P6 S4: state-case verdicts (design D.6) on synthetic state sweeps. A state case's
+# atlas has four rows (real, ghost, ghost-start, ghost-stowed); each view carries the
+# event-route measures, a `start` block (real vs ghost-start, START_KEYS) and a
+# `stowedRef` block (real vs ghost-stowed, STOWED_REF_KEYS), every one computed by the
+# fixture's pixel-by-pixel transcription of PartParityMetrics.Measure.
+# ---------------------------------------------------------------------------
+
+STILE = 12
+SAREA = STILE * STILE * 0.5  # the box area fx.view_record uses
+
+
+def _rect(x, y, w, h):
+    return fx.rect_mask(STILE, x, y, w, h)
+
+
+def _deployed():
+    return _rect(2, 2, 8, 8)
+
+
+def _stowed():
+    return _rect(4, 4, 4, 4)
+
+
+def _state_view(view, real, ghost, start, stowed):
+    rec = fx.view_record(view, real, ghost, STILE)
+    srec = fx.view_record(view, real, start, STILE)
+    rec["start"] = {k: srec[k] for k in pp.START_KEYS}
+    ref = fx.reference_measure(real, stowed, SAREA)
+    rec["stowedRef"] = {k: ref[k] for k in pp.STOWED_REF_KEYS}
+    return rec
+
+
+def _atlas_rows(rows_of_tiles):
+    cols = len(rows_of_tiles[0])
+    width = cols * STILE
+    out = bytearray(width * len(rows_of_tiles) * STILE * 4)
+    for row, tiles in enumerate(rows_of_tiles):
+        for c, mask in enumerate(tiles):
+            for y in range(STILE):
+                for x in range(STILE):
+                    if mask[y][x]:
+                        i = ((row * STILE + y) * width + c * STILE + x) * 4
+                        out[i:i + 4] = b"\x80\x80\x80\xff"
+    return bytes(out)
+
+
+def _state_case(case_id, part="longAntenna", family="deployable", state="deployed",
+                context="alone", real=None, ghost=None, start=None, stowed=None,
+                status="ok", detail=None, proof=None, flags=(), tags=(),
+                structure=None, structure_start=None, with_views=True):
+    """(sidecar, masks) of one state case; the masks feed _write_state_case's atlas."""
+    real = real or _deployed()
+    ghost = ghost or _deployed()
+    start = start or _deployed()
+    stowed = stowed or _stowed()
+    views = [_state_view(v, real, ghost, start, stowed) for v in fx.VIEWS] if with_views else []
+    doc = fx.sidecar(case_id, part, views, STILE, status)
+    doc["state"], doc["context"] = state, context
+    doc["setup"]["detail"] = detail
+    if views:
+        doc["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE)
+    doc["flags"], doc["tags"] = list(flags), list(tags)
+    if structure is not None:
+        doc["structure"] = structure
+    base = {"family": family, "module": "ModuleDeployableAntenna", "moduleIndex": 0,
+            "state": state, "action": "Extend", "eventVisible": True,
+            "actionResult": "invoked", "reached": True, "waitS": 1.5,
+            "endpoint": {"field": "deployState", "value": "EXTENDED"},
+            "events": [{"type": "DeployableExtended", "ut": 10.0, "pid": 100000, "midx": 0}],
+            "ghostEvent": "applied", "ghostStart": "applied",
+            "startFirstFrame": {"atTarget": True, "trackerDeg": None},
+            "sunTracker": {"targetDeg": None, "eventDeg": None, "startFirstFrameDeg": None},
+            "canopy": {"tiltDeg": None, "wobbleDeg": None}, "nodes": None}
+    base.update(proof or {})
+    doc["stateProof"] = base
+    doc["structureStart"] = structure_start if structure_start is not None \
+        else copy.deepcopy(doc["structure"])
+    doc["stowedCaseId"] = part.lower() + "--default--deadbeef"
+    return doc, (real, ghost, start, stowed)
+
+
+def _write_state_case(label_dir, doc, masks):
+    if doc["views"]:
+        n = len(doc["views"])
+        rows = [[m] * n for m in masks]
+        with open(os.path.join(label_dir, doc["atlas"]["file"]), "wb") as fh:
+            fh.write(gui_mirror.write_png(n * STILE, len(rows) * STILE, 4, _atlas_rows(rows)))
+    with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w",
+              encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _stacked_stowed_case(case_id, part="liquidEngine2"):
+    """(sidecar, masks) of the stacked stowed shroud case S3 writes: state ``stowed``,
+    context ``stacked``, the stowed two-row shape, a stateProof that pressed nothing
+    (action and actionResult null, reached true, endpoint context / stowed)."""
+    body = fx.rect_mask(STILE, 3, 3, 6, 6)
+    views = [fx.view_record(v, body, body, STILE) for v in fx.VIEWS]
+    doc = fx.sidecar(case_id, part, views, STILE)
+    doc["state"], doc["context"] = "stowed", "stacked"
+    doc["stateProof"] = {"family": "jettison", "module": "ModuleJettison", "moduleIndex": 1,
+                         "state": "stowed", "action": None, "eventVisible": None,
+                         "actionResult": None, "reached": True, "waitS": None,
+                         "endpoint": {"field": "context", "value": "stowed"}, "events": None,
+                         "ghostEvent": None, "ghostStart": None,
+                         "startFirstFrame": {"atTarget": None, "trackerDeg": None},
+                         "sunTracker": {"targetDeg": None, "eventDeg": None,
+                                        "startFirstFrameDeg": None},
+                         "canopy": {"tiltDeg": None, "wobbleDeg": None},
+                         "nodes": [{"node": "bottom", "part": "fuelTankSmallFlat"}]}
+    doc["structureStart"] = None
+    doc["stowedCaseId"] = part.lower() + "--default--deadbeef"
+    return doc, (body, body)
+
+
+def _events_dropped_control():
+    # The event-route ghost built without the polled events: it stays stowed.
+    return _state_case(pp.CONTROL_STATE_EVENTS_DROPPED, ghost=_stowed())
+
+
+def _build_state_sweep(label_dir, cases, settings=None, control_outcomes=None,
+                       state_control=None, write_control_set=True):
+    """A COMPLETE state-run sweep: the run's control set (stowed controls as in
+    fx.build_sweep, the state control from ``state_control``) and ``cases``, a list of
+    (sidecar, masks). Returns the manifest."""
+    os.makedirs(label_dir, exist_ok=True)
+    settings = dict(settings or {"states": "all", "contexts": "none"})
+    ids = pp.control_set(settings)
+    if write_control_set:
+        settings.setdefault("controlSet", ",".join(ids))
+    four = lambda m: [m] * len(fx.VIEWS)  # noqa: E731
+    body = fx.rect_mask(STILE, 3, 3, 6, 6)
+    empty = fx.empty_mask(STILE)
+    for cid in ids:
+        if cid in pp.STATE_CONTROL_IDS:
+            doc, masks = state_control or _events_dropped_control()
+            if cid != doc["caseId"]:
+                doc = dict(doc, caseId=cid, atlas=dict(doc["atlas"], file=cid + ".png"))
+            _write_state_case(label_dir, doc, masks)
+        elif cid == "ctl-empty":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(empty), four(empty), STILE)
+        elif cid == "ctl-ghost-absent":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(body), four(empty), STILE)
+        else:
+            fx.write_case(label_dir, cid, "mk1pod.v2", four(body),
+                          four(fx.rect_mask(STILE, 2, 3, 6, 6)), STILE)
+    rows = []
+    for i, (doc, masks) in enumerate(cases):
+        _write_state_case(label_dir, doc, masks)
+        proof = doc.get("stateProof") or {}
+        rows.append({"index": i, "caseId": doc["caseId"], "part": doc["part"],
+                     "title": doc["part"], "source": "Squad", "skin": "default",
+                     "state": doc["state"], "context": doc["context"],
+                     "sidecar": doc["caseId"] + pp.SIDECAR_SUFFIX,
+                     "setupStatus": doc["setup"]["status"], "maxShapeBlobPx": 0,
+                     "maxColorBlobPx": 0, "minIou": 1, "missingRendered": 0,
+                     "extraRendered": 0, "family": proof.get("family"),
+                     "actionResult": proof.get("actionResult"), "reached": proof.get("reached")})
+    outcomes = dict(control_outcomes or {})
+    all_ok = all(outcomes.get(c, "ok") == "ok" for c in ids)
+    manifest = {
+        "schema": pp.MANIFEST_SCHEMA, "label": "pp3", "profile": "stock-minimal",
+        "gameDataMods": ["Parsek", "Squad"], "dllHash": "0" * 64, "tile": STILE,
+        "views": list(fx.VIEWS), "measure": {}, "settings": settings,
+        "controls": [{"id": c, "subject": "s", "required": "r",
+                      "outcome": outcomes.get(c, "ok"), "detail": ""} for c in ids],
+        "cases": rows, "exclusions": [],
+        "progress": {"complete": True, "cases": len(rows), "completeCases": len(rows),
+                     "setupFaults": 0, "controls": "ok" if all_ok else "bad", "crashed": []},
+    }
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+def _shifted():
+    # The deployed shape 3 px to the right: a shape fail in every view.
+    return _rect(5, 2, 7, 8)
+
+
+class StateCaseJudgeTests(unittest.TestCase):
+    """judge_case on a state case: two routes, the flags, the caps (design D.6)."""
+
+    def test_a_matching_state_case_passes_on_both_routes(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertEqual(("event", "start"), tuple(r.route for r in cv.routes))
+        self.assertEqual("deployed", cv.state)
+        self.assertEqual("deployable", cv.family)
+        self.assertEqual((), cv.state_flags)
+        d = cv.to_dict()
+        self.assertEqual({"event", "start"}, set(d["routes"]))
+        self.assertEqual([], d["stateFlags"])
+        json.dumps(d)
+
+    def test_the_worse_route_wins_and_names_itself(self):
+        doc, _ = _state_case("ant--default--deployed--1", start=_shifted())
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertEqual(pp.VERDICT_PASS, cv.routes[0].verdict)
+        self.assertEqual(pp.VERDICT_FAIL, cv.routes[1].verdict)
+        self.assertTrue(cv.worst_view.startswith("start:"))
+        self.assertTrue(cv.reasons and all(r.startswith("start:") for r in cv.reasons))
+        doc, _ = _state_case("ant--default--deployed--1", ghost=_shifted())
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertTrue(cv.worst_view.startswith("event:"))
+        self.assertTrue(all(r.startswith("event:") for r in cv.reasons))
+        # Both fail: the event route names the worst view (a tie keeps the event route).
+        doc, _ = _state_case("ant--default--deployed--1", ghost=_shifted(), start=_shifted())
+        cv = pp.judge_case(doc)
+        self.assertTrue(cv.worst_view.startswith("event:"))
+        self.assertTrue(any(r.startswith("start:") for r in cv.reasons))
+
+    def test_the_stowed_reference_row_is_not_judged(self):
+        # stowedRef differs hugely (the state is visible) and the case still passes.
+        doc, _ = _state_case("ant--default--deployed--1")
+        self.assertGreater(doc["views"][0]["stowedRef"]["realOnlyBlobPct"], pp.SHAPE_BLOB_FAIL_PCT)
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(doc).verdict)
+
+    def test_a_missing_rendered_mesh_on_the_start_ghost_fails_the_start_route(self):
+        missing = [{"key": "a/b/dish", "mesh": "dish", "rendered": True, "nonVisual": None}]
+        doc, _ = _state_case("ant--default--deployed--1",
+                             structure_start={"missingOnGhost": missing, "extraOnGhost": []})
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertIn("start:missing-rendered:a/b/dish", cv.reasons)
+        self.assertEqual(pp.VERDICT_PASS, cv.routes[0].verdict)
+
+    def test_each_flag(self):
+        cases = (
+            ({"ghostEvent": "no-info"}, (), pp.VERDICT_WARN, "state-not-modelled:event:no-info"),
+            ({"ghostStart": "pose-not-sampled"}, (), pp.VERDICT_WARN,
+             "state-not-modelled:start:pose-not-sampled"),
+            ({}, ("state-not-modelled:start:not-reached",), pp.VERDICT_WARN,
+             "state-not-modelled:start:not-reached"),
+            ({"events": []}, (), pp.VERDICT_WARN, "state-not-recorded"),
+            ({}, ("state-not-recorded",), pp.VERDICT_WARN, "state-not-recorded"),
+            ({"startFirstFrame": {"atTarget": False, "trackerDeg": None}}, (),
+             pp.VERDICT_FAIL, "start-pose-not-first-frame"),
+            ({}, ("start-pose-not-first-frame",), pp.VERDICT_FAIL, "start-pose-not-first-frame"),
+        )
+        for proof, written, verdict, flag in cases:
+            with self.subTest(flag=flag, written=written):
+                doc, _ = _state_case("ant--default--deployed--1", proof=proof, flags=written)
+                cv = pp.judge_case(doc)
+                self.assertEqual(verdict, cv.verdict)
+                self.assertIn(flag, cv.state_flags)
+                self.assertIn("flag:" + flag, cv.reasons)
+        # A written flag and its derived twin are one flag.
+        doc, _ = _state_case("ant--default--deployed--1", proof={"ghostEvent": "no-info"},
+                             flags=("state-not-modelled:event:no-info",))
+        self.assertEqual(1, pp.judge_case(doc).state_flags.count("state-not-modelled:event:no-info"))
+        # A null (unmeasured) outcome derives nothing.
+        doc, _ = _state_case("ant--default--deployed--1",
+                             proof={"ghostEvent": None, "events": None,
+                                    "startFirstFrame": {"atTarget": None, "trackerDeg": None}})
+        self.assertEqual((), pp.judge_case(doc).state_flags)
+
+    def test_a_flag_never_lowers_a_picture_fail(self):
+        doc, _ = _state_case("ant--default--deployed--1", ghost=_shifted(),
+                             proof={"ghostEvent": "no-info"})
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_state_invisible_and_the_tags_are_report_only(self):
+        doc, _ = _state_case("ant--default--deployed--1", stowed=_deployed(),
+                             flags=("sun-tracker-first-frame:42.0",),
+                             tags=("still-tracking", "context-hidden:1",
+                                   "jettison-debris-hidden:2", "canopy-wobble:4.5"))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertEqual(("sun-tracker-first-frame:42.0", "state-invisible"), cv.state_flags)
+        self.assertFalse(any(r.startswith("flag:") for r in cv.reasons))
+        # A visible state is not state-invisible.
+        doc, _ = _state_case("ant--default--deployed--1")
+        self.assertNotIn("state-invisible", pp.judge_case(doc).state_flags)
+
+    def test_the_context_cap_applies_per_route_and_a_depth_mask_caps_nothing(self):
+        doc, _ = _state_case("gear--default--deployed--1", family="gear", ghost=_shifted(),
+                             start=_shifted(), tags=(pp.TAG_CONTEXT_DEPENDENT,))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict)
+        self.assertIn("event:" + pp.REASON_CONTEXT_POSE, cv.reasons)
+        self.assertIn("start:" + pp.REASON_CONTEXT_POSE, cv.reasons)
+        # The depth-mask picture cap is gone (design 4.2 step 0: the capture repairs the real
+        # mask), so a start-route picture fail beside a skipped mask stays a fail; the mask entry
+        # itself is non-visual and adds no missing-rendered reason.
+        mask = [{"key": "a/mask", "mesh": "m", "rendered": True, "nonVisual": "depth-mask"}]
+        doc, _ = _state_case("bay--default--open--1", start=_shifted(),
+                             structure_start={"missingOnGhost": mask, "extraOnGhost": []})
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertFalse(any("depth-mask" in r or "missing-rendered" in r for r in cv.reasons))
+
+    def _air(self, rot=2.5, pos=0.0, scl=0.0, context="air", tilt=1.0, wobble=1.0,
+             transform="canopy", tags=(), key="chute/canopy", **extra):
+        structure = {"missingOnGhost": [], "extraOnGhost": [], "meshDiffers": [],
+                     "renderedDiffers": [], "materialDiffers": [],
+                     "transformDiffers": [{"key": key, "positionDeltaM": pos,
+                                           "rotationDeltaDeg": rot, "scaleDeltaPct": scl}]}
+        structure.update(extra)
+        doc, _ = _state_case("chute--default--semi--air--1", part="parachuteSingle",
+                             family="parachute", state="semi", context=context,
+                             ghost=_shifted(), structure=structure, tags=tags,
+                             structure_start=copy.deepcopy(structure),
+                             proof={"canopy": {"tiltDeg": tilt, "wobbleDeg": wobble,
+                                               "transform": transform}})
+        return pp.judge_case(doc)
+
+    def test_the_canopy_cap_on_an_air_case(self):
+        cv = self._air()  # 2.5 <= 1.0 + 1.0 + 1.0
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict)
+        self.assertIn("event:" + pp.REASON_CANOPY_AIRFLOW, cv.reasons)
+        for label, kw in (("rotation over the bound", {"rot": 3.5}),
+                          ("not an air case", {"context": "alone"}),
+                          ("a position delta", {"pos": 0.01}),
+                          ("a scale delta", {"scl": 5.0}),
+                          ("no canopy angles", {"tilt": None}),
+                          ("a mesh difference", {"meshDiffers": [{"key": "chute/canopy"}]}),
+                          ("no transform difference", {"transformDiffers": []})):
+            with self.subTest(label):
+                self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+
+    def test_the_canopy_cap_is_limited_to_the_canopy_and_a_settled_capture(self):
+        # Fix 3 of the PR #2766 review: the cap was too wide against D.4.
+        self.assertEqual(pp.VERDICT_WARN, self._air(key="model/canopy/mesh#1").verdict)
+        housing = [{"key": "chute/canopy", "positionDeltaM": 0.0, "rotationDeltaDeg": 2.5,
+                    "scaleDeltaPct": 0.0},
+                   {"key": "chute/housing", "positionDeltaM": 0.0, "rotationDeltaDeg": 2.5,
+                    "scaleDeltaPct": 0.0}]
+        for label, kw in (
+                ("a non-canopy renderer rotated too", {"transformDiffers": housing}),
+                ("only a non-canopy renderer", {"key": "chute/housing"}),
+                ("a canopy-like name is not the canopy", {"key": "chute/canopyCover"}),
+                ("a canopy material differs", {"materialDiffers": [
+                    {"key": "chute/canopy", "field": "mainTextures", "real": "red",
+                     "ghost": "white"}]}),
+                ("no canopy transform named", {"transform": None}),
+                ("tilt + wobble at the window: a timeout capture", {"tilt": 1.5, "wobble": 1.5,
+                                                                   "rot": 1.0}),
+                ("a timeout capture tagged canopy-wobble", {"tags": ("canopy-wobble:2.0",)}),
+                ("a huge tilt", {"tilt": 85.0, "wobble": 5.0, "rot": 40.0})):
+            with self.subTest(label):
+                self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+        # The bound stays under the ceiling: 1.4 + 1.5 + 1 = 3.9 <= 4.0.
+        self.assertEqual(pp.VERDICT_WARN, self._air(tilt=1.4, wobble=1.5, rot=3.85).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(tilt=1.4, wobble=1.5, rot=3.95).verdict)
+        self.assertEqual(4.0, pp.CANOPY_ROTATION_CEILING_DEG)
+        self.assertTrue(pp.is_canopy_renderer_key("a/canopy", "canopy"))
+        self.assertTrue(pp.is_canopy_renderer_key("a/canopy/b#2", "canopy"))
+        self.assertFalse(pp.is_canopy_renderer_key("a/canopy2/b", "canopy"))
+        self.assertFalse(pp.is_canopy_renderer_key("a/b", ""))
+
+    def test_the_canopy_window_is_the_csharp_one(self):
+        path = os.path.join(CS_DIR, "PartParityStateRules.cs")
+        with open(path, encoding="utf-8") as fh:
+            text = _strip_cs_comments(fh.read())
+        m = re.search(r"const double CanopyWindowDeg\s*=\s*([0-9.]+)\s*;", text)
+        self.assertIsNotNone(m, "CanopyWindowDeg not found in %s" % path)
+        self.assertEqual(float(m.group(1)), pp.CANOPY_WINDOW_DEG)
+
+    def test_an_ok_case_whose_press_proof_says_not_reached_is_an_error(self):
+        # Fix 2 of the PR #2766 review: setup ok but the proof contradicts it.
+        same = dict(real=_stowed(), ghost=_stowed(), start=_stowed())
+        for label, kw, needle in (
+                ("reached false", {"proof": {"reached": False, "events": []}}, "reached=False"),
+                ("reached null", {"proof": {"reached": None}}, "reached=None"),
+                ("threw", {"proof": {"actionResult": "threw"}}, "actionResult=threw"),
+                ("refused", {"proof": {"actionResult": "refused", "reached": False}},
+                 "actionResult=refused"),
+                ("action null on a state case", {"proof": {"action": None}},
+                 "stateProof.action=null"),
+                ("still-animating, not reached", {"status": pp.SETUP_STILL_ANIMATING,
+                                                  "proof": {"reached": False}}, "reached=False")):
+            with self.subTest(label):
+                doc, _ = _state_case("ant--default--deployed--1", **dict(same, **kw))
+                cv = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+                self.assertIn(needle, cv.reasons[0])
+                self.assertTrue(cv.reasons[0].startswith("press-proof:"))
+        doc, _ = _state_case("ant--default--deployed--1")
+        doc["stateProof"] = None
+        self.assertIn("no stateProof", pp.press_proof_problem(doc))
+        # A recorded press fault is not a contradiction; nor is a stowed case.
+        doc, _ = _state_case("ant--default--deployed--1", status=pp.SETUP_ACTION_FAILED,
+                             with_views=False, proof={"actionResult": "missing", "reached": False})
+        self.assertIsNone(pp.press_proof_problem(doc))
+        self.assertIsNone(pp.press_proof_problem(_load("decoupler.2--basic--6fabf1e2.part.json")))
+
+    def test_only_a_reached_stacked_stowed_proof_may_skip_the_press(self):
+        # Re-review note 1: the no-press exception is the stacked stowed shape only.
+        for label, mutate in (
+                ("context alone", lambda d: d.__setitem__("context", "alone")),
+                ("context air", lambda d: d.__setitem__("context", "air")),
+                ("not reached", lambda d: d["stateProof"].__setitem__("reached", False)),
+                ("reached null", lambda d: d["stateProof"].__setitem__("reached", None))):
+            with self.subTest(label):
+                doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
+                mutate(doc)
+                self.assertIn("only a reached stacked stowed case", pp.press_proof_problem(doc))
+                self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_canopy_rotation_is_judged_by_its_size(self):
+        # Re-review note 3: a negative delta is a rotation of that size, NaN is refused.
+        self.assertEqual(pp.VERDICT_WARN, self._air(rot=-2.5).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(rot=-40.0).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(rot=float("nan")).verdict)
+
+    def test_a_canopy_wobble_flag_refuses_the_cap_too(self):
+        # Re-review note 4: the timeout marker may come in flags as well as tags.
+        doc_cap = self._air()
+        self.assertEqual(pp.VERDICT_WARN, doc_cap.verdict)
+        structure = {"missingOnGhost": [], "extraOnGhost": [], "meshDiffers": [],
+                     "renderedDiffers": [], "materialDiffers": [],
+                     "transformDiffers": [{"key": "chute/canopy", "positionDeltaM": 0.0,
+                                           "rotationDeltaDeg": 2.5, "scaleDeltaPct": 0.0}]}
+        doc, _ = _state_case("chute--default--semi--air--1", part="parachuteSingle",
+                             family="parachute", state="semi", context="air",
+                             ghost=_shifted(), structure=structure,
+                             structure_start=copy.deepcopy(structure),
+                             flags=("canopy-wobble:2.0",),
+                             proof={"canopy": {"tiltDeg": 1.0, "wobbleDeg": 1.0,
+                                               "transform": "canopy"}})
+        self.assertIsNone(pp.canopy_cap_for(doc))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_the_stacked_stowed_context_case_needs_no_press(self):
+        doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
+        self.assertIsNone(pp.press_proof_problem(doc))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertEqual((), cv.routes)
+        self.assertIsNone(cv.state)
+
+    def test_a_state_case_without_start_blocks_is_an_error(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        for v in doc["views"]:
+            v["start"] = None
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertIn("start:no-views", cv.reasons)
+
+    def test_a_press_fault_is_an_error_case(self):
+        doc, _ = _state_case("ant--default--deployed--1", status=pp.SETUP_ACTION_FAILED,
+                             detail="missing", with_views=False,
+                             proof={"actionResult": "missing", "reached": False})
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertEqual("setup:action-failed", cv.reasons[0])
+
+    def test_a_stowed_case_keeps_its_pre_p6_verdict_document(self):
+        doc = _load("decoupler.2--basic--6fabf1e2.part.json")
+        cv = pp.judge_case(doc)
+        self.assertEqual((), cv.routes)
+        self.assertIsNone(cv.state)
+        self.assertEqual({"caseId", "part", "skin", "source", "verdict", "reasons",
+                          "worstView", "maxShapeBlobPx", "maxShapeBlobPct",
+                          "maxColorBlobPx", "setupStatus"}, set(cv.to_dict()))
+
+
+class StateRecomputeTests(unittest.TestCase):
+    """The four-row recompute and the stowedRef key subset (design D.6)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="pp-state-recompute-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _written(self, **kw):
+        doc, masks = _state_case("ant--default--deployed--1", **kw)
+        _write_state_case(self.tmp, doc, masks)
+        atlas = gui_mirror.read_png(os.path.join(self.tmp, doc["atlas"]["file"]))
+        return doc, atlas
+
+    def test_a_state_atlas_recomputes_clean_on_every_row(self):
+        for kw in ({}, {"ghost": _shifted()}, {"start": _shifted()},
+                   {"stowed": _deployed()}, {"stowed": fx.empty_mask(STILE)}):
+            with self.subTest(kw=sorted(kw)):
+                doc, atlas = self._written(**kw)
+                self.assertEqual([], pp.recompute_case(doc, atlas))
+
+    def test_a_mutated_number_on_each_row_is_a_mismatch(self):
+        doc, atlas = self._written()
+        for label, mutate, needle in (
+                ("row 1", lambda d: d["views"][0].__setitem__("realPx", 1), "side-a.realPx"),
+                ("row 2", lambda d: d["views"][1]["start"].__setitem__("ghostPx", 3),
+                 "side-b/start.ghostPx"),
+                ("row 2 iou", lambda d: d["views"][1]["start"].__setitem__("iou", 0.5),
+                 "side-b/start.iou"),
+                ("row 3", lambda d: d["views"][2]["stowedRef"].__setitem__("ghostOnlyBlobPx", 9),
+                 "top/stowedRef.ghostOnlyBlobPx")):
+            with self.subTest(label):
+                d = copy.deepcopy(doc)
+                mutate(d)
+                diffs = pp.recompute_case(d, atlas)
+                self.assertTrue(any(needle in x for x in diffs), diffs)
+        # A stowedRef percentage is checked against the box area the view's other
+        # non-zero blobs imply (here the event route's, its ghost shifted).
+        doc, atlas = self._written(ghost=_shifted())
+        self.assertEqual([], pp.recompute_case(doc, atlas))
+        d = copy.deepcopy(doc)
+        d["views"][3]["stowedRef"]["realOnlyBlobPct"] = 1.0
+        self.assertTrue(any("bottom.stowedRef" in x for x in pp.recompute_case(d, atlas)))
+
+    def test_a_flipped_pixel_on_each_row_is_a_mismatch(self):
+        doc, (w, h, bpp, px) = self._written()
+        for row, needle in ((1, "side-a.ghostPx"), (2, "side-a/start.ghostPx"),
+                            (3, "side-a/stowedRef.ghostPx")):
+            with self.subTest(row=row):
+                buf = bytearray(px)
+                buf[((row * STILE) * w + 0) * 4 + 3] = 255  # top-left pixel of the row
+                diffs = pp.recompute_case(doc, (w, h, bpp, bytes(buf)))
+                self.assertTrue(any(needle in x for x in diffs), diffs)
+
+    def test_a_missing_block_or_key_is_a_mismatch(self):
+        doc, atlas = self._written()
+        d = copy.deepcopy(doc)
+        del d["views"][0]["stowedRef"]["ghostOnlyTolPx"]
+        self.assertIn("side-a.stowedRef: missing key(s) ghostOnlyTolPx", pp.recompute_case(d, atlas))
+        d = copy.deepcopy(doc)
+        d["views"][2]["start"] = None
+        self.assertIn("top.start: block missing", pp.recompute_case(d, atlas))
+        # Exactly the stowedRef keys: an extra measure there is not checked.
+        d = copy.deepcopy(doc)
+        d["views"][0]["stowedRef"]["iou"] = 0.123
+        self.assertEqual([], pp.recompute_case(d, atlas))
+
+    def test_the_row_layout_is_checked(self):
+        doc, atlas = self._written()
+        d = copy.deepcopy(doc)
+        d["atlas"]["rows"] = ["real", "ghost"]
+        self.assertIn("expected", pp.recompute_case(d, atlas)[0])
+        w, h, bpp, px = atlas
+        self.assertIn("atlas size", pp.recompute_case(doc, (w, h // 2, bpp, px[:len(px) // 2]))[0])
+
+    def test_null_percentages_follow_the_view(self):
+        doc, atlas = self._written()
+        d = copy.deepcopy(doc)
+        for blk in (d["views"][0], d["views"][0]["start"], d["views"][0]["stowedRef"]):
+            blk["realOnlyBlobPct"] = blk["ghostOnlyBlobPct"] = None
+        self.assertEqual([], pp.recompute_case(d, atlas))
+        d["views"][0]["stowedRef"]["realOnlyBlobPct"] = 2.0
+        self.assertTrue(any("side-a.stowedRef.realOnlyBlobPct" in x
+                            for x in pp.recompute_case(d, atlas)))
+
+
+class StateSweepTests(unittest.TestCase):
+    """evaluate_sweep over a state run: the press gate, the control set and the state
+    controls, the instrument checks, the verdicts document (design D.2, D.6)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="pp-state-sweep-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _eval(self, cases, **kw):
+        _build_state_sweep(self.tmp, cases, **kw)
+        sweep = _read_dir(self.tmp, "pp3")
+        return pp.evaluate_sweep(sweep, RUN_ID, False, gui_mirror.read_png,
+                                 lambda n: os.path.join(self.tmp, n)), sweep
+
+    @staticmethod
+    def _cases(family="deployable", n=4, failed=0, status=pp.SETUP_ACTION_FAILED, start=0):
+        out = []
+        for i in range(n):
+            cid = "%s%d--default--deployed--%08d" % (family, i, start + i)
+            if i < failed:
+                out.append(_state_case(cid, part="%s%d" % (family, i), family=family,
+                                       status=status, detail="detail-%d" % i,
+                                       with_views=False, proof={"reached": False}))
+            else:
+                out.append(_state_case(cid, part="%s%d" % (family, i), family=family))
+        return out
+
+    def test_a_clean_state_run_reports_and_recomputes_the_state_control(self):
+        res, _ = self._eval(self._cases() + self._cases("light", 2, start=10))
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        self.assertEqual(6, res.counts["cases"])
+        self.assertEqual(6, res.counts[pp.VERDICT_PASS])
+        self.assertIn(pp.CONTROL_STATE_EVENTS_DROPPED, res.recompute_ids)
+        self.assertEqual(list(pp.CONTROL_IDS_ORBIT_STATE), res.recompute_ids[:9])
+        self.assertEqual([], res.recompute_mismatches)
+        self.assertTrue(res.press.ok)
+        self.assertEqual((("deployable", 4, 0), ("light", 2, 0)), res.press.families)
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual({"ok": True, "families": {"deployable": {"cases": 4, "pressFailed": 0},
+                                                   "light": {"cases": 2, "pressFailed": 0}},
+                          "problems": []}, doc["statePress"])
+        self.assertIn("stateFlags", doc)
+        self.assertEqual({"event", "start"}, set(doc["cases"][0]["routes"]))
+        json.dumps(doc)
+        self.assertIn("press=ok", pp.format_summary(pp.combine([res], False)))
+
+    def test_a_family_of_all_action_failed_is_invalid_state_press(self):
+        res, _ = self._eval(self._cases(failed=4) + self._cases("light", 2, start=10))
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_STATE_PRESS_SUBKIND),
+                         (res.status, res.invalid_subkind))
+        self.assertIn("family=deployable 4/4 case(s) action-failed|state-timeout: first "
+                      "deployable0--default--deployed--00000000 action-failed: detail-0",
+                      res.problems[0])
+        self.assertNotIn("family=light", " ".join(res.problems))
+        self.assertEqual(4, res.counts[pp.VERDICT_ERROR])
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND,
+                         pp.combine([res], False).invalid_subkind)
+
+    def test_the_press_line_is_more_than_half(self):
+        res, _ = self._eval(self._cases(failed=2))  # 2 of 4: not over half
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        shutil.rmtree(self.tmp)
+        res, _ = self._eval(self._cases(failed=3, status=pp.SETUP_STATE_TIMEOUT))
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        shutil.rmtree(self.tmp)
+        # A one-case family whose case failed.
+        res, _ = self._eval(self._cases() + self._cases("airbrake", 1, failed=1, start=20))
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        self.assertIn("family=airbrake 1/1", res.problems[0])
+        shutil.rmtree(self.tmp)
+        # Other setup faults are not press faults.
+        res, _ = self._eval(self._cases(failed=4, status=pp.SETUP_SPAWN_TIMEOUT))
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+
+    def test_the_press_gate_reads_the_sidecar_family_when_the_row_has_none(self):
+        cases = self._cases(failed=1, n=1)
+        _build_state_sweep(self.tmp, cases)
+        sweep = _read_dir(self.tmp, "pp3")
+        for row in sweep.manifest["cases"]:
+            row["family"] = None
+        check = pp.check_state_press(sweep.manifest, sweep.sidecars)
+        self.assertFalse(check.ok)
+        self.assertIn("family=deployable", check.problems[0])
+
+    def test_the_press_gate_ranks_after_the_controls_and_before_the_recompute(self):
+        res, _ = self._eval(self._cases(failed=4),
+                            control_outcomes={"ctl-ghost-flip": pp.CONTROLS_BAD})
+        self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+        self.assertTrue(any(p.startswith("state press:") for p in res.problems))
+        shutil.rmtree(self.tmp)
+        bad = _events_dropped_control()
+        bad[0]["views"][0]["stowedRef"]["realPx"] += 1
+        res, _ = self._eval(self._cases(failed=4), state_control=bad)
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        self.assertTrue(res.recompute_mismatches)
+        self.assertTrue(res.problems[0].startswith("state press:"))
+        ranked = [pp.combine([pp.SweepResult("x", pp.STATUS_INVALID, sub, False, [], None, None,
+                                             [], [], [], pp._count([]))], False).invalid_subkind
+                  for sub in pp.INVALID_SUBKINDS]
+        self.assertEqual(list(pp.INVALID_SUBKINDS), ranked)
+        mixed = [pp.SweepResult(s, pp.STATUS_INVALID, s, False, [], None, None, [], [], [],
+                                pp._count([])) for s in pp.INVALID_SUBKINDS]
+        order = []
+        while mixed:
+            sub = pp.combine(mixed, False).invalid_subkind
+            order.append(sub)
+            mixed = [m for m in mixed if m.invalid_subkind != sub]
+        self.assertEqual(list(hlib.PARTPARITY_INVALID_SUBKIND_ORDER), order)
+
+    def test_a_mutated_row_reds_invalid_instrument(self):
+        # The state control is always recomputed: a mutated stowedRef count on it.
+        bad = _events_dropped_control()
+        bad[0]["views"][2]["stowedRef"]["ghostOnlyPx"] += 1
+        res, _ = self._eval(self._cases(), state_control=bad)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("top/stowedRef.ghostOnlyPx", " ".join(res.recompute_mismatches))
+        shutil.rmtree(self.tmp)
+        # A flipped pixel of row 2 (ghost-start) on it.
+        _build_state_sweep(self.tmp, self._cases())
+        path = os.path.join(self.tmp, pp.CONTROL_STATE_EVENTS_DROPPED + pp.ATLAS_SUFFIX)
+        w, h, bpp, px = gui_mirror.read_png(path)
+        buf = bytearray(px)
+        buf[((2 * STILE) * w) * 4 + 3] = 255
+        with open(path, "wb") as fh:
+            fh.write(gui_mirror.write_png(w, h, bpp, bytes(buf)))
+        sweep = _read_dir(self.tmp, "pp3")
+        res = pp.evaluate_sweep(sweep, RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("side-a/start.ghostPx", " ".join(res.recompute_mismatches))
+
+    def test_a_missing_stowed_ref_key_on_any_state_case_is_invalid_instrument(self):
+        cases = self._cases(n=8)
+        sample = pp.select_recompute_sample([d["caseId"] for d, _ in cases], RUN_ID)
+        unsampled = next(d for d, _ in cases if d["caseId"] not in sample)
+        del unsampled["views"][1]["stowedRef"]["realOnlyBlobPct"]
+        res, _ = self._eval(cases)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("%s side-b.stowedRef: missing key(s) realOnlyBlobPct" % unsampled["caseId"],
+                      res.recompute_mismatches)
+
+    def test_the_control_set_follows_the_states_setting(self):
+        for settings, want in (
+                ({"states": "deployed,lit", "contexts": "none"}, pp.CONTROL_IDS_ORBIT_STATE),
+                ({"states": "none", "contexts": "stacked"}, pp.CONTROL_IDS_ORBIT_STATE),
+                ({"states": "all", "contexts": "air"}, pp.CONTROL_IDS_AIR)):
+            with self.subTest(settings=settings):
+                shutil.rmtree(self.tmp, ignore_errors=True)
+                ctl = (_state_case(pp.CONTROL_STATE_EVENTS_DROPPED_AIR, part="parachuteSingle",
+                                   family="parachute", state="semi", context="air",
+                                   ghost=_stowed())
+                       if want == pp.CONTROL_IDS_AIR else None)
+                res, sweep = self._eval(self._cases(), settings=settings, state_control=ctl)
+                self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+                self.assertEqual(want, tuple(cid for cid, _ in res.controls.outcomes))
+                self.assertEqual(len(want) + 4, res.completeness.planned)
+                # The set's own state control absent from the manifest: a controls fault.
+                m = copy.deepcopy(sweep.manifest)
+                m["controls"] = [c for c in m["controls"] if c["id"] not in pp.STATE_CONTROL_IDS]
+                problems = pp.check_controls(m).problems
+                self.assertTrue(any(p.endswith(":absent") and p.split(":")[0]
+                                    in pp.STATE_CONTROL_IDS for p in problems), problems)
+                # Its sidecar absent: incomplete.
+                side = dict(sweep.sidecars)
+                side.pop(want[-1])
+                self.assertFalse(pp.check_completeness(sweep.manifest, side).ok)
+        # A stowed run still requires exactly the eight.
+        self.assertEqual(pp.CONTROL_IDS, pp.manifest_control_set({"settings": {"skins": "all"}}))
+
+    def test_a_written_control_set_that_disagrees_is_invalid_instrument(self):
+        _build_state_sweep(self.tmp, self._cases())
+        sweep = _read_dir(self.tmp, "pp3")
+        self.assertIsNone(pp.control_set_disagreement(sweep.manifest))
+        sweep.manifest["settings"]["controlSet"] = ",".join(pp.CONTROL_IDS)
+        self.assertIn("settings.controlSet=", pp.control_set_disagreement(sweep.manifest))
+        res = pp.evaluate_sweep(sweep, RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        # A manifest written before P6 carries no controlSet: nothing to compare.
+        self.assertIsNone(pp.control_set_disagreement({"settings": {"skins": "all"}}))
+
+    def test_the_state_control_outcome_is_re_judged(self):
+        good, _ = _events_dropped_control()
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_state_control(good))
+        for label, mutate, detail in (
+                ("setup", lambda d: d["setup"].__setitem__("status", pp.SETUP_STATE_TIMEOUT),
+                 "setup state-timeout"),
+                ("reached", lambda d: d["stateProof"].__setitem__("reached", False),
+                 "the press never reached the state"),
+                ("events", lambda d: d["stateProof"].__setitem__("events", []),
+                 "no event recorded"),
+                ("views", lambda d: d.__setitem__("views", []), "no views"),
+                ("event route", lambda d: [v.update({"realOnlyBlobPx": 0, "ghostOnlyBlobPx": 0,
+                                                     "realOnlyBlobPct": 0.0,
+                                                     "ghostOnlyBlobPct": 0.0})
+                                           for v in d["views"]],
+                 "the event-route views pass on shape"),
+                ("stowedRef", lambda d: [v["stowedRef"].update(
+                    {"realOnlyBlobPx": 0, "ghostOnlyBlobPx": 0, "realOnlyBlobPct": 0.0,
+                     "ghostOnlyBlobPct": 0.0}) for v in d["views"]],
+                 "stowedRef passes on shape in every view")):
+            with self.subTest(label):
+                d = copy.deepcopy(good)
+                mutate(d)
+                self.assertEqual((pp.CONTROLS_BAD, detail), pp.judge_state_control(d))
+        # The manifest says ok, the sidecar says the press never arrived: INVALID(controls).
+        bad = _state_case(pp.CONTROL_STATE_EVENTS_DROPPED, ghost=_stowed(),
+                          proof={"reached": False})
+        res, _ = self._eval(self._cases(), state_control=bad)
+        self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+        self.assertIn("ctl-state-events-dropped:recorded-ok-judged-bad", res.problems[0])
+
+    def test_family_less_press_faults_still_trip_the_press_gate(self):
+        # Fix 1 of the PR #2766 review: a crashed / failed case whose sidecar carries no
+        # stateProof has no family on either side, and must still be counted.
+        cases = self._cases(n=4, failed=4)
+        for doc, _ in cases:
+            doc["stateProof"] = None
+        _build_state_sweep(self.tmp, cases)
+        sweep = _read_dir(self.tmp, "pp3")
+        for row in sweep.manifest["cases"]:
+            self.assertIsNone(row["family"])
+        res = pp.evaluate_sweep(sweep, RUN_ID, True, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        self.assertIn("family=%s 4/4" % pp.PRESS_UNKNOWN_FAMILY, res.problems[0])
+        # Gating armed, the same sweep must never read PASS.
+        self.assertNotEqual(pp.STATUS_PASS, res.status)
+
+    def test_a_stacked_stowed_context_case_in_a_state_run(self):
+        # The stowed-shaped case S3 writes in a state / context run: judged as a stowed
+        # case, not counted by the press gate, accepted by every writer cross-check.
+        res, _ = self._eval(self._cases(n=2) + [_stacked_stowed_case(
+            "liquidengine2--default--stowed--stacked--00000099")],
+            settings={"states": "none", "contexts": "stacked"})
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        self.assertEqual([], res.recompute_mismatches)
+        self.assertEqual((("deployable", 2, 0),), res.press.families)
+        stacked = [c for c in res.cases if c.case_id.endswith("00000099")][0]
+        self.assertEqual(pp.VERDICT_PASS, stacked.verdict)
+        self.assertNotIn("state", stacked.to_dict())
+
+    def test_an_ok_case_with_a_contradicting_press_proof_is_invalid_instrument(self):
+        cases = self._cases(n=3)
+        doc, masks = _state_case("bad--default--deployed--00000050", part="bad",
+                                 real=_stowed(), ghost=_stowed(), start=_stowed(),
+                                 proof={"reached": False, "events": [], "ghostEvent": None,
+                                        "ghostStart": None})
+        res, _ = self._eval(cases + [(doc, masks)])
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("bad--default--deployed--00000050 press-proof: setup=ok action=Extend "
+                      "actionResult=invoked reached=False", res.recompute_mismatches)
+        self.assertEqual(1, res.counts[pp.VERDICT_ERROR])
+
+    def test_the_writer_cross_checks_are_invalid_instrument(self):
+        # Fix 4 of the PR #2766 review.
+        cases = self._cases(n=60)
+        bad = cases[5][0]["caseId"]
+        _build_state_sweep(self.tmp, cases)
+        base = _read_dir(self.tmp, "pp3")
+
+        def run(mutate):
+            sweep = copy.deepcopy(base)
+            mutate(sweep)
+            return pp.evaluate_sweep(sweep, RUN_ID, False, gui_mirror.read_png,
+                                     lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.STATUS_REPORT, run(lambda s: None).status)
+        for label, mutate, needle in (
+                ("sidecar state dropped",
+                 lambda s: s.sidecars[bad].__setitem__("state", None),
+                 "%s row state/context=deployed/alone sidecar=None/alone" % bad),
+                ("row state dropped",
+                 lambda s: s.manifest["cases"][5].__setitem__("state", None),
+                 "%s row state/context=None/alone sidecar=deployed/alone" % bad),
+                ("context differs",
+                 lambda s: s.sidecars[bad].__setitem__("context", "stacked"),
+                 "%s row state/context=deployed/alone sidecar=deployed/stacked" % bad),
+                ("both states stowed, a press recorded",
+                 lambda s: (s.sidecars[bad].__setitem__("state", "stowed"),
+                            s.manifest["cases"][5].__setitem__("state", "stowed")),
+                 "%s stateProof.action=Extend on a case whose state is stowed" % bad),
+                ("proof state differs (re-review note 2)",
+                 lambda s: s.sidecars[bad]["stateProof"].__setitem__("state", "open"),
+                 "%s stateProof.state=open sidecar state=deployed" % bad),
+                ("settings dropped", lambda s: s.manifest.__setitem__("settings", {}),
+                 "recompute the stowed control set"),
+                ("settings say a stowed run",
+                 lambda s: s.manifest.__setitem__("settings", {"states": "none",
+                                                               "contexts": "none"}),
+                 "states=none contexts=none recompute the stowed control set")):
+            with self.subTest(label):
+                res = run(mutate)
+                self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind,
+                                 (res.invalid_subkind, res.problems))
+                self.assertTrue(any(needle in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
+
+    def test_state_flag_counts(self):
+        a = pp.judge_case(_state_case("a--d--deployed--1", proof={"ghostEvent": "no-info",
+                                                                  "ghostStart": "no-info"})[0])
+        b = pp.judge_case(_state_case("b--d--deployed--2", stowed=_deployed())[0])
+        self.assertEqual({"state-invisible": 1, "state-not-modelled": 1},
+                         pp.state_flag_counts([a, b]))
+
+
+class StatePressWiringTests(unittest.TestCase):
+    """The new INVALID class through hlib.classify_verdict."""
+
+    def test_state_press_is_a_terminal_invalid(self):
+        self.assertIn(pp.INVALID_STATE_PRESS_SUBKIND, hlib.PARTPARITY_INVALID_SUBKINDS)
+        self.assertEqual(set(hlib.PARTPARITY_INVALID_SUBKINDS),
+                         set(hlib.PARTPARITY_INVALID_SUBKIND_ORDER))
+        self.assertEqual(list(hlib.PARTPARITY_INVALID_SUBKIND_ORDER),
+                         sorted(pp._SUBKIND_ORDER, key=pp._SUBKIND_ORDER.get))
+        v = hlib.classify_verdict({}, {"part_parity_invalid": True,
+                                       "part_parity_subkind": "parity-state-press",
+                                       "part_parity_reason": "family=light"}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_INVALID, "parity-state-press"), (v.verdict, v.subkind))
+        self.assertFalse(hlib.should_retry(v, 1, "once"))
 
 
 if __name__ == "__main__":

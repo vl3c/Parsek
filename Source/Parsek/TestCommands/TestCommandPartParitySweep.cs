@@ -73,6 +73,16 @@ namespace Parsek.TestCommands
 
         internal PartParitySkinSelection Skins = PartParitySkinSelection.Default;
 
+        /// <summary>The <c>states=</c> words in canonical order (<c>all</c> resolves to every
+        /// <see cref="PartParityStateRules.KnownStates"/> word), or null for <c>none</c>.</summary>
+        internal List<string> States;
+
+        /// <summary>True when <c>states=all</c> (the manifest records the token, not the list).</summary>
+        internal bool StatesAll;
+
+        /// <summary>The <c>contexts=</c> names in canonical order, or null for <c>none</c>.</summary>
+        internal List<string> Contexts;
+
         /// <summary>The views, in canonical order, deduplicated.</summary>
         internal List<string> Views = new List<string>(TestCommandPartParitySweep.RequiredViews);
 
@@ -107,6 +117,11 @@ namespace Parsek.TestCommands
 
         internal string State = TestCommandPartParitySweep.DefaultState;
         internal string Context = TestCommandPartParitySweep.DefaultContext;
+
+        /// <summary>What a state or context case presses and how (design D.2); null for a
+        /// stowed case. Not part of the identity: the case id reads <see cref="State"/> and
+        /// <see cref="Context"/>.</summary>
+        internal PartParityStateOption StateOption;
     }
 
     /// <summary>One case a step will consider, with its stable index and id.</summary>
@@ -129,7 +144,7 @@ namespace Parsek.TestCommands
     ///
     /// <para>Grammar: <c>PartParitySweep label=&lt;label&gt; [op=reset|run]
     /// [filter=&lt;glob&gt;] [source=&lt;csv&gt;] [skins=default|all]
-    /// [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
+    /// [states=none|all|&lt;csv&gt;] [contexts=none|&lt;csv&gt;] [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
     /// [limit=&lt;n&gt;] [controls=true|false] [maxSeconds=60..480]</c>. Every present arg
     /// that does not parse is REJECTED with its own reason, never clamped or defaulted: a
     /// silently widened sweep would run past its step budget, a silently narrowed one would
@@ -220,10 +235,17 @@ namespace Parsek.TestCommands
         internal const string SetupDiedSettling = "died-settling";
         internal const string SetupCrashed = "crashed";
 
+        /// <summary>A state case's stock action was missing, threw, or left the module
+        /// unchanged (design D.3; <c>stateProof.actionResult</c> says which).</summary>
+        internal const string SetupActionFailed = "action-failed";
+
+        /// <summary>A state case's done signal did not arrive within its timeout (design D.3).</summary>
+        internal const string SetupStateTimeout = "state-timeout";
+
         internal static readonly string[] SetupStatuses =
         {
             SetupOk, SetupSkinNotApplied, SetupSpawnTimeout, SetupStillAnimating,
-            SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired,
+            SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired, SetupActionFailed, SetupStateTimeout,
         };
 
         /// <summary>True for a status that is a setup fault: anything but <c>ok</c> and
@@ -244,11 +266,42 @@ namespace Parsek.TestCommands
         internal const string ControlGhostMissingMesh = "ctl-ghost-missing-mesh";
         internal const string ControlWrongSkin = "ctl-wrong-skin";
 
-        /// <summary>The control cases, in the order they run (before every other case).</summary>
+        /// <summary>The control cases of a stowed run (no <c>states=</c> / <c>contexts=</c>),
+        /// in the order they run (before every other case).</summary>
         internal static readonly string[] ControlIds =
         {
             ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlGhostScale90,
             ControlGhostRot90, ControlGhostFlip, ControlGhostMissingMesh, ControlWrongSkin,
+        };
+
+        /// <summary>The orbit state control (design D.6): the full state case of
+        /// <c>longAntenna</c> with the event-route ghost built WITHOUT the polled events.</summary>
+        internal const string ControlStateEventsDropped = "ctl-state-events-dropped";
+
+        /// <summary>The same on <c>parachuteSingle</c> at <c>semi</c> in the air.</summary>
+        internal const string ControlStateEventsDroppedAir = "ctl-state-events-dropped-air";
+
+        /// <summary>An orbit state run's controls: the stowed eight, then the state control.</summary>
+        internal static readonly string[] OrbitStateControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlGhostScale90,
+            ControlGhostRot90, ControlGhostFlip, ControlGhostMissingMesh, ControlWrongSkin,
+            ControlStateEventsDropped,
+        };
+
+        /// <summary>An air run's controls (design D.2): the two coverage controls, the
+        /// real-vs-real control on a falling armed chute, and the air state control.</summary>
+        internal static readonly string[] AirControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlStateEventsDroppedAir,
+        };
+
+        /// <summary>Every control id any run may plan.</summary>
+        internal static readonly string[] AllControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlGhostScale90,
+            ControlGhostRot90, ControlGhostFlip, ControlGhostMissingMesh, ControlWrongSkin,
+            ControlStateEventsDropped, ControlStateEventsDroppedAir,
         };
 
         internal const string ControlsOk = "ok";
@@ -267,6 +320,8 @@ namespace Parsek.TestCommands
         internal const string FilterArgInvalidReason = "filter-arg-invalid";
         internal const string SourceArgInvalidReason = "source-arg-invalid";
         internal const string SkinsArgInvalidReason = "skins-arg-invalid";
+        internal const string StatesArgInvalidReason = "states-arg-invalid";
+        internal const string ContextsArgInvalidReason = "contexts-arg-invalid";
         internal const string ViewsArgInvalidReason = "views-arg-invalid";
         internal const string TileArgInvalidReason = "tile-arg-invalid";
         internal const string ShardArgInvalidReason = "shard-arg-invalid";
@@ -281,22 +336,45 @@ namespace Parsek.TestCommands
         /// suborbital, escaping): the co-orbital spawns need an orbiting host.</summary>
         internal const string HostNotOrbitingReason = "host-not-orbiting";
 
+        /// <summary>REJECTED: an air run (<c>contexts=air</c>) whose active vessel is not
+        /// PRELAUNCH or LANDED within <see cref="AirHostMaxPadDistanceM"/> of the KSC pad
+        /// (design D.4): the chutes spawn over the showcase band beside the pad.</summary>
+        internal const string HostNotAtPadReason = "host-not-at-pad";
+
+        /// <summary>How far from the launch pad an air run's host may sit (design D.4).</summary>
+        internal const double AirHostMaxPadDistanceM = 500.0;
+
         /// <summary>The REJECTED vocabulary, in parse-then-admission order.</summary>
         internal static readonly string[] Reasons =
         {
             LabelArgMissingReason, LabelArgInvalidReason, OpArgInvalidReason,
             FilterArgInvalidReason, SourceArgInvalidReason, SkinsArgInvalidReason,
+            StatesArgInvalidReason, ContextsArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            NoActiveVesselReason, HostNotOrbitingReason,
+            NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
         /// <summary>Every arg key the verb reads.</summary>
         internal static readonly string[] ArgKeys =
         {
-            "label", "op", "filter", "source", "skins", "views", "tile", "shard", "limit",
-            "controls", "maxSeconds",
+            "label", "op", "filter", "source", "skins", "states", "contexts", "views", "tile",
+            "shard", "limit", "controls", "maxSeconds",
         };
+
+        // ----- states= and contexts= (design D.2) -----
+
+        /// <summary>The default of both <c>states=</c> and <c>contexts=</c>: no state cases.</summary>
+        internal const string ArgNoneToken = "none";
+
+        /// <summary><c>states=all</c>: every state word.</summary>
+        internal const string StatesAllToken = "all";
+
+        /// <summary>The manifest <c>settings</c> keys a run records its state selection and its
+        /// control set under (design D.2).</summary>
+        internal const string SettingStates = "states";
+        internal const string SettingContexts = "contexts";
+        internal const string SettingControlSet = "controlSet";
 
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
 
@@ -351,6 +429,23 @@ namespace Parsek.TestCommands
                 if (raw == "default") a.Skins = PartParitySkinSelection.Default;
                 else if (raw == "all") a.Skins = PartParitySkinSelection.All;
                 else { rejectReason = SkinsArgInvalidReason; return Reject("skins", raw, out rejectDetail); }
+            }
+
+            raw = Get(args, "states");
+            if (raw != null)
+            {
+                if (!TryParseStates(raw, out List<string> states, out bool statesAll))
+                { rejectReason = StatesArgInvalidReason; return Reject("states", raw, out rejectDetail); }
+                a.States = states;
+                a.StatesAll = statesAll;
+            }
+
+            raw = Get(args, "contexts");
+            if (raw != null)
+            {
+                if (!TryParseContexts(raw, out List<string> contexts))
+                { rejectReason = ContextsArgInvalidReason; return Reject("contexts", raw, out rejectDetail); }
+                a.Contexts = contexts;
             }
 
             raw = Get(args, "views");
@@ -493,6 +588,107 @@ namespace Parsek.TestCommands
             return true;
         }
 
+        /// <summary>
+        /// <c>none</c> (null, no state filter), <c>all</c> (every
+        /// <see cref="PartParityStateRules.KnownStates"/> word), or a csv of known state words
+        /// (re-ordered to the canonical order, duplicates dropped, no empty item).
+        /// </summary>
+        internal static bool TryParseStates(string raw, out List<string> states, out bool all)
+        {
+            states = null;
+            all = false;
+            if (raw == ArgNoneToken) return true;
+            if (raw == StatesAllToken)
+            {
+                states = new List<string>(PartParityStateRules.KnownStates);
+                all = true;
+                return true;
+            }
+            return TryParseKnownCsv(raw, PartParityStateRules.KnownStates, out states);
+        }
+
+        /// <summary>
+        /// <c>none</c> (null) or a csv of known contexts (canonical order, duplicates dropped).
+        /// <c>air</c> stands alone: the air cases need a host at the pad and the orbit cases an
+        /// orbiting one, so one step never plans both.
+        /// </summary>
+        internal static bool TryParseContexts(string raw, out List<string> contexts)
+        {
+            contexts = null;
+            if (raw == ArgNoneToken) return true;
+            if (!TryParseKnownCsv(raw, PartParityStateRules.KnownContexts, out List<string> list)) return false;
+            if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;
+            contexts = list;
+            return true;
+        }
+
+        private static bool TryParseKnownCsv(string raw, string[] known, out List<string> values)
+        {
+            values = null;
+            if (string.IsNullOrEmpty(raw)) return false;
+            var wanted = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string item in raw.Split(','))
+            {
+                if (Array.IndexOf(known, item) < 0) return false;
+                wanted.Add(item);
+            }
+            values = new List<string>();
+            foreach (string v in known)
+                if (wanted.Contains(v)) values.Add(v);
+            return true;
+        }
+
+        /// <summary>The <c>states=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
+        internal static string FormatStates(PartParitySweepArgs args)
+        {
+            if (args?.States == null) return ArgNoneToken;
+            return args.StatesAll ? StatesAllToken : string.Join(",", args.States.ToArray());
+        }
+
+        /// <summary>The <c>contexts=</c> setting token: <c>none</c> or the csv.</summary>
+        internal static string FormatContexts(PartParitySweepArgs args)
+            => args?.Contexts == null ? ArgNoneToken : string.Join(",", args.Contexts.ToArray());
+
+        /// <summary>True when the step names <c>states=</c> or <c>contexts=</c> other than
+        /// <c>none</c>: it plans ONLY state and context cases (design D.2).</summary>
+        internal static bool IsStateRun(PartParitySweepArgs args)
+            => args != null && (args.States != null || args.Contexts != null);
+
+        /// <summary>True for an air run: <c>contexts=air</c> (the parachute cases, D.4).</summary>
+        internal static bool IsAirRun(PartParitySweepArgs args)
+            => args?.Contexts != null && args.Contexts.Contains(PartParityStateRules.ContextAir);
+
+        /// <summary>A state case (four atlas rows): any state but <c>stowed</c>. The stacked
+        /// stowed shroud is a context case with the stowed case's two rows.</summary>
+        internal static bool IsStateCase(PartParityCaseKey key)
+            => key != null && !string.Equals(key.State ?? DefaultState, DefaultState, StringComparison.Ordinal);
+
+        /// <summary>The three manifest settings a run records its state selection under, in
+        /// order: <c>states</c>, <c>contexts</c>, <c>controlSet</c> (the ids, comma-joined).</summary>
+        internal static List<KeyValuePair<string, string>> StateSettings(PartParitySweepArgs args)
+        {
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>(SettingStates, FormatStates(args)),
+                new KeyValuePair<string, string>(SettingContexts, FormatContexts(args)),
+                new KeyValuePair<string, string>(SettingControlSet, string.Join(",", ControlSetFor(args))),
+            };
+        }
+
+        /// <summary>
+        /// The control set of a run (design D.2), the same rule as
+        /// <c>partparity.control_set(settings)</c>: no <c>states=</c> / <c>contexts=</c> runs
+        /// the eight stowed controls (<see cref="ControlIds"/>, so PP-1 / PP-2 are unchanged);
+        /// an air run <see cref="AirControlIds"/>; any other state run
+        /// <see cref="OrbitStateControlIds"/>. <c>controls=false</c> runs none of them, but the
+        /// set is still the run's (the manifest records it).
+        /// </summary>
+        internal static string[] ControlSetFor(PartParitySweepArgs args)
+        {
+            if (!IsStateRun(args)) return (string[])ControlIds.Clone();
+            return (string[])(IsAirRun(args) ? AirControlIds : OrbitStateControlIds).Clone();
+        }
+
         private static bool IsIdChar(char c)
             => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
                || c == '.' || c == '_' || c == '-';
@@ -587,6 +783,40 @@ namespace Parsek.TestCommands
                 selected.Add(new PartParityPlannedCase { Index = i, Key = kept[i], CaseId = CaseId(kept[i]) });
             }
             return selected;
+        }
+
+        /// <summary>
+        /// The cases one step plans (design D.2). Without <c>states=</c> / <c>contexts=</c>:
+        /// exactly <see cref="SelectCases"/> over the stowed keys, today's list in today's
+        /// order. With either: ONLY the state and context keys whose state matches
+        /// <c>states=</c> (any state when <c>none</c>) and whose context matches
+        /// <c>contexts=</c> (<see cref="PartParityStateRules.OrbitContexts"/> when <c>none</c>),
+        /// never a <c>stowed</c> / <c>alone</c> case, then the same filter / source / shard /
+        /// limit selection. <c>skins=</c> governs stowed cases only (state cases are at the
+        /// base skin, ruling R2).
+        /// </summary>
+        internal static List<PartParityPlannedCase> PlanCases(
+            IEnumerable<PartParityCaseKey> stowedKeys, IEnumerable<PartParityCaseKey> stateKeys,
+            PartParitySweepArgs args)
+        {
+            if (args == null) args = new PartParitySweepArgs();
+            if (!IsStateRun(args)) return SelectCases(stowedKeys, args);
+            var kept = new List<PartParityCaseKey>();
+            if (stateKeys != null)
+            {
+                foreach (var k in stateKeys)
+                {
+                    if (k == null) continue;
+                    string state = k.StateOption?.State ?? k.State ?? DefaultState;
+                    string context = k.Context ?? DefaultContext;
+                    if (state == DefaultState && context == DefaultContext) continue;
+                    if (args.States != null && !args.States.Contains(state)) continue;
+                    if (args.Contexts != null ? !args.Contexts.Contains(context)
+                        : Array.IndexOf(PartParityStateRules.OrbitContexts, context) < 0) continue;
+                    kept.Add(k);
+                }
+            }
+            return SelectCases(kept, args);
         }
 
         private static bool SourceSelected(List<string> sources, string source)
@@ -804,6 +1034,10 @@ namespace Parsek.TestCommands
         /// when any control failed, else <c>pending</c> while any has not run, else <c>ok</c>;
         /// <c>off</c> when the step ran without controls.</summary>
         internal static string ControlsState(bool controlsEnabled, IList<string> outcomes)
+            => ControlsState(controlsEnabled, outcomes, ControlIds);
+
+        /// <summary>As above, against a run's own control set (<see cref="ControlSetFor"/>).</summary>
+        internal static string ControlsState(bool controlsEnabled, IList<string> outcomes, IList<string> controlSet)
         {
             if (!controlsEnabled) return ControlsOff;
             int ok = 0;
@@ -815,7 +1049,8 @@ namespace Parsek.TestCommands
                     if (o == ControlsOk) ok++;
                 }
             }
-            return ok >= ControlIds.Length ? ControlsOk : ControlsPending;
+            int need = controlSet != null ? controlSet.Count : ControlIds.Length;
+            return ok >= need ? ControlsOk : ControlsPending;
         }
 
         // ----- admission and payload -----
@@ -826,6 +1061,22 @@ namespace Parsek.TestCommands
             if (!hasActiveVessel) return NoActiveVesselReason;
             if (!activeVesselOrbiting) return HostNotOrbitingReason;
             return null;
+        }
+
+        /// <summary>
+        /// The admission of a run by its kind: an orbit run (stowed or state) needs an orbiting
+        /// host, as above; an air run (design D.4) a host PRELAUNCH or LANDED within
+        /// <see cref="AirHostMaxPadDistanceM"/> of the KSC pad, else <c>host-not-at-pad</c>.
+        /// A non-finite distance is not at the pad.
+        /// </summary>
+        internal static string DecideHostAdmission(PartParitySweepArgs args, bool hasActiveVessel,
+            bool activeVesselOrbiting, bool activeVesselLandedOrPrelaunch, double distanceToPadM)
+        {
+            if (!IsAirRun(args)) return DecideHostAdmission(hasActiveVessel, activeVesselOrbiting);
+            if (!hasActiveVessel) return NoActiveVesselReason;
+            bool near = !double.IsNaN(distanceToPadM) && !double.IsInfinity(distanceToPadM)
+                        && distanceToPadM >= 0.0 && distanceToPadM <= AirHostMaxPadDistanceM;
+            return activeVesselLandedOrPrelaunch && near ? null : HostNotAtPadReason;
         }
 
         /// <summary>

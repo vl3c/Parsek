@@ -465,7 +465,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = new[] { "real", "ghost" },
+                    Rows = PartParityJson.AtlasRowsFor(false),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }

@@ -8844,7 +8844,7 @@ class PartParityHarvestSmokeTests(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("[HARVEST] move parsek-partparity/pp1 -> results/<runId>_partparity/", out)
         self.assertIn("partParity(labels: pp1; INVALID(parity-controls|parity-instrument|"
-                      "parity-incomplete|parity-host-damaged)", out)
+                      "parity-incomplete|parity-host-damaged|parity-state-press)", out)
         self.assertIn("parts report-only", out)
         spec = self._spec()
         spec["expectations"]["partParity"]["gating"] = True

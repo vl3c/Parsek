@@ -1043,71 +1043,8 @@ namespace Parsek
 
         private void CheckLightState(Vessel v)
         {
-            if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                bool hasModuleLight = false;
-                var light = p.FindModuleImplementing<ModuleLight>();
-                if (light != null)
-                {
-                    hasModuleLight = true;
-                    var evt = CheckLightTransition(
-                        p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                    }
-
-                    reusableEventBuffer.Clear();
-                    CheckLightBlinkTransition(
-                        p.persistentId, p.partInfo?.name ?? "unknown",
-                        light.isBlinking, light.blinkRate,
-                        blinkingLights, lightBlinkRates, ut, reusableEventBuffer);
-                    for (int e = 0; e < reusableEventBuffer.Count; e++)
-                    {
-                        PartEvents.Add(reusableEventBuffer[e]);
-                        ParsekLog.Verbose("Recorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
-                            $"pid={reusableEventBuffer[e].partPersistentId} val={reusableEventBuffer[e].value:F2}");
-                    }
-                }
-
-                // Also check ModuleColorChanger with toggleInFlight=true (cabin lights).
-                // Parts with both ModuleLight and ModuleColorChanger toggle together via the
-                // Light action group, so the lightsOn HashSet deduplicates via partPersistentId.
-                // For parts with ONLY ModuleColorChanger, this produces the LightOn/LightOff events.
-                if (!hasModuleLight)
-                {
-                    bool foundToggleableColorChanger = false;
-                    var modules = p.Modules;
-                    for (int mi = 0; mi < modules.Count; mi++)
-                    {
-                        var cc = modules[mi] as ModuleColorChanger;
-                        if (cc == null) continue;
-                        if (!cc.toggleInFlight) continue;
-
-                        foundToggleableColorChanger = true;
-                        var ccEvt = CheckLightTransition(
-                            p.persistentId, p.partInfo?.name ?? "unknown", cc.animState, lightsOn, ut);
-                        if (ccEvt.HasValue)
-                        {
-                            PartEvents.Add(ccEvt.Value);
-                            ParsekLog.Verbose("Recorder",
-                                $"ColorChanger state change: pid={p.persistentId} animState={cc.animState} " +
-                                $"event={ccEvt.Value.eventType} '{ccEvt.Value.partName}'");
-                        }
-                        break; // Only one toggleable ColorChanger per part matters
-                    }
-
-                    if (!foundToggleableColorChanger)
-                        continue;
-                }
-            }
+            PartStatePoller.PollLights(v, lightsOn, blinkingLights, lightBlinkRates, reusableEventBuffer,
+                Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>

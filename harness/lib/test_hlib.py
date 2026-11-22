@@ -19194,6 +19194,21 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                          self._identifier_array(text, "KnownViews", consts))
         self.assertEqual(list(hlib.PARTPARITY_VIEWS_TOKENS),
                          [consts["ViewsRequiredToken"], consts["ViewsAllToken"]])
+        # states= / contexts=: the two tokens here, the word tables in PartParityStateRules,
+        # and the parse delegating to TryParseStates / TryParseContexts (air alone).
+        self.assertEqual((hlib.PARTPARITY_NONE_TOKEN, hlib.PARTPARITY_STATES_ALL_TOKEN),
+                         (consts["ArgNoneToken"], consts["StatesAllToken"]))
+        self.assertIn("TryParseStates(raw, out List<string> states, out bool statesAll)", parse)
+        self.assertIn("TryParseContexts(raw, out List<string> contexts)", parse)
+        rules_text = self._source("TestCommands", "PartParityStateRules.cs")
+        rules = self._string_consts(rules_text)
+        self.assertEqual(list(hlib.PARTPARITY_STATE_VALUES),
+                         self._identifier_array(rules_text, "KnownStates", rules))
+        self.assertEqual(list(hlib.PARTPARITY_CONTEXT_VALUES),
+                         self._identifier_array(rules_text, "KnownContexts", rules))
+        self.assertEqual(hlib.PARTPARITY_AIR_CONTEXT, rules["ContextAir"])
+        self.assertIn("if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;",
+                      text)
 
     def test_the_ranges_mirror_the_c_sharp(self):
         text, _ = self._pure()
@@ -19221,7 +19236,7 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual(list(hlib.PARTPARITY_ERROR_REASONS),
                          self._identifier_array(done, "ErrorReasons", self._string_consts(done)))
         label_tokens = ("label-arg-missing", "label-arg-invalid")
-        gates = ("no-active-vessel", "host-not-orbiting")
+        gates = ("no-active-vessel", "host-not-orbiting", "host-not-at-pad")
         for reason in hlib.PARTPARITY_REASONS:
             with self.subTest(reason=reason):
                 if reason in gates:
@@ -19284,7 +19299,16 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                                    "shard": "2/3", "maxSeconds": "60"}, 60))
         self.assertEqual([], v(0, {"label": "pp1", "views": "required"}))
         self.assertEqual([], v(0, {"label": "pp1", "limit": "${probe.count}"}))
+        self.assertEqual([], v(0, {"label": "pp3", "states": "all"}))
+        self.assertEqual([], v(0, {"label": "pp3", "states": "deployed,lit", "contexts": "alone,stacked"}))
+        self.assertEqual([], v(0, {"label": "pp5", "contexts": "air", "states": "none"}))
         cases = (
+            ({"label": "pp1", "states": ""}, "states-arg-invalid"),
+            ({"label": "pp1", "states": "Deployed"}, "states-arg-invalid"),
+            ({"label": "pp1", "states": "deployed,"}, "states-arg-invalid"),
+            ({"label": "pp1", "contexts": "all"}, "contexts-arg-invalid"),
+            ({"label": "pp1", "contexts": "air,alone"}, "contexts-arg-invalid"),
+            ({"label": "pp1", "contexts": "orbit"}, "contexts-arg-invalid"),
             ({}, "label-arg-missing"),
             ({"label": "pp 1"}, "label-arg-invalid"),
             ({"label": "pp1_"}, "label-arg-invalid"),
