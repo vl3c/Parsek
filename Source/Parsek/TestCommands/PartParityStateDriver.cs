@@ -1283,14 +1283,34 @@ namespace Parsek.TestCommands
                     if (state.deployableInfos != null && state.deployableInfos.TryGetValue(pid, out DeployableGhostInfo d) && d != null)
                     {
                         g.HasInfo = true;
-                        g.PoseSampled = d.transforms != null && d.transforms.Count > 0;
+                        g.PoseSampled = GhostPlaybackLogic.HasDeployablePose(d);
                         g.DeployFraction = d.deployFraction;
                         g.CurrentDeployed = d.currentDeployed;
                         g.TransitionActive = d.transitionActive;
                     }
+                    else if (GhostPlaybackLogic.HasDeployDrivenLoop(state, pid))
+                    {
+                        // An animation group with no deploy clip (the orbital scanner): its
+                        // deployed state is its running loop.
+                        bool running = DeployDrivenLoopRunning(state, pid);
+                        g.HasInfo = true;
+                        g.PoseSampled = true;
+                        g.DeployFraction = running ? 1f : 0f;
+                        g.CurrentDeployed = running;
+                        g.TransitionActive = false;
+                    }
                     break;
             }
             return g;
+        }
+
+        private static bool DeployDrivenLoopRunning(GhostPlaybackState state, uint pid)
+        {
+            List<ConverterLoopGhostInfo> loops = state?.synthesizedMotionInfos?.converterLoops;
+            if (loops == null) return false;
+            foreach (var l in loops)
+                if (l != null && l.followsDeploy && l.partPersistentId == pid && l.active) return true;
+            return false;
         }
 
         private static bool HasCabinLight(GhostPlaybackState state, uint pid)

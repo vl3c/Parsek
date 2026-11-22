@@ -497,6 +497,36 @@ namespace Parsek
         /// </summary>
         internal static GhostPartEventOutcome ApplyConverterLoopStateWithOutcome(
             GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT)
+            => ApplyLoopStateWithOutcome(state, partPersistentId, active, activeSinceUT, deployDriven: false);
+
+        /// <summary>
+        /// Starts or stops the deploy-driven loops of one part
+        /// (<see cref="ConverterLoopGhostInfo.followsDeploy"/>): called by the DeployableExtended /
+        /// Retracted events with the recorded event UT and by the snapshot baseline's
+        /// ModuleAnimationGroup isDeployed. The converter edges never touch these loops, and these
+        /// calls never touch a converter-driven one.
+        /// </summary>
+        internal static GhostPartEventOutcome ApplyDeployDrivenLoopStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool deployed, double eventUT)
+            => ApplyLoopStateWithOutcome(state, partPersistentId, deployed, eventUT, deployDriven: true);
+
+        /// <summary>True when the part carries a deploy-driven loop (pure state read).</summary>
+        internal static bool HasDeployDrivenLoop(GhostPlaybackState state, uint partPersistentId)
+        {
+            var loops = state?.synthesizedMotionInfos?.converterLoops;
+            if (loops == null) return false;
+            for (int i = 0; i < loops.Count; i++)
+            {
+                ConverterLoopGhostInfo loop = loops[i];
+                if (loop != null && loop.followsDeploy && loop.partPersistentId == partPersistentId)
+                    return true;
+            }
+            return false;
+        }
+
+        private static GhostPartEventOutcome ApplyLoopStateWithOutcome(
+            GhostPlaybackState state, uint partPersistentId, bool active, double activeSinceUT,
+            bool deployDriven)
         {
             var synth = state?.synthesizedMotionInfos;
             if (synth?.converterLoops == null) return GhostPartEventOutcome.NoFamilyState;
@@ -507,6 +537,7 @@ namespace Parsek
             {
                 ConverterLoopGhostInfo loop = synth.converterLoops[i];
                 if (loop == null || loop.partPersistentId != partPersistentId) continue;
+                if (loop.followsDeploy != deployDriven) continue;
 
                 // Re-arming an ALREADY-active loop would restart it from phase 0 and produce a
                 // visible hitch. A duplicate ConverterActivated (a snapshot seed followed by a
