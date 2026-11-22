@@ -82,8 +82,10 @@ Owner decision (2026-11-22): "Profile above, Log under it (if they don't fit, ot
 the left)", refined after the variants mockup: "the Clone / Delete and Profile / Log buttons can have
 the same width, and Warp to... can be larger so Loop .. fits under it".
 
-- Basic (no loop grid, room on line 1): `[Profile][Log]`, Profile left of Log, right-aligned in the
-  name cell, each at the grid's button width.
+- Basic: the same column as Advanced: `[Profile]` right-aligned on line 1, `[Log]` under it on line 2
+  (owner decision 2026-11-22, "for the basic view, i think we can place Log button under Profile
+  also"), both at the column C width (72 px), so the two modes put the buttons in the same place.
+  Line 2 of a Basic bar keeps `[Run by route]` (when route-bound) to the left of Log.
 - Advanced (layout A): the loop grid keeps three columns, re-sized:
   - line 1: `[A: Clone] [B: Warp to...] [C: Profile]`
   - line 2: `[A: Delete] [B: Loop [x] every [10] sec] [C: Log]`
@@ -697,7 +699,7 @@ Interview of 2026-11-22 (owner answers, quoted where the wording matters):
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | Button placement | "Profile above, Log under it (if they don't fit, otherwise Profile to the left)"; after the variants: layout A with equal widths for Clone / Delete / Profile / Log and a wider Warp column (2.1). |
+| Q1 | Button placement | "Profile above, Log under it (if they don't fit, otherwise Profile to the left)"; after the variants: layout A with equal widths for Clone / Delete / Profile / Log and a wider Warp column; Basic puts Log under Profile in the same column (2.1). |
 | Q2 | Delta-v | "record how much delta-V the vessel and stages had at every step ... and use the real figures provided by the game" (8.1), for every recorded vessel the game computes it for; old flights show the `~` estimate. |
 | Q3 | Stage separations | Event rows. |
 | Q4 | Re-Fly | Like the Log during a session; the flown-again path after the merge. |
