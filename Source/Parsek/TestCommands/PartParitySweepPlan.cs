@@ -137,26 +137,33 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The worst-case wall time of one state wave (design D.3), the bound a wave is admitted
-        /// against: the spawn cap, the bucket's state wait, the sun-tracking cap when the wave
-        /// holds a sun tracker, the capture of every case and the teardown. Long:
-        /// <c>20 + 20 (+ 10) + 0.3 n + 5</c>; quick: <c>20 + 5 + 0.3 n + 5</c>; air: the spawn
-        /// cap, the 0.5 s settle, semi (10 s) and full (15 s) each followed by the 4 s canopy
-        /// window, then the capture and the teardown.
+        /// against: the spawn cap, the bucket's state wait, the longest settle cap of the wave's
+        /// families (<see cref="PartParityStateRules.SettleCapSeconds"/>: a cabin light or an
+        /// airbrake 5 s, a light 1 s, else 0.5 s), the sun-tracking cap when the wave holds a sun
+        /// tracker, the capture of every case and the teardown. Long:
+        /// <c>20 + 20 + 0.5 (+ 10) + 0.3 n + 5</c>; quick: <c>20 + 5 + settle + 0.3 n + 5</c>;
+        /// air: the spawn cap, the 0.5 s settle, semi (10 s) and full (15 s) each followed by the
+        /// 4 s canopy window, then the capture and the teardown (60 s for a wave of five).
         /// </summary>
-        internal static double WaveWorstCaseSeconds(PartParityStateBucket bucket, int cases, bool anySunTracker)
+        internal static double WaveWorstCaseSeconds(PartParityStateBucket bucket, int cases, bool anySunTracker,
+            IEnumerable<string> families = null)
         {
             double capture = StateCaptureSecondsPerCase * Math.Max(0, cases);
+            double settle = MinSettleSeconds;
+            if (families != null)
+                foreach (string f in families) settle = Math.Max(settle, PartParityStateRules.SettleCapSeconds(f));
             switch (bucket)
             {
                 case PartParityStateBucket.Quick:
-                    return SpawnTimeoutSeconds + PartParityStateRules.QuickStateTimeoutSeconds + capture + StateTeardownSeconds;
+                    return SpawnTimeoutSeconds + PartParityStateRules.QuickStateTimeoutSeconds + settle
+                        + capture + StateTeardownSeconds;
                 case PartParityStateBucket.Air:
                     return SpawnTimeoutSeconds + MinSettleSeconds
                         + PartParityStateRules.ChuteSemiTimeoutSeconds + PartParityStateRules.CanopyCapSeconds
                         + PartParityStateRules.ChuteFullTimeoutSeconds + PartParityStateRules.CanopyCapSeconds
                         + capture + StateTeardownSeconds;
                 default:
-                    return SpawnTimeoutSeconds + PartParityStateRules.LongStateTimeoutSeconds
+                    return SpawnTimeoutSeconds + PartParityStateRules.LongStateTimeoutSeconds + settle
                         + (anySunTracker ? PartParityStateRules.SunTrackerCapSeconds : 0.0)
                         + capture + StateTeardownSeconds;
             }

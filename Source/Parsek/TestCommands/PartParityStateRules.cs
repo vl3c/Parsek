@@ -689,23 +689,30 @@ namespace Parsek.TestCommands
             => (word ?? string.Empty) + ModuleTiebreakPrefix + moduleIndex.ToString(Ic);
 
         /// <summary>Mirror of <c>FlightRecorder.HasDedicatedAnimateHandler</c> over module names
-        /// and type chains (its three FindModuleImplementing checks and six exact names).</summary>
+        /// and type chains (its FindModuleImplementing checks and its exact names).</summary>
         internal static bool HasDedicatedAnimateHandler(IList<PartParityStateModule> mods)
         {
             if (mods == null) return false;
-            if (FirstImplementing(mods, TypeDeployablePart) >= 0) return true;
-            if (FirstImplementing(mods, TypeWheelDeployment) >= 0) return true;
-            if (FirstImplementing(mods, TypeCargoBay) >= 0) return true;
+            foreach (string type in DedicatedHandlerTypes)
+                if (FirstImplementing(mods, type) >= 0) return true;
             foreach (PartParityStateModule m in mods)
             {
                 if (m == null) continue;
-                if (m.Named(ModuleRetractableLadder) || m.Named(ModuleAnimationGroup)
-                    || m.Named(ModuleAeroSurface) || m.Named(ModuleControlSurface)
-                    || m.Named(ModuleRobotArmScanner) || m.Named(ModuleAnimateHeat))
-                    return true;
+                if (Array.IndexOf(DedicatedHandlerModuleNames, m.Name) >= 0) return true;
             }
             return false;
         }
+
+        /// <summary>The types <c>FlightRecorder.HasDedicatedAnimateHandler</c> finds with
+        /// <c>FindModuleImplementing</c>, in its order (an xUnit cell reads them out of its body).</summary>
+        internal static readonly string[] DedicatedHandlerTypes = { TypeDeployablePart, TypeWheelDeployment, TypeCargoBay };
+
+        /// <summary>The <c>moduleName</c>s it compares exactly, in its order.</summary>
+        internal static readonly string[] DedicatedHandlerModuleNames =
+        {
+            ModuleRetractableLadder, ModuleAnimationGroup, ModuleAeroSurface, ModuleControlSurface,
+            ModuleRobotArmScanner, ModuleAnimateHeat,
+        };
 
         private static int FirstImplementing(IList<PartParityStateModule> mods, string typeName)
         {
@@ -894,6 +901,20 @@ namespace Parsek.TestCommands
                     return Math.Min(CabinLightSettleCapSeconds, 1.0 / animRate + CabinLightPadSeconds);
                 default:
                     return PartParitySweepPlan.MinSettleSeconds;
+            }
+        }
+
+        /// <summary>The longest settle a family can add after its done signal, for the wave
+        /// bound: a cabin light its 5 s cap, an airbrake its 5 s stillness cap, a light 1 s,
+        /// every other family the 0.5 s minimum settle.</summary>
+        internal static double SettleCapSeconds(string family)
+        {
+            switch (family)
+            {
+                case FamilyCabinLight: return CabinLightSettleCapSeconds;
+                case FamilyAirbrake: return AirbrakeCapSeconds;
+                case FamilyLight: return LightSettleSeconds;
+                default: return PartParitySweepPlan.MinSettleSeconds;
             }
         }
 
