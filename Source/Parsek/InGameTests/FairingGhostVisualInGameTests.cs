@@ -578,7 +578,7 @@ namespace Parsek.InGameTests
 
         private static ConfigNode BuildSkirtVesselNode(FairingGhostConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
         {
-            FairingAuthoredVessel v = FairingGhostAuthoring.BuildSkirtVessel(cfg, anchor, Tag, null, false, out failReason);
+            FairingAuthoredVessel v = FairingGhostAuthoring.BuildSkirtVessel(cfg, anchor, Tag, null, false, null, out failReason);
             if (v == null) return null;
             run.MaxFairingRadius = v.MaxFairingRadius;
             return v.Node;
@@ -686,7 +686,7 @@ namespace Parsek.InGameTests
 
         private static ConfigNode BuildVesselNode(FairingGhostConfig cfg, Vessel anchor, ConfigRun run, out string failReason)
         {
-            FairingAuthoredVessel v = FairingGhostAuthoring.BuildFairingVessel(cfg, anchor, Tag, out failReason);
+            FairingAuthoredVessel v = FairingGhostAuthoring.BuildFairingVessel(cfg, anchor, Tag, null, out failReason);
             if (v == null) return null;
             run.MaxFairingRadius = v.MaxFairingRadius;
             run.VariantName = v.VariantName;

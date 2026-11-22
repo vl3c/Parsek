@@ -56,8 +56,9 @@ namespace Parsek.TestCommands
 
         // ----- an FGV context (D.10 S8) -----
 
-        /// <summary>The flight id of the part FGV's separation takes off; 0 for none.</summary>
-        internal uint SeparateFlightId;
+        /// <summary>The subject's attach node holding the part FGV's separation takes off;
+        /// null for none.</summary>
+        internal string SeparateNode;
 
         /// <summary>That part on the live case vessel (resolved with the stowed inputs).</summary>
         internal Part SeparatePart;
@@ -320,7 +321,7 @@ namespace Parsek.TestCommands
                 failReason = "no FGV configuration " + c.Number.ToString(Ic);
                 return null;
             }
-            FairingAuthoredVessel v = FairingGhostAuthoring.Build(cfg, anchor, Tag, wc.Entry.Info, true, out failReason);
+            FairingAuthoredVessel v = FairingGhostAuthoring.Build(cfg, anchor, Tag, wc.Entry.Info, true, wc.RealVariant, out failReason);
             if (v == null || v.Node == null)
             {
                 failReason = "FGV " + c.Id + ": " + (failReason ?? "not authored");
@@ -340,10 +341,10 @@ namespace Parsek.TestCommands
                 run.Nodes.Add(new PartParityContextNode { Node = v.ContextParts[i].Key, Part = v.ContextParts[i].Value });
                 run.FillerFlightIds.Add(v.ContextFlightIds[i]);
             }
-            run.SeparateFlightId = run.Option.State == PartParityStateRules.StateSeparated ? v.SeparatingFlightId : 0u;
+            run.SeparateNode = run.Option.State == PartParityStateRules.StateSeparated ? v.SeparatingNode : null;
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: authored FGV context {c.Id} family={run.Option.Family} " +
                 $"state={run.Option.State} parts={parts.Length.ToString(Ic)} variant={v.VariantName ?? "<base>"} " +
-                $"separates={(run.SeparateFlightId != 0 ? "true" : "false")}");
+                $"separates={run.SeparateNode ?? "-"}");
             return v.Node;
         }
 
@@ -447,13 +448,13 @@ namespace Parsek.TestCommands
                         if (panel?.go != null && !run.JettisonTransforms.Contains(panel.go.transform))
                             run.JettisonTransforms.Add(panel.go.transform);
             }
-            if (run.SeparateFlightId != 0)
+            if (run.SeparateNode != null)
             {
-                foreach (Part p in v.parts)
-                    if (p != null && p.flightID == run.SeparateFlightId) { run.SeparatePart = p; break; }
+                AttachNode sn = part.FindAttachNode(run.SeparateNode);
+                run.SeparatePart = sn != null ? sn.attachedPart : null;
                 ParsekLog.Verbose(Tag, $"case {wc.CaseId}: FGV separation part " +
                     $"{(run.SeparatePart != null ? "'" + run.SeparatePart.partInfo?.name + "' pid=" + run.SeparatePart.persistentId.ToString(Ic) : "<not found>")} " +
-                    $"flightId={run.SeparateFlightId.ToString(Ic)}");
+                    $"node={run.SeparateNode}");
             }
             run.SignatureBefore = Signature(part, run.Option);
             run.ReachedBeforePress = run.Option.Action != null
@@ -608,7 +609,7 @@ namespace Parsek.TestCommands
             detail = null;
             if (run.SeparatePart == null || run.SeparatePart.vessel != wc.Real)
             {
-                detail = "the separating part (flightId " + run.SeparateFlightId.ToString(Ic) + ") is not on the case vessel";
+                detail = "no part on the subject's node " + (run.SeparateNode ?? "<none>") + " of the case vessel";
                 return PartParityStateRules.ActionMissing;
             }
             try

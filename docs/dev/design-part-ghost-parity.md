@@ -1162,7 +1162,19 @@ requests it; the id keeps the base skin, ruling R2). A deployed fairing's panels
 transforms (hidden once thrown, destroyed at teardown). `contexts=fgv` selects all six
 (`PartParityStateRules.ContextClass`), and an orbit run with `contexts=none` plans them. A fairing
 part no context names (`fairingSize1p5`, `fairingSize3`, `fairingSize4`, the three ReStock bases)
-is excluded `fairing-no-context`; its stowed case still runs in PP-1 / PP-2.
+is excluded `fairing-no-context`; its stowed case still runs in PP-1 / PP-2. The structural diff
+drops the ghost's `fairing_panels` container from a ghost path (`PartParityStructure.NormalizePath`),
+so an intact fairing's stock panels pair with the live ones, which sit directly under the model.
+
+Live (S8, 2026-11-22, stock-minimal, one automation DLL, sha256 prefix 4282a6db, on both installs):
+two reading runs of a local `contexts=fgv states=all controls=true` spec copied from PP-1
+(`2026-11-22_1758` and `_1806`, both PASS, partParity REPORT, controls ok, complete, recompute 10 / 0
+mismatches, press ok) read the 13 cases 12 `pass` and 1 `warn` each, identically: every deployed
+and separated case reached its state with its recorder event (`FairingJettisoned`,
+`ShroudJettisoned`) and both ghost routes `applied`; the warn is
+`fairingsize2--white--stowed--fgv-3-open-top` (a 140 px colour seam on side-a, todo
+GHOST-FAIRING-OPEN-TOP-SEAM). FGV-1 on the same DLL (`2026-11-22_1800`, PASS, `total=2 passed=2`)
+matched every one of its 16 phases. FGV-1 is retired in its own PR (D.10 S8).
 
 Same-word tiebreak (general, in the id rule, D.2): when two or more of one part's cases share a
 state word and a context (two standalone animate generics, two animation groups, or any future
@@ -1811,7 +1823,7 @@ to D.5, S4 D.6, S5 D.7, S6 D.8), so concurrent PRs never touch neighbouring line
 | S5 | Viewer: D.7 grouping, merge by profile with controls exempt, the stowed column, filters, route-aware regression | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | S3 (after S4 merges: it calls S4's judge) | viewer tests green; a site from a synthetic stowed + orbit state + air state sweep set shows each part's states side by side with no duplicate-id line |
 | S6 | Orbit lanes PP-3 / PP-4: specs, registry, lane catalog regen, hlib wiring cells, `autotest-status.md` rows | `harness/scenarios/PP-3-*.toml`, `PP-4-*.toml`, `harness/coverage/registry.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | S7 | harness suites green; first flights on request (`limit=20`, then full), findings filed in the todo list |
 | S7 | Air context: the pad host admission, the showcase-band spawn through `SpawnAtPosition`, the chute sequence, the canopy capture timing and its proof keys; lanes PP-5 / PP-6 | `Source/Parsek/TestCommands/PartParityAirContext.cs` (new), `PartParitySweepRunner.cs` (one dispatch hook), `harness/scenarios/PP-5-*.toml`, `PP-6-*.toml` and the S6 doc / registry rows after S6 merges | S6 (C# half); lane half after S6 | a dev-install run of `parachuteSingle` and `parachuteLarge` at semi and full: stock reaches each state, `ParachuteSemiDeployed` / `ParachuteDeployed` recorded, captured within the canopy window |
-| S8 | FGV migration: FGV's six configurations as `fgv-<n>-<name>` contexts of the fairing family (and the engine plate / shroud skirts), with FGV's states; FGV-1 retired in its own PR after the sweep's fairing cases have flown green twice | `PartParityStateRules.cs` (context table: mirrored, so with its Python mirror), `PartParityCaseAuthoring.cs`, the FGV test file | after S3 | the 18 fairing cases match FGV-1's verdicts on the same DLL |
+| S8 | FGV migration: FGV's six configurations as `fgv-<n>-<name>` contexts of the fairing family (and the engine plate / shroud skirts), with FGV's states; FGV-1 retired in its own PR after the sweep's fairing cases have flown green twice | `PartParityStateRules.cs` (context table: mirrored, so with its Python mirror), `PartParityCaseAuthoring.cs`, the FGV test file | after S3 | the 18 fairing cases match FGV-1's verdicts on the same DLL. BUILT 2026-11-22: 13 cases (D.1 "FGV contexts"), read twice against FGV-1 on one DLL; with the stowed pose of the stowed cases (todo PARTPARITY-STOWED-POSE-NOT-STOWED) |
 
 Order: S1 and S2 together; then S3 and S4 together; S5 once S4 merges (S3 may still run); S6 after
 S3 and S4; S7 after S3 (its lane half after S6); S8 after S3. The C# PRs get the end-of-task

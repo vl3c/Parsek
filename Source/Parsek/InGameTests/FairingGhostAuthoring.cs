@@ -44,9 +44,11 @@ namespace Parsek.InGameTests
         internal readonly List<KeyValuePair<string, string>> ContextParts = new List<KeyValuePair<string, string>>();
         internal readonly List<uint> ContextFlightIds = new List<uint>();
 
-        /// <summary>The part that leaves at FGV's separation (the interstage's upper stage,
-        /// the part below a skirt); 0 when the configuration does not separate.</summary>
-        internal uint SeparatingFlightId;
+        /// <summary>The subject's attach node holding the part that leaves at FGV's separation
+        /// (the interstage's upper stage, the part below a skirt); null when the configuration
+        /// does not separate. Flight ids are regenerated at the spawn, so the live side finds
+        /// the part by this node.</summary>
+        internal string SeparatingNode;
     }
 
     /// <summary>
@@ -136,10 +138,10 @@ namespace Parsek.InGameTests
         /// <summary>Either kind: <see cref="BuildFairingVessel"/> for a fairing,
         /// <see cref="BuildSkirtVessel"/> for a skirt.</summary>
         internal static FairingAuthoredVessel Build(FairingGhostConfig cfg, Vessel anchor, string tag,
-            AvailablePart subject, bool subjectAsRoot, out string failReason)
+            AvailablePart subject, bool subjectAsRoot, string subjectVariant, out string failReason)
             => cfg.Kind == FairingSkirtKind.Fairing
-                ? BuildFairingVessel(cfg, anchor, tag, out failReason)
-                : BuildSkirtVessel(cfg, anchor, tag, subject, subjectAsRoot, out failReason);
+                ? BuildFairingVessel(cfg, anchor, tag, subjectVariant, out failReason)
+                : BuildSkirtVessel(cfg, anchor, tag, subject, subjectAsRoot, subjectVariant, out failReason);
 
         internal static AvailablePart FirstKnownPart(string[] candidates)
         {
@@ -163,10 +165,11 @@ namespace Parsek.InGameTests
         /// lower part, or with <paramref name="subjectAsRoot"/> the engine as the root with the
         /// tank on its top node and the lower part on its bottom node (the same craft; the
         /// sweep's subject is its vessel's root). <paramref name="subject"/> replaces FGV's
-        /// plate / engine candidate pick when given.
+        /// plate / engine candidate pick when given; <paramref name="subjectVariant"/>, when
+        /// given, is written as the subject's variant (FGV writes none).
         /// </summary>
         internal static FairingAuthoredVessel BuildSkirtVessel(FairingGhostConfig cfg, Vessel anchor, string tag,
-            AvailablePart subject, bool subjectAsRoot, out string failReason)
+            AvailablePart subject, bool subjectAsRoot, string subjectVariant, out string failReason)
         {
             failReason = null;
             var result = new FairingAuthoredVessel();
@@ -192,7 +195,7 @@ namespace Parsek.InGameTests
                 }
                 var ids = GhostCoOrbitalRig.UniqueFlightIds(5);
                 parts.Add(GhostCoOrbitalRig.AuthorPartNode(plate, ids[0], 0, Vector3.zero,
-                    new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 }, { "N2_1", 3 }, { "N2_2", 4 } }, null,
+                    new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 }, { "N2_1", 3 }, { "N2_2", 4 } }, subjectVariant,
                     (module, name) =>
                     {
                         if (name == "ModuleDynamicNodes")
@@ -215,7 +218,7 @@ namespace Parsek.InGameTests
                 AddContext(result, "bottom", tank.name, ids[2]);
                 AddContext(result, "N2_1", engine.name, ids[3]);
                 AddContext(result, "N2_2", engine.name, ids[4]);
-                result.SeparatingFlightId = ids[2];
+                result.SeparatingNode = "bottom";
                 ParsekLog.Info(tag, $"config {cfg.Number} {cfg.Name}: authored {plate.name} mount=Double (NodeSetIdx 1) " +
                     $"engines={engine.name}x2 on N2_1/N2_2 below={tank.name} on bottom top={probe.name}");
             }
@@ -238,7 +241,7 @@ namespace Parsek.InGameTests
                 if (subjectAsRoot)
                 {
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[1], 0, Vector3.zero,
-                        new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 } }, null, null));
+                        new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 } }, subjectVariant, null));
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[0], 0, engTop.position - tankBottom.position,
                         new Dictionary<string, int> { { "bottom", 0 } }, null, null));
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(lower, ids[2], 0, engBottom.position - lowerTop.position,
@@ -250,7 +253,7 @@ namespace Parsek.InGameTests
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[0], 0, Vector3.zero,
                         new Dictionary<string, int> { { "bottom", 1 } }, null, null));
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[1], 0, enginePos,
-                        new Dictionary<string, int> { { "top", 0 }, { "bottom", 2 } }, null, null));
+                        new Dictionary<string, int> { { "top", 0 }, { "bottom", 2 } }, subjectVariant, null));
                     parts.Add(GhostCoOrbitalRig.AuthorPartNode(lower, ids[2], 1, enginePos + engBottom.position - lowerTop.position,
                         new Dictionary<string, int> { { "top", 1 } }, null, null));
                 }
@@ -258,7 +261,7 @@ namespace Parsek.InGameTests
                 result.SubjectFlightId = ids[1];
                 AddContext(result, "top", tank.name, ids[0]);
                 AddContext(result, "bottom", lower.name, ids[2]);
-                result.SeparatingFlightId = ids[2];
+                result.SeparatingNode = "bottom";
                 ParsekLog.Info(tag, $"config {cfg.Number} {cfg.Name}: authored {tank.name} > {engine.name} > {lower.name} (shroud shown by the part below)" +
                     (subjectAsRoot ? " root=" + engine.name : string.Empty));
             }
@@ -271,8 +274,11 @@ namespace Parsek.InGameTests
         /// part's base radius, capped only when the last radius is the part's capRadius, the
         /// colour variant in both keys when the configuration asks for one, and its payload on
         /// the top node or its upper stage on the up-facing interstage node.
+        /// <paramref name="subjectVariant"/>, when given, is written as the variant of a
+        /// configuration that chooses none (FGV writes none).
         /// </summary>
-        internal static FairingAuthoredVessel BuildFairingVessel(FairingGhostConfig cfg, Vessel anchor, string tag, out string failReason)
+        internal static FairingAuthoredVessel BuildFairingVessel(FairingGhostConfig cfg, Vessel anchor, string tag,
+            string subjectVariant, out string failReason)
         {
             failReason = null;
             var result = new FairingAuthoredVessel();
@@ -307,7 +313,7 @@ namespace Parsek.InGameTests
             for (int i = 0; i < radii.Count; i++) maxR = Math.Max(maxR, radii[i]);
             result.MaxFairingRadius = maxR;
 
-            string variant = null;
+            string variant = subjectVariant;
             if (cfg.ColourVariant)
             {
                 ModulePartVariants variants = fairingPrefab.FindModuleImplementing<ModulePartVariants>();
@@ -410,7 +416,7 @@ namespace Parsek.InGameTests
                 ConfigNode childNode = GhostCoOrbitalRig.AuthorPartNode(childInfo, childFlightId, 0, childPos, childAtt, null, null);
                 parts.Add(childNode);
                 AddContext(result, parentNodeId, childInfo.name, childFlightId);
-                if (cfg.Interstage) result.SeparatingFlightId = childFlightId;
+                if (cfg.Interstage) result.SeparatingNode = parentNodeId;
                 ParsekLog.Info(tag, $"config {cfg.Number} {cfg.Name}: child part {childInfo.name} on {cfg.FairingPart}.{parentNodeId} " +
                     $"at root-local {FormatVector(childPos)}");
             }

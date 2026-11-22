@@ -364,11 +364,17 @@ What: `spotlight1--default--lit` (stock-minimal): both judged routes reach `lit`
 
 Fix: not started; read the atlas first (real vs ghost lens colour), then `LightGhostInfo.lensOnColor`.
 
-## PARTPARITY-STOWED-POSE-NOT-STOWED: the stowed sweep photographs a lone landing gear deployed and a Mk2 cargo bay open [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+## ~~PARTPARITY-STOWED-POSE-NOT-STOWED: the stowed sweep photographs a lone landing gear deployed and a Mk2 cargo bay open~~ [FILED 2026-11-22 from the same P6 runs; DONE 2026-11-22, P6 S8; low]
 
 What: a one-part vessel authored with no persistent module values starts at each field's initial value: `ModuleWheelDeployment` starts Deployed (the seed logs `Seeded already-deployed gear: 'GearSmall'`) and a `ModuleCargoBay` whose `closedPosition = 1` (the Mk2 / Mk3 bays) starts open at `animTime = 0`. The P6 state cases author the stowed pose (`PartParityStateDriver.AuthorStowedPose`: `stateString = Retracted`; `animTime = closedPosition` with the matching `animSwitch`) and refuse a press whose target already reads reached, but the stowed PP-1 / PP-2 cases (`PartParityCaseAuthoring.AuthorVesselNode`) still photograph those parts in the target pose, so their "stowed" rows are not stowed.
 
-Fix: not started. Author the same stowed pose in the stowed case authoring (S8 owns `PartParityCaseAuthoring.cs`), then re-read PP-1 / PP-2.
+Fix (P6 S8, branch `part-parity-p6-s8`): `PartParityCaseAuthoring.AuthorStowedPose` writes the stowed pose into every stowed case's authored part (`stateString = Retracted` on each `ModuleWheelDeployment`; a `ModuleCargoBay`'s `ModuleAnimateGeneric` deploy module at `animTime = closedPosition` with the matching `animSwitch`), one Verbose `authored stowed pose` line per case; the state driver's pose for its gear / bay case is the same helper restricted to the pressed module. Case ids unchanged (the stowed-id pin passes). Evidence: a local PP-1 reading run limited to the gear, legs and bays (`2026-11-22_1803`, stock-minimal, 7 filtered steps, 18 cases, automation DLL sha256 prefix 4282a6db) photographs every gear and leg retracted and the Mk2 / Mk3 bays and ramp closed, real and ghost alike, against the P3 run `2026-11-22_0033` (gear deployed, bays open). Verdicts: the six gear / legs and the rover wheel `warn` -> `pass` (they no longer droop in free fall), the Mk2 / Mk3 bays stay `pass`, `mk3cargoramp` `pass` -> `warn` (a 60 px shape blob on side-a). Pictures and viewer: `<umbrella>/logs/partparity/p6-s8/` (`sweeps/pp1g`, `viewer/`).
+
+## GHOST-FAIRING-OPEN-TOP-SEAM: an open-top procedural fairing's ghost lacks a thin panel seam line the live one shows [FILED 2026-11-22 from the P6 S8 FGV context runs; OPEN; low]
+
+What: `fairingsize2--white--stowed--fgv-3-open-top--9dd2b1aa` (FGV's open-top configuration, intact) reads `warn` on both S8 reading runs (`2026-11-22_1758` and `_1806` of a local `contexts=fgv states=all` spec, stock-minimal): IoU 1.0 in every view, a 140 px colour blob on side-a only (8 px on side-b), a thin vertical seam line at one panel edge that the live stock panels show and the ghost's stock-panel shell does not. Every other FGV case reads `pass`; FGV-1 does not measure pixels, so it passes the same craft.
+
+Fix: not started. Compare the live and ghost FairingPanel meshes of the open (uncapped) shape at that seam (normals or the panel ordering of the shell builder in `GhostVisualBuilder.Fairings.cs`).
 
 ## PARTPARITY-SUN-TRACKER-CAP: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; OPEN; low]
 

@@ -44,6 +44,9 @@ namespace Parsek.Tests
         [InlineData("root/ghost_visuals/ghost_part_mk1pod.v2/model/a/b", "model/a/b")]
         // EVA model root.
         [InlineData("ghost_part_7/model01/body01", "model01/body01")]
+        // A ghost fairing's panel container drops out; a real path keeps any such name.
+        [InlineData("g/ghost_visuals/ghost_part_9/model/fairing_panels/FairingPanel", "model/FairingPanel")]
+        [InlineData("model/fairing_panels/FairingPanel", "model/fairing_panels/FairingPanel")]
         // A real path is only stripped of its clone suffixes.
         [InlineData("model/mk1pod(Clone)/Hatch", "model/mk1pod/Hatch")]
         [InlineData("model/x (Clone)(Clone)/y", "model/x/y")]
