@@ -1394,6 +1394,66 @@ so no shortcut sets a pose:
 - The other gates (host, completeness) are unchanged; the host guard reads the run's host baseline,
   ORBITING for an orbit run, PRELAUNCH / LANDED for an air run (`PartParityHostIntegrity`, S1).
 
+BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge reads and how:
+
+- Routes. A case is a state case when its sidecar `state` is not `stowed` (`is_state_case`; a
+  sidecar with no `state` reads as stowed). `judge_route` judges one route: the event route is
+  the view measures plus `structure`, the start route each view's `start` block (named after its
+  view) plus `structureStart`. Caps per route, in this order: `context-dependent` tag, a skipped
+  depth mask in that route's `missingOnGhost`, then the canopy cap. The case takes the worse
+  route, the event route on a tie; `worstView` reads `<route>:<view>`, every reason
+  `<route>:<reason>`, and `maxShapeBlobPx` / `maxShapeBlobPct` / `maxColorBlobPx` are the max
+  over both routes. A state case with views but a view whose `start` is not an object is
+  `error` (`start:no-views`). The skin proof and the setup-fault rule stay case-level. A stowed
+  case's verdict and its verdicts-file entry are byte-identical to before P6.
+- Canopy cap (D.4): an air case (sidecar `context == "air"`) with both `stateProof.canopy.tiltDeg`
+  and `wobbleDeg` numeric; a route's picture fail caps at `warn` (`canopy-airflow`) when its
+  structure has at least one `transformDiffers` entry, every entry with `rotationDeltaDeg <=
+  |tilt| + |wobble| + 1`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
+  tolerances of `PartParityStructure`), no `meshDiffers` / `renderedDiffers` entry and no
+  rendered missing or extra renderer.
+- Flags. The judge reads the union of the sidecar's `flags` and the flags it derives from
+  `stateProof`, so a flag the writer drops cannot hide: `ghostEvent` / `ghostStart` a string
+  other than `applied` -> `state-not-modelled:event|start:<outcome>`; `reached == true` with
+  `events == []` -> `state-not-recorded`; `startFirstFrame.atTarget == false` ->
+  `start-pose-not-first-frame`. A null value derives nothing. `state-invisible` is derived when
+  every view has a `stowedRef` and none reaches a warn line on its shape keys. Each raising flag
+  adds the reason `flag:<flag>`. `sun-tracker-first-frame:<deg>` passes through as a report-only
+  flag; tags never become flags.
+- Recompute of a state case: `atlas.rows` must be the four state rows and the atlas `4 x tile`
+  high. Row 1 is compared with the view, row 2 with its `start` block (diffs named
+  `<view>/start.<key>`), both with today's recomputed key set; row 3 with the `stowedRef` counts
+  exactly, and its two blob percentages are null exactly when the view's are, 0 for a zero blob,
+  else equal to `100 x blob / area` for the box area the view's other non-zero blobs imply (the
+  sidecar carries no area, so a view whose only non-zero blob is the `stowedRef` one checks only
+  that the percentage is a number). Block shape (`start` with every `StartKeys` key, `stowedRef`
+  with every `StowedRefKeys` key) is checked on EVERY state case with views, sampled or not.
+- Press gate: a planned case's family is its manifest row's `family`, else its sidecar's
+  `stateProof.family`; its status the sidecar's `setup.status`, else the row's `setupStatus`;
+  controls and cases without a family are not counted. `failed x 2 > cases` trips it; the problem
+  reads `family=<f> <k>/<n> case(s) action-failed|state-timeout: first <caseId> <status>:
+  <detail>`. A run with no family-bearing case has no press check.
+- Controls. `check_controls` requires the set `control_set(settings)` recomputes, and with the
+  sidecars re-judges each state control the manifest records `ok` (`judge_state_control`, the
+  mirror of `PartParitySweepPlan.JudgeStateControl` over the sidecar's `setup.status`,
+  `stateProof.reached`, `len(stateProof.events)`, the view shape lines and each `stowedRef`); a
+  disagreement is INVALID(parity-controls). A written `settings.controlSet` (comma-joined ids)
+  that differs from the recomputed set is a recompute mismatch, INVALID(parity-instrument); a
+  manifest without the key is not compared.
+- Order: host-damaged > controls > state-press > instrument > incomplete
+  (`partparity._SUBKIND_ORDER`, mirrored as `hlib.PARTPARITY_INVALID_SUBKIND_ORDER`);
+  `parity-state-press` is terminal and not flake-exempt like the other four.
+- Verdicts file: a state case adds `state`, `family`, `context`, `routes` (`event` / `start`, each
+  `verdict`, `reasons`, `worstView`, the three max measures) and `stateFlags`; a sweep with a press
+  check adds `statePress` (`ok`, `families: {<f>: {cases, pressFailed}}`, `problems`) and
+  `stateFlags` (cases per flag kind). The summary line gains ` press=ok|bad` only then.
+- Proof that stowed sweeps judge as before: the archived PP-1 `2026-11-22_0033` and PP-2
+  `2026-11-22_1157_run2` sweeps (manifests and sidecars from the results archive, and the same two
+  harvested label dirs with their atlases) re-judged with this code and with `origin/main`'s and
+  S1's `partparity.py`: per-case verdicts, verdicts document, summary line, detail record,
+  controls and completeness are byte-identical (800 / 1518 sidecars; recompute 24 / 39 cases, 0
+  mismatches).
+
 ### D.7 Viewer
 
 - Grouping part > skin > state > view. Inside a skin, one sub-block per state in the order stowed,

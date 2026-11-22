@@ -32,6 +32,17 @@ the thresholds re-pin with no flight. Six things are judged:
   * the skin proof (design 3.2): ``requested != real`` is the setup fault
     ``skin-not-applied`` (an ``error`` case), ``real != ghost`` a ``fail``
     (``skin-mismatch``), compared only where both names were read.
+  * the STATE PRESS (design D.6, a state run only): per family, when more than half of
+    its cases end ``action-failed`` or ``state-timeout``, the press / wait / poll path of
+    that family is broken, not its ghosts: ``INVALID(parity-state-press)``, after the
+    controls gate and before the recompute.
+
+A state case (design D.2, D.5, D.6: any state but ``stowed``) has two judged routes, the
+event route (the view measures and ``structure``) and the start route (each view's
+``start`` block and ``structureStart``); its verdict is the worse of the two, each reason
+prefixed by its route. The stowed reference row (``stowedRef``) is not judged; it only
+yields the report-only flag ``state-invisible``. A stowed case is judged exactly as
+before P6.
 
 Stdlib only, no I/O: the caller lists the directory, parses the JSON and hands a PNG
 reader in (``run.py`` passes ``harness/tools/gui_mirror.py``'s ``read_png``).
@@ -297,9 +308,12 @@ INVALID_CONTROLS_SUBKIND = "parity-controls"
 INVALID_INSTRUMENT_SUBKIND = "parity-instrument"
 INVALID_INCOMPLETE_SUBKIND = "parity-incomplete"
 INVALID_HOST_DAMAGED_SUBKIND = "parity-host-damaged"
+# Design D.6: more than half of one family's state cases could not be pressed or never
+# reached the state, so that family's cases say nothing about its ghosts.
+INVALID_STATE_PRESS_SUBKIND = "parity-state-press"
 INVALID_SUBKINDS: Tuple[str, ...] = (
     INVALID_CONTROLS_SUBKIND, INVALID_INSTRUMENT_SUBKIND, INVALID_INCOMPLETE_SUBKIND,
-    INVALID_HOST_DAMAGED_SUBKIND,
+    INVALID_HOST_DAMAGED_SUBKIND, INVALID_STATE_PRESS_SUBKIND,
 )
 PARSEK_FAIL_SUBKIND = "part-parity"
 
@@ -439,15 +453,31 @@ class CaseVerdict:
     max_shape_blob_pct: Optional[float]
     max_color_blob_px: int
     setup_status: Optional[str]
+    # A state case only (design D.6); a stowed case leaves them empty and its verdicts
+    # document entry carries exactly the keys it carried before P6.
+    state: Optional[str] = None
+    family: Optional[str] = None
+    context: Optional[str] = None
+    routes: Tuple["RouteJudgement", ...] = ()
+    state_flags: Tuple[str, ...] = ()
+
+    @property
+    def is_state_case(self) -> bool:
+        return self.state is not None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"caseId": self.case_id, "part": self.part, "skin": self.skin,
-                "source": self.source, "verdict": self.verdict,
-                "reasons": list(self.reasons), "worstView": self.worst_view,
-                "maxShapeBlobPx": self.max_shape_blob_px,
-                "maxShapeBlobPct": self.max_shape_blob_pct,
-                "maxColorBlobPx": self.max_color_blob_px,
-                "setupStatus": self.setup_status}
+        out = {"caseId": self.case_id, "part": self.part, "skin": self.skin,
+               "source": self.source, "verdict": self.verdict,
+               "reasons": list(self.reasons), "worstView": self.worst_view,
+               "maxShapeBlobPx": self.max_shape_blob_px,
+               "maxShapeBlobPct": self.max_shape_blob_pct,
+               "maxColorBlobPx": self.max_color_blob_px,
+               "setupStatus": self.setup_status}
+        if self.is_state_case:
+            out.update({"state": self.state, "family": self.family, "context": self.context,
+                        "routes": {r.route: r.to_dict() for r in self.routes},
+                        "stateFlags": list(self.state_flags)})
+        return out
 
 
 _NON_VISUAL_FALLBACK_RE = re.compile(r"(^|/)Waterfall(/|$)|mask[^/]*$", re.IGNORECASE)
@@ -560,14 +590,81 @@ def skin_flag_disagreement(sidecar: Dict) -> Optional[str]:
     return "skin flags: sidecar=%s derived=%s" % (",".join(wrote) or "-", ",".join(derived) or "-")
 
 
-def judge_case(sidecar: Dict) -> CaseVerdict:
-    """Case verdict = the worst view, raised to ``fail`` by a missing / extra RENDERED
-    mesh in the structural diff or a skin mismatch; ``error`` for a setup fault (the
-    measurements, if any, are not a finding about the ghost)."""
-    case_id = str(sidecar.get("caseId") or "?")
-    skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
-    status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
-    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+@dataclass(frozen=True)
+class RouteJudgement:
+    """One judged route of a case: the view rules, the structural raise and the caps."""
+    route: Optional[str]
+    verdict: str
+    reasons: Tuple[str, ...]
+    worst_view: Optional[str]
+    max_shape_blob_px: int
+    max_shape_blob_pct: Optional[float]
+    max_color_blob_px: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"route": self.route, "verdict": self.verdict, "reasons": list(self.reasons),
+                "worstView": self.worst_view, "maxShapeBlobPx": self.max_shape_blob_px,
+                "maxShapeBlobPct": self.max_shape_blob_pct,
+                "maxColorBlobPx": self.max_color_blob_px}
+
+
+# The air case's canopy cap (design D.4): a canopy follows the airflow and wobbles while
+# the ghost's holds its sampled pose, so a picture fail whose only structural difference
+# is a renderer ROTATION within the measured tilt + wobble + this margin caps at warn.
+CANOPY_ROTATION_MARGIN_DEG = 1.0
+REASON_CANOPY_AIRFLOW = "canopy-airflow:picture differences capped at warn"
+# PartParityStructure.PositionToleranceM / ScaleTolerancePct: a transformDiffers entry
+# exceeds at least one tolerance; the canopy cap needs position and scale inside theirs.
+STRUCTURE_POSITION_TOLERANCE_M = 0.001
+STRUCTURE_SCALE_TOLERANCE_PCT = 1.0
+
+
+def canopy_rotation_bound(sidecar: Dict) -> Optional[float]:
+    """The canopy cap's rotation bound in degrees (|tilt| + |wobble| + margin) for an air
+    case whose ``stateProof.canopy`` carries both angles; None otherwise (no cap)."""
+    if not isinstance(sidecar, dict) or sidecar.get("context") != CONTEXT_AIR:
+        return None
+    proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
+    canopy = proof.get("canopy") if isinstance(proof.get("canopy"), dict) else {}
+    tilt, wobble = _num(canopy.get("tiltDeg")), _num(canopy.get("wobbleDeg"))
+    if tilt is None or wobble is None:
+        return None
+    return abs(tilt) + abs(wobble) + CANOPY_ROTATION_MARGIN_DEG
+
+
+def _canopy_cap_applies(structure: Dict, bound: Optional[float]) -> bool:
+    """True when the route's structural diff differs ONLY by renderer rotations within
+    ``bound``: at least one transform differs, each by rotation alone (position and scale
+    inside the C# tolerances), and no mesh, rendered, missing or extra difference."""
+    if bound is None or not isinstance(structure, dict):
+        return False
+    transforms = [t for t in structure.get("transformDiffers") or [] if isinstance(t, dict)]
+    if not transforms:
+        return False
+    if _rendered_entries(structure.get("missingOnGhost")) or \
+            _rendered_entries(structure.get("extraOnGhost")):
+        return False
+    if structure.get("meshDiffers") or structure.get("renderedDiffers"):
+        return False
+    for t in transforms:
+        rot, pos, scl = (_num(t.get("rotationDeltaDeg")), _num(t.get("positionDeltaM")),
+                         _num(t.get("scaleDeltaPct")))
+        if rot is None or rot > bound:
+            return False
+        if pos is None or pos > STRUCTURE_POSITION_TOLERANCE_M:
+            return False
+        if scl is None or scl > STRUCTURE_SCALE_TOLERANCE_PCT:
+            return False
+    return True
+
+
+def judge_route(views: Sequence[Dict], structure: Optional[Dict], tags: Sequence[str],
+                route: Optional[str] = None,
+                canopy_bound: Optional[float] = None) -> RouteJudgement:
+    """One route of a case: the worst view, the context-dependent / depth-mask caps (and,
+    on an air case, the canopy cap), raised to ``fail`` by a missing / extra RENDERED mesh
+    in ``structure``. ``route`` None is a stowed case (reasons carry no prefix); else every
+    reason is ``<route>:<reason>``."""
     judged = [judge_view(v) for v in views]
     max_px = max([j.shape_blob_px for j in judged], default=0)
     pcts = [j.shape_blob_pct for j in judged if j.shape_blob_pct is not None]
@@ -580,14 +677,16 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         if _RANK[j.verdict] > _RANK[verdict]:
             verdict, worst = j.verdict, j.view
         reasons.extend(j.reasons)
-    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
-    structure = sidecar.get("structure") if isinstance(sidecar.get("structure"), dict) else {}
+    structure = structure if isinstance(structure, dict) else {}
     if TAG_CONTEXT_DEPENDENT in tags and verdict == VERDICT_FAIL:
         verdict = VERDICT_WARN
         reasons.append(REASON_CONTEXT_POSE)
     elif verdict == VERDICT_FAIL and _has_skipped_depth_mask(structure.get("missingOnGhost")):
         verdict = VERDICT_WARN
         reasons.append(REASON_DEPTH_MASK)
+    elif verdict == VERDICT_FAIL and _canopy_cap_applies(structure, canopy_bound):
+        verdict = VERDICT_WARN
+        reasons.append(REASON_CANOPY_AIRFLOW)
     missing = _rendered_entries(structure.get("missingOnGhost"))
     extra = _rendered_entries(structure.get("extraOnGhost"))
     if missing or extra:
@@ -595,6 +694,159 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         reasons.extend(["extra-rendered:%s" % k for k in extra])
         if _RANK[VERDICT_FAIL] > _RANK[verdict]:
             verdict = VERDICT_FAIL
+    if route is not None:
+        reasons = ["%s:%s" % (route, r) for r in reasons]
+    return RouteJudgement(route, verdict, tuple(reasons), worst, max_px, max_pct, max_color)
+
+
+def start_views(sidecar: Dict) -> Optional[List[Dict]]:
+    """The start route's views of a state case: each view's ``start`` block, named after
+    its view. None when any view lacks a ``start`` block (the route was not measured)."""
+    out: List[Dict] = []
+    for v in sidecar.get("views") or []:
+        if not isinstance(v, dict):
+            continue
+        block = v.get("start")
+        if not isinstance(block, dict):
+            return None
+        rec = dict(block)
+        rec["view"] = v.get("view")
+        out.append(rec)
+    return out
+
+
+# How each state flag moves a state case's verdict (design D.6). Flags not listed
+# (state-invisible, sun-tracker-first-frame:<deg>) are report-only.
+STATE_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (FLAG_STATE_NOT_RECORDED,)
+STATE_FLAG_PREFIXES_RAISE_TO_WARN: Tuple[str, ...] = (FLAG_STATE_NOT_MODELLED_PREFIX,)
+STATE_FLAGS_RAISE_TO_FAIL: Tuple[str, ...] = (FLAG_START_POSE_NOT_FIRST_FRAME,)
+
+
+def derived_state_flags(sidecar: Dict) -> List[str]:
+    """The D.6 flags derived from a state case's ``stateProof`` (the C# side writes the
+    same flags into ``flags``; the judge reads the union, so a flag the writer dropped
+    cannot hide): a ghost route whose outcome is a string other than ``applied`` is
+    ``state-not-modelled:<route>:<outcome>``; a press that ``reached`` its state with an
+    empty ``events`` list is ``state-not-recorded``; ``startFirstFrame.atTarget`` false is
+    ``start-pose-not-first-frame``. A null (not measured) value derives nothing."""
+    proof = sidecar.get("stateProof") if isinstance(sidecar, dict) else None
+    if not isinstance(proof, dict):
+        return []
+    flags: List[str] = []
+    for route, key in ((ROUTE_EVENT, "ghostEvent"), (ROUTE_START, "ghostStart")):
+        outcome = proof.get(key)
+        if isinstance(outcome, str) and outcome and outcome != GHOST_OUTCOME_APPLIED:
+            flags.append("%s%s:%s" % (FLAG_STATE_NOT_MODELLED_PREFIX, route, outcome))
+    events = proof.get("events")
+    if proof.get("reached") is True and isinstance(events, list) and not events:
+        flags.append(FLAG_STATE_NOT_RECORDED)
+    first = proof.get("startFirstFrame")
+    if isinstance(first, dict) and first.get("atTarget") is False:
+        flags.append(FLAG_START_POSE_NOT_FIRST_FRAME)
+    return flags
+
+
+def state_invisible(sidecar: Dict) -> bool:
+    """True when real vs ``ghost-stowed`` (each view's ``stowedRef``) has no shape blob at
+    the warn level in any view: the state does not change the picture (report-only).
+    False when there are no views or any view lacks a ``stowedRef`` block."""
+    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+    if not views:
+        return False
+    for v in views:
+        ref = v.get("stowedRef")
+        if not isinstance(ref, dict):
+            return False
+        probe = dict(ref)
+        probe["view"] = v.get("view")
+        probe["colorBlobPx"] = 0
+        if judge_view(probe).verdict != VERDICT_PASS:
+            return False
+    return True
+
+
+def state_flags(sidecar: Dict) -> Tuple[str, ...]:
+    """Every state flag of a case, in a fixed order: the state flags among the C# side's
+    ``flags`` (written order), then the derived ones not already written, then
+    ``state-invisible`` when it holds. Tags (``still-tracking``, ``canopy-wobble:<deg>``,
+    ``context-hidden:<n>``, ``jettison-debris-hidden:<n>``) are not flags and stay out."""
+    known = (FLAG_STATE_NOT_RECORDED, FLAG_START_POSE_NOT_FIRST_FRAME, FLAG_STATE_INVISIBLE)
+    out: List[str] = []
+    for f in sidecar.get("flags") or []:
+        if not isinstance(f, str) or f in out:
+            continue
+        if f in known or f.startswith(FLAG_STATE_NOT_MODELLED_PREFIX) \
+                or f.startswith(FLAG_SUN_TRACKER_FIRST_FRAME_PREFIX):
+            out.append(f)
+    for f in derived_state_flags(sidecar):
+        if f not in out:
+            out.append(f)
+    if FLAG_STATE_INVISIBLE not in out and state_invisible(sidecar):
+        out.append(FLAG_STATE_INVISIBLE)
+    return tuple(out)
+
+
+def state_flag_floor(flag: str) -> Optional[str]:
+    """The verdict a state flag raises its case to at least, or None (report-only)."""
+    if flag in STATE_FLAGS_RAISE_TO_FAIL:
+        return VERDICT_FAIL
+    if flag in STATE_FLAGS_RAISE_TO_WARN or any(
+            flag.startswith(p) for p in STATE_FLAG_PREFIXES_RAISE_TO_WARN):
+        return VERDICT_WARN
+    return None
+
+
+def judge_case(sidecar: Dict) -> CaseVerdict:
+    """Case verdict = the worst view, raised to ``fail`` by a missing / extra RENDERED
+    mesh in the structural diff or a skin mismatch; ``error`` for a setup fault (the
+    measurements, if any, are not a finding about the ghost).
+
+    A state case (design D.6) is judged on two routes, the event route (the views and
+    ``structure``) and the start route (each view's ``start`` and ``structureStart``),
+    each like a stowed case; the case takes the worse route (the event route on a tie),
+    every reason prefixed by its route. Its state flags then raise it:
+    ``state-not-modelled:*`` and ``state-not-recorded`` to at least ``warn``,
+    ``start-pose-not-first-frame`` to ``fail``; ``state-invisible`` is report-only. A
+    state case with views but no ``start`` block is ``error`` (``start:no-views``). The
+    stowed reference row is not judged. A stowed case is judged exactly as before P6."""
+    case_id = str(sidecar.get("caseId") or "?")
+    skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
+    status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
+    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
+    state = sidecar.get("state")
+    state_case = is_state_case(state)
+    routes: Tuple[RouteJudgement, ...] = ()
+    flags: Tuple[str, ...] = ()
+    if not state_case:
+        r = judge_route(views, sidecar.get("structure"), tags)
+        verdict, reasons, worst = r.verdict, list(r.reasons), r.worst_view
+        max_px, max_pct, max_color = r.max_shape_blob_px, r.max_shape_blob_pct, r.max_color_blob_px
+    else:
+        bound = canopy_rotation_bound(sidecar)
+        ev = judge_route(views, sidecar.get("structure"), tags, ROUTE_EVENT, bound)
+        sv_views = start_views(sidecar)
+        st = judge_route(sv_views or [], sidecar.get("structureStart"), tags, ROUTE_START, bound)
+        routes = (ev, st)
+        worse = st if _RANK[st.verdict] > _RANK[ev.verdict] else ev
+        verdict = worse.verdict
+        worst = None if worse.worst_view is None else "%s:%s" % (worse.route, worse.worst_view)
+        reasons = list(ev.reasons) + list(st.reasons)
+        max_px = max(ev.max_shape_blob_px, st.max_shape_blob_px)
+        pcts = [p for p in (ev.max_shape_blob_pct, st.max_shape_blob_pct) if p is not None]
+        max_pct = max(pcts) if pcts else None
+        max_color = max(ev.max_color_blob_px, st.max_color_blob_px)
+        if views and sv_views is None:
+            reasons.append("%s:no-views" % ROUTE_START)
+            verdict = VERDICT_ERROR
+        flags = state_flags(sidecar)
+        for f in flags:
+            floor = state_flag_floor(f)
+            if floor is None:
+                continue
+            reasons.append("flag:%s" % f)
+            if _RANK[floor] > _RANK[verdict]:
+                verdict = floor
     skin_verdict, skin_reasons = judge_skin(
         skin, ghost_built=FLAG_GHOST_NOT_BUILT not in (sidecar.get("flags") or []))
     reasons.extend(skin_reasons)
@@ -606,9 +858,14 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
     elif not views:
         reasons.insert(0, "no-views")
         verdict = VERDICT_ERROR
+    proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
     return CaseVerdict(case_id, sidecar.get("part"), skin.get("requested"),
                        sidecar.get("source"), verdict, tuple(reasons), worst, max_px,
-                       max_pct, max_color, status)
+                       max_pct, max_color, status,
+                       state=state if state_case else None,
+                       family=proof.get("family") if state_case else None,
+                       context=sidecar.get("context") if state_case else None,
+                       routes=routes, state_flags=flags)
 
 
 # ---------------------------------------------------------------------------
@@ -623,26 +880,96 @@ class ControlsCheck:
     problems: Tuple[str, ...]
 
 
-def check_controls(manifest: Dict) -> ControlsCheck:
-    """Every control of design 4.5 must be recorded with outcome ``ok``, and the
-    manifest's own controls state must read ``ok``. A sweep run with ``controls=false``
-    (state ``off``) proves nothing about the instrument, so it fails this check too."""
+STATE_CONTROL_IDS: Tuple[str, ...] = (CONTROL_STATE_EVENTS_DROPPED,
+                                      CONTROL_STATE_EVENTS_DROPPED_AIR)
+
+
+def manifest_control_set(manifest: Optional[Dict]) -> Tuple[str, ...]:
+    """The control set a manifest's ``settings`` recompute to (``control_set``)."""
+    settings = manifest.get("settings") if isinstance(manifest, dict) else None
+    return control_set(settings if isinstance(settings, dict) else None)
+
+
+def control_set_disagreement(manifest: Optional[Dict]) -> Optional[str]:
+    """None when the manifest's written ``settings.controlSet`` (the ids comma-joined) is
+    absent (a manifest written before P6) or equals the set recomputed from its
+    ``states`` / ``contexts``; else the difference (design D.2: INVALID(parity-instrument))."""
+    settings = manifest.get("settings") if isinstance(manifest, dict) else None
+    if not isinstance(settings, dict) or SETTING_CONTROL_SET not in settings:
+        return None
+    written = settings.get(SETTING_CONTROL_SET)
+    ids = tuple(written.split(",")) if isinstance(written, str) and written else ()
+    want = manifest_control_set(manifest)
+    if ids == want:
+        return None
+    return "settings.controlSet=%s recomputed=%s" % (written, ",".join(want))
+
+
+def judge_state_control(sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """``PartParitySweepPlan.JudgeStateControl`` over a state control's sidecar (design
+    D.6): ``ok`` only when the setup is not a fault, the press reached the state, at least
+    one event was recorded, some event-route view fails on shape and some ``stowedRef``
+    fails on shape too. Returns (outcome, detail)."""
+    if not isinstance(sidecar, dict):
+        return CONTROLS_BAD, "no sidecar"
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    status = setup.get("status")
+    if is_setup_fault(status):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
+    if proof.get("reached") is not True:
+        return CONTROLS_BAD, "the press never reached the state"
+    events = proof.get("events")
+    if not isinstance(events, list) or not events:
+        return CONTROLS_BAD, "no event recorded"
+    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+    if not views:
+        return CONTROLS_BAD, "no views"
+    if not any(_shape_fails(v) for v in views):
+        return CONTROLS_BAD, "the event-route views pass on shape"
+    if not any(_shape_fails(v.get("stowedRef")) for v in views):
+        return CONTROLS_BAD, "stowedRef passes on shape in every view"
+    return CONTROLS_OK, ""
+
+
+def _shape_fails(m: Any) -> bool:
+    """``PartParitySweepPlan.ShapeFails``: the larger shape blob over the px or pct line."""
+    if not isinstance(m, dict):
+        return False
+    blob = max(_num(m.get("realOnlyBlobPx")) or 0, _num(m.get("ghostOnlyBlobPx")) or 0)
+    pct = max(_num(m.get("realOnlyBlobPct")) or 0.0, _num(m.get("ghostOnlyBlobPct")) or 0.0)
+    return blob > SHAPE_BLOB_FAIL_PX or pct > SHAPE_BLOB_FAIL_PCT
+
+
+def check_controls(manifest: Dict,
+                   sidecars: Optional[Dict[str, Optional[Dict]]] = None) -> ControlsCheck:
+    """Every control of the run's set (``control_set`` over the manifest's ``settings``:
+    the stowed eight, the orbit state nine or the air four, design D.2) must be recorded
+    with outcome ``ok``, and the manifest's own controls state must read ``ok``. A sweep
+    run with ``controls=false`` (state ``off``) proves nothing about the instrument, so it
+    fails this check too. With ``sidecars``, a state control the manifest records ``ok`` is
+    re-judged from its sidecar (``judge_state_control``) and a disagreement is a problem."""
     outcomes: Dict[str, str] = {}
     for c in manifest.get("controls") or []:
         if isinstance(c, dict) and isinstance(c.get("id"), str):
             outcomes[c["id"]] = str(c.get("outcome"))
+    ids = manifest_control_set(manifest)
     problems: List[str] = []
-    for cid in CONTROL_IDS:
+    for cid in ids:
         got = outcomes.get(cid)
         if got is None:
             problems.append("%s:absent" % cid)
         elif got != CONTROLS_OK:
             problems.append("%s:%s" % (cid, got))
+        elif sidecars is not None and cid in STATE_CONTROL_IDS:
+            outcome, detail = judge_state_control(sidecars.get(cid))
+            if outcome != CONTROLS_OK:
+                problems.append("%s:recorded-ok-judged-%s(%s)" % (cid, outcome, detail))
     state = (manifest.get("progress") or {}).get("controls") \
         if isinstance(manifest.get("progress"), dict) else None
     if state != CONTROLS_OK:
         problems.append("progress.controls=%s" % state)
-    ordered = tuple((cid, outcomes[cid]) for cid in CONTROL_IDS if cid in outcomes)
+    ordered = tuple((cid, outcomes[cid]) for cid in ids if cid in outcomes)
     return ControlsCheck(not problems, state, ordered, tuple(problems))
 
 
@@ -718,7 +1045,8 @@ def check_completeness(manifest: Dict, sidecars: Dict[str, Optional[Dict]],
     if not planned_ids:
         problems.append("no planned cases")
     if progress.get("controls") != CONTROLS_OFF:
-        planned_ids = list(CONTROL_IDS) + [c for c in planned_ids if c not in CONTROL_IDS]
+        ctl_ids = manifest_control_set(manifest)
+        planned_ids = list(ctl_ids) + [c for c in planned_ids if c not in ctl_ids]
     complete = faults = 0
     incomplete: List[str] = []
     for cid in planned_ids:
@@ -741,6 +1069,67 @@ def check_completeness(manifest: Dict, sidecars: Dict[str, Optional[Dict]],
     if stale:
         problems.append("inflight.txt left behind: %s" % ", ".join(stale[:5]))
     return CompletenessCheck(not problems, len(planned_ids), complete, faults, tuple(problems))
+
+
+@dataclass(frozen=True)
+class PressCheck:
+    """The press gate (design D.6). ``families`` maps a family with planned state cases to
+    ``(cases, press-failed)``; ``problems`` names each family over the line."""
+    ok: bool
+    families: Tuple[Tuple[str, int, int], ...]
+    problems: Tuple[str, ...]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"ok": self.ok,
+                "families": {f: {"cases": n, "pressFailed": k} for f, n, k in self.families},
+                "problems": list(self.problems)}
+
+
+def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Optional[PressCheck]:
+    """The fail-open guard on the press path (design D.6): per family with planned cases,
+    when more than half of its cases (so also its only case) end ``action-failed`` or
+    ``state-timeout`` (``PRESS_GATE_STATUSES``), the family's press, wait or poll path is
+    broken: a problem naming the family, its counts and its first such case's status and
+    detail. A case's family is its manifest row's ``family``, else its sidecar's
+    ``stateProof.family``; its status the sidecar's ``setup.status``, else the row's
+    ``setupStatus``. Cases with no family (stowed cases) and the controls are not counted.
+    None when no planned case names a family (a stowed run: the gate does not apply)."""
+    ctl = set(ALL_CONTROL_IDS)
+    per_family: Dict[str, List[Tuple[str, Optional[str], Optional[str]]]] = {}
+    for entry in manifest.get("cases") or []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("caseId"), str):
+            continue
+        cid = entry["caseId"]
+        if cid in ctl:
+            continue
+        side = sidecars.get(cid) if isinstance(sidecars.get(cid), dict) else None
+        proof = (side or {}).get("stateProof")
+        family = entry.get("family")
+        if not isinstance(family, str) or not family:
+            family = proof.get("family") if isinstance(proof, dict) else None
+        if not isinstance(family, str) or not family:
+            continue
+        setup = (side or {}).get("setup")
+        status = setup.get("status") if isinstance(setup, dict) else None
+        detail = setup.get("detail") if isinstance(setup, dict) else None
+        if status is None:
+            status = entry.get("setupStatus")
+        per_family.setdefault(family, []).append((cid, status, detail))
+    if not per_family:
+        return None
+    order = {f: i for i, f in enumerate(FAMILIES)}
+    rows: List[Tuple[str, int, int]] = []
+    problems: List[str] = []
+    for family in sorted(per_family, key=lambda f: (order.get(f, len(order)), f)):
+        cases = per_family[family]
+        failed = [c for c in cases if c[1] in PRESS_GATE_STATUSES]
+        rows.append((family, len(cases), len(failed)))
+        if 2 * len(failed) > len(cases):
+            cid, status, detail = failed[0]
+            problems.append("family=%s %d/%d case(s) %s: first %s %s: %s"
+                            % (family, len(failed), len(cases), "|".join(PRESS_GATE_STATUSES),
+                               cid, status, detail if detail else "-"))
+    return PressCheck(not problems, tuple(rows), tuple(problems))
 
 
 # ---------------------------------------------------------------------------
@@ -983,6 +1372,8 @@ def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[st
     rows = meta.get("rows") or []
     if not isinstance(tile, int) or tile <= 0 or not cols:
         return ["atlas block unusable: tile=%s cols=%s" % (tile, cols)]
+    if is_state_case(sidecar.get("state")):
+        return _recompute_state_case(sidecar, atlas, tile, list(cols), list(rows))
     if list(rows) != list(ATLAS_ROWS):
         return ["atlas rows=%s (expected %s)" % (rows, list(ATLAS_ROWS))]
     if width != tile * len(cols) or height != tile * len(ATLAS_ROWS):
@@ -1006,6 +1397,124 @@ def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[st
         real_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 0, tile)
         ghost_rows = tile_alpha_rows(pixels, width, bpp, c * tile, tile, tile)
         diffs.extend(compare_view(view, recompute_view(real_rows, ghost_rows, tile)))
+    return diffs
+
+
+STOWED_REF_INT_KEYS: Tuple[str, ...] = tuple(k for k in STOWED_REF_KEYS if not k.endswith("Pct"))
+STOWED_REF_PCT_KEYS: Tuple[str, ...] = tuple(k for k in STOWED_REF_KEYS if k.endswith("Pct"))
+# Each blob percentage of a view's three blocks is 100 * blob / the view's projected box
+# area (one area per view: the box is shared by every row).
+_PCT_BLOB_KEY = {"realOnlyBlobPct": "realOnlyBlobPx", "ghostOnlyBlobPct": "ghostOnlyBlobPx"}
+
+
+def state_view_block_problems(sidecar: Dict) -> List[str]:
+    """The view-block shape a state case must carry (design D.2, D.6): every view has a
+    ``start`` block with every ``START_KEYS`` key and a ``stowedRef`` block with every
+    ``STOWED_REF_KEYS`` key. A stowed case, or a case with no views, has no problem. Run
+    over every state case, not only the recompute sample."""
+    if not is_state_case(sidecar.get("state")):
+        return []
+    problems: List[str] = []
+    for v in sidecar.get("views") or []:
+        if not isinstance(v, dict):
+            continue
+        name = v.get("view")
+        for block, keys in (("start", START_KEYS), ("stowedRef", STOWED_REF_KEYS)):
+            got = v.get(block)
+            if not isinstance(got, dict):
+                problems.append("%s.%s: block missing" % (name, block))
+                continue
+            missing = [k for k in keys if k not in got]
+            if missing:
+                problems.append("%s.%s: missing key(s) %s" % (name, block, ",".join(missing)))
+    return problems
+
+
+def _stowed_ref_pct_diffs(view: Dict, ref: Dict) -> List[str]:
+    """The ``stowedRef`` blob percentages checked against the view's own box area: a
+    percentage is null exactly when the view's is (no box area), 0 for a zero blob, and
+    otherwise equals 100 * its blob / the area every non-zero blob of the view's three
+    blocks implies (all of them must imply one area). The sidecar does not carry the area
+    itself, so a view whose only non-zero blob is the ``stowedRef`` one checks that
+    percentage for being a number and nothing more."""
+    name = str(view.get("view") or "?")
+    diffs: List[str] = []
+    area_null = _num(view.get("realOnlyBlobPct")) is None
+    areas: List[float] = []
+    if not area_null:
+        for block in (view, view.get("start"), ref):
+            if not isinstance(block, dict):
+                continue
+            for pk, bk in _PCT_BLOB_KEY.items():
+                pct, blob = _num(block.get(pk)), _num(block.get(bk))
+                if pct and blob:
+                    areas.append(100.0 * blob / pct)
+    area = areas[0] if areas else None
+    if areas and any(not _float_equal(a, area) for a in areas[1:]):
+        diffs.append("%s.stowedRef: blob percentages imply different box areas %s"
+                     % (name, sorted(set(round(a, 6) for a in areas))))
+    for pk in STOWED_REF_PCT_KEYS:
+        got = ref.get(pk)
+        blob = _num(ref.get(_PCT_BLOB_KEY[pk])) or 0.0
+        if area_null:
+            if got is not None:
+                diffs.append("%s.stowedRef.%s:%s!=None" % (name, pk, got))
+            continue
+        if _num(got) is None:
+            diffs.append("%s.stowedRef.%s:%s!=<number>" % (name, pk, got))
+        elif blob == 0 and _num(got) != 0:
+            diffs.append("%s.stowedRef.%s:%s!=0" % (name, pk, got))
+        elif area is not None and not _float_equal(got, 100.0 * blob / area):
+            diffs.append("%s.stowedRef.%s:%s!=%s" % (name, pk, got, 100.0 * blob / area))
+    return diffs
+
+
+def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], tile: int,
+                          cols: List[str], rows: List[str]) -> List[str]:
+    """A state case's four-row atlas (design D.6): rows 1 (ghost) and 2 (ghost-start)
+    against row 0 with the full recomputed key set (the view, then its ``start`` block),
+    row 3 (ghost-stowed) against row 0 for exactly the keys ``stowedRef`` carries: the
+    counts exactly, the blob percentages against the view's box area. A missing block or
+    key is a difference."""
+    width, height, bpp, pixels = atlas
+    want_rows = list(ATLAS_ROWS_STATE)
+    if rows != want_rows:
+        return ["atlas rows=%s (expected %s)" % (rows, want_rows)]
+    if width != tile * len(cols) or height != tile * len(want_rows):
+        return ["atlas size %dx%d != %d cols x %d rows of %d px"
+                % (width, height, len(cols), len(want_rows), tile)]
+    if bpp != 4:
+        return ["atlas is not RGBA (bytes per pixel %d)" % bpp]
+    diffs: List[str] = list(state_view_block_problems(sidecar))
+    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+    if len(views) != len(cols):
+        diffs.append("views=%d atlas cols=%d" % (len(views), len(cols)))
+    for view in views:
+        name = view.get("view")
+        if name not in cols:
+            diffs.append("%s: not in the atlas columns %s" % (name, cols))
+            continue
+        if view.get("width") != tile or view.get("height") != tile:
+            diffs.append("%s.size:%sx%s!=%d" % (name, view.get("width"), view.get("height"), tile))
+            continue
+        c = cols.index(name)
+        real_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 0, tile)
+        ghost_rows = tile_alpha_rows(pixels, width, bpp, c * tile, tile, tile)
+        diffs.extend(compare_view(view, recompute_view(real_rows, ghost_rows, tile)))
+        start = view.get("start")
+        if isinstance(start, dict):
+            start_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 2 * tile, tile)
+            rec = dict(start)
+            rec["view"] = "%s/%s" % (name, ROUTE_START)
+            diffs.extend(compare_view(rec, recompute_view(real_rows, start_rows, tile)))
+        ref = view.get("stowedRef")
+        if isinstance(ref, dict):
+            stowed_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 3 * tile, tile)
+            got = recompute_view(real_rows, stowed_rows, tile)
+            for key in STOWED_REF_INT_KEYS:
+                if key in ref and ref.get(key) != got[key]:
+                    diffs.append("%s/stowedRef.%s:%s!=%s" % (name, key, ref.get(key), got[key]))
+            diffs.extend(_stowed_ref_pct_diffs(view, ref))
     return diffs
 
 
@@ -1055,6 +1564,8 @@ class SweepResult:
     recompute_ids: List[str]
     recompute_mismatches: List[str]
     counts: Dict[str, int]
+    # The press gate (design D.6); None for a sweep with no state case (a stowed run).
+    press: Optional[PressCheck] = None
 
     def worst(self, n: int = WORST_CASES_IN_SUMMARY) -> List[CaseVerdict]:
         ranked = [c for c in self.cases if c.verdict in (VERDICT_FAIL, VERDICT_WARN, VERDICT_ERROR)]
@@ -1091,13 +1602,15 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         return SweepResult(sweep.label, STATUS_INVALID, INVALID_INCOMPLETE_SUBKIND, gating,
                            ["manifest unusable: %s" % why], None, None, [], [], [], _count([]))
 
-    controls = check_controls(manifest)
+    controls = check_controls(manifest, sweep.sidecars)
     completeness = check_completeness(manifest, sweep.sidecars, sweep.isolate_lines,
                                       sweep.inflight_lines, sweep.atlases)
+    press = check_state_press(manifest, sweep.sidecars)
+    ctl_ids = manifest_control_set(manifest)
 
     planned = [e["caseId"] for e in manifest.get("cases") or []
                if isinstance(e, dict) and isinstance(e.get("caseId"), str)]
-    part_ids = [cid for cid in planned if cid not in CONTROL_IDS]
+    part_ids = [cid for cid in planned if cid not in ALL_CONTROL_IDS]
     cases = [judge_case(sweep.sidecars[cid]) for cid in part_ids
              if isinstance(sweep.sidecars.get(cid), dict)]
 
@@ -1108,7 +1621,7 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         meta = s.get("atlas") if isinstance(s, dict) else None
         return isinstance(meta, dict) and meta.get("file") in sweep.atlases
 
-    controls_with_atlas = [cid for cid in CONTROL_IDS if has_atlas(cid)]
+    controls_with_atlas = [cid for cid in ctl_ids if has_atlas(cid)]
     sample = select_recompute_sample([cid for cid in part_ids if has_atlas(cid)], run_id)
     recompute_ids = controls_with_atlas + sample
     mismatches: List[str] = []
@@ -1129,6 +1642,19 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         why = skin_flag_disagreement(sweep.sidecars.get(cid))
         if why:
             mismatches.append("%s %s" % (cid, why))
+    # The state view blocks (design D.6): every state case with views must carry its
+    # start and stowedRef blocks whole, sampled or not (the sampled ones are re-checked by
+    # the recompute itself, so they are skipped here to name each problem once).
+    sampled = set(recompute_ids) if read_png is not None else set()
+    for cid in part_ids + list(ctl_ids):
+        s = sweep.sidecars.get(cid)
+        if cid in sampled or not isinstance(s, dict):
+            continue
+        mismatches.extend("%s %s" % (cid, p) for p in state_view_block_problems(s))
+    # The run's written control set against the one its settings recompute to (D.2).
+    wrong_set = control_set_disagreement(manifest)
+    if wrong_set:
+        mismatches.append(wrong_set)
     if not recompute_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
 
@@ -1144,6 +1670,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     elif not controls.ok:
         status, subkind = STATUS_INVALID, INVALID_CONTROLS_SUBKIND
         problems.append("controls: " + ", ".join(controls.problems))
+    elif press is not None and not press.ok:
+        status, subkind = STATUS_INVALID, INVALID_STATE_PRESS_SUBKIND
     elif mismatches:
         status, subkind = STATUS_INVALID, INVALID_INSTRUMENT_SUBKIND
     elif not completeness.ok:
@@ -1154,6 +1682,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
             status = STATUS_FAIL if counts[VERDICT_FAIL] else STATUS_PASS
         else:
             status = STATUS_REPORT
+    if press is not None and not press.ok:
+        problems.append("state press: " + "; ".join(press.problems))
     if mismatches:
         problems.append("recompute: %d mismatch(es): %s"
                         % (len(mismatches), "; ".join(mismatches[:5])
@@ -1161,11 +1691,15 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     if not completeness.ok:
         problems.append("completeness: " + "; ".join(completeness.problems))
     return SweepResult(sweep.label, status, subkind, gating, problems, controls,
-                       completeness, cases, recompute_ids, mismatches, counts)
+                       completeness, cases, recompute_ids, mismatches, counts, press)
 
 
+# The row's INVALID ranking: the host first (its symptoms show in every other gate), then
+# the controls, the state press (design D.6: after the controls, before the recompute),
+# the instrument recompute, completeness.
 _SUBKIND_ORDER = {INVALID_HOST_DAMAGED_SUBKIND: 0, INVALID_CONTROLS_SUBKIND: 1,
-                  INVALID_INSTRUMENT_SUBKIND: 2, INVALID_INCOMPLETE_SUBKIND: 3}
+                  INVALID_STATE_PRESS_SUBKIND: 2, INVALID_INSTRUMENT_SUBKIND: 3,
+                  INVALID_INCOMPLETE_SUBKIND: 4}
 
 
 @dataclass(frozen=True)
@@ -1182,8 +1716,8 @@ class RowResult:
 
 def combine(sweeps: Sequence[SweepResult], gating: bool) -> RowResult:
     """The row over every label: INVALID when any sweep is (the first subkind in
-    host-damaged > controls > instrument > incomplete order), else FAIL / PASS when
-    armed, else REPORT."""
+    host-damaged > controls > state-press > instrument > incomplete order), else
+    FAIL / PASS when armed, else REPORT."""
     invalid = [s for s in sweeps if s.status == STATUS_INVALID]
     if invalid:
         sub = min((s.invalid_subkind for s in invalid),
@@ -1211,7 +1745,8 @@ def format_summary(row: RowResult) -> str:
                         "ok" if s.controls is not None and s.controls.ok
                         else ("-" if s.controls is None else "bad"),
                         "-" if s.completeness is None else str(s.completeness.ok).lower(),
-                        len(s.recompute_ids), len(s.recompute_mismatches), worst or "-"))
+                        len(s.recompute_ids), len(s.recompute_mismatches), worst or "-")
+                     + ("" if s.press is None else " press=%s" % ("ok" if s.press.ok else "bad")))
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
 
@@ -1222,11 +1757,23 @@ def thresholds() -> Dict[str, Any]:
             "recomputeSampleFraction": RECOMPUTE_SAMPLE_FRACTION}
 
 
+def state_flag_counts(cases: Iterable[CaseVerdict]) -> Dict[str, int]:
+    """How many state cases carry each state flag kind (the part before the first ``:``
+    of a prefixed flag, e.g. ``state-not-modelled``), sorted by kind."""
+    counts: Dict[str, int] = {}
+    for c in cases:
+        for kind in sorted({f.split(":", 1)[0] for f in c.state_flags}):
+            counts[kind] = counts.get(kind, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
-    """``partparity-verdicts.json`` for one label."""
+    """``partparity-verdicts.json`` for one label. A sweep with state cases (its press
+    check ran) adds ``statePress`` and ``stateFlags``; a stowed sweep's document is
+    exactly the pre-P6 one."""
     c = sweep.controls
     k = sweep.completeness
-    return {
+    doc = {
         "schema": VERDICTS_SCHEMA,
         "label": sweep.label,
         "runId": run_id,
@@ -1247,6 +1794,10 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
         "worst": [w.case_id for w in sweep.worst()],
         "cases": [cv.to_dict() for cv in sweep.cases],
     }
+    if sweep.press is not None:
+        doc["statePress"] = sweep.press.to_dict()
+        doc["stateFlags"] = state_flag_counts(sweep.cases)
+    return doc
 
 
 def detail_record(row: RowResult) -> Dict[str, Any]:
