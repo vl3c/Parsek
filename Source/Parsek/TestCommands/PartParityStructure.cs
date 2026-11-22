@@ -105,9 +105,12 @@ namespace Parsek.TestCommands
     /// <c>&lt;part&gt;/&lt;modelRoot&gt;/...</c>. So the ghost path maps back by dropping
     /// every segment up to and including the <c>ghost_part_</c> one; both sides then strip
     /// Unity's <c>(Clone)</c> suffixes (KSP instantiates MODEL nodes as clones, and the
-    /// mirror copies those names). Ghost-only objects (<c>fairing_panels</c>,
-    /// <c>fake_canopy_&lt;pid&gt;</c>, FX holders) keep their own names and so read as
-    /// extra on the ghost, which they are.</para>
+    /// mirror copies those names). Ghost-only objects (<c>fake_canopy_&lt;pid&gt;</c>, FX
+    /// holders) keep their own names and so read as extra on the ghost, which they are. The
+    /// one exception is <c>fairing_panels</c>, the container the ghost builds a procedural
+    /// fairing's stock <c>FairingPanel</c>s under, which a live fairing holds directly under
+    /// its model: a ghost path drops that segment, so the panels pair (an FGV context's
+    /// intact fairing, design D.10 S8).</para>
     ///
     /// <para>Pairing. Paths are compared ordinally. Several renderers may share a path
     /// (sibling GameObjects of one name are common in part models); within a path the k-th
@@ -120,6 +123,7 @@ namespace Parsek.TestCommands
     {
         internal const string GhostVisualsSegment = "ghost_visuals";
         internal const string GhostPartSegmentPrefix = "ghost_part_";
+        internal const string GhostFairingPanelsSegment = "fairing_panels";
         internal const string CloneSuffix = "(Clone)";
         internal const string InstanceSuffix = " (Instance)";
 
@@ -207,9 +211,9 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The part-relative path both sides are paired by. Drops empty segments, every
-        /// segment up to and including the LAST <c>ghost_part_*</c> one (a ghost path), and
-        /// the <c>(Clone)</c> suffixes of what remains. A real path (no ghost segment) only
-        /// loses its suffixes.
+        /// segment up to and including the LAST <c>ghost_part_*</c> one (a ghost path), a ghost
+        /// path's <c>fairing_panels</c> container, and the <c>(Clone)</c> suffixes of what
+        /// remains. A real path (no ghost segment) only loses its suffixes.
         /// </summary>
         internal static string NormalizePath(string rawPath)
         {
@@ -226,6 +230,7 @@ namespace Parsek.TestCommands
             {
                 string s = StripClone(segs[i]);
                 if (s.Length == 0) continue;
+                if (start > 0 && s == GhostFairingPanelsSegment) continue;
                 if (sb.Length > 0) sb.Append('/');
                 sb.Append(s);
             }

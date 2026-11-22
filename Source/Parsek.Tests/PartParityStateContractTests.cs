@@ -209,6 +209,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PlanCases_TheFgvContexts_SelectByTheirClass()
+        {
+            var fairing = new PartParityStatePart { Name = "fairingSize2" };
+            fairing.Modules.Add(new PartParityStateModule { Index = 0, Name = "ModuleProceduralFairing" });
+            List<PartParityCaseKey> keys = StateKeys();
+            keys.AddRange(PartParityStateRules.Enumerate(fairing,
+                new PartParityCaseKey { Part = "fairingSize2", Source = "Squad", Skin = "default" }).Cases);
+
+            // An orbit run with contexts=none plans them (OrbitContexts holds the class).
+            var planned = TestCommandPartParitySweep.PlanCases(StowedKeys(), keys, Parse("states", "all"));
+            Assert.Equal(5, planned.Count(p => p.Key.Part == "fairingSize2"));
+            // contexts=fgv: exactly the five FGV cases of the part, stowed (FGV's intact) included.
+            planned = TestCommandPartParitySweep.PlanCases(StowedKeys(), keys, Parse("contexts", "fgv"));
+            Assert.Equal(new[]
+            {
+                "deployed/fgv-2-interstage-truss", "deployed/fgv-3-open-top", "separated/fgv-2-interstage-truss",
+                "stowed/fgv-2-interstage-truss", "stowed/fgv-3-open-top",
+            }, planned.Select(p => p.Key.State + "/" + p.Key.Context));
+            // contexts=stacked never selects them; states=separated selects the one separation.
+            planned = TestCommandPartParitySweep.PlanCases(StowedKeys(), keys, Parse("contexts", "stacked"));
+            Assert.DoesNotContain(planned, p => p.Key.Part == "fairingSize2");
+            planned = TestCommandPartParitySweep.PlanCases(StowedKeys(), keys, Parse("states", "separated"));
+            Assert.Equal(new[] { "fairingSize2 separated/fgv-2-interstage-truss" },
+                planned.Select(p => p.Key.Part + " " + p.Key.State + "/" + p.Key.Context));
+            Assert.All(planned, p => Assert.True(TestCommandPartParitySweep.IsStateCase(p.Key)));
+            Assert.False(TestCommandPartParitySweep.IsStateCase(
+                new PartParityCaseKey { State = "stowed", Context = "fgv-2-interstage-truss" }));
+        }
+
+        [Fact]
         public void PlanCases_AStateRun_KeepsTheSelectionRules()
         {
             var all = TestCommandPartParitySweep.PlanCases(StowedKeys(), StateKeys(), Parse("states", "all"));

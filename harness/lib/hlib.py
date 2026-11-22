@@ -5231,9 +5231,9 @@ PARTPARITY_VIEWS_TOKENS: Tuple[str, ...] = ("required", "all")
 PARTPARITY_NONE_TOKEN = "none"
 PARTPARITY_STATES_ALL_TOKEN = "all"
 PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
-    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned",
+    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
 )
-PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air")
+PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
