@@ -32,6 +32,214 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Every transform name whose renderers a stock module deactivates on its flight start,
+        /// so the ghost leaves them out: the FlagDecalBackground meshes other than the selected
+        /// one, and a ModuleRoboticServoHinge's piston arm. One Verbose line per source.
+        /// </summary>
+        internal static HashSet<string> ResolveStockHiddenTransformNames(
+            Part prefab, ConfigNode partConfig, ConfigNode partNode, string selectedVariantName,
+            string partName, uint persistentId)
+        {
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+
+            ConfigNode flagConfig = FindModuleNode(partConfig, "FlagDecalBackground");
+            if (flagConfig != null)
+            {
+                HashSet<string> hiddenFlagMeshes = ResolveFlagDecalHiddenMeshNames(
+                    flagConfig, FindModuleNode(partNode, "FlagDecalBackground"), selectedVariantName);
+                names.UnionWith(hiddenFlagMeshes);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"flag-meshes-{partName}",
+                    $"  Part '{partName}' pid={persistentId}: FlagDecalBackground hides " +
+                    $"{hiddenFlagMeshes.Count} flag mesh(es) (variant='{selectedVariantName ?? "<none>"}')", 60.0);
+            }
+
+            if (FindModuleNode(partConfig, "ModuleRoboticServoHinge") != null)
+            {
+                HashSet<string> pistons = ParseHingePistonTransformNames(
+                    ReadHingePistonTransformsRaw(prefab));
+                names.UnionWith(pistons);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"hinge-pistons-{partName}",
+                    $"  Part '{partName}' pid={persistentId}: ModuleRoboticServoHinge hides " +
+                    $"piston transform(s) [{string.Join(", ", pistons)}]", 60.0);
+            }
+
+            return names;
+        }
+
+        /// <summary>
+        /// Stock <c>ModuleRoboticServoHinge.pistonTransforms</c> default (KSP 1.12.5,
+        /// decompiled): a private [SerializeField] string, not a KSPField, so no part config
+        /// can change it; <c>OnStart</c> and both inventory-mode hooks call
+        /// <c>TogglePistons(false)</c>, which SetActive(false)s each named child.
+        /// </summary>
+        internal const string DefaultHingePistonTransforms = "Bar1,Bar2,TopPlateKnuckle,BasePlateKnuckle";
+
+        private static System.Reflection.FieldInfo hingePistonTransformsField;
+        private static bool hingePistonTransformsFieldResolved;
+
+        /// <summary>
+        /// The prefab hinge module's own <c>pistonTransforms</c> value (reflection, the field
+        /// is private), or the stock default when it cannot be read.
+        /// </summary>
+        private static string ReadHingePistonTransformsRaw(Part prefab)
+        {
+            try
+            {
+                PartModule hinge = null;
+                if (prefab != null && prefab.Modules != null)
+                {
+                    for (int i = 0; i < prefab.Modules.Count; i++)
+                    {
+                        PartModule module = prefab.Modules[i];
+                        if (module != null && module.moduleName == "ModuleRoboticServoHinge")
+                        {
+                            hinge = module;
+                            break;
+                        }
+                    }
+                }
+                if (hinge == null)
+                    return DefaultHingePistonTransforms;
+                if (!hingePistonTransformsFieldResolved)
+                {
+                    hingePistonTransformsField = hinge.GetType().GetField("pistonTransforms",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                        | System.Reflection.BindingFlags.Public);
+                    hingePistonTransformsFieldResolved = true;
+                }
+                string raw = hingePistonTransformsField?.GetValue(hinge) as string;
+                return string.IsNullOrEmpty(raw) ? DefaultHingePistonTransforms : raw;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("GhostVisual",
+                    $"hinge pistonTransforms read failed ({ex.GetType().Name}); using stock default");
+                return DefaultHingePistonTransforms;
+            }
+        }
+
+        /// <summary>
+        /// Splits a <c>pistonTransforms</c> value the way <c>TogglePistons</c> does (on ',',
+        /// names used verbatim); empty entries are dropped.
+        /// </summary>
+        internal static HashSet<string> ParseHingePistonTransformNames(string raw)
+        {
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(raw))
+                return names;
+            string[] parts = raw.Split(',');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(parts[i]))
+                    names.Add(parts[i]);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// The FlagDecalBackground meshes stock hides in flight, transcribed from
+        /// <c>FlagDecalBackground.OnLoad</c> / <c>EnableCurrentFlagMesh</c> (KSP 1.12.5,
+        /// decompiled). OnLoad keeps a MESH node only when it has a name, displayName and
+        /// meshName, and gives it the index of the first earlier MESH with the same
+        /// <c>name</c>, else one past the highest index so far (so the index counts distinct
+        /// names in order of first appearance); orientation defaults to LANDSCAPE. A mesh is
+        /// shown only when its index equals the persisted <c>flagSize</c> (default 0), its
+        /// comma-separated <c>variantNames</c> contain the selected variant, and its orientation
+        /// is PORTRAIT when <c>displayingPortrait</c> (default true; false when the module has
+        /// no PORTRAIT mesh) else LANDSCAPE; every other mesh is SetActive(false), in order, so
+        /// a repeated meshName ends in its last state. A null <paramref name="selectedVariantName"/>
+        /// leaves the variant test out (stock would hide every mesh; that shape does not occur
+        /// on a flag part, all of which carry variants). Returns the meshNames left hidden.
+        /// </summary>
+        internal static HashSet<string> ResolveFlagDecalHiddenMeshNames(
+            ConfigNode flagModuleConfig, ConfigNode snapshotFlagModule, string selectedVariantName)
+        {
+            var hidden = new HashSet<string>(System.StringComparer.Ordinal);
+            if (flagModuleConfig == null)
+                return hidden;
+            ConfigNode[] meshNodes = flagModuleConfig.GetNodes("MESH");
+            if (meshNodes == null || meshNodes.Length == 0)
+                return hidden;
+
+            var names = new List<string>();
+            var meshNames = new List<string>();
+            var indices = new List<int>();
+            var portrait = new List<bool>();
+            var variants = new List<string>();
+            int portraitCount = 0;
+            for (int i = 0; i < meshNodes.Length; i++)
+            {
+                ConfigNode mesh = meshNodes[i];
+                if (mesh == null) continue;
+                string name = mesh.GetValue("name");
+                string displayName = mesh.GetValue("displayName");
+                string meshName = mesh.GetValue("meshName");
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(displayName)
+                    || string.IsNullOrEmpty(meshName))
+                    continue;
+
+                int index = -1;
+                for (int j = 0; j < names.Count; j++)
+                {
+                    if (string.Equals(names[j], name))
+                    {
+                        index = indices[j];
+                        break;
+                    }
+                }
+                if (index == -1)
+                {
+                    for (int j = 0; j < indices.Count; j++)
+                    {
+                        if (indices[j] > index)
+                            index = indices[j];
+                    }
+                    index++;
+                }
+
+                bool isPortrait = string.Equals(
+                    (mesh.GetValue("orientation") ?? "").Trim(), "PORTRAIT",
+                    System.StringComparison.OrdinalIgnoreCase);
+                if (isPortrait)
+                    portraitCount++;
+
+                names.Add(name);
+                meshNames.Add(meshName);
+                indices.Add(index);
+                portrait.Add(isPortrait);
+                variants.Add(mesh.GetValue("variantNames") ?? "");
+            }
+
+            int flagSize = 0;
+            string flagSizeRaw = snapshotFlagModule?.GetValue("flagSize");
+            if (!string.IsNullOrEmpty(flagSizeRaw))
+                int.TryParse(flagSizeRaw.Trim(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out flagSize);
+            bool displayingPortrait = ParseBoolOr(
+                snapshotFlagModule?.GetValue("displayingPortrait"), portraitCount > 0);
+
+            var finalState = new Dictionary<string, bool>(System.StringComparer.Ordinal);
+            for (int i = 0; i < meshNames.Count; i++)
+            {
+                bool show = false;
+                if (indices[i] == flagSize
+                    && (selectedVariantName == null
+                        || System.Array.IndexOf(variants[i].Split(','), selectedVariantName) > -1))
+                {
+                    show = displayingPortrait ? portrait[i] : !portrait[i];
+                }
+                finalState[meshNames[i]] = show;
+            }
+
+            foreach (var kv in finalState)
+            {
+                if (!kv.Value)
+                    hidden.Add(kv.Key);
+            }
+            return hidden;
+        }
+
+        /// <summary>
         /// The three variant-resolution lines of one part: the selected variant and its
         /// GAMEOBJECT rule count, the include-everything fallback, and the base-implicit variant.
         /// </summary>
