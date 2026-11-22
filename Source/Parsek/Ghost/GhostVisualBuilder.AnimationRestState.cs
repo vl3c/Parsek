@@ -139,7 +139,8 @@ namespace Parsek
             Part prefab, ConfigNode partNode, Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap, string heatAnimName,
             ref HeatGhostInfo heatInfo, LightGhostInfo lightInfo,
-            List<ColorChangerGhostInfo> colorChangerInfos, uint persistentId, string partName)
+            List<ColorChangerGhostInfo> colorChangerInfos, uint persistentId, string partName,
+            string deployAnimateGenericAnimName, ref DeployableGhostInfo deployableInfo)
         {
             if (prefab == null || modelRoot == null || ghostModelNode == null || cloneMap == null)
                 return;
@@ -155,6 +156,7 @@ namespace Parsek
 
             int applied = 0, skippedMovesTransforms = 0, skippedNoClip = 0;
             int colorsWritten = 0, colorsLeftToOwner = 0, activeWritten = 0, heatStates = 0;
+            int deployColors = 0;
             for (int c = 0; c < candidates.Count; c++)
             {
                 AnimationRestCandidate candidate = candidates[c];
@@ -180,6 +182,8 @@ namespace Parsek
 
                 bool feedsHeat = candidate.moduleName == AnimationRestModuleAnimateThrottle
                     && candidate.animationName == heatAnimName;
+                bool feedsDeploy = IsAnimateGenericDeployColorClip(
+                    candidate.moduleName, candidate.animationName, deployAnimateGenericAnimName);
                 for (int i = 0; i < sample.colors.Count; i++)
                 {
                     AnimatedColorSample s = sample.colors[i];
@@ -205,6 +209,30 @@ namespace Parsek
                     }
                     material.SetColor(s.property, s.rest);
                     colorsWritten++;
+
+                    if (feedsDeploy)
+                    {
+                        if (deployableInfo == null)
+                        {
+                            deployableInfo = new DeployableGhostInfo
+                            {
+                                partPersistentId = persistentId,
+                                transforms = new List<DeployableTransformState>(),
+                                clipLengthSeconds = ResolveDeployableClipSeconds(partKey),
+                            };
+                        }
+                        if (deployableInfo.colors == null)
+                            deployableInfo.colors = new List<DeployableColorState>();
+                        // Stock ModuleAnimateGeneric: stowed is animTime 0, deployed animTime 1.
+                        deployableInfo.colors.Add(new DeployableColorState
+                        {
+                            material = material,
+                            property = s.property,
+                            stowed = s.cold,
+                            deployed = s.hot,
+                        });
+                        deployColors++;
+                    }
 
                     if (feedsHeat)
                     {
@@ -242,7 +270,21 @@ namespace Parsek
                 $"applied={applied} skippedMovesTransforms={skippedMovesTransforms} " +
                 $"skippedNoClip={skippedNoClip} colorsWritten={colorsWritten} " +
                 $"colorsLeftToOwner={colorsLeftToOwner} activeWritten={activeWritten} " +
-                $"heatStates={heatStates}", 60.0);
+                $"heatStates={heatStates} deployColors={deployColors}", 60.0);
+        }
+
+        /// <summary>
+        /// Pure: whether a colour-only rest clip is the part's standalone ModuleAnimateGeneric
+        /// deploy clip, so its colours follow the deploy events instead of staying at rest
+        /// (ReStock's SurfaceScanner 'screenon': the recorder records DeployableExtended when the
+        /// screen is switched on, and the clip moves no transform).
+        /// </summary>
+        internal static bool IsAnimateGenericDeployColorClip(
+            string moduleName, string animationName, string deployAnimateGenericAnimName)
+        {
+            return !string.IsNullOrEmpty(deployAnimateGenericAnimName)
+                && moduleName == AnimationRestModuleAnimateGeneric
+                && animationName == deployAnimateGenericAnimName;
         }
 
         private static Renderer ResolveGhostRenderer(Renderer modelRenderer, Transform modelRoot,

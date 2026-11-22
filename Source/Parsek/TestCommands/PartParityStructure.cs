@@ -68,6 +68,12 @@ namespace Parsek.TestCommands
 
         /// <summary>The largest per-axis relative scale difference, in percent.</summary>
         internal double ScaleDeltaPct;
+
+        /// <summary>On an air case, for a renderer under the canopy transform only: the real
+        /// renderer's distance from the canopy transform's pivot (metres, part-local), the
+        /// lever arm the canopy cap turns into a position allowance (design D.4). NaN
+        /// elsewhere (written null).</summary>
+        internal double CanopyPivotDistanceM = double.NaN;
     }
 
     /// <summary>A paired renderer whose field <see cref="Field"/> differs.</summary>
@@ -249,6 +255,51 @@ namespace Parsek.TestCommands
             dot = Math.Abs(dot);
             if (dot > 1.0) dot = 1.0;
             return 2.0 * Math.Acos(dot) * 180.0 / Math.PI;
+        }
+
+        /// <summary>
+        /// True when a structure key (a part-relative <c>/</c> path, maybe <c>#k</c>-suffixed)
+        /// runs through the canopy transform: one of its segments is the canopy transform's
+        /// name, so the renderer is the canopy itself or under it. Mirrored by
+        /// <c>partparity.is_canopy_renderer_key</c>.
+        /// </summary>
+        internal static bool IsCanopyRendererKey(string key, string canopyTransform)
+        {
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(canopyTransform)) return false;
+            int hash = key.IndexOf('#');
+            string path = hash >= 0 ? key.Substring(0, hash) : key;
+            foreach (string seg in path.Split('/'))
+                if (string.Equals(seg, canopyTransform, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Writes <see cref="PartParityTransformDiff.CanopyPivotDistanceM"/> on every
+        /// transform difference of a canopy renderer (<see cref="IsCanopyRendererKey"/>): the
+        /// distance from that real renderer's part-local position to the canopy pivot's
+        /// (<paramref name="pivotLocal"/>, read on the real part in the capture's frame). A
+        /// rigid turn of the canopy subtree by an angle t about the pivot moves a renderer at
+        /// distance d by at most <c>2 d sin(t / 2)</c>, which the judge allows. Returns how
+        /// many entries it wrote. Pure.
+        /// </summary>
+        internal static int StampCanopyPivotDistances(PartParityStructureDiff diff,
+            IList<PartParityRendererRecord> real, string canopyTransform, double[] pivotLocal)
+        {
+            if (diff == null || string.IsNullOrEmpty(canopyTransform) || pivotLocal == null || pivotLocal.Length != 3)
+                return 0;
+            var byKey = new Dictionary<string, PartParityRendererRecord>(StringComparer.Ordinal);
+            foreach (var kv in Keyed(real)) byKey[kv.Key] = kv.Value;
+            int written = 0;
+            foreach (PartParityTransformDiff t in diff.TransformDiffers)
+            {
+                if (!IsCanopyRendererKey(t.Key, canopyTransform)) continue;
+                if (!byKey.TryGetValue(t.Key, out PartParityRendererRecord r)) continue;
+                double d = Distance3(r.LocalPosition, pivotLocal);
+                if (double.IsNaN(d)) continue;
+                t.CanopyPivotDistanceM = d;
+                written++;
+            }
+            return written;
         }
 
         /// <summary>Euclidean distance between two 3-vectors.</summary>
