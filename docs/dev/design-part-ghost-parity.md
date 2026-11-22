@@ -1370,6 +1370,10 @@ reads reached before the press is not pressed: `action-failed`, `actionResult = 
 detail naming the field (todo PARTPARITY-STOWED-POSE-NOT-STOWED covers the stowed cases). A
 reparented shroud's real records are read at the transform's prefab path
 (`RehomeJettisonPaths`), so the structural diff pairs a stacked shroud with its ghost.
+A state case gets the ReStock depth-mask repair (`PartParityDepthMaskRepair`, PR #2760) at the
+top of its preparation, before the state branch reads the real renderers, with the stowed case's
+summary line, flags and `depth-mask-unrepaired` setup fault (source gate
+`PartParityStateDepthMaskGateTests`).
 
 Live (2026-11-22, stock-minimal, harness runs `2026-11-22_1411`, `_1419` and `_1428` of a local
 uncommitted spec: one `states=all` step per acceptance part plus a 60 s stowed step): on the last

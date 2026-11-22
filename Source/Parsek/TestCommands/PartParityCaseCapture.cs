@@ -41,6 +41,9 @@ namespace Parsek.TestCommands
         {
             if (wc.State != null)
             {
+                // The real part's depth masks are repaired before the state branch reads its
+                // renderers, the same repair, line, flags and setup fault as a stowed case.
+                RepairDepthMasks(wc, wc.Real.rootPart);
                 PartParityStateDriver.Prepare(ctx, wc);
                 return;
             }
