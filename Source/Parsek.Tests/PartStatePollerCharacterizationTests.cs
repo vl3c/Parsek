@@ -895,6 +895,68 @@ namespace Parsek.Tests
                 "deployedAnimateGenericModules", "loggedAnimateGenericClassificationMisses");
         }
 
+        private static ModuleLight LightModule(bool isOn, bool isBlinking, float blinkRate)
+        {
+            var l = Module<ModuleLight>();
+            l.isOn = isOn;
+            l.isBlinking = isBlinking;
+            l.blinkRate = blinkRate;
+            return l;
+        }
+
+        private static ModuleColorChanger ColorChanger(bool toggleInFlight, bool animState)
+        {
+            var cc = Module<ModuleColorChanger>();
+            cc.toggleInFlight = toggleInFlight;
+            cc.animState = animState;
+            return cc;
+        }
+
+        // The flight side also reads a toggleable ModuleColorChanger on a part with no
+        // ModuleLight (cabin lights); the background side reads ModuleLight only.
+        [Fact]
+        public void Light()
+        {
+            RunFamily("light", "CheckLightState",
+                () => MakeVessel(LiveVesselPid,
+                    MakePart(1201, "lightA", LightModule(false, false, 1f)),
+                    null,
+                    MakePart(1202, "cabinColorChanger", ColorChanger(true, false)),
+                    MakePart(1203, "colorChangerNotToggleable", ColorChanger(false, true)),
+                    MakePart(1204, "lightWithColorChanger", LightModule(false, false, 1f), ColorChanger(true, true)),
+                    MakePart(1205, "twoColorChangers", ColorChanger(false, false), ColorChanger(true, true)),
+                    MakePart(1206, "noLight", Module<ModuleJettison>())),
+                new[]
+                {
+                    Step("initial", null),
+                    Step("A-on-cabin-on", v =>
+                    {
+                        Mod<ModuleLight>(v, 0).isOn = true;
+                        Mod<ModuleColorChanger>(v, 2).animState = true;
+                    }),
+                    Step("A-on-again", null),
+                    Step("A-blink", v =>
+                    {
+                        Mod<ModuleLight>(v, 0).isBlinking = true;
+                        Mod<ModuleLight>(v, 0).blinkRate = 2.5f;
+                    }),
+                    Step("A-rate", v => Mod<ModuleLight>(v, 0).blinkRate = 0.5f),
+                    Step("A-blink-off", v => Mod<ModuleLight>(v, 0).isBlinking = false),
+                    Step("A-off-cabin-off", v =>
+                    {
+                        Mod<ModuleLight>(v, 0).isOn = false;
+                        Mod<ModuleColorChanger>(v, 2).animState = false;
+                    }),
+                    Step("A-blink-zero-rate", v =>
+                    {
+                        Mod<ModuleLight>(v, 0).isBlinking = true;
+                        Mod<ModuleLight>(v, 0).blinkRate = 0f;
+                    }),
+                    Step("withCC-light-on", v => Mod<ModuleLight>(v, 4).isOn = true),
+                },
+                "lightsOn", "blinkingLights", "lightBlinkRates");
+        }
+
         // One BackgroundRecorder reuses a single poll sink for every vessel it polls, rebinding
         // its state and recording on each call. Two vessels polled in turn through the SAME
         // recorder, over two families, must each get their own events, containers and log
