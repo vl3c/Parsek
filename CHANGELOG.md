@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **Spot light heads face the right way on their ghosts.** With ReStock installed, the replay of
+  the spot lights drew the lamp head turned around. Adjustable lights now show their head at the
+  angle the real light was set to. (GHOST-LIGHT-MOVEMENT-TRANSFORM)
 - **ReStock struts and fuel lines reach their target on their ghosts.** With ReStock installed, a
   strut or fuel line replay kept its default short stub pointing the default way. It now
   stretches to the part it connects to, with its texture stretched as on the real part, and

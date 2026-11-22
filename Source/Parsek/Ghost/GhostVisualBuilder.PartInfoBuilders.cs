@@ -677,6 +677,11 @@ namespace Parsek
             if (lightModule == null)
                 return null;
 
+            // Stock OnStart -> ModifyLightVector aims the lamp head whether or not the model
+            // carries a Light, so this runs before the no-Light return below.
+            ApplyLightMovementTransforms(prefab, lightModule, partNode, modelRoot, modelNodeTransform,
+                cloneMap, persistentId, partName);
+
             var prefabLights = modelRoot.GetComponentsInChildren<Light>(true);
             if (prefabLights == null || prefabLights.Length == 0)
                 return null;
@@ -737,6 +742,110 @@ namespace Parsek
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Stock <c>ModuleLight.GetAngleVector</c> (KSP 1.12.5, decompiled): the first character
+        /// of the axis name picks X / Y / Z (case-insensitive), a '-' second character negates
+        /// the angle, anything else (or an empty name) is no rotation.
+        /// </summary>
+        internal static Vector3 ResolveLightAngleVector(string axisName, float angle)
+        {
+            if (string.IsNullOrEmpty(axisName)) return Vector3.zero;
+            if (axisName.Length > 1 && axisName[1] == '-')
+                angle = -angle;
+            string axis = axisName.Substring(0, 1).ToUpperInvariant();
+            if (axis == "X") return new Vector3(angle, 0f, 0f);
+            if (axis == "Y") return new Vector3(0f, angle, 0f);
+            if (axis == "Z") return new Vector3(0f, 0f, angle);
+            return Vector3.zero;
+        }
+
+        /// <summary>
+        /// Stock <c>ModuleLight.OnStart</c>'s transform lookup: the combined transform is
+        /// <c>movementTransformName</c>, replaced by the rotate name when the rotate and pitch
+        /// names are equal; only when that finds nothing are the separate rotate and pitch
+        /// transforms looked up. Generic over the lookup so it is testable without Unity.
+        /// </summary>
+        internal static void ResolveLightMovementTransforms<T>(
+            string movementName, string rotateName, string pitchName, System.Func<string, T> find,
+            out T combined, out T rotate, out T pitch) where T : class
+        {
+            combined = find(movementName);
+            if (rotateName == pitchName)
+                combined = find(rotateName);
+            rotate = null;
+            pitch = null;
+            if (combined == null)
+            {
+                rotate = find(rotateName);
+                pitch = find(pitchName);
+            }
+        }
+
+        /// <summary>Stock SetRotationLimits / SetPitchLimits: Mathf.Clamp(value, min, max).</summary>
+        internal static float ClampLightAngle(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        /// <summary>
+        /// Stock <c>ModuleLight.ModifyLightVector</c>, run once at build: the combined transform
+        /// gets Euler(rotate) * Euler(pitch), the separate rotate / pitch transforms their own
+        /// Euler. The angles are the snapshot's persisted <c>rotationAngle</c> / <c>pitchAngle</c>
+        /// clamped to the module's limits (0 / 0 when absent, which is identity, NOT the model's
+        /// rest rotation - ReStock's lamp heads rest 180 degrees off it). The persisted
+        /// <c>movementTransformName</c> is read from the snapshot first.
+        /// </summary>
+        private static void ApplyLightMovementTransforms(
+            Part prefab, ModuleLight lightModule, ConfigNode partNode, Transform modelRoot,
+            Transform modelNodeTransform, Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            ConfigNode snapshotModule = FindModuleNode(partNode, lightModule.moduleName);
+            string movementName = snapshotModule?.GetValue("movementTransformName");
+            if (string.IsNullOrEmpty(movementName))
+                movementName = lightModule.movementTransformName;
+            float rotation = ParseFloatOr(snapshotModule?.GetValue("rotationAngle"), lightModule.rotationAngle);
+            float pitch = ParseFloatOr(snapshotModule?.GetValue("pitchAngle"), lightModule.pitchAngle);
+            rotation = ClampLightAngle(rotation, lightModule.rotateMin, lightModule.rotateMax);
+            pitch = ClampLightAngle(pitch, lightModule.pitchMin, lightModule.pitchMax);
+
+            System.Func<string, Transform> find = name =>
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                Transform src = prefab.FindModelTransform(name);
+                if (src == null) return null;
+                if (src == modelRoot) return modelNodeTransform;
+                return cloneMap.TryGetValue(src, out Transform ghost)
+                    ? ghost
+                    : MirrorTransformChain(src, modelRoot, modelNodeTransform, cloneMap);
+            };
+            ResolveLightMovementTransforms(movementName, lightModule.movementRotateTransformName,
+                lightModule.movementPitchTransformName, find,
+                out Transform combined, out Transform rotateTransform, out Transform pitchTransform);
+
+            Vector3 rotateEuler = ResolveLightAngleVector(lightModule.rotateAxisName, rotation);
+            Vector3 pitchEuler = ResolveLightAngleVector(lightModule.pitchAxisName, pitch);
+            if (combined != null)
+                combined.localRotation = Quaternion.Euler(rotateEuler) * Quaternion.Euler(pitchEuler);
+            if (rotateTransform != null)
+                rotateTransform.localRotation = Quaternion.Euler(rotateEuler);
+            if (pitchTransform != null)
+                pitchTransform.localRotation = Quaternion.Euler(pitchEuler);
+
+            if (combined != null || rotateTransform != null || pitchTransform != null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"light-move-{partName}",
+                    $"  Light '{partName}' pid={persistentId}: movement transforms aimed as stock " +
+                    $"combined={(combined != null ? combined.name : "none")} " +
+                    $"rotate={(rotateTransform != null ? rotateTransform.name : "none")} " +
+                    $"pitch={(pitchTransform != null ? pitchTransform.name : "none")} " +
+                    $"rotationAngle={rotation.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"pitchAngle={pitch.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}", 60.0);
+            }
         }
 
         /// <summary>

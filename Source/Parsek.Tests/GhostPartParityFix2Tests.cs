@@ -424,5 +424,61 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Light movement transforms
+
+        [Theory]
+        [InlineData("X", 30f, 30f, 0f, 0f)]
+        [InlineData("x", 30f, 30f, 0f, 0f)]
+        [InlineData("X-", 30f, -30f, 0f, 0f)]
+        [InlineData("Y", 15f, 0f, 15f, 0f)]
+        [InlineData("Z", 90f, 0f, 0f, 90f)]
+        [InlineData("Q", 90f, 0f, 0f, 0f)]
+        [InlineData("", 90f, 0f, 0f, 0f)]
+        public void LightMovement_AngleVector_TranscribesStock(string axis, float angle,
+            float ex, float ey, float ez)
+        {
+            Vector3 v = GhostVisualBuilder.ResolveLightAngleVector(axis, angle);
+            Assert.Equal(ex, v.x);
+            Assert.Equal(ey, v.y);
+            Assert.Equal(ez, v.z);
+        }
+
+        [Fact]
+        public void LightMovement_Transforms_CombinedFirst_SeparateOnlyWhenItIsMissing()
+        {
+            var model = new HashSet<string> { "SpotLightBase", "light_12.002", "Lamp" };
+            Func<string, string> find = n => n != null && model.Contains(n) ? n : null;
+
+            // ReStock spot light: movementTransformName set, default rotate / pitch names.
+            GhostVisualBuilder.ResolveLightMovementTransforms("SpotLightBase",
+                "movementRotateTransformName", "movementPitchTransformName", find,
+                out string combined, out string rotate, out string pitch);
+            Assert.Equal("SpotLightBase", combined);
+            Assert.Null(rotate);
+            Assert.Null(pitch);
+
+            // Stock groundLight1: no combined transform, separate rotate and pitch.
+            GhostVisualBuilder.ResolveLightMovementTransforms("movementTransformName",
+                "light_12.002", "Lamp", find, out combined, out rotate, out pitch);
+            Assert.Null(combined);
+            Assert.Equal("light_12.002", rotate);
+            Assert.Equal("Lamp", pitch);
+
+            // Equal rotate and pitch names replace the combined lookup.
+            GhostVisualBuilder.ResolveLightMovementTransforms("SpotLightBase", "Lamp", "Lamp", find,
+                out combined, out rotate, out pitch);
+            Assert.Equal("Lamp", combined);
+        }
+
+        [Fact]
+        public void LightMovement_AnglesClampToTheModuleLimits()
+        {
+            Assert.Equal(0f, GhostVisualBuilder.ClampLightAngle(-10f, 0f, 180f));
+            Assert.Equal(180f, GhostVisualBuilder.ClampLightAngle(200f, 0f, 180f));
+            Assert.Equal(35f, GhostVisualBuilder.ClampLightAngle(35f, -35f, 35f));
+        }
+
+        #endregion
     }
 }
