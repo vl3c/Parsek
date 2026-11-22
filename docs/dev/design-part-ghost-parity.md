@@ -1039,8 +1039,12 @@ light) gets one case per family, never the cross product (the B9 rule of 3.2). D
 in `PartParityStateRules` (BUILT, S1), over the prefab's module list (each module's `moduleName`
 and its type chain up to `PartModule`) and its `partConfig` MODULE nodes. Each family matches with
 the SAME predicate its recorder poller uses, so the sweep never finds a family the recorder would
-not poll, and a subclass lands in one family only (the xUnit cell
-`EveryFamilyPredicate_IsTheRecordersOwn` reds when a poller's predicate changes). Family ids, in
+not poll, and a subclass lands in one family only. The xUnit cell
+`EveryFamilyPredicate_IsTheRecordersOwn` pins each predicate inside its own poller's body
+(comments stripped), with the first-per-part `break` where a family depends on it;
+`TheLightFamilies_AreTheRecordersLightCheck` does the same for the light check, and
+`TheDedicatedHandlerMirror_IsTheRecordersList` compares the types and names
+`FlightRecorder.HasDedicatedAnimateHandler` reads with the rules' mirror of it. Family ids, in
 this order: `deployable`, `gear`, `ladder`, `animation-group`, `cargo-bay`, `animate-generic`,
 `airbrake`, `light`, `cabin-light`, `parachute`, `jettison`, `fairing`.
 
@@ -1147,7 +1151,11 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   air>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need a host at the
   pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
-  `host-not-at-pad`; every other run keeps `host-not-orbiting`.
+  `host-not-at-pad`; every other run keeps `host-not-orbiting`. Until the live state engine lands
+  (S3 flips `TestCommandPartParitySweep.StateRunsBuilt` and drops the refusal, with its hlib
+  mirror), a well-formed step naming either arg other than `none` is REJECTED
+  `state-runs-not-built` (after the grammar, so a bad value keeps its own reason), never run as a
+  stowed sweep; the pure planning rules read `TryParseGrammar`.
 - What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
   - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
     today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
@@ -1264,7 +1272,9 @@ Per family:
   540 s seam cap), where `worstCase` is the wave's bound, not the last wave's wall: spawn cap 20 s +
   the bucket's state timeout (20 s long, 5 s quick) + the tracking cap (10 s, sun trackers only) +
   capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long bucket
-  about 57 s, quick about 32 s, air (D.4) about 75 s. Pure, `PartParitySweepPlan.WaveWorstCaseSeconds`.
+  about 57 s, quick about 32 s, air (D.4) about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full
+  15 s each followed by the 4 s canopy window, capture, teardown). Pure,
+  `PartParitySweepPlan.WaveWorstCaseSeconds`.
 
 ### D.4 Parachutes in the air (owner ruling R1)
 

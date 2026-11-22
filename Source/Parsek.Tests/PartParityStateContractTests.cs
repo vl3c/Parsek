@@ -23,18 +23,37 @@ namespace Parsek.Tests
 
         private static PartParitySweepArgs Parse(params string[] kv)
         {
-            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args(kv), out var a, out string reason, out string detail),
+            Assert.True(TestCommandPartParitySweep.TryParseGrammar(Args(kv), out var a, out string reason, out string detail),
                 "rejected " + reason + " " + detail);
             return a;
         }
 
         private static string Reject(params string[] kv)
         {
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args(kv), out _, out string reason, out _));
+            Assert.False(TestCommandPartParitySweep.TryParseGrammar(Args(kv), out _, out string reason, out _));
             return reason;
         }
 
         // ----- args -----
+
+        [Fact]
+        public void TheLiveVerb_RefusesAStateRun_UntilTheStateEngineIsBuilt()
+        {
+            Assert.False(TestCommandPartParitySweep.StateRunsBuilt);
+            foreach (string[] kv in new[] { new[] { "states", "all" }, new[] { "contexts", "air" },
+                new[] { "states", "deployed", "contexts", "stacked" } })
+            {
+                Assert.False(TestCommandPartParitySweep.TryParseArgs(Args(kv), out var a, out string reason, out string detail));
+                Assert.Null(a);
+                Assert.Equal("state-runs-not-built", reason);
+                Assert.StartsWith("states=", detail);
+            }
+            // A bad value keeps its own reason; `none` is a stowed run and passes.
+            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("states", "bogus"), out _, out string bad, out _));
+            Assert.Equal("states-arg-invalid", bad);
+            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("states", "none", "contexts", "none"), out _, out _, out _));
+            Assert.Contains("state-runs-not-built", TestCommandPartParitySweep.Reasons);
+        }
 
         [Fact]
         public void NoStateArgs_IsNotAStateRun()
@@ -325,6 +344,52 @@ namespace Parsek.Tests
             Assert.Equal("real", PartParityJson.StateAtlasRows[0]);
             Assert.False(TestCommandPartParitySweep.IsStateCase(new PartParityCaseKey { State = "stowed", Context = "stacked" }));
             Assert.True(TestCommandPartParitySweep.IsStateCase(new PartParityCaseKey { State = "deployed-m3" }));
+        }
+
+        /// <summary>The per-case tile list of each atlas row label, as the live capture names
+        /// them (<c>WaveCase.RealTiles</c>, ...). The two state rows name the lists S3 adds; when
+        /// S3 renames one, it edits this table in the same commit.</summary>
+        private static readonly Dictionary<string, string> TileListOfRow = new Dictionary<string, string>
+        {
+            ["wc.RealTiles"] = "real",
+            ["wc.GhostTiles"] = "ghost",
+            ["wc.GhostStartTiles"] = "ghost-start",
+            ["wc.GhostStowedTiles"] = "ghost-stowed",
+        };
+
+        /// <summary>
+        /// The atlas bitmap is composed top-down from the tile lists in the order the capture
+        /// passes them (<c>new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }</c> in
+        /// <c>PartParityCaseCapture</c>), and the sidecar labels the rows with
+        /// <c>PartParityJson.AtlasRowsFor</c>: the two must name the same rows in the same order,
+        /// or the Python recompute decodes the real tile as the ghost. Every composition the
+        /// capture holds must equal the stowed rows or the state rows, and the stowed one exists.
+        /// </summary>
+        [Fact]
+        public void TheAtlasTileOrder_IsTheAtlasRowLabelOrder()
+        {
+            string path = System.IO.Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(),
+                "Source", "Parsek", "TestCommands", "PartParityCaseCapture.cs");
+            string text = PartParityStateRulesTests.StripComments(System.IO.File.ReadAllText(path));
+            var compositions = System.Text.RegularExpressions.Regex.Matches(text,
+                    @"new\[\]\s*\{\s*((?:wc\.\w+Tiles\.ToArray\(\)\s*,?\s*)+)\}")
+                .Cast<System.Text.RegularExpressions.Match>()
+                .Select(m => System.Text.RegularExpressions.Regex.Matches(m.Groups[1].Value, @"wc\.\w+Tiles")
+                    .Cast<System.Text.RegularExpressions.Match>().Select(t => t.Value).ToArray())
+                .ToList();
+            Assert.NotEmpty(compositions);
+            bool sawStowed = false;
+            foreach (string[] lists in compositions)
+            {
+                foreach (string l in lists)
+                    Assert.True(TileListOfRow.ContainsKey(l), "an atlas row from an unknown tile list: " + l);
+                string[] rows = lists.Select(l => TileListOfRow[l]).ToArray();
+                bool stowed = rows.SequenceEqual(PartParityJson.AtlasRowsFor(false));
+                Assert.True(stowed || rows.SequenceEqual(PartParityJson.AtlasRowsFor(true)),
+                    "atlas composed as [" + string.Join(", ", rows) + "], not an AtlasRowsFor order");
+                sawStowed |= stowed;
+            }
+            Assert.True(sawStowed, "no stowed (real, ghost) composition in the capture");
         }
 
         private static void AssertKeysInOrder(string[] table, Dictionary<string, object> parsed, string json, int from = 0)

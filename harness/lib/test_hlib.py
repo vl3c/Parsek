@@ -19209,6 +19209,12 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.PARTPARITY_AIR_CONTEXT, rules["ContextAir"])
         self.assertIn("if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;",
                       text)
+        # The state-run gate: the flag and the reason, and TryParseArgs refusing after the grammar.
+        m = re.search(r"internal const bool StateRunsBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "StateRunsBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_STATE_RUNS_BUILT, m.group(1) == "true")
+        self.assertEqual(hlib.PARTPARITY_STATE_RUNS_NOT_BUILT_REASON, consts["StateRunsNotBuiltReason"])
+        self.assertIn("if (!StateRunsBuilt && IsStateRun(parsed))", parse)
 
     def test_the_ranges_mirror_the_c_sharp(self):
         text, _ = self._pure()
@@ -19299,9 +19305,16 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                                    "shard": "2/3", "maxSeconds": "60"}, 60))
         self.assertEqual([], v(0, {"label": "pp1", "views": "required"}))
         self.assertEqual([], v(0, {"label": "pp1", "limit": "${probe.count}"}))
-        self.assertEqual([], v(0, {"label": "pp3", "states": "all"}))
-        self.assertEqual([], v(0, {"label": "pp3", "states": "deployed,lit", "contexts": "alone,stacked"}))
-        self.assertEqual([], v(0, {"label": "pp5", "contexts": "air", "states": "none"}))
+        # Until the state engine is built, a well-formed state run is refused as a whole.
+        self.assertFalse(hlib.PARTPARITY_STATE_RUNS_BUILT)
+        self.assertEqual([], v(0, {"label": "pp1", "states": "none", "contexts": "none"}))
+        for args in ({"label": "pp3", "states": "all"},
+                     {"label": "pp3", "states": "deployed,lit", "contexts": "alone,stacked"},
+                     {"label": "pp5", "contexts": "air", "states": "none"}):
+            with self.subTest(args=args):
+                errs = v(0, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("state-runs-not-built", errs[0])
         cases = (
             ({"label": "pp1", "states": ""}, "states-arg-invalid"),
             ({"label": "pp1", "states": "Deployed"}, "states-arg-invalid"),
