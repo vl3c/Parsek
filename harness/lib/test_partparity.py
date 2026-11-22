@@ -331,19 +331,33 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict,
                          "a structural defect still fails on a context-dependent part")
 
-    def test_a_part_with_a_skipped_depth_mask_caps_picture_fails_at_warn(self):
+    def test_a_part_with_a_skipped_depth_mask_is_judged_on_its_pictures(self):
+        # The capture repairs the real mask (design 4.2 step 0), so a depth-mask part has no
+        # cap: its skipped mask is not a missing mesh, and a picture fail stays a fail.
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
-        side["views"][0]["colorBlobPx"] = 5000
         side["structure"]["missingOnGhost"] = [
             {"key": "a/RCSMask", "mesh": "", "rendered": True, "nonVisual": "depth-mask"}]
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(side).verdict)
+        side["views"][0]["colorBlobPx"] = 5000
         c = pp.judge_case(side)
-        self.assertEqual(pp.VERDICT_WARN, c.verdict)
-        self.assertIn(pp.REASON_DEPTH_MASK, c.reasons)
-        side["structure"]["missingOnGhost"] = [
-            {"key": "a/fx", "mesh": "", "rendered": True, "nonVisual": "fx"}]
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict, "an effect mesh caps nothing")
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertFalse(any(r.startswith("depth-mask") for r in c.reasons), c.reasons)
         side["structure"]["missingOnGhost"] = [{"key": "a/b/RCSMask", "mesh": "", "rendered": True}]
-        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(side).verdict, "pre-key sidecar: by name")
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict, "pre-key sidecar: no cap either")
+
+    def test_an_unrepaired_depth_mask_is_a_setup_fault_not_a_ghost_fail(self):
+        # The repair could not fix a real mask: the real picture is not the player's part, so
+        # the case is an error (setup fault), never a ghost fail, and it is a complete record.
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        side["views"][0]["colorBlobPx"] = 5000
+        side["flags"] = list(side.get("flags") or []) + ["depth-mask-repaired:1", "depth-mask-unrepaired:1"]
+        side["setup"] = {"status": pp.SETUP_DEPTH_MASK_UNREPAIRED,
+                         "detail": "depth-mask m3=ModuleDepthMask:unsupported:members-missing"}
+        self.assertTrue(pp.is_setup_fault(pp.SETUP_DEPTH_MASK_UNREPAIRED))
+        c = pp.judge_case(side)
+        self.assertEqual(pp.VERDICT_ERROR, c.verdict)
+        self.assertEqual("setup:depth-mask-unrepaired", c.reasons[0])
+        self.assertIsNone(pp._sidecar_complete(side, side["caseId"]))
 
     def test_a_non_visual_renderer_missing_on_the_ghost_is_not_a_missing_mesh(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
@@ -1352,23 +1366,22 @@ class StateCaseJudgeTests(unittest.TestCase):
         doc, _ = _state_case("ant--default--deployed--1")
         self.assertNotIn("state-invisible", pp.judge_case(doc).state_flags)
 
-    def test_the_context_and_depth_mask_caps_apply_per_route(self):
+    def test_the_context_cap_applies_per_route_and_a_depth_mask_caps_nothing(self):
         doc, _ = _state_case("gear--default--deployed--1", family="gear", ghost=_shifted(),
                              start=_shifted(), tags=(pp.TAG_CONTEXT_DEPENDENT,))
         cv = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, cv.verdict)
         self.assertIn("event:" + pp.REASON_CONTEXT_POSE, cv.reasons)
         self.assertIn("start:" + pp.REASON_CONTEXT_POSE, cv.reasons)
+        # The depth-mask picture cap is gone (design 4.2 step 0: the capture repairs the real
+        # mask), so a start-route picture fail beside a skipped mask stays a fail; the mask entry
+        # itself is non-visual and adds no missing-rendered reason.
         mask = [{"key": "a/mask", "mesh": "m", "rendered": True, "nonVisual": "depth-mask"}]
         doc, _ = _state_case("bay--default--open--1", start=_shifted(),
                              structure_start={"missingOnGhost": mask, "extraOnGhost": []})
         cv = pp.judge_case(doc)
-        self.assertEqual(pp.VERDICT_WARN, cv.verdict)
-        self.assertIn("start:" + pp.REASON_DEPTH_MASK, cv.reasons)
-        # The event route has no mask: its fail is not capped by the start route's.
-        doc, _ = _state_case("bay--default--open--1", ghost=_shifted(), start=_shifted(),
-                             structure_start={"missingOnGhost": mask, "extraOnGhost": []})
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertFalse(any("depth-mask" in r or "missing-rendered" in r for r in cv.reasons))
 
     def _air(self, rot=2.5, pos=0.0, scl=0.0, context="air", tilt=1.0, wobble=1.0,
              transform="canopy", tags=(), key="chute/canopy", **extra):

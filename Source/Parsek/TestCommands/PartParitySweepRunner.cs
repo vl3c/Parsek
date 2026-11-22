@@ -1067,6 +1067,8 @@ namespace Parsek.TestCommands
 
             /// <summary>The live member the real skin was read from (the skin proof's log line).</summary>
             internal string SkinRealMember;
+            /// <summary>Depth-mask modules the real-side repair could not fix (design 4.2 step 0).</summary>
+            internal int DepthMaskUnrepaired;
 
             internal List<string> CapturedViews = new List<string>();
             internal List<byte[]> RealTiles = new List<byte[]>();
