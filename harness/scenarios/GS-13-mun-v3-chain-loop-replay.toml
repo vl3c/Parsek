@@ -116,7 +116,7 @@ id = "GS-13-mun-v3-chain-loop-replay"
 tier = "nightly"
 instanceProfile = "stock-minimal"
 tags = ["GS13", "loop-playback", "chain-handoff", "split-rule-v3", "map-render", "mun", "phase-lock", "recorded-fixture", "pending-flight"]
-description = "AUTHORED 2026-11-21, NEVER FLOWN. The live check of ghost replay across split rule version 3's cuts: on mun-orbit-recorded-v3 (B11's 2026-11-21 product, a Kerbal X chain cut at 213.08 / 300.77 / 1872.79 / 21593.12 recorded UT into ascent, circularization, orbit, transfer and Mun orbit pieces) the mission loop replays cycle 0 from its predicted relaunch 280178.5, and each cut is crossed at 1x. Each cut must print the engine's chain-loop unit hand-off `camera-live member #A->#B at loopUT=<cut>`, which only prints when both pieces are live (no gap frame), with the map tracer on and icon-jump / line-blink forbidden."
+description = "AUTHORED 2026-11-21; LIVE-PROVEN 2026-11-22 (run 2026-11-22_0509). The live check of ghost replay across split rule version 3's cuts: on mun-orbit-recorded-v3 (B11's 2026-11-21 product, a Kerbal X chain cut at 213.08 / 300.77 / 1872.79 / 21593.12 recorded UT into ascent, circularization, orbit, transfer and Mun orbit pieces) the mission loop replays cycle 0 from its predicted relaunch 280178.5, and each cut is crossed at 1x. Each cut must print the engine's chain-loop unit hand-off `camera-live member #A->#B at loopUT=<cut>`, which only prints when both pieces are live (no gap frame), with the map tracer on and icon-jump / line-blink forbidden (the seam-endpoint summary is pinned present, not gated)."
 
 [fixture]
 saveTemplate       = "fixtures/saves/mun-orbit-recorded-v3"

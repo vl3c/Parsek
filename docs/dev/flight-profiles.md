@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 5 |
 | autopilot (mission) lanes | 164 |
 | seam-only lanes | 507 |
-| LIVE-PROVEN date in status row | 550 |
-| no LIVE-PROVEN date | 121 |
+| LIVE-PROVEN date in status row | 551 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -65,7 +65,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GPOS | 2 | - | - | 2 | - | 2 | 1 |
-| GS | 11 | - | 4 | 7 | - | 10 | 6 |
+| GS | 11 | - | 4 | 7 | - | 10 | 7 |
 | GUI | 28 | - | - | 28 | - | - | 4 |
 | H | 75 | 5 | 69 | 1 | - | - | 60 |
 | HC | 2 | - | 2 | - | - | 1 | 2 |
@@ -339,8 +339,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 425 | 133 | 353 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +85 |
-| Mun | 68 | 15 | 55 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +13 |
+| Kerbin | 425 | 133 | 354 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +85 |
+| Mun | 68 | 15 | 56 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +13 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
@@ -1186,7 +1186,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GS-10-kerbalx-debris-ttl | operator | gs1-two-stage-pad | kx_rewind_watch | - | - | - | LIVE-PROVEN 2026-09-23 |
 | GS-11-kerbalx-debris-promotion | operator | gs1-two-stage-pad | kx_rewind_watch | - | - | - | LIVE-PROVEN 2026-09-23 |
 | GS-12-kerbalx-loop-cycles | operator | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-24 |
-| GS-13-mun-v3-chain-loop-replay | nightly | mun-orbit-recorded-v3 | seam | Kerbin, Mun | warp | - | AUTHORED 2026-11-21, NEVER FLOWN |
+| GS-13-mun-v3-chain-loop-replay | nightly | mun-orbit-recorded-v3 | seam | Kerbin, Mun | warp | - | LIVE-PROVEN 2026-11-22 |
 | GS-2-orbital-probe-deploy | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | scene-change | - | 2026-09-27 (arming batch 2, branch arm-ba... |
 | GS-3-switch-nudge-deployed | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | scene-change, vessel-switch | - | RE-CUT AND RE-FLOWN 2026-10-24 (branch cl... |
 | GS-6-part-event-applier-sweep | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-02 |
