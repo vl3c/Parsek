@@ -221,12 +221,23 @@ values = ["single-node", "undock-split", "staging-debris-ttl", "staging-debris-p
 #   claimed since 2026-09-27 on OC-1: one recording on its own loop toggle below span/20,
 #   the engine's `auto-adjusted (cap reached)` verdict, and ghostlife `peakLive` = 20. The
 #   cell now covers both caps.
+# "chain-segment-handoff" (added 2026-11-21 with GS-13-mun-v3-chain-loop-replay, per the
+# growth rule): a replaying ghost passes from one committed chain piece to the next at an
+# optimizer cut UT with no frame in which neither piece plays, read off the engine's
+# `Chain-loop unit owner=N camera-live member #A->#B at loopUT=X` line
+# (GhostPlaybackEngine.LoopUnits.cs, LogUnitTransitionIfChanged), which prints only when
+# both the old and the new member are live, with X pinned to the cut UT. No existing value
+# stretches to mean it: `basic-playback` asserts a replay RAN, `soi-crossing-playback` is a
+# body change INSIDE one recording, and `loop-period-modes` is about launch-to-launch
+# spacing, never about the pieces of one launch. Every cut a lane had replayed across
+# before was a version-1 phase split it jumped over with TimeJump; GS-13 crosses split
+# rule version 3's four burn cuts at 1x.
 values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry-soft-caps",
           "zone-transitions", "watch-mode-retarget-explosion-hold", "spawn-at-end-pid-dedup",
           "ghost-map-presence", "non-orbital-polyline", "reentry-fx", "attitude-preservation",
           "soi-crossing-playback", "time-jump", "commnet-relay", "ghost-audio",
           "recorded-vs-rendered-parity", "mesh-lifecycle-derender",
-          "watch-entry-distance-cutoff"]
+          "watch-entry-distance-cutoff", "chain-segment-handoff"]
 
 [D7]  # part events
 # `inventory-place-remove` SCOPE NOTE (re-armed 2026-09-26): CLAIMED by

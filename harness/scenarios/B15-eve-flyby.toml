@@ -736,7 +736,10 @@ allowedAnomalies = []
 #   CommitTreeFlight: optimization pass ran committed=8->9
 # Re-flown on the new pin: `2026-10-01_1521_B15-eve-flyby` PASS attempt 1, count 9.
 # Still exact: 8 (the split missing) and 10 (a second split) both red.
-count = { min = 9, max = 9 }
+# RE-PINNED 10 (2026-11-22, run 2026-11-22_0233): split rule version 3 adds an orbit-insertion row
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# ascent and debris population above is unchanged; this was `count = { min = 9, max = 9 }`.
+count = { min = 10, max = 10 }
 
 [expectations.logContracts]
 # Every token is sourced from its ACTUAL emitting ParsekLog call site.

@@ -1080,7 +1080,11 @@ allowedAnomalies = []
 # healthy-looking number while its hop sat inside another tree. Nothing in the
 # expectations vocabulary can express "launch body = Jool"; that is read off the
 # produced save by hand until it is worth a saveParse facet.
-count = { min = 1, max = 2 }
+# RE-PINNED 3-4 (2026-11-22, run 2026-11-22_0303): split rule version 3 cuts this flight at
+# the departure burn start and the capture burn end (design section 14.1), so the
+# product is three pieces; the window is that plus the same one slot of headroom
+# as before; this was `count = { min = 1, max = 2 }`.
+count = { min = 3, max = 4 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site.

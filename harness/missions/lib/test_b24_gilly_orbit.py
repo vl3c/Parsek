@@ -379,9 +379,10 @@ class SpecArithmeticTests(unittest.TestCase):
                    if os.path.isdir(rec_dir) else 0)
         window = self.spec["expectations"]["recordings"]["count"]
         self.assertEqual(0, carried)
-        # carried + this lane's single-piece product, with one slot of headroom
-        # for a load-time optimizer split at the Eve->Gilly boundary.
-        self.assertEqual({"min": carried + 1, "max": carried + 2}, window)
+        # carried + this lane's product, three pieces under split rule version 3 (orbit,
+        # transfer from the departure burn start, orbit from the capture burn end; the
+        # 2026-11-22 run logs exactly those two cuts), with one slot of headroom.
+        self.assertEqual({"min": carried + 3, "max": carried + 4}, window)
 
     def test_only_the_rewind_block_is_armed(self):
         # ARMED 2026-10-01 (branch `arm-last19`) off this lane's reading run, which the

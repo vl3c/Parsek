@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RecordingStoreTests
+    public class RecordingStoreTests : IDisposable
     {
         public RecordingStoreTests()
         {
@@ -16,6 +16,13 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             // Start each test with a clean slate
+            RecordingStore.ResetForTesting();
+        }
+
+        // The store is static: a fact's committed recordings would otherwise reach whichever
+        // class runs next (MergeDialogTests' empty-store cell reads them as its own).
+        public void Dispose()
+        {
             RecordingStore.ResetForTesting();
         }
 
@@ -1079,8 +1086,20 @@ namespace Parsek.Tests
     }
 
     [Collection("Sequential")]
-    public class MergeDialogTests
+    public class MergeDialogTests : IDisposable
     {
+        // Several facts seed the static store and read it by index or by absence, so
+        // every fact starts and ends on an empty store.
+        public MergeDialogTests()
+        {
+            RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            RecordingStore.ResetForTesting();
+        }
+
         private static List<TrajectoryPoint> MakePoints(int count, double startUT = 100)
         {
             var points = new List<TrajectoryPoint>();

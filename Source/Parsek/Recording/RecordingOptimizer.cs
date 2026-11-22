@@ -942,6 +942,7 @@ namespace Parsek
             int skippedSuperseded = 0;
             int skippedLoopRange = 0;
             int skippedNewerRules = 0;
+            int skippedNotCommitted = 0;
 
             // A superseded recording is never split (mirror of CanAutoMerge's supersede
             // guard). The supersede relation names it by RecordingId, so a fresh-id second
@@ -984,6 +985,16 @@ namespace Parsek
                 if (HasPlayerLoopRange(rec))
                 {
                     skippedLoopRange++;
+                    continue;
+                }
+                // A NotCommitted recording is a live Re-Fly attempt, not a committed row (mirror
+                // of MergeInto's NotCommitted refusal). The session marker and the supersede
+                // commit name it by RecordingId and read its terminal state, and a split moves
+                // the terminal onto a fresh-id second half nothing names. It is cut on a later
+                // pass, once the merge has committed it.
+                if (rec.MergeState == MergeState.NotCommitted)
+                {
+                    skippedNotCommitted++;
                     continue;
                 }
 
@@ -1060,6 +1071,13 @@ namespace Parsek
                 ParsekLog.Verbose("Optimizer",
                     $"FindSplitCandidatesForOptimizer: skipped {skippedSuperseded.ToString(CultureInfo.InvariantCulture)} " +
                     "superseded recording(s) (a split half would escape the supersede relation)");
+            }
+
+            if (skippedNotCommitted > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: kept {skippedNotCommitted.ToString(CultureInfo.InvariantCulture)} " +
+                    "NotCommitted recording(s) whole: a live Re-Fly attempt is cut only after its merge commits it");
             }
 
             if (skippedLoopRange > 0)

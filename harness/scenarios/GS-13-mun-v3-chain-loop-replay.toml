@@ -1,0 +1,224 @@
+schema = 1
+id = "GS-13-mun-v3-chain-loop-replay"
+# =====================================================================================
+# GS-13: A GHOST REPLAYS STRAIGHT THROUGH THE FOUR SPLIT-RULE-VERSION-3 CUTS.
+#
+# Split rule version 3 (RecordingOptimizer.BurnCuts.cs, design section 14.1 of
+# docs/dev/done/plans/optimizer-persistence-split.md) cuts a committed orbital flight at
+# orbit-kind burn changes and stamps a role on each piece. A cut turns one recording into
+# a CHAIN of committed recordings, so a replaying ghost must hand over from one recording
+# to the next at the cut UT with no frame in which neither piece plays. No lane replayed a
+# ghost across such a cut before this one: the injected presets and every older recorded
+# fixture carry no `splitRuleVersion` (= version 1, never cut by v3), and the lanes that
+# rewind and replay (GS-8, GS-9, GS-12) fly suborbital Kerbal X ascents.
+#
+# THE SUBJECT: `mun-orbit-recorded-v3`, B11-mun-orbit's produced save from run
+# 2026-11-21_1612 (attempt 1, mission OK; red only on the recordings.count window the v3
+# cuts moved, re-pinned in dfa5b9975), harvested --keep-parsek through the ORBITING gate.
+# Tree 5a01c21e67be41d58226c5076109f66c, 12 recordings: the Kerbal X is a five-piece chain
+# (c7dfaf33...) plus seven debris rows. The cuts, read off that run's `Split candidate (`
+# and `Split roles:` lines (recorded UT, piece -> piece):
+#   cut 1  213.080  PersistedPhaseChange   ddfe3404 ascent          -> 090d5cba circularization
+#   cut 2  300.774  OrbitInsertionBurnEnd  090d5cba circularization -> 920196de orbit
+#   cut 3 1872.794  DepartureBurnStart     920196de orbit           -> f679dbea transfer
+#   cut 4 21593.121 CaptureBurnEnd         f679dbea transfer        -> 35042484 orbit (Mun)
+# The span is [35.980, 21652.810] (the ascent piece's start, the Mun piece's end).
+#
+# WHY A MISSION LOOP AND NOT A REWIND-TO-LAUNCH. The brief asked for GS-8's road (commit,
+# InvokeRewindToLaunch, replay from launch). That road needs the flight's own
+# `Parsek/Saves/parsek_rw_*.sfs` launch quicksave, and a committed fixture may not carry
+# one (`CommittedFixtureRewindSaveTests`; the harvest prunes it and strips the hint): the
+# verb reaches only a quicksave the run's OWN recording captured. So this lane takes
+# V6M-mun-player-loop's road on the same mission profile: load the save, arm the mission
+# loop, `StartLoopPlayback` to the next faithful departure, and replay cycle 0 from
+# launch. Kerbin->Mun is always phase-locked and never re-aimed, so the loop clock is
+# the recorded clock shifted by a constant: loopUT == recorded UT, which is what lets the
+# hand-off lines below pin the cut UTs themselves.
+#
+# THE RELAUNCH UT IS PREDICTED, NOT MEASURED (never flown). V6M's archived log
+# (2026-11-16_2323) reads `ExtractConstraints ... ut0=34.42 ... Rotation(Kerbin)
+# P=21549.425 off=0; Orbital(Mun) same-parent P=138984.377` and `PhaseLock APPLIED ...
+# firstLaunch=280176.947 minInterval=280142.527`: the first window is exactly 13 Kerbin
+# sidereal days after the span start (13 x 21549.4252 = 280142.527), the first k whose Mun
+# phase residual is inside tolerance, and both conditions depend only on (L - ut0). This
+# fixture's ut0 is 35.980 and its load UT 21652.8 is again below the window, so
+#   L1 = 35.980 + 280142.527 = 280178.507, and a cut at recorded UT c plays at c + 280142.527:
+#   cut 1 280355.607   cut 2 280443.301   cut 3 282015.321   cut 4 301735.648
+# The prediction is pinned (`relaunchUt=28017[0-9]\.`, `cadence=280142\.5`,
+# `spanDur=21616\.8`), so a wrong one reds on those lines first, and a relaunch past
+# 280340 refuses the first WarpToUT as `backward-warp` (forbidden below). The first
+# flight re-pins the UTs off `startloopplayback initiated: ... relaunchUt=`.
+#
+# THE STEPS. Kill the resumed in-flight copy (the save holds an `isActive = True` copy of
+# the same tree; V31M / FAR-6's StopRecording + DiscardTree), tracers on, map open (the
+# map tracer's publish half only runs with the map open), loop the mission, StartLoopPlayback
+# to L1, then for each cut: a WarpToUT on the stock ladder to 15 s before it, and a
+# `maxRate=1` WarpToUT to 10 s after it, so every hand-off is sampled at 1x physics
+# frames. Between cut 3 and cut 4 the ladder warps the whole Kerbin->Mun transfer and the
+# Mun SOI entry with the map open (the active vessel parks at ~139 km over the Mun, so
+# stock allows 10000x). Live UT targets:
+#   L1 280178.5 -> 280340 -> 280366 (1x, cut 1) -> 280428 -> 280454 (1x, cut 2)
+#   -> 282000 -> 282026 (1x, cut 3) -> 301720 -> 301746 (1x, cut 4) -> map closed -> quit.
+#
+# THE CONTINUITY CONTRACT, one positive line per cut. GhostPlaybackEngine.LoopUnits.cs
+# (LogUnitTransitionIfChanged, the VerboseRateLimited at line 1373) logs
+#   `Chain-loop unit owner=N camera-live member #A->#B at loopUT=X`
+# when the unit's live member (the in-window member with the newest start) changes inside
+# one cycle, and ONLY when both the old and the new member are live (`liveMemberIdx >= 0 &&
+# prev.liveMemberIdx >= 0`). A cut that left a gap would go A -> none -> B and print no
+# such line, so the line itself is the no-gap proof, and its loopUT pins WHERE it
+# happened: each regex accepts the cut UT up to one second late (a 1x frame is ~0.02 s).
+# No debris window touches a cut (debris live 49.28-121.76 and 4901.31-4964.58), so the
+# member pair at a cut is always chain piece -> chain piece; the indices are regexed
+# because the committed-list order is not pinned by anything this lane controls. The
+# rate limiter (5 s, one key per unit) cannot swallow a cut line: every cut is at least
+# 15 real seconds after the previous member change.
+#
+# THE MAP SIDE. mapRenderTracing on for the whole replay; the Tier-C anomalies `icon-jump`
+# and `line-blink` (docs/dev/design-map-ts-render-tracer.md Appendix A) are forbidden, and
+# they are not vacuous: the probe's `probe frame summary` must report a sampled ghost,
+# `phase=GhostCreated surface=ProtoIcon` must show the ghost's map presence was built, and
+# the faithful-parity summary must print with zero over-tolerance. The seam-endpoint
+# summary must print but its outside-SOI count is NOT forbidden: a phase-locked
+# same-parent moon replay is faithful (no re-aim), and its cadence leaves the Mun a phase
+# residual by design (MissionPeriodicity.ToleranceSecondsFor: SOI / Mun speed, about
+# 4478 s; docs/dev/done/plans/zero-drift-reschedule.md: the Mun only needs to be within
+# that width at the seam, the Mun-relative pieces self-anchor to the live Mun). At this
+# cadence the residual is 2173.8 s (5.63 deg, about 1179 km), and the first flight
+# (run 2026-11-22_0456) read one seam at ratio 1.0526 against SeamEndpointOracle's
+# 1.005, which is calibrated for re-aimed arcs. V6M's zero is a lens that never
+# measured (evaluated=0); here the transfer piece starts before the SOI seam, so it does.
+# Todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS.
+#
+# WHAT IS NOT CHECKED, AND WHY. Watch-mode follow across the cuts (WatchModeController
+# `Auto-following: #A -> #B` / `TransferWatch re-target`, and the engine's `unit watch
+# retarget owner=`): the only vessel in this save is the mission's own craft parked over
+# the Mun, so the ghost is on another body for cuts 1-3 and EnterWatchMode refuses (V6M
+# measured the refusal even at the Mun park). A watch lane needs a watcher near the
+# launch, i.e. a Rewind-to-Launch, which a committed fixture cannot carry (above).
+# The ghost MESH: it is far beyond render range for the whole replay, so no
+# ghostLifecycle block is declared (it would gate on an empty set).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - APPLIED: no flight is flown; B11's product is the host. V6M could
+#     not take these steps: its fixture is the version-1 product and is armed.
+#   2 no idle waits - applied: every wait is an explicit-UT WarpToUT.
+#   3 minimal dwells - applied: 25 s of 1x per cut, the least that brackets a
+#     predicted UT with room for the prediction's error; tighten after the first flight.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: nothing is flown.
+#   7 tight count windows - applied: count pinned to the fixture's 12 (no recorder runs;
+#     a v3 tree must be a fixed point of the cold-load optimizer pass, so a 13th row is a
+#     defect, not variance).
+#   8 tier by measured cost - nightly on the estimate (boot + load ~2 min, ~2 min of
+#     1x and ladder warps, verifiers ~1 min: about 5 min wall); re-tier off p50.
+#   9 flight_efficiency.py - owed on the first green flight.
+# =====================================================================================
+tier = "nightly"
+instanceProfile = "stock-minimal"
+tags = ["GS13", "loop-playback", "chain-handoff", "split-rule-v3", "map-render", "mun", "phase-lock", "recorded-fixture", "pending-flight"]
+description = "AUTHORED 2026-11-21; LIVE-PROVEN 2026-11-22 (run 2026-11-22_0509). The live check of ghost replay across split rule version 3's cuts: on mun-orbit-recorded-v3 (B11's 2026-11-21 product, a Kerbal X chain cut at 213.08 / 300.77 / 1872.79 / 21593.12 recorded UT into ascent, circularization, orbit, transfer and Mun orbit pieces) the mission loop replays cycle 0 from its predicted relaunch 280178.5, and each cut is crossed at 1x. Each cut must print the engine's chain-loop unit hand-off `camera-live member #A->#B at loopUT=<cut>`, which only prints when both pieces are live (no gap frame), with the map tracer on and icon-jump / line-blink forbidden (the seam-endpoint summary is pinned present, not gated)."
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-orbit-recorded-v3"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },       expect = "OK" },
+  { cmd = "EnterMapView",                                                             expect = "OK", budget = 60 },
+  { cmd = "MissionConfig",     args = { tree = "5a01c21e67be41d58226c5076109f66c", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "5a01c21e67be41d58226c5076109f66c" }, expect = "OK", budget = 300 },
+  # cut 1 (recorded 213.080, ascent -> circularization) plays at 280355.607
+  { cmd = "WarpToUT", args = { ut = "280340" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "280366", maxRate = "1" },                        expect = "OK", budget = 120 },
+  # cut 2 (recorded 300.774, circularization -> orbit) plays at 280443.301
+  { cmd = "WarpToUT", args = { ut = "280428" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "280454", maxRate = "1" },                        expect = "OK", budget = 120 },
+  # cut 3 (recorded 1872.794, orbit -> transfer) plays at 282015.321
+  { cmd = "WarpToUT", args = { ut = "282000" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "282026", maxRate = "1" },                        expect = "OK", budget = 120 },
+  # cut 4 (recorded 21593.121, transfer -> Mun orbit) plays at 301735.648; the warp to it
+  # carries the whole Kerbin->Mun coast and the Mun SOI entry with the map open
+  { cmd = "WarpToUT", args = { ut = "301720" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "301746", maxRate = "1" },                        expect = "OK", budget = 120 },
+  { cmd = "ExitMapView",                                                              expect = "OK", budget = 60 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# D6 `chain-segment-handoff` is the new value this lane adds (registry comment); the map
+# presence is gated by the GhostCreated / probe lines; the loop is the whole mission.
+[dimensionsCovered]
+D6  = ["chain-segment-handoff", "ghost-map-presence"]
+D11 = ["whole-mission-loop", "phase-lock"]
+D14 = ["kerbin", "mun", "scene-flight", "scene-map", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 12, max = 12 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "SetLoopEnabled: loop ON for 'Kerbal X' \\(tree=5a01c21e67be41d58226c5076109f66c\\)",
+  "missionconfig applied: mission='Kerbal X' tree=5a01c21e67be41d58226c5076109f66c loop=True [^\\r\\n]*unitBuilt=True ",
+  "MissionLoopUnit: mission='Kerbal X' tree=5a01c21e67be41d58226c5076109f66c members=5 [^\\r\\n]*spanDur=21616\\.8[0-9]* unit=Sec cadence=280142\\.5[0-9]* [^\\r\\n]*overlaps=no ",
+  "PhaseLock APPLIED: mission='Kerbal X' tree=5a01c21e67be41d58226c5076109f66c [^\\r\\n]*zeroDrift=yes firstLaunch=28017[0-9]\\.[0-9]+ [^\\r\\n]*scheduleWithinTol=yes",
+  "startloopplayback initiated: mission='Kerbal X' tree=5a01c21e67be41d58226c5076109f66c relaunchUt=28017[0-9]\\.",
+  "startloopplayback complete: mission='Kerbal X' tree=5a01c21e67be41d58226c5076109f66c ",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "Chain-loop unit owner=[0-9]+ first evaluation: camera-live member #[0-9]+ at loopUT=",
+  "Chain-loop unit owner=[0-9]+ camera-live member #[0-9]+->#[0-9]+ at loopUT=213\\.(?:0[89]|[1-9][0-9])\\b",
+  "Chain-loop unit owner=[0-9]+ camera-live member #[0-9]+->#[0-9]+ at loopUT=300\\.(?:7[7-9]|[89][0-9])\\b",
+  "Chain-loop unit owner=[0-9]+ camera-live member #[0-9]+->#[0-9]+ at loopUT=1872\\.(?:79|[89][0-9])\\b",
+  "Chain-loop unit owner=[0-9]+ camera-live member #[0-9]+->#[0-9]+ at loopUT=21593\\.(?:1[2-9]|[2-9][0-9])\\b",
+  "phase=GhostCreated surface=ProtoIcon ",
+  "probe frame summary frame=[0-9]+ ghosts=[1-9][0-9]* sampled=[1-9][0-9]* ",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  "exitmapview ok mapOpen=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "icon-jump",
+  "line-blink",
+  "overlaps=yes",
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  "warptout refused",
+  "startloopplayback (?:rejected|error|timeout)",
+  "Optimization pass: split [1-9]",
+  "Optimization pass: merged [1-9]",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+# Report-only reading of the produced save: nothing in this lane writes a rewind row, and
+# the committed tree must leave exactly as it came in.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+recordings     = { min = 12, max = 12 }
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
