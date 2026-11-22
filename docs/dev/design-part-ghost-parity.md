@@ -1406,12 +1406,36 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   over both routes. A state case with views but a view whose `start` is not an object is
   `error` (`start:no-views`). The skin proof and the setup-fault rule stay case-level. A stowed
   case's verdict and its verdicts-file entry are byte-identical to before P6.
-- Canopy cap (D.4): an air case (sidecar `context == "air"`) with both `stateProof.canopy.tiltDeg`
-  and `wobbleDeg` numeric; a route's picture fail caps at `warn` (`canopy-airflow`) when its
-  structure has at least one `transformDiffers` entry, every entry with `rotationDeltaDeg <=
-  |tilt| + |wobble| + 1`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
-  tolerances of `PartParityStructure`), no `meshDiffers` / `renderedDiffers` entry and no
-  rendered missing or extra renderer.
+- Canopy cap (D.4): only for an air case (sidecar `context == "air"`) whose capture found its
+  window: numeric `stateProof.canopy.tiltDeg` and `wobbleDeg` with `|tilt| + |wobble| < 3`
+  (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` tag (both mark the 4 s
+  timeout capture, which is never capped), and a non-empty `stateProof.canopy.transform`, the
+  module's `canopyName` (an ADDITIVE key S7 writes and adds to `CanopyKeys` / `CANOPY_KEYS`;
+  until then no air case is capped). A canopy renderer is a structure key one of whose `/`
+  segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
+  it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
+  one `transformDiffers` entry and every entry is a canopy renderer with `rotationDeltaDeg <=
+  min(|tilt| + |wobble| + 1, 4)`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
+  tolerances of `PartParityStructure`), with no `materialDiffers` / `meshDiffers` /
+  `renderedDiffers` entry and no rendered missing or extra renderer. The diff compares LOCAL
+  transforms, so S7 must make the airflow rotation visible as a `transformDiffers` entry keyed at
+  or under the canopy transform (a wobble on an ancestor only shows in the pictures and is
+  never capped).
+- Press proof (a writer contradiction, design decision of S4): on a case whose setup is not a
+  fault (`ok`, `still-animating`), a state case must carry a `stateProof` with a non-null
+  `action`, and any proof with a non-null `action` must read `actionResult == "invoked"` and
+  `reached == true` (a failed press is `action-failed`, a run-out wait `state-timeout`, by the
+  C# contract). A contradiction makes the case `error` (reason `press-proof:...` first) AND is a
+  recompute mismatch, INVALID(parity-instrument), checked over every part case. A proof with a
+  null `action` on a stowed-state case is the stacked stowed context case (no press required:
+  `actionResult` null, `reached` true, endpoint `context` / `stowed`, two atlas rows, no `start` /
+  `stowedRef`): it is judged as a stowed case and not checked.
+- Writer cross-checks, each INVALID(parity-instrument): for every planned row that is a state or
+  context case on either side (state not `stowed`, or context not `alone`), the row's and the
+  sidecar's `state` and `context` must be equal (null on one side included); a sidecar whose
+  `stateProof.action` is non-null while its `state` is stowed or null; a run that holds any such
+  case while its `settings` recompute the stowed control set (`states` / `contexts` absent or
+  `none`). A stowed sweep compares nothing.
 - Flags. The judge reads the union of the sidecar's `flags` and the flags it derives from
   `stateProof`, so a flag the writer drops cannot hide: `ghostEvent` / `ghostStart` a string
   other than `applied` -> `state-not-modelled:event|start:<outcome>`; `reached == true` with
@@ -1428,11 +1452,12 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   sidecar carries no area, so a view whose only non-zero blob is the `stowedRef` one checks only
   that the percentage is a number). Block shape (`start` with every `StartKeys` key, `stowedRef`
   with every `StowedRefKeys` key) is checked on EVERY state case with views, sampled or not.
-- Press gate: a planned case's family is its manifest row's `family`, else its sidecar's
-  `stateProof.family`; its status the sidecar's `setup.status`, else the row's `setupStatus`;
-  controls and cases without a family are not counted. `failed x 2 > cases` trips it; the problem
+- Press gate: every planned state case counts (row or sidecar `state` not `stowed`; the
+  stacked stowed case and the controls do not). Its family is the manifest row's `family`, else
+  the sidecar's `stateProof.family`, else `unknown` (a crashed case's sidecar may carry no
+  proof); its status the sidecar's `setup.status`, else the row's `setupStatus`. `failed x 2 > cases` trips it; the problem
   reads `family=<f> <k>/<n> case(s) action-failed|state-timeout: first <caseId> <status>:
-  <detail>`. A run with no family-bearing case has no press check.
+  <detail>`. A run with no planned state case has no press check.
 - Controls. `check_controls` requires the set `control_set(settings)` recomputes, and with the
   sidecars re-judges each state control the manifest records `ok` (`judge_state_control`, the
   mirror of `PartParitySweepPlan.JudgeStateControl` over the sidecar's `setup.status`,

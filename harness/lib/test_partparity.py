@@ -1160,10 +1160,33 @@ def _write_state_case(label_dir, doc, masks):
         n = len(doc["views"])
         rows = [[m] * n for m in masks]
         with open(os.path.join(label_dir, doc["atlas"]["file"]), "wb") as fh:
-            fh.write(gui_mirror.write_png(n * STILE, 4 * STILE, 4, _atlas_rows(rows)))
+            fh.write(gui_mirror.write_png(n * STILE, len(rows) * STILE, 4, _atlas_rows(rows)))
     with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w",
               encoding="utf-8") as fh:
         json.dump(doc, fh)
+
+
+def _stacked_stowed_case(case_id, part="liquidEngine2"):
+    """(sidecar, masks) of the stacked stowed shroud case S3 writes: state ``stowed``,
+    context ``stacked``, the stowed two-row shape, a stateProof that pressed nothing
+    (action and actionResult null, reached true, endpoint context / stowed)."""
+    body = fx.rect_mask(STILE, 3, 3, 6, 6)
+    views = [fx.view_record(v, body, body, STILE) for v in fx.VIEWS]
+    doc = fx.sidecar(case_id, part, views, STILE)
+    doc["state"], doc["context"] = "stowed", "stacked"
+    doc["stateProof"] = {"family": "jettison", "module": "ModuleJettison", "moduleIndex": 1,
+                         "state": "stowed", "action": None, "eventVisible": None,
+                         "actionResult": None, "reached": True, "waitS": None,
+                         "endpoint": {"field": "context", "value": "stowed"}, "events": None,
+                         "ghostEvent": None, "ghostStart": None,
+                         "startFirstFrame": {"atTarget": None, "trackerDeg": None},
+                         "sunTracker": {"targetDeg": None, "eventDeg": None,
+                                        "startFirstFrameDeg": None},
+                         "canopy": {"tiltDeg": None, "wobbleDeg": None},
+                         "nodes": [{"node": "bottom", "part": "fuelTankSmallFlat"}]}
+    doc["structureStart"] = None
+    doc["stowedCaseId"] = part.lower() + "--default--deadbeef"
+    return doc, (body, body)
 
 
 def _events_dropped_control():
@@ -1347,24 +1370,26 @@ class StateCaseJudgeTests(unittest.TestCase):
                              structure_start={"missingOnGhost": mask, "extraOnGhost": []})
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
 
-    def _air(self, rot=4.0, pos=0.0, scl=0.0, context="air", tilt=2.0, wobble=1.5, **extra):
+    def _air(self, rot=2.5, pos=0.0, scl=0.0, context="air", tilt=1.0, wobble=1.0,
+             transform="canopy", tags=(), key="chute/canopy", **extra):
         structure = {"missingOnGhost": [], "extraOnGhost": [], "meshDiffers": [],
                      "renderedDiffers": [], "materialDiffers": [],
-                     "transformDiffers": [{"key": "chute/canopy", "positionDeltaM": pos,
+                     "transformDiffers": [{"key": key, "positionDeltaM": pos,
                                            "rotationDeltaDeg": rot, "scaleDeltaPct": scl}]}
         structure.update(extra)
         doc, _ = _state_case("chute--default--semi--air--1", part="parachuteSingle",
                              family="parachute", state="semi", context=context,
-                             ghost=_shifted(), structure=structure,
+                             ghost=_shifted(), structure=structure, tags=tags,
                              structure_start=copy.deepcopy(structure),
-                             proof={"canopy": {"tiltDeg": tilt, "wobbleDeg": wobble}})
+                             proof={"canopy": {"tiltDeg": tilt, "wobbleDeg": wobble,
+                                               "transform": transform}})
         return pp.judge_case(doc)
 
     def test_the_canopy_cap_on_an_air_case(self):
-        cv = self._air()  # 4.0 <= 2.0 + 1.5 + 1.0
+        cv = self._air()  # 2.5 <= 1.0 + 1.0 + 1.0
         self.assertEqual(pp.VERDICT_WARN, cv.verdict)
         self.assertIn("event:" + pp.REASON_CANOPY_AIRFLOW, cv.reasons)
-        for label, kw in (("rotation over the bound", {"rot": 5.0}),
+        for label, kw in (("rotation over the bound", {"rot": 3.5}),
                           ("not an air case", {"context": "alone"}),
                           ("a position delta", {"pos": 0.01}),
                           ("a scale delta", {"scl": 5.0}),
@@ -1373,6 +1398,80 @@ class StateCaseJudgeTests(unittest.TestCase):
                           ("no transform difference", {"transformDiffers": []})):
             with self.subTest(label):
                 self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+
+    def test_the_canopy_cap_is_limited_to_the_canopy_and_a_settled_capture(self):
+        # Fix 3 of the PR #2766 review: the cap was too wide against D.4.
+        self.assertEqual(pp.VERDICT_WARN, self._air(key="model/canopy/mesh#1").verdict)
+        housing = [{"key": "chute/canopy", "positionDeltaM": 0.0, "rotationDeltaDeg": 2.5,
+                    "scaleDeltaPct": 0.0},
+                   {"key": "chute/housing", "positionDeltaM": 0.0, "rotationDeltaDeg": 2.5,
+                    "scaleDeltaPct": 0.0}]
+        for label, kw in (
+                ("a non-canopy renderer rotated too", {"transformDiffers": housing}),
+                ("only a non-canopy renderer", {"key": "chute/housing"}),
+                ("a canopy-like name is not the canopy", {"key": "chute/canopyCover"}),
+                ("a canopy material differs", {"materialDiffers": [
+                    {"key": "chute/canopy", "field": "mainTextures", "real": "red",
+                     "ghost": "white"}]}),
+                ("no canopy transform named", {"transform": None}),
+                ("tilt + wobble at the window: a timeout capture", {"tilt": 1.5, "wobble": 1.5,
+                                                                   "rot": 1.0}),
+                ("a timeout capture tagged canopy-wobble", {"tags": ("canopy-wobble:2.0",)}),
+                ("a huge tilt", {"tilt": 85.0, "wobble": 5.0, "rot": 40.0})):
+            with self.subTest(label):
+                self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+        # The bound stays under the ceiling: 1.4 + 1.5 + 1 = 3.9 <= 4.0.
+        self.assertEqual(pp.VERDICT_WARN, self._air(tilt=1.4, wobble=1.5, rot=3.85).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(tilt=1.4, wobble=1.5, rot=3.95).verdict)
+        self.assertEqual(4.0, pp.CANOPY_ROTATION_CEILING_DEG)
+        self.assertTrue(pp.is_canopy_renderer_key("a/canopy", "canopy"))
+        self.assertTrue(pp.is_canopy_renderer_key("a/canopy/b#2", "canopy"))
+        self.assertFalse(pp.is_canopy_renderer_key("a/canopy2/b", "canopy"))
+        self.assertFalse(pp.is_canopy_renderer_key("a/b", ""))
+
+    def test_the_canopy_window_is_the_csharp_one(self):
+        path = os.path.join(CS_DIR, "PartParityStateRules.cs")
+        with open(path, encoding="utf-8") as fh:
+            text = _strip_cs_comments(fh.read())
+        m = re.search(r"const double CanopyWindowDeg\s*=\s*([0-9.]+)\s*;", text)
+        self.assertIsNotNone(m, "CanopyWindowDeg not found in %s" % path)
+        self.assertEqual(float(m.group(1)), pp.CANOPY_WINDOW_DEG)
+
+    def test_an_ok_case_whose_press_proof_says_not_reached_is_an_error(self):
+        # Fix 2 of the PR #2766 review: setup ok but the proof contradicts it.
+        same = dict(real=_stowed(), ghost=_stowed(), start=_stowed())
+        for label, kw, needle in (
+                ("reached false", {"proof": {"reached": False, "events": []}}, "reached=False"),
+                ("reached null", {"proof": {"reached": None}}, "reached=None"),
+                ("threw", {"proof": {"actionResult": "threw"}}, "actionResult=threw"),
+                ("refused", {"proof": {"actionResult": "refused", "reached": False}},
+                 "actionResult=refused"),
+                ("action null on a state case", {"proof": {"action": None}},
+                 "stateProof.action=null"),
+                ("still-animating, not reached", {"status": pp.SETUP_STILL_ANIMATING,
+                                                  "proof": {"reached": False}}, "reached=False")):
+            with self.subTest(label):
+                doc, _ = _state_case("ant--default--deployed--1", **dict(same, **kw))
+                cv = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+                self.assertIn(needle, cv.reasons[0])
+                self.assertTrue(cv.reasons[0].startswith("press-proof:"))
+        doc, _ = _state_case("ant--default--deployed--1")
+        doc["stateProof"] = None
+        self.assertIn("no stateProof", pp.press_proof_problem(doc))
+        # A recorded press fault is not a contradiction; nor is a stowed case.
+        doc, _ = _state_case("ant--default--deployed--1", status=pp.SETUP_ACTION_FAILED,
+                             with_views=False, proof={"actionResult": "missing", "reached": False})
+        self.assertIsNone(pp.press_proof_problem(doc))
+        self.assertIsNone(pp.press_proof_problem(_load("decoupler.2--basic--6fabf1e2.part.json")))
+
+    def test_the_stacked_stowed_context_case_needs_no_press(self):
+        doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
+        self.assertIsNone(pp.press_proof_problem(doc))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertEqual((), cv.routes)
+        self.assertIsNone(cv.state)
 
     def test_a_state_case_without_start_blocks_is_an_error(self):
         doc, _ = _state_case("ant--default--deployed--1")
@@ -1700,6 +1799,88 @@ class StateSweepTests(unittest.TestCase):
         res, _ = self._eval(self._cases(), state_control=bad)
         self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
         self.assertIn("ctl-state-events-dropped:recorded-ok-judged-bad", res.problems[0])
+
+    def test_family_less_press_faults_still_trip_the_press_gate(self):
+        # Fix 1 of the PR #2766 review: a crashed / failed case whose sidecar carries no
+        # stateProof has no family on either side, and must still be counted.
+        cases = self._cases(n=4, failed=4)
+        for doc, _ in cases:
+            doc["stateProof"] = None
+        _build_state_sweep(self.tmp, cases)
+        sweep = _read_dir(self.tmp, "pp3")
+        for row in sweep.manifest["cases"]:
+            self.assertIsNone(row["family"])
+        res = pp.evaluate_sweep(sweep, RUN_ID, True, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        self.assertIn("family=%s 4/4" % pp.PRESS_UNKNOWN_FAMILY, res.problems[0])
+        # Gating armed, the same sweep must never read PASS.
+        self.assertNotEqual(pp.STATUS_PASS, res.status)
+
+    def test_a_stacked_stowed_context_case_in_a_state_run(self):
+        # The stowed-shaped case S3 writes in a state / context run: judged as a stowed
+        # case, not counted by the press gate, accepted by every writer cross-check.
+        res, _ = self._eval(self._cases(n=2) + [_stacked_stowed_case(
+            "liquidengine2--default--stowed--stacked--00000099")],
+            settings={"states": "none", "contexts": "stacked"})
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        self.assertEqual([], res.recompute_mismatches)
+        self.assertEqual((("deployable", 2, 0),), res.press.families)
+        stacked = [c for c in res.cases if c.case_id.endswith("00000099")][0]
+        self.assertEqual(pp.VERDICT_PASS, stacked.verdict)
+        self.assertNotIn("state", stacked.to_dict())
+
+    def test_an_ok_case_with_a_contradicting_press_proof_is_invalid_instrument(self):
+        cases = self._cases(n=3)
+        doc, masks = _state_case("bad--default--deployed--00000050", part="bad",
+                                 real=_stowed(), ghost=_stowed(), start=_stowed(),
+                                 proof={"reached": False, "events": [], "ghostEvent": None,
+                                        "ghostStart": None})
+        res, _ = self._eval(cases + [(doc, masks)])
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("bad--default--deployed--00000050 press-proof: setup=ok action=Extend "
+                      "actionResult=invoked reached=False", res.recompute_mismatches)
+        self.assertEqual(1, res.counts[pp.VERDICT_ERROR])
+
+    def test_the_writer_cross_checks_are_invalid_instrument(self):
+        # Fix 4 of the PR #2766 review.
+        cases = self._cases(n=60)
+        bad = cases[5][0]["caseId"]
+        _build_state_sweep(self.tmp, cases)
+        base = _read_dir(self.tmp, "pp3")
+
+        def run(mutate):
+            sweep = copy.deepcopy(base)
+            mutate(sweep)
+            return pp.evaluate_sweep(sweep, RUN_ID, False, gui_mirror.read_png,
+                                     lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.STATUS_REPORT, run(lambda s: None).status)
+        for label, mutate, needle in (
+                ("sidecar state dropped",
+                 lambda s: s.sidecars[bad].__setitem__("state", None),
+                 "%s row state/context=deployed/alone sidecar=None/alone" % bad),
+                ("row state dropped",
+                 lambda s: s.manifest["cases"][5].__setitem__("state", None),
+                 "%s row state/context=None/alone sidecar=deployed/alone" % bad),
+                ("context differs",
+                 lambda s: s.sidecars[bad].__setitem__("context", "stacked"),
+                 "%s row state/context=deployed/alone sidecar=deployed/stacked" % bad),
+                ("both states stowed, a press recorded",
+                 lambda s: (s.sidecars[bad].__setitem__("state", "stowed"),
+                            s.manifest["cases"][5].__setitem__("state", "stowed")),
+                 "%s stateProof.action=Extend on a case whose state is stowed" % bad),
+                ("settings dropped", lambda s: s.manifest.__setitem__("settings", {}),
+                 "recompute the stowed control set"),
+                ("settings say a stowed run",
+                 lambda s: s.manifest.__setitem__("settings", {"states": "none",
+                                                               "contexts": "none"}),
+                 "states=none contexts=none recompute the stowed control set")):
+            with self.subTest(label):
+                res = run(mutate)
+                self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind,
+                                 (res.invalid_subkind, res.problems))
+                self.assertTrue(any(needle in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
 
     def test_state_flag_counts(self):
         a = pp.judge_case(_state_case("a--d--deployed--1", proof={"ghostEvent": "no-info",

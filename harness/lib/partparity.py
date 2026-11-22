@@ -612,6 +612,15 @@ class RouteJudgement:
 # the ghost's holds its sampled pose, so a picture fail whose only structural difference
 # is a renderer ROTATION within the measured tilt + wobble + this margin caps at warn.
 CANOPY_ROTATION_MARGIN_DEG = 1.0
+# PartParityStateRules.CanopyWindowDeg: the capture waits for tilt + wobble under this;
+# a capture at or over it is the 4 s timeout one (tagged canopy-wobble:<deg>), which the
+# cap refuses. So the bound never exceeds CANOPY_ROTATION_CEILING_DEG.
+CANOPY_WINDOW_DEG = 3.0
+CANOPY_ROTATION_CEILING_DEG = CANOPY_WINDOW_DEG + CANOPY_ROTATION_MARGIN_DEG
+# stateProof.canopy's canopy transform name (ModuleParachute.canopyName), written by the
+# air context (S7). Not yet in PartParityJson.CanopyKeys / CANOPY_KEYS: an additive key
+# S7 adds on both sides; until a sidecar carries it, no air case is capped.
+CANOPY_TRANSFORM_KEY = "transform"
 REASON_CANOPY_AIRFLOW = "canopy-airflow:picture differences capped at warn"
 # PartParityStructure.PositionToleranceM / ScaleTolerancePct: a transformDiffers entry
 # exceeds at least one tolerance; the canopy cap needs position and scale inside theirs.
@@ -619,24 +628,53 @@ STRUCTURE_POSITION_TOLERANCE_M = 0.001
 STRUCTURE_SCALE_TOLERANCE_PCT = 1.0
 
 
-def canopy_rotation_bound(sidecar: Dict) -> Optional[float]:
-    """The canopy cap's rotation bound in degrees (|tilt| + |wobble| + margin) for an air
-    case whose ``stateProof.canopy`` carries both angles; None otherwise (no cap)."""
+@dataclass(frozen=True)
+class CanopyCap:
+    """What the air case's canopy cap allows: renderer rotations up to ``bound_deg``, on
+    renderers under the canopy transform ``transform`` only."""
+    bound_deg: float
+    transform: str
+
+
+def canopy_cap_for(sidecar: Dict) -> Optional[CanopyCap]:
+    """The canopy cap of an air case (design D.4), or None (no cap). It needs: context
+    ``air``; numeric ``stateProof.canopy.tiltDeg`` and ``wobbleDeg`` whose absolute sum is
+    under ``CANOPY_WINDOW_DEG`` (the capture found its window; a timeout capture is not
+    capped) and no ``canopy-wobble:<deg>`` tag (the same timeout, as the C# side tags it);
+    a non-empty ``stateProof.canopy.transform`` naming the canopy transform. The bound is
+    |tilt| + |wobble| + 1 deg, never over ``CANOPY_ROTATION_CEILING_DEG``."""
     if not isinstance(sidecar, dict) or sidecar.get("context") != CONTEXT_AIR:
+        return None
+    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
+    if any(isinstance(t, str) and t.startswith(TAG_CANOPY_WOBBLE_PREFIX) for t in tags):
         return None
     proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
     canopy = proof.get("canopy") if isinstance(proof.get("canopy"), dict) else {}
     tilt, wobble = _num(canopy.get("tiltDeg")), _num(canopy.get("wobbleDeg"))
-    if tilt is None or wobble is None:
+    if tilt is None or wobble is None or abs(tilt) + abs(wobble) >= CANOPY_WINDOW_DEG:
         return None
-    return abs(tilt) + abs(wobble) + CANOPY_ROTATION_MARGIN_DEG
+    transform = canopy.get(CANOPY_TRANSFORM_KEY)
+    if not isinstance(transform, str) or not transform:
+        return None
+    bound = min(abs(tilt) + abs(wobble) + CANOPY_ROTATION_MARGIN_DEG, CANOPY_ROTATION_CEILING_DEG)
+    return CanopyCap(bound, transform)
 
 
-def _canopy_cap_applies(structure: Dict, bound: Optional[float]) -> bool:
-    """True when the route's structural diff differs ONLY by renderer rotations within
-    ``bound``: at least one transform differs, each by rotation alone (position and scale
-    inside the C# tolerances), and no mesh, rendered, missing or extra difference."""
-    if bound is None or not isinstance(structure, dict):
+def is_canopy_renderer_key(key: Any, transform: str) -> bool:
+    """True when a structure key (a part-relative ``/`` path, maybe ``#k``-suffixed) runs
+    through the canopy transform: one of its segments is the canopy transform's name, so
+    the renderer is the canopy itself or under it."""
+    if not isinstance(key, str) or not transform:
+        return False
+    return transform in key.split("#", 1)[0].split("/")
+
+
+def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
+    """True when the route's structural diff differs ONLY by canopy renderer rotations
+    within the cap's bound: at least one transform differs, every one on a canopy renderer
+    (``is_canopy_renderer_key``) and by rotation alone (position and scale inside the C#
+    tolerances), and no material, mesh, rendered, missing or extra difference."""
+    if cap is None or not isinstance(structure, dict):
         return False
     transforms = [t for t in structure.get("transformDiffers") or [] if isinstance(t, dict)]
     if not transforms:
@@ -644,12 +682,15 @@ def _canopy_cap_applies(structure: Dict, bound: Optional[float]) -> bool:
     if _rendered_entries(structure.get("missingOnGhost")) or \
             _rendered_entries(structure.get("extraOnGhost")):
         return False
-    if structure.get("meshDiffers") or structure.get("renderedDiffers"):
+    if structure.get("materialDiffers") or structure.get("meshDiffers") \
+            or structure.get("renderedDiffers"):
         return False
     for t in transforms:
+        if not is_canopy_renderer_key(t.get("key"), cap.transform):
+            return False
         rot, pos, scl = (_num(t.get("rotationDeltaDeg")), _num(t.get("positionDeltaM")),
                          _num(t.get("scaleDeltaPct")))
-        if rot is None or rot > bound:
+        if rot is None or rot > cap.bound_deg:
             return False
         if pos is None or pos > STRUCTURE_POSITION_TOLERANCE_M:
             return False
@@ -660,7 +701,7 @@ def _canopy_cap_applies(structure: Dict, bound: Optional[float]) -> bool:
 
 def judge_route(views: Sequence[Dict], structure: Optional[Dict], tags: Sequence[str],
                 route: Optional[str] = None,
-                canopy_bound: Optional[float] = None) -> RouteJudgement:
+                canopy: Optional[CanopyCap] = None) -> RouteJudgement:
     """One route of a case: the worst view, the context-dependent / depth-mask caps (and,
     on an air case, the canopy cap), raised to ``fail`` by a missing / extra RENDERED mesh
     in ``structure``. ``route`` None is a stowed case (reasons carry no prefix); else every
@@ -684,7 +725,7 @@ def judge_route(views: Sequence[Dict], structure: Optional[Dict], tags: Sequence
     elif verdict == VERDICT_FAIL and _has_skipped_depth_mask(structure.get("missingOnGhost")):
         verdict = VERDICT_WARN
         reasons.append(REASON_DEPTH_MASK)
-    elif verdict == VERDICT_FAIL and _canopy_cap_applies(structure, canopy_bound):
+    elif verdict == VERDICT_FAIL and _canopy_cap_applies(structure, canopy):
         verdict = VERDICT_WARN
         reasons.append(REASON_CANOPY_AIRFLOW)
     missing = _rendered_entries(structure.get("missingOnGhost"))
@@ -796,6 +837,101 @@ def state_flag_floor(flag: str) -> Optional[str]:
     return None
 
 
+ACTION_RESULT_INVOKED = "invoked"
+
+
+def press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
+    """A writer contradiction on a case whose setup is NOT a fault (design D.6): the press
+    proof says the state was not reached. The C# side records a press that failed as
+    ``action-failed`` and a wait that ran out as ``state-timeout``; an ``ok`` (or
+    ``still-animating``) case must therefore carry a proof whose ``actionResult`` is
+    ``invoked`` and whose ``reached`` is true. Rules:
+      * a state case (``is_state_case``) needs a ``stateProof`` with a non-null ``action``;
+      * a proof whose ``action`` is non-null needs ``actionResult == "invoked"`` and
+        ``reached == true``, whatever the case's state;
+      * a proof whose ``action`` is null on a stowed-state case (the stacked stowed
+        context case: no press is required) is not checked, nor is a case with no proof
+        and a stowed state (every pre-P6 sidecar).
+    Returns the problem, or None. judge_case makes such a case ``error`` and
+    evaluate_sweep lists it as a recompute mismatch, INVALID(parity-instrument): the
+    sidecar contradicts itself, so neither its verdict nor its status can be trusted."""
+    if not isinstance(sidecar, dict):
+        return None
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    status = setup.get("status")
+    if status is None or is_setup_fault(status):
+        return None
+    state_case = is_state_case(sidecar.get("state"))
+    proof = sidecar.get("stateProof")
+    if not isinstance(proof, dict):
+        return "press-proof: state=%s setup=%s but no stateProof" % (
+            sidecar.get("state"), status) if state_case else None
+    action = proof.get("action")
+    if action is None:
+        return "press-proof: state=%s setup=%s but stateProof.action=null" % (
+            sidecar.get("state"), status) if state_case else None
+    result, reached = proof.get("actionResult"), proof.get("reached")
+    if result == ACTION_RESULT_INVOKED and reached is True:
+        return None
+    return "press-proof: setup=%s action=%s actionResult=%s reached=%s" % (
+        status, action, result, reached)
+
+
+def _non_alone(context: Any) -> bool:
+    return context is not None and context != CONTEXT_ALONE
+
+
+def case_row_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """Writer cross-checks between a planned case's manifest row and its sidecar (design
+    D.2, D.6), for every row that is a state or context case on either side (a state other
+    than ``stowed`` or a context other than ``alone``, so a stowed sweep compares nothing):
+    the row's and the sidecar's ``state`` and ``context`` must be equal (a state dropped to
+    null on either side is a problem). Also, anywhere: a sidecar whose ``stateProof.action``
+    is non-null while its ``state`` is not a state case (a press on a case judged as
+    stowed). A missing sidecar is completeness's, not this check's."""
+    problems: List[str] = []
+    for entry in manifest.get("cases") or []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("caseId"), str):
+            continue
+        cid = entry["caseId"]
+        side = sidecars.get(cid)
+        if not isinstance(side, dict):
+            continue
+        rs, rc = entry.get("state"), entry.get("context")
+        ss, sc = side.get("state"), side.get("context")
+        if (is_state_case(rs) or is_state_case(ss) or _non_alone(rc) or _non_alone(sc)) \
+                and (rs != ss or rc != sc):
+            problems.append("%s row state/context=%s/%s sidecar=%s/%s" % (cid, rs, rc, ss, sc))
+        proof = side.get("stateProof")
+        if isinstance(proof, dict) and proof.get("action") is not None \
+                and not is_state_case(ss):
+            problems.append("%s stateProof.action=%s on a case whose state is %s"
+                            % (cid, proof.get("action"), ss))
+    return problems
+
+
+def run_shape_problem(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Optional[str]:
+    """A run that planned state or context cases (any row or sidecar with a state other
+    than ``stowed`` or a context other than ``alone``) while its ``settings`` recompute the
+    stowed control set (``states`` / ``contexts`` absent or ``none``): the manifest does
+    not describe the run it holds (design D.2), INVALID(parity-instrument)."""
+    if manifest_control_set(manifest) != CONTROL_IDS:
+        return None
+    for entry in manifest.get("cases") or []:
+        if not isinstance(entry, dict):
+            continue
+        side = sidecars.get(entry.get("caseId")) if isinstance(entry.get("caseId"), str) else None
+        side = side if isinstance(side, dict) else {}
+        if is_state_case(entry.get("state")) or is_state_case(side.get("state")) \
+                or _non_alone(entry.get("context")) or _non_alone(side.get("context")):
+            settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
+            return ("state/context case %s planned but settings states=%s contexts=%s "
+                    "recompute the stowed control set"
+                    % (entry.get("caseId"), _setting(settings, SETTING_STATES),
+                       _setting(settings, SETTING_CONTEXTS)))
+    return None
+
+
 def judge_case(sidecar: Dict) -> CaseVerdict:
     """Case verdict = the worst view, raised to ``fail`` by a missing / extra RENDERED
     mesh in the structural diff or a skin mismatch; ``error`` for a setup fault (the
@@ -823,10 +959,10 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         verdict, reasons, worst = r.verdict, list(r.reasons), r.worst_view
         max_px, max_pct, max_color = r.max_shape_blob_px, r.max_shape_blob_pct, r.max_color_blob_px
     else:
-        bound = canopy_rotation_bound(sidecar)
-        ev = judge_route(views, sidecar.get("structure"), tags, ROUTE_EVENT, bound)
+        cap = canopy_cap_for(sidecar)
+        ev = judge_route(views, sidecar.get("structure"), tags, ROUTE_EVENT, cap)
         sv_views = start_views(sidecar)
-        st = judge_route(sv_views or [], sidecar.get("structureStart"), tags, ROUTE_START, bound)
+        st = judge_route(sv_views or [], sidecar.get("structureStart"), tags, ROUTE_START, cap)
         routes = (ev, st)
         worse = st if _RANK[st.verdict] > _RANK[ev.verdict] else ev
         verdict = worse.verdict
@@ -857,6 +993,10 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         verdict = VERDICT_ERROR
     elif not views:
         reasons.insert(0, "no-views")
+        verdict = VERDICT_ERROR
+    contradiction = press_proof_problem(sidecar)
+    if contradiction is not None:
+        reasons.insert(0, contradiction)
         verdict = VERDICT_ERROR
     proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
     return CaseVerdict(case_id, sidecar.get("part"), skin.get("requested"),
@@ -1085,15 +1225,22 @@ class PressCheck:
                 "problems": list(self.problems)}
 
 
+# The press gate's bucket for a state case whose row and sidecar both lack a family.
+PRESS_UNKNOWN_FAMILY = "unknown"
+
+
 def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Optional[PressCheck]:
     """The fail-open guard on the press path (design D.6): per family with planned cases,
     when more than half of its cases (so also its only case) end ``action-failed`` or
     ``state-timeout`` (``PRESS_GATE_STATUSES``), the family's press, wait or poll path is
     broken: a problem naming the family, its counts and its first such case's status and
-    detail. A case's family is its manifest row's ``family``, else its sidecar's
-    ``stateProof.family``; its status the sidecar's ``setup.status``, else the row's
-    ``setupStatus``. Cases with no family (stowed cases) and the controls are not counted.
-    None when no planned case names a family (a stowed run: the gate does not apply)."""
+    detail. EVERY planned state case counts (``is_state_case`` of its manifest row's
+    ``state`` or of its sidecar's; a stowed context case such as the stacked shroud presses
+    nothing and does not count, nor do the controls). Its family is the row's ``family``,
+    else the sidecar's ``stateProof.family``, else ``PRESS_UNKNOWN_FAMILY`` (a crashed
+    case's sidecar may carry no proof, so a family-less case is still counted); its status
+    the sidecar's ``setup.status``, else the row's ``setupStatus``. None when no planned
+    case is a state case (a stowed run: the gate does not apply)."""
     ctl = set(ALL_CONTROL_IDS)
     per_family: Dict[str, List[Tuple[str, Optional[str], Optional[str]]]] = {}
     for entry in manifest.get("cases") or []:
@@ -1103,12 +1250,15 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         if cid in ctl:
             continue
         side = sidecars.get(cid) if isinstance(sidecars.get(cid), dict) else None
+        if not (is_state_case(entry.get("state"))
+                or (side is not None and is_state_case(side.get("state")))):
+            continue
         proof = (side or {}).get("stateProof")
         family = entry.get("family")
         if not isinstance(family, str) or not family:
             family = proof.get("family") if isinstance(proof, dict) else None
         if not isinstance(family, str) or not family:
-            continue
+            family = PRESS_UNKNOWN_FAMILY
         setup = (side or {}).get("setup")
         status = setup.get("status") if isinstance(setup, dict) else None
         detail = setup.get("detail") if isinstance(setup, dict) else None
@@ -1655,6 +1805,17 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     wrong_set = control_set_disagreement(manifest)
     if wrong_set:
         mismatches.append(wrong_set)
+    # Writer cross-checks (D.6): a state / context case whose settings say a stowed run,
+    # a row and sidecar that disagree on state or context, an ok case whose press proof
+    # says the state was never reached.
+    shape = run_shape_problem(manifest, sweep.sidecars)
+    if shape:
+        mismatches.append(shape)
+    mismatches.extend(case_row_problems(manifest, sweep.sidecars))
+    for cid in part_ids:
+        why = press_proof_problem(sweep.sidecars.get(cid))
+        if why:
+            mismatches.append("%s %s" % (cid, why))
     if not recompute_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
 
