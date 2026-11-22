@@ -223,11 +223,23 @@ broken host never turns into a refused step or a run of setup faults. The manife
    under the part, or its shader is dead, the transforms are resolved on the live part exactly as
    the module's own prefab-time `OnLoad` does and its `UpdateAllMaterials` re-runs, so the mask is
    depth-only at queue 1999 and the body renderers draw ahead of it, the look a player sees on a
-   non-root part. One `[PartParity]` line per case with such a module (Info when it repaired,
-   Verbose when every module was intact) names each module's live and prefab reference states and
-   the outcome; the sidecar carries `depth-mask-repaired:<n>`, or `depth-mask-unrepaired:<n>` when
-   a module could not be brought to the depth shader. A part with no such module (every stock part)
-   is not touched. The ghost still skips masks (owner ruling 2026-11-22).
+   non-root part. A module is `repaired` when the re-run returns (the update sets the shader on
+   every mask renderer or throws, so no separate check follows), and unrepaired when it lacks a
+   member of that shape (`unsupported`), the live part has no mask transform or no shader
+   (`unresolved`), or the re-run throws (`threw`). One `[PartParity]` line per case with such a
+   module names each module's live and prefab reference states and the outcome: Warn when a
+   module stayed unrepaired, Info when one was repaired, Verbose when every module was intact. The
+   sidecar carries a count per kind, `depth-mask-repaired:<count>` and
+   `depth-mask-unrepaired:<count>`. A case with an unrepaired module gets the setup status
+   `depth-mask-unrepaired` (a setup fault, so the case is an `error`, never a ghost `fail`), and
+   its setup detail names each such module. A part with no such module (every stock part) is not
+   touched. The ghost still skips masks (owner ruling 2026-11-22). The module's own
+   `onVariantApplied` / `onPartRepaired` handlers would re-run the update over every renderer
+   under the part, the ghost's included once step 3 parents it there, but they cannot fire during
+   capture: a module repaired for a dead transform threw in `OnStart` before subscribing them, the repair subscribes
+   nothing, and `PartParityDepthMaskEventGateTests` reds on any capture-path file (the sweep, its
+   rig, the ghost builder; comments stripped) that names either event, `SetVariant` or
+   `ApplyVariant`.
 1. Collect the REAL renderer records (4.6) BEFORE any ghost exists, each with its part-local
    bounds (a `MeshRenderer`'s mesh bounds corners into part space; a `SkinnedMeshRenderer` from its
    world `bounds`, since its local bounds are often stale). Only rendered `MeshRenderer` /
@@ -466,7 +478,7 @@ copy; the verifier reads it in place.
               "colorOverPx": .., "colorBlobPx": .., "colorP99": .., "colorBlockMax": ..   // over the overlap; T and the 16x16 block grid in "measure"
             } ],
   "structure": {"pairs": .., "missingOnGhost": [..], "extraOnGhost": [..], "transformDiffers": [..], "materialDiffers": [..], "meshDiffers": [..], "renderedDiffers": [..]},
-  "setup": {"status": "ok|skin-not-applied|spawn-timeout|still-animating|died-settling|crashed", "detail": "..."},
+  "setup": {"status": "ok|skin-not-applied|spawn-timeout|still-animating|died-settling|crashed|depth-mask-unrepaired", "detail": "..."},
   "log": ["the Parsek lines emitted while this case was built, via ParsekLog.TestObserverForTesting"]
 }
 ```
@@ -491,7 +503,7 @@ The `skin` block (3.2) has the same six keys under every skin kind; a B9 case na
 Setup statuses: `spawn-timeout` (no vessel, or never loaded and unpacked in 20 s),
 `still-animating` (captured anyway), `died-settling` (the vessel died or lost its root part while
 settling, before `Prepare`, or between two views), `crashed` (a prepare that threw, or the stale
-inflight rule of 5.3), `skin-not-applied` (3.2). A case a damaged host left unrun has NO sidecar
+inflight rule of 5.3), `skin-not-applied` (3.2), `depth-mask-unrepaired` (4.2 step 0). A case a damaged host left unrun has NO sidecar
 and no status (4.1).
 
 Per case the KSP.log carries, under `[PartParity]`: for a B9 case one Verbose `case <id>: authored
@@ -579,7 +591,7 @@ hand-checked sample, a re-pin needs no flight):
 | view `fail` | either largest shape blob (real-only or ghost-only, tolerance applied) exceeds 0.2 % of the projected box area (`SHAPE_BLOB_FAIL_PCT`) or 64 px (`SHAPE_BLOB_FAIL_PX`), or the largest colour blob exceeds 256 px (`COLOR_BLOB_FAIL_PX`, re-pinned from 64 after the 2026-11-21 reading runs: one-pixel texture-seam lines on identical parts reach 68-200 px, every diagnosed colour defect was 2000 px or more); "exceeds" is strict, and a percentage the C# side wrote as null is not judged |
 | view `warn` | the same lines at a quarter (`WARN_FRACTION`) |
 | case `fail` | the worst view, raised to `fail` by a RENDERED entry in `structure.missingOnGhost` / `extraOnGhost` that is not non-visual (each entry's `nonVisual`: `depth-mask` for a depth-only shader, `fx` for a `Waterfall/` shader, both left out of the ghost by design; a sidecar without the key falls back to its path: a `Waterfall` segment or a leaf name containing `mask`), A case tagged `context-dependent` (wheels, suspension, legs, ground parts) caps a picture `fail` at `warn` with `context-pose`, since its orbital pose (suspension at full droop) is not the landed pose the ghost keeps by design (owner ruling 2026-11-22: no suspension modelling, and ReStock depth masks stay skipped on the ghost); a part whose real side carries a depth mask the ghost skips is judged like any other part, since the capture repairs the real mask to its depth-only look first (4.2 step 0; the `depth-mask` cap of 2026-11-22 was dropped once the repair flew, Appendix C); a structural or skin failure still fails. or by the skin proof's `skin-mismatch` (`partparity.skin_flags`, the exact rule of `PartParitySkinRules.GhostFlags`: a skin module with real != ghost case-insensitively, a null on one side only counting as a difference); a B9 case's unread ghost is `skin-not-modelled:b9`, a `warn`. The row also re-derives every part case's skin flags and reds `INVALID(parity-instrument)` when they differ from the sidecar's own `flags` |
-| case `error` | a setup fault (`TestCommandPartParitySweep.IsSetupFault`: any status but `ok` and `still-animating`), the skin proof's `requested != real` (`skin-not-applied`), or a non-fault case with no measured view; `still-animating` is judged on its measures |
+| case `error` | a setup fault (`TestCommandPartParitySweep.IsSetupFault`: any status but `ok` and `still-animating`), the skin proof's `requested != real` (`skin-not-applied`), a real depth mask the capture could not repair (`depth-mask-unrepaired`, 4.2 step 0), or a non-fault case with no measured view; `still-animating` is judged on its measures |
 
 The control cases are not judged as parts: the C# judge's recorded outcomes are the controls'
 verdicts (below). Four INSTRUMENT gates run on every sweeping lane from the start, armed or not:
@@ -1035,13 +1047,15 @@ The depth-mask repair (4.2 step 0, todo PARITY-RESTOCK-MASK-ROOT-PART), PP-2 `20
 cases, the same count as `_0045`): stock's root-part rebuild hands it a destroyed body transform.
 The repair line fired for every one of the 74 cases, each module reading `live: body=destroyed`
 with its masks and shader live and the prefab module intact (`prefab: body=in-part`), and the
-re-run gave every mask its shader (the flown build checked the mask shader by NAME, so `airScoop`, whose
-patch names it `Depth Mask`, logged `not-depth-shaded` and flagged `depth-mask-unrepaired:1`
-although its pictures pass; the check now compares the shader object the module was given). Of the 59 cases `_0045` capped at warn with `depth-mask`, all 59
+re-run gave every mask its shader (the flown build re-checked the mask shader by NAME, so `airScoop`,
+whose patch names it `Depth Mask`, logged `not-depth-shaded` and flagged `depth-mask-unrepaired:1`
+although its pictures pass; that post-run check is gone, see 4.2 step 0). Of the 59 cases `_0045` capped at warn with `depth-mask`, all 59
 now pass on their pictures alone (the colour blobs of up to 82624 px and the real-only shape blobs
 of up to 11394 px were the opaque cyan masks); with the 15 that already passed, 72 of the 74 pass
 and 2 warn (`vernierengine`, `skin-not-modelled:b9`). So the `depth-mask` cap is dropped from
-`partparity.py`: a mask the repair cannot fix flags `depth-mask-unrepaired:<n>` and fails on its
-pictures. Run to run, the non-mask cases moved inside the colour-line noise (`heatshield3--red` and
+`partparity.py`: a mask the repair cannot fix makes the case the setup fault
+`depth-mask-unrepaired`, an `error`. The review follow-ups (the outcome set, the setup fault,
+both flag counts, the Warn line, the event gate) are unflown: they change no verdict of this run's
+74 repaired cases. Run to run, the non-mask cases moved inside the colour-line noise (`heatshield3--red` and
 `rotor.01--gray` fail -> pass, `roverbody.v2--white` warn -> fail at 289 px `top`); the 2 fails are
 `mediumdishantenna--default` (1018 px `top`, GHOST-PARITY-RESIDUALS-2026-11-22) and that rover body.

@@ -28,6 +28,15 @@ namespace Parsek.TestCommands
     /// resolves the transforms on the live part exactly as the module's own prefab-time
     /// <c>OnLoad</c> does and re-runs the module's material update. No compile-time reference
     /// to any mod: the module, its fields and its update method are found by name.
+    ///
+    /// The module's own <c>onVariantApplied</c> / <c>onPartRepaired</c> handlers re-run the
+    /// same update over every renderer under the part, which once the ghost is parented under
+    /// the real part (design 4.2 step 3) would include the ghost's. They cannot fire there: a
+    /// module repaired for a dead transform threw in <c>OnStart</c> BEFORE subscribing them (ReStock:
+    /// <c>UpdateAllMaterials()</c> precedes both <c>Add</c> calls), the repair subscribes
+    /// nothing, and nothing on the capture path applies a variant or a repair to a real part
+    /// (<c>PartParityDepthMaskEventGateTests</c> reds on a capture-path file naming either
+    /// event, <c>SetVariant</c> or <c>ApplyVariant</c>).
     /// </summary>
     internal static class PartParityDepthMaskRepair
     {
@@ -42,11 +51,13 @@ namespace Parsek.TestCommands
         internal const string FieldDepthShader = "depthShader";
         internal const string MethodUpdate = "UpdateAllMaterials";
 
-        /// <summary>The sidecar flag of a case whose real part needed and got the repair:
-        /// <c>depth-mask-repaired:&lt;modules&gt;</c>.</summary>
+        /// <summary>The sidecar flag counting the modules the repair fixed:
+        /// <c>depth-mask-repaired:&lt;count&gt;</c>.</summary>
         internal const string FlagRepairedPrefix = "depth-mask-repaired:";
-        /// <summary>The sidecar flag of a case with a depth-mask module the repair could not
-        /// bring to its shader: <c>depth-mask-unrepaired:&lt;modules&gt;</c>.</summary>
+        /// <summary>The sidecar flag counting the modules that needed the repair and did not
+        /// get it: <c>depth-mask-unrepaired:&lt;count&gt;</c>. Such a case's setup status is
+        /// <c>TestCommandPartParitySweep.SetupDepthMaskUnrepaired</c>, a setup fault (its real
+        /// picture is not the part a player sees, so it is no finding about the ghost).</summary>
         internal const string FlagUnrepairedPrefix = "depth-mask-unrepaired:";
 
         /// <summary>The state of one Unity object reference on a module.</summary>
@@ -69,10 +80,9 @@ namespace Parsek.TestCommands
         {
             /// <summary>Every reference was live and in the part: nothing done.</summary>
             Intact,
-            /// <summary>Re-resolved and the update re-run; every mask now carries the module's shader.</summary>
+            /// <summary>Re-resolved on the live part and the module's update re-ran without
+            /// throwing (the update sets the shader on every mask's renderer, or throws).</summary>
             Repaired,
-            /// <summary>Re-resolved and re-run, but a mask does not carry the module's shader.</summary>
-            NotDepthShaded,
             /// <summary>The live part has no transform of the mask's name, or no depth shader.</summary>
             Unresolved,
             /// <summary>The module lacks a member of the ReStock shape: left alone.</summary>
@@ -99,7 +109,6 @@ namespace Parsek.TestCommands
             {
                 case Outcome.Intact: return "intact";
                 case Outcome.Repaired: return "repaired";
-                case Outcome.NotDepthShaded: return "not-depth-shaded";
                 case Outcome.Unresolved: return "unresolved";
                 case Outcome.Unsupported: return "unsupported";
                 default: return "threw";
@@ -137,12 +146,21 @@ namespace Parsek.TestCommands
         internal static bool UsePartTransformForBody(string bodyTransformName, bool namedFound)
             => string.IsNullOrEmpty(bodyTransformName) || !namedFound;
 
-        /// <summary>The outcome after a re-run from what was resolved and how many masks carry
-        /// the module's shader.</summary>
-        internal static Outcome AfterRerun(int masksResolved, bool shaderResolved, int masksDepthShaded)
+        /// <summary>True for an outcome where the module needed the repair and did not get it.</summary>
+        internal static bool IsUnrepaired(Outcome o) => o != Outcome.Intact && o != Outcome.Repaired;
+
+        /// <summary>The modules the repair fixed and the ones that needed it and did not get it.</summary>
+        internal static void Count(IList<ModuleResult> results, out int repaired, out int unrepaired)
         {
-            if (masksResolved == 0 || !shaderResolved) return Outcome.Unresolved;
-            return masksDepthShaded == masksResolved ? Outcome.Repaired : Outcome.NotDepthShaded;
+            repaired = 0;
+            unrepaired = 0;
+            if (results == null) return;
+            foreach (ModuleResult r in results)
+            {
+                if (r == null) continue;
+                if (r.Outcome == Outcome.Repaired) repaired++;
+                else if (IsUnrepaired(r.Outcome)) unrepaired++;
+            }
         }
 
         /// <summary>One module's result, as the summary line and the flags read it.</summary>
@@ -159,25 +177,35 @@ namespace Parsek.TestCommands
             internal RefState? PrefabShader;
             internal Outcome Outcome;
             internal int MasksResolved;
-            internal int MasksDepthShaded;
             internal string Detail;
         }
 
-        /// <summary>The flag a case carries for its results, or null when no module needed a
-        /// repair (intact modules alone add no flag).</summary>
-        internal static string CaseFlag(IList<ModuleResult> results)
+        /// <summary>The flags a case carries for its results, each with its count: one per
+        /// nonzero count, repaired first; none when every module was intact.</summary>
+        internal static List<string> CaseFlags(IList<ModuleResult> results)
+        {
+            Count(results, out int repaired, out int unrepaired);
+            var flags = new List<string>();
+            if (repaired > 0) flags.Add(FlagRepairedPrefix + repaired.ToString(Ic));
+            if (unrepaired > 0) flags.Add(FlagUnrepairedPrefix + unrepaired.ToString(Ic));
+            return flags;
+        }
+
+        /// <summary>The setup detail of a case with an unrepaired module: each such module's
+        /// index, name, outcome and detail; null when none is unrepaired.</summary>
+        internal static string UnrepairedDetail(IList<ModuleResult> results)
         {
             if (results == null) return null;
-            int repaired = 0, unrepaired = 0;
+            var sb = new StringBuilder();
             foreach (ModuleResult r in results)
             {
-                if (r == null || r.Outcome == Outcome.Intact) continue;
-                if (r.Outcome == Outcome.Repaired) repaired++;
-                else unrepaired++;
+                if (r == null || !IsUnrepaired(r.Outcome)) continue;
+                if (sb.Length > 0) sb.Append(';');
+                sb.Append('m').Append(r.Index.ToString(Ic)).Append('=').Append(r.Module ?? "<null>")
+                    .Append(':').Append(Token(r.Outcome));
+                if (!string.IsNullOrEmpty(r.Detail)) sb.Append(':').Append(r.Detail);
             }
-            if (unrepaired > 0) return FlagUnrepairedPrefix + unrepaired.ToString(Ic);
-            if (repaired > 0) return FlagRepairedPrefix + repaired.ToString(Ic);
-            return null;
+            return sb.Length > 0 ? "depth-mask " + sb : null;
         }
 
         private static string States(IList<RefState> states)
@@ -196,16 +224,15 @@ namespace Parsek.TestCommands
         /// <summary>The one summary line per case (house logging rule: one line after the loop).</summary>
         internal static string SummaryLine(string caseId, string partName, IList<ModuleResult> results)
         {
-            int repaired = 0, intact = 0, other = 0;
+            Count(results, out int repaired, out int unrepaired);
+            int intact = 0;
             var sb = new StringBuilder();
             if (results != null)
             {
                 foreach (ModuleResult r in results)
                 {
                     if (r == null) continue;
-                    if (r.Outcome == Outcome.Repaired) repaired++;
-                    else if (r.Outcome == Outcome.Intact) intact++;
-                    else other++;
+                    if (r.Outcome == Outcome.Intact) intact++;
                     sb.Append(" | m").Append(r.Index.ToString(Ic)).Append('=').Append(r.Module ?? "<null>")
                         .Append(" mask=").Append(string.IsNullOrEmpty(r.Mask) ? "<none>" : r.Mask)
                         .Append(" outcome=").Append(Token(r.Outcome))
@@ -216,14 +243,13 @@ namespace Parsek.TestCommands
                         .Append(" masks=").Append(States(r.PrefabMasks))
                         .Append(" shader=").Append(r.PrefabShader.HasValue ? Token(r.PrefabShader.Value) : "<none>");
                     if (r.Outcome != Outcome.Intact && r.Outcome != Outcome.Unsupported)
-                        sb.Append(" resolved=").Append(r.MasksResolved.ToString(Ic))
-                            .Append(" depthShaded=").Append(r.MasksDepthShaded.ToString(Ic));
+                        sb.Append(" resolved=").Append(r.MasksResolved.ToString(Ic));
                     if (!string.IsNullOrEmpty(r.Detail)) sb.Append(" detail=").Append(r.Detail);
                 }
             }
             int total = results?.Count ?? 0;
             return $"case {caseId}: depth-mask repair part={partName ?? "<null>"} modules={total.ToString(Ic)} " +
-                   $"repaired={repaired.ToString(Ic)} intact={intact.ToString(Ic)} other={other.ToString(Ic)}" + sb;
+                   $"repaired={repaired.ToString(Ic)} unrepaired={unrepaired.ToString(Ic)} intact={intact.ToString(Ic)}" + sb;
         }
 
         // ----- live -----
@@ -266,23 +292,6 @@ namespace Parsek.TestCommands
             if (arr == null) return list;
             foreach (Transform t in arr) list.Add(ClassifyLive(t, partRoot));
             return list;
-        }
-
-        /// <summary>The masks whose renderer now carries the module's own shader. Compared by
-        /// object, not by name: a patch may name its shader <c>Depth Mask</c> (ReStock's airScoop)
-        /// where the default is <c>DepthMask</c>.</summary>
-        private static int CountDepthShaded(Transform[] masks, Shader shader)
-        {
-            int n = 0;
-            if (masks == null || shader == null) return 0;
-            foreach (Transform t in masks)
-            {
-                if (t == null) continue;
-                Renderer r = t.GetComponent<Renderer>();
-                Material m = r != null ? r.sharedMaterial : null;
-                if (m != null && m.shader == shader) n++;
-            }
-            return n;
         }
 
         /// <summary>
@@ -380,8 +389,7 @@ namespace Parsek.TestCommands
                 r.Detail = inner.GetType().Name;
                 return r;
             }
-            r.MasksDepthShaded = CountDepthShaded(resolved, shader);
-            r.Outcome = AfterRerun(r.MasksResolved, true, r.MasksDepthShaded);
+            r.Outcome = Outcome.Repaired;
             return r;
         }
     }

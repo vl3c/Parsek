@@ -73,38 +73,80 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(0, true, 0, (int)R.Outcome.Unresolved)]
-        [InlineData(2, false, 0, (int)R.Outcome.Unresolved)]
-        [InlineData(2, true, 2, (int)R.Outcome.Repaired)]
-        [InlineData(2, true, 1, (int)R.Outcome.NotDepthShaded)]
-        [InlineData(1, true, 0, (int)R.Outcome.NotDepthShaded)]
-        public void AfterRerun_RepairedOnlyWhenEveryMaskCarriesTheDepthShader(int resolved, bool shader, int shaded,
-            int expected)
+        [InlineData((int)R.Outcome.Intact, false)]
+        [InlineData((int)R.Outcome.Repaired, false)]
+        [InlineData((int)R.Outcome.Unresolved, true)]
+        [InlineData((int)R.Outcome.Unsupported, true)]
+        [InlineData((int)R.Outcome.Threw, true)]
+        public void IsUnrepaired_EveryOutcomeButIntactAndRepaired(int outcome, bool expected)
         {
-            Assert.Equal((R.Outcome)expected, R.AfterRerun(resolved, shader, shaded));
+            Assert.Equal(expected, R.IsUnrepaired((R.Outcome)outcome));
         }
 
         [Fact]
-        public void CaseFlag_NoneForIntactModules_RepairedCount_UnrepairedWins()
+        public void CaseFlags_CarryBothCounts_NoneForIntactModules()
         {
-            Assert.Null(R.CaseFlag(null));
-            Assert.Null(R.CaseFlag(new List<R.ModuleResult>()));
-            Assert.Null(R.CaseFlag(new List<R.ModuleResult> { new R.ModuleResult { Outcome = R.Outcome.Intact } }));
-            Assert.Equal("depth-mask-repaired:2", R.CaseFlag(new List<R.ModuleResult>
+            Assert.Empty(R.CaseFlags(null));
+            Assert.Empty(R.CaseFlags(new List<R.ModuleResult>()));
+            Assert.Empty(R.CaseFlags(new List<R.ModuleResult> { new R.ModuleResult { Outcome = R.Outcome.Intact } }));
+            Assert.Equal(new[] { "depth-mask-repaired:2" }, R.CaseFlags(new List<R.ModuleResult>
             {
                 new R.ModuleResult { Outcome = R.Outcome.Repaired },
                 new R.ModuleResult { Outcome = R.Outcome.Intact },
                 new R.ModuleResult { Outcome = R.Outcome.Repaired },
             }));
-            Assert.Equal("depth-mask-unrepaired:1", R.CaseFlag(new List<R.ModuleResult>
+            Assert.Equal(new[] { "depth-mask-repaired:1", "depth-mask-unrepaired:2" }, R.CaseFlags(new List<R.ModuleResult>
             {
                 new R.ModuleResult { Outcome = R.Outcome.Repaired },
                 new R.ModuleResult { Outcome = R.Outcome.Threw },
+                new R.ModuleResult { Outcome = R.Outcome.Unresolved },
             }));
-            Assert.Equal("depth-mask-unrepaired:1", R.CaseFlag(new List<R.ModuleResult>
+            Assert.Equal(new[] { "depth-mask-unrepaired:1" }, R.CaseFlags(new List<R.ModuleResult>
             {
                 new R.ModuleResult { Outcome = R.Outcome.Unsupported },
             }));
+        }
+
+        [Fact]
+        public void Count_SplitsRepairedFromUnrepaired_IgnoresIntactAndNull()
+        {
+            R.Count(new List<R.ModuleResult>
+            {
+                new R.ModuleResult { Outcome = R.Outcome.Repaired },
+                null,
+                new R.ModuleResult { Outcome = R.Outcome.Intact },
+                new R.ModuleResult { Outcome = R.Outcome.Unsupported },
+            }, out int repaired, out int unrepaired);
+            Assert.Equal(1, repaired);
+            Assert.Equal(1, unrepaired);
+            R.Count(null, out repaired, out unrepaired);
+            Assert.Equal(0, repaired);
+            Assert.Equal(0, unrepaired);
+        }
+
+        [Fact]
+        public void UnrepairedDetail_NamesEachUnrepairedModule_NullWhenNone()
+        {
+            Assert.Null(R.UnrepairedDetail(null));
+            Assert.Null(R.UnrepairedDetail(new List<R.ModuleResult>
+            {
+                new R.ModuleResult { Index = 1, Module = "ModuleRestockDepthMask", Outcome = R.Outcome.Repaired },
+            }));
+            Assert.Equal("depth-mask m3=ModuleDepthMask:unsupported:members-missing;m5=ModuleRestockDepthMask:threw:NullReferenceException",
+                R.UnrepairedDetail(new List<R.ModuleResult>
+                {
+                    new R.ModuleResult { Index = 1, Module = "ModuleRestockDepthMask", Outcome = R.Outcome.Repaired },
+                    new R.ModuleResult { Index = 3, Module = "ModuleDepthMask", Outcome = R.Outcome.Unsupported, Detail = "members-missing" },
+                    new R.ModuleResult { Index = 5, Module = "ModuleRestockDepthMask", Outcome = R.Outcome.Threw, Detail = "NullReferenceException" },
+                }));
+        }
+
+        [Fact]
+        public void UnrepairedStatus_IsASetupFaultInTheSweepTaxonomy()
+        {
+            Assert.Equal("depth-mask-unrepaired", TestCommandPartParitySweep.SetupDepthMaskUnrepaired);
+            Assert.Contains(TestCommandPartParitySweep.SetupDepthMaskUnrepaired, TestCommandPartParitySweep.SetupStatuses);
+            Assert.True(TestCommandPartParitySweep.IsSetupFault(TestCommandPartParitySweep.SetupDepthMaskUnrepaired));
         }
 
         [Fact]
@@ -118,7 +160,7 @@ namespace Parsek.Tests
                     Body = R.RefState.Destroyed, Masks = { R.RefState.Destroyed }, Shader = R.RefState.Alive,
                     PrefabBody = R.RefState.InPart, PrefabMasks = new List<R.RefState> { R.RefState.InPart },
                     PrefabShader = R.RefState.Alive,
-                    Outcome = R.Outcome.Repaired, MasksResolved = 1, MasksDepthShaded = 1,
+                    Outcome = R.Outcome.Repaired, MasksResolved = 1,
                 },
                 new R.ModuleResult
                 {
@@ -127,10 +169,10 @@ namespace Parsek.Tests
             };
             string line = R.SummaryLine("circularintake--default--d5470c37", "CircularIntake", results);
             Assert.StartsWith("case circularintake--default--d5470c37: depth-mask repair part=CircularIntake modules=2 " +
-                              "repaired=1 intact=0 other=1", line);
+                              "repaired=1 unrepaired=1 intact=0", line);
             Assert.Contains("| m7=ModuleRestockDepthMask mask=fanintake_mask outcome=repaired " +
                             "live: body=destroyed masks=[destroyed] shader=alive " +
-                            "prefab: body=in-part masks=[in-part] shader=alive resolved=1 depthShaded=1", line);
+                            "prefab: body=in-part masks=[in-part] shader=alive resolved=1", line);
             Assert.Contains("| m9=ModuleDepthMask mask=<none> outcome=unsupported live: body=null masks=[] " +
                             "shader=null prefab: body=<none> masks=<none> shader=<none> detail=members-missing", line);
         }
@@ -145,7 +187,6 @@ namespace Parsek.Tests
             Assert.Equal("alive", R.Token(R.RefState.Alive));
             Assert.Equal("intact", R.Token(R.Outcome.Intact));
             Assert.Equal("repaired", R.Token(R.Outcome.Repaired));
-            Assert.Equal("not-depth-shaded", R.Token(R.Outcome.NotDepthShaded));
             Assert.Equal("unresolved", R.Token(R.Outcome.Unresolved));
             Assert.Equal("unsupported", R.Token(R.Outcome.Unsupported));
             Assert.Equal("threw", R.Token(R.Outcome.Threw));

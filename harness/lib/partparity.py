@@ -113,9 +113,13 @@ SETUP_SPAWN_TIMEOUT = "spawn-timeout"
 SETUP_STILL_ANIMATING = "still-animating"
 SETUP_DIED_SETTLING = "died-settling"
 SETUP_CRASHED = "crashed"
+# A real depth-mask module the capture's repair could not fix (design 4.2 step 0): the real
+# picture is not the part a player sees, so the case is a setup fault (``error``), like
+# ``skin-not-applied``; the sidecar also carries ``depth-mask-unrepaired:<count>``.
+SETUP_DEPTH_MASK_UNREPAIRED = "depth-mask-unrepaired"
 SETUP_STATUSES: Tuple[str, ...] = (
     SETUP_OK, SETUP_SKIN_NOT_APPLIED, SETUP_SPAWN_TIMEOUT, SETUP_STILL_ANIMATING,
-    SETUP_DIED_SETTLING, SETUP_CRASHED,
+    SETUP_DIED_SETTLING, SETUP_CRASHED, SETUP_DEPTH_MASK_UNREPAIRED,
 )
 CONTROL_IDS: Tuple[str, ...] = (
     "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", "ctl-ghost-scale90",
@@ -366,8 +370,8 @@ REASON_CONTEXT_POSE = "context-pose:picture differences capped at warn"
 # A part whose real side carries a depth mask the ghost skips by design (owner ruling
 # 2026-11-22) is judged like any other: the capture repairs the real mask to the
 # depth-only look a player sees (PartParityDepthMaskRepair, design 4.2 step 0), so its
-# pictures match the ghost's. A mask the repair could not fix flags the sidecar
-# ``depth-mask-unrepaired:<n>`` and its picture difference fails as it should.
+# pictures match the ghost's. A mask the repair could not fix makes the case the setup
+# fault ``depth-mask-unrepaired`` (SETUP_DEPTH_MASK_UNREPAIRED), an ``error``.
 
 
 SKIN_B9_MODULE = "ModuleB9PartSwitch"

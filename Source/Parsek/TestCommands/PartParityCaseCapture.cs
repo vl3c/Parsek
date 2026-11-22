@@ -71,17 +71,23 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Brings the real part's depth masks to the look the player sees before anything
-        /// reads the real renderers (<see cref="PartParityDepthMaskRepair"/>): one summary line
-        /// per case that has a depth-mask module, none for any other part.
+        /// reads the real renderers and before the ghost is parented under the part
+        /// (<see cref="PartParityDepthMaskRepair"/>): one summary line per case that has a
+        /// depth-mask module (Warn when a module stayed unrepaired, which makes the case the
+        /// <c>depth-mask-unrepaired</c> setup fault; Info when it repaired; Verbose when every
+        /// module was intact), none for any other part.
         /// </summary>
         private static void RepairDepthMasks(WaveCase wc, Part part)
         {
             List<PartParityDepthMaskRepair.ModuleResult> results = PartParityDepthMaskRepair.Repair(part);
             if (results.Count == 0) return;
-            string flag = PartParityDepthMaskRepair.CaseFlag(results);
-            if (flag != null) wc.Flags.Add(flag);
+            PartParityDepthMaskRepair.Count(results, out int repaired, out int unrepaired);
+            wc.Flags.AddRange(PartParityDepthMaskRepair.CaseFlags(results));
+            wc.DepthMaskUnrepaired = unrepaired;
+            if (unrepaired > 0) wc.Detail = wc.Detail ?? PartParityDepthMaskRepair.UnrepairedDetail(results);
             string line = PartParityDepthMaskRepair.SummaryLine(wc.CaseId, part.partInfo?.name, results);
-            if (flag != null) ParsekLog.Info(PartParitySweepRunner.Tag, line);
+            if (unrepaired > 0) ParsekLog.Warn(PartParitySweepRunner.Tag, line);
+            else if (repaired > 0) ParsekLog.Info(PartParitySweepRunner.Tag, line);
             else ParsekLog.Verbose(PartParitySweepRunner.Tag, line);
         }
 
@@ -409,6 +415,8 @@ namespace Parsek.TestCommands
             if (wc.Status != null) return wc.Status;
             if (PartParitySkinRules.SkinNotApplied(wc.Skin))
                 return TestCommandPartParitySweep.SetupSkinNotApplied;
+            if (wc.DepthMaskUnrepaired > 0)
+                return TestCommandPartParitySweep.SetupDepthMaskUnrepaired;
             return wc.StillAnimating ? TestCommandPartParitySweep.SetupStillAnimating : TestCommandPartParitySweep.SetupOk;
         }
 

@@ -345,6 +345,20 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         side["structure"]["missingOnGhost"] = [{"key": "a/b/RCSMask", "mesh": "", "rendered": True}]
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict, "pre-key sidecar: no cap either")
 
+    def test_an_unrepaired_depth_mask_is_a_setup_fault_not_a_ghost_fail(self):
+        # The repair could not fix a real mask: the real picture is not the player's part, so
+        # the case is an error (setup fault), never a ghost fail, and it is a complete record.
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        side["views"][0]["colorBlobPx"] = 5000
+        side["flags"] = list(side.get("flags") or []) + ["depth-mask-repaired:1", "depth-mask-unrepaired:1"]
+        side["setup"] = {"status": pp.SETUP_DEPTH_MASK_UNREPAIRED,
+                         "detail": "depth-mask m3=ModuleDepthMask:unsupported:members-missing"}
+        self.assertTrue(pp.is_setup_fault(pp.SETUP_DEPTH_MASK_UNREPAIRED))
+        c = pp.judge_case(side)
+        self.assertEqual(pp.VERDICT_ERROR, c.verdict)
+        self.assertEqual("setup:depth-mask-unrepaired", c.reasons[0])
+        self.assertIsNone(pp._sidecar_complete(side, side["caseId"]))
+
     def test_a_non_visual_renderer_missing_on_the_ghost_is_not_a_missing_mesh(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
         for entry in ({"key": "a/RCSMask", "mesh": "", "rendered": True, "nonVisual": "depth-mask"},
@@ -901,7 +915,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(pp.THUMB_SUFFIX, self._const(text, "ThumbSuffix"))
         statuses = {self._const(text, n) for n in (
             "SetupOk", "SetupSkinNotApplied", "SetupSpawnTimeout", "SetupStillAnimating",
-            "SetupDiedSettling", "SetupCrashed")}
+            "SetupDiedSettling", "SetupCrashed", "SetupDepthMaskUnrepaired")}
         self.assertEqual(set(pp.SETUP_STATUSES), statuses)
         controls = [self._const(text, n) for n in (
             "ControlEmpty", "ControlGhostAbsent", "ControlRealVsReal", "ControlGhostScale90",

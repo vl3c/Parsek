@@ -211,6 +211,10 @@ namespace Parsek.TestCommands
 
         internal const string SetupOk = "ok";
         internal const string SetupSkinNotApplied = "skin-not-applied";
+        /// <summary>A real part's depth-mask module needed the repair of design 4.2 step 0 and did
+        /// not get it (<c>PartParityDepthMaskRepair</c>): its real picture is not the part a
+        /// player sees, so the case is a setup fault, not a ghost finding.</summary>
+        internal const string SetupDepthMaskUnrepaired = "depth-mask-unrepaired";
         internal const string SetupSpawnTimeout = "spawn-timeout";
         internal const string SetupStillAnimating = "still-animating";
         internal const string SetupDiedSettling = "died-settling";
@@ -219,7 +223,7 @@ namespace Parsek.TestCommands
         internal static readonly string[] SetupStatuses =
         {
             SetupOk, SetupSkinNotApplied, SetupSpawnTimeout, SetupStillAnimating,
-            SetupDiedSettling, SetupCrashed,
+            SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired,
         };
 
         /// <summary>True for a status that is a setup fault: anything but <c>ok</c> and
