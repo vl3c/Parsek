@@ -446,13 +446,25 @@ namespace Parsek.Tests
         [Fact]
         public void WaveWorstCase_IsTheBucketsBound()
         {
-            Assert.Equal(56.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, true), 6);
-            Assert.Equal(46.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, false), 6);
-            Assert.Equal(31.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false), 6);
-            Assert.Equal(60.0, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Air, 5, false), 6);
+            Assert.Equal(56.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, true), 6);
+            Assert.Equal(46.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, false,
+                new[] { "deployable", "gear" }), 6);
+            Assert.Equal(31.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+                new[] { "jettison" }), 6);
+            Assert.Equal(32.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+                new[] { "light", "light" }), 6);
+            // The airbrake's and the cabin light's 5 s settle caps bound a quick wave holding one.
+            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+                new[] { "light", "airbrake" }), 6);
+            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+                new[] { "cabin-light" }), 6);
+            Assert.Equal(60.0, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Air, 5, false,
+                new[] { "parachute" }), 6);
+            Assert.Equal(5.0, PartParityStateRules.SettleCapSeconds("airbrake"));
+            Assert.Equal(5.0, PartParityStateRules.SettleCapSeconds("cabin-light"));
             Assert.True(PartParitySweepPlan.ShouldStartStateWave(0.0, 480, 1000.0));
-            Assert.True(PartParitySweepPlan.ShouldStartStateWave(400.0, 480, 56.2));
-            Assert.False(PartParitySweepPlan.ShouldStartStateWave(430.0, 480, 56.2));
+            Assert.True(PartParitySweepPlan.ShouldStartStateWave(400.0, 480, 56.7));
+            Assert.False(PartParitySweepPlan.ShouldStartStateWave(430.0, 480, 56.7));
         }
 
         // ----- the ghost side -----
@@ -486,36 +498,156 @@ namespace Parsek.Tests
 
         // ----- the poller predicates (the same predicate the recorder uses) -----
 
-        [Fact]
-        public void EveryFamilyPredicate_IsTheRecordersOwn()
+        private static string RecordingDir()
+            => Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Recording");
+
+        /// <summary>C# source with every comment removed (string and char literals kept), so a
+        /// predicate quoted in a comment can never satisfy a cell.</summary>
+        internal static string StripComments(string text)
         {
-            // Read wherever the recorder's pollers live (PartStatePoller.cs and the FlightRecorder
-            // partials), so a poll moved between those files keeps this cell green and a changed
-            // predicate reds it.
-            string dir = Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Recording");
-            string text = string.Join("\n", Directory.GetFiles(dir, "PartStatePoller.cs")
-                .Concat(Directory.GetFiles(dir, "FlightRecorder*.cs")).Select(File.ReadAllText));
+            var sb = new System.Text.StringBuilder(text.Length);
+            int i = 0;
+            while (i < text.Length)
+            {
+                char c = text[i];
+                char n = i + 1 < text.Length ? text[i + 1] : '\0';
+                if (c == '/' && n == '/') { while (i < text.Length && text[i] != '\n') i++; continue; }
+                if (c == '/' && n == '*')
+                {
+                    int end = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                    i = end < 0 ? text.Length : end + 2;
+                    continue;
+                }
+                if (c == '"' || c == '\'')
+                {
+                    int j = i + 1;
+                    while (j < text.Length && text[j] != c && text[j] != '\n') j += text[j] == '\\' ? 2 : 1;
+                    j = Math.Min(j + 1, text.Length);
+                    sb.Append(text, i, j - i);
+                    i = j;
+                    continue;
+                }
+                sb.Append(c);
+                i++;
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>The body (outer braces included) of the method whose declaration starts
+        /// with <paramref name="signature"/> in comment-stripped <paramref name="text"/>; braces
+        /// inside string literals do not count. Null when the method is absent.</summary>
+        internal static string MethodBody(string text, string signature)
+        {
+            int at = text.IndexOf(signature, StringComparison.Ordinal);
+            if (at < 0) return null;
+            int open = text.IndexOf('{', at);
+            int depth = 0;
+            bool inString = false;
+            char quote = '\0';
+            for (int i = open; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inString)
+                {
+                    if (c == '\\') { i++; continue; }
+                    if (c == quote) inString = false;
+                    continue;
+                }
+                if (c == '"' || c == '\'') { inString = true; quote = c; continue; }
+                if (c == '{') depth++;
+                else if (c == '}' && --depth == 0) return text.Substring(open, i - open + 1);
+            }
+            return null;
+        }
+
+        private static string PollerBody(string poller)
+        {
+            string text = StripComments(File.ReadAllText(Path.Combine(RecordingDir(), "PartStatePoller.cs")));
+            string body = MethodBody(text, "internal static void " + poller + "(");
+            Assert.True(body != null, "PartStatePoller." + poller + " moved; this cell is vacuous");
+            return body;
+        }
+
+        /// <summary>The recorder's light check: <c>PartStatePoller.PollLights</c> once the active
+        /// recorder's body moves there (D.10 S2), else <c>FlightRecorder.CheckLightState</c>.</summary>
+        private static string LightCheckBody()
+        {
+            string poller = StripComments(File.ReadAllText(Path.Combine(RecordingDir(), "PartStatePoller.cs")));
+            string body = MethodBody(poller, "internal static void PollLights(");
+            if (body != null) return body;
+            string recorder = StripComments(File.ReadAllText(Path.Combine(RecordingDir(), "FlightRecorder.PartModuleStates.cs")));
+            body = MethodBody(recorder, "private void CheckLightState(");
+            Assert.True(body != null, "the recorder's light check moved; this cell is vacuous");
+            return body;
+        }
+
+        /// <summary>
+        /// Each family's predicate, asserted inside the body of the poller that owns it (comments
+        /// stripped), together with the first-per-part rule where the family depends on it: a
+        /// poller that keeps only its first module ends its module loop with <c>break;</c>, one
+        /// that polls every module has none. A changed predicate or a moved break reds here.
+        /// </summary>
+        public static IEnumerable<object[]> PollerPredicates()
+        {
+            yield return new object[] { "PollDeployables", new[] { "p.FindModuleImplementing<ModuleDeployablePart>()",
+                "PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName)" }, null };
+            yield return new object[] { "PollGear", new[] { "p.Modules[m] as ModuleWheels.ModuleWheelDeployment" }, true };
+            yield return new object[] { "PollLadders", new[] {
+                "string.Equals(module.moduleName, \"RetractableLadder\", StringComparison.Ordinal)" }, true };
+            yield return new object[] { "PollAnimationGroups", new[] {
+                "string.Equals(module.moduleName, \"ModuleAnimationGroup\", StringComparison.Ordinal)" }, false };
+            yield return new object[] { "PollCargoBays", new[] { "p.FindModuleImplementing<ModuleCargoBay>()",
+                "int deployIdx = cargo.DeployModuleIndex;", "p.Modules[deployIdx] as ModuleAnimateGeneric" }, null };
+            yield return new object[] { "PollAnimateGeneric", new[] { "if (FlightRecorder.HasDedicatedAnimateHandler(p)) continue;",
+                "p.Modules[m] as ModuleAnimateGeneric", "if (string.IsNullOrEmpty(animateModule.animationName)) continue;" }, false };
+            yield return new object[] { "PollAeroSurfaces", new[] {
+                "string.Equals(module.moduleName, \"ModuleAeroSurface\", StringComparison.Ordinal)" }, false };
+            yield return new object[] { "PollParachutes", new[] { "p.FindModuleImplementing<ModuleParachute>()" }, null };
+            yield return new object[] { "PollJettisons", new[] { "p.Modules[m] as ModuleJettison" }, null };
+            yield return new object[] { "PollFairings", new[] { "p.FindModuleImplementing<ModuleProceduralFairing>()" }, null };
+        }
+
+        [Theory]
+        [MemberData(nameof(PollerPredicates))]
+        public void EveryFamilyPredicate_IsTheRecordersOwn(string poller, string[] tokens, bool? firstPerPart)
+        {
+            string body = PollerBody(poller);
+            foreach (string token in tokens)
+                Assert.True(body.Contains(token), poller + " no longer carries the predicate: " + token);
+            if (firstPerPart == true)
+                Assert.True(body.Contains("break;"), poller + " no longer keeps only the first module of a part");
+            if (firstPerPart == false)
+                Assert.False(body.Contains("break;"), poller + " now stops at a part's first module");
+        }
+
+        [Fact]
+        public void TheLightFamilies_AreTheRecordersLightCheck()
+        {
+            string body = LightCheckBody();
             foreach (string token in new[]
             {
-                "FindModuleImplementing<ModuleDeployablePart>()",
-                "PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName)",
-                "p.Modules[m] as ModuleWheels.ModuleWheelDeployment",
-                "string.Equals(module.moduleName, \"RetractableLadder\", StringComparison.Ordinal)",
-                "string.Equals(module.moduleName, \"ModuleAnimationGroup\", StringComparison.Ordinal)",
-                "FindModuleImplementing<ModuleCargoBay>()",
-                "p.Modules[deployIdx] as ModuleAnimateGeneric",
-                "if (FlightRecorder.HasDedicatedAnimateHandler(p)) continue;",
-                "p.Modules[m] as ModuleAnimateGeneric",
-                "string.IsNullOrEmpty(animateModule.animationName)",
-                "string.Equals(module.moduleName, \"ModuleAeroSurface\", StringComparison.Ordinal)",
-                "FindModuleImplementing<ModuleLight>()",
-                "as ModuleColorChanger",
-                "toggleInFlight",
-                "FindModuleImplementing<ModuleParachute>()",
-                "p.Modules[m] as ModuleJettison",
-                "FindModuleImplementing<ModuleProceduralFairing>()",
+                "p.FindModuleImplementing<ModuleLight>()", "if (!hasModuleLight)", "as ModuleColorChanger",
+                "if (!cc.toggleInFlight) continue;",
             })
-                Assert.True(text.Contains(token), "recorder predicate moved or changed: " + token);
+                Assert.True(body.Contains(token), "the light check no longer carries: " + token);
+            // The cabin light is the FIRST toggleable colour changer: the loop breaks after it.
+            string cabin = body.Substring(body.IndexOf("if (!hasModuleLight)", StringComparison.Ordinal));
+            Assert.True(cabin.Contains("break;"), "the cabin-light loop no longer stops at its first module");
+        }
+
+        [Fact]
+        public void TheDedicatedHandlerMirror_IsTheRecordersList()
+        {
+            string text = string.Join("\n", Directory.GetFiles(RecordingDir(), "FlightRecorder*.cs")
+                .Select(f => StripComments(File.ReadAllText(f))));
+            string body = MethodBody(text, "internal static bool HasDedicatedAnimateHandler(Part p)");
+            Assert.True(body != null, "FlightRecorder.HasDedicatedAnimateHandler moved; this cell is vacuous");
+            var types = System.Text.RegularExpressions.Regex.Matches(body, @"FindModuleImplementing<(?:\w+\.)*(\w+)>")
+                .Cast<System.Text.RegularExpressions.Match>().Select(m => m.Groups[1].Value).ToArray();
+            var names = System.Text.RegularExpressions.Regex.Matches(body, @"moduleName, ""(\w+)""")
+                .Cast<System.Text.RegularExpressions.Match>().Select(m => m.Groups[1].Value).ToArray();
+            Assert.Equal(PartParityStateRules.DedicatedHandlerTypes, types);
+            Assert.Equal(PartParityStateRules.DedicatedHandlerModuleNames, names);
         }
     }
 }
