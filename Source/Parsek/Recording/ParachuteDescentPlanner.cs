@@ -50,8 +50,12 @@ namespace Parsek
         // Summed stock chute drag (ModuleParachute.semiDeployedDrag / fullyDeployedDrag) of
         // the OPEN chutes in their current state, and of the same chutes fully open. Zero or
         // NaN when any open chute's drag was not read.
+        // RealChute canopies are summed as open canopy area (m^2) instead, never mixed with
+        // stock drag (OpenChuteTally.CombineDrag); only the ratio is read.
         public double OpenChuteDragNow;
         public double OpenChuteDragFull;
+        // Which sums those are: stock, realchute-area, mixed (NaN) or "-"; null when unset.
+        public string OpenChuteDragSource;
         // Air density (kg/m^3) at the vessel and at the ground under it; zero or NaN unread.
         public double DensityAtAltitude;
         public double DensityAtTouchdown;

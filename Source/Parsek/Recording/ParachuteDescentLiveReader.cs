@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
@@ -8,14 +9,18 @@ namespace Parsek
     /// Live half of the chute descent prediction: reads a vessel's open parachutes and its
     /// state into a <see cref="ParachuteDescentInput"/>. A loaded vessel (packed or not) is
     /// read from its <c>ModuleParachute</c> modules (<c>deploymentState</c>,
-    /// <c>deployAltitude</c>); an unloaded one from every persisted chute module
+    /// <c>deployAltitude</c>) and, on a part without one, its RealChute <c>RealChuteModule</c>
+    /// modules (by reflection, <see cref="RealChuteLiveRead"/>, into the node shape RealChute
+    /// persists); an unloaded one from every persisted chute module
     /// <see cref="ParachuteProtoModuleRead"/> reads (stock <c>ModuleParachute</c>, an EVA
     /// kerbal's <c>ModuleEvaChute</c>, RealChute's <c>RealChuteModule</c>). For the full-canopy
-    /// estimate it also reads the open chutes' stock drag (<c>semiDeployedDrag</c> /
-    /// <c>fullyDeployedDrag</c>, from the part prefab when unloaded; a part with no stock
-    /// chute module reads no drag and the estimate falls back), drag over weight (unpacked
-    /// loaded vessels only) and the air density at the vessel and at the ground. Every game
-    /// read sits in a non-inlined method so a headless caller never JITs it.
+    /// estimate it also reads the open chutes' drag: stock <c>semiDeployedDrag</c> /
+    /// <c>fullyDeployedDrag</c> (from the part prefab when unloaded), or a RealChute part's
+    /// open canopy area (<see cref="ParachuteProtoModuleRead.TryReadRealChuteCanopyArea"/>);
+    /// the two are different units, so a vessel with both kinds open reads no drag and the
+    /// estimate falls back (<see cref="OpenChuteTally.CombineDrag"/>). It also reads drag over
+    /// weight (unpacked loaded vessels only) and the air density at the vessel and at the
+    /// ground. Every game read sits in a non-inlined method so a headless caller never JITs it.
     /// </summary>
     internal static class ParachuteDescentLiveReader
     {
@@ -30,8 +35,11 @@ namespace Parsek
                 return false;
             }
 
-            CountOpenChutes(vessel, out ParachuteCanopyState canopy, out double deployAgl,
-                out uint chutePid, out int openCount, out double dragNow, out double dragFull);
+            var tally = new OpenChuteTally();
+            CountOpenChutes(vessel, tally);
+            LogRealChuteRead(tally, vessel.loaded, vessel.persistentId);
+            ParachuteCanopyState canopy = tally.Canopy;
+            string dragSource = tally.CombineDrag(out double dragNow, out double dragFull);
             if (canopy == ParachuteCanopyState.None)
             {
                 declineReason = "no-open-chute";
@@ -71,6 +79,7 @@ namespace Parsek
                 DragToWeightRatio = ReadDragToWeightRatio(vessel),
                 OpenChuteDragNow = dragNow,
                 OpenChuteDragFull = dragFull,
+                OpenChuteDragSource = dragSource,
                 DensityAtAltitude = ReadDensity(body, alt),
                 DensityAtTouchdown = ReadDensity(body, ground),
                 BodyName = body.name,
@@ -80,15 +89,15 @@ namespace Parsek
                 Altitude = alt,
                 VerticalSpeed = vessel.verticalSpeed,
                 Canopy = canopy,
-                FullDeployAltitudeAgl = deployAgl,
+                FullDeployAltitudeAgl = tally.FullDeployAltitudeAgl,
                 TerrainAltitude = terrain,
                 BodyHasOcean = body.ocean,
                 InAtmosphere = body.atmosphere && alt < body.atmosphereDepth,
                 RootHeightAboveLowestPoint = rootHeight,
                 SurfaceRelativeRotation = vessel.srfRelRotation,
                 WorldUp = up,
-                ChutePartPersistentId = chutePid,
-                OpenChuteCount = openCount,
+                ChutePartPersistentId = tally.FirstChutePid,
+                OpenChuteCount = tally.OpenCount,
             };
             return true;
         }
@@ -162,22 +171,8 @@ namespace Parsek
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void CountOpenChutes(
-            Vessel vessel,
-            out ParachuteCanopyState canopy,
-            out double fullDeployAltitudeAgl,
-            out uint firstChutePid,
-            out int openCount,
-            out double dragNow,
-            out double dragFull)
+        private static void CountOpenChutes(Vessel vessel, OpenChuteTally tally)
         {
-            canopy = ParachuteCanopyState.None;
-            fullDeployAltitudeAgl = double.NaN;
-            firstChutePid = 0;
-            openCount = 0;
-            dragNow = 0.0;
-            dragFull = 0.0;
-
             if (vessel.loaded && vessel.parts != null)
             {
                 for (int i = 0; i < vessel.parts.Count; i++)
@@ -187,12 +182,13 @@ namespace Parsek
                         continue;
                     ModuleParachute chute = part.FindModuleImplementing<ModuleParachute>();
                     if (chute == null)
+                    {
+                        NoteLoadedRealChutes(part, tally);
                         continue;
+                    }
                     ParachuteCanopyState state = Classify(chute.deploymentState);
-                    Note(state, chute.deployAltitude, part.persistentId,
-                        ref canopy, ref fullDeployAltitudeAgl, ref firstChutePid, ref openCount);
-                    AccumulateChuteDrag(state, chute.semiDeployedDrag, chute.fullyDeployedDrag,
-                        ref dragNow, ref dragFull);
+                    tally.NoteStockChute(state, chute.deployAltitude, part.persistentId,
+                        chute.semiDeployedDrag, chute.fullyDeployedDrag);
                 }
                 return;
             }
@@ -210,17 +206,94 @@ namespace Parsek
                     ProtoPartModuleSnapshot module = pps.modules[m];
                     if (module == null || !ParachuteProtoModuleRead.IsChuteModuleName(module.moduleName))
                         continue;
+                    if (string.Equals(module.moduleName, ParachuteProtoModuleRead.RealChuteModuleName,
+                            StringComparison.Ordinal))
+                    {
+                        tally.NoteRealChuteModule(module.moduleValues, pps.persistentId);
+                        continue;
+                    }
                     ParachuteCanopyState state = ClassifyProtoModule(
                         module.moduleName, module.moduleValues, out double deployAltitude);
-                    Note(state, deployAltitude, pps.persistentId,
-                        ref canopy, ref fullDeployAltitudeAgl, ref firstChutePid, ref openCount);
+                    double semiDrag = double.NaN;
+                    double fullDrag = double.NaN;
                     if (state != ParachuteCanopyState.None)
-                    {
-                        TryReadPrefabChuteDrag(pps.partName, out double semiDrag, out double fullDrag);
-                        AccumulateChuteDrag(state, semiDrag, fullDrag, ref dragNow, ref dragFull);
-                    }
+                        TryReadPrefabChuteDrag(pps.partName, out semiDrag, out fullDrag);
+                    tally.NoteStockChute(state, deployAltitude, pps.persistentId, semiDrag, fullDrag);
                 }
             }
+        }
+
+        /// <summary>
+        /// A loaded part's RealChute modules (a RealChute install converts stock chutes to
+        /// them), read by reflection into the node RealChute persists. A stock part carries
+        /// none, so a stock vessel adds nothing here.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void NoteLoadedRealChutes(Part part, OpenChuteTally tally)
+        {
+            PartModuleList modules = part.Modules;
+            if (modules == null)
+                return;
+            for (int m = 0; m < modules.Count; m++)
+            {
+                PartModule module = modules[m];
+                if (module == null || !RealChuteLiveRead.IsRealChuteModuleType(module.GetType()))
+                    continue;
+                if (!RealChuteLiveRead.TryBuildModuleNode(
+                        module, out ConfigNode node, out int unread, out string failure))
+                {
+                    tally.NoteRealChuteReadFailure(failure);
+                    continue;
+                }
+                tally.RealChuteUnreadCanopies += unread;
+                tally.NoteRealChuteModule(node, part.persistentId);
+            }
+        }
+
+        /// <summary>
+        /// Pure: one summary line (rate-limited) when the vessel carried a RealChute module (none on a stock
+        /// install), and a Warn when one could not be read by reflection (a RealChute version
+        /// with another shape reads as no chute).
+        /// </summary>
+        internal static void LogRealChuteRead(OpenChuteTally tally, bool loaded, uint vesselPid)
+        {
+            if (tally == null || (tally.RealChuteModules == 0 && tally.RealChuteReadFailures == 0))
+                return;
+            // The finalizer re-reads a background vessel on every cache refresh: rate-limited,
+            // with the counts that change in the key so a changed read prints at once.
+            ParsekLog.VerboseRateLimited("Extrapolator",
+                string.Format(CultureInfo.InvariantCulture, "realchute-read.{0}.{1}.{2}.{3}",
+                    vesselPid, tally.RealChuteModules, tally.RealChuteOpenModules, tally.RealChuteReadFailures),
+                string.Format(CultureInfo.InvariantCulture,
+                    "RealChute read: pid={0} source={1} modules={2} openModules={3} openCanopies={4} " +
+                    "unreadCanopies={5} readFailures={6} areaNow={7} areaFull={8}",
+                    vesselPid,
+                    loaded ? "loaded-reflection" : "proto-node",
+                    tally.RealChuteModules,
+                    tally.RealChuteOpenModules,
+                    tally.RealChuteOpenCanopies,
+                    tally.RealChuteUnreadCanopies,
+                    tally.RealChuteReadFailures,
+                    FormatArea(tally.RealChuteAreaNow, tally.RealChuteOpenModules),
+                    FormatArea(tally.RealChuteAreaFull, tally.RealChuteOpenModules)),
+                minIntervalSeconds: 30.0);
+            if (tally.RealChuteReadFailures > 0)
+            {
+                ParsekLog.WarnRateLimited("Extrapolator",
+                    "realchute-read-failed." + (tally.RealChuteLastFailure ?? "unknown"),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "RealChute module not readable: pid={0} failures={1} reason={2}; " +
+                        "its canopies read as not open",
+                        vesselPid, tally.RealChuteReadFailures, tally.RealChuteLastFailure ?? "unknown"),
+                    minIntervalSeconds: 60.0);
+            }
+        }
+
+        private static string FormatArea(double area, int openModules)
+        {
+            if (openModules == 0)
+                return "-";
+            return double.IsNaN(area) ? "NaN" : area.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -236,42 +309,7 @@ namespace Parsek
             ref double dragNow,
             ref double dragFull)
         {
-            if (state == ParachuteCanopyState.None)
-                return;
-            bool read = !double.IsNaN(semiDrag) && !double.IsInfinity(semiDrag) && semiDrag >= 0.0
-                && !double.IsNaN(fullDrag) && !double.IsInfinity(fullDrag) && fullDrag > 0.0;
-            if (!read)
-            {
-                dragNow = double.NaN;
-                dragFull = double.NaN;
-                return;
-            }
-            dragNow += state == ParachuteCanopyState.Deployed ? fullDrag : semiDrag;
-            dragFull += fullDrag;
-        }
-
-        private static void Note(
-            ParachuteCanopyState state,
-            double deployAltitude,
-            uint pid,
-            ref ParachuteCanopyState canopy,
-            ref double fullDeployAltitudeAgl,
-            ref uint firstChutePid,
-            ref int openCount)
-        {
-            if (state == ParachuteCanopyState.None)
-                return;
-            openCount++;
-            if (firstChutePid == 0)
-                firstChutePid = pid;
-            if (state > canopy)
-                canopy = state;
-            if (state == ParachuteCanopyState.SemiDeployed
-                && !double.IsNaN(deployAltitude)
-                && (double.IsNaN(fullDeployAltitudeAgl) || deployAltitude > fullDeployAltitudeAgl))
-            {
-                fullDeployAltitudeAgl = deployAltitude;
-            }
+            OpenChuteTally.AccumulateChuteDrag(state, semiDrag, fullDrag, ref dragNow, ref dragFull);
         }
 
         /// <summary>Pure: only an OPEN canopy counts; a staged chute still armed (ACTIVE), waiting
@@ -310,11 +348,150 @@ namespace Parsek
         /// <summary>Pure: the canopy state a persisted <c>persistentState</c> string names.</summary>
         internal static ParachuteCanopyState ClassifyPersistentState(string persistentState)
         {
-            if (string.Equals(persistentState, "DEPLOYED", StringComparison.OrdinalIgnoreCase))
-                return ParachuteCanopyState.Deployed;
-            if (string.Equals(persistentState, "SEMIDEPLOYED", StringComparison.OrdinalIgnoreCase))
-                return ParachuteCanopyState.SemiDeployed;
-            return ParachuteCanopyState.None;
+            return ParachuteProtoModuleRead.ClassifyPersistentState(persistentState);
+        }
+    }
+
+    /// <summary>
+    /// The open chutes of one vessel as <c>ParachuteDescentLiveReader</c> counts them:
+    /// the strongest canopy, the largest full-deploy altitude of a semi-deployed chute, the
+    /// first open chute's part, the open chute count, and the drag sums kept apart by kind
+    /// (stock drag, RealChute canopy area: different units). Pure; it references no reader
+    /// type, so the reader -> tally edge stays one-way.
+    /// </summary>
+    internal sealed class OpenChuteTally
+    {
+        public ParachuteCanopyState Canopy = ParachuteCanopyState.None;
+        public double FullDeployAltitudeAgl = double.NaN;
+        public uint FirstChutePid;
+        public int OpenCount;
+
+        public bool StockOpen;
+        public double StockDragNow;
+        public double StockDragFull;
+
+        public int RealChuteModules;
+        public int RealChuteOpenModules;
+        public int RealChuteOpenCanopies;
+        public int RealChuteUnreadCanopies;
+        public int RealChuteReadFailures;
+        public string RealChuteLastFailure;
+        public double RealChuteAreaNow;
+        public double RealChuteAreaFull;
+
+        /// <summary>A stock (or EVA) chute; its drag NaN when unread.</summary>
+        public void NoteStockChute(
+            ParachuteCanopyState state, double deployAltitude, uint pid, double semiDrag, double fullDrag)
+        {
+            Note(state, deployAltitude, pid);
+            if (state == ParachuteCanopyState.None)
+                return;
+            StockOpen = true;
+            AccumulateChuteDrag(state, semiDrag, fullDrag, ref StockDragNow, ref StockDragFull);
+        }
+
+        /// <summary>
+        /// A RealChute module in its persisted node shape (a proto module, or a loaded module
+        /// read into that shape): its most open canopy counts like one chute, its open
+        /// canopies' area goes to the RealChute sums.
+        /// </summary>
+        public void NoteRealChuteModule(ConfigNode moduleValues, uint pid)
+        {
+            RealChuteModules++;
+            ParachuteCanopyState state = ParachuteCanopyState.None;
+            double deployAltitude = double.NaN;
+            if (ParachuteProtoModuleRead.TryReadCanopy(ParachuteProtoModuleRead.RealChuteModuleName,
+                    moduleValues, out string persistentState, out double readAltitude))
+            {
+                state = ParachuteProtoModuleRead.ClassifyPersistentState(persistentState);
+                deployAltitude = readAltitude;
+            }
+            Note(state, deployAltitude, pid);
+            if (state == ParachuteCanopyState.None)
+                return;
+            RealChuteOpenModules++;
+            ParachuteProtoModuleRead.TryReadRealChuteCanopyArea(
+                moduleValues, out double areaNow, out double areaFull, out int openCanopies);
+            RealChuteOpenCanopies += openCanopies;
+            RealChuteAreaNow += areaNow;
+            RealChuteAreaFull += areaFull;
+        }
+
+        /// <summary>
+        /// Pure: adds one chute's stock drag to the open chutes' sums, now (fully open: its
+        /// <c>fullyDeployedDrag</c>, semi: its <c>semiDeployedDrag</c>) and fully open. A chute
+        /// not open (stowed, armed, cut) adds nothing (owner ruling Q10b). An open chute whose
+        /// drag is unread poisons both sums with NaN, so the planner falls back.
+        /// </summary>
+        internal static void AccumulateChuteDrag(
+            ParachuteCanopyState state,
+            double semiDrag,
+            double fullDrag,
+            ref double dragNow,
+            ref double dragFull)
+        {
+            if (state == ParachuteCanopyState.None)
+                return;
+            bool read = !double.IsNaN(semiDrag) && !double.IsInfinity(semiDrag) && semiDrag >= 0.0
+                && !double.IsNaN(fullDrag) && !double.IsInfinity(fullDrag) && fullDrag > 0.0;
+            if (!read)
+            {
+                dragNow = double.NaN;
+                dragFull = double.NaN;
+                return;
+            }
+            dragNow += state == ParachuteCanopyState.Deployed ? fullDrag : semiDrag;
+            dragFull += fullDrag;
+        }
+
+        private void Note(ParachuteCanopyState state, double deployAltitude, uint pid)
+        {
+            if (state == ParachuteCanopyState.None)
+                return;
+            OpenCount++;
+            if (FirstChutePid == 0)
+                FirstChutePid = pid;
+            if (state > Canopy)
+                Canopy = state;
+            if (state == ParachuteCanopyState.SemiDeployed
+                && !double.IsNaN(deployAltitude)
+                && (double.IsNaN(FullDeployAltitudeAgl) || deployAltitude > FullDeployAltitudeAgl))
+            {
+                FullDeployAltitudeAgl = deployAltitude;
+            }
+        }
+
+        /// <summary>A loaded RealChute module reflection could not read.</summary>
+        public void NoteRealChuteReadFailure(string failure)
+        {
+            RealChuteModules++;
+            RealChuteReadFailures++;
+            RealChuteLastFailure = failure;
+        }
+
+        /// <summary>
+        /// The drag sums the planner reads and their source: <c>stock</c> (the stock sums, as
+        /// before RealChute was read), <c>realchute-area</c>, <c>mixed</c> (both kinds open:
+        /// NaN, the planner falls back) or <c>-</c> (nothing open: zero).
+        /// </summary>
+        public string CombineDrag(out double dragNow, out double dragFull)
+        {
+            bool realChuteOpen = RealChuteOpenModules > 0;
+            if (StockOpen && realChuteOpen)
+            {
+                dragNow = double.NaN;
+                dragFull = double.NaN;
+                return "mixed";
+            }
+            if (realChuteOpen)
+            {
+                dragNow = RealChuteAreaNow;
+                dragFull = RealChuteAreaFull;
+                return "realchute-area";
+            }
+            dragNow = StockDragNow;
+            dragFull = StockDragFull;
+            return StockOpen ? "stock" : "-";
         }
     }
 }
