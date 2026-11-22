@@ -696,6 +696,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_GroundScanEndOrbit_CarriesTheMarkerToTheRecording()
+        {
+            // Owner ruling Q15: the default finalizer kept a peak-grazing tail Orbiting where its
+            // ground scan stopped; the live cache must carry that, or the applied recording is an
+            // Orbiting under the floor the spawn check refuses.
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording rec, Vessel v, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 5000.0,
+                        groundScanEndOrbit = true,
+                        appendedOrbitSegments = new List<OrbitSegment>
+                        {
+                            new OrbitSegment
+                            {
+                                bodyName = "Mun", startUT = refreshUT, endUT = 5000.0,
+                                semiMajorAxis = 212500.0, eccentricity = 0.035, isPredicted = true
+                            }
+                        }
+                    };
+                    return true;
+                };
+            var vessel = MakeFlyingView(909u, packed: false, loaded: true, inAtmosphere: false);
+            var recording = new Recording { RecordingId = "rec-scan-end", VesselPersistentId = 909u };
+            recording.Points.Add(new TrajectoryPoint { ut = 120.0, bodyName = "Mun", altitude = 20000.0 });
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Orbiting, cache.TerminalState);
+            Assert.True(cache.GroundScanEnd);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                recording,
+                cache,
+                new RecordingFinalizationCacheApplyOptions { ConsumerPath = "test_scan_end", AllowStale = true },
+                out RecordingFinalizationCacheApplyResult applyResult);
+
+            Assert.True(applied, applyResult.Status.ToString());
+            Assert.Equal(TerminalState.Orbiting, recording.TerminalStateValue);
+            Assert.True(recording.TerminalPredicted);
+            Assert.True(recording.GroundScanEndOrbit);
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_PackedBackgroundDestroy_CachesThePredictedFallWithoutEagerStamp()
         {
             // GS-10 / GS-11: stock deleting a packed stage in the air used to cache

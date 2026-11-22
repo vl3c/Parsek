@@ -421,6 +421,7 @@ namespace Parsek
             cache.Status = FinalizationCacheStatus.Fresh;
             cache.TerminalState = result.terminalState.Value;
             cache.TerminalUT = result.terminalUT;
+            cache.GroundScanEnd = result.groundScanEndOrbit && result.terminalState == TerminalState.Orbiting;
             cache.TerminalBodyName = !string.IsNullOrEmpty(result.terminalOrbit?.bodyName)
                 ? result.terminalOrbit.Value.bodyName
                 : cache.LastObservedBodyName;
@@ -609,7 +610,9 @@ namespace Parsek
                     result.terminalState,
                     segments,
                     bodies,
-                    cache.RecordingId);
+                    cache.RecordingId,
+                    result.endedAtGroundScanEnd);
+            cache.GroundScanEnd = IncompleteBallisticSceneExitFinalizer.IsGroundScanEndOrbit(terminalState, result);
 
             cache.Status = FinalizationCacheStatus.Fresh;
             cache.TerminalState = terminalState;

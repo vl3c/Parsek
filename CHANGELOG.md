@@ -25,6 +25,8 @@ Not released yet.
   falling and explodes where it hits ground or sea, not in mid-air. (ABANDONED-STAGE-D1)
 - **Stages left under open parachutes come down and land.** The replay shows the stage under its
   chutes and it appears where it lands; a landing too fast crashes. (ABANDONED-STAGE-CHUTES)
+- **A crewed stage skimming Mun or Minmus peaks appears in orbit.** It ends where the crash
+  check stopped, crew aboard, not tied up for good. (ABANDONED-STAGE-CREWED-SUBORBITAL-RESERVED)
 - **A stage still under its chutes when you leave the flight is lost.** Leaving while it is still
   coming down ends it lost with its crew, as the game does. (ABANDONED-STAGE-Q14)
 - **A stage the game deleted is never brought back.** Its replay ends lost with its crew; if the

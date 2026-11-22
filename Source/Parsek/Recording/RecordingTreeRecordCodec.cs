@@ -43,6 +43,9 @@ namespace Parsek
             // Sparse too: only a quiet Destroyed end (a chuted craft stock deleted) carries it.
             if (rec.QuietDestroyedEnd)
                 recNode.AddValue("quietEnd", "True");
+            // Sparse too: only a predicted Orbiting ending at the ground scan's end carries it.
+            if (rec.GroundScanEndOrbit)
+                recNode.AddValue("groundScanEnd", "True");
             // Sparse too: only a recovery stamped with the recovered vessel's crew carries it
             // (an empty node = stock recovered nobody aboard; StampTerminalState keeps the list
             // only with a Recovered ending, and the crew answer reads it only there).
@@ -700,6 +703,9 @@ namespace Parsek
                 && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
             rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
                 && ParseBoolOr(recNode, "quietEnd", false);
+            rec.GroundScanEndOrbit = rec.TerminalStateValue == TerminalState.Orbiting
+                && rec.TerminalPredicted
+                && ParseBoolOr(recNode, "groundScanEnd", false);
             ConfigNode recoveredCrewNode = recNode.GetNode(RecoveredCrewNodeName);
             rec.RecoveredCrewNames = recoveredCrewNode != null
                 ? Recording.CopyRecoveredCrew(recoveredCrewNode.GetValues(RecoveredCrewValueName))
