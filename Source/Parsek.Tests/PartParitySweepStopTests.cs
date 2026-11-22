@@ -247,7 +247,7 @@ namespace Parsek.Tests
             string runner = RunnerSource();
             string destroy = MethodText(runner, "internal static void DestroyCase(");
             Assert.Contains("UnityEngine.Object.Destroy(wc.PlantedCube);", destroy);
-            Assert.Contains("DestroyCase(wc)", MethodText(runner, "private static IEnumerator TearDownWave("));
+            Assert.Contains("DestroyCase(wc)", MethodText(runner, "internal static IEnumerator TearDownWave("));
             Assert.Contains("DestroyCase(wc)", MethodText(runner, "internal string Cleanup("));
         }
 

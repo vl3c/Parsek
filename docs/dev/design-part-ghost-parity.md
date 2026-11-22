@@ -1204,10 +1204,10 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
   `host-not-at-pad`; every other run keeps `host-not-orbiting`. S1's interim `state-runs-not-built`
-  refusal was dropped with its hlib mirror when S3 built the live orbit engine; until S7 builds the
-  air context, a well-formed `contexts=air` step is REJECTED `air-runs-not-built`
-  (`TestCommandPartParitySweep.AirRunsBuilt`, hlib `PARTPARITY_AIR_RUNS_BUILT`; S7 flips both and
-  drops it), so no chute is pressed in orbit; the pure planning rules read `TryParseGrammar`.
+  refusal was dropped with its hlib mirror when S3 built the live orbit engine, and the interim
+  `air-runs-not-built` refusal (`AirRunsBuilt`, hlib `PARTPARITY_AIR_RUNS_BUILT`) when S7 built the
+  air context: a well-formed `contexts=air` step parses like any other and meets the pad rule at
+  the admission, so no chute is pressed in orbit; the pure planning rules read `TryParseGrammar`.
 - What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
   - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
     today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
@@ -1239,7 +1239,8 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
     `type`, `ut`, `pid`, `midx`), `ghostEvent` / `ghostStart` (`applied|no-info|pose-not-sampled|
     not-reached`, D.5), `startFirstFrame` (`atTarget`, `trackerDeg`: the start route at its first
     frame, D.5), `sunTracker` (`targetDeg`, `eventDeg`, `startFirstFrameDeg`), `canopy` (`tiltDeg`,
-    `wobbleDeg`: air cases, airflow tilt and wobble at capture, D.4), `nodes` (`node`, `part`: the
+    `wobbleDeg`: air cases, airflow tilt and wobble at capture, D.4; `transform`: the module's
+    `canopyName`, added by S7), `nodes` (`node`, `part`: the
     context's filler parts by node).
   - `atlas.rows`: `["real", "ghost", "ghost-start", "ghost-stowed"]` for a state case (any state
     but `stowed`), `["real", "ghost"]` for a stowed case as today, the stacked stowed shroud
@@ -1403,8 +1404,10 @@ so no range override. The chutes never come near the host (they end the case ove
 Deterministic semi then full, with stock doing both:
 
 1. Spawn at 1600 m ASL moving 10 m/s down (stock needs more than 1 m/s, `IsMovingFastEnoughToDeploy`),
-   the module node authored with `deployAltitude = 1000` (a persistent field the player sets in the
-   editor; the stock range is 50 to 5000). Settle 0.5 s.
+   the module node authored with `deployAltitude = 500` (a persistent field the player sets in the
+   editor; the stock range is 50 to 5000; S7 lowered it from the planned 1000 because stock also
+   opens fully once a raycast of `deployAltitude` metres down meets the terrain,
+   `ModuleParachute.ShouldDeploy`, and a semi case must keep its margin while it falls). Settle 0.5 s.
 2. Press `Deploy`. Stock arms the chute; at 1600 m the pressure (about 0.8 atm) passes
    `minAirPressureToOpen`, and the altitude is above `deployAltitude`, so stock goes SEMIDEPLOYED at
    once and plays `semiDeployedAnimation`. Done for `semi`: SEMIDEPLOYED and the animation finished
@@ -1445,6 +1448,52 @@ Own lanes: PP-5 (stock-minimal, label `pp5`) and PP-6 (modded-compat, label `pp6
 `operator`, report-only, one `op=run contexts=air states=all` step each (about 1 minute of sweep).
 They cannot share PP-3 / PP-4's flight: the orbit sweep needs an orbiting host, the air cases a
 host at the pad, and a lane stages one fixture.
+
+BUILT (S7, 2026-11-22): `Source/Parsek/TestCommands/PartParityAirContext.cs`, the pure rules in
+`PartParityAirPlan` (xUnit `PartParityAirContextTests`) and the live half in
+`PartParityAirContext`.
+
+- Admission. The runner and the seam applier both call `PartParityAirContext.DecideAdmission`,
+  which reads the active vessel's situation and its surface distance to the pad (on the home body
+  only) into `TestCommandPartParitySweep.DecideHostAdmission(args, ...)`; one Info `air
+  admission:` line per air step. The applier admits EVERY step by its run kind, the reset
+  included, so an air lane's reset carries `contexts=air`. The first run step writes the host
+  baseline with `Air = true` (`host.txt` `mode=air`).
+- Dispatch. One hook in `PartParitySweepRunner.RunWaves`: every wave of an air run, its stowed
+  controls included, runs `PartParityAirContext.RunWave`; an air state wave holds up to
+  `MaxAirWaveCases` (5). The air run's `ctl-real-vs-real` photographs the Mk16, armed by stock's
+  Deploy in the capture frame; `ctl-empty` / `ctl-ghost-absent` keep the small tank.
+- Spawn. `GhostCoOrbitalRig.SpawnInAir` (beside `SpawnCoOrbital`, so the production materializer
+  pin is unchanged) through `VesselSpawner.SpawnAtPosition`: 1600 m above sea level, slots 40 m
+  apart along the band 200 m east of the pad, upright (+Y up, +Z north), the inertial velocity
+  the surface's 10 m/s down plus `body.getRFrmVel`. Every `ModuleParachute` MODULE node gets
+  `deployAltitude = 500` (see step 1 above).
+- Chute sequence. The state driver's press and wait, unchanged; a full case's wait calls
+  `PartParityAirContext.StepFull` once the chute is SEMIDEPLOYED and still: `deployAltitude`
+  -> 5000 and the timeout restarted at the 15 s full wait. Both air states start with the 10 s
+  semi timeout.
+- Capture. Once done (after the settle), each frame at its end the case measures the canopy
+  (`tilt` = angle between the part's +Y and `(invertCanopy ? -1 : 1) * dragVectorDir`, `wobble`
+  = angle between `canopy.forward` and that aim) and captures at the first frame under 3 deg, or
+  at 4 s tagged `canopy-wobble:<deg>` (a state flag), recording `stateProof.canopy` (`tiltDeg`,
+  `wobbleDeg`, `transform` = `canopyName`). The prepare (depth-mask repair included) and every
+  view run in that ONE frame, so the structural records, the pictures and the measured angles
+  are of one pose; the sidecar is written and the case destroyed at once, so no chute falls
+  longer than it must. Before the capture the state is re-read: a chute that left its state
+  (a semi stock opened fully) is `state-timeout`.
+- Guards. A case under 300 m above the terrain is ended `died-settling` and destroyed; a wave
+  running past 120 s ends its remaining cases `state-timeout`. Neither fired in the first flights.
+- Live (2026-11-22, harness runs `2026-11-22_1713_PP-5-part-parity-chutes-stock` and
+  `_1715_PP-6-part-parity-chutes-modded`, PASS attempt 1, about 30 s of sweep each): all five
+  chutes of each install reached semi (1.7 to 3.5 s after the press) and full (4.9 to 13 s) for
+  real with `ParachuteSemiDeployed` / `ParachuteDeployed` recorded, every capture inside the
+  canopy window (tilt + wobble 0.5 to 2.2 deg, none timed out, 1205 m or more above the
+  terrain), the four air controls ok, no case vessel left. Every air case reads `fail`
+  (report-only) because the ghost canopy keeps the model's pose while stock re-aims the live
+  one (stock: a 90 or 180 deg turn about the canopy axis; ReStock: the Mk16's canopy upside
+  down), far beyond the canopy cap: todo GHOST-CHUTE-CANOPY-AIM; the ReStock semi read-back:
+  todo PARTPARITY-RESTOCK-SEMI-READBACK. The 3 deg window caught every case at its first done
+  frame, so it needs no re-pin (D.12).
 
 ### D.5 The ghost side: three ghosts per state case
 
@@ -1548,8 +1597,8 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   window: numeric `stateProof.canopy.tiltDeg` and `wobbleDeg` with `|tilt| + |wobble| < 3`
   (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` marker in `tags` or `flags` (both mark the 4 s
   timeout capture, which is never capped), and a non-empty `stateProof.canopy.transform`, the
-  module's `canopyName` (an ADDITIVE key S7 writes and adds to `CanopyKeys` / `CANOPY_KEYS`;
-  until then no air case is capped). A canopy renderer is a structure key one of whose `/`
+  module's `canopyName` (an ADDITIVE key S7 writes, listed in `CanopyKeys` / `CANOPY_KEYS`; a
+  null or empty value is never capped). A canopy renderer is a structure key one of whose `/`
   segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
   it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
   one `transformDiffers` entry and every entry is a canopy renderer with `|rotationDeltaDeg| <=
