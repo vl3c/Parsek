@@ -1343,8 +1343,11 @@ One case, in order (the 4.2 steps keep their order; new steps marked):
 Per family:
 
 - Sun-tracking solar panels (9 per install): the done rule adds "pivot rotation changed by less
-  than 0.1 deg over 0.5 s", cap 10 s, else captured and tagged `still-tracking` (judged, like
-  `still-animating`). Both sides see the same Sun. The ghost side is D.5.
+  than 0.1 deg over 0.5 s", cap 25 s (re-pinned from 10 s by S6: stock's slew is an exponential
+  approach at `trackingSpeed` 0.25, so the worst 180 deg needs about 21.4 s to meet the still rule;
+  at 10 s every tracking panel of PP-3's first full flight was 1 to 14 deg short), else captured and
+  tagged `still-tracking` (judged, like `still-animating`). Both sides see the same Sun. The ghost
+  side is D.5.
 - Airbrake: no Animation (`Mathf.MoveTowards` at `actuatorSpeed`), so done = the classifier reads
   deployed AND the surface transform's local rotation moved less than 0.05 deg over 0.5 s, cap 5 s.
 - Jettison context, by each module's own config (decompiled `ModuleJettison.SetupJettisonState`
@@ -1372,11 +1375,12 @@ Per family:
 - Step time box: a wave starts only when `elapsed + worstCase(bucket) <= maxSeconds` (480, under the
   540 s seam cap), where `worstCase` is the wave's bound, not the last wave's wall: spawn cap 20 s +
   the bucket's state timeout (20 s long, 5 s quick) + the longest settle cap of the wave's families
-  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (10 s, sun trackers
+  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (25 s, sun trackers
   only) + capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long
-  bucket about 57 s, quick about 32 s (about 36 s with an airbrake or a cabin light), air (D.4)
-  about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each followed by the 4 s canopy
-  window, capture, teardown). Pure, `PartParitySweepPlan.WaveWorstCaseSeconds`.
+  bucket about 47 s (about 72 s with a sun tracker), quick about 32 s (about 36 s with an airbrake
+  or a cabin light), air (D.4) about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each
+  followed by the 4 s canopy window, capture, teardown). Pure,
+  `PartParitySweepPlan.WaveWorstCaseSeconds`.
 
 BUILT (S3, 2026-11-22): `Source/Parsek/TestCommands/PartParityStateDriver.cs` (live) and
 `PartParityStateWave.cs` (pure, xUnit `PartParityStateWaveTests`). A state run's waves hold one
@@ -1797,6 +1801,23 @@ Uncertainty about +-50 % (clip lengths not measured): each lane's first flight i
 reading flight, and the step count is set from its `wall=`, as P2 did. The ids PP-3 to PP-6 are free
 on `origin/main` and on every open PR branch (checked 2026-11-22). The four lanes need no parallel
 slot: they run on the installs PP-1 / PP-2 use, one slot each, and two installs can fly at once.
+
+As flown (S6, 2026-11-22, branch `part-parity-p6-s6`): PP-3 plans 160 orbit cases (94
+single-part states plus 66 shroud cases; the 10 chute cases are air, the 5 fairing parts are
+excluded `fairing-contexts-pending`) and PP-4 225 (117 plus 108), each plus the 9 controls. A
+`limit=20` reading flight per lane (`2026-11-22_1627`, `_1631`: about 65 s for 20 cases and the
+controls) and then the full lanes: PP-3 `2026-11-22_1634` (426 s + 86 s of sweep, 622 s wall) and,
+after the sun-tracker cap re-pin (D.3), `2026-11-22_1656` (414 s + 123 s, 638 s wall); PP-4
+`2026-11-22_1644` (449 s + 87 s + 0.2 s, 649 s wall) and `2026-11-22_1718` at the 25 s cap (452 s +
+106 s + 0.2 s, 652 s wall). About 3.3 s per case, against the planning
+estimate of about 2.2 s (350 s for PP-3), so the sweeps run about 50 % over the estimate and still
+fit: PP-3 keeps its 2 steps (960 s against about 540 s), PP-4 its 3 (the third answers
+`done=true` at once). `budgetSeconds` is 1800 / 2400, PP-1's and PP-2's, not the table's 1500 /
+2100: the run budget must cover every step budget, LoadGame's 300 s included (1620 / 2160 s). All four full flights PASS attempt 1:
+controls ok, press ok, complete, recompute 0 mismatches. Findings: `docs/dev/todo-and-known-bugs.md`
+(PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22 and the entries it names). S8 (D.1 "FGV contexts")
+adds the 13 FGV cases to both orbit lanes' plans (`contexts=none` includes the `fgv` class), about
+45 s more per lane at the measured rate; PP-3 / PP-4 have not flown with them yet.
 
 ### D.9 What P6 leaves ready for P7
 

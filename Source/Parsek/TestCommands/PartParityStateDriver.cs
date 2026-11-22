@@ -708,7 +708,7 @@ namespace Parsek.TestCommands
         /// <summary>The settle after the done signal (D.1, D.3): the family's minimum (lights
         /// 1 s, cabin lights 1 / animRate + 0.5 s, else 0.5 s) with no Animation playing (capped
         /// at the stowed settle cap, tagged still-animating); a sun tracker's pivot still for
-        /// 0.5 s (cap 10 s, tagged still-tracking); an airbrake's surface still for 0.5 s (cap 5 s).</summary>
+        /// 0.5 s (cap 25 s, tagged still-tracking); an airbrake's surface still for 0.5 s (cap 5 s).</summary>
         private static void Settle(WaveCase wc, PartParityStateRun run, Part part, float now, bool animating)
         {
             double since = now - run.ReachedRealtime;

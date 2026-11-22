@@ -491,7 +491,12 @@ namespace Parsek.TestCommands
 
         internal const double SunTrackerStillDeg = 0.1;
         internal const double SunTrackerWindowSeconds = 0.5;
-        internal const double SunTrackerCapSeconds = 10.0;
+        // Stock slews a tracking pivot by Quaternion.Lerp(current, aim, deltaTime * trackingSpeed)
+        // (decompiled ModuleDeployablePart, trackingSpeed 0.25 on every stock tracking panel): an
+        // exponential approach with a 4 s time constant. The still rule (0.1 deg over 0.5 s) holds
+        // once under 0.85 deg remain, which from the worst 180 deg takes ln(180 / 0.85) / 0.25 =
+        // 21.4 s; 10 s left the panels 1 to 14 deg short (PP-3 2026-11-22_1634).
+        internal const double SunTrackerCapSeconds = 25.0;
 
         internal const double AirbrakeStillDeg = 0.05;
         internal const double AirbrakeWindowSeconds = 0.5;

@@ -356,6 +356,8 @@ Seen, to check whether pre-existing: ASR-4's probe logs `[WARN][RecordingStore] 
 
 What: `airbrake1--default--deployed`: the event route (stowed snapshot + the polled `DeployableExtended midx=0`) matches the real part (iou 1.0 in every view), but the start route (the deployed snapshot + its start seeds) reads `not-reached` with `startFirstFrame.atTarget = false` (start iou 0.39 `side-a`, 0.06 `top`). The log shows why: `Spawn baseline: stowed 1/1 deployable(s)` for the deployed snapshot, then the seed `DeployableExtended (aeroSurface)` starts the deploy transition at the first frame, so a recording that starts with the brakes out (a split TIP, a Re-Fly, a station) draws them folding out over the clip. The snapshot baseline reads no `ModuleAeroSurface.deploy`.
 
+Seen again 2026-11-22 on both orbit state lanes (`airbrake1--default--deployed--65d4f96a`, PP-3 `2026-11-22_1656` and PP-4 `2026-11-22_1644`: start route shape blob 33770 px, 42.8 % on `side-a`).
+
 Fix: not started. The likely shape is the deployable snapshot baseline reading the aero surface's `deploy` (as it reads `ModuleDeployablePart.deployState`), so the start seed answers `AlreadyInState`.
 
 ## GHOST-LIT-SPOTLIGHT-LENS: a lit spot light's lens is drawn in a different colour on its ghost [FILED 2026-11-22 from the same P6 runs; OPEN; low]
@@ -363,6 +365,8 @@ Fix: not started. The likely shape is the deployable snapshot baseline reading t
 What: `spotlight1--default--lit` (stock-minimal): both judged routes reach `lit` (`lightPlaybackStates.isOn`), shape matches (iou 0.9998), but S4's judge reads colour fails `color-blob-px side-a=17070`, `bottom=48844` on both routes; the stowed case and `mk1pod.v2` cabin light pass. The capture rig switches every scene light off (design D3), so this is the lens / flare emission. Evidence: `<umbrella>/logs/flights/s3-2026-11-22_1428/` (atlas and sidecar under `s3st6/`).
 
 Fix: not started; read the atlas first (real vs ghost lens colour), then `LightGhostInfo.lensOnColor`.
+
+Also 2026-11-22 (PP-3 `2026-11-22_1656` / PP-4 `2026-11-22_1644`, both routes, `state-invisible` unless noted): stock `spotlight1`, `spotlight1.v2--basic`, `spotlight2`, `spotlight2.v2--basic`, `spotlight3--basic`, `striplight1--basic` (colour blobs 2348 to 47340 px); modded `spotlight1--dark`, `spotlight1.v2--dark`, `spotlight2.v2--dark` (also a 14.6 % shape blob on `bottom`), `spotlight3--dark`, `striplight1--dark`, `navlight1--dark` (PP-4 `_1644` and `_1718`). Every lit lens or emitter differs, not only the spot light's.
 
 ## ~~PARTPARITY-STOWED-POSE-NOT-STOWED: the stowed sweep photographs a lone landing gear deployed and a Mk2 cargo bay open~~ [FILED 2026-11-22 from the same P6 runs; DONE 2026-11-22, P6 S8; low]
 
@@ -376,11 +380,11 @@ What: `fairingsize2--white--stowed--fgv-3-open-top--9dd2b1aa` (FGV's open-top co
 
 Fix: not started. Compare the live and ghost FairingPanel meshes of the open (uncapped) shape at that seam (normals or the panel ordering of the shell builder in `GhostVisualBuilder.Fairings.cs`).
 
-## PARTPARITY-SUN-TRACKER-CAP: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+## ~~PARTPARITY-SUN-TRACKER-CAP~~: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; FIXED 2026-11-22, branch `part-parity-p6-s6` (PP-3 re-flight `2026-11-22_1656`); low]
 
-What: `solarpanels4--default--deployed` captures tagged `still-tracking` on every run: the real pivot still turns about 2.4 deg per 0.5 s at the cap (`sun tracker still moving at the cap`), so it sits 17 to 20 deg short of the ghost's aim (the ghost slews at 20 deg/s) and the views read warn / fail on the panel's edge. The cap is S1's `SunTrackerCapSeconds` (design D.3).
+What: `solarpanels4--default--deployed` captures tagged `still-tracking` on every run: the real pivot still turns about 2.4 deg per 0.5 s at the cap (`sun tracker still moving at the cap`), so it sits 17 to 20 deg short of the ghost's aim (the ghost slews at 20 deg/s) and the views read warn / fail on the panel's edge. The cap is S1's `SunTrackerCapSeconds` (design D.3). PP-3's first full flight `2026-11-22_1634` showed it on all nine tracking panels (every one tagged `still-tracking`, 1 to 14 deg short; 8 of 9 failed).
 
-Fix: re-pin the cap (or the tracking-settle rule) from a reading run when PP-3 / PP-4 first fly (D.10 S6), not before.
+Fix: stock slews the pivot by `Quaternion.Lerp(current, aim, deltaTime * trackingSpeed)` (decompiled `ModuleDeployablePart`, `trackingSpeed` 0.25 on every stock tracking panel), an exponential approach that needs about 21.4 s from 180 deg to meet the still rule; `SunTrackerCapSeconds` 10 -> 25 (the wave admission bound with a tracker 56.7 -> 71.7 s). Re-flight `2026-11-22_1656`: no panel still tracking (settled 0.5 to 17.8 s after the done signal), real and ghost aim within 0.1 to 1.4 deg; 3 of 9 panels still fail on small shape blobs (`solarpanels1` 489 px, `solarpanelox10c` 147 px: the real pivot stops about 1 deg short of the ghost's aim), the rest pass or warn. PP-4 flew before the re-pin.
 
 ## GHOST-CHUTE-CANOPY-AIM: a deployed parachute's ghost canopy points a different way from the live one [FILED 2026-11-22 from the P6 air lanes' first flights (branch `part-parity-p6-s7`, harness runs `2026-11-22_1713_PP-5-part-parity-chutes-stock` and `2026-11-22_1715_PP-6-part-parity-chutes-modded`, design `docs/dev/design-part-ghost-parity.md` D.4); OPEN; medium on ReStock, low on stock]
 
@@ -401,6 +405,53 @@ Fix: not started; read the ReStock semi pose the ghost applies (`ParachuteGhostI
 What: `JetEngine` (J-33 "Wheesley") and `turboFanSize2` (J-90 "Goliath") carry their thrust reverser as a standalone `ModuleAnimateGeneric` (`TF1ThrustReverser`, `TF2ThrustReverser`). Both parts also carry `ModuleAnimateHeat`, so `FlightRecorder.HasDedicatedAnimateHandler` is true and `PartStatePoller.PollAnimateGeneric` skips the whole part: a reverser the player deploys is never recorded and the ghost always shows it stowed. Found on both harness installs (stock-minimal and modded-compat); the P6 sweep lists the two modules as excluded `not-polled`, so the gap stays visible.
 
 Fix: not started. The likely shape is a narrower dedicated-handler test (skip only the `ModuleAnimateGeneric` a dedicated family owns, the way the cargo bay owns its `DeployModuleIndex` module), checked against `PartStateSeeder`'s matching gate so the seed and the poll stay one predicate; then the two reverser modules become state cases (`not-polled` drops out of the D.1 counts).
+
+## PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22: what the first PP-3 / PP-4 orbit state flights found, by cluster [FILED 2026-11-22 from PP-3 `2026-11-22_1634` / `_1656` (stock-minimal) and PP-4 `2026-11-22_1644` / `_1718` (modded-compat), all PASS attempt 1, branch `part-parity-p6-s6`; OPEN; low]
+
+Report-only verdicts at the 25 s sun-tracker cap: PP-3 `_1656` 123 pass / 16 warn / 20 fail / 1 error of 160; PP-4 `_1718` 176 / 21 / 28 / 0 of 225 (`_1644`, at 10 s: 169 / 21 / 35 / 0). Evidence: viewer site `<umbrella>/logs/partparity/p6-s6/index.html` (PP-1 + PP-3 as `stock`, PP-2 `2026-11-22_1157_run2` + PP-4 as `modded`); sidecars and manifests in `<umbrella>/automation/results-archive/<runId>/partparity/`. Each cluster, ghost defect or instrument:
+
+- Ghost defects, filed apart: GHOST-AIRBRAKE-START-NOT-DEPLOYED (`airbrake1--default--deployed--65d4f96a` on both installs, start route), GHOST-LIT-SPOTLIGHT-LENS (now 6 stock and 6 modded lit-light cases), GHOST-SCANNER-STATE-NO-INFO, GHOST-RESTOCK-COMMDISH-DEPLOY-POSE, GHOST-CABIN-LIGHT-NO-INFO.
+- Instrument, filed apart: PARTPARITY-RADIATOR-TRACKING, PARTPARITY-ANIMATION-GROUP-PRESS, PARTPARITY-STACKED-SHROUD-TOP-COLOR (ghost or instrument, undetermined); PARTPARITY-SUN-TRACKER-CAP fixed on this branch.
+- Expected, no action: the gear / leg / wheel family and the gear-mounted lights warn under the `context-pose` cap (free-fall droop, design D.3): `gearlarge`, `gearmedium`, `gearsmall`, `smallgearbay`, `landingleg1`, `landingleg1-2`, `minilandingleg`, `roverwheelm1-f`, `restock-wheel-4`, and the modded `groundlight1` / `groundlight2` lit cases.
+- Small residuals, report-only, not filed: a few mm short or long on a finished deploy (structure `transformDiffers` 3.7 mm on `grapplingdevice--basic--deployed`, 6.3 mm on `highgainantenna5.v2--default--deployed`); colour blobs of 100 to 1800 px on `science.module`, `restock-materialbay-radial-1--truss`, `gooexperiment--truss`, `restock-goocanister-625-1`, `foldingradmed`, `dockingport1--default--lit`, `liquidengine2-2.v2--twobell--stowed--stacked`. Re-read when a tighter threshold is armed (P5).
+
+## GHOST-SCANNER-STATE-NO-INFO: a deployed orbital or surface scanner's ghost stays in its rest pose [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low]
+
+What: `orbitalscanner--default--deployed--35b9ec6d` (stock: `ModuleAnimationGroup`, empty `deployAnimationName`, `activeAnimationName = miniscanner`), `orbitalscanner--size0--deployed--b6d5edab` and `surfacescanner--default--deployed--53e1f66f` (modded; the surface scanner a `ModuleAnimateGeneric`): the press reaches the target and the recorder's poll records `DeployableExtended`, but both ghost routes read `state-not-modelled:<route>:no-info` (the engine holds no deployable info for the module) and `start-pose-not-first-frame`; the real part shows its deployed / running pose, the ghost its rest pose (event-route shape blobs 2.7k to 30k px, up to 7 %).
+
+Fix: not started. Read which module the ghost builder skips (an animation group with no deploy clip, whose visible pose is its active clip), then decide whether the ghost should pose the active clip or the case is a continuous animation for P7 (design 9.2).
+
+## GHOST-RESTOCK-COMMDISH-DEPLOY-POSE: ReStock's Communotron 88-88 ghost is deployed into the wrong shape [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low]
+
+What: `commdish--default--deployed--632298e2` on modded-compat fails on shape on both routes (event-route shape blob 11203 px, 6.9 % on `side-a`): the real dish ends with its mast extended above the dish, the ghost with the body above the dish and the feed below it. The stock install's same case passes (PP-3), so it is the ReStock model's deploy the ghost poses wrongly. Flags `depth-mask-repaired:1` and `ghost-outside-real-bounds`; the only structural difference is the skipped ReStock `DepthMask` (by design).
+
+Fix: not started. Compare the ghost's sampled deploy pose (its `DeployableGhostInfo`) with the ReStock clip's last frame; the clip may move a transform the ghost does not sample.
+
+## GHOST-CABIN-LIGHT-NO-INFO: some cabin and bay lights have no ghost light info [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low (no visible difference under the capture rig)]
+
+What: `kv1pod`, `kv2pod`, `kv3pod` (both installs), `size1to0servicemodule--notunnel` and `restock-service-module-125-625-1--notunnel` (cabin-light family, modded) and `telescopicladderbay--default--lit` (light family, modded): the toggle reaches `lit`, but both ghost routes read `state-not-modelled:<route>:no-info`. Every one is also `state-invisible`: switching the light on does not change the real picture under the capture rig (design D3 turns every scene light off), so these cases fail on the flags alone.
+
+Fix: not started. Read why `ColorChanger resolve` builds no cabin-light entry for these modules (shader property, renderer filter), then check in play whether the real window or bay glow is visible at all.
+
+## PARTPARITY-RADIATOR-TRACKING: deployable radiators track the sun but the sweep does not wait for them [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low; instrument]
+
+What: `foldingRadLarge` / `Med` / `Small` (`ModuleDeployableRadiator`, `isTracking` true by the `ModuleDeployablePart` default, `trackingSpeed = 0.1`) turn their `Pivot` after deploying, like a solar panel. The sweep's sun-tracker rule (`PartParityStateDriver.HasSunTracker`) reads only `ModuleDeployableSolarPanel`, so a radiator case captures about 1.3 s after the done signal with the real pivot mid-slew (about 35 deg on `foldingradlarge`) while the event-route ghost is primed once and sits at its neutral pose: `foldingradlarge--default--deployed` fails on both installs (shape blobs up to 4911 px), `foldingradmed` / `foldingradsmall` fail or warn on the modded install. In playback the ghost does track radiators (`GhostVisualBuilder.TryBuildSunTrackingInfo` takes any `ModuleDeployablePart` with `isTracking`), at its fixed 20 deg/s, where stock approaches the aim exponentially at 0.1 / s (about 54 s to settle from 180 deg).
+
+Fix: not started. Widen `HasSunTracker` to the ghost's rule (any tracking `ModuleDeployablePart` whose pivot resolves) and make the tracking cap per part from `trackingSpeed` (`ln(180 / 0.85) / trackingSpeed`, about 54 s for a radiator), with the wave admission bound reading the wave's slowest tracker.
+
+## PARTPARITY-ANIMATION-GROUP-PRESS: two animation-group cases cannot be posed by the press [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low; instrument]
+
+What: (1) `isru--default--deployed--082cb595` (stock) is PP-3's one setup fault, `action-failed` / `refused`: `already deployed before the press (classifier=deployed)`. The ISRU's `ModuleAnimationGroup` has `autoDeploy = true` and an empty `deployAnimationName`, so a lone part spawns deployed and has no stowed pose to author. (2) `radialdrill--default--deployed--19529948` (modded, the ReStock model) is captured `still-animating` with the drill shaft only partly out while both ghosts show it fully extended: the classifier reads deployed the moment `DeployModule` runs, and the ReStock deploy clip outlasts the settle cap (the stock drill passes).
+
+Fix: not started. (1) A state rule for an animation group with `autoDeploy` and no deploy clip (exclude it, or author it retracted); a new exclusion reason is a mirrored literal (`PartParityStateRules.ExclusionReasons` / `partparity.STATE_EXCLUSION_REASONS`). (2) Wait for the module's deploy clip, not only the classifier, before the settle.
+
+## PARTPARITY-STACKED-SHROUD-TOP-COLOR: stacked stowed shroud cases differ in colour on the top view [FILED 2026-11-22 from PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22; OPEN; low; ghost or instrument, undetermined]
+
+What: the stacked stowed context cases (the shroud shown, a hidden `fuelTankSmallFlat` filler on the jettison node) of the ReStock heat shields fail on colour over the whole top face (PP-4 `_1644`: `heatshield0--classic--stowed--stacked--7728c9cc` 153359 px, `heatshield1p5` 161132, `heatshield2` 158205, `heatshield3` 157698, `restock-heatshield-1875-1` 161128; shape iou 0.9998), and `liquidenginemini.v2--shroud--stowed--stacked--28013141` (stock) on its rim (1391 px in PP-3 `_1634`, 9165 px in `_1656`: the shroud's tinted rim segments sit at other angles on the real part). It is not stable run to run: in PP-4 `_1718` `heatshield1p5`, `heatshield2` and `heatshield3` pass and only `heatshield0` and `restock-heatshield-1875-1` fail, which points at something timing- or state-dependent rather than a fixed ghost material. The same heat shields alone pass in PP-2, and the stock heat shields' stacked cases pass. Stock reparents an `isFairing` shroud under the part on its bottom node (decompiled `ModuleJettison.SetupJettisonState`), so the real shroud follows the filler while the ghost keeps it under the subject; on the ReStock shields the ghost's ablation `ColorChanger` also writes the shroud renderer (`renderersWritten=1`), which on the real part may no longer be one of the module's renderers.
+
+The heat shields' face looks like the uniform tint offset of the accepted stowed residual `heatshield3--red` (GHOST-PARITY-RESIDUALS-2026-11-22, owner ruling: reads the same to the eye).
+
+Fix: not started. Read the real and ghost shroud materials and world rotations in one stacked case before deciding which side is wrong.
 
 ## ~~GHOST-PARITY-RESIDUALS-2026-11-22~~: four report-only colour fails left after the part ghost parity flights [FILED 2026-11-22 from the final P3/P4 flights `2026-11-22_0033_PP-1-part-parity-stock` and `2026-11-22_0045_PP-2-part-parity-modded` (both PASS attempt 1, branch `part-parity-p4`, automation DLL sha256 prefix 0da811c9); CLOSED 2026-11-22 as accepted cosmetic differences (owner ruling 2026-11-22, after reading the viewer); low]
 

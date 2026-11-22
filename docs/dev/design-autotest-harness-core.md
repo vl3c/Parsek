@@ -2168,11 +2168,13 @@ runs sequentially and each script builds for itself.
    only for a lane that drives `PartParitySweep`. Right after the drive, inside
    the lock, `run.py` MOVES each swept label directory out of the instance into
    `results/<runId>_partparity/<label>/`, so the row reads it in place and the
-   pipelined private copy never carries it. Four instrument gates from the
+   pipelined private copy never carries it. Five instrument gates from the
    start, each a terminal INVALID placed ahead of the contract verifiers
    (`parity-host-damaged` when the C# host-integrity guard stopped the sweep,
-   ranked first, `parity-controls`, `parity-instrument` for a Python recompute
-   of the shape measures that disagrees with the C# sidecar,
+   ranked first, `parity-controls`, `parity-state-press` when more than half of
+   one family's state cases of a state run failed their press or timed out
+   (`design-part-ghost-parity.md` D.6), `parity-instrument` for a Python
+   recompute of the shape measures that disagrees with the C# sidecar,
    `parity-incomplete`); the
    per-part verdicts are report-only until `[expectations.partParity] gating =
    true`, then PARSEK-FAIL (part-parity). Over a driver-INVALID run the row is
@@ -2256,7 +2258,8 @@ retry_policy)` maps to the taxonomy:
   attempt cap), instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
   timeout, analyzer-error, spec invalid, fixture STALE / fixture-authoring
   (BASELINE-FORBIDDEN-only), or the part ghost parity instrument gates
-  (parity-host-damaged / parity-controls / parity-instrument / parity-incomplete, terminal). Retryable-once for driver / tooling
+  (parity-host-damaged / parity-controls / parity-state-press / parity-instrument /
+  parity-incomplete, terminal). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
   INVALID is terminal and adds a flake-ledger entry (plan section 10 "two invalids
   => quarantine entry"). The one exception is a deterministic seam error, which is
