@@ -44,7 +44,7 @@ here. What does decide something:
 | `docs/roadmap.md:651-662` (Phase 17, PR #2717) | Read every recording of a mission from launch to its last ending; a NASA / Apollo-style profile, first as a text report, later as a graph with a phase diagram. Contents: phases in order, a mission-elapsed-time sequence of events (staging, engine start / cutoff, fairing and decoupler separations, docking, EVAs, parachutes, crashes), burns (time, duration, engine, delta-v, orbit before / after), a delta-v budget (planned versus used), the vessel and stage tree with how each piece ended, key numbers (max altitude, speed, max-Q / heating if recorded, duration). | The window is the text report; the graph is P4. Phases, burns, orbit before / after, the vessel tree, the mission clock and the duration are in. Where this design narrows the roadmap list it says so in the open questions (Q3, Q8-Q10), not silently. |
 | `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md:26-38` (F1) | Optimizer rows cannot be the profile elements: route sources, loop ranges, superseded / held / version-1 rows are never cut; no rendezvous row; the capture burn sits inside the transfer row. Phase 17 must classify a whole vessel line from sections, branch points and part events. | Section 4: the analyzer never reads rows or roles. |
 | same file `:42-44` (F1), `:45-48` (F2), `:57-60` (F4) | One pure analyzer returning the ordered elements, the cut list and the role per piece; one vessel-line walker on `VesselIdentity` / `EffectiveState` (ReaimClassifier to use it); one role registry, `space` kept as "unclassified space". | Sections 4.1, 5, 10. The cut list is NOT produced in P1 (review finding, section 15); `In space` is the unclassified phase. |
-| same file `:49-56` (F3), `:61-62` (F5), `:63-64` (F6) | Burns with delta-v and orbit before / after are not derivable from today's data near a planet; one sidecar format bump with an extension block is the fix; aerobraking vs aerocapture naming can wait. | P1 stays derived-only with a per-burn estimated delta-v (Q2); F3 is P2; the profile names aerocapture itself (rows keep `aerobraking`). |
+| same file `:49-56` (F3), `:61-62` (F5), `:63-64` (F6) | Burns with delta-v and orbit before / after are not derivable from today's data near a planet; one sidecar format bump with an extension block is the fix; aerobraking vs aerocapture naming can wait. | Superseded for delta-v by the owner's 2026-11-22 decision: the game's own delta-v is recorded as additive snapshots (8.1, no format bump); the orbit stamps of F3 stay P2; the profile names aerocapture itself (rows keep `aerobraking`). |
 | same file `:66-83` (orbit-kind model) | Stock's own situations (falling / in orbit / leaving), judge a burn in the body where it ends, never cut at an SOI line, staging gaps up to 10 s, a burn broken by on-rails time is two burns, unknown means no claim, lookahead changes rows when a flight is flown again. | Section 4.3 stage 1 facts; the hindsight note in 4.2. |
 | `docs/handoff/recording-split-review/atmosphere-pass-analysis.md:95-98` (owner, 2026-11-20) | Rows must read like the elements of a mission profile, in the Phase 17 vocabulary (ascent, coast, capture, descent + landing). | The phase names match the row roles where both exist. |
 | same file `:46-70` and `docs/dev/done/plans/optimizer-persistence-split.md:989-998` (version 2) | An atmosphere pass is classified by how it ENDS: on the ground = final descent from its first entry; back in space for over 2 minutes = a braking pass; hops out under 2 minutes belong to the same pass (a skip). An aerobraking campaign is one element; aerocapture is arrival / capture. | Section 4.3 stratum (c) uses the same 2-minute hop and the same "how it ends" reading. |
@@ -67,8 +67,8 @@ dock, undock, EVA, terminal). The Profile is the structured summary over the sam
 can be open at once.
 
 Non-goals for this feature:
-- No change to recordings, rows, cuts or roles. The Profile reads committed data only and writes
-  nothing (no save-format change in the first build, section 8).
+- No change to rows, cuts or roles, and nothing the replay reads. The one recording change is the
+  additive delta-v snapshot node (8.1); the window itself reads committed data only and writes nothing.
 - No optimizer cut list or role output (P3, with its own causal-evidence contract, section 10).
 - No graphic phase diagram (the roadmap's later "graph with visuals"); the analyzer below is the
   data it will need.
@@ -78,19 +78,20 @@ Non-goals for this feature:
 
 ### 2.1 The Profile button
 
-On the Missions tab, each mission bar's line 1 gets a `Profile` button immediately LEFT of `Log`,
-same style (`interactButtonStyle`, zero horizontal margin like every loop-grid control) and the same
-Interact single width (`InteractButtonWidth`, 100), in Basic and in Advanced:
+Owner decision (2026-11-22): "Profile above, Log under it (if they don't fit, otherwise Profile to
+the left)", refined after the variants mockup: "the Clone / Delete and Profile / Log buttons can have
+the same width, and Warp to... can be larger so Loop .. fits under it".
 
-- Basic: `[Profile][Log]`, right-aligned in the name cell.
-- Advanced: the loop grid gains a column between B and the Log slot:
-  - line 1: `[A: Clone] [B: Warp to...][Profile][Log]`
-  - line 2: `[A: Delete] [B: Loop [x] every][   ][period]`: the loop row (`LoopCellWidth`) becomes
-    column B + the Profile slot + the Log slot, the "Loop [x] every" part stays under Warp, an empty
-    spacer fills the slot under Profile, the period stays under Log; "Looped by route" spans the
-    whole row. `MissionsTabColumnSequenceTests` and the loop-grid width constants move with it.
-  - Alternative (Q1): `Profile` and `Log` as a two-button pair inside the existing Log slot
-    (`InteractPairButtonWidth`, 48 each), which leaves the grid untouched.
+- Basic (no loop grid, room on line 1): `[Profile][Log]`, Profile left of Log, right-aligned in the
+  name cell, each at the grid's button width.
+- Advanced (layout A): the loop grid keeps three columns, re-sized:
+  - line 1: `[A: Clone] [B: Warp to...] [C: Profile]`
+  - line 2: `[A: Delete] [B: Loop [x] every [10] sec] [C: Log]`
+  - columns A and C share one width (72 px; `LoopGridColumnAWidth` and a new
+    `LoopGridColumnCWidth`), column B widens to 150 px so the whole loop row ("Loop", the checkbox,
+    "every", the period field, "sec") fits under Warp; 4 px gaps; 302 px in all, 36 px wider than
+    today's 266. "Looped by route" fills column B. `LoopCellWidth` becomes column B alone;
+    `MissionsTabColumnSequenceTests` and the loop-grid width constants move with it.
 
 Tooltip (an existing-tooltip-shaped addition, budgeted by `TooltipEchoBudgetTests`):
 "The mission's phases: orbits, burns, transfers, landings, docking and EVA, with the numbers."
@@ -124,7 +125,8 @@ Click: `ParsekLog.Info("UI", "Mission Profile button: tree=... mission=... name=
 | Element | expands | The tree: indent + caret (phases and vessel headers) + the element label (section 3). |
 | Location | 150 | Where it happens, never a repeat of the label: `Kerbin, Launch Pad`, `Kerbin`, `Mun`, `Kerbin, Shores`, `Kerbin -> Mun` for a transfer (the Log's `StructureLocationFormatter` words). An orbit phase is labelled `Kerbin orbit` and located `Kerbin`. |
 | Duration | 80 | Phases and burns: `3m 52s`, `2h 26m`, `4d 2h` (KSP 6-hour days). Instant events: empty. |
-| Delta-v | 70 | Burns only: `862 m/s`, prefixed `~` (estimate, section 4.6), `-` when it cannot be estimated. No phase, line or mission totals in P1 (Q2). |
+| Spent | 74 | Delta-v spent: per burn, per phase (the sum of its burns, ascent and landing included) and per vessel line, from the game's own delta-v recorded at each step (section 8.1). Flights recorded before that: burns only, `~` estimate (4.6) or `-`. |
+| Left | 74 | Delta-v left after the burn, at the phase end, at a staging that dropped fuel, and at the line's end (8.1). Empty for flights recorded before that. |
 | Orbit / result | 190 | The orbit a coast holds or a burn produced: `83 x 77 km, 0.1 deg` (Ap x Pe above the surface, inclination). Hyperbolic: `escape, Pe 38 km`. Encounters: `Mun encounter, Pe 229 km`. Surface: `landed 3,854 m`. End rows: the outcome. |
 
 Units: km above 10 km, m below; delta-v in m/s, whole numbers; inclination one decimal; the in-game
@@ -136,9 +138,9 @@ InvariantCulture (a unit test reads them).
 Every row carries a one-line tooltip shown in the strip: the full sentence behind the clipped cells
 and, for an interpreted element, the rule and evidence that named it, for example
 
-- burn: `Trans-Mun injection: 29 s burn at 82 km on the LV-T45, about 860 m/s (estimated from the orbits before and after). Orbit after: Ap 11,524 km, Pe 82 km, 0.9 deg; Mun encounter.`
+- burn: `Transfer burn: 29 s at 82 km on the LV-T45, 862 m/s spent, 1,022 m/s left. Orbit after: Ap 11,524 km, Pe 82 km, 0.9 deg; Mun encounter.`
 - phase: `Mun orbit: 2h 26m, 229 x 229 km then 45 x 30 km, 2 burns, 2 EVAs.`
-- inferred: `Mun orbit insertion: 23 s burn at periapsis. Orbit after inferred from the altitude holding at 140 km for 3 minutes; no orbit sample, so no delta-v.`
+- inferred: `Capture burn: 23 s at periapsis. Orbit after inferred from the altitude holding at 140 km for 3 minutes; no orbit sample, so no delta-v.`
 - data gap: `Orbit after the burn is unknown: the vessel stayed in physics range and no orbit sample was recorded.`
 - vessel header: `Kerbal X Probe: separated at T+0:05:01 (decoupled); 1 phase; ends Orbiting Kerbin.`
 - re-flown: `Flown again from here (Re-Fly at T+0:05:01). The first attempt is not shown.`
@@ -148,11 +150,16 @@ and, for an interpreted element, the rule and evidence that named it, for exampl
 
 Phase rows and vessel-line headers have a caret; events have none. Collapse state lives in the window
 for the session (keyed by mission id and element key), is not saved, and survives a rebuild when the
-element key still exists. The default (everything expanded, or child lines collapsed) is Q6.
+element key still exists. Everything is expanded on open (owner decision 2026-11-22).
 
 ## 3. The profile model
 
-A mission profile is a TREE of three row kinds:
+A mission profile is a TREE. Its first row is a collapsible `Summary` (owner decision 2026-11-22)
+with one row per fact: bodies visited and landing / splashdown sites with biome; crew per vessel with
+EVA count and total EVA time and each kerbal's outcome; career results (science, funds and
+reputation from the ledger rows tagged to the mission's recordings, through ELS); craft facts (part
+count and stage count at launch, the vessels the mission produced and how each ended, the debris
+count). Speed, max-Q and heating are out (owner decision). Below the summary, three row kinds:
 
 1. Vessel line (header row): one physical vessel through the mission (section 5). Label: the vessel
    name, then the crew in parentheses (`Kerbal X (Jebediah, Bill, Bob)`), an EVA kerbal as
@@ -163,10 +170,9 @@ A mission profile is a TREE of three row kinds:
    tiles inside its parent phase.
 3. Event: an instant or a burn inside a phase.
 
-Where a child vessel line goes (Q5): nested under the EVENT that created it (separation, undock,
-EVA), one indent deeper, followed by its own phases; or as a block after the parent phase that holds
-that event. Both keep the mission clock, so a nested child makes the Time column non-monotonic; the
-indent and the caret carry the reading.
+A child vessel line is nested under the EVENT that created it (separation, undock, EVA), one indent
+deeper, followed by its own phases (owner decision 2026-11-22). It keeps the mission clock, so the
+Time column steps back while reading a child; the indent and the caret carry the reading.
 
 Short EVAs collapse: an EVA kerbal line whose only content is a board back into the same vessel
 within 2 minutes is one event row, `EVA: Jebediah Kerman (2s), boarded`, not a child line. Debris
@@ -204,10 +210,10 @@ never becomes a line (as in the Missions tab).
 |---|---|---|
 | Launch | `Launch` (location: the launch site) | recording start with `LaunchSiteName` / Prelaunch |
 | Liftoff / Takeoff | `Liftoff` | first leave-surface boundary |
-| Stage separation | `Stage separation (n pieces)` | JointBreak / Breakup branch points whose children are all debris, grouped per batch (the Log's batching; `debrisCount`) |
+| Stage separation | `Stage separation (n pieces)`; the hover names each piece's ending (crashed, burned up, landed, in orbit) from its debris recording's terminal state, and the delta-v the dropped fuel took with it (owner decision 2026-11-22) | JointBreak / Breakup branch points whose children are all debris, grouped per batch (the Log's batching; `debrisCount`) |
 | Separation | `Separated: <vessel>` | branch point to a controlled child (a child line opens) |
 | Breakup | `Breakup (n pieces, m vessels)` | a Breakup branch point with controlled survivors (their lines open) |
-| Burn | named by what it did (4.4) | the burn definition of 4.3 |
+| Burn | named by what it did (4.4, plain names: owner decision 2026-11-22) | the burn definition of 4.3 |
 | Atmosphere exit / entry | `Atmosphere exit` / `Atmosphere entry` | env boundary (physics sections) or the conic crossing the atmosphere top (on-rails sections) |
 | SOI change | `Entered Mun SOI` / `Left Mun SOI` | body change between sections |
 | Docking / Undocking | `Docked: <partner>` / `Undocked: <partner>` | Dock / Undock branch points (partner names via the Log's partner resolver) |
@@ -384,10 +390,10 @@ surface (EVA)` from a touchdown, `Jetpack flight` for a surface-to-surface hop, 
 | Before -> after (resolved facts) | Label |
 |---|---|
 | falling -> bound clear, after an ascent | `Circularization burn` |
-| bound clear -> encounter / escaping | `Trans-<Body> injection` (target from the encounter), `Escape burn` (no encounter) |
+| bound clear -> encounter / escaping | `Transfer burn` (out to another body), `Return burn` (back toward the launch body), `Escape burn` (no encounter) |
 | falling -> encounter / escaping, after an ascent | `Injection burn` |
-| inside a transfer, the encounter or escape unchanged | `Course correction` |
-| escaping / encounter -> bound, after an SOI entry | `<Body> orbit insertion` |
+| inside a transfer, the encounter or escape unchanged | `Correction` |
+| escaping / encounter -> bound, after an SOI entry | `Capture burn` |
 | escaping -> bound in-air | `Capture burn (aerobraking orbit)` |
 | bound in-air -> bound clear | `Periapsis raise` (ends an aerocapture / aerobraking phase) |
 | bound clear -> bound clear | `Orbit change`; `Plane change` when inclination moves over 2 deg and Ap / Pe under 5 %; `Phasing burn` / `Approach burn` inside a Rendezvous (several approach burns within 10 minutes collapse into one row, `Approach burns (3)`) |
@@ -419,19 +425,20 @@ side after the undock is named, never expanded, when it belongs to another missi
   an inferred orbit prints `about 140 km` and no elements.
 - Burn duration: engine time (4.3). The hover names the engines that fired (part titles via the same
   resolver delegate the Log uses).
-- Delta-v (per burn, estimate, P1): when the orbit just before and just after a burn are both STORED
-  (not inferred) and the burn is shorter than 120 s, propagate both conics to the burn's midpoint UT
-  and take the magnitude of the velocity difference (impulsive approximation; a few percent at most
-  for the burns this applies to). Propagation goes through `TwoBodyOrbit.TryCreateFromSegmentStoredFrame`,
-  which reads no live `Planetarium.Zup`; a velocity-difference magnitude does not depend on the frame,
-  so the core stays pure. CLAUDE.md names `TrajectoryMath.BoundaryFrame` as that variant's only reader;
-  the build adds this reader to that sentence. Shown with `~`; `-` with a reason otherwise (ascent,
-  landing, inferred sides). No sums in P1: a total that leaves out ascent and landing would read as the
-  mission's delta-v (Q2). With F3's stamps (P2) the column shows expended delta-v, a different quantity,
-  and the `~` marks which is which.
-- Mission summary (the root header's hover): total duration, bodies visited, landing sites, maximum
-  altitude per body (from points at the per-section maximum, not the copied bound), EVA count and
-  time, outcome per line.
+- Delta-v: recorded figures first (section 8.1): spent per burn = left before - left after (vacuum
+  figures), per phase and per line the sum of their burns, left read straight from the snapshot. For
+  flights recorded before 8.1 exists (every committed recording and fixture today) the fallback is an
+  estimate per burn: when the orbit just before and just after a burn are both STORED (not inferred)
+  and the burn is shorter than 120 s, propagate both conics to the burn's midpoint UT and take the
+  magnitude of the velocity difference (impulsive approximation; a few percent at most for the burns
+  this applies to). Propagation goes through `TwoBodyOrbit.TryCreateFromSegmentStoredFrame`, which
+  reads no live `Planetarium.Zup`; a velocity-difference magnitude does not depend on the frame, so
+  the core stays pure. CLAUDE.md names `TrajectoryMath.BoundaryFrame` as that variant's only reader;
+  the build adds this reader to that sentence. Estimates show `~`, carry no Left value and are never
+  summed (a total without ascent and landing would read as the mission's delta-v); `-` with a reason
+  where neither source exists.
+- Mission summary: the Summary block of section 3 (bodies and landing sites, crew and EVA time,
+  career results, craft facts) plus the total duration in the root row. Maximum altitude: open (Q11).
 
 ### 4.7 Data gaps
 
@@ -459,8 +466,9 @@ tab's vessel rows and include keys, and no second "same vessel" rule exists:
   `EffectiveState.cs:1359-1398`). The Missions module never calls `ComputeERS` itself
   (`ParsekScenario.Instance` would be a headless leak).
 - During an active Re-Fly session, ERS hides the re-flown subtree (`SessionSuppressedSubtree`,
-  `EffectiveState.cs:21`), while the Log reads the raw tree and still shows it. Which one the Profile
-  follows is Q4.
+  `EffectiveState.cs:21`), while the Log reads the raw tree and still shows it. The Profile follows
+  the Log during the session (the committed attempt) and shows only the flown-again path after the
+  merge (owner decision 2026-11-22), so the id set the UI passes ignores the session suppression.
 - Include set: per INTERVAL and non-cascading, exactly the Missions contract
   (`MissionVesselRows.cs:25`, `MissionIntervalSelection.cs:14`): an excluded interval removes the
   events inside it and clips the phases that overlap it (the clipped phase's hover says so); a phase
@@ -498,9 +506,9 @@ later change.
 
 ## 8. Derived versus stored
 
-Everything in P1 is derived at view time from data already committed: sections, checkpoints, part
+Apart from the delta-v snapshots (8.1), everything is derived at view time from data already committed: sections, checkpoints, part
 events, branch points, terminal state and orbit, launch site, biomes, names, and the few point reads
-listed in 4.3. No new key, no new node, no format bump, no ledger row, no change to what is recorded.
+listed in 4.3. No format bump, no ledger row, nothing the replay reads.
 The collapse state is window memory only.
 
 Stored data comes only with P2 (F3): one trajectory sidecar format bump adding an extensible
@@ -512,6 +520,44 @@ and PR; the Profile reads the stamps when present and falls back to 4.6 when not
 Cost: sections, checkpoints, part events and a handful of points per section. A 6-hour Mun flight is
 about 60 sections and 300 part events: microseconds, once per build.
 
+### 8.1 Recorded delta-v (owner decision 2026-11-22)
+
+Owner: "we should record how much delta-V the vessel and stages had at every step (launch, before
+burn, after burn etc.) and use the real figures provided by the game". So the recorder stores the
+game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as snapshots:
+
+- When: at recording start (prelaunch or the first frame of a continuation), at each burn start and
+  end (the burn definition of 4.3, from the engine ignite / shutdown part events the recorder already
+  polls), at each staging (`onStageActivate`), at each separation, dock and undock (the branch points),
+  and at the recording's end. Event-driven, a few dozen per flight, never per frame (the recording
+  design principle). The game computes delta-v over several frames after a change, so a snapshot
+  waits for the calculation to settle (`VesselDeltaV` ready state; member names checked with
+  `ilspycmd` against `Assembly-CSharp.dll` before the code is written) and records the UT it was
+  taken, with a short timeout after which the snapshot is written as unknown.
+- What: UT, the trigger kind, total vacuum delta-v, total delta-v at the current pressure, and per
+  stage the stage number with its vacuum delta-v (and burn time). Vacuum figures drive Spent and Left,
+  because the at-pressure figure changes with altitude while no fuel is spent; the at-pressure total
+  rides along for the ascent hover.
+- Which vessels: every recorded vessel the game computes delta-v for (owner decision): the focused
+  vessel always, background vessels while loaded in physics range; an unloaded vessel's snapshot is
+  written as unknown (its burns cannot happen on rails anyway). Debris and EVA kerbals record none.
+- Spent and Left: Left is the snapshot after an element; a burn's Spent is the vacuum left before
+  minus after; a staging that drops fuel lowers Left without anything being spent, and the
+  `Stage separation` row shows that drop in its hover. The stock Delta-V app can be switched off in
+  the game settings; then no figures exist and the Profile falls back to the estimate of 4.6.
+- Storage: an optional `DELTAV` child node of each recording's metadata node, one `SNAPSHOT` value
+  line per snapshot. A new optional child node is ADDITIVE under
+  `docs/dev/design-save-format-policy.md` (no format bump, no golden folder; older builds ignore it and
+  drop it on their next save, which is acceptable for display data). It is small (a few dozen short
+  lines per recording), which keeps the `.sfs` metadata light. Optimizer splits and merges carry the
+  snapshots with the UT range they fall in (`SplitAtUT` copies each snapshot to the half that holds its
+  UT; a merge concatenates), so rows stay independent of the profile.
+- Old flights: no snapshots; the Profile uses the estimate (owner decision). Snapshots never change
+  what is replayed: ghosts, spawns and the ledger do not read them.
+
+This is the one part of the feature that changes what is recorded, so it lands first (phase P1a,
+section 10): every flight flown after it ships carries real figures.
+
 ## 9. Logging
 
 - `[UI]` Info: button click (tree, mission, name), window opened (tree, mission, lines, rows, title),
@@ -521,7 +567,9 @@ about 60 sections and 300 part events: microseconds, once per build.
 - `[Profile]` Verbose per line (bounded by the line count, under 20 in practice): line id, pieces,
   first and last UT, phase kinds in order with the rule that named each, gaps by reason.
 - `[Profile]` InfoRateLimited when a line has an `In space` phase, keyed by line id and reason.
-- Analyzer core: no logging (pure). The new `Profile` tag goes into `scripts/arch/log_tags.json`
+- Recorder: one `[DeltaV]` Verbose line per snapshot (recording id, trigger, UT, vacuum total,
+  stage count, ready or timed out) and one Info summary per recording at commit (snapshots, unknowns).
+- Analyzer core: no logging (pure). The new `Profile` and `DeltaV` tags go into `scripts/arch/log_tags.json`
   (`python scripts/arch/logtags.py ... --write`) in the build PR.
 
 ## 10. Code layout and phases
@@ -541,9 +589,13 @@ The Missions code receives body facts, the effective id set, a date formatter an
 resolver from the UI, so it adds no headless leak (`scripts/arch/headless_pins.toml`).
 
 Phases:
-- P1 (this feature): analyzer, line builder, profile builder, window, button, tests, docs. Derived only.
-- P2: F3 recorder stamps (format bump) -> exact delta-v, stamped encounter / escape, closest approach
-  for the Rendezvous; F5 terminal state from the stamp.
+- P1a (lands first): delta-v snapshots in the recorder and the `DELTAV` node (8.1), with its unit
+  tests, the generator support and one harness lane that flies to orbit and checks the snapshots.
+- P1b: analyzer, line builder, profile builder, window, buttons, tests, docs. Reads snapshots when
+  present, the estimate otherwise.
+- P2: F3 recorder orbit stamps (format bump): raw osculating elements and the stock patch-end
+  transition per space section, so orbits after physics-range burns are stored rather than inferred,
+  and a closest approach for the Rendezvous; F5 terminal state from the stamp.
 - P3: the optimizer reads a CAUSAL boundary layer from the analyzer (no hindsight; truncation test),
   loopability and labels read the F4 table; ReaimClassifier uses the line model. A split-rule version
   bump, its own design.
@@ -575,6 +627,12 @@ Phases:
   label, hover sentences, empty state, title.
 - Log assertions on the summary, the per-line line and the rate-limited unclassified line.
 
+- Delta-v snapshots (P1a): trigger set (start, burn start / end, staging, separation, dock, undock,
+  end), the settle wait and its timeout (unknown), background loaded vs unloaded, debris and EVA
+  excluded, the `DELTAV` node round trip, an older reader ignoring the node, `SplitAtUT` and merge
+  carrying snapshots by UT, Spent / Left arithmetic including a staging that drops fuel, the
+  Delta-V-app-off fallback; generators (`RecordingBuilder`) can write snapshots.
+
 ### 11.2 Fixture (xUnit over committed saves)
 - `cs-career-mun4` (CS Mun Science), `mun-landing-recorded` (Kerbal X), `bdock-recorded` (Kerbal X #2):
   the expected element list of Appendix A, pinned as text.
@@ -600,8 +658,9 @@ Phases:
 - Architecture: the headless pins and layer pins stay unchanged (or are re-pinned with a reason).
 - In-game test `MissionProfile` category (SPACECENTER): open the Profile on a committed fixture
   mission, assert the rendered row count equals the builder's and the window rect is on screen.
-- Harness: the GUI census lanes capture the window; plus the new atmosphere-pass recording lane(s) of
-  11.2 if no fixture holds those shapes.
+- Harness: the GUI census lanes capture the window; one P1a lane flies a launch to orbit and asserts
+  the `DELTAV` snapshots (count window, Left falling at each burn, a staging drop); plus the new
+  atmosphere-pass recording lane(s) of 11.2 if no fixture holds those shapes.
 
 ## 12. Docs that move with the build
 
@@ -609,7 +668,8 @@ Phases:
 orbits, docking and EVA."), `docs/dev/todo-and-known-bugs.md` (Phase 17 P1 entry and the P2 / P3
 follow-ups), `docs/dev/design-gui-inventory.md` (14 windows, the button, the tooltip),
 `.claude/CLAUDE.md` exception bullet + the `TryCreateFromSegmentStoredFrame` reader sentence +
-`AGENTS.md`, `docs/roadmap.md` Phase 17 status, `scripts/arch/log_tags.json`, the design PDF table if
+`AGENTS.md`, `docs/roadmap.md` Phase 17 status (and its delta-v budget line: "spent and left", no
+"planned", owner decision), `scripts/arch/log_tags.json`, the design PDF table if
 this doc joins it.
 
 ## 13. Research notes (2026-11-22)
@@ -629,32 +689,34 @@ this doc joins it.
   cutoff pairs); the mission clock everywhere; child vessels as branches anchored on the event that
   made them; a mission summary; leave out low-value log events.
 
-## 14. Open questions for the owner
+## 14. Owner decisions and open questions
 
-- Q1 Button: a full `Profile` button left of `Log` with a new loop-grid column in Advanced (2.1), or
-  `Profile` and `Log` as a half-width pair inside the existing Log slot (grid untouched)?
-- Q2 Delta-v in P1: per-burn `~` estimates only, no totals (this doc), or no delta-v at all until the
-  P2 recorder stamps?
-- Q3 Stage separations: keep them as events (this doc, like Apollo's S-IC separation rows), or leave
-  staging to the Log?
-- Q4 Re-Fly: during an active Re-Fly session, follow the Log (show the committed attempt until the
-  merge) or follow ERS (the re-flown subtree disappears for the session)? After the merge: only the
-  flown-again path with a `Flown again from here` row (this doc), or also the first attempt greyed?
-- Q5 Child vessel lines: nested under the separation / undock / EVA event (time column jumps back), or
-  as a block after the phase that holds that event?
-- Q6 Default collapse: everything expanded, or child vessel lines collapsed?
-- Q7 Names: Apollo-style `Trans-Mun injection` / `Mun orbit insertion` (this doc), or plainer
-  `Transfer burn` / `Capture burn`?
-- Q8 Roadmap Phase 17 (`docs/roadmap.md:660`) lists a delta-v budget "planned versus used, with
-  remaining margin". Parsek records no plan and no remaining fuel. Keep "planned / margin" for a later
-  phase, or drop it from the roadmap?
-- Q9 Roadmap "Vessels and stages" (`docs/roadmap.md:661`) wants which stage became what and how each
-  piece ended; this design hides debris and shows `Stage separation (n pieces)`. Add each piece's
-  ending to that event's hover, or keep debris out?
-- Q10 Roadmap sequence of events and key numbers (`docs/roadmap.md:658`, `:662`): engine start / cutoff
-  live inside burn rows (the hover names the engines), fairings and lights stay in the Log, the
-  maximum altitude is in the summary, and speed, max-Q and heating are omitted (not recorded
-  reliably). Accept, or record them in P2 with F3?
+Interview of 2026-11-22 (owner answers, quoted where the wording matters):
+
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Button placement | "Profile above, Log under it (if they don't fit, otherwise Profile to the left)"; after the variants: layout A with equal widths for Clone / Delete / Profile / Log and a wider Warp column (2.1). |
+| Q2 | Delta-v | "record how much delta-V the vessel and stages had at every step ... and use the real figures provided by the game" (8.1), for every recorded vessel the game computes it for; old flights show the `~` estimate. |
+| Q3 | Stage separations | Event rows. |
+| Q4 | Re-Fly | Like the Log during a session; the flown-again path after the merge. |
+| Q5 | Child vessels | Nested under the event that made them. |
+| Q6 | Default collapse | All expanded. |
+| Q7 | Names | Plain: Transfer burn, Capture burn, Return burn, Correction (4.4). |
+| Q8 | Delta-v budget | Spent and left; no "planned" figure, to be removed from the roadmap. |
+| Q9 | Debris | Each piece's ending in the stage separation hover. |
+| Q10 | Key numbers | Speed, max-Q and heating are out ("not relevant"). |
+| Q12 | Summary contents | Bodies and landing sites, crew and EVA time, career results, craft facts. |
+| Q13 | Columns | Time, Element, Location, Duration, Spent, Left, Orbit / result. |
+
+Still open:
+- Q11 Maximum altitude: the owner asked whether it is relevant. For a flight that reaches orbit it
+  repeats the apoapsis the orbit cells already show; it matters only where no orbit is shown (a
+  suborbital hop, an aircraft flight, an aborted ascent, a flyby). Proposal: drop it from the summary
+  and show it only as the result of those phases ("Suborbital flight, reached 85 km").
+- Q14 Redundant elements: the owner wants to see the design (mockup round 2) and may cut rows or
+  cells, for example the `Atmosphere exit` event (the Ascent row already ends there), `Liftoff` (the
+  Launch row is a second before), `Landing legs down`, the vessel header's Spent / Left (the Summary
+  could carry them), or the Location column on events inside a one-body phase.
 
 ## 15. Review record (2026-11-22)
 
@@ -687,13 +749,15 @@ question.
 ## Appendix A. Worked profiles from committed fixtures
 
 Numbers read from the fixtures' `.prec.txt` mirrors and `persistent.sfs` (section UTs, checkpoint
-elements, part events, branch points). Times are floored like `FormatElapsed`. Delta-v values are
+elements, part events, branch points). The fixtures predate 8.1, so these tables show the estimate
+fallback (Spent column, burns only, Left empty); the mockup's "new flight" view shows the recorded
+layout with illustrative values. Times are floored like `FormatElapsed`. Delta-v values are
 hand estimates (vis-viva at the burn radius) to show the shape; the build pins the values its own
 stored-frame vector computation returns (11.1), which can differ for burns with a radial part.
 
 ### A.1 CS Mun Science (`cs-career-mun4`): Mun orbit, two EVAs, return, recovery
 
-| Time | Element | Location | Duration | Delta-v | Orbit / result |
+| Time | Element | Location | Duration | Spent | Orbit / result |
 |---|---|---|---|---|---|
 | Y1, D06, 03:13 | CS Mun Science (Jebediah) | Kerbin, Launch Pad | 18h 22m | | Recovered |
 | T+0:00:01 | Ascent | Kerbin | 3m 52s | | to 70 km, Ap 80 km |
@@ -703,17 +767,17 @@ stored-frame vector computation returns (11.1), which can differ for burns with 
 | T+0:05:24 | Circularization burn | Kerbin | 18s | ~362 | 83 x 77 km |
 | T+0:05:42 | Kerbin orbit | Kerbin | 4m 1s | | 83 x 77 km, 0.1 deg |
 | T+0:09:43 | Transfer to Mun | Kerbin -> Mun | 8h 37m | | Mun orbit |
-| T+0:09:43 | Trans-Mun injection | Kerbin | 28s | ~860 | Ap 11,524 km, Pe 82 km |
-| T+2:29:22 | Course correction | Kerbin | 3s | ~14 | Mun encounter, Pe 229 km |
+| T+0:09:43 | Transfer burn | Kerbin | 28s | ~860 | Ap 11,524 km, Pe 82 km |
+| T+2:29:22 | Correction | Kerbin | 3s | ~14 | Mun encounter, Pe 229 km |
 | T+7:03:27 | Entered Mun SOI | Mun | | | Pe 229 km |
-| T+8:46:35 | Mun orbit insertion | Mun | 11s | ~220 | 229 x 229 km, 1.0 deg |
+| T+8:46:35 | Capture burn | Mun | 11s | ~220 | 229 x 229 km, 1.0 deg |
 | T+8:46:46 | Mun orbit | Mun | 2h 26m | | 45 x 30 km |
 | T+8:47:48 | EVA: Jebediah Kerman (2s), boarded | Mun | | | |
 | T+9:59:29 | Orbit change | Mun | 8s | ~64 | 229 x 30 km |
 | T+10:38:16 | Orbit change | Mun | 8s | ~67 | 45 x 30 km |
 | T+10:38:26 | EVA: Jebediah Kerman (2s), boarded | Mun | | | |
 | T+11:13:05 | Return to Kerbin | Mun -> Kerbin | 7h 4m | | Pe 27 km |
-| T+11:13:05 | Trans-Kerbin injection | Mun | 11s | ~262 | escape, Pe 38 km |
+| T+11:13:05 | Return burn | Mun | 11s | ~262 | escape, Pe 38 km |
 | T+12:51:59 | Left Mun SOI | Kerbin | | | Ap 10,820 km, Pe 27 km |
 | T+12:51:59 | Stage separation (1 piece) | Kerbin | | | |
 | T+18:17:32 | Reentry | Kerbin | 4m 30s | | direct entry |
@@ -723,7 +787,7 @@ stored-frame vector computation returns (11.1), which can differ for burns with 
 
 ### A.2 Kerbal X (`mun-landing-recorded`): Mun landing
 
-| Time | Element | Location | Duration | Delta-v | Orbit / result |
+| Time | Element | Location | Duration | Spent | Orbit / result |
 |---|---|---|---|---|---|
 | Y1, D01, 00:00 | Kerbal X (Jebediah) | Kerbin, Launch Pad | 6h 27m | | Landed, Mun |
 | T+0:00:04 | Ascent (3 stage separations, 2 pieces each) | Kerbin | 2m 52s | | to 70 km, Ap 80 km |
@@ -731,12 +795,12 @@ stored-frame vector computation returns (11.1), which can differ for burns with 
 | T+0:03:57 | Circularization burn | Kerbin | 27s | ~736 | 84 x 76 km |
 | T+0:04:25 | Kerbin orbit | Kerbin | 26m 12s | | 84 x 76 km |
 | T+0:30:37 | Transfer to Mun | Kerbin -> Mun | 5h 28m | | about 140 km Mun orbit |
-| T+0:30:37 | Trans-Mun injection | Kerbin | 25s | ~856 | Ap 11,480 km, Pe 77 km |
-| T+1:21:02 | Course correction | Kerbin | 19s | ~120 | Mun encounter (Kerbin Pe -201 km) |
+| T+0:30:37 | Transfer burn | Kerbin | 25s | ~856 | Ap 11,480 km, Pe 77 km |
+| T+1:21:02 | Correction | Kerbin | 19s | ~120 | Mun encounter (Kerbin Pe -201 km) |
 | T+1:21:06 | Stage separation (1 piece) | Kerbin | | | |
-| T+2:12:07 | Course correction | Kerbin | 1s | ~9 | Mun encounter |
+| T+2:12:07 | Correction | Kerbin | 1s | ~9 | Mun encounter |
 | T+4:33:10 | Entered Mun SOI | Mun | | | Pe 140 km |
-| T+5:58:54 | Mun orbit insertion | Mun | 23s | - | about 140 km (inferred) |
+| T+5:58:54 | Capture burn | Mun | 23s | - | about 140 km (inferred) |
 | T+5:59:18 | Mun orbit | Mun | 3m 1s | | about 140 km (inferred) |
 | T+6:02:19 | Descent | Mun | 22m 48s | | |
 | T+6:02:19 | Descent burn | Mun | 4s | - | falling (coast to the surface) |
@@ -748,7 +812,7 @@ stored-frame vector computation returns (11.1), which can differ for burns with 
 
 ### A.3 Kerbal X #2 (`bdock-recorded`, second tree): probe separation, rendezvous, docking
 
-| Time | Element | Location | Duration | Delta-v | Orbit / result |
+| Time | Element | Location | Duration | Spent | Orbit / result |
 |---|---|---|---|---|---|
 | Y1, D01, 00:06 | Kerbal X (Bill, Bob, Valentina) | Kerbin, Launch Pad | 2h 22m | | Orbiting Kerbin |
 | T+0:00:00 | Ascent (3 stage separations) | Kerbin | 2m 56s | | to 70 km, Ap 90 km |
