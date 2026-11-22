@@ -244,6 +244,80 @@ namespace Parsek.Tests
             Assert.Null(GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode));
         }
 
+        [Theory]
+        [InlineData("ModuleAeroSurface", "True", true)]
+        [InlineData("ModuleAeroSurface", "False", false)]
+        [InlineData("ModuleControlSurface", "True", true)]
+        [InlineData("ModuleControlSurface", "False", false)]
+        public void SurfaceDeploy_PersistedDeployParses(string moduleName, string deploy, bool expected)
+        {
+            // GHOST-AIRBRAKE-START-NOT-DEPLOYED: a craft saved with its airbrakes out persists
+            // deploy = True (stock ModuleControlSurface.deploy is isPersistant), so a ghost built
+            // from that snapshot must spawn deployed instead of folding out from stowed.
+            ConfigNode partNode = PartWithModules(
+                Module(moduleName, ("deploy", deploy), ("aeroDeployAngle", "70")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(expected, baseline.surfaceDeployed);
+        }
+
+        [Theory]
+        [InlineData("0", "20", false)]     // aeroDeployAngle leads: zero moves nothing
+        [InlineData("0.4", "20", false)]
+        [InlineData("70", "0", true)]      // deployAngle is not believed when aeroDeployAngle is finite
+        [InlineData("NaN", "0", false)]    // unresolved aeroDeployAngle: deployAngle decides
+        [InlineData("NaN", "NaN", true)]   // no finite angle: no veto, as on the live side
+        public void SurfaceDeploy_InvisibleDeployAngleVetoesToStowed(
+            string aeroDeployAngle, string deployAngle, bool expected)
+        {
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleAeroSurface", ("deploy", "True"),
+                    ("aeroDeployAngle", aeroDeployAngle), ("deployAngle", deployAngle)));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(expected, baseline.surfaceDeployed);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("sometimes")]
+        public void SurfaceDeploy_AbsentOrUnparseable_NoOpinion(string deploy)
+        {
+            ConfigNode partNode = deploy == null
+                ? PartWithModules(Module("ModuleAeroSurface", ("aeroDeployAngle", "70")))
+                : PartWithModules(Module("ModuleAeroSurface", ("deploy", deploy)));
+
+            Assert.Null(GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode));
+        }
+
+        [Fact]
+        public void SurfaceDeploy_SuppressesStandaloneAnimateGeneric()
+        {
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleAeroSurface", ("deploy", "True")),
+                Module("ModuleAnimateGeneric", ("animTime", "0")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.True(baseline.surfaceDeployed);
+            Assert.False(baseline.animateGenericDeployed.HasValue);
+        }
+
+        [Fact]
+        public void TryClassifySnapshotSurfaceDeploy_NullNode_NoOpinion()
+        {
+            Assert.False(GhostVisualBuilder.TryClassifySnapshotSurfaceDeploy(null, out bool deployed));
+            Assert.False(deployed);
+        }
+
         [Fact]
         public void AnimationGroup_IsDeployedParses()
         {

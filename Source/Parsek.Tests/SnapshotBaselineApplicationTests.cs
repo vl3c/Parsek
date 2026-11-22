@@ -243,6 +243,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveActions_SurfaceDeployUsedWhenItIsTheOnlyOpinion()
+        {
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    surfaceDeployed = true,
+                });
+
+            Assert.True(actions.deployableTarget);
+            Assert.False(actions.deployableThroughCargoBayCascade);
+        }
+
+        [Fact]
+        public void ResolveActions_SurfaceDeployLosesToEveryOtherDeployableFamily()
+        {
+            // The builder gives a part an aero / control surface info only when no other
+            // family gave it one, so the surface opinion is the last arm of the cascade.
+            GhostPlaybackLogic.SnapshotBaselineActions actions =
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(new SnapshotPartBaseline
+                {
+                    animationGroupDeployed = false,
+                    surfaceDeployed = true,
+                });
+
+            Assert.False(actions.deployableTarget);
+        }
+
+        [Fact]
         public void ResolveActions_LightPowerFromModuleLight()
         {
             GhostPlaybackLogic.SnapshotBaselineActions actions =
@@ -638,6 +666,36 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l => l.Contains("Snapshot baseline applied")
                 && l.Contains("parts=1") && l.Contains("deployables=0"));
+        }
+
+        [Fact]
+        public void ApplySnapshotBaselines_SurfaceDeployed_SpawnsTheAirbrakeDeployed()
+        {
+            // GHOST-AIRBRAKE-START-NOT-DEPLOYED: the spawn stow baseline put every deployable
+            // stowed and nothing read the airbrake's persisted deploy, so the start seed then
+            // animated it out from stowed. The baseline now lands it deployed at once
+            // (immediate, no transition armed) before the seed replays.
+            var info = new DeployableGhostInfo
+            {
+                partPersistentId = 100000,
+                transforms = new List<DeployableTransformState>(),
+            };
+            var state = new GhostPlaybackState
+            {
+                vesselName = "AirbrakeVessel",
+                deployableInfos = new Dictionary<uint, DeployableGhostInfo> { { 100000, info } },
+                snapshotBaselines = new Dictionary<uint, SnapshotPartBaseline>
+                {
+                    { 100000, new SnapshotPartBaseline { surfaceDeployed = true } },
+                },
+            };
+
+            GhostPlaybackLogic.ApplySnapshotBaselines(state);
+
+            Assert.True(info.currentDeployed);
+            Assert.False(info.transitionActive);
+            Assert.Contains(logLines, l => l.Contains("Snapshot baseline applied")
+                && l.Contains("parts=1"));
         }
 
         [Fact]

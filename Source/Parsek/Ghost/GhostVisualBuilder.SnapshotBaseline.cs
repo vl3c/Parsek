@@ -60,6 +60,12 @@ namespace Parsek
         public bool? animateGenericDeployed;
         /// <summary>ModuleAnimationGroup.isDeployed.</summary>
         public bool? animationGroupDeployed;
+        /// <summary>
+        /// ModuleAeroSurface / ModuleControlSurface persisted <c>deploy</c> (airbrakes, deployed
+        /// flaps), vetoed to stowed when the persisted deploy angle is below the visible
+        /// threshold, the same reading the live recorder's classifier makes.
+        /// </summary>
+        public bool? surfaceDeployed;
         /// <summary>ModuleParachute.persistentState, verbatim and upper-cased (STOWED / ACTIVE / SEMIDEPLOYED / DEPLOYED / CUT).</summary>
         public string parachutePersistentState;
         /// <summary>ModuleLight.isOn.</summary>
@@ -82,6 +88,7 @@ namespace Parsek
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
             || animationGroupDeployed.HasValue
+            || surfaceDeployed.HasValue
             || !string.IsNullOrEmpty(parachutePersistentState)
             || lightOn.HasValue
             || lightBlinking.HasValue
@@ -254,6 +261,11 @@ namespace Parsek
                         continue;
                     case "ModuleAeroSurface":
                     case "ModuleControlSurface":
+                        hasDedicatedAnimateHandler = true;
+                        if (!baseline.surfaceDeployed.HasValue
+                            && TryClassifySnapshotSurfaceDeploy(module, out bool surfaceDeployed))
+                            baseline.surfaceDeployed = surfaceDeployed;
+                        continue;
                     case "ModuleRobotArmScanner":
                     case "ModuleAnimateHeat":
                         hasDedicatedAnimateHandler = true;
@@ -554,6 +566,37 @@ namespace Parsek
             if (string.Equals(moduleName, "ModuleRoboticRotationServo", System.StringComparison.Ordinal))
                 return (mirrorRotation != inverted) ? -targetAngle : targetAngle;
             return targetAngle;
+        }
+
+        /// <summary>
+        /// Pure: the deploy state an aero / control surface's snapshot MODULE node persists.
+        /// Stock <c>ModuleControlSurface.deploy</c> is <c>isPersistant</c> and
+        /// <c>ModuleAeroSurface.OnSave</c> writes it again (KSP 1.12.5, decompiled), so a craft
+        /// saved with its airbrakes out carries <c>deploy = True</c>. Mirrors
+        /// <see cref="FlightRecorder.TryClassifyAeroSurfaceStateFromFieldValues{TFields}"/>: the
+        /// <c>deploy</c> bool decides, and a deploy whose first finite deploy angle
+        /// (<c>aeroDeployAngle</c>, then <c>deployAngle</c>) is under
+        /// <see cref="FlightRecorder.AeroSurfaceVisibleDeployAngleDegrees"/> reads stowed, since
+        /// it moves nothing. False (no opinion) when <c>deploy</c> is absent or unparseable.
+        /// </summary>
+        internal static bool TryClassifySnapshotSurfaceDeploy(ConfigNode module, out bool deployed)
+        {
+            deployed = false;
+            if (module == null
+                || !TryParseSnapshotBool(module.GetValue("deploy"), out bool deploy))
+                return false;
+            deployed = deploy;
+            if (!deploy) return true;
+            string[] angleNames = FlightRecorder.AeroSurfaceDeployAngleFieldNames;
+            for (int i = 0; i < angleNames.Length; i++)
+            {
+                if (!TryParseSnapshotFloat(module.GetValue(angleNames[i]), out float angle))
+                    continue;
+                if (System.Math.Abs(angle) < FlightRecorder.AeroSurfaceVisibleDeployAngleDegrees)
+                    deployed = false;
+                break;
+            }
+            return true;
         }
 
         private static bool TryParseSnapshotBool(string raw, out bool value)
