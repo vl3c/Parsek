@@ -280,7 +280,13 @@ namespace Parsek.TestCommands
             for (int i = 0; i < prefab.Modules.Count; i++)
             {
                 PartModule m = prefab.Modules[i];
-                if (m != null) names.Add(m.moduleName);
+                if (m == null) continue;
+                names.Add(m.moduleName);
+                // A mod's subclass of a stock module (ReStock's ModuleRestockLaunchClamp :
+                // LaunchClamp) is that module for the exclusion rule: add every base type up to
+                // PartModule, so the pure exact-name check sees the stock name too.
+                for (Type t = m.GetType().BaseType; t != null && t != typeof(PartModule); t = t.BaseType)
+                    if (!names.Contains(t.Name)) names.Add(t.Name);
             }
             return names;
         }

@@ -74,7 +74,7 @@ ever record it `died-settling`. It needs a ground context, a later axis (9.1).
 Hidden parts (`TechHidden`, `category = none`, ReStock's deprecated parts) are captured and tagged
 `hidden` (an old craft can still fly them). Ground-anchored parts other than the clamps, wheels and
 landing legs (which extend or settle in free fall) exist in orbit, so they are captured and tagged
-`context-dependent`; the ground-only modules are a subset of `ContextDependentModules`.
+`context-dependent`; the ground-only modules are a subset of `ContextDependentModules`. The prefab's module list includes each module's base types up to `PartModule`, so a mod's subclass of a ground-only module (ReStock's `ModuleRestockLaunchClamp : LaunchClamp`) is excluded too.
 
 Per part the manifest records: `name`, `title`, `partUrl`, `modelUrls` (every MODEL node's `model` /
 `mesh` from `partConfig`), `source` (first path segment of the first model url: `Squad`,
