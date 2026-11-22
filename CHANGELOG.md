@@ -94,6 +94,28 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The ReStock Mk2 lander can keeps both hatches on its ghost.** Its replay drew one hatch on top
+  of the other, so one was missing at rest and slid through the cabin when the doors moved. Both
+  hatches now sit and move where the real part has them. (GHOST-POSE-DUPLICATE-PATHS)
+- **Spot light heads face the right way on their ghosts.** With ReStock installed, the replay of
+  the spot lights drew the lamp head turned around. Adjustable lights now show their head at the
+  angle the real light was set to. (GHOST-LIGHT-MOVEMENT-TRANSFORM)
+- **ReStock struts and fuel lines reach their target on their ghosts.** With ReStock installed, a
+  strut or fuel line replay kept its default short stub pointing the default way. It now
+  stretches to the part it connects to, with its texture stretched as on the real part, and
+  shows only its base when unconnected. (GHOST-RESTOCK-LINKED-MESH)
+- **Engine gimbal pistons and service bay door pistons sit right on their ghosts.** Their replays
+  showed the piston rods twisted about their own length. They are now aimed the way the real
+  part aims them, and follow the engine's gimbal and the doors as they move.
+  (GHOST-LOOKAT-CONSTRAINT)
+- **The ion engine's ring and the scanner's screen are dark on their ghosts when off.** Their
+  replays showed the glow and the lit screen the real parts only show when running or switched on.
+  The ghost now starts the way the real part looks, and a running ion engine still lights up.
+  (GHOST-ANIMATION-REST-STATE)
+- **ReStock engines no longer glow on their ghosts at rest.** A stopped ReStock engine's replay
+  showed an orange nozzle and a white-hot core where the real engine is dark. Its ghost now starts
+  dark like the real one, colour effects touch only the parts of the model the real part colours,
+  and the KV pods' windows show the colour the real pod shows. (GHOST-COLORCHANGER-GAPS)
 - **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
   line and its far end even when the real strut or fuel line had no target. It now shows only the
   base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)

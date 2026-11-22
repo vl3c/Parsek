@@ -706,3 +706,4 @@ reason = "the ghost mesh builder; only the statics below are tagged, the rest st
 [type.fields]
 hingePistonTransformsField = "process: reflection cache of a stock field"
 hingePistonTransformsFieldResolved = "process: resolve-once latch for that reflection cache"
+animationRestSampleCache = "process: prefab-derived animation rest-state sample cache, cleared with ClearAnimateHeatCache"

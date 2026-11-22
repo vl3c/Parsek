@@ -1028,18 +1028,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// For each path in hierarchy (depth-first) order, true when it is the first transform
+        /// with that path. Two sibling transforms can share a name (ReStock's
+        /// mk2LanderCabin.v2 has two CommonHatchRound); a path-keyed pose then stands for the
+        /// FIRST of them, which is the one Unity's clip binding and
+        /// <see cref="FindTransformByPath"/> resolve, so every later duplicate is skipped
+        /// rather than overwriting it or being compared against it.
+        /// </summary>
+        internal static bool[] MarkFirstPathOccurrences(IList<string> paths)
+        {
+            var first = new bool[paths.Count];
+            var seen = new HashSet<string>();
+            for (int i = 0; i < paths.Count; i++)
+                first[i] = paths[i] != null && seen.Add(paths[i]);
+            return first;
+        }
+
+        private static string[] GetTransformPaths(Transform[] allTransforms, Transform root)
+        {
+            var paths = new string[allTransforms.Length];
+            for (int i = 0; i < allTransforms.Length; i++)
+                paths[i] = GetTransformPath(allTransforms[i], root);
+            return paths;
+        }
+
+        /// <summary>
         /// Snapshot local position, rotation and scale of every transform in
         /// <paramref name="allTransforms"/> into a dictionary keyed by the
-        /// PathSep-separated path relative to <paramref name="root"/>.
+        /// PathSep-separated path relative to <paramref name="root"/>. A path shared by several
+        /// transforms keeps the first one (<see cref="MarkFirstPathOccurrences"/>).
         /// </summary>
         private static Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)> SnapshotTransformStates(
             Transform[] allTransforms, Transform root)
         {
             var states = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+            string[] paths = GetTransformPaths(allTransforms, root);
+            bool[] first = MarkFirstPathOccurrences(paths);
             for (int i = 0; i < allTransforms.Length; i++)
             {
-                string path = GetTransformPath(allTransforms[i], root);
-                states[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                if (!first[i]) continue;
+                states[paths[i]] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
             }
             return states;
         }
@@ -1056,9 +1084,17 @@ namespace Parsek
             Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)> stowedStates)
         {
             var result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+            string[] paths = GetTransformPaths(allTransforms, root);
+            bool[] first = MarkFirstPathOccurrences(paths);
+            int duplicates = 0;
             for (int i = 0; i < allTransforms.Length; i++)
             {
-                string path = GetTransformPath(allTransforms[i], root);
+                if (!first[i])
+                {
+                    duplicates++;
+                    continue;
+                }
+                string path = paths[i];
                 if (!stowedStates.TryGetValue(path, out var stowed))
                     continue;
 
@@ -1075,6 +1111,9 @@ namespace Parsek
                     result.Add((path, stowed.pos, stowed.rot, stowed.scale, dPos, dRot, dScale));
                 }
             }
+            if (duplicates > 0)
+                ParsekLog.Verbose("GhostVisual",
+                    $"  Pose sampling: skipped {duplicates} transform(s) whose path repeats an earlier one (first match kept)");
             return result;
         }
     }
