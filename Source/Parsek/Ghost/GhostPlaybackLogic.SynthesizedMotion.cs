@@ -249,6 +249,7 @@ namespace Parsek
                         g.gimbalTransforms[t].localRotation = g.neutralRotations[t];
                         restored++;
                     }
+                    ReaimGimbalLookAtConstraints(g);
                 }
             }
 
@@ -800,6 +801,47 @@ namespace Parsek
                     Transform tr = g.gimbalTransforms[t];
                     if (tr == null) continue;
                     tr.localRotation = g.neutralRotations[t] * offset;
+                }
+
+                ReaimGimbalLookAtConstraints(g);
+            }
+        }
+
+        /// <summary>
+        /// Stock FXModuleLookAtConstraint re-aims its movers every frame; the ghost only needs to
+        /// when the gimbal pose it rides on changed, so this writes only on a new deflection.
+        /// </summary>
+        private static void ReaimGimbalLookAtConstraints(GimbalGhostInfo g)
+        {
+            if (g?.lookAtConstraints == null || g.lookAtConstraints.Count == 0) return;
+            if (!ShouldReaimLookAtConstraints(g.lookAtDeflection, g.currentDeflection)) return;
+            ApplyLookAtConstraints(g.lookAtConstraints);
+            g.lookAtDeflection = g.currentDeflection;
+        }
+
+        /// <summary>True when the deflection the constraints were last aimed at differs (NaN = never aimed).</summary>
+        internal static bool ShouldReaimLookAtConstraints(Vector2 lastAimed, Vector2 current)
+        {
+            if (float.IsNaN(lastAimed.x) || float.IsNaN(lastAimed.y)) return true;
+            return lastAimed.x != current.x || lastAimed.y != current.y;
+        }
+
+        /// <summary>
+        /// Stock <c>FXModuleLookAtConstraint.Track</c> (KSP 1.12.5, decompiled): every mover
+        /// <c>LookAt(target, part.transform.up)</c>, in list order.
+        /// </summary>
+        internal static void ApplyLookAtConstraints(List<LookAtConstraintGhostInfo> constraints)
+        {
+            if (constraints == null) return;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                LookAtConstraintGhostInfo c = constraints[i];
+                if (c?.target == null || c.upReference == null || c.movers == null) continue;
+                Vector3 up = c.upReference.up;
+                for (int m = 0; m < c.movers.Count; m++)
+                {
+                    if (c.movers[m] != null)
+                        c.movers[m].LookAt(c.target, up);
                 }
             }
         }

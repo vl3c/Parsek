@@ -17,6 +17,7 @@ namespace Parsek
             // remembers to call. S7's loop-phase cache is prefab-derived on the same terms.
             animationClipLengthCache.Clear();
             converterLoopSampleCache.Clear();
+            animationRestSampleCache.Clear();
         }
 
         private static bool TryGetAnimateHeatAnimation(
@@ -208,8 +209,10 @@ namespace Parsek
                 animState.enabled = true;
                 animState.weight = 1f;
 
-                // Collect all transforms under the clone
+                // Collect all transforms under the clone; a repeated path keeps its first transform.
                 var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                string[] heatPaths = GetTransformPaths(allTransforms, tempClone.transform);
+                bool[] heatFirst = MarkFirstPathOccurrences(heatPaths);
 
                 // Sample at t=0.0 (cold)
                 animState.normalizedTime = 0f;
@@ -218,8 +221,8 @@ namespace Parsek
                 for (int i = 0; i < allTransforms.Length; i++)
                 {
                     Transform t = allTransforms[i];
-                    if (t == tempClone.transform) continue;
-                    string path = GetTransformPath(t, tempClone.transform);
+                    if (t == tempClone.transform || !heatFirst[i]) continue;
+                    string path = heatPaths[i];
                     coldSnap[path] = (t.localPosition, t.localRotation, t.localScale);
                 }
 
@@ -230,8 +233,8 @@ namespace Parsek
                 for (int i = 0; i < allTransforms.Length; i++)
                 {
                     Transform t = allTransforms[i];
-                    if (t == tempClone.transform) continue;
-                    string path = GetTransformPath(t, tempClone.transform);
+                    if (t == tempClone.transform || !heatFirst[i]) continue;
+                    string path = heatPaths[i];
                     medSnap[path] = (t.localPosition, t.localRotation, t.localScale);
                 }
 
@@ -242,8 +245,8 @@ namespace Parsek
                 for (int i = 0; i < allTransforms.Length; i++)
                 {
                     Transform t = allTransforms[i];
-                    if (t == tempClone.transform) continue;
-                    string path = GetTransformPath(t, tempClone.transform);
+                    if (t == tempClone.transform || !heatFirst[i]) continue;
+                    string path = heatPaths[i];
                     hotSnap[path] = (t.localPosition, t.localRotation, t.localScale);
                 }
 

@@ -808,16 +808,59 @@ namespace Parsek
             return false;
         }
 
-        private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
+        internal const string StockLinkedMeshModuleName = "CModuleLinkedMesh";
+        internal const string ReStockLinkedMeshModuleName = "ModuleRestockLinkedMesh";
+
+        /// <summary>
+        /// The part config's linked-mesh MODULE node: the one named
+        /// <paramref name="linkedMeshModuleName"/> (the prefab module implementing
+        /// CModuleLinkedMesh, e.g. ReStock's ModuleRestockLinkedMesh subclass), else null.
+        /// </summary>
+        private static ConfigNode FindLinkedMeshModuleNode(ConfigNode partConfig, string linkedMeshModuleName)
         {
-            if (partConfig == null) return false;
+            if (partConfig == null || string.IsNullOrEmpty(linkedMeshModuleName)) return null;
             ConfigNode[] modules = partConfig.GetNodes("MODULE");
             for (int m = 0; m < modules.Length; m++)
             {
-                if (modules[m].GetValue("name") == "CModuleLinkedMesh")
-                    return true;
+                if (modules[m].GetValue("name") == linkedMeshModuleName)
+                    return modules[m];
             }
-            return false;
+            return null;
+        }
+
+        /// <summary>
+        /// ReStock's <c>stretchAxis</c> ("y" = 1, anything else = 0, as its OnStart reads it)
+        /// and <c>stretchTextures</c> (space-separated, default <c>_MainTex</c>).
+        /// </summary>
+        internal static void ParseReStockStretch(ConfigNode moduleNode, out string[] textures, out int axisIndex)
+        {
+            string axis = moduleNode?.GetValue("stretchAxis") ?? "x";
+            axisIndex = axis != "y" ? 0 : 1;
+            string list = moduleNode?.GetValue("stretchTextures") ?? "_MainTex";
+            textures = list.Split(' ');
+        }
+
+        /// <summary>
+        /// ReStock <c>UpdateStretch</c>: stretch = line z scale / part scaleFactor; the texture
+        /// scale on the stretched axis is the stretch and its offset (1 - stretch) / 2, the
+        /// other axis keeps scale 1 and offset 0.
+        /// </summary>
+        internal static void ComputeReStockTextureStretch(float lineLocalScaleZ, float scaleFactor,
+            int axisIndex, out Vector2 scale, out Vector2 offset)
+        {
+            float stretch = scaleFactor != 0f ? lineLocalScaleZ / scaleFactor : lineLocalScaleZ;
+            scale = Vector2.one;
+            offset = Vector2.zero;
+            if (axisIndex == 1)
+            {
+                scale.y = stretch;
+                offset.y = (1f - stretch) / 2f;
+            }
+            else
+            {
+                scale.x = stretch;
+                offset.x = (1f - stretch) / 2f;
+            }
         }
 
         /// <summary>
@@ -829,6 +872,17 @@ namespace Parsek
             ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
             uint persistentId, string partName,
             out CompoundPartData data)
+            => TryParseCompoundPartData(partNode, partConfig, isCompoundPart, persistentId, partName,
+                StockLinkedMeshModuleName, out data);
+
+        /// <summary>
+        /// <paramref name="linkedMeshModuleName"/> is the moduleName of the prefab module that
+        /// implements CModuleLinkedMesh (stock's own, or a subclass such as ReStock's).
+        /// </summary>
+        internal static bool TryParseCompoundPartData(
+            ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
+            uint persistentId, string partName, string linkedMeshModuleName,
+            out CompoundPartData data)
         {
             data = new CompoundPartData
             {
@@ -839,7 +893,8 @@ namespace Parsek
 
             // Only process parts that have CModuleLinkedMesh — avoids false positives
             // from non-compound parts that happen to have a PARTDATA node.
-            if (!HasCModuleLinkedMesh(partConfig))
+            ConfigNode linkedMeshModule = FindLinkedMeshModuleNode(partConfig, linkedMeshModuleName);
+            if (linkedMeshModule == null)
                 return false;
 
             ConfigNode partData = partNode.GetNode("PARTDATA");
@@ -868,22 +923,13 @@ namespace Parsek
                 uint.TryParse(targetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture,
                     out data.targetPersistentId);
 
-            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
-            // uses obj_line, strut uses obj_strut).
-            if (partConfig != null)
-            {
-                ConfigNode[] modules = partConfig.GetNodes("MODULE");
-                for (int m = 0; m < modules.Length; m++)
-                {
-                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
-                    {
-                        data.lineObjName = modules[m].GetValue("lineObjName") ?? data.lineObjName;
-                        data.targetAnchorName = modules[m].GetValue("targetAnchorName") ?? data.targetAnchorName;
-                        data.targetCapName = modules[m].GetValue("targetCapName") ?? data.targetCapName;
-                        break;
-                    }
-                }
-            }
+            // Read transform names from the linked-mesh module config (varies: fuel line
+            // uses obj_line, strut uses obj_strut, ReStock line / strut).
+            data.lineObjName = linkedMeshModule.GetValue("lineObjName") ?? data.lineObjName;
+            data.targetAnchorName = linkedMeshModule.GetValue("targetAnchorName") ?? data.targetAnchorName;
+            data.targetCapName = linkedMeshModule.GetValue("targetCapName") ?? data.targetCapName;
+            if (linkedMeshModuleName == ReStockLinkedMeshModuleName)
+                ParseReStockStretch(linkedMeshModule, out data.stretchTextures, out data.stretchAxisIndex);
 
             return true;
         }
@@ -905,9 +951,14 @@ namespace Parsek
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName)
         {
+            // The module is found by TYPE: ReStock replaces CModuleLinkedMesh with its
+            // ModuleRestockLinkedMesh subclass, whose config node carries that name.
+            CompoundParts.CModuleLinkedMesh linkedMesh =
+                prefab.FindModuleImplementing<CompoundParts.CModuleLinkedMesh>();
+            string linkedMeshModuleName = linkedMesh != null ? linkedMesh.moduleName : StockLinkedMeshModuleName;
             CompoundPartData data;
             if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
-                    prefab is CompoundPart, persistentId, partName, out data))
+                    prefab is CompoundPart, persistentId, partName, linkedMeshModuleName, out data))
                 return null;
 
             var compoundPartInfo = new CompoundPartGhostInfo
@@ -987,6 +1038,8 @@ namespace Parsek
                 if (ghostTargetCap != null)
                     ghostTargetCap.rotation = ghostLine.rotation;
 
+                if (data.stretchTextures != null)
+                    ApplyReStockLineTextureStretch(ghostLine, data, prefab.scaleFactor, partName, persistentId);
             }
             else
             {
@@ -994,6 +1047,47 @@ namespace Parsek
             }
 
             return compoundPartInfo;
+        }
+
+        /// <summary>
+        /// ReStock <c>UpdateStretch</c> on the ghost: the first material of each line renderer
+        /// (stock reads <c>Renderer.material</c>; cloned here, the prefab's is shared) gets the
+        /// stretched texture scale and offset for every listed texture property it has.
+        /// </summary>
+        private static void ApplyReStockLineTextureStretch(Transform ghostLine, CompoundPartData data,
+            float scaleFactor, string partName, uint persistentId)
+        {
+            ComputeReStockTextureStretch(ghostLine.localScale.z, scaleFactor, data.stretchAxisIndex,
+                out Vector2 scale, out Vector2 offset);
+            MeshRenderer[] renderers = ghostLine.GetComponentsInChildren<MeshRenderer>(true);
+            int written = 0;
+            for (int r = 0; r < renderers.Length; r++)
+            {
+                Material[] slots = renderers[r].sharedMaterials;
+                if (slots == null || slots.Length == 0 || slots[0] == null) continue;
+                var clone = new Material(slots[0]);
+                bool any = false;
+                for (int t = 0; t < data.stretchTextures.Length; t++)
+                {
+                    string property = data.stretchTextures[t];
+                    if (string.IsNullOrEmpty(property) || !clone.HasProperty(property)) continue;
+                    clone.SetTextureScale(property, scale);
+                    clone.SetTextureOffset(property, offset);
+                    any = true;
+                }
+                if (!any)
+                {
+                    Object.Destroy(clone);
+                    continue;
+                }
+                slots[0] = clone;
+                renderers[r].materials = slots;
+                written++;
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"compound-stretch-{partName}",
+                $"  Compound part '{partName}' pid={persistentId}: ReStock texture stretch " +
+                $"scale=({scale.x.ToString("0.###", CultureInfo.InvariantCulture)}," +
+                $"{scale.y.ToString("0.###", CultureInfo.InvariantCulture)}) on {written} renderer(s)", 60.0);
         }
 
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
@@ -1418,6 +1512,12 @@ namespace Parsek
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
 
+            // Material / active-state clips the live part holds at rest (the ion engine's glow,
+            // ReStock's scanner screen): written after the heat, light and colour-changer infos
+            // so it reuses their material clones and leaves their properties to them.
+            ApplyAnimationRestStates(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
+                heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName);
+
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
@@ -1430,6 +1530,13 @@ namespace Parsek
                 BuildFairingStructureNodes(
                     prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
             }
+
+            // FXModuleLookAtConstraint: stock re-aims gimbal and door pistons every frame; the
+            // ghost aims them once here, after every build-time pose, and again after each
+            // gimbal / deployable pose write.
+            BuildLookAtConstraints(prefab.partInfo?.partConfig, modelRoot, modelNode.transform,
+                partRoot.transform, cloneMap, synthesizedMotionInfos, deployableInfo,
+                persistentId, partName);
 
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
@@ -1608,123 +1715,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Scans part config for ModuleColorChanger instances and builds ColorChangerGhostInfo
-        /// for each. Pattern A (toggleInFlight=True, _EmissiveColor) handles cabin lights.
-        /// Pattern B (toggleInFlight=False, _BurnColor) handles heat shield ablation char.
-        /// Returns null if no ColorChanger modules are detected.
-        ///
-        /// <paramref name="prefabPartConfig"/> is the prefab's own PART config
-        /// (<c>AvailablePart.partPrefab.partInfo.partConfig</c>) and supplies the config-only
-        /// fields a persisted snapshot node cannot carry - see
-        /// <see cref="ResolveColorChangerConfigNodes"/>.
-        /// </summary>
-        internal static List<ColorChangerGhostInfo> BuildColorChangerInfos(
-            ConfigNode partNode, ConfigNode prefabPartConfig, Transform ghostModelNode,
-            uint persistentId, string partName)
-        {
-            if (partNode == null || ghostModelNode == null)
-                return null;
-
-            List<ConfigNode> colorChangerNodes =
-                ResolveColorChangerConfigNodes(partNode, prefabPartConfig);
-            if (colorChangerNodes.Count == 0)
-                return null;
-
-            List<ColorChangerGhostInfo> results = null;
-            int skippedNoShaderProperty = 0;
-            int skippedUnrecognisedPattern = 0;
-
-            for (int m = 0; m < colorChangerNodes.Count; m++)
-            {
-                string shaderProperty = colorChangerNodes[m].GetValue("shaderProperty");
-                if (string.IsNullOrEmpty(shaderProperty))
-                {
-                    skippedNoShaderProperty++;
-                    continue;
-                }
-
-                string toggleStr = colorChangerNodes[m].GetValue("toggleInFlight");
-                bool toggleInFlight = false;
-                if (!string.IsNullOrEmpty(toggleStr))
-                    bool.TryParse(toggleStr, out toggleInFlight);
-
-                bool isCabinLight = toggleInFlight && shaderProperty == "_EmissiveColor";
-                bool isAblationChar = !toggleInFlight && shaderProperty == "_BurnColor";
-
-                if (!isCabinLight && !isAblationChar)
-                {
-                    skippedUnrecognisedPattern++;
-                    continue;
-                }
-
-                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow).
-                // Pattern B: stock ModuleAblator drives the char module with
-                // charMin + (charMax - charMin) * remainingAblatorFraction, so an unburnt
-                // shield sits near t=charMax and a spent one at t=charMin; off is the
-                // snapshot's current char, on is fully charred. A _BurnColor module no
-                // ablator drives keeps stock's own Start colour, the curves at t=0.
-                float offScalar = 0f;
-                float onScalar = 1f;
-                bool ablatorDriven = false;
-                if (isAblationChar)
-                {
-                    string moduleId = colorChangerNodes[m].GetValue("moduleID");
-                    ablatorDriven = TryResolveAblationCharScalars(
-                        partNode, prefabPartConfig, moduleId, out offScalar, out onScalar);
-                    if (!ablatorDriven)
-                    {
-                        offScalar = 0f;
-                        onScalar = 0f;
-                    }
-                }
-                Color offColor = EvaluateColorCurves(colorChangerNodes[m], offScalar);
-                Color onColor = EvaluateColorCurves(colorChangerNodes[m], onScalar);
-
-                // Find renderers on the ghost model that have this shader property
-                var renderers = ghostModelNode.GetComponentsInChildren<Renderer>(true);
-                if (renderers == null || renderers.Length == 0)
-                {
-                    continue;
-                }
-
-                var materialStates = CollectColorChangerMaterials(
-                    renderers, shaderProperty, offColor, onColor);
-
-                if (materialStates.Count > 0)
-                {
-                    if (results == null)
-                        results = new List<ColorChangerGhostInfo>();
-
-                    var info = new ColorChangerGhostInfo
-                    {
-                        partPersistentId = persistentId,
-                        shaderProperty = shaderProperty,
-                        isCabinLight = isCabinLight,
-                        materials = materialStates
-                    };
-                    results.Add(info);
-
-                    // Initialize to off state
-                    for (int i = 0; i < materialStates.Count; i++)
-                    {
-                        if (materialStates[i].material != null)
-                            materialStates[i].material.SetColor(shaderProperty, offColor);
-                    }
-
-                }
-            }
-
-            // Batch counting convention: one summary per part, never one line per module.
-            ParsekLog.VerboseRateLimited("GhostVisual", $"colorchanger-{partName}",
-                $"ColorChanger resolve '{partName}' pid={persistentId}: " +
-                $"modules={colorChangerNodes.Count} built={(results != null ? results.Count : 0)} " +
-                $"noShaderProperty={skippedNoShaderProperty} " +
-                $"unrecognisedPattern={skippedUnrecognisedPattern}", 60.0);
-
-            return results;
-        }
-
-        /// <summary>
         /// Resolves the char scalars stock ModuleAblator writes into the ModuleColorChanger
         /// whose moduleID equals the ablator's <c>charModuleName</c>: the snapshot's current
         /// char (<c>charMin + (charMax - charMin) * fraction</c>, fraction = remaining ablator
@@ -1814,65 +1804,6 @@ namespace Parsek
                 && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
                 return parsed;
             return fallback;
-        }
-
-        /// <summary>
-        /// Scans all renderers for materials with the given shader property, clones matching
-        /// materials, and builds ColorChangerMaterialState entries. Swaps renderer material
-        /// arrays in place for renderers that had any cloned materials.
-        /// </summary>
-        private static List<ColorChangerMaterialState> CollectColorChangerMaterials(
-            Renderer[] renderers, string shaderProperty, Color offColor, Color onColor)
-        {
-            var materialStates = new List<ColorChangerMaterialState>();
-
-            for (int r = 0; r < renderers.Length; r++)
-            {
-                Renderer renderer = renderers[r];
-                if (renderer == null) continue;
-
-                // Skip particle and trail renderers
-                if (renderer is ParticleSystemRenderer || renderer is TrailRenderer)
-                    continue;
-
-                Material[] sourceMaterials = renderer.sharedMaterials;
-                if (sourceMaterials == null || sourceMaterials.Length == 0)
-                    continue;
-
-                bool clonedAny = false;
-                var cloned = new Material[sourceMaterials.Length];
-                for (int mi = 0; mi < sourceMaterials.Length; mi++)
-                {
-                    Material source = sourceMaterials[mi];
-                    if (source == null)
-                    {
-                        cloned[mi] = null;
-                        continue;
-                    }
-
-                    if (!source.HasProperty(shaderProperty))
-                    {
-                        cloned[mi] = source;
-                        continue;
-                    }
-
-                    Material materialClone = new Material(source);
-                    cloned[mi] = materialClone;
-                    clonedAny = true;
-
-                    materialStates.Add(new ColorChangerMaterialState
-                    {
-                        material = materialClone,
-                        offColor = offColor,
-                        onColor = onColor
-                    });
-                }
-
-                if (clonedAny)
-                    renderer.materials = cloned;
-            }
-
-            return materialStates;
         }
 
         /// <summary>
