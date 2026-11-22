@@ -214,6 +214,8 @@ namespace Parsek
         public float transitionStartFraction;
         /// <summary>The fraction the in-flight transition is heading to (0 or 1).</summary>
         public float transitionTargetFraction;
+        /// <summary>The part's FXModuleLookAtConstraint pairs, re-aimed after every pose write.</summary>
+        public List<LookAtConstraintGhostInfo> lookAtConstraints;
 
         /// <summary>
         /// S6: the ghost-side clone of the part's <c>panelBreakTransform</c> subtree — what stock
@@ -266,6 +268,22 @@ namespace Parsek
         public float gimbalRangeDegrees;
         /// <summary>Smoothed applied deflection, degrees, about the two gimbal axes. Eased, not snapped.</summary>
         public Vector2 currentDeflection;
+        /// <summary>The part's FXModuleLookAtConstraint pairs, re-aimed when the deflection changes.</summary>
+        public List<LookAtConstraintGhostInfo> lookAtConstraints;
+        /// <summary>The deflection the constraints were last aimed at; NaN = never.</summary>
+        public Vector2 lookAtDeflection = new Vector2(float.NaN, float.NaN);
+    }
+
+    /// <summary>
+    /// One FXModuleLookAtConstraint CONSTRAINLOOKFX pair on a ghost: every mover (the clones of
+    /// stock's <c>FindModelTransforms(rotatorsName)</c>) LookAt the target clone with the ghost
+    /// part root's up, as stock <c>Track</c> does every frame on the live part.
+    /// </summary>
+    internal class LookAtConstraintGhostInfo
+    {
+        public List<Transform> movers = new List<Transform>();
+        public Transform target;
+        public Transform upReference;
     }
 
     /// <summary>

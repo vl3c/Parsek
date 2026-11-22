@@ -255,7 +255,10 @@ namespace Parsek
             }
 
             if (applied)
+            {
                 info.deployFraction = fraction;
+                ApplyLookAtConstraints(info.lookAtConstraints);
+            }
             return applied;
         }
 

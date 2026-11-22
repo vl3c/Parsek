@@ -301,5 +301,43 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region LookAt constraints
+
+        [Fact]
+        public void LookAt_ParsesEveryConstraintPair_DropsIncompleteOnes()
+        {
+            var part = new ConfigNode("PART");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "FXModuleLookAtConstraint");
+            var a = module.AddNode("CONSTRAINLOOKFX");
+            a.AddValue("targetName", "pistonTargetA");
+            a.AddValue("rotatorsName", "pistonA");
+            var b = module.AddNode("CONSTRAINLOOKFX");
+            b.AddValue("targetName", "pistonTargetB");
+            var other = part.AddNode("MODULE");
+            other.AddValue("name", "ModuleGimbal");
+            var stray = other.AddNode("CONSTRAINLOOKFX");
+            stray.AddValue("targetName", "x");
+            stray.AddValue("rotatorsName", "y");
+
+            var pairs = GhostVisualBuilder.ParseLookAtConstraintNames(part);
+            Assert.Single(pairs);
+            Assert.Equal("pistonTargetA", pairs[0].Key);
+            Assert.Equal("pistonA", pairs[0].Value);
+            Assert.Empty(GhostVisualBuilder.ParseLookAtConstraintNames(null));
+        }
+
+        [Fact]
+        public void LookAt_ReaimsOnlyWhenTheGimbalPoseChanged()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldReaimLookAtConstraints(
+                new Vector2(float.NaN, float.NaN), Vector2.zero));
+            Assert.False(GhostPlaybackLogic.ShouldReaimLookAtConstraints(Vector2.zero, Vector2.zero));
+            Assert.True(GhostPlaybackLogic.ShouldReaimLookAtConstraints(Vector2.zero, new Vector2(0.5f, 0f)));
+            Assert.True(GhostPlaybackLogic.ShouldReaimLookAtConstraints(new Vector2(0.5f, 0f), new Vector2(0.5f, -1f)));
+        }
+
+        #endregion
     }
 }

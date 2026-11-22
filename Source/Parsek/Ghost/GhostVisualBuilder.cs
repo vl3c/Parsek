@@ -1423,6 +1423,13 @@ namespace Parsek
                     prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
             }
 
+            // FXModuleLookAtConstraint: stock re-aims gimbal and door pistons every frame; the
+            // ghost aims them once here, after every build-time pose, and again after each
+            // gimbal / deployable pose write.
+            BuildLookAtConstraints(prefab.partInfo?.partConfig, modelRoot, modelNode.transform,
+                partRoot.transform, cloneMap, synthesizedMotionInfos, deployableInfo,
+                persistentId, partName);
+
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
             if (ShouldResolveWheelDamageInfo(damagedWheelNames, undamagedWheelNames))
