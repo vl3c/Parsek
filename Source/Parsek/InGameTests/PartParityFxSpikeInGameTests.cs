@@ -349,7 +349,8 @@ namespace Parsek.InGameTests
 
         private struct ParticleStats
         {
-            public int Alive, PsCount, Live;
+            public int Alive, PsCount, Live, Near, WorldN;
+            public double AlongMedian, AcrossMedian;
             public double SpeedMean, AlongP95, AcrossP95, CentroidX, CentroidZ, AlongMean;
             public float MaxLifetime;
         }
@@ -382,11 +383,15 @@ namespace Parsek.InGameTests
                     across.Add(Math.Sqrt(lp.x * lp.x + lp.z * lp.z));
                     cx += lp.x; cz += lp.z;
                     speed += Buf[i].velocity.magnitude;
+                    if (lp.magnitude <= 200f) st.Near++;
+                    if (world) st.WorldN++;
                 }
                 st.Alive += n;
             }
             if (st.Alive > 0)
             {
+                var a2 = new List<double>(along); a2.Sort(); var c2 = new List<double>(across); c2.Sort();
+                st.AlongMedian = a2[a2.Count / 2]; st.AcrossMedian = c2[c2.Count / 2];
                 st.SpeedMean = speed / st.Alive;
                 st.CentroidX = cx / st.Alive; st.CentroidZ = cz / st.Alive;
                 double sum = 0; foreach (double a in along) sum += a; st.AlongMean = sum / along.Count;
@@ -399,7 +404,8 @@ namespace Parsek.InGameTests
 
         private static string Fmt(ParticleStats s) =>
             $"alive={s.Alive} psCount={s.PsCount} live={s.Live} speed={s.SpeedMean:F2} alongMean={s.AlongMean:F2} alongP95={s.AlongP95:F2} " +
-            $"acrossP95={s.AcrossP95:F2} centroid=({s.CentroidX:F3},{s.CentroidZ:F3}) maxLifetime={s.MaxLifetime:F2}";
+            $"acrossP95={s.AcrossP95:F2} centroid=({s.CentroidX:F3},{s.CentroidZ:F3}) maxLifetime={s.MaxLifetime:F2} " +
+            $"near200={s.Near} worldN={s.WorldN} alongMed={s.AlongMedian:F2} acrossMed={s.AcrossMedian:F2}";
 
         /// <summary>Per pixel accumulation of one side / view / layer over N samples.</summary>
         private sealed class Accum
@@ -1037,7 +1043,17 @@ namespace Parsek.InGameTests
             if (farB.max.y > bodyB.max.y + 80f) { Vector3 mx = farB.max; mx.y = bodyB.max.y + 80f; Vector3 mn = farB.min; farB.SetMinMax(mn, mx); clamped = true; }
             Vector3 fe = farB.extents;
             if (fe.x > 80f || fe.z > 80f) { farB.extents = new Vector3(Mathf.Min(fe.x, 80f), fe.y, Mathf.Min(fe.z, 80f)); clamped = true; }
-            ParsekLog.Info(Tag, $"framing {label}: body={bodyB.center}/{bodyB.size} near={nearB.center}/{nearB.size} far={farB.center}/{farB.size} clamped={clamped}");
+            Bounds rendererFar = farB;
+            // Run-2 framing: renderer bounds of world-space emitters are unusable in orbit, so the
+            // far box is the body box stretched 60 m down the axis and to 8 m half width.
+            float hx = Mathf.Max(bodyB.extents.x, 8f), hz = Mathf.Max(bodyB.extents.z, 8f);
+            farB = new Bounds(Vector3.zero, Vector3.zero);
+            farB.SetMinMax(new Vector3(bodyB.center.x - hx, bodyB.min.y - 60f, bodyB.center.z - hz),
+                new Vector3(bodyB.center.x + hx, bodyB.max.y, bodyB.center.z + hz));
+            Bounds bottomB = nearB;
+            bottomB.extents = new Vector3(Mathf.Max(nearB.extents.x * 2f, 1f), nearB.extents.y, Mathf.Max(nearB.extents.z * 2f, 1f));
+            ParsekLog.Info(Tag, $"framing {label}: body={bodyB.center}/{bodyB.size} near={nearB.center}/{nearB.size} far={farB.center}/{farB.size} " +
+                $"bottom={bottomB.center}/{bottomB.size} rendererBoundsFar={rendererFar.center}/{rendererFar.size} rendererClamped={clamped}");
 
             int mask = MaskOf(realL, ghostL);
             rig.Cam.cullingMask = mask;
@@ -1056,7 +1072,7 @@ namespace Parsek.InGameTests
                 yield return new WaitForEndOfFrame();
                 if (real == null || real.rootPart == null) { failures.Add(label + ": real lost mid-capture"); yield break; }
                 View v = FxViews[f % FxViews.Length];
-                Frame(rig.Cam, partT, v.Far ? farB : (v.Name == "fx-bottom" ? farB : nearB), v);
+                Frame(rig.Cam, partT, v.Far ? farB : (v.Name == "fx-bottom" ? bottomB : nearB), v);
                 realP.Add(ReadParticles(realL.Systems, partT, null));
                 ghostP.Add(ReadParticles(ghostL.Systems, partT, null));
                 realSmokeP.Add(ReadParticles(realL.Systems, partT, ps => smokeSys.Contains(ps)));
@@ -1141,6 +1157,9 @@ namespace Parsek.InGameTests
             foreach (var s in l) { a += s.Alive; pc += s.PsCount; sp += s.SpeedMean; am += s.AlongMean; ap += s.AlongP95; xp += s.AcrossP95; cx += s.CentroidX; cz += s.CentroidZ; if (s.MaxLifetime > m.MaxLifetime) m.MaxLifetime = s.MaxLifetime; m.Live = Math.Max(m.Live, s.Live); }
             int n = l.Count;
             m.Alive = (int)(a / n); m.PsCount = (int)(pc / n); m.SpeedMean = sp / n; m.AlongMean = am / n; m.AlongP95 = ap / n; m.AcrossP95 = xp / n; m.CentroidX = cx / n; m.CentroidZ = cz / n;
+            double nr = 0, wn = 0, amd = 0, xmd = 0;
+            foreach (var s in l) { nr += s.Near; wn += s.WorldN; amd += s.AlongMedian; xmd += s.AcrossMedian; }
+            m.Near = (int)(nr / n); m.WorldN = (int)(wn / n); m.AlongMedian = amd / n; m.AcrossMedian = xmd / n;
             return m;
         }
 
@@ -1272,6 +1291,7 @@ namespace Parsek.InGameTests
                     var forces = new List<float>();
                     foreach (Transform t in rcs.thrusterTransforms)
                     {
+                        if (t == null || !t.gameObject.activeInHierarchy || t.position == Vector3.zero) continue;
                         Vector3 axis = rcs.useZaxis ? t.forward : t.up;
                         forces.Add(Mathf.Clamp01(Mathf.Max(Vector3.Dot(axis, worldIn), 0f)));
                     }
@@ -1287,8 +1307,27 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag, $"U2 rcs {label}: nozzles={rcs.thrusterTransforms.Count} useZaxis={rcs.useZaxis} thrusterPower={rcs.thrusterPower} " +
                     $"refT={(refT != null ? refT.name : "null")} rootT={part.transform.name} controllable={real.IsControllable} chosen={best} predictedFired={bestN} spread={bestSpread:F3} mean={bestMean:F3} " +
                     $"ctrlBefore=({real.ctrlState.X:F2},{real.ctrlState.Y:F2},{real.ctrlState.Z:F2}) rcsGroup={real.ActionGroups[KSPActionGroup.RCS]} rcsEnabled={rcs.rcsEnabled}");
-                hold.WriteCtrl = true;
+                int activeThr = 0; foreach (Transform t in rcs.thrusterTransforms) if (t != null && t.gameObject.activeInHierarchy) activeThr++;
+                ParsekLog.Info(Tag, $"U2 active thrusters {label}: {activeThr}/{rcs.thrusterTransforms.Count}");
+                // Phase A: feed the input through the vessel's own pre-autopilot callback (FeedInputFeed).
+                int cbCalls = 0;
+                float cx = hold.CtrlX, cy = hold.CtrlY, cz = hold.CtrlZ;
+                FlightInputCallback cb = st => { cbCalls++; st.X = cx; st.Y = cy; st.Z = cz; };
+                real.OnPreAutopilotUpdate += cb;
                 real.ActionGroups.SetGroup(KSPActionGroup.RCS, true);
+                int aFrames = 0, aFired = 0;
+                float aT = Time.realtimeSinceStartup;
+                while (Time.realtimeSinceStartup - aT < 1.5f)
+                {
+                    yield return new WaitForFixedUpdate();
+                    aFrames++;
+                    float sumA = 0; if (rcs.thrustForces != null) foreach (float f in rcs.thrustForces) sumA += f;
+                    if (rcs.rcs_active && sumA > 0) aFired++;
+                }
+                string forcesA = rcs.thrustForces != null ? string.Join(",", Array.ConvertAll(rcs.thrustForces, x => x.ToString("F2", IC))) : "null";
+                ParsekLog.Info(Tag, $"U2 phaseA-callback {label}: frames={aFrames} firedFrames={aFired} callbackCalls={cbCalls} forces=[{forcesA}] ctrlNow=({real.ctrlState.X:F2},{real.ctrlState.Y:F2},{real.ctrlState.Z:F2})");
+                bool callbackWorks = aFired >= 10;
+                if (!callbackWorks) { real.OnPreAutopilotUpdate -= cb; hold.WriteCtrl = true; }
                 int activeFrames = 0, firstActive = -1, frame = 0;
                 float pressT = Time.realtimeSinceStartup;
                 var trace = new StringBuilder();
@@ -1317,6 +1356,14 @@ namespace Parsek.InGameTests
                 ghosts.Add(ghost);
                 IEnumerator s2 = Seconds(2.0f); while (s2.MoveNext()) yield return s2.Current;
                 Transform gr = ghost.Build.root.transform;
+                int prodAlive = 0, prodRend = 0;
+                foreach (ParticleSystem ps in gr.GetComponentsInChildren<ParticleSystem>(true)) { prodAlive += ps.particleCount; var pr = ps.GetComponent<ParticleSystemRenderer>(); if (pr != null && pr.enabled) prodRend++; }
+                // Direct set, what a restore fix would do: SetRcsEmission with the recorded power.
+                GhostPlaybackLogic.SetRcsEmission(ghost.State, events[0], power);
+                IEnumerator s4 = Seconds(1.5f); while (s4.MoveNext()) yield return s4.Current;
+                int dirAlive = 0, dirRend = 0;
+                foreach (ParticleSystem ps in gr.GetComponentsInChildren<ParticleSystem>(true)) { dirAlive += ps.particleCount; var pr = ps.GetComponent<ParticleSystemRenderer>(); if (pr != null && pr.enabled) dirRend++; }
+                ParsekLog.Info(Tag, $"U2 ghost reach {label}: productionPath alive={prodAlive} renderersOn={prodRend} rcsSuppressed={ghost.State.rcsSuppressed} | afterDirectSetRcsEmission alive={dirAlive} renderersOn={dirRend} callbackWorks={callbackWorks}");
                 SideLayers realL = Classify("real", part.transform, gr);
                 SideLayers ghostL = Classify("ghost", gr, null);
                 ParsekLog.Info(Tag, $"layers {label}: {realL.Describe()} | {ghostL.Describe()}");
