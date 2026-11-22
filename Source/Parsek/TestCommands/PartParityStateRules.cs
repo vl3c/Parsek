@@ -502,6 +502,13 @@ namespace Parsek.TestCommands
         internal const double CabinLightSettleCapSeconds = 5.0;
 
         internal const double SunTrackerStillDeg = 0.1;
+
+        /// <summary>The angle a tracker may still be short of its aim when it counts as
+        /// settled. Over a window W the exponential slew turns a remaining angle r by
+        /// <c>r (1 - exp(-trackingSpeed W))</c>, so the still rule for one tracker is that
+        /// turn at r = 0.85 deg (<see cref="SunTrackerStillDegFor"/>): 0.1 deg over 0.5 s at
+        /// 0.25 (the panels' rule), 0.04 deg at a radiator's 0.1.</summary>
+        internal const double SunTrackerRemainingDeg = 0.85;
         internal const double SunTrackerWindowSeconds = 0.5;
         // Stock slews a tracking pivot by Quaternion.Lerp(current, aim, deltaTime * trackingSpeed)
         // (decompiled ModuleDeployablePart, trackingSpeed 0.25 on every stock tracking panel): an
@@ -1149,6 +1156,42 @@ namespace Parsek.TestCommands
         /// last 0.5 s (D.3).</summary>
         internal static bool SunTrackerSettled(double pivotDeltaDegOverWindow)
             => !double.IsNaN(pivotDeltaDegOverWindow) && pivotDeltaDegOverWindow < SunTrackerStillDeg;
+
+        /// <summary>One tracker's still threshold over <see cref="SunTrackerWindowSeconds"/>:
+        /// the turn its own slew makes there with <see cref="SunTrackerRemainingDeg"/> left
+        /// (an unreadable or non-positive speed reads as 0.25).</summary>
+        internal static double SunTrackerStillDegFor(double trackingSpeed)
+        {
+            if (double.IsNaN(trackingSpeed) || double.IsInfinity(trackingSpeed) || trackingSpeed <= 0.0)
+                trackingSpeed = SunTrackerReferenceSpeed;
+            return SunTrackerRemainingDeg * (1.0 - Math.Exp(-trackingSpeed * SunTrackerWindowSeconds));
+        }
+
+        /// <summary>A tracker of <paramref name="trackingSpeed"/> has settled when its pivot
+        /// turned less than <see cref="SunTrackerStillDegFor"/> over the window.</summary>
+        internal static bool SunTrackerSettled(double pivotDeltaDegOverWindow, double trackingSpeed)
+            => !double.IsNaN(pivotDeltaDegOverWindow) && pivotDeltaDegOverWindow < SunTrackerStillDegFor(trackingSpeed);
+
+        /// <summary>
+        /// The angle in degrees between two unit quaternions [x, y, z, w], exact for small
+        /// angles: <c>2 atan2(|v|, |w|)</c> of <c>conj(a) * b</c> in double. Unity's
+        /// <c>Quaternion.Angle</c> returns 0 below about 0.16 deg (its <c>IsEqualUsingDot</c>
+        /// test, dot > 1 - 1e-6), which made the still rule read 0 with a radiator still
+        /// 3 deg short of its aim.
+        /// </summary>
+        internal static double PreciseAngleDeg(double[] a, double[] b)
+        {
+            if (a == null || b == null || a.Length != 4 || b.Length != 4) return double.NaN;
+            double ax = -a[0], ay = -a[1], az = -a[2], aw = a[3];
+            double bx = b[0], by = b[1], bz = b[2], bw = b[3];
+            double w = aw * bw - ax * bx - ay * by - az * bz;
+            double x = aw * bx + ax * bw + ay * bz - az * by;
+            double y = aw * by - ax * bz + ay * bw + az * bx;
+            double z = aw * bz + ax * by - ay * bx + az * bw;
+            double v = Math.Sqrt(x * x + y * y + z * z);
+            if (double.IsNaN(v) || double.IsNaN(w)) return double.NaN;
+            return 2.0 * Math.Atan2(v, Math.Abs(w)) * 180.0 / Math.PI;
+        }
 
         /// <summary>An airbrake has settled when its surface transform turned less than 0.05 deg
         /// over the last 0.5 s (D.3).</summary>

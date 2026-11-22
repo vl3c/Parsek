@@ -784,7 +784,7 @@ namespace Parsek.TestCommands
                 double window = run.SunTracker ? PartParityStateRules.SunTrackerWindowSeconds : PartParityStateRules.AirbrakeWindowSeconds;
                 double cap = run.SunTracker ? run.TrackerCapSeconds : PartParityStateRules.AirbrakeCapSeconds;
                 double delta = WindowDelta(run.Samples, now, window);
-                bool settled = run.SunTracker ? PartParityStateRules.SunTrackerSettled(delta) : PartParityStateRules.AirbrakeSettled(delta);
+                bool settled = run.SunTracker ? PartParityStateRules.SunTrackerSettled(delta, run.TrackingSpeed) : PartParityStateRules.AirbrakeSettled(delta);
                 if (!settled && since < cap) return;
                 if (!settled && run.SunTracker) run.StillTracking = true;
                 ParsekLog.Verbose(Tag, $"case {wc.CaseId}: {(run.SunTracker ? "sun tracker" : "airbrake surface")} " +
@@ -794,6 +794,8 @@ namespace Parsek.TestCommands
             run.Done = true;
         }
 
+        private static double[] Q(Quaternion q) => new double[] { q.x, q.y, q.z, q.w };
+
         /// <summary>The rotation in degrees between the newest sample and the newest sample at
         /// least <paramref name="window"/> s older; NaN until the window is covered.</summary>
         private static double WindowDelta(List<KeyValuePair<float, Quaternion>> samples, float now, double window)
@@ -801,7 +803,7 @@ namespace Parsek.TestCommands
             if (samples.Count < 2) return double.NaN;
             Quaternion latest = samples[samples.Count - 1].Value;
             for (int i = samples.Count - 2; i >= 0; i--)
-                if (now - samples[i].Key >= window) return Quaternion.Angle(samples[i].Value, latest);
+                if (now - samples[i].Key >= window) return PartParityStateRules.PreciseAngleDeg(Q(samples[i].Value), Q(latest));
             return double.NaN;
         }
 

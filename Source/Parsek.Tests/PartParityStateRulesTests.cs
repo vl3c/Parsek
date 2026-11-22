@@ -564,6 +564,24 @@ namespace Parsek.Tests
             Assert.Equal(0.5, PartParityStateRules.PostDoneSettleSeconds("deployable", 1.0));
             Assert.True(PartParityStateRules.SunTrackerSettled(0.05));
             Assert.False(PartParityStateRules.SunTrackerSettled(0.2));
+            // Per tracker: the turn the slew makes over 0.5 s with 0.85 deg left, 0.0999 deg at
+            // a panel's 0.25 and 0.0415 deg at a radiator's 0.1.
+            Assert.Equal(0.85 * (1 - Math.Exp(-0.125)), PartParityStateRules.SunTrackerStillDegFor(0.25), 12);
+            Assert.Equal(0.85 * (1 - Math.Exp(-0.05)), PartParityStateRules.SunTrackerStillDegFor(0.1), 12);
+            Assert.Equal(PartParityStateRules.SunTrackerStillDegFor(0.25), PartParityStateRules.SunTrackerStillDegFor(double.NaN), 12);
+            Assert.True(PartParityStateRules.SunTrackerSettled(0.03, 0.1));
+            Assert.False(PartParityStateRules.SunTrackerSettled(0.05, 0.1));
+            Assert.True(PartParityStateRules.SunTrackerSettled(0.05, 0.25));
+            Assert.False(PartParityStateRules.SunTrackerSettled(double.NaN, 0.25));
+            // The cap covers the settle from the worst 180 deg: ln(180 / 0.85) / speed.
+            foreach (double k in new[] { 0.25, 0.1 })
+                Assert.True(PartParityStateRules.SunTrackerCapSecondsFor(k) > Math.Log(180.0 / PartParityStateRules.SunTrackerRemainingDeg) / k);
+            // The precise angle resolves what Unity's Quaternion.Angle reads as 0 (< 0.16 deg).
+            double half = 0.05 * Math.PI / 180.0 / 2.0;
+            Assert.Equal(0.05, PartParityStateRules.PreciseAngleDeg(new[] { 0.0, 0.0, 0.0, 1.0 },
+                new[] { 0.0, Math.Sin(half), 0.0, Math.Cos(half) }), 9);
+            Assert.Equal(0.0, PartParityStateRules.PreciseAngleDeg(new[] { 0.0, 0.6, 0.0, 0.8 }, new[] { 0.0, -0.6, 0.0, -0.8 }), 9);
+            Assert.True(double.IsNaN(PartParityStateRules.PreciseAngleDeg(null, new[] { 0.0, 0.0, 0.0, 1.0 })));
             Assert.True(PartParityStateRules.AirbrakeSettled(0.01));
             Assert.False(PartParityStateRules.AirbrakeSettled(0.05));
             Assert.True(PartParityStateRules.CanopyCaptureReady(1.0, 1.5));

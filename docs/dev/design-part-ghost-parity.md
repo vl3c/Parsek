@@ -1351,8 +1351,13 @@ Per family:
   `ModuleDeployablePart` with `isTracking` whose `pivotName` transform resolves, which is also when
   stock tracks, `hasPivot`; the 9 tracking solar panels and the 3 folding radiators per install,
   whose `isTracking` is the `ModuleDeployablePart` default): the done rule adds "pivot rotation
-  changed by less than 0.1 deg over 0.5 s", with a cap from the part's slowest tracker's own
-  `trackingSpeed`. Stock slews by `Lerp(current, aim, deltaTime * trackingSpeed)` (decompiled
+  changed by less than the tracker's still threshold over 0.5 s", with a cap from the part's
+  slowest tracker's own `trackingSpeed`. The threshold is the turn the slew makes in 0.5 s with
+  0.85 deg still to go, `0.85 (1 - exp(-0.5 trackingSpeed))` (`SunTrackerStillDegFor`): 0.1 deg
+  at 0.25, 0.04 deg at 0.1, so every tracker is captured within 0.85 deg of its aim. The window
+  angle is computed exactly (`PreciseAngleDeg`, `2 atan2(|v|, |w|)` in double): Unity's
+  `Quaternion.Angle` reads 0 below about 0.16 deg (its `IsEqualUsingDot`), which let a radiator
+  read still while 3 deg short of its aim (PP-3 `2026-11-22_1946`: real 104.6 deg, ghost 107.9). Stock slews by `Lerp(current, aim, deltaTime * trackingSpeed)` (decompiled
   `CalculateTracking`), an exponential approach with time constant `1 / trackingSpeed`, so the
   cap is `25 s x 0.25 / trackingSpeed` (`SunTrackerCapSecondsFor`, at most 90 s): 25 s for a
   solar panel at 0.25 (re-pinned from 10 s by S6: the worst 180 deg needs about 21.4 s to meet the
