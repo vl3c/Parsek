@@ -312,6 +312,55 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SurfaceDeploy_AeroSurfaceWinsOverControlSurface()
+        {
+            // The builder poses the aero surface's info when a part carries both, so the
+            // aero surface's deploy must be the one read, whatever the module order.
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleControlSurface", ("deploy", "False")),
+                Module("ModuleAeroSurface", ("deploy", "True")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.True(baseline.surfaceDeployed);
+        }
+
+        [Theory]
+        [InlineData("ModuleDeployableSolarPanel", "deployState", "EXTENDING")]
+        [InlineData("ModuleDeployableSolarPanel", "deployState", "BROKEN")]
+        [InlineData("ModuleWheelDeployment", "stateString", "Deploying")]
+        [InlineData("RetractableLadder", "StateName", "Extending")]
+        [InlineData("ModuleAnimationGroup", "isDeployed", "kinda")]
+        public void SurfaceDeploy_DroppedWhenAnEarlierFamilyOwnsTheDeployableInfo(
+            string moduleName, string key, string value)
+        {
+            // An earlier family takes the part's one DeployableGhostInfo even when it has no
+            // opinion of its own, so the surface's deploy must not pose that family's info.
+            ConfigNode partNode = PartWithModules(
+                Module(moduleName, (key, value)),
+                Module("ModuleControlSurface", ("deploy", "True")));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.True(baseline == null || !baseline.surfaceDeployed.HasValue);
+        }
+
+        [Fact]
+        public void SurfaceDeploy_DroppedOnACargoBayPart()
+        {
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleAeroSurface", ("deploy", "True")));
+
+            SnapshotPartBaseline baseline = GhostVisualBuilder.TryParseSnapshotPartBaseline(
+                partNode, cargoBayClosedPosition: 0f);
+
+            Assert.True(baseline == null || !baseline.surfaceDeployed.HasValue);
+        }
+
+        [Fact]
         public void TryClassifySnapshotSurfaceDeploy_NullNode_NoOpinion()
         {
             Assert.False(GhostVisualBuilder.TryClassifySnapshotSurfaceDeploy(null, out bool deployed));

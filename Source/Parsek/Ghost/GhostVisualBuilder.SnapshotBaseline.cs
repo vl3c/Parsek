@@ -25,8 +25,8 @@ namespace Parsek
     /// NOTHING for there is no seed and the stale baseline stands; that is normally right,
     /// because "no event" means the state did not change during the head span and the
     /// launch-time value is still the value at the cut. It is wrong only where the
-    /// recorder cannot SEE a change at all (the dead-probe families: ladders, aero /
-    /// control surfaces, robot-arm scanners), which is the same blind spot pre-M1 had.
+    /// recorder cannot SEE a change at all (the dead-probe families: ladders, robot-arm
+    /// scanners), which is the same blind spot pre-M1 had.
     /// </summary>
     internal sealed class SnapshotPartBaseline
     {
@@ -158,6 +158,13 @@ namespace Parsek
             ConfigNode firstAnimateGeneric = null;
             ConfigNode cargoPairedAnimateGeneric = null;
             int roboticOrdinal = 0;
+            // The ghost builder gives a part ONE DeployableGhostInfo, and an aero / control
+            // surface gets it only when no deployable panel, gear, ladder, cargo bay or
+            // animation group took it first (and the aero surface before the control surface),
+            // so the surface opinion is kept only when it will pose the surface's own info.
+            bool? aeroSurfaceDeployed = null;
+            bool? controlSurfaceDeployed = null;
+            bool hasEarlierDeployableFamily = cargoBayClosedPosition.HasValue;
 
             for (int i = 0; i < modules.Length; i++)
             {
@@ -195,6 +202,7 @@ namespace Parsek
                 {
                     case "ModuleWheelDeployment":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.gearDeployed.HasValue)
                         {
                             FlightRecorder.ClassifyGearState(
@@ -238,6 +246,7 @@ namespace Parsek
                         continue;
                     case "ModuleAnimationGroup":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.animationGroupDeployed.HasValue
                             && TryParseSnapshotBool(module.GetValue("isDeployed"), out bool agDeployed))
                             baseline.animationGroupDeployed = agDeployed;
@@ -254,17 +263,23 @@ namespace Parsek
                     // FlightRecorder.HasDedicatedAnimateHandler does on the live side.
                     case "RetractableLadder":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.ladderExtended.HasValue
                             && FlightRecorder.TryClassifyRetractableLadderStateName(
                                 module.GetValue("StateName"), out bool ladderDeployed, out bool ladderRetracted))
                             baseline.ladderExtended = ladderDeployed && !ladderRetracted;
                         continue;
                     case "ModuleAeroSurface":
+                        hasDedicatedAnimateHandler = true;
+                        if (!aeroSurfaceDeployed.HasValue
+                            && TryClassifySnapshotSurfaceDeploy(module, out bool aeroDeployed))
+                            aeroSurfaceDeployed = aeroDeployed;
+                        continue;
                     case "ModuleControlSurface":
                         hasDedicatedAnimateHandler = true;
-                        if (!baseline.surfaceDeployed.HasValue
-                            && TryClassifySnapshotSurfaceDeploy(module, out bool surfaceDeployed))
-                            baseline.surfaceDeployed = surfaceDeployed;
+                        if (!controlSurfaceDeployed.HasValue
+                            && TryClassifySnapshotSurfaceDeploy(module, out bool controlDeployed))
+                            controlSurfaceDeployed = controlDeployed;
                         continue;
                     case "ModuleRobotArmScanner":
                     case "ModuleAnimateHeat":
@@ -282,6 +297,7 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(deployState))
                     {
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         string trimmed = deployState.Trim();
                         if (string.Equals(trimmed, "EXTENDED", System.StringComparison.OrdinalIgnoreCase))
                             baseline.deployableExtended = true;
@@ -306,8 +322,12 @@ namespace Parsek
                 else if (module.GetValue("deployState") != null)
                 {
                     hasDedicatedAnimateHandler = true;
+                    hasEarlierDeployableFamily = true;
                 }
             }
+
+            if (!hasEarlierDeployableFamily)
+                baseline.surfaceDeployed = aeroSurfaceDeployed ?? controlSurfaceDeployed;
 
             // Cargo/service bay: the paired animation's animTime resolves open/closed
             // against the prefab's closedPosition (which end of the animation is "shut"
