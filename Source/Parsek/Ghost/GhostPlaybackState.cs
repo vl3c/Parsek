@@ -168,6 +168,11 @@ namespace Parsek
         public GhostSurfaceVelocitySource lastInterpolatedSurfaceVelocitySource;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        // Air density cache of GhostPlaybackLogic.UpdateEngineSmokeTrailFades, keyed by body
+        // and altitude (a pure function of both), so it needs no reset.
+        internal string smokeDensityBodyName;
+        internal double smokeDensityAltitude = double.NaN;
+        internal double smokeDensity;
         // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
         // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
         internal WheelGroundContactMemo wheelGroundContact;

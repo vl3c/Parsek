@@ -657,6 +657,11 @@ namespace Parsek
                 }
                 ParsekLog.Verbose("Visual", $"RestoreGhostFidelity: re-enabled {restored} renderers");
                 state.fidelityDisabledRenderers = null;
+                // A smoke trail the air-density fade hid while fidelity was reduced is among the
+                // re-enabled renderers; hide it again (the fade only writes on a level change).
+                if (state.engineInfos != null)
+                    foreach (var info in state.engineInfos.Values)
+                        ReapplySmokeTrailVisibility(info);
             }
             state.fidelityReduced = false;
         }

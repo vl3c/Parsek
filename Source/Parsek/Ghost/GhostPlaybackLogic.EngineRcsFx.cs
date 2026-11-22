@@ -111,11 +111,9 @@ namespace Parsek
             info.currentPower = power;
 
             // S1: MAGNITUDE. Scale the plume to the throttle before flipping the boolean gate.
-            // Only on the way UP (power > 0): the fields are persistent, and the one caller that
-            // does NOT route through here — RestoreAllRcsEmissions' sibling for RCS, and
-            // RestoreActiveEngineFx here — relies on the last active scale still being written
-            // when it re-enables emitters directly. Writing a zero-scale at power 0 would restore
-            // an invisible plume.
+            // Only on the way UP (power > 0): the fields are persistent, and writing a zero-scale
+            // at power 0 would leave an invisible plume behind for the next path that re-enables
+            // emitters without a fresh magnitude.
             if (power > 0f)
             {
                 ApplyFxMagnitudeScale(
@@ -151,6 +149,11 @@ namespace Parsek
                 }
 
             }
+
+            // The loop above re-enabled every renderer, the smoke trail's too; keep a trail the
+            // air-density fade already hid (vacuum) hidden.
+            if (power > 0f)
+                ReapplySmokeTrailVisibility(info);
 
             if (witnessIgnition)
             {
@@ -859,45 +862,35 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Lifts an RCS FX suppression: every RCS module whose last recorded power
+        /// (<see cref="RcsGhostInfo.currentPower"/>) is above zero is re-lit at that power through
+        /// <see cref="SetRcsEmission"/>, the same way <see cref="RestoreActiveEngineFx"/> restarts
+        /// engines. The renderer state cannot be the test: the suppressed frame's
+        /// <see cref="StopAllRcsFx"/> disables every RCS renderer, so a ghost that left FX
+        /// suppression (or was first shown after its hidden prime) mid-burn would otherwise stay
+        /// dark until its next recorded RCS event (todo GHOST-RCS-DARK-AFTER-FX-SUPPRESSION).
+        /// Re-applying the recorded power writes the same S1 magnitude the event wrote, so the
+        /// scaled plume survives the round trip. Idle modules (power 0) stay dark.
+        /// </summary>
         internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
         {
             if (state?.rcsInfos == null) return;
             if (!state.rcsSuppressed) return;
             state.rcsSuppressed = false;
-            int restoredCount = 0;
-            foreach (var info in state.rcsInfos.Values)
+            List<(ulong key, float power)> restores = CollectDeferredRcsPowerRestores(state);
+            for (int i = 0; i < restores.Count; i++)
             {
-                // Only restore emission for RCS that had active KSP emitters.
-                // Check if any KSPParticleEmitter was playing before suppression
-                // by looking at whether the particle system was playing (ps.isPlaying
-                // stays true after Stop with StopEmittingAndClear until particles expire).
-                // Since we call Clear(), isPlaying is false after suppress. Instead, check
-                // if any renderers are enabled — SetRcsEmission enables renderers when active.
-                bool wasActive = false;
-                for (int j = 0; j < info.particleSystems.Count; j++)
+                FlightRecorder.DecodeEngineKey(restores[i].key, out uint partPersistentId, out int moduleIndex);
+                SetRcsEmission(state, new PartEvent
                 {
-                    var ps = info.particleSystems[j];
-                    if (ps == null) continue;
-                    var renderer = ps.GetComponent<ParticleSystemRenderer>();
-                    if (renderer != null && renderer.enabled)
-                    {
-                        wasActive = true;
-                        break;
-                    }
-                }
-                if (wasActive)
-                {
-                    SetKspEmittersEnabled(info.kspEmitters, true);
-                    for (int j = 0; j < info.particleSystems.Count; j++)
-                    {
-                        var ps = info.particleSystems[j];
-                        if (ps != null && !ps.isPlaying)
-                            ps.Play();
-                    }
-                    restoredCount++;
-                }
+                    partPersistentId = partPersistentId,
+                    moduleIndex = moduleIndex
+                }, restores[i].power);
             }
-            ParsekLog.Info("Flight", $"Restored RCS emissions for {restoredCount} modules");
+            ParsekLog.Info("Flight",
+                $"Restored RCS emissions for {restores.Count} of {state.rcsInfos.Count} modules " +
+                "from recorded power");
         }
 
         internal static List<(ulong key, float power)> CollectDeferredEnginePowerRestores(
