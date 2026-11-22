@@ -25,8 +25,8 @@ namespace Parsek
     /// NOTHING for there is no seed and the stale baseline stands; that is normally right,
     /// because "no event" means the state did not change during the head span and the
     /// launch-time value is still the value at the cut. It is wrong only where the
-    /// recorder cannot SEE a change at all (the dead-probe families: ladders, aero /
-    /// control surfaces, robot-arm scanners), which is the same blind spot pre-M1 had.
+    /// recorder cannot SEE a change at all (the dead-probe families: ladders, robot-arm
+    /// scanners), which is the same blind spot pre-M1 had.
     /// </summary>
     internal sealed class SnapshotPartBaseline
     {
@@ -60,6 +60,12 @@ namespace Parsek
         public bool? animateGenericDeployed;
         /// <summary>ModuleAnimationGroup.isDeployed.</summary>
         public bool? animationGroupDeployed;
+        /// <summary>
+        /// ModuleAeroSurface / ModuleControlSurface persisted <c>deploy</c> (airbrakes, deployed
+        /// flaps), vetoed to stowed when the persisted deploy angle is below the visible
+        /// threshold, the same reading the live recorder's classifier makes.
+        /// </summary>
+        public bool? surfaceDeployed;
         /// <summary>ModuleParachute.persistentState, verbatim and upper-cased (STOWED / ACTIVE / SEMIDEPLOYED / DEPLOYED / CUT).</summary>
         public string parachutePersistentState;
         /// <summary>ModuleLight.isOn.</summary>
@@ -82,6 +88,7 @@ namespace Parsek
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
             || animationGroupDeployed.HasValue
+            || surfaceDeployed.HasValue
             || !string.IsNullOrEmpty(parachutePersistentState)
             || lightOn.HasValue
             || lightBlinking.HasValue
@@ -151,6 +158,13 @@ namespace Parsek
             ConfigNode firstAnimateGeneric = null;
             ConfigNode cargoPairedAnimateGeneric = null;
             int roboticOrdinal = 0;
+            // The ghost builder gives a part ONE DeployableGhostInfo, and an aero / control
+            // surface gets it only when no deployable panel, gear, ladder, cargo bay or
+            // animation group took it first (and the aero surface before the control surface),
+            // so the surface opinion is kept only when it will pose the surface's own info.
+            bool? aeroSurfaceDeployed = null;
+            bool? controlSurfaceDeployed = null;
+            bool hasEarlierDeployableFamily = cargoBayClosedPosition.HasValue;
 
             for (int i = 0; i < modules.Length; i++)
             {
@@ -188,6 +202,7 @@ namespace Parsek
                 {
                     case "ModuleWheelDeployment":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.gearDeployed.HasValue)
                         {
                             FlightRecorder.ClassifyGearState(
@@ -231,6 +246,7 @@ namespace Parsek
                         continue;
                     case "ModuleAnimationGroup":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.animationGroupDeployed.HasValue
                             && TryParseSnapshotBool(module.GetValue("isDeployed"), out bool agDeployed))
                             baseline.animationGroupDeployed = agDeployed;
@@ -247,13 +263,24 @@ namespace Parsek
                     // FlightRecorder.HasDedicatedAnimateHandler does on the live side.
                     case "RetractableLadder":
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         if (!baseline.ladderExtended.HasValue
                             && FlightRecorder.TryClassifyRetractableLadderStateName(
                                 module.GetValue("StateName"), out bool ladderDeployed, out bool ladderRetracted))
                             baseline.ladderExtended = ladderDeployed && !ladderRetracted;
                         continue;
                     case "ModuleAeroSurface":
+                        hasDedicatedAnimateHandler = true;
+                        if (!aeroSurfaceDeployed.HasValue
+                            && TryClassifySnapshotSurfaceDeploy(module, out bool aeroDeployed))
+                            aeroSurfaceDeployed = aeroDeployed;
+                        continue;
                     case "ModuleControlSurface":
+                        hasDedicatedAnimateHandler = true;
+                        if (!controlSurfaceDeployed.HasValue
+                            && TryClassifySnapshotSurfaceDeploy(module, out bool controlDeployed))
+                            controlSurfaceDeployed = controlDeployed;
+                        continue;
                     case "ModuleRobotArmScanner":
                         hasDedicatedAnimateHandler = true;
                         continue;
@@ -274,6 +301,7 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(deployState))
                     {
                         hasDedicatedAnimateHandler = true;
+                        hasEarlierDeployableFamily = true;
                         string trimmed = deployState.Trim();
                         if (string.Equals(trimmed, "EXTENDED", System.StringComparison.OrdinalIgnoreCase))
                             baseline.deployableExtended = true;
@@ -298,8 +326,12 @@ namespace Parsek
                 else if (module.GetValue("deployState") != null)
                 {
                     hasDedicatedAnimateHandler = true;
+                    hasEarlierDeployableFamily = true;
                 }
             }
+
+            if (!hasEarlierDeployableFamily)
+                baseline.surfaceDeployed = aeroSurfaceDeployed ?? controlSurfaceDeployed;
 
             // Cargo/service bay: the paired animation's animTime resolves open/closed
             // against the prefab's closedPosition (which end of the animation is "shut"
@@ -558,6 +590,37 @@ namespace Parsek
             if (string.Equals(moduleName, "ModuleRoboticRotationServo", System.StringComparison.Ordinal))
                 return (mirrorRotation != inverted) ? -targetAngle : targetAngle;
             return targetAngle;
+        }
+
+        /// <summary>
+        /// Pure: the deploy state an aero / control surface's snapshot MODULE node persists.
+        /// Stock <c>ModuleControlSurface.deploy</c> is <c>isPersistant</c> and
+        /// <c>ModuleAeroSurface.OnSave</c> writes it again (KSP 1.12.5, decompiled), so a craft
+        /// saved with its airbrakes out carries <c>deploy = True</c>. Mirrors
+        /// <see cref="FlightRecorder.TryClassifyAeroSurfaceStateFromFieldValues{TFields}"/>: the
+        /// <c>deploy</c> bool decides, and a deploy whose first finite deploy angle
+        /// (<c>aeroDeployAngle</c>, then <c>deployAngle</c>) is under
+        /// <see cref="FlightRecorder.AeroSurfaceVisibleDeployAngleDegrees"/> reads stowed, since
+        /// it moves nothing. False (no opinion) when <c>deploy</c> is absent or unparseable.
+        /// </summary>
+        internal static bool TryClassifySnapshotSurfaceDeploy(ConfigNode module, out bool deployed)
+        {
+            deployed = false;
+            if (module == null
+                || !TryParseSnapshotBool(module.GetValue("deploy"), out bool deploy))
+                return false;
+            deployed = deploy;
+            if (!deploy) return true;
+            string[] angleNames = FlightRecorder.AeroSurfaceDeployAngleFieldNames;
+            for (int i = 0; i < angleNames.Length; i++)
+            {
+                if (!TryParseSnapshotFloat(module.GetValue(angleNames[i]), out float angle))
+                    continue;
+                if (System.Math.Abs(angle) < FlightRecorder.AeroSurfaceVisibleDeployAngleDegrees)
+                    deployed = false;
+                break;
+            }
+            return true;
         }
 
         private static bool TryParseSnapshotBool(string raw, out bool value)

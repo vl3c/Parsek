@@ -263,7 +263,8 @@ namespace Parsek
         /// silently overwrite each other in dictionary order. The order is: explicit deploy
         /// state, then gear, then retractable ladder, then cargo bay, then animation group, then the generic
         /// animation (which the parser already suppresses whenever a dedicated handler
-        /// exists).
+        /// exists), then the aero / control surface deploy (last, as the builder resolves an
+        /// aero / control surface info only when no other family gave the part one).
         ///
         /// That order is THIS RESOLVER'S OWN, not a recorder-derived precedence — the
         /// recorder has no precedence to mirror. Its per-family pollers
@@ -307,6 +308,8 @@ namespace Parsek
                 actions.deployableTarget = baseline.animationGroupDeployed;
             else if (baseline.animateGenericDeployed.HasValue)
                 actions.deployableTarget = baseline.animateGenericDeployed;
+            else if (baseline.surfaceDeployed.HasValue)
+                actions.deployableTarget = baseline.surfaceDeployed;
 
             // A ColorChanger cabin light only stands in for a ModuleLight the part does
             // not have (the parser enforces that), so at most one of these is ever set and
