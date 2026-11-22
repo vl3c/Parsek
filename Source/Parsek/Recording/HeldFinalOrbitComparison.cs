@@ -58,6 +58,12 @@ namespace Parsek
         /// <summary>Game seconds after a predicted conic change before it is worth a look.</summary>
         internal const double NextCheckMarginSeconds = 10.0;
 
+        /// <summary>
+        /// The longest last predicted segment read as a final conic's settle span
+        /// (<see cref="BallisticExtrapolator.FinalConicSettleSeconds"/> plus a second).
+        /// </summary>
+        internal const double MaxFinalConicSpanSeconds = BallisticExtrapolator.FinalConicSettleSeconds + 1.0;
+
         private const double UtEpsilon = 1e-6;
 
         /// <summary>
@@ -95,7 +101,10 @@ namespace Parsek
 
             if (!TryFindReference(rec, nowUT, out OrbitSegment reference, out bool pastPrediction,
                     out double nextCheckUT, out string refusal))
+            {
+                result.NextCheckUT = nextCheckUT;
                 return NotCompared(ref result, refusal);
+            }
             result.PredictedBody = reference.bodyName;
             result.NextCheckUT = nextCheckUT;
             bool sameBody = string.Equals(reference.bodyName, live.LiveOrbit.bodyName, StringComparison.Ordinal);
@@ -158,11 +167,21 @@ namespace Parsek
             if (nowUT < firstStart)
             {
                 refusal = "before-the-prediction";
+                nextCheckUT = firstStart + NextCheckMarginSeconds;
                 return false;
             }
             if (nowUT < last.endUT)
             {
                 refusal = "between-predicted-segments";
+                return false;
+            }
+            // Past the end only a final conic is propagated on: its last segment is the settle
+            // span (BallisticExtrapolator.FinalConicSettleSeconds). A tail cut at a sphere
+            // crossing (the transition cap) or with no parent frame ends at a crossing the
+            // predictor found itself, so stock in the next body there is no contradiction.
+            if (last.endUT - last.startUT > MaxFinalConicSpanSeconds)
+            {
+                refusal = "no-final-conic-at-the-end";
                 return false;
             }
             reference = last;

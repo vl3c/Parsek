@@ -108,12 +108,12 @@ namespace Parsek.Tests
             }
         }
 
-        // A coast around Kerbin to 2500, then a final conic around the Mun to 3000.
+        // A coast around Kerbin to 2500, then a final conic around the Mun over its 60 s settle span.
         private static Recording CoastThenMunOrbit()
         {
             var rec = new Recording { RecordingId = OrbiterId };
             rec.OrbitSegments.Add(Seg(1000.0, 2500.0, "Kerbin", 700000.0, 0.01));
-            rec.OrbitSegments.Add(Seg(2500.0, 3000.0, "Mun", 700000.0, 0.01));
+            rec.OrbitSegments.Add(Seg(2500.0, 2560.0, "Mun", 700000.0, 0.01));
             return rec;
         }
 
@@ -190,8 +190,10 @@ namespace Parsek.Tests
         {
             Recording rec = CoastThenMunOrbit();
             Assert.Equal("no-live-orbit", Compare(rec, 1700.0, null).Reason);
-            Assert.Equal("before-the-prediction",
-                Compare(rec, 900.0, LiveOn(rec.OrbitSegments[0])).Reason);
+            HeldFinalOrbitResult before = Compare(rec, 900.0, LiveOn(rec.OrbitSegments[0]));
+            Assert.Equal("before-the-prediction", before.Reason);
+            // looked at again once the prediction begins
+            Assert.Equal(1010.0, before.NextCheckUT, 6);
             Assert.Equal("no-predicted-segment",
                 Compare(new Recording { RecordingId = "x" }, 1700.0, LiveOn(rec.OrbitSegments[0])).Reason);
             Assert.Equal(HeldFinalOrbitVerdict.NotCompared, Compare(rec, 1700.0, null).Verdict);
@@ -235,6 +237,23 @@ namespace Parsek.Tests
             HeldFinalOrbitResult known = Compare(rec, 3200.0, kerbin, mu: MuOf);
             Assert.Equal(HeldFinalOrbitVerdict.Differs, known.Verdict);
             Assert.Equal("body-differs", known.Reason);
+        }
+
+        // catches (review): a tail cut at the SOI transition cap ends at a crossing the predictor
+        // found itself; stock in the next body past that end read as a contradiction and the
+        // correct predicted tail was thrown away
+        [Fact]
+        public void Compare_PastAnEndThatIsNoFinalConic_IsNotCompared()
+        {
+            var rec = new Recording { RecordingId = OrbiterId };
+            rec.OrbitSegments.Add(Seg(1000.0, 5000.0, "Kerbin", 7.0e6, 0.5));
+            HeldFinalOrbitResult r = Compare(rec, 5100.0, LiveOn(Seg(5000.0, 5000.0, "Mun", 400000.0, 0.2)),
+                mu: MuOf);
+            Assert.Equal(HeldFinalOrbitVerdict.NotCompared, r.Verdict);
+            Assert.Equal("no-final-conic-at-the-end", r.Reason);
+            // still judged while the vessel is on that tail
+            Assert.Equal(HeldFinalOrbitVerdict.Differs,
+                Compare(rec, 4000.0, LiveOn(Seg(3900.0, 3900.0, "Mun", 400000.0, 0.2))).Verdict);
         }
 
         // An open final conic around the Sun (ruling Q10) has no period: it is compared at any UT.
