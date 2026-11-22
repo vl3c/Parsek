@@ -111,8 +111,11 @@ ON_REQUEST_TIERS: Tuple[str, ...] = ("operator", "longhaul")
 LONGHAUL_MIN_P50_SECONDS: float = 1800.0
 
 # The provisioned instance profiles (design + M-A6). stock-tree is stock-minimal
-# minus the two tech-tree mods, the scripted campaign program's host.
-INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat", "stock-tree")
+# minus the two tech-tree mods, the scripted campaign program's host;
+# modded-restock is modded-compat minus the four Waterfall folders, the host of
+# the judged ReStock plume cases (part ghost parity P8, design E.6).
+INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat", "stock-tree",
+                                      "modded-restock")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
 # broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. Three named fixture
