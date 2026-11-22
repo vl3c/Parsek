@@ -322,7 +322,8 @@ class CommittedWatchLaneSyncTests(unittest.TestCase):
                 continue
             path = os.path.join(scen, name)
             with open(path, "rb") as fh:
-                raw = fh.read()
+                # Line endings are the checkout's (autocrlf), not the generator's.
+                raw = fh.read().replace(b"\r\n", b"\n")
             spec = tomllib.loads(raw.decode("utf-8"))
             if "watch" not in spec:
                 continue
