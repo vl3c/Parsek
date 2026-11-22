@@ -26,6 +26,22 @@ What: the recorder keeps ONE power per RCS module (`FlightRecorder.ComputeRcsPow
 
 Fix (not started): record which nozzles fire. That means a per-nozzle mask or a per-nozzle power on the RCS events, debounced like today, and the ghost mapping each particle system to its thruster index (the sweep's F2 adds that read-only record). The cost is more recorded RCS events per ghost; weigh it against the visual principle (record threshold crossings, not continuous values). P8's RCS cases are its measure: they flip from reported to judged when it lands.
 
+## GHOST-RCS-DARK-AFTER-FX-SUPPRESSION: a ghost that comes out of FX suppression while its RCS fires shows no RCS puffs until the next RCS event [FILED 2026-11-22 from the part parity P8 E0 spike (`docs/dev/design-part-ghost-parity.md` E.12 U2; PPS-8a `2026-11-22_2144`, PPS-8b `2026-11-22_2151`); OPEN; low (visual only)]
+
+What: `GhostPlaybackEngine.StopVisualFxForFrame` (every suppressed frame, and the hidden prime of a freshly built ghost) calls `GhostPlaybackLogic.StopAllRcsFx`, which disables every RCS particle renderer, and then `StopAllRcsEmissions`. On the first unsuppressed frame `RestoreAllRcsEmissions` restores only modules with an ENABLED renderer (its `wasActive` test), so it restores none and clears `rcsSuppressed`. The ghost stays dark until its recording's next RCS event. Engines do not have this gap: `RestoreActiveEngineFx` restarts them from the last recorded power. Evidence: an `RCSBlock.v2` ghost built from a recording with one `RCSActivated` event at power 0.157 drew 0 particles and 0 enabled renderers after the production priming, on stock and ReStock; a direct `SetRcsEmission` with the same power then drew 4 (stock) or 8 (ReStock) renderers.
+
+Player-visible: a ghost holding a steady RCS translation (a docking approach) shows no puffs once it has been out of FX range or hidden and comes back, and none at all when it is first built mid-burn.
+
+Fix (not started): restore from the recorded power the way engines do (an RCS twin of `CollectDeferredEnginePowerRestores` over `rcsInfos[*].currentPower`), not from the renderer state that `StopAllRcsFx` itself cleared. P8's rcs cases are its measure: until it lands they fail `state-not-modelled` on both routes.
+
+## GHOST-SMOKE-IN-VACUUM: a ghost engine draws its smoke trail in vacuum, where stock hides it [FILED 2026-11-22 from the part parity P8 E0 spike (`docs/dev/design-part-ghost-parity.md` E.12 U8; PPS-8a `2026-11-22_2144`, PPS-8c `2026-11-22_2149`); OPEN; low (visual only)]
+
+What: in orbit the real stock legacy engines (LV-T45, LV-T30, Hammer, nuclear engine) keep their `fx_smokeTrail_*` particle system playing but with its renderer disabled, so no smoke is drawn (no smoke coverage in the sweep camera on any of the four stock legacy engines tried). Their ghosts draw the trail: `fx-far` smoke core 9832 px on the LV-T45 ghost and 27120 px on the Hammer ghost, 0 on the real sides. In the air (1600 m over KSC) the real smoke draws and the ghost's matches it in placement (the Hammer's trails differ in length only). The ghost RAPIER also draws a smoke trail that the real RAPIER never draws, in orbit and in the air; check whether that is the same cause.
+
+Not yet found: the stock code that disables the smoke renderer in vacuum (not in the decompiled `ModuleEngines` / `FXGroup` bodies read so far).
+
+Fix (not started): find the stock rule, then gate the ghost's smoke systems on the same input the recording carries (an atmosphere flag of the trajectory point, never a per-frame stored value). P8's orbit plume cases are its measure (`smoke-extra`).
+
 ## ~~PARITY-RESTOCK-MASK-ROOT-PART~~: the part parity sweep photographed ReStock depth masks as opaque cyan discs on the real part [FILED 2026-11-22 from PP-2 `2026-11-22_0045_PP-2-part-parity-modded` (86 x `Module ModuleRestockDepthMask threw during OnStart: System.NullReferenceException` at `Component.get_gameObject` <- `UpdateAllMaterials`, 59 cases capped at warn `depth-mask`); FIXED 2026-11-22, branch `part-parity-restock-mask`; low (automation-only; the real side of 74 modded cases was not the part a player sees)]
 
 What: on the ReStock install the REAL picture of every part with a `ModuleRestockDepthMask` (intakes, jets, RCS blocks, claws, InfraredTelescope, ...) showed the mask mesh with its authored placeholder material, so those cases compared a cyan disc against the ghost (which skips masks by owner ruling 2026-11-22) and were capped at warn.
