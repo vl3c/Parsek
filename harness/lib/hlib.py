@@ -12571,6 +12571,19 @@ VERDICTS: Tuple[str, ...] = (
     VERDICT_EXPECTED_FAIL, VERDICT_XPASS,
 )
 
+# Attended hold runs (run.py --hold, harness/lib/watchlane.py). A hold run asserts
+# nothing, so its OBSERVED is deliberately NOT a member of VERDICTS: every reader
+# that counts verdicts (coverage, flake, duration ledger, run index, lane health)
+# drops a hold result through is_hold_result before it looks at the verdict.
+RESULT_MODE_KEY = "mode"
+RESULT_MODE_HOLD = "hold"
+HOLD_VERDICT_OBSERVED = "OBSERVED"
+
+
+def is_hold_result(result) -> bool:
+    """True for a result record an attended ``--hold`` run wrote."""
+    return isinstance(result, dict) and result.get(RESULT_MODE_KEY) == RESULT_MODE_HOLD
+
 # The PARSEK-FAIL subkinds classify_verdict can assign (the analyzer PARSEK-FAIL
 # path carries subkind "analyzer"). An expectedFail.subkind, when present, must
 # name one of these so the signature match is against a real failure class (S2).
@@ -13412,6 +13425,11 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # Arg half: the SPEC named or spelled something wrong (the `unknown-target` call).
     "tree-arg-missing": "driver-arg",
     "unknown-tree": "driver-arg",
+    # The watch-lane tree handle (TestCommandTreeHandle: first / latest / name:<x>)
+    # named no tree, or more than one: the spec's handle, not the game.
+    "tree-handle-no-trees": "driver-arg",
+    "tree-handle-no-match": "driver-arg",
+    "tree-handle-ambiguous": "driver-arg",
     "index-arg-invalid": "driver-arg",
     "index-out-of-range": "driver-arg",
     "loop-arg-invalid": "driver-arg",

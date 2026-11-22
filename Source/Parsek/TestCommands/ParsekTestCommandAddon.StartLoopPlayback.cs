@@ -22,7 +22,8 @@ namespace Parsek.TestCommands
     /// </para>
     ///
     /// <para>
-    /// ARGS. <c>tree=&lt;treeId&gt;</c> (required; the committed RECORDING_TREE id,
+    /// ARGS. <c>tree=&lt;treeId&gt;</c> (required; the committed RECORDING_TREE id or a TestCommandTreeHandle
+    /// handle first / latest / name:&lt;mission&gt;,
     /// resolved through <c>MissionStore.FindOriginalMission</c> exactly like
     /// MissionConfig). The verb starts playback of an ALREADY-ARMED loop, so a
     /// mission whose <c>LoopPlayback</c> is off is REJECTED <c>loop-not-armed</c>
@@ -77,6 +78,8 @@ namespace Parsek.TestCommands
         private void StartLoopPlaybackImpl(ParsedCommand cmd)
         {
             string treeArg = ArgOrNull(cmd, "tree");
+            if (!TryResolveTreeHandleArg("startloopplayback", treeArg, out treeArg))
+                return;
             Mission mission = string.IsNullOrEmpty(treeArg)
                 ? null
                 : MissionStore.FindOriginalMission(treeArg);

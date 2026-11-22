@@ -411,6 +411,16 @@ the updates below record how each verb arrived.
 > `driver-arg` either way, because `hlib._SEAM_REFUSAL_SUBKINDS` maps the msg token and
 > never reads the verdict.
 
+> Update (watch lanes, 2026-11-22): `tree=` on `MissionConfig`, `StartLoopPlayback` and
+> `EnterWatchMode` also takes a TREE HANDLE (`TestCommandTreeHandle`): `first` / `latest`
+> (the first / last committed tree in `RecordingStore.CommittedTrees` order, the save's
+> order) or `name:<mission name>` (`MissionStore.DisplayNameForTree`, case-insensitive,
+> exactly one match), resolved before the verb reads the arg and logged as `tree handle
+> resolved: verb=... handle=... tree=<id>`. A miss is `REJECTED tree-handle-no-trees` /
+> `tree-handle-no-match` / `tree-handle-ambiguous` on all three verbs (subkind
+> `driver-arg`). A plain tree id is not a handle and passes through unchanged. Watch-lane
+> contract: `design-autotest-harness-core.md` -> "Attended hold mode (watch lanes)".
+
 > Update (GS-12, ghost-replay Tier C item 12, 2026-09-24): `MissionConfig` gained an optional
 > `unit=<sec|auto>` (applied only on an enable, like `intervalSeconds`; `auto` is
 > `LoopTimeUnit.Auto`, whose overlap cadence reads the global auto-loop interval, so an

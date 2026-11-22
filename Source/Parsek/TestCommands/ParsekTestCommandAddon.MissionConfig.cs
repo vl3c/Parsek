@@ -27,7 +27,8 @@ namespace Parsek.TestCommands
     /// </para>
     ///
     /// <para>
-    /// ARGS. <c>tree=&lt;treeId&gt;</c> (the committed RECORDING_TREE id; the
+    /// ARGS. <c>tree=&lt;treeId&gt;</c> (the committed RECORDING_TREE id, or a TestCommandTreeHandle handle
+    /// first / latest / name:&lt;mission&gt; resolved to one; the
     /// stable handle a fixture pins) + <c>loop=&lt;true|false&gt;</c>, plus
     /// optional <c>intervalSeconds=&lt;positive double&gt;</c> applied before
     /// the enable so the anchor stamp sees the final configuration (and ONLY
@@ -101,6 +102,9 @@ namespace Parsek.TestCommands
                 SetExecResult("REJECTED", null, "unit-arg-invalid");
                 return;
             }
+
+            if (!TryResolveTreeHandleArg("missionconfig", treeArg, out treeArg))
+                return;
 
             int seeded = MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
             if (seeded > 0)
