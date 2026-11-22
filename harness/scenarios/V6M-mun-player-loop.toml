@@ -1165,10 +1165,18 @@ trees          = { min = 1, max = 2 }
 # here - not refuted, never reached". That expectation is MIS-SCOPED rather than
 # untested, and every other place the branch defines the population says so: the benign
 # raiser is a FAITHFUL loop replay of an INTERPLANETARY transfer, whose destination has
-# drifted in inertial space by the loop shift. A same-parent moon replay is phase-locked
-# and has no such drift. V7M - faithful, phase-locked, same-parent - read `evaluated=1
-# outsideSoi=0` in this same census, and the seam THIS lane would reach with the filed
-# pre-seam dwell is Kerbin->Mun, that identical class. Expect healthy there.) The two
+# drifted in inertial space by the loop shift. A same-parent moon replay is phase-locked,
+# which BOUNDS its drift rather than zeroing it (CORRECTED 2026-11-22): PhaseLock holds
+# the moon inside MissionPeriodicity.ToleranceSecondsFor (SOI / orbital speed, about
+# 4478 s for the Mun), so a cadence can leave it up to one SOI radius from the recorded
+# encounter point. GS-13 measured exactly that on the Kerbin->Mun class: residual
+# 2173.8 s, ratio 1.0526, which raised against the re-aim-calibrated 1.005. The lens now
+# judges a faithful seed against 1.005 + residual x speed / SOI (todo
+# SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS), so the outside-SOI forbid
+# below stays sound for a phase-locked moon replay. V7M - faithful, phase-locked,
+# same-parent - read `evaluated=1 outsideSoi=0` in this same census, and the seam THIS
+# lane would reach with the filed pre-seam dwell is Kerbin->Mun, that identical class.
+# Expect healthy there.) The two
 # lanes of the five that DO reach it are V4 (Sun->Duna arrival seam) and V7M
 # (Kerbin->Minmus arrival seam), both `evaluated=1 outsideSoi=0`; read either header for
 # what a real reading looks like. The park-dwell shape is what costs this lane the

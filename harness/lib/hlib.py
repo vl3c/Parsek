@@ -1127,8 +1127,10 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     # TracedPath-handoff exemption (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE)
     # landed above it in the same file. Nothing about the seam instrument changed;
     # the new number was re-derived from the scan, not shifted by arithmetic.
+    # It moved 2376 -> 2445 on 2026-11-22: the faithful-seed PhaseLock tolerance
+    # (todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS) landed above it.
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
