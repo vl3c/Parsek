@@ -811,7 +811,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -980,7 +982,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -1156,7 +1160,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -1325,7 +1331,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -1497,7 +1505,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -1673,7 +1683,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -1843,7 +1855,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2014,7 +2028,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2183,7 +2199,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2360,7 +2378,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2536,7 +2556,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2707,7 +2729,9 @@
     LastSituation=0
     LastWasInAtmosphere=True
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -2888,7 +2912,9 @@
     LastSituation=0
     LastWasInAtmosphere=False
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -3059,7 +3085,9 @@
     LastSituation=0
     LastWasInAtmosphere=False
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -3229,7 +3257,9 @@
     LastSituation=0
     LastWasInAtmosphere=False
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
@@ -3410,7 +3440,9 @@
     LastSituation=0
     LastWasInAtmosphere=False
     Owner=BackgroundLoaded
+    PredictedDescentPoints=count=0
     PredictedSegments=count=0
+    QuietEnd=False
     RecordingId=bg-frame-rec
     RefreshReason=background_periodic
     Status=Fresh
