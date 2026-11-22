@@ -1492,7 +1492,7 @@ Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
 between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
 
-## ~~SPAWN-RESTING-ON-ROCK~~: a vessel that ends sitting on an asteroid or comet spawned on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". FIXED 2026-11-21 by option B (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (a lander parked on a rock reappeared inside it, beside it, or blocked)]
+## ~~SPAWN-RESTING-ON-ROCK~~: a vessel that ends sitting on an asteroid or comet spawned on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". FIXED 2026-11-21 by option B (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance`; LIVE-PROVEN 2026-11-22 by `OSC-1-orbit-spawn-clearance-lko` run `2026-11-22_1141` (4 of 4); low-medium (a lander parked on a rock reappeared inside it, beside it, or blocked)]
 
 Cause. "Landed on" a rock is not a KSP state: `Part.LandedCollisionChecks` (decompiled) sets
 `GroundContact` / `Vessel.Landed` only for terrain colliders, so a vessel resting on a rock ends
@@ -1528,7 +1528,7 @@ the rock check before the phase search); in-game `OrbitSpawnClearance` cell
 Residue: no lane flies it (recommended: a lander resting on a loaded asteroid, rewound, end spawn in
 flight beside the rock).
 
-## ~~SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS~~: the end-spawn collision walkback for an orbit spawn tested positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading. FIXED 2026-11-21 by option (b) (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (an orbit spawn blocked by a loaded vessel could still appear inside it, or be abandoned)]
+## ~~SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS~~: the end-spawn collision walkback for an orbit spawn tested positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading. FIXED 2026-11-21 by option (b) (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; EX-2 re-flown green on the widened preset `2026-11-22_1139`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance`; LIVE-PROVEN 2026-11-22 by `OSC-1-orbit-spawn-clearance-lko` run `2026-11-22_1141` (4 of 4); low-medium (an orbit spawn blocked by a loaded vessel could still appear inside it, or be abandoned)]
 
 Cause. When an end-of-recording orbit spawn (an Orbiting terminal with a recorded terminal orbit,
 or an escape path) overlapped a loaded vessel, `VesselSpawner.CheckSpawnCollisions` walked back

@@ -1,0 +1,104 @@
+schema = 1
+id = "OSC-1-orbit-spawn-clearance-lko"
+# -------------------------------------------------------------------------------------
+# The live half of the orbit-route spawn clearance (owner ruling 2026-11-21 options B and
+# (b), todos SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS and SPAWN-RESTING-ON-ROCK, branch
+# `rsr-wp9-orbit-spawn-clear`): a blocked recorded-terminal-orbit spawn moves along its own
+# orbit (up to 1000 m) to a clear spot, and a spawn inside an asteroid is pushed out with
+# the rock's velocity. The xUnit suite covers the pure search; this lane drives the in-game
+# category `OrbitSpawnClearance` (4 FLIGHT cells) against real stock orbits, real part
+# colliders and the live Physics.OverlapBox:
+# - OrbitSpawnOnTheActiveVessel_MovesAlongItsOwnOrbitToAClearSpot (batchable): a spawn on
+#   the focused Kerbal X's own orbit point reads blocked, is phase-shifted along the same
+#   elements and reads clear within the bound.
+# - OrbitSpawnInsideARock_IsPushedOutAndCoMovesWithTheRock (isolated): spawns a PotatoRoid
+#   60 m from the active vessel, pushes a spawn out of it, spawns a probe on the co-moving
+#   orbit and watches the separation hold for 3 s.
+# - SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry (batchable): the D18
+#   single-point collision branch EX-2 no longer reaches since its widened preset.
+# - SpawnGateLiveLookup_AVesselJustDestroyedIsGone (isolated): the end-spawn gate's live
+#   lookup reads a vessel Vessel.Die just removed as gone.
+# The two isolated cells need the ISOLATED batch entry point (`isolated = "true"`), which
+# restores the flight baseline after each of them, so the spawned rock and probes leave
+# nothing behind.
+#
+# HOST: `eva2-lko-crewed` (the focused 28-part Kerbal X in LKO, unpacked at load, with the
+# separate Kerbal X Probe about 16 m away). Every cell's context guard is met there: an
+# orbiting, loaded, unpacked active vessel with part colliders, outside the KSC exclusion
+# circles, with PotatoRoid and probeCoreSphere in a stock PartLoader.
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"): (1) reuse - EX-2 flies
+# the same fixture, but its saveParse structure blocks are armed on the produced save and a
+# RunTests batch backs up and restores persistent.sfs around itself, and its forbidden
+# `[ERROR]` token would mix a test-cell red with the D18 hold reading; a load-and-batch lane
+# costs one boot, so the two stay apart. (2) no idle waits: none. (3) no dwells beyond the
+# rock cell's own 3 s co-move check. (4) / (5) no burns or coasts. (6) the batch is
+# deterministic, but a cell spawns real vessels next to a physics-loaded ship, so
+# `retry = "once"`. (7) the tally pins `total=4` exactly; it regexed the split until the
+# first flight, and pins it whole since (4 of 4); the four TestRunner lines each
+# cell writes only on its passing path make every cell's pass a gate. (8) / (9) measured on
+# the first green flight.
+#
+# LIVE-PROVEN 2026-11-22 on its first flight, `2026-11-22_1141_OSC-1-orbit-spawn-clearance-lko`
+# PASS attempt 1 (82 s wall; automation DLL sha256 prefix d1e3e2bf, built from origin/main
+# c01fe82f8 with no C# change): `BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0`,
+# pinned whole. The phase cell moved the spawn 13.5 m along the Kerbal X's orbit (7
+# candidates); the rock cell pushed the spawn 4.5 m out of the PotatoRoid in 9 steps and the
+# probe held 4.50 m -> 4.50 m from the rock over 3 s; the single-point cell was blocked by
+# the Kerbal X with `VesselSpawned` false; the live lookup read the destroyed probe gone while
+# it was still in `flightState.protoVessels`.
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "Live proof of the orbit-route spawn clearance (todos SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK): the OrbitSpawnClearance in-game category through the ISOLATED batch entry point on eva2-lko-crewed's focused Kerbal X in LKO. A spawn on the vessel's own orbit point moves along that orbit to a clear spot within 1000 m; a spawn inside a live PotatoRoid is pushed out and a probe spawned there co-moves with the rock; an Orbiting one-point recording with no terminal orbit keeps the single-point retry; the spawn gate's live lookup reads a just-destroyed vessel as gone."
+instanceProfile = "stock-minimal"
+tags = ["OSC-1", "ingame-batch", "isolated-batch", "spawn-collision", "orbit-spawn-clearance",
+        "asteroid", "R5"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "OrbitSpawnClearance", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=OrbitSpawnClearance scene=FLIGHT",
+  "runtests start category=OrbitSpawnClearance isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+  # Each cell's own line, written only on its passing path.
+  "OrbitSpawnClearance phase test: shift=-?[0-9.]+m shiftSeconds=-?[0-9.]+ attempts=[0-9]+",
+  "OrbitSpawnClearance rock test: pushOut=[0-9.]+m distance=[0-9.]+m separation [0-9.]+m -> [0-9.]+m",
+  "OrbitSpawnClearance single-point test: blocked by '[^']+', block=1, spawned=False",
+  "SpawnGate live lookup after Vessel.Die: guid=[0-9a-f]+ live=False",
+  # The production summary lines the two orbit cells drive.
+  "\\[SpawnCollision\\] Orbit spawn clearance: site=ingame-test active-vessel-orbit outcome=PhaseShifted ",
+  "\\[SpawnCollision\\] Orbit spawn clearance: site=ingame-test inside-rock outcome=RockPushedOut ",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
