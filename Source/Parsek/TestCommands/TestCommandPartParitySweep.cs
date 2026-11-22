@@ -155,7 +155,7 @@ namespace Parsek.TestCommands
     ///
     /// <para>Grammar: <c>PartParitySweep label=&lt;label&gt; [op=reset|run]
     /// [filter=&lt;glob&gt;] [source=&lt;csv&gt;] [skins=default|all]
-    /// [states=none|all|&lt;csv&gt;] [contexts=none|&lt;csv&gt;] [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
+    /// [states=none|all|&lt;csv&gt;] [contexts=none|&lt;csv&gt;] [fx=none|all|&lt;csv&gt;] [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
     /// [limit=&lt;n&gt;] [controls=true|false] [maxSeconds=60..480]</c>. Every present arg
     /// that does not parse is REJECTED with its own reason, never clamped or defaulted: a
     /// silently widened sweep would run past its step budget, a silently narrowed one would
