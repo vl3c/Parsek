@@ -94,19 +94,14 @@ namespace Parsek
             return profile;
         }
 
-        /// <summary>The Missions tab's vessel rows of a tree, built exactly as the tab builds
-        /// them (MissionsWindowUI.GetVesselRows).</summary>
+        /// <summary>The Missions tab's vessel rows of a tree, built through the one entry the
+        /// tab's MissionsWindowUI.GetVesselRows builds them through
+        /// (<see cref="MissionVesselRowBuilder.BuildForMission"/>).</summary>
         internal static List<MissionVesselRow> BuildVesselRows(MissionProfileRequest req, MissionStructure structure)
         {
             MissionThroughLineView view = req.ThroughLine ?? MissionThroughLineBuilder.Build(structure);
-            IReadOnlyDictionary<string, string> names = req.VesselNames;
-            return MissionVesselRowBuilder.Build(
-                MissionCompositionBuilder.Build(structure),
-                (head, ut) => MissionPresentation.ResolveSameTreeDockPartnerVesselName(structure, view, head, ut, names),
-                names,
-                req.PartnerLegIds,
-                (head, ut) => MissionPresentation.ResolveTerminalDockPartnerVesselName(structure, head, ut, names),
-                MissionVesselRowBuilder.ResolveUndockSides(structure, req.PartnerLegIds));
+            return MissionVesselRowBuilder.BuildForMission(
+                MissionCompositionBuilder.Build(structure), structure, view, req.VesselNames, req.PartnerLegIds);
         }
 
         private static string LaunchBody(List<MissionProfileLine> lines)

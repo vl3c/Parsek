@@ -78,11 +78,54 @@ namespace Parsek.Tests
                 MergePartnerResolver = (bp, viewer) => MissionStructureListBuilder.DescribeMergePartnerFromGraph(
                     graph, tree.Id, bp, viewer, missionNames),
             };
-            // The tab's own rows, built exactly as MissionsWindowUI.GetVesselRows does.
-            b.TabRows = MissionProfileBuilder.BuildVesselRows(b.Request, b.Structure);
+            b.TabRows = TabVesselRows(tree, names, partners);
             b.Profile = MissionProfileBuilder.BuildProfile(b.Request);
             return b;
         }
+
+        // The Missions tab's rows, derived from the tab's own inputs the way
+        // MissionsWindowUI.GetVesselRows derives them (GetMissionView's display structure and
+        // through line, GetCompositionRoots' composition), independently of the profile's
+        // request, through the shared entry both call.
+        internal static List<MissionVesselRow> TabVesselRows(RecordingTree tree,
+            IReadOnlyDictionary<string, string> names, ICollection<string> partners)
+        {
+            MissionStructure structure = MissionStructureBuilder.BuildForDisplay(tree);
+            MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+            return MissionVesselRowBuilder.BuildForMission(
+                MissionCompositionBuilder.Build(structure), structure, view, names, partners);
+        }
+
+        // One row's identity and every cell the tab draws from it, so a profile built from
+        // rows with another resolver, name map or partner set reads as different.
+        internal static string RowSignature(MissionVesselRow r, int depth, string parentId)
+            => string.Join("|", new[]
+            {
+                r.OwnerHeadId, r.VesselName, r.IsPerson ? "person" : "vessel", r.IsPartner ? "partner" : "own",
+                depth.ToString(CultureInfo.InvariantCulture), parentId ?? "-", r.StartEvent, r.EndEvent,
+                r.EventPhrase, r.UndockedFromName, r.StartUT.ToString("R", CultureInfo.InvariantCulture),
+                r.EndUT.ToString("R", CultureInfo.InvariantCulture),
+                string.Join(",", MissionVesselRowBuilder.IntervalKeys(r).ToArray()),
+                string.Join(",", r.Intervals.Select(iv => iv.CompositionLabel).ToArray()),
+            });
+
+        internal static List<string> TabRowSignatures(IEnumerable<MissionVesselRow> rows, int depth = 0, string parentId = null)
+        {
+            var list = new List<string>();
+            foreach (MissionVesselRow r in rows)
+            {
+                list.Add(RowSignature(r, depth, parentId));
+                list.AddRange(TabRowSignatures(r.Children, depth + 1, r.OwnerHeadId));
+            }
+            return list;
+        }
+
+        internal static List<string> LineSignatures(MissionProfile p)
+            => MissionProfileLineBuilder.All(p.Lines)
+                .Select(l => l.LineId == l.Row.OwnerHeadId && l.Name == l.Row.VesselName
+                    ? RowSignature(l.Row, l.Depth, l.ParentLineId)
+                    : "line " + l.LineId + " drifted from its row")
+                .ToList();
 
         internal static string MissionNameOf(List<RecordingTree> trees, string treeId)
         {
@@ -262,9 +305,33 @@ namespace Parsek.Tests
         public void LineSet_EqualsTheTabsVesselRowSet(string fixture, string treeId)
         {
             Built b = Load(fixture, treeId);
-            var rowIds = AllRows(b.TabRows).Select(r => r.OwnerHeadId).OrderBy(x => x, StringComparer.Ordinal);
-            var lineIds = MissionProfileLineBuilder.All(b.Profile.Lines).Select(l => l.LineId).OrderBy(x => x, StringComparer.Ordinal);
-            Assert.Equal(rowIds, lineIds);
+            Assert.Equal(TabRowSignatures(b.TabRows), LineSignatures(b.Profile));
+        }
+
+        // catches: the tab and the Profile building their vessel rows two ways, which the
+        // fixture equality above cannot see once both drift together: both row builders must
+        // go through the one shared entry and neither may call the raw Build.
+        [Theory]
+        [InlineData("UI", "MissionsWindowUI.ViewData.cs", "private List<MissionVesselRow> GetVesselRows(")]
+        [InlineData("Missions", "MissionProfileBuilder.cs", "internal static List<MissionVesselRow> BuildVesselRows(")]
+        public void VesselRowBuilders_CallTheSharedEntryOnly(string folder, string file, string declaration)
+        {
+            string body = MethodBody(folder, file, declaration);
+            Assert.Contains("MissionVesselRowBuilder.BuildForMission(", body);
+            Assert.DoesNotContain("MissionVesselRowBuilder.Build(", body);
+        }
+
+        internal static string MethodBody(string folder, string file, string declaration)
+        {
+            string repoRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string raw = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                repoRoot, "Source", "Parsek", folder, file)).Replace("\r\n", "\n");
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw);
+            int at = prepared.IndexOf(declaration, StringComparison.Ordinal);
+            Assert.True(at >= 0, file + " no longer declares " + declaration);
+            Assert.Equal(at, prepared.LastIndexOf(declaration, StringComparison.Ordinal));
+            return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', at));
         }
 
         // catches: the Re-Fly bridge missing: the superseded attempt (TIP) replaced by the
@@ -443,9 +510,7 @@ namespace Parsek.Tests
                         continue;
                     }
                     missions++;
-                    var rowIds = new HashSet<string>(AllRows(b.TabRows).Select(r => r.OwnerHeadId));
-                    var lineIds = new HashSet<string>(MissionProfileLineBuilder.All(b.Profile.Lines).Select(l => l.LineId));
-                    if (!rowIds.SetEquals(lineIds))
+                    if (!TabRowSignatures(b.TabRows).SequenceEqual(LineSignatures(b.Profile)))
                         problems.Add(fixture + "/" + tree.Id + ": line set differs from the tab rows");
                     foreach (MissionProfileLine l in MissionProfileLineBuilder.All(b.Profile.Lines))
                     {
