@@ -43,6 +43,14 @@ namespace Parsek
         public Func<BranchPoint, string, string> MergePartnerResolver;
         /// <summary>Science / funds / reputation of the mission's ledger rows (ELS, by the UI).</summary>
         public MissionProfileCareerTotals Career;
+        /// <summary>The committed trees, the source the Missions tab's Docked partner rows read
+        /// (<see cref="MissionCrossTreeDock.FindLinks"/>): a dock another mission recorded onto
+        /// this mission's vessel lives in that other tree. Null: no Docked by another mission
+        /// events.</summary>
+        public IReadOnlyList<RecordingTree> CommittedTrees;
+        /// <summary>Tree id -> the name of the mission that tree belongs to (the tab's
+        /// ResolvePartnerMissionName). Null, or a null answer: the other tree's TreeName.</summary>
+        public Func<string, string> TreeMissionName;
     }
 
     /// <summary>
@@ -83,6 +91,7 @@ namespace Parsek
             string launchBody = LaunchBody(profile.Lines);
             foreach (MissionProfileLine line in MissionProfileLineBuilder.All(profile.Lines))
                 if (line.IsDrawn) line.Plan = MissionPhaseAnalyzer.Analyze(ToInput(req, line, launchBody));
+            MissionProfileForeignDockTally foreign = MissionProfileLineBuilder.AddOtherMissionDocks(req, profile.Lines);
 
             var ctx = new ProfileRowContext { Request = req, Profile = profile, LaunchBody = launchBody };
             EmitRows(ctx);
@@ -91,6 +100,7 @@ namespace Parsek
             profile.BuildMilliseconds = watch.Elapsed.TotalMilliseconds;
             LogLines(profile);
             LogSummary(profile, watch, tally);
+            LogOtherMissionDocks(profile, foreign);
             return profile;
         }
 
@@ -192,6 +202,17 @@ namespace Parsek
                 p.DvEstimated, p.Burns, p.DvRecorded, p.Inferred, p.OrbitUnknown, p.Unclassified,
                 p.Reflown, p.ClippedByInclude, p.Gaps, tally.Partners, tally.Collapsed, p.Rows.Count,
                 watch.Elapsed.TotalMilliseconds));
+        }
+
+        // One line per build, only when another tree claims a vessel of this one.
+        private static void LogOtherMissionDocks(MissionProfile p, MissionProfileForeignDockTally t)
+        {
+            if (t.Links == 0) return;
+            ParsekLog.Verbose(Tag, string.Format(Ic,
+                "Profile docked by another mission: mission={0} tree={1} links={2} docks={3} undocks={4} " +
+                "rows={5} afterLineEnd={6} unmatched={7} excluded={8}",
+                p.MissionId ?? "<none>", p.TreeId ?? "<none>", t.Links, t.Docks, t.Undocks,
+                p.OtherMissionEvents, t.AfterLineEnd, t.Unmatched, t.Excluded));
         }
 
         private static void LogLines(MissionProfile profile)

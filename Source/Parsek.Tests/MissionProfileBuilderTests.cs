@@ -77,15 +77,19 @@ namespace Parsek.Tests
         }
 
         private static MissionProfile Build(RecordingTree tree, ICollection<string> partners = null,
-            Func<BranchPoint, string, string> partnerResolver = null)
+            Func<BranchPoint, string, string> partnerResolver = null,
+            IReadOnlyList<RecordingTree> committed = null, Func<string, string> treeMissionName = null,
+            Mission mission = null)
             => MissionProfileBuilder.BuildProfile(new MissionProfileRequest
             {
-                Mission = new Mission("m", tree.Id, "Synthetic"),
+                Mission = mission ?? new Mission("m", tree.Id, "Synthetic"),
                 Tree = tree,
                 PartnerLegIds = partners,
                 BodyFacts = RecordingOptimizer.StockBodyFacts,
                 MergePartnerResolver = partnerResolver,
                 DateFormatter = ut => "D" + ut.ToString("F0", CultureInfo.InvariantCulture),
+                CommittedTrees = committed,
+                TreeMissionName = treeMissionName,
             });
 
         private static ProfilePiece Orbiting(string id, double t0, double t1)
@@ -115,6 +119,112 @@ namespace Parsek.Tests
             Assert.False(dock.OwnShipAbsorbed);
             Assert.Equal("Station", dock.RefName);
             Assert.Contains(p.Rows, r => r.Element == "Docked: Station aboard");
+        }
+
+        // Two missions: a depot (this mission, pid 42, recorded 0..depotEnd) and a freighter of
+        // another mission that docks onto it at 500 and undocks at 600. The dock and the undock
+        // live in the freighter's tree only.
+        private static List<RecordingTree> OtherMissionDockPair(double depotEnd)
+        {
+            Recording depot = Leg(Orbiting("depot", 0, depotEnd), 0, depotEnd, 42, TerminalState.Orbiting);
+            depot.VesselName = "Depot";
+            depot.Controllers.Add(new ControllerInfo { type = "CrewedPod" });
+            RecordingTree mine = Tree("depot", new[] { depot }, new BranchPoint[0]);
+            var recs = new[]
+            {
+                Leg(Orbiting("freighter", 400, 500), 400, 500, 7, TerminalState.Docked),
+                Leg(Orbiting("stack", 500, 600), 500, 600, 7),
+                Leg(Orbiting("freighterBack", 600, 700), 600, 700, 7, TerminalState.Orbiting),
+                Leg(Orbiting("depotBack", 600, 700), 600, 700, 42, TerminalState.Orbiting),
+            };
+            recs[0].VesselName = recs[1].VesselName = recs[2].VesselName = "Freighter";
+            recs[3].VesselName = "Depot";
+            BranchPoint dock = BP("dock", BranchPointType.Dock, 500, new[] { "freighter" }, new[] { "stack" });
+            dock.TargetVesselPersistentId = 42;
+            RecordingTree other = Tree("freighter", recs, new[]
+            {
+                dock,
+                BP("undock", BranchPointType.Undock, 600, new[] { "stack" }, new[] { "freighterBack", "depotBack" }),
+            });
+            return new List<RecordingTree> { mine, other };
+        }
+
+        private static string MissionOf(string treeId) => treeId == "t-freighter" ? "Cargo Run" : null;
+
+        // catches: a dock another mission recorded onto this mission's vessel placed outside the
+        // phase covering it, out of UT order with the line's own events, expanded, or missing
+        // its undock (design 3.2); and the header hover losing the final composition (2.4).
+        [Fact]
+        public void OtherMissionDock_InsideTheLine_SitsInTheCoveringPhase()
+        {
+            List<RecordingTree> trees = OtherMissionDockPair(1000);
+            MissionProfile p = Build(trees[0], committed: trees, treeMissionName: MissionOf);
+            string rows = string.Join(" // ", p.Rows.Select(MissionProfileFixtureTests.Row));
+            List<MissionProfileRow> others = p.Rows.Where(r => r.IsOtherMission).ToList();
+            Assert.True(others.Count == 2, rows);
+            Assert.Equal("Docked: Freighter (mission 'Cargo Run')", others[0].Element);
+            Assert.Equal("Undocked: Freighter (mission 'Cargo Run')", others[1].Element);
+            Assert.Equal(500, others[0].UT);
+            Assert.Equal(600, others[1].UT);
+            MissionProfileRow phase = p.Rows.Single(r => r.Kind == MissionProfileRowKind.Phase);
+            MissionProfileRow end = p.Rows.Single(r => r.EventKind == ProfileEventKind.End);
+            foreach (MissionProfileRow r in others)
+            {
+                Assert.False(r.IsAfterLineEnd);
+                Assert.False(r.HasCaret);
+                Assert.Equal(phase.Key, r.ParentKey);
+                Assert.Equal(phase.Depth + 1, r.Depth);
+                Assert.True(p.Rows.IndexOf(r) < p.Rows.IndexOf(end), rows);
+                Assert.Equal("", r.Result);
+            }
+            Assert.Equal("Docked: Freighter (mission 'Cargo Run'): docked by another mission, which recorded "
+                + "it; named here, not expanded.", others[0].Hover);
+            Assert.Single(p.Rows, r => r.Kind == MissionProfileRowKind.Line);
+            Assert.Equal(2, p.OtherMissionEvents);
+            Assert.Contains(logLines, l => l.Contains("[Profile]")
+                && l.Contains("Profile docked by another mission:") && l.Contains("links=1 docks=1 undocks=1")
+                && l.Contains("afterLineEnd=0 unmatched=0 excluded=0"));
+            MissionProfileRow header = p.Rows.Single(r => r.Kind == MissionProfileRowKind.Line);
+            Assert.EndsWith(". Aboard: pod x1, probe x1.", header.Hover, StringComparison.Ordinal);
+
+            // Without the committed trees there is nothing to name.
+            Assert.DoesNotContain(Build(trees[0]).Rows, r => r.IsOtherMission);
+        }
+
+        // catches: a dock made after this mission's recording stopped drawn inside the last
+        // phase as if recorded, or before the End row, instead of after it with the
+        // not-recorded-here hover; and the other tree's name standing in for a missing mission.
+        [Fact]
+        public void OtherMissionDock_AfterTheLineEnd_FollowsTheEndRow()
+        {
+            List<RecordingTree> trees = OtherMissionDockPair(300);
+            trees[1].TreeName = "Freighter tree";
+            MissionProfile p = Build(trees[0], committed: trees);
+            List<MissionProfileRow> others = p.Rows.Where(r => r.IsOtherMission).ToList();
+            Assert.Equal(2, others.Count);
+            int end = p.Rows.FindIndex(r => r.EventKind == ProfileEventKind.End);
+            Assert.Equal(end + 1, p.Rows.IndexOf(others[0]));
+            Assert.Equal(end + 2, p.Rows.IndexOf(others[1]));
+            Assert.All(others, r => Assert.True(r.IsAfterLineEnd));
+            Assert.All(others, r => Assert.Equal(p.Rows[end].ParentKey, r.ParentKey));
+            Assert.All(others, r => Assert.Equal("not recorded here", r.Result));
+            Assert.Equal("Docked: Freighter (mission 'Freighter tree')", others[0].Element);
+            Assert.Equal("Undocked: Freighter (mission 'Freighter tree'): undocked by another mission after "
+                + "this recording ended; not recorded here.", others[1].Hover);
+            Assert.Contains(logLines, l => l.Contains("Profile docked by another mission:") && l.Contains("afterLineEnd=2"));
+        }
+
+        // catches: a dock inside an interval the mission excludes still drawn (the include set
+        // removes every event inside an excluded interval).
+        [Fact]
+        public void OtherMissionDock_InsideAnExcludedInterval_IsDropped()
+        {
+            List<RecordingTree> trees = OtherMissionDockPair(1000);
+            var mission = new Mission("m", trees[0].Id, "Synthetic");
+            mission.ExcludedIntervalKeys.Add("depot");
+            MissionProfile p = Build(trees[0], committed: trees, treeMissionName: MissionOf, mission: mission);
+            Assert.DoesNotContain(p.Rows, r => r.IsOtherMission);
+            Assert.Contains(logLines, l => l.Contains("Profile docked by another mission:") && l.Contains("excluded=2"));
         }
 
         // catches: the own-ship-absorbed reading lost: the ship's leg ends Docked into a

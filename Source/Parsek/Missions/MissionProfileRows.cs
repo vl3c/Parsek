@@ -64,6 +64,12 @@ namespace Parsek
         public bool HasDataGap;
         // A phase no rule could name (In space).
         public bool IsUnclassified;
+        // A dock (or its undock) another mission recorded onto this mission's vessel: named
+        // from the other tree, never expanded (section 3.2).
+        public bool IsOtherMission;
+        // The row's instant is after its line's end: this mission's recording had stopped, so
+        // nothing of it was recorded here.
+        public bool IsAfterLineEnd;
     }
 
     /// <summary>Career results tagged to the mission's recordings, read by the UI through ELS.</summary>
@@ -104,6 +110,8 @@ namespace Parsek
         public int Reflown;
         public int ClippedByInclude;
         public int Gaps;
+        // Docked by another mission events placed on the lines (docks and undocks).
+        public int OtherMissionEvents;
         public double BuildMilliseconds;
     }
 }

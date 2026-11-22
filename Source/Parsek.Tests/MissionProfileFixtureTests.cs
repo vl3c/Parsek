@@ -77,6 +77,8 @@ namespace Parsek.Tests
                 PartTitleResolver = StructureListBdockFixtureTests.StockTitles,
                 MergePartnerResolver = (bp, viewer) => MissionStructureListBuilder.DescribeMergePartnerFromGraph(
                     graph, tree.Id, bp, viewer, missionNames),
+                CommittedTrees = trees,
+                TreeMissionName = missionOfTree,
             };
             b.TabRows = TabVesselRows(tree, names, partners);
             b.Profile = MissionProfileBuilder.BuildProfile(b.Request);
@@ -332,6 +334,70 @@ namespace Parsek.Tests
             Assert.True(at >= 0, file + " no longer declares " + declaration);
             Assert.Equal(at, prepared.LastIndexOf(declaration, StringComparison.Ordinal));
             return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', at));
+        }
+
+        // catches: the second mission's dock onto the first mission's Kerbal X missing from the
+        // first mission's Profile, expanded into the partner's phases, or drawn inside a phase
+        // although the first mission's recording had stopped two hours before (design 3.2).
+        [Fact]
+        public void OtherMissionDock_Bdock_NamedAfterTheLineEnd_NotExpanded()
+        {
+            Built b = Load("bdock-recorded", BdockFirstTree);
+            MissionProfile p = b.Profile;
+            List<MissionProfileRow> others = p.Rows.Where(r => r.IsOtherMission).ToList();
+            Assert.Equal(new[]
+            {
+                "Docked: Kerbal X (mission 'Kerbal X #2')",
+                "Undocked: Kerbal X (mission 'Kerbal X #2')",
+            }, others.Select(r => r.Element).ToArray());
+            Assert.Equal(2, p.OtherMissionEvents);
+            MissionProfileRow header = RowOf(p, "Kerbal X (Bill, Bob, Valentina)");
+            // Both sit after the Kerbal X line's own End row, at its depth and under its parent,
+            // and nothing follows them (no caret, no partner line or phases).
+            int end = p.Rows.FindLastIndex(r => r.LineId == header.LineId && r.EventKind == ProfileEventKind.End);
+            Assert.Equal(end + 1, p.Rows.IndexOf(others[0]));
+            Assert.Equal(end + 2, p.Rows.IndexOf(others[1]));
+            Assert.Equal(p.Rows.Count - 1, p.Rows.IndexOf(others[1]));
+            foreach (MissionProfileRow r in others)
+            {
+                Assert.True(r.IsAfterLineEnd);
+                Assert.False(r.HasCaret);
+                Assert.Equal(header.LineId, r.LineId);
+                Assert.Equal(p.Rows[end].Depth, r.Depth);
+                Assert.Equal(p.Rows[end].ParentKey, r.ParentKey);
+                Assert.Equal("not recorded here", r.Result);
+                Assert.True(r.UT > b.Profile.Lines.First(l => l.LineId == header.LineId).Plan.EndUT);
+            }
+            Assert.Equal(ProfileEventKind.Docking, others[0].EventKind);
+            Assert.Equal(ProfileEventKind.Undocking, others[1].EventKind);
+            Assert.Equal("T+2:28:43", others[0].Time);
+            Assert.Equal("Docked: Kerbal X (mission 'Kerbal X #2'): docked by another mission after this "
+                + "recording ended; not recorded here.", others[0].Hover);
+            Assert.Equal("Undocked: Kerbal X (mission 'Kerbal X #2'): undocked by another mission after this "
+                + "recording ended; not recorded here.", others[1].Hover);
+
+            // The second mission records the dock itself: it gets no other-mission row, and
+            // without the committed trees the first mission gets none either.
+            Assert.DoesNotContain(Load("bdock-recorded", BdockDockingTree).Profile.Rows, r => r.IsOtherMission);
+            b.Request.CommittedTrees = null;
+            MissionProfile none = MissionProfileBuilder.BuildProfile(b.Request);
+            Assert.DoesNotContain(none.Rows, r => r.IsOtherMission);
+            Assert.Equal(p.Rows.Count - 2, none.Rows.Count);
+        }
+
+        // catches: the vessel header hover losing the line's final composition, or reading it
+        // from another row than the Missions tab's vessel-row tooltip does (design 2.4).
+        [Theory]
+        [InlineData("bdock-recorded", BdockFirstTree, "Kerbal X (Bill, Bob, Valentina)", "pod x1, crew x3")]
+        [InlineData("bdock-recorded", BdockFirstTree, "Kerbal X Probe", "probe x1")]
+        [InlineData("mun-landing-recorded", MunLandingTree, "Kerbal X (Jebediah)", "pod x1, crew x1")]
+        public void LineHover_CarriesTheFinalComposition(string fixture, string treeId, string element, string aboard)
+        {
+            Built b = Load(fixture, treeId);
+            MissionProfileRow header = RowOf(b.Profile, element);
+            Assert.EndsWith(". Aboard: " + aboard + ".", header.Hover, StringComparison.Ordinal);
+            MissionVesselRow tabRow = AllRows(b.TabRows).Single(r => r.OwnerHeadId == header.LineId);
+            Assert.Equal(aboard, tabRow.Intervals[tabRow.Intervals.Count - 1].CompositionLabel);
         }
 
         // catches: the Re-Fly bridge missing: the superseded attempt (TIP) replaced by the

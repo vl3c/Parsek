@@ -25,6 +25,8 @@ namespace Parsek
             string outcome = ProfileLabels.Outcome(plan.Terminal, plan.EndBody);
             if (!string.IsNullOrEmpty(outcome)) sb.Append("; ends ").Append(outcome);
             sb.Append('.');
+            string aboard = FinalComposition(ctx.Profile, line);
+            if (!string.IsNullOrEmpty(aboard)) sb.Append(" Aboard: ").Append(aboard).Append('.');
             if (line.Reflown) sb.Append(' ').Append(ReflownSentence(ctx, line.ReflownUT));
             if (line.ExcludedSpans.Count > 0) sb.Append(' ').Append(ExcludedSentence);
             return sb.ToString();

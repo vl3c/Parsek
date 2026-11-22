@@ -138,6 +138,28 @@ namespace Parsek
             }
         }
 
+        /// <summary>A dock another mission recorded onto this vessel (section 3.2):
+        /// <c>"Docked: CD Freighter (mission 'CD Freighter')"</c>, <c>"Undocked: ..."</c>, or
+        /// <c>"Boarded: ..."</c> for a kerbal of the other mission.</summary>
+        internal static string OtherMissionDockLabel(ProfileOtherMissionDock d)
+        {
+            string head = d.IsUndock ? "Undocked: " : d.ClaimType == BranchPointType.Board ? "Boarded: " : "Docked: ";
+            string partner = string.IsNullOrEmpty(d.PartnerName) ? "another mission's vessel" : d.PartnerName;
+            return string.IsNullOrEmpty(d.MissionName)
+                ? head + partner
+                : head + partner + " (mission '" + d.MissionName + "')";
+        }
+
+        /// <summary>The hover of a Docked by another mission row: who recorded it, and, past the
+        /// line's end, that this mission's recording had already stopped.</summary>
+        internal static string OtherMissionDockHover(ProfileOtherMissionDock d, string label)
+        {
+            string verb = d.IsUndock ? "undocked" : d.ClaimType == BranchPointType.Board ? "boarded" : "docked";
+            return d.AfterLineEnd
+                ? label + ": " + verb + " by another mission after this recording ended; not recorded here."
+                : label + ": " + verb + " by another mission, which recorded it; named here, not expanded.";
+        }
+
         private static string EvaLabel(ProfileEvent e, string name)
         {
             string head = Named("EVA: ", name, "EVA");

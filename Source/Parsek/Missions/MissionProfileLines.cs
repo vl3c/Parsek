@@ -23,6 +23,9 @@ namespace Parsek
         public readonly List<ProfileSpan> ExcludedSpans = new List<ProfileSpan>();
         public readonly List<string> CrewNames = new List<string>();
         public readonly List<MissionProfileLine> Children = new List<MissionProfileLine>();
+        // Docks (and their undocks) another mission recorded onto this line's vessel, in UT
+        // order (section 3.2): named, never expanded.
+        public readonly List<ProfileOtherMissionDock> OtherMissionDocks = new List<ProfileOtherMissionDock>();
         // A kerbal line that is only a board back into the vessel it left within the short-EVA
         // window: drawn as one event row on that vessel, never as a line.
         public bool CollapsedToEvent;
@@ -59,7 +62,7 @@ namespace Parsek
     /// Profile's lines agree with the tab's rows and include keys and no second "same vessel"
     /// rule exists. Pure apart from the caller's resolvers.
     /// </summary>
-    internal static class MissionProfileLineBuilder
+    internal static partial class MissionProfileLineBuilder
     {
         /// <summary>An EVA whose kerbal boards the same vessel within this is one event row.</summary>
         internal const double ShortEvaSeconds = 120.0;

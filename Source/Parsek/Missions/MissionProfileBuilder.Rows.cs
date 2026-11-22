@@ -18,6 +18,10 @@ namespace Parsek
             public bool FirstTimedRowDone;
             public readonly HashSet<string> EmittedLines = new HashSet<string>(StringComparer.Ordinal);
             public readonly Dictionary<string, int> KeyUse = new Dictionary<string, int>(StringComparer.Ordinal);
+            // The phase each Docked by another mission row sits in (null: after its line's end).
+            // Keyed by the dock itself, so a child line emitted mid-parent cannot clobber it.
+            public readonly Dictionary<ProfileOtherMissionDock, ProfilePhase> OtherDockPhase =
+                new Dictionary<ProfileOtherMissionDock, ProfilePhase>();
         }
 
         private static void EmitRows(ProfileRowContext ctx)
@@ -75,6 +79,7 @@ namespace Parsek
             SetRecorded(header, plan.SpentRecorded, plan.LeftAtEnd);
             header.Hover = LineHover(ctx, line);
             ctx.Profile.Rows.Add(header);
+            bool hasTopPhase = PlaceOtherMissionDocks(ctx, line);
             foreach (ProfilePhase p in plan.Phases)
             {
                 if (p.Kind == ProfilePhaseKind.Prelaunch)
@@ -85,6 +90,10 @@ namespace Parsek
                 }
                 EmitPhase(ctx, line, p, depth + 1, key);
             }
+            // A line of nothing but a prelaunch: its other-mission rows sit under the header.
+            if (!hasTopPhase)
+                foreach (ProfileOtherMissionDock d in line.OtherMissionDocks)
+                    EmitOtherMissionDock(ctx, line, d, depth + 1, key);
             foreach (MissionProfileLine c in line.Children) EmitLineTree(ctx, c, depth + 1, key);
         }
 
@@ -116,14 +125,90 @@ namespace Parsek
         // its own start).
         private static void EmitChildren(ProfileRowContext ctx, MissionProfileLine line, ProfilePhase p, int depth, string key)
         {
-            int e = 0, s = 0;
-            while (e < p.Events.Count || s < p.SubPhases.Count)
+            var others = new List<ProfileOtherMissionDock>();
+            foreach (ProfileOtherMissionDock d in line.OtherMissionDocks)
+                if (ctx.OtherDockPhase.TryGetValue(d, out ProfilePhase owner) && owner == p) others.Add(d);
+            int e = 0, s = 0, o = 0;
+            while (e < p.Events.Count || s < p.SubPhases.Count || o < others.Count)
             {
-                bool takeSub = s < p.SubPhases.Count
-                    && (e >= p.Events.Count || p.SubPhases[s].StartUT <= p.Events[e].UT);
-                if (takeSub) EmitPhase(ctx, line, p.SubPhases[s++], depth, key);
-                else EmitEvent(ctx, line, p.Events[e++], p, depth, key);
+                double eventUT = e < p.Events.Count ? p.Events[e].UT : double.PositiveInfinity;
+                double subUT = s < p.SubPhases.Count ? p.SubPhases[s].StartUT : double.PositiveInfinity;
+                double otherUT = o < others.Count ? others[o].UT : double.PositiveInfinity;
+                if (s < p.SubPhases.Count && subUT <= eventUT && subUT <= otherUT)
+                    EmitPhase(ctx, line, p.SubPhases[s++], depth, key);
+                else if (e < p.Events.Count && eventUT <= otherUT)
+                    EmitEvent(ctx, line, p.Events[e++], p, depth, key);
+                else
+                    EmitOtherMissionDock(ctx, line, others[o++], depth, key);
             }
+            // After the line's end, after its End row: what another mission did to this vessel
+            // once this recording had stopped.
+            if (p != LastTopPhase(line.Plan)) return;
+            foreach (ProfileOtherMissionDock d in line.OtherMissionDocks)
+                if (ctx.OtherDockPhase.TryGetValue(d, out ProfilePhase owner) && owner == null)
+                    EmitOtherMissionDock(ctx, line, d, depth, key);
+        }
+
+        private static ProfilePhase LastTopPhase(PhasePlan plan)
+        {
+            for (int i = plan.Phases.Count - 1; i >= 0; i--)
+                if (plan.Phases[i].Kind != ProfilePhaseKind.Prelaunch) return plan.Phases[i];
+            return null;
+        }
+
+        // Which phase each Docked by another mission row of the line sits in: the deepest phase
+        // whose span covers its instant (before the first phase: the first; past the line's
+        // end: none, drawn after the End row). False when the line has no top-level phase.
+        private static bool PlaceOtherMissionDocks(ProfileRowContext ctx, MissionProfileLine line)
+        {
+            var tops = new List<ProfilePhase>();
+            foreach (ProfilePhase p in line.Plan.Phases)
+                if (p.Kind != ProfilePhaseKind.Prelaunch) tops.Add(p);
+            if (tops.Count == 0) return false;
+            foreach (ProfileOtherMissionDock d in line.OtherMissionDocks)
+                ctx.OtherDockPhase[d] = d.AfterLineEnd ? null : CoveringPhase(tops, d.UT);
+            return true;
+        }
+
+        private static ProfilePhase CoveringPhase(List<ProfilePhase> phases, double ut)
+        {
+            ProfilePhase owner = phases[0];
+            for (int i = 0; i < phases.Count; i++)
+            {
+                if (ut >= phases[i].StartUT && (ut < phases[i].EndUT || i == phases.Count - 1))
+                {
+                    owner = phases[i];
+                    break;
+                }
+            }
+            foreach (ProfilePhase sub in owner.SubPhases)
+                if (ut >= sub.StartUT && ut < sub.EndUT) return CoveringPhase(new List<ProfilePhase> { sub }, ut);
+            return owner;
+        }
+
+        // A dock another mission recorded onto this vessel: named, never expanded (no caret,
+        // no child line, no partner phases).
+        private static void EmitOtherMissionDock(ProfileRowContext ctx, MissionProfileLine line, ProfileOtherMissionDock d,
+            int depth, string parentKey)
+        {
+            string label = ProfileLabels.OtherMissionDockLabel(d);
+            string kind = d.IsUndock ? "undock" : "dock";
+            var row = new MissionProfileRow
+            {
+                Kind = MissionProfileRowKind.Event, Depth = depth, ParentKey = parentKey, HasCaret = false,
+                Key = UniqueKey(ctx, "other:" + line.LineId + ":" + kind + ":" + d.UT.ToString("F2", Ic)),
+                LineId = line.LineId, UT = d.UT,
+                EventKind = d.IsUndock ? ProfileEventKind.Undocking
+                    : d.ClaimType == BranchPointType.Board ? ProfileEventKind.Board : ProfileEventKind.Docking,
+                Time = TimeCell(ctx, d.UT),
+                Element = label,
+                Result = d.AfterLineEnd ? "not recorded here" : "",
+                IsOtherMission = true,
+                IsAfterLineEnd = d.AfterLineEnd,
+            };
+            row.Hover = ProfileLabels.OtherMissionDockHover(d, label);
+            ctx.Profile.Rows.Add(row);
+            ctx.Profile.OtherMissionEvents++;
         }
 
         private static void EmitEvent(ProfileRowContext ctx, MissionProfileLine line, ProfileEvent e, ProfilePhase phase,
@@ -198,6 +283,30 @@ namespace Parsek
             foreach (string c in line.CrewNames) first.Add(FirstName(c));
             return (line.Name ?? "") + " (" + string.Join(", ", first.ToArray()) + ")";
         }
+
+        // The line's final composition, the CompositionLabel the Missions tab's vessel-row
+        // tooltip shows ("pod x1, crew x2"): the last interval of the line's row, or, on a
+        // re-flown line, of the fork's row the Re-Fly bridge drew into it (the flown-again path
+        // is what the line ends on). Null for a kerbal (its label is its name).
+        internal static string FinalComposition(MissionProfile profile, MissionProfileLine line)
+        {
+            if (line?.Row == null || line.IsPerson) return null;
+            MissionCompositionNode fork = null;
+            if (profile != null && line.Reflown)
+            {
+                foreach (MissionProfileLine l in MissionProfileLineBuilder.All(profile.Lines))
+                {
+                    if (l.Row == null || !string.Equals(l.MergedIntoLineId, line.LineId, StringComparison.Ordinal))
+                        continue;
+                    MissionCompositionNode end = LastInterval(l.Row);
+                    if (end != null && (fork == null || end.EndUT > fork.EndUT)) fork = end;
+                }
+            }
+            return (fork ?? LastInterval(line.Row))?.CompositionLabel;
+        }
+
+        private static MissionCompositionNode LastInterval(MissionVesselRow row)
+            => row.Intervals.Count > 0 ? row.Intervals[row.Intervals.Count - 1] : null;
 
         internal static string FirstName(string kerbal)
         {
