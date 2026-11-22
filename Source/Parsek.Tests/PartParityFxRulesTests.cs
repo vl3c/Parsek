@@ -106,6 +106,11 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "burn-full-m1/air", "burn-low-m1/air", "burn-full-m2/air", "burn-low-m2/air" }, Words(r));
             Assert.All(r.Cases, k => Assert.True(k.FxOption.AirBreathing && k.FxOption.MultiMode));
             Assert.Equal("Wet", r.Cases[2].FxOption.EngineId);
+            // The recorder keys engines by their position among the part's engine modules
+            // (FlightRecorder's engine cache, EncodeEngineKey's midx), not the prefab index the
+            // case id's tiebreak reads.
+            Assert.Equal(new[] { 0, 0, 1, 1 }, r.Cases.Select(k => k.FxOption.RecorderKeyIndex));
+            Assert.Equal(new[] { 1, 1, 2, 2 }, r.Cases.Select(k => k.FxOption.ModuleIndex));
             Assert.Equal(new[] { "fx-needs-air", "fx-needs-air" }, r.Exclusions.Select(e => e.Reason));
             // fx-needs-air belongs to an orbit run's list only.
             Assert.All(r.Exclusions, e => Assert.True(PartParityFxRules.ExclusionApplies(e, false)));
@@ -135,6 +140,14 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "rcs-fire/alone", "heat-medium/alone", "heat-hot/alone", "lit/plate" }, Words(r));
             Assert.Equal(0.5, r.Cases[1].FxOption.HeatScalar);
             Assert.Equal(0.999, r.Cases[2].FxOption.HeatScalar);
+            // RCS keys count RCS modules only; heat and the light check key on the prefab index.
+            Assert.Equal(0, r.Cases[0].FxOption.RecorderKeyIndex);
+            Assert.Equal(1, r.Cases[1].FxOption.RecorderKeyIndex);
+            Assert.Equal(3, r.Cases[3].FxOption.RecorderKeyIndex);
+            var block = Enumerate(Part("RCSBlock.v2", Mod(0, "ModulePartVariants"),
+                Mod(1, "ModuleRCSFX", "ModuleRCSFX,ModuleRCS,PartModule")));
+            Assert.Equal(1, block.Cases.Single().FxOption.ModuleIndex);
+            Assert.Equal(0, block.Cases.Single().FxOption.RecorderKeyIndex);
             // The light check is the first ModuleLight only.
             Assert.Equal(3, r.Cases[3].FxOption.ModuleIndex);
             Assert.Equal("fx-ablator-char", Assert.Single(r.Exclusions).Reason);
@@ -357,6 +370,22 @@ namespace Parsek.Tests
             // A lone nozzle: six faces tie on count; the earliest firing one (+y) wins.
             c = PartParityFxRules.ChooseRcsInput(new List<PartParityRcsThruster> { T(0, 1, 0) });
             Assert.Equal(new[] { 0.0, 1.0, 0.0 }, c.Direction);
+        }
+
+        [Fact]
+        public void TheSpreadAndMean_ReadEveryFiredNozzle()
+        {
+            // On the (+x,+y) edge a weak third nozzle fires at 0.28 under the even line (0.35):
+            // it does not count, but it widens the spread and lowers the mean (E.2: "the
+            // smallest spread between the fired nozzles' forces").
+            var thrusters = new List<PartParityRcsThruster> { T(1, 0, 0), T(0, 1, 0), T(0.2, 0.2, -0.959) };
+            double e = 1.0 / Math.Sqrt(2);
+            PartParityRcsChoice c = PartParityFxRules.ScoreRcsDirection(thrusters, new[] { e, e, 0.0 });
+            Assert.Equal(2, c.Counted);
+            Assert.Equal(new[] { 0, 1, 2 }, c.Fired);
+            Assert.Equal(e - c.Forces[2], c.Spread, 9);
+            Assert.Equal((2 * e + c.Forces[2]) / 3, c.Mean, 9);
+            Assert.Null(PartParityFxRules.ScoreRcsDirection(thrusters, new[] { -e, -e, 0.0 }));
         }
 
         [Fact]

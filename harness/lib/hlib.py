@@ -5451,7 +5451,8 @@ def _partparity_fx_combination_ok(step_args: Dict) -> bool:
     states = str(step_args.get("states", PARTPARITY_NONE_TOKEN))
     contexts = str(step_args.get("contexts", PARTPARITY_NONE_TOKEN))
     return (states == PARTPARITY_NONE_TOKEN
-            and contexts in (PARTPARITY_NONE_TOKEN, PARTPARITY_AIR_CONTEXT))
+            and (contexts == PARTPARITY_NONE_TOKEN
+                 or set(contexts.split(",")) == {PARTPARITY_AIR_CONTEXT}))
 
 
 def _partparity_views_ok(text: str) -> bool:

@@ -19285,6 +19285,10 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         # fx=none is no FX run: a P6 step beside it validates as before.
         self.assertEqual([], v(0, {"label": "pp3", "fx": "none", "states": "all"}))
         self.assertEqual([], v(0, {"label": "pp5", "fx": "none", "states": "all", "contexts": "air"}))
+        # contexts= is canonicalised as the C# parse does: air,air is the air context.
+        errors = v(0, {"label": "pp10", "fx": "plume", "contexts": "air,air"})
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("fx-runs-not-built", errors[0])
 
     def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
         text, consts = self._pure()

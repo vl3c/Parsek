@@ -2456,6 +2456,18 @@ view and layer (`event:fx-far:smoke:smoke-missing`).
     (`PartParityFxRules.KeySelected`). An air-breathing engine is detected by a `PROPELLANT`
     named `IntakeAir`; `fx-needs-air` is listed by an orbit run only (`ExclusionApplies`).
     `fx-reentry-camera` and `fx-blackbody` are in the reason table but no part writes them.
+  - Each FX option carries two indices: `ModuleIndex`, the prefab index the same-word
+    tiebreak and the case id read (`turbojet--default--burn-low-m2--air`), and
+    `RecorderKeyIndex`, the index the recorder keys the case's events by: a plume or rcs
+    module's position among the part's `as ModuleEngines` / `as ModuleRCS` modules (the
+    recorder's engine and RCS caches, `EncodeEngineKey`'s `midx`; `RCSBlock.v2` is prefab 1,
+    key 0), the prefab index for heat and lamps. F3 matches recorded events and builds keys
+    from `RecorderKeyIndex`, never from `ModuleIndex`.
+  - `ChooseRcsInput` ranks by the nozzles at half the strongest or more, then the smallest
+    spread and the largest mean over EVERY nozzle that fires (above 0.01), so a weak extra
+    nozzle counts against a direction. E0 U2 saw the spike's rule predict 3 nozzles on stock
+    `RCSblock.01.small` where stock fired none; the rule does not explain that case, so F3's
+    press check (`rcs-input-mismatch`) stays the authority.
   - A Waterfall part's plume and rcs cases carry `reference = waterfall`; its heat and plate
     cases do not (the plate case's flame layer is F4's to treat as reference).
   - The point-light control is optional: no eligible subject records `n/a`, which

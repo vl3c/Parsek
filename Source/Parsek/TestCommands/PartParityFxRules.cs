@@ -15,8 +15,15 @@ namespace Parsek.TestCommands
         /// <summary>The <c>moduleName</c> of the module the case drives.</summary>
         internal string Module;
 
-        /// <summary>That module's prefab index (the engine / RCS key's module index).</summary>
+        /// <summary>That module's prefab index (the same-word tiebreak and the case id read it).</summary>
         internal int ModuleIndex;
+
+        /// <summary>The module index the recorder keys the case's events by: for a plume or
+        /// rcs case the module's position among the part's <c>as ModuleEngines</c> /
+        /// <c>as ModuleRCS</c> modules (<c>FlightRecorder</c>'s engine and RCS caches,
+        /// <c>EncodeEngineKey</c>'s <c>midx</c>); for a heat or light case the prefab index
+        /// (<c>PollAnimateHeat</c> and the light check key on it).</summary>
+        internal int RecorderKeyIndex;
 
         /// <summary>The state word, without the same-word tiebreak.</summary>
         internal string State;
@@ -513,11 +520,17 @@ namespace Parsek.TestCommands
                 if (m.Named(ModuleMultiModeEngine)) multiMode = true;
             }
             var cases = new List<PartParityFxOption>();
+            int engineKey = 0, rcsKey = 0;
             foreach (PartParityStateModule m in part.Modules)
             {
                 if (m == null) continue;
-                if (m.Implements(TypeEngines)) AddPlume(name, m, multiMode, waterfall, cases, r);
-                if (m.Implements(TypeRcs)) cases.Add(Option(FamilyRcs, m, StateRcsFire, PartParityStateRules.ContextAlone, waterfall));
+                if (m.Implements(TypeEngines)) AddPlume(name, m, engineKey++, multiMode, waterfall, cases, r);
+                if (m.Implements(TypeRcs))
+                {
+                    PartParityFxOption rcs = Option(FamilyRcs, m, StateRcsFire, PartParityStateRules.ContextAlone, waterfall);
+                    rcs.RecorderKeyIndex = rcsKey++;
+                    cases.Add(rcs);
+                }
                 if (m.Named(ModuleAnimateHeat))
                 {
                     cases.Add(HeatOption(m, StateHeatMedium, HeatMediumScalar));
@@ -537,13 +550,14 @@ namespace Parsek.TestCommands
             return r;
         }
 
-        private static void AddPlume(string part, PartParityStateModule m, bool multiMode, bool waterfall,
+        private static void AddPlume(string part, PartParityStateModule m, int keyIndex, bool multiMode, bool waterfall,
             List<PartParityFxOption> cases, PartParityFxEnumeration r)
         {
             bool air = HasPropellant(m, AirPropellant);
             bool locked = PartParityStateRules.ParseBool(m.Value(KeyThrottleLocked), false);
             string context = air ? PartParityStateRules.ContextAir : PartParityStateRules.ContextAlone;
             PartParityFxOption full = PlumeOption(m, StateBurnFull, BurnFullThrottle, context, air, locked, multiMode, waterfall);
+            full.RecorderKeyIndex = keyIndex;
             cases.Add(full);
             if (locked)
                 r.Exclusions.Add(new PartParityFxExclusion
@@ -552,7 +566,11 @@ namespace Parsek.TestCommands
                     Reason = ExcludeThrottleLocked, Context = context,
                 });
             else
-                cases.Add(PlumeOption(m, StateBurnLow, BurnLowThrottle, context, air, locked, multiMode, waterfall));
+            {
+                PartParityFxOption low = PlumeOption(m, StateBurnLow, BurnLowThrottle, context, air, locked, multiMode, waterfall);
+                low.RecorderKeyIndex = keyIndex;
+                cases.Add(low);
+            }
             if (air)
                 r.Exclusions.Add(new PartParityFxExclusion
                 {
@@ -585,7 +603,8 @@ namespace Parsek.TestCommands
             string context, bool waterfall)
             => new PartParityFxOption
             {
-                Family = family, Module = m.Name, ModuleIndex = m.Index, State = state, Context = context,
+                Family = family, Module = m.Name, ModuleIndex = m.Index, RecorderKeyIndex = m.Index,
+                State = state, Context = context,
                 Reference = waterfall && (family == FamilyPlume || family == FamilyRcs) ? ReferenceWaterfall : null,
             };
 
@@ -806,9 +825,10 @@ namespace Parsek.TestCommands
         /// component on an axis the module disables (<paramref name="enableX"/> gates the
         /// reference x, <paramref name="enableZ"/> y, <paramref name="enableY"/> z, as
         /// <c>inputLin = (X, Z, Y)</c>) is not a candidate. Ranked by the nozzles at
-        /// <see cref="RcsEvenFraction"/> of the strongest or more, then the smallest spread of
-        /// their forces, then the largest mean; a tie keeps the earlier direction. Null when no
-        /// direction fires any nozzle.
+        /// <see cref="RcsEvenFraction"/> of the strongest or more, then the smallest spread
+        /// between the forces of every nozzle that fires (above <see cref="RcsFireEpsilon"/>, so
+        /// a weak extra nozzle counts against a direction), then the largest mean of those
+        /// forces; a tie keeps the earlier direction. Null when no direction fires any nozzle.
         /// </summary>
         internal static PartParityRcsChoice ChooseRcsInput(IList<PartParityRcsThruster> thrusters,
             bool enableX = true, bool enableY = true, bool enableZ = true)
@@ -825,7 +845,8 @@ namespace Parsek.TestCommands
             return best;
         }
 
-        private static PartParityRcsChoice ScoreRcsDirection(IList<PartParityRcsThruster> thrusters, double[] d)
+        /// <summary>One candidate direction's score (null when it fires no nozzle).</summary>
+        internal static PartParityRcsChoice ScoreRcsDirection(IList<PartParityRcsThruster> thrusters, double[] d)
         {
             var forces = new double[thrusters.Count];
             double strongest = 0.0;
@@ -839,15 +860,15 @@ namespace Parsek.TestCommands
             double min = double.MaxValue, max = 0.0, sum = 0.0;
             for (int i = 0; i < forces.Length; i++)
             {
-                if (forces[i] > RcsFireEpsilon) c.Fired.Add(i);
-                if (forces[i] < RcsEvenFraction * strongest) continue;
-                c.Counted++;
+                if (forces[i] >= RcsEvenFraction * strongest) c.Counted++;
+                if (forces[i] <= RcsFireEpsilon) continue;
+                c.Fired.Add(i);
                 sum += forces[i];
                 min = Math.Min(min, forces[i]);
                 max = Math.Max(max, forces[i]);
             }
             c.Spread = max - min;
-            c.Mean = sum / c.Counted;
+            c.Mean = sum / c.Fired.Count;
             return c;
         }
 
