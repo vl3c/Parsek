@@ -1304,6 +1304,28 @@ The manifest's `profile` is now the install directory's name (`ProfileNameOf` re
 `settings` gain `states`, `contexts` and `controlSet` on every run, and a state run's exclusions
 join `exclusions[]` with their D.1 reasons.
 
+Stowed pose and the pre-press check (found on the first live run): a lone part authored with no
+persistent module values starts at each field's initial value, so a `ModuleWheelDeployment`
+starts Deployed and a bay whose `closedPosition` is 1 (Mk2, Mk3) starts open, and the toggle the
+sweep presses would leave the target. The state authoring writes the stowed pose into the
+subject's MODULE node (`stateString = Retracted`; `animTime = closedPosition` with the
+`animSwitch` that matches it, decompiled `UpdateAnimSwitch`), and a case whose done signal already
+reads reached before the press is not pressed: `action-failed`, `actionResult = refused`, the
+detail naming the field (todo PARTPARITY-STOWED-POSE-NOT-STOWED covers the stowed cases). A
+reparented shroud's real records are read at the transform's prefab path
+(`RehomeJettisonPaths`), so the structural diff pairs a stacked shroud with its ghost.
+
+Live (2026-11-22, stock-minimal, harness runs `2026-11-22_1411`, `_1419` and `_1428` of a local
+uncommitted spec: one `states=all` step per acceptance part plus a 60 s stowed step): on the last
+build every acceptance case reached its state and wrote its rows (four rows for a state case, two
+for the stacked stowed shroud; `turboFanSize2`'s jettisoned case is excluded
+`jettison-blocked-by-node`), the nine controls read ok, the S4 judge's Python recompute of every
+captured state atlas matched its sidecar, no debris or case vessel was left, no `[ERROR]`. The
+stowed step planned the same 792 case ids in the same order as the P3 run `2026-11-22_0033`, the
+same eight controls and exclusions, its sidecars within that run's run-to-run noise (max IoU
+delta 0.0029 against 0.0028 between `_0004` and `_0033`). Findings: todo
+GHOST-AIRBRAKE-START-NOT-DEPLOYED, GHOST-LIT-SPOTLIGHT-LENS, PARTPARITY-SUN-TRACKER-CAP.
+
 ### D.4 Parachutes in the air (owner ruling R1)
 
 Where: in the FLIGHT scene with the host vessel sitting on the KSC launch pad (a pad fixture, the
