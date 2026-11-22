@@ -26,6 +26,22 @@ What: the recorder keeps ONE power per RCS module (`FlightRecorder.ComputeRcsPow
 
 Fix (not started): record which nozzles fire. That means a per-nozzle mask or a per-nozzle power on the RCS events, debounced like today, and the ghost mapping each particle system to its thruster index (the sweep's F2 adds that read-only record). The cost is more recorded RCS events per ghost; weigh it against the visual principle (record threshold crossings, not continuous values). P8's RCS cases are its measure: they flip from reported to judged when it lands.
 
+## GHOST-RCS-DARK-AFTER-FX-SUPPRESSION: a ghost that comes out of FX suppression while its RCS fires shows no RCS puffs until the next RCS event [FILED 2026-11-22 from the part parity P8 E0 spike (`docs/dev/design-part-ghost-parity.md` E.12 U2; PPS-8a `2026-11-22_2144`, PPS-8b `2026-11-22_2151`); OPEN; low (visual only)]
+
+What: `GhostPlaybackEngine.StopVisualFxForFrame` (every suppressed frame, and the hidden prime of a freshly built ghost) calls `GhostPlaybackLogic.StopAllRcsFx`, which disables every RCS particle renderer, and then `StopAllRcsEmissions`. On the first unsuppressed frame `RestoreAllRcsEmissions` restores only modules with an ENABLED renderer (its `wasActive` test), so it restores none and clears `rcsSuppressed`. The ghost stays dark until its recording's next RCS event. Engines do not have this gap: `RestoreActiveEngineFx` restarts them from the last recorded power. Evidence: an `RCSBlock.v2` ghost built from a recording with one `RCSActivated` event at power 0.157 drew 0 particles and 0 enabled renderers after the production priming, on stock and ReStock; a direct `SetRcsEmission` with the same power then drew 4 (stock) or 8 (ReStock) renderers.
+
+Player-visible: a ghost holding a steady RCS translation (a docking approach) shows no puffs once it has been out of FX range or hidden and comes back, and none at all when it is first built mid-burn.
+
+Fix (not started): restore from the recorded power the way engines do (an RCS twin of `CollectDeferredEnginePowerRestores` over `rcsInfos[*].currentPower`), not from the renderer state that `StopAllRcsFx` itself cleared. P8's rcs cases are its measure: until it lands they fail `state-not-modelled` on both routes.
+
+## GHOST-SMOKE-IN-VACUUM: a ghost engine draws its smoke trail in vacuum, where stock hides it [FILED 2026-11-22 from the part parity P8 E0 spike (`docs/dev/design-part-ghost-parity.md` E.12 U8; PPS-8a `2026-11-22_2144`, PPS-8c `2026-11-22_2149`); OPEN; low (visual only)]
+
+What: in orbit the real stock legacy engines (LV-T45, LV-T30, Hammer, nuclear engine) keep their `fx_smokeTrail_*` particle system playing but with its renderer disabled, so no smoke is drawn (no smoke coverage in the sweep camera on any of the four stock legacy engines tried). Their ghosts draw the trail: `fx-far` smoke core 9832 px on the LV-T45 ghost and 27120 px on the Hammer ghost, 0 on the real sides. In the air (1600 m over KSC) the real smoke draws and the ghost's matches it in placement (the Hammer's trails differ in length only). The ghost RAPIER also draws a smoke trail that the real RAPIER never draws, in orbit and in the air; check whether that is the same cause.
+
+Not yet found: the stock code that disables the smoke renderer in vacuum (not in the decompiled `ModuleEngines` / `FXGroup` bodies read so far).
+
+Fix (not started): find the stock rule, then gate the ghost's smoke systems on the same input the recording carries (an atmosphere flag of the trajectory point, never a per-frame stored value). P8's orbit plume cases are its measure (`smoke-extra`).
+
 ## ~~PARITY-RESTOCK-MASK-ROOT-PART~~: the part parity sweep photographed ReStock depth masks as opaque cyan discs on the real part [FILED 2026-11-22 from PP-2 `2026-11-22_0045_PP-2-part-parity-modded` (86 x `Module ModuleRestockDepthMask threw during OnStart: System.NullReferenceException` at `Component.get_gameObject` <- `UpdateAllMaterials`, 59 cases capped at warn `depth-mask`); FIXED 2026-11-22, branch `part-parity-restock-mask`; low (automation-only; the real side of 74 modded cases was not the part a player sees)]
 
 What: on the ReStock install the REAL picture of every part with a `ModuleRestockDepthMask` (intakes, jets, RCS blocks, claws, InfraredTelescope, ...) showed the mask mesh with its authored placeholder material, so those cases compared a cyan disc against the ghost (which skips masks by owner ruling 2026-11-22) and were capped at warn.
@@ -357,6 +373,12 @@ Red, PARSEK-FAIL(expectation) attempt 1, the product as ruled:
 Seen, to check whether pre-existing: ASR-4's probe logs `[WARN][RecordingStore] AppendPointsFromTrackSections: skipped 50 non-monotonic frame(s) at flush stitch ... #419`.
 
 ## ~~GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL~~: building a ghost of a heat-animated part could push or break a real vessel near it [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_2011_PP-1-part-parity-stock`, branch `part-parity-p3`; the same break in the P2 flight `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/KSP.log` line 12432); FIXED 2026-11-21, branch `ghost-heat-clone-destroy`; xUnit `GhostTempCloneDestroyGateTests` (mutation: reverting the fix reds it); NOT FLOWN; medium (physics damage to a real vessel, first ghost build of a part type per session)]
+
+## PARTPARITY-REAL-VS-REAL-ONE-PIXEL: the noise-floor control can read bad on a single colour pixel [FILED 2026-11-22 from the modded-restock smoke flight `2026-11-22_2141_PPX-0-modded-restock-smoke` (a local uncommitted lane, branch `p8-modded-restock-profile`); OPEN; low (instrument only, report-only lanes)]
+
+What: `ctl-real-vs-real` (the real `fuelTankSmallFlat`, ReStock model, rendered as both sides) read `outcome=bad ... detail=difference in bottom`, so the run was INVALID(parity-controls) although every mask was identical in all four views (iou 1, 0 real-only / ghost-only px) and the only difference was `colorOverPx=1`, `colorBlobPx=1` in the `bottom` view (`colorBlockMax` 0.06). The same lane, re-provisioned with the next reference DLL and flown again 6 minutes later (`2026-11-22_2147`), read controls ok. So two renders of the same real part can differ by one colour pixel, and the control's judge counts any colour blob. Evidence: `<umbrella>/logs/flights/p8-p1-ppx0-2026-11-22_2141/` (sidecar, atlas, KSP.log, result JSON).
+
+Fix: not started. Decide whether the real-vs-real control should allow a colour blob below a small pixel floor (it is the noise floor, so a one-pixel blob is noise, not a fault), or whether the capture should make two renders of one part bit-identical. Watch for a recurrence on PP-1 to PP-6 first.
 
 ## ~~GHOST-AIRBRAKE-START-NOT-DEPLOYED~~: a recording that starts with an airbrake deployed shows it stowed at its first frame [FILED 2026-11-22 from the P6 state engine's first live runs (branch `part-parity-p6-s3`, harness runs `2026-11-22_1411` / `_1419` / `_1428_S3L-part-parity-states-local`, a local uncommitted acceptance spec; design `docs/dev/design-part-ghost-parity.md` D.5); FIXED 2026-11-22, branch `ghost-light-airbrake`; low]
 

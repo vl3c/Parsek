@@ -191,7 +191,8 @@ FULL_RUN_TIER_ORDER: Tuple[str, ...] = ("daily", "nightly", "weekly", "perpr",
 FULL_RUN_EXCLUDED_TIERS: Tuple[str, ...] = ("pending-fixture",)
 # Profile order inside a tier, and the provisioning order: the reference instance
 # first, because the others admit against ITS Parsek.dll.
-FULL_RUN_PROFILE_ORDER: Tuple[str, ...] = ("stock-minimal", "stock-tree", "modded-compat")
+FULL_RUN_PROFILE_ORDER: Tuple[str, ...] = ("stock-minimal", "stock-tree", "modded-compat",
+                                           "modded-restock")
 
 PLAN_SCHEMA = "parsek-full-run-plan/1"
 
