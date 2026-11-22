@@ -3276,7 +3276,8 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Chute descent predicted: rec={0} pid={1} canopy={2} openChutes={3} chutePid={4} " +
                     "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10} " +
-                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15}",
+                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15} " +
+                    "chuteDragSource={16}",
                     recordingId ?? "(pending)",
                     vesselPid,
                     input.Canopy,
@@ -3294,7 +3295,8 @@ namespace Parsek
                     FormatChuteEstimateInput(input.OpenChuteDragNow, "F2"),
                     FormatChuteEstimateInput(input.OpenChuteDragFull, "F2"),
                     FormatChuteEstimateInput(input.DensityAtAltitude, "F4"),
-                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4")),
+                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4"),
+                    input.OpenChuteDragSource ?? "-"),
                 minIntervalSeconds: 10.0);
         }
 

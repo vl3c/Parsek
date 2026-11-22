@@ -43,6 +43,10 @@ Not released yet.
   would land or settle in orbit, the replay no longer recreates it at its end: it ends lost with
   its crew, the ghost coming down quietly. If the game keeps it flying instead, Parsek follows the
   real stage. (ABANDONED-STAGE-STOCK-FATE)
+- **A stage the game keeps on another orbit appears where the game has it.** When the game holds a
+  stage Parsek said would settle in orbit somewhere else (around another body, on another orbit,
+  or on the ground), the replay follows the real stage instead of bringing it back on the
+  predicted orbit. (ABANDONED-STAGE-HELD-FINAL-ORBIT-NOT-COMPARED)
 - **The crew of a crashed stage are lost, as the game would have it.** A crewed stage whose replay
   ends in a crash loses its crew, whether the game destroyed it or Parsek worked the crash out. In a
   breakup only kerbals whose part was destroyed die, and no reputation is taken that the game did
@@ -97,6 +101,10 @@ Not released yet.
 
 ### Fixed
 
+- **RealChute stages are seen under their chutes.** With the RealChute mod, a stage you stopped
+  watching while it was still nearby and under open chutes was predicted to fall and crash. It
+  now comes down under its canopies like a stock one, and a partly open canopy is judged by its
+  size. (ABANDONED-STAGE-REALCHUTE-LOADED)
 - **Predicted paths are drawn on the map, in the Tracking Station and at the Space Center.** A
   ghost past its last recorded point used to freeze there; it now moves along its predicted path
   with a line under it, slides across a long gap instead of jumping, and explodes at the ground,
