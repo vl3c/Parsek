@@ -14,7 +14,8 @@ install `test career` save (KSP 1.12.5), reset per the M-B3 operator checklist i
 
 Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`
 (the derived-by-construction fixtures `coalescer-pad`, `career-earned-ksc`,
-`mun-escape-probe-stack`, `graze-high-probe-stack` and `graze-low-probe-stack` carry no
+`mun-escape-probe-stack`, `graze-high-probe-stack`, `graze-low-probe-stack` and
+`gs1-armed-chute-drop` carry no
 `AddOns/`; nothing in the harness reads it).
 No craft in flight, no active/offered contracts, no completed milestones, no unlocked
 tech beyond the mode default `start` node, all facilities at level 0, no Parsek footprint
@@ -751,6 +752,24 @@ such an orbit without a deorbit burn the harness has no verb for. Built and drif
 `harness/lib/test_graze_probe_stacks.py`, which also re-derives both periapses from the
 committed elements; no `AddOns/` and no `Ships/VAB` overlay (the lanes launch nothing).
 Hosts of `ASR-3-graze-above-1kpa-stays-orbiting` / `ASR-4-graze-below-1kpa-destroyed`.
+
+## gs1-armed-chute-drop (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gs1-two-stage-pad)
+
+`gs1-two-stage-pad`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except
+that the `GS1 Auto-Chute Booster` VESSEL (root `mk1pod.v2` crewed by Valentina Kerman with
+a Mk16 `parachuteSingle`, `Decoupler.1` partPid 1500054019, then the `probeCoreOcto2.v2`
+booster with six Mk2-R `parachuteRadial`, all seven STOWED with `minAirPressureToOpen =
+0.04`) is lifted 62 km straight above the pad: `sit = FLYING`, `landed = False`,
+`landedAt` / `displaylandedAt` empty, `alt` the apex altitude (~62.07 km), `hgt = -1`, and
+an ORBIT whose `SMA` / `ECC` put the apoapsis 62 km above the pad vessel's own (its
+KSP-written PRELAUNCH orbit already sits at apoapsis at the save UT, so INC / LPE / LAN /
+MNA = pi / EPH / REF stay the source's) with Kerbin's co-rotation speed there: the craft
+starts at rest relative to the air at the top of a near-vertical drop. It exists because
+no committed host carries a chuted craft above the 0.04 atm opening line (~16-18 km), and
+the harness has no verb for an ascent there. Built and drift-gated by
+`harness/tools/build_gs1_armed_chute_drop.py` (`--check`) and
+`harness/lib/test_gs1_armed_chute_drop.py`; no `AddOns/` and no `Ships/VAB` overlay (the
+lane launches nothing). Host of `ASR-8-armed-chute-stage-falls-drag-free`.
 
 ## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
 
