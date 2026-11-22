@@ -99,6 +99,7 @@ namespace Parsek.Tests
         [InlineData(DeltaVTrigger.SwitchIn, true)]
         [InlineData(DeltaVTrigger.Resume, true)]
         [InlineData(DeltaVTrigger.End, false)]
+        [InlineData(DeltaVTrigger.PreStaging, false)]
         public void RequiresSettle_OnlyBeforeStateReadsSkipTheWait(object trigger, bool expected)
         {
             Assert.Equal(expected, DeltaVSnapshotTracker.RequiresSettle((DeltaVTrigger)trigger));
@@ -151,6 +152,9 @@ namespace Parsek.Tests
             int filed = 0;
             foreach (DeltaVTrigger kind in kinds)
             {
+                // A pre-staging read is only ever served from the kept reading, never filed.
+                if (kind == DeltaVTrigger.PreStaging)
+                    continue;
                 string reason = tracker.Request(kind, 0.0);
                 if (filed < DeltaVSnapshotTracker.MaxPendingRequests)
                 {
@@ -163,6 +167,67 @@ namespace Parsek.Tests
                 }
             }
             Assert.Equal(DeltaVSnapshotTracker.MaxPendingRequests, tracker.PendingCount);
+        }
+
+        // catches: a kept reading used for an event it does not precede, or older than the
+        // bound (a reading from before an earlier event standing for the vessel now).
+        [Fact]
+        public void CachedReading_UsableOnlyAtOrBeforeTheEventWithinTheBound()
+        {
+            double max = DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds;
+            Assert.True(DeltaVSnapshotTracker.IsCachedReadingUsable(true, 100.0, 100.0));
+            Assert.True(DeltaVSnapshotTracker.IsCachedReadingUsable(true, 100.0, 100.0 + max));
+            Assert.False(DeltaVSnapshotTracker.IsCachedReadingUsable(true, 100.0, 100.0 + max + 0.001));
+            Assert.False(DeltaVSnapshotTracker.IsCachedReadingUsable(true, 100.5, 100.0));
+            Assert.False(DeltaVSnapshotTracker.IsCachedReadingUsable(false, 100.0, 100.0));
+            Assert.False(DeltaVSnapshotTracker.IsCachedReadingUsable(true, double.NaN, 100.0));
+            Assert.True(DeltaVSnapshotTracker.CanServeFromCache(DeltaVTrigger.BurnStart));
+            Assert.True(DeltaVSnapshotTracker.CanServeFromCache(DeltaVTrigger.PreStaging));
+            Assert.False(DeltaVSnapshotTracker.CanServeFromCache(DeltaVTrigger.Staging));
+            Assert.False(DeltaVSnapshotTracker.CanServeFromCache(DeltaVTrigger.End));
+        }
+
+        // catches: a burn start not served from a recent kept reading (it would read after
+        // ignition), served when none is recent, or a throttle flicker no longer withdrawing
+        // the pending burn end first.
+        [Fact]
+        public void Request_BurnStart_ServedFromARecentReadingElseFiled()
+        {
+            var tracker = new DeltaVSnapshotTracker();
+            Assert.Null(tracker.Request(DeltaVTrigger.BurnStart, 1.0, true, out bool served));
+            Assert.True(served);
+            Assert.Equal(0, tracker.PendingCount);
+
+            Assert.Null(tracker.Request(DeltaVTrigger.BurnStart, 2.0, false, out served));
+            Assert.False(served);
+            Assert.True(tracker.HasPending(DeltaVTrigger.BurnStart));
+
+            var flicker = new DeltaVSnapshotTracker();
+            Assert.Null(flicker.Request(DeltaVTrigger.BurnEnd, 1.0));
+            Assert.Equal("burn-resumed", flicker.Request(DeltaVTrigger.BurnStart, 1.1, true, out served));
+            Assert.False(served);
+            Assert.Equal(0, flicker.PendingCount);
+        }
+
+        // catches: a pre-staging read filed as a pending request (it would read AFTER the
+        // staging), written without a recent reading, or written while an earlier staging's
+        // settled read is still pending (its figures would predate that staging).
+        [Fact]
+        public void Request_PreStaging_OnlyFromARecentReadingAndNoPendingStaging()
+        {
+            var tracker = new DeltaVSnapshotTracker();
+            Assert.Equal("no-recent-reading", tracker.Request(DeltaVTrigger.PreStaging, 1.0, false, out bool served));
+            Assert.False(served);
+            Assert.Equal(0, tracker.PendingCount);
+
+            Assert.Null(tracker.Request(DeltaVTrigger.PreStaging, 1.0, true, out served));
+            Assert.True(served);
+            Assert.Equal(0, tracker.PendingCount);
+
+            Assert.Null(tracker.Request(DeltaVTrigger.Staging, 1.0));
+            Assert.Equal("staging-pending", tracker.Request(DeltaVTrigger.PreStaging, 1.4, true, out served));
+            Assert.False(served);
+            Assert.Equal(1, tracker.PendingCount);
         }
 
         [Fact]
@@ -440,17 +505,18 @@ namespace Parsek.Tests
 
         #region Spent and Left
 
-        // A Kerbal X-like ascent: 3400 m/s on the pad, a first burn to 2000, the booster
-        // staged away (Left drops to 1500 with nothing spent), a second burn to 900.
+        // A Kerbal X-like ascent as the recorder writes it: 3400 m/s on the pad, a first burn
+        // to 2000, the booster staged away at 160 (the kept reading 0.02 s before it, then the
+        // settled read 1.25 s after: Left 1500 with a little burned in between), a second
+        // burn to 900.
         private static List<DeltaVSnapshot> AscentProfile()
         {
             return new List<DeltaVSnapshot>
             {
                 Ok(100.0, DeltaVTrigger.Start, 3400),
                 Ok(100.2, DeltaVTrigger.BurnStart, 3400),
-                Ok(160.0, DeltaVTrigger.End, 2000),           // parent recording ends at the split
-                Ok(160.8, DeltaVTrigger.Separation, 1500),    // child after the booster dropped
-                DeltaVSnapshot.Unknown(161.0, DeltaVTrigger.Staging),
+                Ok(159.98, DeltaVTrigger.PreStaging, 2000),
+                Ok(161.25, DeltaVTrigger.Staging, 1500),
                 Ok(170.1, DeltaVTrigger.BurnStart, 1500),
                 Ok(240.9, DeltaVTrigger.BurnEnd, 900),
             };
@@ -465,17 +531,82 @@ namespace Parsek.Tests
             Assert.Equal(900.0, left, 6);
         }
 
+        // catches: a staging drop read against an older snapshot than the PreStaging read
+        // just before it (minutes of burned fuel counted as dropped).
         [Fact]
-        public void StagingDrop_LowersLeftWithoutSpending()
+        public void StagingDrop_IsThePreStagingReadMinusTheSettledRead()
         {
             List<DeltaVSnapshot> list = AscentProfile();
             Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 5.0, out double drop));
             Assert.Equal(500.0, drop, 6);
+            Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 160.0, 5.0, out _, out int first, out int last));
+            Assert.Equal(2, first);
+            Assert.Equal(3, last);
+        }
 
-            // The first burn spent 1400 and ended at the staging; the drop is not part of it.
-            Assert.True(DeltaVSnapshotList.TryGetBurnSpent(list, 100.0, 160.0, 1.0, out double spent, out double left));
-            Assert.Equal(1400.0, spent, 6);
-            Assert.Equal(2000.0, left, 6);
+        // catches: a drop computed with no PreStaging read (a recording made before the
+        // recorder wrote one), from an Unknown or late settled read, or across another
+        // staging's pair.
+        [Fact]
+        public void StagingDrop_WithoutACompletePair_IsUnknown()
+        {
+            var noPre = new List<DeltaVSnapshot>
+            {
+                Ok(100.0, DeltaVTrigger.Start, 3400),
+                Ok(161.25, DeltaVTrigger.Staging, 1500),
+            };
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(noPre, 160.0, 5.0, out double d0));
+            Assert.True(double.IsNaN(d0));
+
+            var unknownPost = new List<DeltaVSnapshot>
+            {
+                Ok(159.98, DeltaVTrigger.PreStaging, 2000),
+                DeltaVSnapshot.Unknown(164.0, DeltaVTrigger.Staging),
+                Ok(170.0, DeltaVTrigger.Staging, 1400),
+            };
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(unknownPost, 160.0, 5.0, out _));
+
+            var late = new List<DeltaVSnapshot>
+            {
+                Ok(159.98, DeltaVTrigger.PreStaging, 2000),
+                Ok(166.0, DeltaVTrigger.Staging, 1500),
+            };
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(late, 160.0, 5.0, out _));
+
+            var nextPairFirst = new List<DeltaVSnapshot>
+            {
+                Ok(159.98, DeltaVTrigger.PreStaging, 2000),
+                Ok(160.5, DeltaVTrigger.PreStaging, 1990),
+                Ok(161.8, DeltaVTrigger.Staging, 1500),
+            };
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(nextPairFirst, 160.0, 5.0, out _));
+
+            // A PreStaging older than the kept-reading bound plus the pairing slack is not this
+            // staging's.
+            var stale = new List<DeltaVSnapshot>
+            {
+                Ok(160.0 - DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds - DeltaVSnapshotList.StagingPairToleranceSeconds - 0.01,
+                    DeltaVTrigger.PreStaging, 2000),
+                Ok(161.25, DeltaVTrigger.Staging, 1500),
+            };
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(stale, 160.0, 5.0, out _));
+        }
+
+        // catches: a batch of stagings (one Stage separation row) reading only its first pair.
+        [Fact]
+        public void StagingDrop_SumsEveryPairOfABatch()
+        {
+            var list = new List<DeltaVSnapshot>
+            {
+                Ok(159.98, DeltaVTrigger.PreStaging, 2000),
+                Ok(161.25, DeltaVTrigger.Staging, 1800),
+                Ok(161.9, DeltaVTrigger.PreStaging, 1780),
+                Ok(163.2, DeltaVTrigger.Staging, 1500),
+            };
+            Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 162.0, 5.0, out double drop, out int first, out int last));
+            Assert.Equal(480.0, drop, 6);
+            Assert.Equal(0, first);
+            Assert.Equal(3, last);
         }
 
         [Fact]
@@ -564,6 +695,10 @@ namespace Parsek.Tests
                 Assert.Contains("waited=0.75s", log);
                 Assert.Contains("trigger=BurnEnd", log);
                 Assert.Contains("settleTicks=3", log);
+                Assert.DoesNotContain("source=", log);
+
+                string cached = FlightRecorder.FormatDeltaVSnapshotLog("rec-1", snapshot, 0, 0.0, "cached", 0.25);
+                Assert.EndsWith("waited=0.00s source=cached age=0.25s", cached);
             }
             finally
             {
@@ -743,10 +878,21 @@ namespace Parsek.Tests
         [Fact]
         public void CountUnknown_CountsOnlyUnknown()
         {
-            Assert.Equal(1, DeltaVSnapshotList.CountUnknown(AscentProfile()));
+            var list = AscentProfile();
+            Assert.Equal(0, DeltaVSnapshotList.CountUnknown(list));
+            list.Add(DeltaVSnapshot.Unknown(250.0, DeltaVTrigger.End));
+            Assert.Equal(1, DeltaVSnapshotList.CountUnknown(list));
             Assert.Equal(0, DeltaVSnapshotList.CountUnknown(null));
         }
 
         #endregion
+    }
+
+    /// <summary>The tracker's request with no cached reading (the recorder's path before its
+    /// first ready tick), for the request-rule cells.</summary>
+    internal static class DeltaVSnapshotTrackerTestExtensions
+    {
+        internal static string Request(this DeltaVSnapshotTracker tracker, DeltaVTrigger trigger, double now)
+            => tracker.Request(trigger, now, false, out bool _);
     }
 }

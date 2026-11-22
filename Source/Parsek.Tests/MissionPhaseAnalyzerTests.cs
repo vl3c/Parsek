@@ -795,9 +795,11 @@ namespace Parsek.Tests
             Assert.Equal(1079, burns[2].UT, 3);
         }
 
-        // catches: a burn carried across the atmosphere exit cut in two.
+        // catches: an ascent firing carried across the atmosphere exit cut in two, or its
+        // burn row starting on the pad (filed in Prelaunch with the whole climb's duration,
+        // its Spent counted there and again in the Ascent).
         [Fact]
-        public void BurnAcrossTheAtmosphereExit_StaysOneBurn()
+        public void AscentFiringAcrossTheAtmosphereExit_IsOneBurnFromTheExit()
         {
             Recording r = new ProfilePiece("ax").Launch()
                 .Sec(SegmentEnvironment.SurfaceStationary, 0, 5)
@@ -807,8 +809,43 @@ namespace Parsek.Tests
                 .Ends(TerminalState.Orbiting, "Kerbin", LkoSma, LkoEcc, 3000).Build();
             PhasePlan plan = Analyze(r);
             ProfileEvent burn = Burns(plan).Single();
-            Assert.Equal(4, burn.UT, 3);
+            Assert.Equal(180, burn.UT, 3);
             Assert.Equal(200, burn.EndUT, 3);
+        }
+
+        // catches: the same pad-to-space firing, with the snapshots the recorder writes,
+        // counted twice: the line's Spent must be the fall in Left less the staging drop,
+        // split between the Ascent (liftoff to the exit) and the burn (the exit on).
+        [Fact]
+        public void AscentFiringAcrossTheAtmosphereExit_SpentCountedOnce()
+        {
+            Recording r = new ProfilePiece("ax-dv").Launch()
+                .Sec(SegmentEnvironment.SurfaceStationary, 0, 5)
+                .Dv(0, DeltaVTrigger.Start, 4000)
+                .Sec(SegmentEnvironment.Atmospheric, 5, 180, alt0: 100, alt1: 70000).Engine(4, 200)
+                .Dv(3.98, DeltaVTrigger.BurnStart, 4000)
+                .Dv(59.98, DeltaVTrigger.PreStaging, 3200)
+                .Dv(61.25, DeltaVTrigger.Staging, 2700)
+                .Sec(SegmentEnvironment.ExoPropulsive, 180, 200, alt0: 70000, alt1: 75000)
+                .Dv(201.25, DeltaVTrigger.BurnEnd, 1500)
+                .Cp(200, 3000, "Kerbin", LkoSma, LkoEcc)
+                .Dv(3000, DeltaVTrigger.End, 1500)
+                .Ends(TerminalState.Orbiting, "Kerbin", LkoSma, LkoEcc, 3000).Build();
+            var anchors = new List<ProfileAnchorInput>
+            {
+                new ProfileAnchorInput { Kind = ProfileEventKind.StageSeparation, UT = 60, Count = 1 },
+            };
+            PhasePlan plan = Analyze(anchors, r);
+            ProfilePhase prelaunch = plan.Phases.Single(p => p.Kind == ProfilePhaseKind.Prelaunch);
+            ProfilePhase ascent = plan.Phases.Single(p => p.Kind == ProfilePhaseKind.Ascent);
+            Assert.False(prelaunch.Events.Any(e => e.Kind == ProfileEventKind.Burn), Trace(plan));
+            Assert.False(ascent.Events.Any(e => e.Kind == ProfileEventKind.Burn), Trace(plan));
+            ProfileEvent burn = Burns(plan).Single();
+            Assert.Equal(180, burn.UT, 3);
+            Assert.Equal(1200, burn.SpentRecorded, 3);
+            Assert.Equal(800, ascent.SpentRecorded, 3);
+            Assert.Equal(500, Events(plan, ProfileEventKind.StageSeparation).Single().StagingDrop, 3);
+            Assert.True(2000 == plan.SpentRecorded, Trace(plan) + " spent=" + plan.SpentRecorded);
         }
 
         // ------------------------------------------------------------------ delta-v
@@ -899,7 +936,9 @@ namespace Parsek.Tests
         }
 
         // catches: Spent / Left not read from the recorded snapshots first, a staging's dropped
-        // fuel counted as spent, or the line total missing.
+        // fuel counted as spent, or the line total missing. The snapshots are the shape the
+        // recorder writes: the burn start from the reading kept the tick before ignition, the
+        // staging as its kept reading just before it plus the settled read 1.25 s after.
         [Fact]
         public void RecordedDeltaV_SpentLeftAndAStagingDrop()
         {
@@ -907,10 +946,10 @@ namespace Parsek.Tests
                 .Cp(0, 1000, "Kerbin", LkoSma, LkoEcc)
                 .Dv(0, DeltaVTrigger.Start, 3400)
                 .Sec(SegmentEnvironment.ExoPropulsive, 1000, 1030).Engine(999, 1029)
-                .Dv(999.5, DeltaVTrigger.BurnStart, 3400)
-                .Dv(1010, DeltaVTrigger.Staging, 3000)
-                .Dv(1012, DeltaVTrigger.Staging, 2700)
-                .Dv(1029.5, DeltaVTrigger.BurnEnd, 2400)
+                .Dv(998.98, DeltaVTrigger.BurnStart, 3400)
+                .Dv(1009.98, DeltaVTrigger.PreStaging, 3050)
+                .Dv(1011.25, DeltaVTrigger.Staging, 2700)
+                .Dv(1030.25, DeltaVTrigger.BurnEnd, 2400)
                 .Cp(1030, 3000, "Kerbin", 700000, 0.02)
                 .Dv(3000, DeltaVTrigger.End, 2400)
                 .Build();
@@ -920,12 +959,107 @@ namespace Parsek.Tests
             };
             PhasePlan plan = Analyze(anchors, r);
             ProfileEvent burn = Burns(plan).Single();
-            Assert.Equal(700, burn.SpentRecorded, 3);
+            Assert.Equal(650, burn.SpentRecorded, 3);
             Assert.Equal(2400, burn.LeftRecorded, 3);
             ProfileEvent stage = Events(plan, ProfileEventKind.StageSeparation).Single();
-            Assert.Equal(300, stage.StagingDrop, 3);
+            Assert.Equal(350, stage.StagingDrop, 3);
+            Assert.Equal(2700, stage.LeftRecorded, 3);
             Assert.Equal(2400, plan.LeftAtEnd, 3);
-            Assert.Equal(700, plan.SpentRecorded, 3);
+            Assert.Equal(650, plan.SpentRecorded, 3);
+        }
+
+        // An ascent with two stagings, then a circularization: Left 4000 on the pad, the
+        // stagings' settled reads 3000 and 1800, 1500 at the end of the climb. The ascent
+        // really spent 1700 (600 to the first staging, 800 to the second, 300 after); the two
+        // drops took 800 between them.
+        private static ProfilePiece TwoStagingAscent(bool withPreStagingReads)
+        {
+            ProfilePiece piece = new ProfilePiece("two-stage").Launch()
+                .Sec(SegmentEnvironment.SurfaceStationary, 0, 5)
+                .Dv(0, DeltaVTrigger.Start, 4000)
+                .Sec(SegmentEnvironment.Atmospheric, 5, 180, alt0: 100, alt1: 70000).Engine(4, 150)
+                .Dv(3.98, DeltaVTrigger.BurnStart, 4000);
+            if (withPreStagingReads) piece.Dv(59.98, DeltaVTrigger.PreStaging, 3400);
+            piece.Dv(61.25, DeltaVTrigger.Staging, 3000);
+            if (withPreStagingReads) piece.Dv(119.98, DeltaVTrigger.PreStaging, 2200);
+            piece.Dv(121.25, DeltaVTrigger.Staging, 1800)
+                .Dv(151.25, DeltaVTrigger.BurnEnd, 1500)
+                .Sec(SegmentEnvironment.ExoBallistic, 180, 200, alt0: 70000, alt1: 75000)
+                .Cp(200, 260, "Kerbin", FallingSma, FallingEcc)
+                .Sec(SegmentEnvironment.ExoBallistic, 260, 270, alt0: 79000, alt1: 79500)
+                .Sec(SegmentEnvironment.ExoPropulsive, 270, 290, alt0: 79500, alt1: 80000).Engine(269, 289)
+                .Dv(268.98, DeltaVTrigger.BurnStart, 1500)
+                .Dv(290.25, DeltaVTrigger.BurnEnd, 1100)
+                .Sec(SegmentEnvironment.ExoBallistic, 290, 300, alt0: 80000, alt1: 80000)
+                .Cp(300, 2000, "Kerbin", LkoSma, LkoEcc)
+                .Dv(2000, DeltaVTrigger.End, 1100)
+                .Ends(TerminalState.Orbiting, "Kerbin", LkoSma, LkoEcc, 2000);
+            return piece;
+        }
+
+        private static List<ProfileAnchorInput> TwoStagings() => new List<ProfileAnchorInput>
+        {
+            new ProfileAnchorInput { Kind = ProfileEventKind.StageSeparation, UT = 60, Count = 1 },
+            new ProfileAnchorInput { Kind = ProfileEventKind.StageSeparation, UT = 120, Count = 1 },
+        };
+
+        // catches: a staging drop read against the snapshot before it (minutes earlier), which
+        // books the fuel burned since then as dropped: that reading gave drops of 1000 and
+        // 1200 and an ascent Spent of 300 instead of 1700.
+        [Fact]
+        public void RecordedDeltaV_StagingDropsNeverAbsorbBurnedFuel()
+        {
+            PhasePlan plan = Analyze(TwoStagings(), TwoStagingAscent(withPreStagingReads: true).Build());
+            List<ProfileEvent> stages = Events(plan, ProfileEventKind.StageSeparation);
+            Assert.Equal(400, stages[0].StagingDrop, 3);
+            Assert.Equal(400, stages[1].StagingDrop, 3);
+            ProfilePhase ascent = plan.Phases.Single(p => p.Kind == ProfilePhaseKind.Ascent);
+            Assert.True(Math.Abs(ascent.SpentRecorded - 1700) < 1e-6, Trace(plan) + " ascent=" + ascent.SpentRecorded);
+            Assert.Equal(400, Burns(plan).Single().SpentRecorded, 3);
+            Assert.Equal(2100, plan.SpentRecorded, 3);
+        }
+
+        // catches: the same ascent recorded before the recorder wrote PreStaging reads (only
+        // the settled reads) given a drop from the older snapshot: the drops are unknown, the
+        // ascent's Spent is unknown, and each staging names the gap.
+        [Fact]
+        public void RecordedDeltaV_StagingWithoutAPreStagingRead_IsUnknown()
+        {
+            PhasePlan plan = Analyze(TwoStagings(), TwoStagingAscent(withPreStagingReads: false).Build());
+            foreach (ProfileEvent stage in Events(plan, ProfileEventKind.StageSeparation))
+            {
+                Assert.True(double.IsNaN(stage.StagingDrop));
+                Assert.Equal(MissionPhaseAnalyzer.GapDeltaVStagingUnread, stage.DeltaVGap);
+            }
+            ProfilePhase ascent = plan.Phases.Single(p => p.Kind == ProfilePhaseKind.Ascent);
+            Assert.True(double.IsNaN(ascent.SpentRecorded));
+            Assert.Contains(plan.Gaps, g => g.Reason == MissionPhaseAnalyzer.GapDeltaVStagingUnread);
+            // The circularization has no staging inside it and keeps its recorded Spent.
+            Assert.Equal(400, Burns(plan).Single().SpentRecorded, 3);
+        }
+
+        // catches: a burn with a staging inside it whose drop is unknown given a recorded Spent
+        // that includes the dropped fuel.
+        [Fact]
+        public void RecordedDeltaV_BurnWithAnUnreadStaging_HasNoRecordedSpent()
+        {
+            Recording r = new ProfilePiece("dv-old")
+                .Cp(0, 1000, "Kerbin", LkoSma, LkoEcc)
+                .Dv(0, DeltaVTrigger.Start, 3400)
+                .Sec(SegmentEnvironment.ExoPropulsive, 1000, 1200).Engine(999, 1199)
+                .Dv(998.98, DeltaVTrigger.BurnStart, 3400)
+                .Dv(1011.25, DeltaVTrigger.Staging, 2700)
+                .Dv(1200.25, DeltaVTrigger.BurnEnd, 2400)
+                .Cp(1200, 3000, "Kerbin", 900000, 0.2)
+                .Build();
+            var anchors = new List<ProfileAnchorInput>
+            {
+                new ProfileAnchorInput { Kind = ProfileEventKind.StageSeparation, UT = 1010, Count = 1 },
+            };
+            PhasePlan plan = Analyze(anchors, r);
+            ProfileEvent burn = Burns(plan).Single();
+            Assert.True(double.IsNaN(burn.SpentRecorded));
+            Assert.Equal(MissionPhaseAnalyzer.GapDeltaVStagingUnread, burn.DeltaVGap);
         }
 
         // ------------------------------------------------------------------ EVA lines

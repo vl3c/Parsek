@@ -267,6 +267,7 @@ namespace Parsek
         internal const string GapOrbitInferred = "orbit inferred from altitude";
         internal const string GapDeltaVNoStoredOrbit = "delta-v unknown (no stored orbit on one side)";
         internal const string GapDeltaVLongBurn = "delta-v unknown (burn longer than 120 s)";
+        internal const string GapDeltaVStagingUnread = "delta-v unknown (no reading just before a staging)";
 
         /// <summary>One analysis's working state.</summary>
         private sealed class Ctx

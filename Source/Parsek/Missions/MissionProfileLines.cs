@@ -343,6 +343,8 @@ namespace Parsek
             {
                 lastStage.Count += debris.Count;
                 lastStage.RefName = JoinEndings(lastStage.RefName, debris);
+                // The batch's last decouple: the analyzer pairs every staging read inside it.
+                lastStage.EndUT = bp.UT;
                 return lastStage;
             }
             var stage = Anchor(ProfileEventKind.StageSeparation, bp, null, JoinEndings(null, debris));

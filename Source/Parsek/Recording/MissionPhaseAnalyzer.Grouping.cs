@@ -255,6 +255,17 @@ namespace Parsek
                 BeginFromOrbit(st, it.Start, it, "ascent-exit");
         }
 
+        // An ascent firing carried straight into space with no coast between (the burn row
+        // starts at the atmosphere exit, TimeBurn): the ascent ends where the burn starts, as
+        // it does at a coast (AfterAscent), when the burn circularizes or injects.
+        private static void CloseAscentAtBurn(GroupState st, Item b)
+        {
+            if (b.BurnKind == ProfileBurnKind.Circularization)
+                Begin(st, b.BurnStart, ProfilePhaseKind.Circularization, b.Body, "ascent-exit-falling");
+            else if (b.BurnKind == ProfileBurnKind.Injection)
+                Begin(st, b.BurnStart, ProfilePhaseKind.Injection, b.Body, "ascent-exit-injection");
+        }
+
         private static ProfileBurnKind NextBurnKind(Ctx ctx, int k)
         {
             for (int i = k + 1; i < ctx.Items.Count; i++)
@@ -322,6 +333,8 @@ namespace Parsek
         private static void OnBurn(GroupState st, int k)
         {
             Item b = st.Ctx.Items[k];
+            if (k > 0 && st.Ctx.Items[k - 1].Type == ItemType.Floor && st.Current == ProfilePhaseKind.Ascent)
+                CloseAscentAtBurn(st, b);
             switch (b.BurnKind)
             {
                 case ProfileBurnKind.Circularization:

@@ -150,7 +150,9 @@ and, for an interpreted element, the rule and evidence that named it, for exampl
 - phase: `Mun orbit: 2h 26m, 229 x 229 km then 45 x 30 km, 2 burns, 2 EVAs.`
 - inferred: `Capture burn: 23 s at periapsis. Orbit after inferred from the altitude holding at 140 km for 3 minutes; no orbit sample, so no delta-v.`
 - data gap: `Orbit after the burn is unknown: the vessel stayed in physics range and no orbit sample was recorded.`
-- vessel header: `Kerbal X Probe: separated at T+0:05:01 (decoupled); 1 phase; ends Orbiting Kerbin.`
+- vessel header: `Kerbal X Probe: separated at T+0:05:01 (decoupled); 1 phase; ends Orbiting Kerbin. Aboard: probe x1.`
+  (the line's final composition, the Missions tab's `Aboard:` label of the vessel row's last interval;
+  a re-flown line reads the fork's row; an EVA line has none)
 - re-flown: `Flown again from here (Re-Fly at T+0:05:01). The first attempt is not shown.`
 - excluded: `Part of this span is not in the mission: excluded on the Missions tab (Advanced).` The
   cut applies in Basic too, as the Log and Watch already apply it (default taken 2026-11-22, owner may
@@ -227,7 +229,7 @@ never becomes a line (as in the Missions tab).
 | Atmosphere exit / entry | `Atmosphere exit` / `Atmosphere entry` | env boundary (physics sections) or the conic crossing the atmosphere top (on-rails sections) |
 | SOI change | `Entered Mun SOI` / `Left Mun SOI` | body change between sections |
 | Docking / Undocking | `Docked: <partner>` / `Undocked: <partner>` | Dock / Undock branch points (partner names via the Log's partner resolver) |
-| Docked by another mission | `Docked: <partner> (<other mission>)` / `Undocked: <partner> (<other mission>)` | a dock another mission recorded onto this mission's vessel: it lives in the other tree, so the line builder reads it from the same source the Missions tab's `Docked partner` rows read; named, never expanded (default taken 2026-11-22, owner may override) |
+| Docked by another mission | `Docked: <partner> (<other mission>)` / `Undocked: <partner> (<other mission>)` | a dock another mission recorded onto this mission's vessel: it lives in the other tree, so the line builder reads it from the same source the Missions tab's `Docked partner` rows read; named, never expanded (default taken 2026-11-22, owner may override). Built: `MissionCrossTreeDock.FindLinks` plus the partner journey walk for the undock, over the request's `CommittedTrees` / `TreeMissionName` (filled by the UI; null: none); placed at its UT in the deepest phase covering it, or after the line's End row with the hover `<label>: docked by another mission after this recording ended; not recorded here.` when this recording had stopped; an excluded interval drops it; a Board claim reads `Boarded: <kerbal> (mission '<m>')` |
 | Switched to | `Switched to <vessel>` | the first recording of a vessel that joined the tree at a vessel switch (`VesselSwitchContinuation`); its line starts there, top level unless its identity already has a line, which it then continues |
 | EVA / Board | `EVA: <kerbal>` / `Boarded: <kerbal>` | EVA / Board branch points |
 | Ground parts | `Part placed: <part>` / `Inventory transfer` | `GroundPartPlaced` / `InventoryTransfer` branch points, on the EVA line that made them |
@@ -310,7 +312,11 @@ de-duplicated by UT, the later piece winning. Facts:
 - Burns, with ONE definition shared with BurnCuts (reuse its run builder, `ExtendBurn`): a run of
   physics `ExoPropulsive` sections plus engine ignite / shutdown part events in `Air` and `Low`, gaps
   up to 10 s merged, ended by an on-rails gap or an SOI change; a burn continuous across the
-  atmosphere exit stays one burn. Burn time is engine time (ignite to last shutdown); the section span
+  atmosphere exit stays one burn. A firing lit on the ground or during the climb (only floor spans
+  between it and the surface) belongs to the Ascent, whose Spent is the fall in Left across it: its
+  burn row starts where the space run does (the atmosphere exit, or the low-band exit on an airless
+  body), so no engine time is counted in two phases (review finding 2026-11-22: a pad-to-orbit
+  firing was filed in Prelaunch and counted there and again in the Ascent). Burn time is engine time (ignite to last shutdown); the section span
   is used only when no engine event exists (RCS-only, old data). Under 0.5 s and 1 m/s is an RCS tap,
   dropped.
 - Orbit facts at each span end, two axes instead of one kind (the review's fix for "every orbit
@@ -564,11 +570,26 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   `VesselDeltaV.IsReady` with no simulation running before it reads (members checked with
   `ilspycmd`: `TotalDeltaVVac`, `TotalDeltaVASL`, `TotalDeltaVActual`, `SimulationRunning`,
   `OperatingStageInfo` of `DeltaVStageInfo` with `stage`, `deltaVinVac`, `stageBurnTime`), records
-  the UT it was taken, and is written as unknown 3 s after that wait. A burn start describes the
-  vessel BEFORE the burn, so it reads on the first ready tick, before the new figures replace the
-  old; so does a fresh recording start, which follows no vessel event (a launch ignites in the same
-  second, and a settled read would describe the vessel after that burn: DV-1's first flight read
-  Start 0.8 s after the first burn start); a burn start that arrives while a burn end is still
+  the UT it was taken, and is written as unknown 3 s after that wait. The recorder also keeps its
+  LAST READY READING of the focused vessel (the totals and stages, re-read on every physics tick on
+  which stock is ready; one reading in memory, nothing stored per frame). A snapshot that describes
+  the vessel BEFORE an event is written from it at once when it is at most 1 s of game time older
+  than the event (`DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds`), stamped with the reading's
+  own UT and logged `source=cached age=Ns`. The bound bridges the few ticks while stock's simulation
+  runs (the reading is normally one tick old) and stays under stock's event delay, so a reading from
+  before an EARLIER event whose figures are still pending is refused; past it nothing is written.
+  Three reads use it: a staging writes a `PreStaging` snapshot from it (only from it: without a
+  recent reading, or while an earlier staging's settled read is still pending, none is written)
+  next to the settled `Staging` read about 1.25 s later, so a staging drop is the pair's difference
+  and never the fuel burned since an older snapshot (review finding 2026-11-22: DV-1's run
+  `2026-11-22_1918` staged at UT 49.36, wrote its Staging read at 50.62, and the snapshot before it
+  was the Start at 36.54); a burn start is written from the reading of the tick before ignition, and
+  waits for the first ready tick only when no recent reading exists; the end reads live and falls
+  back to the kept reading when stock is not ready at the stop tick (the chain-boundary stop right
+  after a staging read Unknown in that run). A fresh recording start, which follows no vessel
+  event, reads on the first ready tick (a launch ignites in the same second, and a settled read
+  would describe the vessel after that burn: DV-1's first flight read Start 0.8 s after the first
+  burn start); a burn start that arrives while a burn end is still
   pending withdraws that end and files nothing (a throttle flicker, not a new burn: DV-1's first
   flight wrote four burn starts inside one second at MechJeb's cut-off); the end reads at once (there is no later frame) and takes the last computed figures without the
   `FlightGlobals.ready` gate, because stock clears that flag in `FlightGlobals.OnSceneChange` on the
@@ -595,8 +616,14 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   then focused). Debris and EVA kerbals record none. A separated probe flown later gets real figures
   for the part flown; its first span shows the estimate or `-`.
 - Spent and Left: Left is the snapshot after an element; a burn's Spent is the vacuum left before
-  minus after; a staging that drops fuel lowers Left without anything being spent, and the
-  `Stage separation` row shows that drop in its hover. The stock Delta-V app can be switched off in
+  minus after, less the drops of the stagings between the two reads; a staging that drops fuel
+  lowers Left without anything being spent, and the `Stage separation` row shows that drop in its
+  hover. A drop is the `PreStaging` read minus the `Staging` read after it (every pair of a batched
+  row summed); it still holds the fuel burned in the second or two between them. A staging with no
+  complete pair (flights recorded before the pre-staging read, an Unknown or late settled read, a
+  separation fired outside staging) has an unknown drop, and every Spent across it is unknown (`-`,
+  gap `delta-v unknown (no reading just before a staging)`) rather than a split of the fall in Left
+  between burned and dropped fuel; a burn then falls back to the estimate of 4.6. The stock Delta-V app can be switched off in
   the game settings; then no figures exist and the Profile falls back to the estimate of 4.6.
 - Storage: an optional `DELTAV` child node of each recording's metadata node, one `SNAPSHOT` value
   line per snapshot (`ut,trigger,Ok,vacuum,seaLevel,actual,stage:vacuum:burnTime;...` or
@@ -696,7 +723,22 @@ Where the build reads the design differently, against the real fixtures:
 - Encounter wording: a burn reads `<Body> encounter, Pe N km` only when its own coast ends in that
   SOI; a burn that leaves the body for its parent reads `escape, Pe N km`; a coast whose encounter
   comes through later corrections reads its own Ap / Pe.
-- Not built: the `Docked by another mission` event of 3.2 (the other tree's dock onto this vessel).
+- The `Docked by another mission` event of 3.2 reads the request's `CommittedTrees` (null: none) and
+  names the other tree's docking vessel; bdock-recorded's first mission shows the second mission's
+  dock and undock after its End row.
+- The tab and the Profile build their vessel rows through one entry,
+  `MissionVesselRowBuilder.BuildForMission`; the fixture tests derive the tab's rows from the tab's
+  own inputs and compare a full row signature, and a source gate pins both callers.
+- Review fixes (2026-11-22): table 4.4's predicates are named methods (`MatchesCircularization`,
+  ...) with the name as data (`BurnRule.Kind`, `NameFrom` only for departure and deorbit), so
+  `BurnRules` is at complexity 16 instead of 54. A staging drop is read only from the
+  `PreStaging` / `Staging` pair of 8.1 (`DeltaVSnapshotList.TryGetStagingDrop` over the batch's
+  UT span; the stage batch anchor carries its last decouple as `EndUT`), and every Spent is the
+  fall in Left between two reads less the paired drops between them (`SpentBetween`), unknown when
+  a staging between them has no pair. An ascent firing carried into space starts its burn row at
+  the exit (4.3), and the Ascent ends there when that burn circularizes or injects with no coast
+  between (`CloseAscentAtBurn`). Known limit: with no snapshot at the atmosphere exit, the split of
+  Spent between the Ascent and that burn is only as fine as the snapshots (the total is right).
 
 Appendix A against the build: the event rows follow Q14 (Liftoff, Atmosphere exit and Atmosphere
 entry are rows; an event's Location is blank unless it differs from its phase's or names a biome),

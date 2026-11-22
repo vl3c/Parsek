@@ -191,13 +191,24 @@ namespace Parsek
             IList<DeltaVSnapshot> list, double burnStartUT, double burnEndUT, double toleranceSeconds,
             out double spent, out double left)
         {
+            return TryGetBurnSpent(list, burnStartUT, burnEndUT, toleranceSeconds,
+                out spent, out left, out DeltaVSnapshot _, out DeltaVSnapshot _);
+        }
+
+        /// <summary>The same, also handing back the two snapshots read.</summary>
+        internal static bool TryGetBurnSpent(
+            IList<DeltaVSnapshot> list, double burnStartUT, double burnEndUT, double toleranceSeconds,
+            out double spent, out double left, out DeltaVSnapshot before, out DeltaVSnapshot after)
+        {
             spent = double.NaN;
             left = double.NaN;
+            before = null;
+            after = null;
             if (list == null || burnEndUT < burnStartUT)
                 return false;
-            if (!TryGetLeftAt(list, burnStartUT + toleranceSeconds, out DeltaVSnapshot before))
+            if (!TryGetLeftAt(list, burnStartUT + toleranceSeconds, out before))
                 return false;
-            DeltaVSnapshot after = FirstOkAfter(list, before.UT, burnEndUT - toleranceSeconds);
+            after = FirstOkAfter(list, before.UT, burnEndUT - toleranceSeconds);
             if (after == null)
                 return false;
             spent = before.TotalVacuum - after.TotalVacuum;
@@ -206,24 +217,78 @@ namespace Parsek
         }
 
         /// <summary>
-        /// How much a staging lowered Left without any burn: the vacuum left at
-        /// <paramref name="stagingUT"/> minus the first Ok snapshot after it and no later than
-        /// <c>stagingUT + windowSeconds</c> (the settled read after the staging). Positive
-        /// when fuel was dropped. False when either side has no Ok snapshot.
+        /// The slack between a staging anchor's UT (the decouple's branch point, a frame or so
+        /// after the stage activation) and the recorder's staging instant.
         /// </summary>
+        internal const double StagingPairToleranceSeconds = 0.5;
+
+        /// <summary>
+        /// How much the stagings of one batch lowered Left: for every
+        /// <see cref="DeltaVTrigger.PreStaging"/> snapshot from
+        /// <c>fromUT - CachedReadingMaxAgeSeconds - tolerance</c> to <c>toUT + tolerance</c>
+        /// (the recorder's reading just before the staging, stamped with its own UT), its
+        /// vacuum total minus the settled <see cref="DeltaVTrigger.Staging"/> read that follows
+        /// it (the next Staging snapshot, before any later PreStaging, no later than
+        /// <c>toUT + windowSeconds</c>). <paramref name="firstIndex"/> / <paramref name="lastIndex"/>
+        /// are the first PreStaging's and the last Staging read's list indices. False when the
+        /// span holds no PreStaging snapshot (a recording made before the recorder wrote them)
+        /// or any pair is incomplete (its Staging read Unknown, missing or late): the drop is
+        /// then unknown, never read from an older snapshot, which would count the fuel burned
+        /// since that snapshot as dropped. The pair still holds the fuel burned in the second
+        /// or two between its two reads.
+        /// </summary>
+        internal static bool TryGetStagingDrop(
+            IList<DeltaVSnapshot> list, double fromUT, double toUT, double windowSeconds,
+            out double drop, out int firstIndex, out int lastIndex)
+        {
+            drop = double.NaN;
+            firstIndex = -1;
+            lastIndex = -1;
+            if (list == null || double.IsNaN(fromUT))
+                return false;
+            if (double.IsNaN(toUT) || toUT < fromUT)
+                toUT = fromUT;
+            double lo = fromUT - DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds - StagingPairToleranceSeconds;
+            double hi = toUT + StagingPairToleranceSeconds;
+            double sum = 0.0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                DeltaVSnapshot pre = list[i];
+                if (pre == null || pre.Trigger != DeltaVTrigger.PreStaging || pre.UT < lo || pre.UT > hi)
+                    continue;
+                int post = NextStagingRead(list, i);
+                if (!pre.IsOk || post < 0 || !list[post].IsOk || list[post].UT > toUT + windowSeconds)
+                    return false;
+                sum += pre.TotalVacuum - list[post].TotalVacuum;
+                if (firstIndex < 0)
+                    firstIndex = i;
+                lastIndex = post;
+            }
+            if (firstIndex < 0)
+                return false;
+            drop = sum;
+            return true;
+        }
+
+        /// <summary>One staging at <paramref name="stagingUT"/>: <see cref="TryGetStagingDrop(IList{DeltaVSnapshot}, double, double, double, out double, out int, out int)"/>.</summary>
         internal static bool TryGetStagingDrop(
             IList<DeltaVSnapshot> list, double stagingUT, double windowSeconds, out double drop)
         {
-            drop = double.NaN;
-            if (list == null)
-                return false;
-            if (!TryGetLeftAt(list, stagingUT, out DeltaVSnapshot before))
-                return false;
-            DeltaVSnapshot after = FirstOkAfter(list, stagingUT, stagingUT);
-            if (after == null || after.UT > stagingUT + windowSeconds)
-                return false;
-            drop = before.TotalVacuum - after.TotalVacuum;
-            return true;
+            return TryGetStagingDrop(list, stagingUT, stagingUT, windowSeconds, out drop, out int _, out int _);
+        }
+
+        // The Staging read that answers the PreStaging at preIndex: the next Staging snapshot,
+        // -1 when another PreStaging comes first (that staging's own pair) or none follows.
+        private static int NextStagingRead(IList<DeltaVSnapshot> list, int preIndex)
+        {
+            for (int k = preIndex + 1; k < list.Count; k++)
+            {
+                DeltaVSnapshot s = list[k];
+                if (s == null) continue;
+                if (s.Trigger == DeltaVTrigger.Staging) return k;
+                if (s.Trigger == DeltaVTrigger.PreStaging) return -1;
+            }
+            return -1;
         }
 
         /// <summary>The first Ok snapshot later than <paramref name="afterUT"/> and at or after <paramref name="notBeforeUT"/>.</summary>

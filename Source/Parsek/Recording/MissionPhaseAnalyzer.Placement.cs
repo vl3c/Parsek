@@ -373,6 +373,8 @@ namespace Parsek
             {
                 plan.Events++;
                 if (e.Kind == ProfileEventKind.Reflown) plan.Reflown++;
+                if (e.Kind == ProfileEventKind.StageSeparation && !string.IsNullOrEmpty(e.DeltaVGap))
+                    plan.Gaps.Add(new ProfileDataGap { UT = e.UT, Reason = e.DeltaVGap });
                 if (e.Kind != ProfileEventKind.Burn) continue;
                 plan.Burns += e.MergedBurns;
                 if (!double.IsNaN(e.SpentRecorded)) plan.DvRecorded++;

@@ -30,6 +30,13 @@
 # snapshots inside one second at MechJeb's cut-off (a throttle flicker; a burn start now
 # withdraws a pending burn end) and the Start read landing 0.8 s after the first burn start
 # (a fresh start now reads on the first ready tick).
+#
+# PRE-STAGING READ (2026-11-22 review): the settled Staging read lands about 1.25 s after the
+# stage activation, so the reading before a staging was the previous snapshot, minutes earlier
+# in an ascent, and the drop absorbed the fuel burned since. The recorder now keeps its last
+# ready reading and writes it at each staging as a PreStaging snapshot (`source=cached
+# age=...`); the lane requires one such line followed by the settled Staging read. Not yet
+# flown with that line.
 schema = 1
 id = "DV-1-ascent-deltav-snapshots"
 tier = "nightly"
@@ -83,6 +90,9 @@ required = [
   "Recording started",
   "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Start ut=\\S+ status=Ok vac=[0-9]",
   "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Staging ut=\\S+ status=Ok vac=[0-9]",
+  # A staging writes the reading kept just before it (at most 1 s old, stamped with its own
+  # UT), then the settled read after it: the pair the staging drop is read from.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=PreStaging ut=\\S+ status=Ok vac=[0-9][^\\n]*source=cached age=(?:0\\.[0-9]{2}|1\\.00)s[\\s\\S]{0,120000}?\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Staging ut=\\S+ status=Ok vac=[0-9]",
   "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=BurnStart ut=\\S+ status=Ok vac=[0-9]",
   "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=BurnEnd ut=\\S+ status=Ok vac=[0-9]",
   # The scene exit: an Ok End read, then the force-stop summary of the same recorder, with

@@ -53,6 +53,19 @@ namespace Parsek
         internal const double TimeoutSeconds = 3.0;
         internal const int MaxPendingRequests = 8;
 
+        /// <summary>
+        /// The oldest the recorder's last ready reading may be (game seconds before the event)
+        /// to stand for the vessel just before a staging, a burn start or the end. The reading
+        /// is refreshed on every ready physics tick, so it is normally one tick old; the bound
+        /// only bridges the few ticks while stock's simulation runs. It stays under stock's
+        /// event delay (<c>DELTAV_VESSEL_EVENT_DELAY_SECS</c>, 1 s by default), so a reading
+        /// from before an EARLIER event, whose new figures are still pending, is refused, and
+        /// at ascent burn rates a second of engine time is the most fuel a pre-staging reading
+        /// can leave out of Spent. Older than this, no snapshot is written: an unknown drop is
+        /// honest, a stale "before" is not.
+        /// </summary>
+        internal const double CachedReadingMaxAgeSeconds = 1.0;
+
         private struct PendingRequest
         {
             public DeltaVTrigger Trigger;
@@ -88,6 +101,7 @@ namespace Parsek
                 case DeltaVTrigger.Start:
                 case DeltaVTrigger.BurnStart:
                 case DeltaVTrigger.End:
+                case DeltaVTrigger.PreStaging:
                     return false;
                 default:
                     return true;
@@ -111,17 +125,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for the triggers whose snapshot describes the vessel BEFORE the event, so the
+        /// last ready reading serves them at once when it is recent
+        /// (<see cref="IsCachedReadingUsable"/>): a burn start and the pre-staging read.
+        /// </summary>
+        internal static bool CanServeFromCache(DeltaVTrigger trigger)
+        {
+            return trigger == DeltaVTrigger.BurnStart || trigger == DeltaVTrigger.PreStaging;
+        }
+
+        /// <summary>
+        /// Pure: whether a cached reading taken at <paramref name="readingUT"/> may stand for
+        /// the vessel at <paramref name="eventUT"/>: at or before it and at most
+        /// <see cref="CachedReadingMaxAgeSeconds"/> older.
+        /// </summary>
+        internal static bool IsCachedReadingUsable(bool haveReading, double readingUT, double eventUT)
+        {
+            if (!haveReading || !IsFinite(readingUT) || !IsFinite(eventUT))
+                return false;
+            double age = eventUT - readingUT;
+            return age >= 0.0 && age <= CachedReadingMaxAgeSeconds;
+        }
+
+        /// <summary>
         /// Files a request. A second request of a kind already pending keeps the first (its
         /// wait is already running); past <see cref="MaxPendingRequests"/> a request is refused.
         /// A burn start while a burn end is still pending means the engines came back before
         /// the end was read (a throttle flicker): the burn never ended, so the pending end is
-        /// withdrawn and no start is filed ("burn-resumed"). Returns null when filed,
-        /// otherwise the reason.
+        /// withdrawn and no start is filed ("burn-resumed"). With a recent cached reading
+        /// (<paramref name="cachedReadingUsable"/>) a burn start is not filed but served from
+        /// it at once (<paramref name="serveFromCache"/> true). A pre-staging read is ONLY ever
+        /// served from the cache: without a recent reading it is skipped ("no-recent-reading"),
+        /// and while a Staging read is still pending ("staging-pending") it is skipped too,
+        /// because the cached figures then predate the earlier staging and the one settled
+        /// read after both stands for them. Returns null when filed or served, otherwise the
+        /// reason.
         /// </summary>
-        internal string Request(DeltaVTrigger trigger, double now)
+        internal string Request(DeltaVTrigger trigger, double now, bool cachedReadingUsable, out bool serveFromCache)
         {
+            serveFromCache = false;
             if (trigger == DeltaVTrigger.BurnStart && RemovePending(DeltaVTrigger.BurnEnd))
                 return "burn-resumed";
+            if (trigger == DeltaVTrigger.PreStaging)
+            {
+                if (HasPending(DeltaVTrigger.Staging))
+                    return "staging-pending";
+                if (!cachedReadingUsable)
+                    return "no-recent-reading";
+                serveFromCache = true;
+                return null;
+            }
+            if (CanServeFromCache(trigger) && cachedReadingUsable)
+            {
+                serveFromCache = true;
+                return null;
+            }
             if (HasPending(trigger))
                 return "coalesced";
             if (pending.Count >= MaxPendingRequests)

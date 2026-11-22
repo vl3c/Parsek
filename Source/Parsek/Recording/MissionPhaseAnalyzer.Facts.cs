@@ -348,9 +348,12 @@ namespace Parsek
         }
 
         // Burn time is engine time: the firings that overlap the run's sections (a firing
-        // continuous across the run's start, such as an ascent burn carried across the
-        // atmosphere exit, counts whole). The section span stands in when no engine event
-        // exists (RCS only, old data).
+        // continuous across the run's start counts whole). The one exception is the climb: a
+        // firing lit on the ground or during the ascent (only floor sections between it and
+        // the surface) is the ascent's, whose Spent is the fall in Left across it, so the burn
+        // row starts where the space run does (the atmosphere exit, or the low-band exit on an
+        // airless body) and no engine time is counted twice. The section span stands in when
+        // no engine event exists (RCS only, old data).
         private static void TimeBurn(Ctx ctx, Item b)
         {
             double lo = b.Start - EngineMatchSeconds, hi = b.End + EngineMatchSeconds;
@@ -366,8 +369,25 @@ namespace Parsek
             }
             b.EngineTimed = !double.IsNaN(start);
             b.BurnStart = b.EngineTimed ? Math.Max(start, PreviousItemEnd(ctx)) : b.Start;
+            if (b.EngineTimed && b.BurnStart < b.Start && FollowsTakeoffFloor(ctx, b.First))
+                b.BurnStart = b.Start;
             b.BurnEnd = b.EngineTimed ? Math.Min(end, b.End + EngineMatchSeconds) : b.End;
             if (b.BurnEnd < b.BurnStart) b.BurnEnd = b.BurnStart;
+        }
+
+        // The sections right before section `first` are floor sections (surface, air, low band)
+        // reaching back to the surface or the line's start with no space section between: the
+        // vessel climbed through them (the section-level twin of IsTakeoffFloor).
+        private static bool FollowsTakeoffFloor(Ctx ctx, int first)
+        {
+            if (first <= 0) return false;
+            for (int k = first - 1; k >= 0; k--)
+            {
+                ProfileRegime r = ctx.Secs[k].Regime;
+                if (r == ProfileRegime.Surface) return true;
+                if (IsSpace(r)) return false;
+            }
+            return true;
         }
 
         private static double PreviousItemEnd(Ctx ctx)

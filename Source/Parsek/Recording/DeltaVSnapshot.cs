@@ -21,6 +21,11 @@ namespace Parsek
         SwitchIn,
         Resume,
         End,
+        // The vessel just before a staging: the recorder's last ready reading, taken at most
+        // DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds before the staging and stamped with
+        // that reading's UT. Paired with the settled Staging read after it, it gives the fall
+        // in Left the dropped parts caused.
+        PreStaging,
     }
 
     /// <summary>

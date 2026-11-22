@@ -114,6 +114,8 @@ namespace Parsek
             if (!string.IsNullOrEmpty(endings)) sb.Append(": ").Append(endings);
             if (!double.IsNaN(e.StagingDrop) && e.StagingDrop > 0)
                 sb.Append("; the dropped fuel took ").Append(ProfileLabels.DeltaV(e.StagingDrop)).Append(" m/s");
+            else if (double.IsNaN(e.StagingDrop) && !string.IsNullOrEmpty(e.DeltaVGap))
+                sb.Append("; ").Append(e.DeltaVGap);
             return sb.Append('.').ToString();
         }
 

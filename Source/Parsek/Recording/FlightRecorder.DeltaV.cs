@@ -23,6 +23,17 @@ namespace Parsek
         private bool deltaVCapWarned;
         private DeltaVSnapshot lastStopDeltaVSnapshot;
 
+        // The last ready reading of the focused vessel (refreshed on every ready physics tick,
+        // one reading kept, nothing stored per frame). It stands for the vessel just BEFORE an
+        // event: a staging (the PreStaging snapshot), a burn start, and a stop whose own read
+        // finds stock not ready. Two stage buffers are swapped so a failed read never
+        // overwrites the kept reading.
+        private bool deltaVCacheValid;
+        private double deltaVCacheUT = double.NaN;
+        private DeltaVReading deltaVCacheReading;
+        private List<DeltaVStageReading> deltaVCacheStages = new List<DeltaVStageReading>();
+        private List<DeltaVStageReading> deltaVScratchStages = new List<DeltaVStageReading>();
+
         /// <summary>
         /// The trigger a promotion start (<c>StartRecording(isPromotion: true)</c>) records:
         /// the split, merge, switch or resume that bound this recorder. A fresh start always
@@ -57,6 +68,7 @@ namespace Parsek
             deltaVVesselEligible = v != null && !v.isEVA;
             deltaVTargetRecordingId = ActiveTree?.ActiveRecordingId;
             lastStopDeltaVSnapshot = null;
+            ClearDeltaVCache();
             deltaVTracker.InitializeEngineActivity(activeEngineKeys != null && activeEngineKeys.Count > 0);
             RequestDeltaVSnapshot(isPromotion ? DeltaVStartTrigger : DeltaVTrigger.Start,
                 isPromotion ? "promotion-start" : "record-start");
@@ -64,17 +76,39 @@ namespace Parsek
 
         /// <summary>
         /// Files a snapshot request (staging, the start, a burn edge). The read happens on a
-        /// later physics tick, once the game has settled.
+        /// later physics tick, once the game has settled; a read of the vessel BEFORE the event
+        /// (a burn start, the pre-staging read) is written at once from the last ready reading
+        /// when that is recent. A staging first writes its PreStaging snapshot.
         /// </summary>
         internal void RequestDeltaVSnapshot(DeltaVTrigger trigger, string source)
         {
             if (!deltaVTrackingActive)
                 return;
 
+            if (trigger == DeltaVTrigger.Staging)
+                RequestDeltaVSnapshot(DeltaVTrigger.PreStaging, source);
+
             string reason = DeltaVSnapshotTracker.ClassifyRequest(
                 IsRecording, ReadDeltaVCalculationsEnabled(), !deltaVVesselEligible);
+            bool serveFromCache = false;
+            double nowUT = double.NaN;
             if (reason == null)
-                reason = deltaVTracker.Request(trigger, ReadDeltaVClockSeconds());
+            {
+                bool cacheUsable = false;
+                if (DeltaVSnapshotTracker.CanServeFromCache(trigger) && deltaVCacheValid)
+                {
+                    nowUT = ReadDeltaVUniversalTime();
+                    cacheUsable = DeltaVSnapshotTracker.IsCachedReadingUsable(true, deltaVCacheUT, nowUT);
+                }
+                reason = deltaVTracker.Request(trigger, ReadDeltaVClockSeconds(), cacheUsable, out serveFromCache);
+            }
+
+            if (reason == null && serveFromCache)
+            {
+                WriteDeltaVSnapshot(DeltaVSnapshot.FromReading(deltaVCacheUT, trigger, deltaVCacheReading),
+                    0, 0.0, "cached", nowUT - deltaVCacheUT);
+                return;
+            }
 
             if (reason != null)
             {
@@ -99,23 +133,34 @@ namespace Parsek
             if (!deltaVTrackingActive || v == null || v.persistentId != RecordingVesselId)
                 return;
 
+            // The burn edge first: a burn start then reads the reading kept on the tick BEFORE
+            // this one, the vessel before ignition.
             DeltaVTrigger? burnEdge = deltaVTracker.NoteEngineActivity(
                 activeEngineKeys != null && activeEngineKeys.Count > 0);
             if (burnEdge.HasValue)
                 RequestDeltaVSnapshot(burnEdge.Value, "engine-activity");
 
-            if (deltaVTracker.PendingCount == 0)
+            if (!deltaVVesselEligible)
                 return;
 
             DeltaVReadiness readiness = ReadDeltaVReadiness(v);
-            List<DeltaVDecision> decisions = deltaVTracker.Decide(ReadDeltaVClockSeconds(), readiness);
-            if (decisions.Count == 0)
-                return;
-
             double ut = ReadDeltaVUniversalTime();
             bool haveRead = false;
             bool readOk = false;
             DeltaVReading reading = default(DeltaVReading);
+            if (readiness.CalculationsEnabled && readiness.VesselEligible && readiness.Ready)
+            {
+                readOk = RefreshDeltaVCache(v, ut);
+                haveRead = true;
+                reading = deltaVCacheReading;
+            }
+
+            if (deltaVTracker.PendingCount == 0)
+                return;
+
+            List<DeltaVDecision> decisions = deltaVTracker.Decide(ReadDeltaVClockSeconds(), readiness);
+            if (decisions.Count == 0)
+                return;
             for (int i = 0; i < decisions.Count; i++)
             {
                 DeltaVDecision decision = decisions[i];
@@ -125,9 +170,9 @@ namespace Parsek
                     case DeltaVRequestOutcome.Complete:
                         if (!haveRead)
                         {
-                            readOk = TryReadLiveDeltaV(v, out reading)
-                                && DeltaVSnapshotTracker.IsUsableReading(reading);
+                            readOk = RefreshDeltaVCache(v, ut);
                             haveRead = true;
+                            reading = deltaVCacheReading;
                         }
                         snapshot = readOk
                             ? DeltaVSnapshot.FromReading(ut, decision.Trigger, reading)
@@ -167,13 +212,23 @@ namespace Parsek
                 if (outcome != DeltaVRequestOutcome.Dropped)
                 {
                     DeltaVSnapshot snapshot = DeltaVSnapshot.Unknown(stopUT, DeltaVTrigger.End);
+                    string source = null;
+                    double age = 0.0;
                     if (outcome == DeltaVRequestOutcome.Complete
-                        && TryReadLiveDeltaV(recordedVessel, out DeltaVReading reading)
+                        && TryReadLiveDeltaV(recordedVessel, deltaVScratchStages, out DeltaVReading reading)
                         && DeltaVSnapshotTracker.IsUsableReading(reading))
                     {
                         snapshot = DeltaVSnapshot.FromReading(stopUT, DeltaVTrigger.End, reading);
                     }
-                    if (WriteDeltaVSnapshot(snapshot, 0, 0.0))
+                    else if (DeltaVSnapshotTracker.IsCachedReadingUsable(deltaVCacheValid, deltaVCacheUT, stopUT))
+                    {
+                        // Stock has no figures at this tick (a stop right after a staging finds
+                        // the vessel dirty): the last ready reading, stamped with its own UT.
+                        snapshot = DeltaVSnapshot.FromReading(deltaVCacheUT, DeltaVTrigger.End, deltaVCacheReading);
+                        source = "cached";
+                        age = stopUT - deltaVCacheUT;
+                    }
+                    if (WriteDeltaVSnapshot(snapshot, 0, 0.0, source, age))
                         lastStopDeltaVSnapshot = snapshot;
                 }
             }
@@ -193,6 +248,7 @@ namespace Parsek
             int dropped = deltaVTracker.PendingCount;
             deltaVTrackingActive = false;
             lastStopDeltaVSnapshot = null;
+            ClearDeltaVCache();
             LogDeltaVStopSummary(logTag, 0);
             if (dropped > 0)
                 ParsekLog.Verbose("DeltaV",
@@ -239,7 +295,33 @@ namespace Parsek
             return ActiveTree.Recordings.TryGetValue(deltaVTargetRecordingId, out Recording rec) ? rec : null;
         }
 
-        private bool WriteDeltaVSnapshot(DeltaVSnapshot snapshot, int settleTicks, double waitedSeconds)
+        private void ClearDeltaVCache()
+        {
+            deltaVCacheValid = false;
+            deltaVCacheUT = double.NaN;
+            deltaVCacheReading = default(DeltaVReading);
+        }
+
+        /// <summary>
+        /// One live read into the scratch buffer; a usable one becomes the kept reading
+        /// (stamped <paramref name="ut"/>) and the two buffers swap. Returns whether it was usable.
+        /// </summary>
+        private bool RefreshDeltaVCache(Vessel v, double ut)
+        {
+            if (!TryReadLiveDeltaV(v, deltaVScratchStages, out DeltaVReading reading)
+                || !DeltaVSnapshotTracker.IsUsableReading(reading))
+                return false;
+            List<DeltaVStageReading> kept = deltaVCacheStages;
+            deltaVCacheStages = deltaVScratchStages;
+            deltaVScratchStages = kept;
+            deltaVCacheReading = reading;
+            deltaVCacheUT = ut;
+            deltaVCacheValid = true;
+            return true;
+        }
+
+        private bool WriteDeltaVSnapshot(DeltaVSnapshot snapshot, int settleTicks, double waitedSeconds,
+            string source = null, double readingAgeSeconds = 0.0)
         {
             Recording target = ResolveDeltaVTargetRecording();
             if (target == null)
@@ -265,16 +347,22 @@ namespace Parsek
 
             deltaVWritten++;
             ParsekLog.Verbose("DeltaV",
-                FormatDeltaVSnapshotLog(deltaVTargetRecordingId, snapshot, settleTicks, waitedSeconds));
+                FormatDeltaVSnapshotLog(deltaVTargetRecordingId, snapshot, settleTicks, waitedSeconds,
+                    source, readingAgeSeconds));
             return true;
         }
 
-        /// <summary>Pure: the per-snapshot Verbose line.</summary>
+        /// <summary>
+        /// Pure: the per-snapshot Verbose line. A snapshot written from the kept reading ends
+        /// <c>source=cached age=Ns</c>: its UT is the reading's, the age how long before the
+        /// event it was read.
+        /// </summary>
         internal static string FormatDeltaVSnapshotLog(
-            string recordingId, DeltaVSnapshot snapshot, int settleTicks, double waitedSeconds)
+            string recordingId, DeltaVSnapshot snapshot, int settleTicks, double waitedSeconds,
+            string source = null, double readingAgeSeconds = 0.0)
         {
             var ic = CultureInfo.InvariantCulture;
-            return string.Format(ic,
+            string line = string.Format(ic,
                 "Snapshot: rec={0} trigger={1} ut={2} status={3} vac={4} stages={5} settleTicks={6} waited={7}s",
                 recordingId ?? "(none)",
                 snapshot.Trigger,
@@ -284,6 +372,9 @@ namespace Parsek
                 snapshot.Stages.Count.ToString(ic),
                 settleTicks.ToString(ic),
                 waitedSeconds.ToString("F2", ic));
+            if (string.IsNullOrEmpty(source))
+                return line;
+            return line + " source=" + source + " age=" + readingAgeSeconds.ToString("F2", ic) + "s";
         }
 
         /// <summary>Pure: the per-stop Info summary.</summary>
@@ -350,7 +441,7 @@ namespace Parsek
 
         /// <summary>Live: one read of the stock Delta-V figures of <paramref name="v"/>.</summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static bool TryReadLiveDeltaV(Vessel v, out DeltaVReading reading)
+        private static bool TryReadLiveDeltaV(Vessel v, List<DeltaVStageReading> stagesBuffer, out DeltaVReading reading)
         {
             reading = default(DeltaVReading);
             try
@@ -361,7 +452,9 @@ namespace Parsek
                 reading.TotalVacuum = dv.TotalDeltaVVac;
                 reading.TotalSeaLevel = dv.TotalDeltaVASL;
                 reading.TotalActual = dv.TotalDeltaVActual;
-                reading.Stages = new List<DeltaVStageReading>();
+                if (stagesBuffer != null)
+                    stagesBuffer.Clear();
+                reading.Stages = stagesBuffer ?? new List<DeltaVStageReading>();
                 List<DeltaVStageInfo> stages = dv.OperatingStageInfo;
                 if (stages != null)
                 {

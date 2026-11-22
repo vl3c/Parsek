@@ -55,7 +55,11 @@ namespace Parsek
             public int Stratum;
             public int Priority;
             internal Func<BurnFacts, bool> Match;
-            internal Func<BurnFacts, ProfileBurnKind> Names;
+            // The name the rule gives: Kind, unless NameFrom reads it off the facts.
+            internal ProfileBurnKind Kind;
+            internal Func<BurnFacts, ProfileBurnKind> NameFrom;
+
+            internal ProfileBurnKind Names(BurnFacts f) => NameFrom != null ? NameFrom(f) : Kind;
         }
 
         internal const string RuleLanding = "landing";
@@ -79,96 +83,79 @@ namespace Parsek
 
         private static bool OrbitLike(ProfileOrbitKind k) => k == ProfileOrbitKind.InOrbit || k == ProfileOrbitKind.Unknown;
 
-        /// <summary>Table 4.4 in priority order (space burns; the landing burn is a floor burn).</summary>
+        private static BurnRule Rule(string name, int priority, Func<BurnFacts, bool> match, ProfileBurnKind kind,
+            Func<BurnFacts, ProfileBurnKind> nameFrom = null)
+            => new BurnRule { Name = name, Stratum = BurnStratum, Priority = priority, Match = match, Kind = kind, NameFrom = nameFrom };
+
+        /// <summary>Table 4.4 in priority order (space burns; the landing burn is a floor burn).
+        /// Each row's predicate is a named method below, so the table stays data.</summary>
         internal static BurnRule[] BurnRules()
         {
             return new[]
             {
-                new BurnRule
-                {
-                    Name = RulePeriapsisRaise, Stratum = BurnStratum, Priority = 15,
-                    Match = f => f.AfterPass && InAirBound(f.BeforeOrbit) && f.After == ProfileOrbitKind.InOrbit,
-                    Names = f => ProfileBurnKind.PeriapsisRaise,
-                },
-                new BurnRule
-                {
-                    Name = RuleCircularization, Stratum = BurnStratum, Priority = 20,
-                    Match = f => f.Before == ProfileOrbitKind.Falling && f.After == ProfileOrbitKind.InOrbit,
-                    Names = f => ProfileBurnKind.Circularization,
-                },
-                new BurnRule
-                {
-                    Name = RuleInjection, Stratum = BurnStratum, Priority = 30,
-                    Match = f => f.Before == ProfileOrbitKind.Falling && f.After == ProfileOrbitKind.Leaving && !f.InTransfer,
-                    Names = f => ProfileBurnKind.Injection,
-                },
-                new BurnRule
-                {
-                    Name = RuleCaptureAero, Stratum = BurnStratum, Priority = 40,
-                    Match = f => f.Before == ProfileOrbitKind.Leaving && InAirBound(f.AfterOrbit),
-                    Names = f => ProfileBurnKind.CaptureAerobraking,
-                },
-                new BurnRule
-                {
-                    Name = RuleCapture, Stratum = BurnStratum, Priority = 50,
-                    Match = f => f.Before == ProfileOrbitKind.Leaving && f.After == ProfileOrbitKind.InOrbit,
-                    Names = f => ProfileBurnKind.Capture,
-                },
-                new BurnRule
-                {
-                    Name = RuleCorrection, Stratum = BurnStratum, Priority = 60,
-                    Match = f => (f.Before == ProfileOrbitKind.Leaving && f.After == ProfileOrbitKind.Leaving)
-                        || (f.InTransfer && f.Before != ProfileOrbitKind.InOrbit
-                            && (f.After == ProfileOrbitKind.Leaving || f.After == ProfileOrbitKind.Falling)),
-                    Names = f => ProfileBurnKind.Correction,
-                },
-                new BurnRule
-                {
-                    Name = RuleDeparture, Stratum = BurnStratum, Priority = 70,
-                    Match = f => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.Leaving,
-                    Names = f => f.TargetIsLaunchBody ? ProfileBurnKind.Return
-                        : f.HasEncounter ? ProfileBurnKind.Transfer : ProfileBurnKind.Escape,
-                },
-                new BurnRule
-                {
-                    Name = RuleDeorbit, Stratum = BurnStratum, Priority = 90,
-                    Match = f => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.Falling,
-                    Names = f => f.BodyHasAtmosphere ? ProfileBurnKind.Deorbit : ProfileBurnKind.Descent,
-                },
-                new BurnRule
-                {
-                    Name = RuleApproach, Stratum = BurnStratum, Priority = 100,
-                    Match = f => f.DockAhead && f.SecondsToDock <= ApproachWindowSeconds
-                        && OrbitLike(f.Before) && OrbitLike(f.After),
-                    Names = f => ProfileBurnKind.Approach,
-                },
-                new BurnRule
-                {
-                    Name = RulePhasing, Stratum = BurnStratum, Priority = 110,
-                    Match = f => f.DockAhead && OrbitLike(f.Before) && OrbitLike(f.After)
-                        && (f.Before == ProfileOrbitKind.InOrbit || f.After == ProfileOrbitKind.InOrbit),
-                    Names = f => ProfileBurnKind.Phasing,
-                },
-                new BurnRule
-                {
-                    Name = RulePlaneChange, Stratum = BurnStratum, Priority = 120,
-                    Match = f => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.InOrbit && f.PlaneChange,
-                    Names = f => ProfileBurnKind.PlaneChange,
-                },
-                new BurnRule
-                {
-                    Name = RuleOrbitChange, Stratum = BurnStratum, Priority = 130,
-                    Match = f => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.InOrbit,
-                    Names = f => ProfileBurnKind.OrbitChange,
-                },
-                new BurnRule
-                {
-                    Name = RuleUnknownBurn, Stratum = BurnStratum, Priority = 999,
-                    Match = f => true,
-                    Names = f => ProfileBurnKind.Unknown,
-                },
+                Rule(RulePeriapsisRaise, 15, MatchesPeriapsisRaise, ProfileBurnKind.PeriapsisRaise),
+                Rule(RuleCircularization, 20, MatchesCircularization, ProfileBurnKind.Circularization),
+                Rule(RuleInjection, 30, MatchesInjection, ProfileBurnKind.Injection),
+                Rule(RuleCaptureAero, 40, MatchesCaptureAero, ProfileBurnKind.CaptureAerobraking),
+                Rule(RuleCapture, 50, MatchesCapture, ProfileBurnKind.Capture),
+                Rule(RuleCorrection, 60, MatchesCorrection, ProfileBurnKind.Correction),
+                Rule(RuleDeparture, 70, MatchesDeparture, ProfileBurnKind.Transfer, NameDeparture),
+                Rule(RuleDeorbit, 90, MatchesDeorbit, ProfileBurnKind.Deorbit, NameDeorbit),
+                Rule(RuleApproach, 100, MatchesApproach, ProfileBurnKind.Approach),
+                Rule(RulePhasing, 110, MatchesPhasing, ProfileBurnKind.Phasing),
+                Rule(RulePlaneChange, 120, MatchesPlaneChange, ProfileBurnKind.PlaneChange),
+                Rule(RuleOrbitChange, 130, MatchesOrbitChange, ProfileBurnKind.OrbitChange),
+                Rule(RuleUnknownBurn, 999, MatchesAnyBurn, ProfileBurnKind.Unknown),
             };
         }
+
+        private static bool MatchesPeriapsisRaise(BurnFacts f)
+            => f.AfterPass && InAirBound(f.BeforeOrbit) && f.After == ProfileOrbitKind.InOrbit;
+
+        private static bool MatchesCircularization(BurnFacts f)
+            => f.Before == ProfileOrbitKind.Falling && f.After == ProfileOrbitKind.InOrbit;
+
+        private static bool MatchesInjection(BurnFacts f)
+            => f.Before == ProfileOrbitKind.Falling && f.After == ProfileOrbitKind.Leaving && !f.InTransfer;
+
+        private static bool MatchesCaptureAero(BurnFacts f)
+            => f.Before == ProfileOrbitKind.Leaving && InAirBound(f.AfterOrbit);
+
+        private static bool MatchesCapture(BurnFacts f)
+            => f.Before == ProfileOrbitKind.Leaving && f.After == ProfileOrbitKind.InOrbit;
+
+        private static bool MatchesCorrection(BurnFacts f)
+            => (f.Before == ProfileOrbitKind.Leaving && f.After == ProfileOrbitKind.Leaving)
+               || (f.InTransfer && f.Before != ProfileOrbitKind.InOrbit
+                   && (f.After == ProfileOrbitKind.Leaving || f.After == ProfileOrbitKind.Falling));
+
+        private static bool MatchesDeparture(BurnFacts f)
+            => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.Leaving;
+
+        private static ProfileBurnKind NameDeparture(BurnFacts f)
+            => f.TargetIsLaunchBody ? ProfileBurnKind.Return
+               : f.HasEncounter ? ProfileBurnKind.Transfer : ProfileBurnKind.Escape;
+
+        private static bool MatchesDeorbit(BurnFacts f)
+            => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.Falling;
+
+        private static ProfileBurnKind NameDeorbit(BurnFacts f)
+            => f.BodyHasAtmosphere ? ProfileBurnKind.Deorbit : ProfileBurnKind.Descent;
+
+        private static bool MatchesApproach(BurnFacts f)
+            => f.DockAhead && f.SecondsToDock <= ApproachWindowSeconds && OrbitLike(f.Before) && OrbitLike(f.After);
+
+        private static bool MatchesPhasing(BurnFacts f)
+            => f.DockAhead && OrbitLike(f.Before) && OrbitLike(f.After)
+               && (f.Before == ProfileOrbitKind.InOrbit || f.After == ProfileOrbitKind.InOrbit);
+
+        private static bool MatchesPlaneChange(BurnFacts f)
+            => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.InOrbit && f.PlaneChange;
+
+        private static bool MatchesOrbitChange(BurnFacts f)
+            => f.Before == ProfileOrbitKind.InOrbit && f.After == ProfileOrbitKind.InOrbit;
+
+        private static bool MatchesAnyBurn(BurnFacts f) => true;
 
         /// <summary>The first rule of <paramref name="rules"/> (priority order) that matches.</summary>
         internal static BurnRule MatchBurnRule(BurnRule[] rules, BurnFacts facts)
@@ -390,60 +377,90 @@ namespace Parsek
             if (!DeltaVSnapshotList.TryGetLeftAt(ctx.Snapshots, start + SnapshotToleranceSeconds, out DeltaVSnapshot a)
                 || !DeltaVSnapshotList.TryGetLeftAt(ctx.Snapshots, end + SnapshotToleranceSeconds, out DeltaVSnapshot b))
                 return double.NaN;
+            return SpentBetween(ctx, a, b);
+        }
+
+        /// <summary>
+        /// Spent between two Ok snapshots: the fall in Left less what the stagings between
+        /// them dropped (each staging's PreStaging / Staging pair, section 8.1). NaN when a
+        /// staging between them has no complete pair, or its pair straddles either snapshot:
+        /// then the fall mixes dropped and burned fuel and no split of it is honest.
+        /// </summary>
+        private static double SpentBetween(Ctx ctx, DeltaVSnapshot a, DeltaVSnapshot b)
+        {
+            if (a == null || b == null || b.UT < a.UT) return double.NaN;
             double spent = a.TotalVacuum - b.TotalVacuum;
-            foreach (ProfileEvent e in phase.Events)
-                if (e.Kind == ProfileEventKind.StageSeparation && !double.IsNaN(e.StagingDrop))
-                    spent -= e.StagingDrop;
+            foreach (ProfileAnchorInput anchor in ctx.Line.Anchors)
+            {
+                if (anchor.Kind != ProfileEventKind.StageSeparation) continue;
+                double drop = StagingDropBetween(ctx, anchor, a.UT, b.UT);
+                if (double.IsNaN(drop)) return double.NaN;
+                spent -= drop;
+            }
             return Math.Max(0, spent);
+        }
+
+        // The drop of one staging between the snapshots read at fromUT and toUT: 0 when it
+        // lies outside them, NaN when it lies inside (or its pair straddles one of them) with
+        // no usable pair. By UT, not list order: a burn start the recorder served from the
+        // same kept reading as the PreStaging shares its UT and its figures.
+        private static double StagingDropBetween(Ctx ctx, ProfileAnchorInput anchor, double fromUT, double toUT)
+        {
+            if (DeltaVSnapshotList.TryGetStagingDrop(ctx.Snapshots, anchor.UT, anchor.EndUT, StagingDropWindowSeconds,
+                    out double drop, out int first, out int last))
+            {
+                double pre = ctx.Snapshots[first].UT, post = ctx.Snapshots[last].UT;
+                if (post <= fromUT || pre >= toUT) return 0;
+                return pre >= fromUT && post <= toUT ? drop : double.NaN;
+            }
+            double end = double.IsNaN(anchor.EndUT) ? anchor.UT : Math.Max(anchor.UT, anchor.EndUT);
+            return end <= fromUT || anchor.UT >= toUT ? 0 : double.NaN;
         }
 
         private static void ReadStagingDrop(Ctx ctx, ProfileEvent e)
         {
             if (ctx.Snapshots.Count == 0) return;
-            if (!DeltaVSnapshotList.TryGetStagingDrop(ctx.Snapshots, e.UT, StagingDropWindowSeconds, out double drop))
+            double endUT = e.Anchor != null ? e.Anchor.EndUT : double.NaN;
+            if (!DeltaVSnapshotList.TryGetStagingDrop(ctx.Snapshots, e.UT, endUT, StagingDropWindowSeconds,
+                    out double drop, out int _, out int last))
+            {
+                e.DeltaVGap = GapDeltaVStagingUnread;
                 return;
+            }
             e.StagingDrop = drop;
-            if (DeltaVSnapshotList.TryGetLeftAt(ctx.Snapshots, e.UT + StagingDropWindowSeconds, out DeltaVSnapshot left))
-                e.LeftRecorded = left.TotalVacuum;
+            e.LeftRecorded = ctx.Snapshots[last].TotalVacuum;
         }
 
         private static void ReadBurnDeltaV(Ctx ctx, ProfileEvent e)
         {
+            bool stagingUnread = false;
             if (ctx.Snapshots.Count > 0
                 && DeltaVSnapshotList.TryGetBurnSpent(ctx.Snapshots, e.UT, e.EndUT, SnapshotToleranceSeconds,
-                    out double spent, out double left))
+                    out double _, out double left, out DeltaVSnapshot before, out DeltaVSnapshot after))
             {
-                spent -= StagingDropsInside(ctx, e.UT, e.EndUT);
-                e.SpentRecorded = Math.Max(0, spent);
-                e.LeftRecorded = left;
-                return;
+                double spent = SpentBetween(ctx, before, after);
+                if (!double.IsNaN(spent))
+                {
+                    e.SpentRecorded = spent;
+                    e.LeftRecorded = left;
+                    return;
+                }
+                stagingUnread = true;
             }
-            if (e.MergedBurns > 1)
-            {
-                e.DeltaVGap = GapDeltaVNoStoredOrbit;
-                return;
-            }
-            if (e.BurnSeconds >= EstimateMaxBurnSeconds)
-            {
-                e.DeltaVGap = GapDeltaVLongBurn;
-                return;
-            }
-            double est = EstimateDeltaV(ctx, e.Before, e.After, 0.5 * (e.UT + e.EndUT));
-            if (double.IsNaN(est)) e.DeltaVGap = GapDeltaVNoStoredOrbit;
-            else e.SpentEstimate = est;
+            string gap = EstimateBurnDeltaV(ctx, e);
+            if (gap != null) e.DeltaVGap = stagingUnread ? GapDeltaVStagingUnread : gap;
         }
 
-        private static double StagingDropsInside(Ctx ctx, double start, double end)
+        // The orbit estimate of a burn with no recorded figures; returns the gap reason when
+        // none can be given.
+        private static string EstimateBurnDeltaV(Ctx ctx, ProfileEvent e)
         {
-            double sum = 0;
-            foreach (ProfileAnchorInput a in ctx.Line.Anchors)
-            {
-                if (a.Kind != ProfileEventKind.StageSeparation || a.UT <= start || a.UT >= end) continue;
-                if (DeltaVSnapshotList.TryGetStagingDrop(ctx.Snapshots, a.UT, StagingDropWindowSeconds, out double d)
-                    && d > 0)
-                    sum += d;
-            }
-            return sum;
+            if (e.MergedBurns > 1) return GapDeltaVNoStoredOrbit;
+            if (e.BurnSeconds >= EstimateMaxBurnSeconds) return GapDeltaVLongBurn;
+            double est = EstimateDeltaV(ctx, e.Before, e.After, 0.5 * (e.UT + e.EndUT));
+            if (double.IsNaN(est)) return GapDeltaVNoStoredOrbit;
+            e.SpentEstimate = est;
+            return null;
         }
 
         /// <summary>
