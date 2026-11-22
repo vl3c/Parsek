@@ -1000,7 +1000,8 @@ Both final runs: PASS attempt 1 (660 s / 963 s run wall), automation DLL sha256 
 controls ok, complete, recompute 24 / 39 with 0 mismatches. Every pair from `_2111` on read controls
 ok and complete.
 
-The 4 fails left are report-only and low priority (todo GHOST-PARITY-RESIDUALS-2026-11-22):
+The 4 fails left are colour-only differences, accepted as cosmetic by owner ruling 2026-11-22
+(todo GHOST-PARITY-RESIDUALS-2026-11-22, closed); they are the first entries of P5's accepted list:
 
 - `grapplingdevice--basic` (stock): colour blob 477 px `side-a` (479 `side-b`), thin outline lines.
 - `heatshield3--red` (modded): colour blob 158017 px `top`, a uniform tint offset over the whole top
