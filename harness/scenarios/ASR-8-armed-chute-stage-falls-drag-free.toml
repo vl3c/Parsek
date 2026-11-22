@@ -3,7 +3,8 @@ id = "ASR-8-armed-chute-stage-falls-drag-free"
 # =====================================================================================
 # ASR-8: A CRAFT WHOSE PARACHUTES ARE ARMED BUT NOT YET OPEN WHEN PARSEK STOPS WATCHING IT
 # IS NOT CHUTED: ITS PREDICTED TAIL IS THE DRAG-FREE FALL TO IMPACT, DESTROYED, CREW DEAD.
-# AUTHORED 2026-11-22, NEVER FLOWN. Report-only saveParse blocks until a reading run.
+# AUTHORED 2026-11-22; LIVE-PROVEN 2026-11-22 (`2026-11-22_1150`, `2026-11-22_1154`, both
+# PASS attempt 1). The saveParse blocks stay report-only until a second matching green.
 # =====================================================================================
 #
 # WHAT IT PROVES (owner ruling Q10b, design `parsek-recording-finalization-design.md`
