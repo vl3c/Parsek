@@ -1465,6 +1465,43 @@ class StateCaseJudgeTests(unittest.TestCase):
         self.assertIsNone(pp.press_proof_problem(doc))
         self.assertIsNone(pp.press_proof_problem(_load("decoupler.2--basic--6fabf1e2.part.json")))
 
+    def test_only_a_reached_stacked_stowed_proof_may_skip_the_press(self):
+        # Re-review note 1: the no-press exception is the stacked stowed shape only.
+        for label, mutate in (
+                ("context alone", lambda d: d.__setitem__("context", "alone")),
+                ("context air", lambda d: d.__setitem__("context", "air")),
+                ("not reached", lambda d: d["stateProof"].__setitem__("reached", False)),
+                ("reached null", lambda d: d["stateProof"].__setitem__("reached", None))):
+            with self.subTest(label):
+                doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
+                mutate(doc)
+                self.assertIn("only a reached stacked stowed case", pp.press_proof_problem(doc))
+                self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_canopy_rotation_is_judged_by_its_size(self):
+        # Re-review note 3: a negative delta is a rotation of that size, NaN is refused.
+        self.assertEqual(pp.VERDICT_WARN, self._air(rot=-2.5).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(rot=-40.0).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, self._air(rot=float("nan")).verdict)
+
+    def test_a_canopy_wobble_flag_refuses_the_cap_too(self):
+        # Re-review note 4: the timeout marker may come in flags as well as tags.
+        doc_cap = self._air()
+        self.assertEqual(pp.VERDICT_WARN, doc_cap.verdict)
+        structure = {"missingOnGhost": [], "extraOnGhost": [], "meshDiffers": [],
+                     "renderedDiffers": [], "materialDiffers": [],
+                     "transformDiffers": [{"key": "chute/canopy", "positionDeltaM": 0.0,
+                                           "rotationDeltaDeg": 2.5, "scaleDeltaPct": 0.0}]}
+        doc, _ = _state_case("chute--default--semi--air--1", part="parachuteSingle",
+                             family="parachute", state="semi", context="air",
+                             ghost=_shifted(), structure=structure,
+                             structure_start=copy.deepcopy(structure),
+                             flags=("canopy-wobble:2.0",),
+                             proof={"canopy": {"tiltDeg": 1.0, "wobbleDeg": 1.0,
+                                               "transform": "canopy"}})
+        self.assertIsNone(pp.canopy_cap_for(doc))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
     def test_the_stacked_stowed_context_case_needs_no_press(self):
         doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
         self.assertIsNone(pp.press_proof_problem(doc))
@@ -1869,6 +1906,9 @@ class StateSweepTests(unittest.TestCase):
                  lambda s: (s.sidecars[bad].__setitem__("state", "stowed"),
                             s.manifest["cases"][5].__setitem__("state", "stowed")),
                  "%s stateProof.action=Extend on a case whose state is stowed" % bad),
+                ("proof state differs (re-review note 2)",
+                 lambda s: s.sidecars[bad]["stateProof"].__setitem__("state", "open"),
+                 "%s stateProof.state=open sidecar state=deployed" % bad),
                 ("settings dropped", lambda s: s.manifest.__setitem__("settings", {}),
                  "recompute the stowed control set"),
                 ("settings say a stowed run",

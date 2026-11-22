@@ -1408,13 +1408,13 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   case's verdict and its verdicts-file entry are byte-identical to before P6.
 - Canopy cap (D.4): only for an air case (sidecar `context == "air"`) whose capture found its
   window: numeric `stateProof.canopy.tiltDeg` and `wobbleDeg` with `|tilt| + |wobble| < 3`
-  (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` tag (both mark the 4 s
+  (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` marker in `tags` or `flags` (both mark the 4 s
   timeout capture, which is never capped), and a non-empty `stateProof.canopy.transform`, the
   module's `canopyName` (an ADDITIVE key S7 writes and adds to `CanopyKeys` / `CANOPY_KEYS`;
   until then no air case is capped). A canopy renderer is a structure key one of whose `/`
   segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
   it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
-  one `transformDiffers` entry and every entry is a canopy renderer with `rotationDeltaDeg <=
+  one `transformDiffers` entry and every entry is a canopy renderer with `|rotationDeltaDeg| <=
   min(|tilt| + |wobble| + 1, 4)`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
   tolerances of `PartParityStructure`), with no `materialDiffers` / `meshDiffers` /
   `renderedDiffers` entry and no rendered missing or extra renderer. The diff compares LOCAL
@@ -1429,11 +1429,13 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   recompute mismatch, INVALID(parity-instrument), checked over every part case. A proof with a
   null `action` on a stowed-state case is the stacked stowed context case (no press required:
   `actionResult` null, `reached` true, endpoint `context` / `stowed`, two atlas rows, no `start` /
-  `stowedRef`): it is judged as a stowed case and not checked.
+  `stowedRef`): it is judged as a stowed case; any other stowed-state proof with a null `action`
+  (context not `stacked`, or `reached` not true) is the contradiction above.
 - Writer cross-checks, each INVALID(parity-instrument): for every planned row that is a state or
   context case on either side (state not `stowed`, or context not `alone`), the row's and the
   sidecar's `state` and `context` must be equal (null on one side included); a sidecar whose
-  `stateProof.action` is non-null while its `state` is stowed or null; a run that holds any such
+  `stateProof.action` is non-null while its `state` is stowed or null; a `stateProof.state` that
+  differs from the sidecar's `state`; a run that holds any such
   case while its `settings` recompute the stowed control set (`states` / `contexts` absent or
   `none`). A stowed sweep compares nothing.
 - Flags. The judge reads the union of the sidecar's `flags` and the flags it derives from
