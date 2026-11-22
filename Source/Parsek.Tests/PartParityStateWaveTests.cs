@@ -94,6 +94,11 @@ namespace Parsek.Tests
             Assert.True(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "light" }));
             Assert.False(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "airbrake" }));
             Assert.True(PartParityStateWave.AdmitWave("state:Quick", 0.0, 480, 1.0, 4, false, new[] { "airbrake" }));
+            // The first wave of a step starts whatever the box (planning makes elapsed > 0).
+            Assert.False(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, true));
+            Assert.True(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, true, null, firstWaveOfStep: true));
+            // The stowed rule never reads the flag.
+            Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, false, null, firstWaveOfStep: true));
         }
 
         // ----- press -----

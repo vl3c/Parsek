@@ -503,7 +503,7 @@ namespace Parsek.TestCommands
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
                 List<int> picked = PickWave(queue, cursor, out string kind, out bool anySun);
                 if (!PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, anySun,
-                        FamiliesOf(queue, picked)))
+                        FamiliesOf(queue, picked), ctx.WavesDone == 0))
                 {
                     ParsekLog.Info(Tag, $"time box: elapsed={elapsed.ToString("0.0", Ic)}s lastWave={lastWave.ToString("0.0", Ic)}s " +
                         $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} kind={kind}; {(queue.Count - cursor).ToString(Ic)} case(s) left for the next step");

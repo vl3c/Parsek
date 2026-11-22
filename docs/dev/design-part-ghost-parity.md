@@ -1151,8 +1151,11 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   air>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need a host at the
   pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
-  `host-not-at-pad`; every other run keeps `host-not-orbiting`. (S1's interim
-  `state-runs-not-built` refusal was dropped with its hlib mirror when S3 built the live engine.)
+  `host-not-at-pad`; every other run keeps `host-not-orbiting`. S1's interim `state-runs-not-built`
+  refusal was dropped with its hlib mirror when S3 built the live orbit engine; until S7 builds the
+  air context, a well-formed `contexts=air` step is REJECTED `air-runs-not-built`
+  (`TestCommandPartParitySweep.AirRunsBuilt`, hlib `PARTPARITY_AIR_RUNS_BUILT`; S7 flips both and
+  drops it), so no chute is pressed in orbit; the pure planning rules read `TryParseGrammar`.
 - What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
   - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
     today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
@@ -1279,7 +1282,8 @@ BUILT (S3, 2026-11-22): `Source/Parsek/TestCommands/PartParityStateDriver.cs` (l
 bucket each: `PartParityStateWave.PickWave` takes the case at the cursor and the next cases of the
 same `state:<bucket>` kind further down the queue (stable partition, `BringToCursor`), a stowed wave
 is today's leading run unchanged; slots `PlanStateWave` (+60, -60, +140, -140); admission
-`AdmitWave` (a stowed wave keeps `ShouldStartWave`). The phase runs after the stowed settle, per
+`AdmitWave` (a stowed wave keeps `ShouldStartWave`; the first state wave of a step always
+starts, since the elapsed time already counts the planning). The phase runs after the stowed settle, per
 case under the runner's guard: stowed inputs (snapshot, `PartTrackingSets` seeded, seeds at `t0`,
 the part's `ModuleJettison.jettisonTransform`s, the pressed modules' KSPField signature), the press
 (`BaseEvent.Invoke` / `BaseAction.Invoke(None, Activate)`, every jettison module; `eventVisible` is

@@ -5694,7 +5694,8 @@ that does not parse is REJECTED with its own token, never clamped: `label-arg-mi
 `label-arg-invalid`, `op-arg-invalid`, `filter-arg-invalid`, `source-arg-invalid`,
 `skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `views-arg-invalid`,
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
-`maxseconds-arg-invalid` (the parse order).
+`maxseconds-arg-invalid` (the parse order), then `air-runs-not-built` for a well-formed
+`contexts=air` step while the air context is not built (design D.10 S7 lifts it).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
 arg parse the applier admits the host (`TestCommandPartParitySweep.DecideHostAdmission`):

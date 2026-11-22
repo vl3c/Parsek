@@ -19184,6 +19184,12 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.PARTPARITY_AIR_CONTEXT, rules["ContextAir"])
         self.assertIn("if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;",
                       text)
+        # The air-run gate (until S7): the flag and the reason, refused after the grammar.
+        m = re.search(r"internal const bool AirRunsBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "AirRunsBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_AIR_RUNS_BUILT, m.group(1) == "true")
+        self.assertEqual(hlib.PARTPARITY_AIR_RUNS_NOT_BUILT_REASON, consts["AirRunsNotBuiltReason"])
+        self.assertIn("if (!AirRunsBuilt && IsAirRun(parsed))", parse)
 
     def test_the_ranges_mirror_the_c_sharp(self):
         text, _ = self._pure()
@@ -19277,7 +19283,11 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual([], v(0, {"label": "pp1", "states": "none", "contexts": "none"}))
         self.assertEqual([], v(0, {"label": "pp3", "states": "all"}))
         self.assertEqual([], v(0, {"label": "pp3", "states": "deployed,lit", "contexts": "alone,stacked"}))
-        self.assertEqual([], v(0, {"label": "pp5", "contexts": "air", "states": "none"}))
+        # Until S7 builds the air context, a well-formed air run is refused as a whole.
+        self.assertFalse(hlib.PARTPARITY_AIR_RUNS_BUILT)
+        errs = v(0, {"label": "pp5", "contexts": "air", "states": "none"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("air-runs-not-built", errs[0])
         cases = (
             ({"label": "pp1", "states": ""}, "states-arg-invalid"),
             ({"label": "pp1", "states": "Deployed"}, "states-arg-invalid"),
