@@ -914,25 +914,8 @@ namespace Parsek.Tests
 
         // The flight side also reads a toggleable ModuleColorChanger on a part with no
         // ModuleLight (cabin lights); the background side reads ModuleLight only.
-        // Both sides format the blink rate with the thread culture (`val:F2`), which in game is
-        // the "en" culture KSP pins in HighLogic.Awake; the golden is taken under that culture
-        // so it reads the same on every host.
         [Fact]
         public void Light()
-        {
-            CultureInfo previous = CultureInfo.CurrentCulture;
-            CultureInfo.CurrentCulture = CultureInfo.CreateSpecificCulture("en");
-            try
-            {
-                RunLightFamily();
-            }
-            finally
-            {
-                CultureInfo.CurrentCulture = previous;
-            }
-        }
-
-        private void RunLightFamily()
         {
             RunFamily("light", "CheckLightState",
                 () => MakeVessel(LiveVesselPid,

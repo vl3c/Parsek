@@ -273,7 +273,7 @@ namespace Parsek
                 {
                     treeRec.PartEvents.Add(reusableEventBuffer[e]);
                     ParsekLog.Verbose("BgRecorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
-                        $"pid={reusableEventBuffer[e].partPersistentId} val={reusableEventBuffer[e].value:F2} (bg vessel {state.vesselPid})");
+                        $"pid={reusableEventBuffer[e].partPersistentId} val={reusableEventBuffer[e].value.ToString("F2", CultureInfo.InvariantCulture)} (bg vessel {state.vesselPid})");
                 }
             }
         }

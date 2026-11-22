@@ -829,7 +829,7 @@ namespace Parsek
                     {
                         sink.Events.Add(eventBuffer[e]);
                         ParsekLog.Verbose(sink.Tag, $"Part event: {eventBuffer[e].eventType} '{eventBuffer[e].partName}' " +
-                            $"pid={eventBuffer[e].partPersistentId} val={eventBuffer[e].value:F2}{sink.EventSuffix()}");
+                            $"pid={eventBuffer[e].partPersistentId} val={eventBuffer[e].value.ToString("F2", CultureInfo.InvariantCulture)}{sink.EventSuffix()}");
                     }
                 }
 
