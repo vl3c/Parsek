@@ -707,15 +707,22 @@ def is_canopy_renderer_key(key: Any, transform: str) -> bool:
 
 def canopy_position_allowance_m(entry: Dict, bound_deg: float) -> float:
     """How far a canopy renderer may sit from its ghost under the canopy cap: the position
-    tolerance plus the chord a rigid turn of the canopy subtree by the cap's whole allowed
-    rotation sweeps at the renderer's lever arm, ``2 d sin(bound / 2)``, where ``d`` is the
-    entry's ``canopyPivotDistanceM`` (its distance from the canopy pivot, written by the C#
-    air context). An entry without a readable, non-negative lever arm gets the tolerance
-    alone (a renderer AT the pivot, or a sidecar written before the key existed)."""
-    arm = _num(entry.get(CANOPY_PIVOT_DISTANCE_KEY)) if isinstance(entry, dict) else None
-    if arm is None or arm < 0.0:
+    tolerance plus the chord a rigid turn of the canopy subtree sweeps at the renderer's
+    lever arm, ``2 d sin(t / 2)``. ``d`` is the entry's ``canopyPivotDistanceM`` (its
+    distance from the canopy pivot, written by the C# air context); ``t`` is the entry's OWN
+    measured rotation plus the structure's rotation tolerance, never over the cap's bound:
+    the records are part-relative, so a rigid turn of the canopy shows on each renderer as
+    that same rotation, and a canopy moved WITHOUT turning gets no arc. An entry without a
+    readable, non-negative lever arm or rotation gets the tolerance alone (a renderer AT the
+    pivot, or a sidecar written before the key existed)."""
+    if not isinstance(entry, dict):
         return STRUCTURE_POSITION_TOLERANCE_M
-    return STRUCTURE_POSITION_TOLERANCE_M + 2.0 * arm * math.sin(math.radians(bound_deg) / 2.0)
+    arm = _num(entry.get(CANOPY_PIVOT_DISTANCE_KEY))
+    rot = _num(entry.get("rotationDeltaDeg"))
+    if arm is None or arm < 0.0 or rot is None:
+        return STRUCTURE_POSITION_TOLERANCE_M
+    turn = min(abs(rot) + STRUCTURE_ROTATION_TOLERANCE_DEG, bound_deg)
+    return STRUCTURE_POSITION_TOLERANCE_M + 2.0 * arm * math.sin(math.radians(turn) / 2.0)
 
 
 def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
@@ -736,7 +743,12 @@ def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
     if structure.get("materialDiffers") or structure.get("meshDiffers") \
             or structure.get("renderedDiffers"):
         return False
-    transforms = [t for t in structure.get("transformDiffers") or [] if isinstance(t, dict)]
+    raw = structure.get("transformDiffers")
+    if not isinstance(raw, list):
+        # No structure measured (a route whose ghost was not built writes null, which
+        # judge_route reads as {}): nothing proves the canopy is the only difference.
+        return False
+    transforms = [t for t in raw if isinstance(t, dict)]
     if not transforms:
         return cap.turn_deg >= CANOPY_MIN_TURN_DEG
     for t in transforms:

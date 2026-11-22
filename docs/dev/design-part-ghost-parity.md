@@ -1702,14 +1702,19 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   (`canopy-airflow`) when its structure has no `materialDiffers` / `meshDiffers` /
   `renderedDiffers` entry and no rendered missing or extra renderer, and either (1) every
   `transformDiffers` entry is a canopy renderer with `|rotationDeltaDeg| <= b`, `scaleDeltaPct <=
-  1.0` and `positionDeltaM <= 0.001 + 2 d sin(b / 2)`, where `d` is the entry's
+  1.0` and `positionDeltaM <= 0.001 + 2 d sin(t / 2)`, with `t = min(|rotationDeltaDeg| + 0.5, b)`
+  (the entry's own turn plus the structure's rotation tolerance: the records are part-relative,
+  so a rigid turn shows on every canopy renderer as that rotation, and a canopy moved without
+  turning gets no arc) and `d` the entry's
   `canopyPivotDistanceM` (the real renderer's distance from the canopy transform's pivot, an
   ADDITIVE `TransformDiffKeys` key the air context writes on canopy renderers only,
   `PartParityStructure.StampCanopyPivotDistances`; null elsewhere and on older sidecars, which
-  leaves the 1 mm tolerance alone): a rigid turn of the canopy subtree by up to `b` about its pivot
-  moves a renderer at distance `d` by at most that chord, and ReStock's canopy renderers sit metres
+  leaves the 1 mm tolerance alone): a rigid turn of the canopy subtree about its pivot
+  moves a renderer at distance `d` by at most the chord of its turn, and ReStock's canopy renderers sit metres
   from the pivot (0.1 to 0.6 m of travel at 0.6 to 3 deg, todo PARTPARITY-CANOPY-CAP-LEVER-ARM);
-  or (2) no transform differs at all, so every canopy renderer turned under the structure's own
+  or (2) the route's structure was measured (`transformDiffers` is a list; a route whose ghost was
+  not built writes null and is never capped) and no transform differs at all, so every canopy
+  renderer turned under the structure's own
   0.5 deg rotation tolerance, and the measured turn `|tilt| + |wobble|` is at least 0.1 deg
   (`CANOPY_MIN_TURN_DEG`: below it even a 5 m lever arm sweeps under 1 cm, under a pixel at the
   air tiles' scale, so a canopy that did not turn explains no picture difference). The diff

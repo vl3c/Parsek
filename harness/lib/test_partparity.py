@@ -1423,10 +1423,18 @@ class StateCaseJudgeTests(unittest.TestCase):
 
     def test_the_canopy_cap_allows_the_arc_of_its_rotation_at_the_lever_arm(self):
         # PARTPARITY-CANOPY-CAP-LEVER-ARM shape 1 (ReStock): a renderer metres from the canopy
-        # pivot moves with the turn. Bound 1 + 1 + 1 = 3 deg; at d = 5 m the chord is
-        # 2 * 5 * sin(1.5 deg) = 0.2617 m, plus the 1 mm tolerance.
-        allowance = pp.canopy_position_allowance_m({"canopyPivotDistanceM": 5.0}, 3.0)
+        # pivot moves with the turn. The entry turned 2.5 deg (+ the 0.5 deg tolerance = 3,
+        # inside the bound 1 + 1 + 1 = 3); at d = 5 m the chord is 2 * 5 * sin(1.5 deg) =
+        # 0.2617 m, plus the 1 mm tolerance.
+        allowance = pp.canopy_position_allowance_m(
+            {"canopyPivotDistanceM": 5.0, "rotationDeltaDeg": 2.5}, 3.0)
         self.assertAlmostEqual(0.001 + 10.0 * math.sin(math.radians(1.5)), allowance, places=9)
+        # The turn never exceeds the cap's bound, and a canopy that did not turn gets the
+        # tolerance's arc only.
+        self.assertAlmostEqual(allowance, pp.canopy_position_allowance_m(
+            {"canopyPivotDistanceM": 5.0, "rotationDeltaDeg": 40.0}, 3.0), places=12)
+        self.assertAlmostEqual(0.001 + 10.0 * math.sin(math.radians(0.25)), pp.canopy_position_allowance_m(
+            {"canopyPivotDistanceM": 5.0, "rotationDeltaDeg": 0.0}, 3.0), places=12)
         self.assertEqual(pp.VERDICT_WARN, self._air(pos=0.25, arm=5.0).verdict)
         self.assertEqual(pp.VERDICT_WARN, self._air(pos=allowance - 1e-6, arm=5.0).verdict)
         for label, kw in (
@@ -1439,7 +1447,9 @@ class StateCaseJudgeTests(unittest.TestCase):
                 ("the arm does not excuse a scale delta", {"pos": 0.1, "scl": 5.0, "arm": 5.0}),
                 ("the arm does not excuse a mesh difference",
                  {"pos": 0.1, "arm": 5.0, "meshDiffers": [{"key": "chute/canopy"}]}),
-                ("an arm on a non-canopy renderer", {"pos": 0.1, "arm": 5.0, "key": "chute/housing"})):
+                ("an arm on a non-canopy renderer", {"pos": 0.1, "arm": 5.0, "key": "chute/housing"}),
+                ("a canopy moved without turning", {"pos": 0.25, "rot": 0.0, "arm": 5.0}),
+                ("moved further than its own small turn sweeps", {"pos": 0.25, "rot": 0.6, "arm": 5.0})):
             with self.subTest(label):
                 self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
 
@@ -1467,6 +1477,23 @@ class StateCaseJudgeTests(unittest.TestCase):
                 kw.setdefault("tilt", 0.1)
                 kw.setdefault("wobble", 0.4)
                 self.assertEqual(pp.VERDICT_FAIL, self._air(transformDiffers=[], **kw).verdict)
+        # No structure measured at all (a start ghost that was not built writes
+        # structureStart null) is not a clean structure: never capped.
+        cap = pp.CanopyCap(3.0, "canopy", 2.0)
+        self.assertFalse(pp._canopy_cap_applies({}, cap))
+        self.assertFalse(pp._canopy_cap_applies({"transformDiffers": None}, cap))
+        self.assertTrue(pp._canopy_cap_applies({"transformDiffers": []}, cap))
+        doc, _ = _state_case("chute--default--full--air--1", part="parachuteSingle",
+                             family="parachute", state="full", context="air",
+                             ghost=_shifted(), start=_shifted(), structure=None,
+                             structure_start=None, flags=("ghost-not-built:start",),
+                             proof={"canopy": {"tiltDeg": 1.0, "wobbleDeg": 1.0,
+                                               "transform": "canopy"}})
+        doc["structure"] = None
+        doc["structureStart"] = None
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertFalse(any(pp.REASON_CANOPY_AIRFLOW in r for r in cv.reasons))
 
     def test_the_structure_tolerances_are_the_csharp_ones(self):
         path = os.path.join(CS_DIR, "PartParityStructure.cs")
