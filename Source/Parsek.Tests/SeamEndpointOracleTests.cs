@@ -353,14 +353,16 @@ namespace Parsek.Tests
             Assert.NotNull(capture);
 
             System.Collections.Generic.List<string> literals = LoadedStringLiterals(capture);
-            // The method also inlines its three seam-seed KIND constants, which are emit-line
-            // vocabulary rather than skip reasons; they are excluded BY THE PRODUCTION CONSTANT, so
-            // a renamed constant does not quietly turn into a phantom reason.
+            // The method also inlines its three seam-seed KIND constants and the baked clock name
+            // (the faithful-seed tolerance gate), which are emit-line vocabulary rather than skip
+            // reasons; they are excluded BY THE PRODUCTION CONSTANT, so a renamed constant does not
+            // quietly turn into a phantom reason.
             var seedKinds = new System.Collections.Generic.List<string>
             {
                 MapRenderProbe.SeamSeedKindNone,
                 MapRenderProbe.SeamSeedKindFaithful,
                 MapRenderProbe.SeamSeedKindReaimed,
+                MapRenderProbe.SeamClockBaked,
             };
             var reasons = new System.Collections.Generic.List<string>();
             foreach (string literal in literals)
@@ -608,6 +610,185 @@ namespace Parsek.Tests
             Assert.False(SeamEndpointOracle.ShouldEmitPassSummary(0, 0));
             Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(0, 1));
             Assert.True(SeamEndpointOracle.ShouldEmitPassSummary(1, 0));
+        }
+    
+        // --- Faithful phase-locked seeds (todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS) ---
+
+        // Stock Mun, the values FlightGlobalsBodyInfo derives (OrbitalVelocity = 2 pi a / T).
+        private const double MunSma = 12000000.0;
+        private const double MunPeriod = 138984.376;
+        private const double MunSoi = 2429559.1;
+        private static readonly double MunSpeed = 2.0 * System.Math.PI * MunSma / MunPeriod;
+
+        // GS-13's first flight (run 2026-11-22_0456): the faithful Mun replay's loop shift and ratio.
+        private const double Gs13LoopShift = 280142.5;
+        private const double Gs13Ratio = 1.0526;
+
+        private sealed class MunBodyInfo : IBodyInfo
+        {
+            public double RotationPeriod(string b) => double.NaN;
+            public double OrbitPeriod(string b) => b == "Mun" ? MunPeriod : double.NaN;
+            public string ReferenceBodyName(string b) => b == "Mun" ? "Kerbin" : null;
+            public double SoiRadius(string b) => b == "Mun" ? MunSoi : double.NaN;
+            public double OrbitalVelocity(string b) => b == "Mun" ? MunSpeed : double.NaN;
+            public double GravParameter(string b) => double.NaN;
+            public double Radius(string b) => double.NaN;
+            public bool TryGetVesselOrbit(uint pid, string guid, out double p, out string ob)
+            { p = double.NaN; ob = null; return false; }
+        }
+
+        [Fact]
+        public void FaithfulSeed_Gs13Numbers_PassUnderThePhaseLockAllowance()
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourcePhaseLock, d.Source);
+            // 280142.5 - 2 x 138984.376 = 2173.748 s, inside the band SOI / speed = ~4478.5 s.
+            Assert.InRange(d.PhaseResidualSeconds, 2173.7, 2173.8);
+            Assert.InRange(d.PhaseLockBoundSeconds, 4478.0, 4479.0);
+            // 1.005 + 2173.748 x 542.49 / 2429559.1 = ~1.4904.
+            Assert.InRange(d.Tolerance, 1.489, 1.492);
+
+            var r = SeamEndpointOracle.Evaluate(Gs13Ratio * MunSoi, MunSoi, d.Tolerance);
+            Assert.True(r.HasMeasurement);
+            Assert.False(r.OutsideSoi);
+            Assert.Equal(d.Tolerance, r.RatioTolerance);
+
+            // The same reading against the re-aim default is the raise GS-13 read.
+            Assert.True(SeamEndpointOracle.Evaluate(Gs13Ratio * MunSoi, MunSoi).OutsideSoi);
+        }
+
+        [Fact]
+        public void FaithfulSeed_FarOutsideTheResidualBound_StillRaises()
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, "Mun", new MunBodyInfo());
+
+            // The destination cannot have moved more than residual x speed: an arc 1.6 SOI out is a
+            // real dead-end, not the residual.
+            var r = SeamEndpointOracle.Evaluate(1.6 * MunSoi, MunSoi, d.Tolerance);
+            Assert.True(r.OutsideSoi);
+        }
+
+        [Fact]
+        public void FaithfulSeed_NotPhaseLockedAtThisShift_KeepsTheDefault()
+        {
+            // A quarter Mun period of residual (~34746 s) is far outside the ~4478 s band.
+            double shift = 2.0 * MunPeriod + 0.25 * MunPeriod;
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, shift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourceFaithfulUnlocked, d.Source);
+            Assert.Equal(SeamEndpointOracle.DefaultRatioTolerance, d.Tolerance);
+            Assert.True(SeamEndpointOracle.Evaluate(Gs13Ratio * MunSoi, MunSoi, d.Tolerance).OutsideSoi);
+        }
+
+        [Fact]
+        public void FaithfulSeed_ResidualAtTheBandEdge_AllowsOneSoiRadius()
+        {
+            var info = new MunBodyInfo();
+            double bound = MunSoi / MunSpeed;
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, 2.0 * MunPeriod + bound * (1.0 - 1e-9), "Mun", info);
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourcePhaseLock, d.Source);
+            Assert.InRange(d.Tolerance, SeamEndpointOracle.DefaultRatioTolerance + 1.0 - 1e-6,
+                SeamEndpointOracle.DefaultRatioTolerance + 1.0 + 1e-6);
+
+            // Just past the band edge the destination is not phase-locked.
+            var past = MapRenderProbe.ResolveSeamRatioTolerance(true, true, 2.0 * MunPeriod + bound * 1.001, "Mun", info);
+            Assert.Equal(SeamEndpointOracle.ToleranceSourceFaithfulUnlocked, past.Source);
+        }
+
+        [Fact]
+        public void FaithfulSeed_NegativeShift_UsesTheCircularResidual()
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, -Gs13LoopShift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourcePhaseLock, d.Source);
+            Assert.InRange(d.PhaseResidualSeconds, 2173.7, 2173.8);
+        }
+
+        [Theory]
+        [InlineData(280142.5, 138984.376)]
+        [InlineData(-280142.5, 138984.376)]
+        [InlineData(1000.0, 138984.376)]
+        [InlineData(277968.752, 138984.376)]
+        [InlineData(5.0, 0.0)]
+        public void CircularPhaseError_MatchesMissionPeriodicity(double delta, double period)
+        {
+            Assert.Equal(MissionPeriodicity.CircularPhaseError(delta, period),
+                SeamEndpointOracle.CircularPhaseErrorSeconds(delta, period));
+        }
+
+        [Fact]
+        public void FaithfulSeed_BandIsMissionPeriodicitysOrbitalTolerance()
+        {
+            var info = new MunBodyInfo();
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, "Mun", info);
+            double expected = MissionPeriodicity.ToleranceSecondsFor(new PhaseConstraint
+            {
+                Kind = ConstraintKind.Orbital, BodyName = "Mun", PeriodSeconds = MunPeriod,
+            }, info);
+            Assert.Equal(expected, d.PhaseLockBoundSeconds);
+        }
+
+        [Fact]
+        public void FaithfulSeed_OnAnUnshiftedClock_KeepsTheDefault()
+        {
+            // raw / assumed-live frames: the conic was not moved by the shift, so there is no
+            // residual to allow (the creation-frame raw readings stay visible).
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, false, Gs13LoopShift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourceFaithfulUnshiftedClock, d.Source);
+            Assert.Equal(SeamEndpointOracle.DefaultRatioTolerance, d.Tolerance);
+            Assert.True(SeamEndpointOracle.Evaluate(Gs13Ratio * MunSoi, MunSoi, d.Tolerance).OutsideSoi);
+        }
+
+        [Fact]
+        public void ReaimedSeed_KeepsTheDefaultUnchanged()
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(false, true, Gs13LoopShift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourceDefault, d.Source);
+            Assert.Equal(SeamEndpointOracle.DefaultRatioTolerance, d.Tolerance);
+            Assert.True(SeamEndpointOracle.Evaluate(Gs13Ratio * MunSoi, MunSoi, d.Tolerance).OutsideSoi);
+            // The measured re-aim defect still raises at the default.
+            Assert.True(SeamEndpointOracle.Evaluate(49190000.0, DunaSoi, d.Tolerance).OutsideSoi);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void FaithfulSeed_NoUsableLoopShift_KeepsTheDefault(double shift)
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, shift, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourceDefault, d.Source);
+            Assert.Equal(SeamEndpointOracle.DefaultRatioTolerance, d.Tolerance);
+        }
+
+        [Fact]
+        public void FaithfulSeed_ExactWholePeriodShift_IsTheDefault()
+        {
+            var d = MapRenderProbe.ResolveSeamRatioTolerance(true, true, 2.0 * MunPeriod, "Mun", new MunBodyInfo());
+
+            Assert.Equal(SeamEndpointOracle.ToleranceSourcePhaseLock, d.Source);
+            Assert.InRange(d.Tolerance, SeamEndpointOracle.DefaultRatioTolerance,
+                SeamEndpointOracle.DefaultRatioTolerance + 1e-9);
+        }
+
+        [Fact]
+        public void FaithfulSeed_NoBodyData_KeepsTheDefault()
+        {
+            var info = new MunBodyInfo();
+            var unknown = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, "Duna", info);
+            var noInfo = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, "Mun", null);
+            var noName = MapRenderProbe.ResolveSeamRatioTolerance(true, true, Gs13LoopShift, null, info);
+
+            foreach (var d in new[] { unknown, noInfo, noName })
+            {
+                Assert.Equal(SeamEndpointOracle.ToleranceSourceFaithfulNoBodyData, d.Source);
+                Assert.Equal(SeamEndpointOracle.DefaultRatioTolerance, d.Tolerance);
+            }
         }
     }
 }
