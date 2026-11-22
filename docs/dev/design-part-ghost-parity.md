@@ -1294,8 +1294,11 @@ One case, in order (the 4.2 steps keep their order; new steps marked):
 Per family:
 
 - Sun-tracking solar panels (9 per install): the done rule adds "pivot rotation changed by less
-  than 0.1 deg over 0.5 s", cap 10 s, else captured and tagged `still-tracking` (judged, like
-  `still-animating`). Both sides see the same Sun. The ghost side is D.5.
+  than 0.1 deg over 0.5 s", cap 25 s (re-pinned from 10 s by S6: stock's slew is an exponential
+  approach at `trackingSpeed` 0.25, so the worst 180 deg needs about 21.4 s to meet the still rule;
+  at 10 s every tracking panel of PP-3's first full flight was 1 to 14 deg short), else captured and
+  tagged `still-tracking` (judged, like `still-animating`). Both sides see the same Sun. The ghost
+  side is D.5.
 - Airbrake: no Animation (`Mathf.MoveTowards` at `actuatorSpeed`), so done = the classifier reads
   deployed AND the surface transform's local rotation moved less than 0.05 deg over 0.5 s, cap 5 s.
 - Jettison context, by each module's own config (decompiled `ModuleJettison.SetupJettisonState`
@@ -1323,11 +1326,12 @@ Per family:
 - Step time box: a wave starts only when `elapsed + worstCase(bucket) <= maxSeconds` (480, under the
   540 s seam cap), where `worstCase` is the wave's bound, not the last wave's wall: spawn cap 20 s +
   the bucket's state timeout (20 s long, 5 s quick) + the longest settle cap of the wave's families
-  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (10 s, sun trackers
+  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (25 s, sun trackers
   only) + capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long
-  bucket about 57 s, quick about 32 s (about 36 s with an airbrake or a cabin light), air (D.4)
-  about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each followed by the 4 s canopy
-  window, capture, teardown). Pure, `PartParitySweepPlan.WaveWorstCaseSeconds`.
+  bucket about 47 s (about 72 s with a sun tracker), quick about 32 s (about 36 s with an airbrake
+  or a cabin light), air (D.4) about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each
+  followed by the 4 s canopy window, capture, teardown). Pure,
+  `PartParitySweepPlan.WaveWorstCaseSeconds`.
 
 BUILT (S3, 2026-11-22): `Source/Parsek/TestCommands/PartParityStateDriver.cs` (live) and
 `PartParityStateWave.cs` (pure, xUnit `PartParityStateWaveTests`). A state run's waves hold one

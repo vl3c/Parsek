@@ -370,11 +370,11 @@ What: a one-part vessel authored with no persistent module values starts at each
 
 Fix: not started. Author the same stowed pose in the stowed case authoring (S8 owns `PartParityCaseAuthoring.cs`), then re-read PP-1 / PP-2.
 
-## PARTPARITY-SUN-TRACKER-CAP: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+## ~~PARTPARITY-SUN-TRACKER-CAP~~: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; FIXED 2026-11-22, branch `part-parity-p6-s6` (PP-3 re-flight `2026-11-22_1656`); low]
 
-What: `solarpanels4--default--deployed` captures tagged `still-tracking` on every run: the real pivot still turns about 2.4 deg per 0.5 s at the cap (`sun tracker still moving at the cap`), so it sits 17 to 20 deg short of the ghost's aim (the ghost slews at 20 deg/s) and the views read warn / fail on the panel's edge. The cap is S1's `SunTrackerCapSeconds` (design D.3).
+What: `solarpanels4--default--deployed` captures tagged `still-tracking` on every run: the real pivot still turns about 2.4 deg per 0.5 s at the cap (`sun tracker still moving at the cap`), so it sits 17 to 20 deg short of the ghost's aim (the ghost slews at 20 deg/s) and the views read warn / fail on the panel's edge. The cap is S1's `SunTrackerCapSeconds` (design D.3). PP-3's first full flight `2026-11-22_1634` showed it on all nine tracking panels (every one tagged `still-tracking`, 1 to 14 deg short; 8 of 9 failed).
 
-Fix: re-pin the cap (or the tracking-settle rule) from a reading run when PP-3 / PP-4 first fly (D.10 S6), not before.
+Fix: stock slews the pivot by `Quaternion.Lerp(current, aim, deltaTime * trackingSpeed)` (decompiled `ModuleDeployablePart`, `trackingSpeed` 0.25 on every stock tracking panel), an exponential approach that needs about 21.4 s from 180 deg to meet the still rule; `SunTrackerCapSeconds` 10 -> 25 (the wave admission bound with a tracker 56.7 -> 71.7 s). PP-3 re-flight `2026-11-22_1656`: no panel still tracking (settled 0.5 to 17.8 s after the done signal), real and ghost aim within 0.1 to 1.4 deg; 3 of 9 panels still fail on small shape blobs (`solarpanels1` 489 px, `solarpanelox10c` 147 px: the real pivot stops about 1 deg short of the ghost's aim), the rest pass or warn. PP-4 flew before the re-pin.
 
 ## THRUST-REVERSER-NOT-RECORDED: a jet engine's thrust reverser is never recorded, so its ghost never shows it [FILED 2026-11-22 from the P6 state-rules enumeration (branch `part-parity-p6-s1`, design `docs/dev/design-part-ghost-parity.md` D.1); OPEN; low]
 

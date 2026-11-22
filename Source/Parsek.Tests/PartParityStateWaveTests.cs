@@ -87,9 +87,9 @@ namespace Parsek.Tests
             Assert.True(PartParityStateWave.AdmitWave("stowed", 0.0, 480, 1000.0, 8, false));
             Assert.True(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 5.0, 8, false));
             Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, false));
-            // Long, 4 cases, a sun tracker: 56.7 s.
-            Assert.True(PartParityStateWave.AdmitWave("state:Long", 423.0, 480, 1.0, 4, true));
-            Assert.False(PartParityStateWave.AdmitWave("state:Long", 424.0, 480, 1.0, 4, true));
+            // Long, 4 cases, a sun tracker: 71.7 s.
+            Assert.True(PartParityStateWave.AdmitWave("state:Long", 408.0, 480, 1.0, 4, true));
+            Assert.False(PartParityStateWave.AdmitWave("state:Long", 409.0, 480, 1.0, 4, true));
             // The airbrake raises a quick wave's settle to its 5 s cap.
             Assert.True(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "light" }));
             Assert.False(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "airbrake" }));
