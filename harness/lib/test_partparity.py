@@ -1030,6 +1030,10 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(list(pp.KNOWN_STATES), self._ident_array(text, "KnownStates", consts))
         self.assertEqual(list(pp.KNOWN_CONTEXTS), self._ident_array(text, "KnownContexts", consts))
         self.assertEqual(list(pp.ORBIT_CONTEXTS), self._ident_array(text, "OrbitContexts", consts))
+        self.assertEqual(list(pp.FAIRING_CONTEXTS), self._ident_array(text, "FairingContexts", consts))
+        self.assertEqual((pp.CONTEXT_FGV, pp.CONTEXT_FGV_PREFIX),
+                         (consts["ContextFgv"], consts["ContextFgvPrefix"]))
+        self.assertTrue(all(pp.context_class(c) == pp.CONTEXT_FGV for c in pp.FAIRING_CONTEXTS))
         self.assertEqual(list(pp.STATE_EXCLUSION_REASONS),
                          self._ident_array(text, "ExclusionReasons", consts))
         self.assertEqual(list(pp.ACTION_RESULTS), self._ident_array(text, "ActionResults", consts))
@@ -1479,17 +1483,26 @@ class StateCaseJudgeTests(unittest.TestCase):
         self.assertIsNone(pp.press_proof_problem(_load("decoupler.2--basic--6fabf1e2.part.json")))
 
     def test_only_a_reached_stacked_stowed_proof_may_skip_the_press(self):
-        # Re-review note 1: the no-press exception is the stacked stowed shape only.
+        # Re-review note 1: the no-press exception is the stowed context shape only (the
+        # stacked shroud, and since S8 FGV's intact cases, design D.1).
         for label, mutate in (
                 ("context alone", lambda d: d.__setitem__("context", "alone")),
                 ("context air", lambda d: d.__setitem__("context", "air")),
+                ("context fgv word", lambda d: d.__setitem__("context", "fgvx-1")),
                 ("not reached", lambda d: d["stateProof"].__setitem__("reached", False)),
                 ("reached null", lambda d: d["stateProof"].__setitem__("reached", None))):
             with self.subTest(label):
                 doc, _ = _stacked_stowed_case("liquidengine2--default--stowed--stacked--1")
                 mutate(doc)
-                self.assertIn("only a reached stacked stowed case", pp.press_proof_problem(doc))
+                self.assertIn("only a reached stowed context case", pp.press_proof_problem(doc))
                 self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_reached_fgv_intact_case_may_skip_the_press(self):
+        for context in pp.FAIRING_CONTEXTS:
+            with self.subTest(context):
+                doc, _ = _stacked_stowed_case("fairingsize1--default--stowed--x--1")
+                doc["context"] = context
+                self.assertIsNone(pp.press_proof_problem(doc))
 
     def test_a_canopy_rotation_is_judged_by_its_size(self):
         # Re-review note 3: a negative delta is a rotation of that size, NaN is refused.

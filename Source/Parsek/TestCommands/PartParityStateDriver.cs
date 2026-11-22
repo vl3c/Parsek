@@ -54,6 +54,18 @@ namespace Parsek.TestCommands
         internal readonly List<uint> FillerFlightIds = new List<uint>();
         internal readonly List<uint> FillerPids = new List<uint>();
 
+        // ----- an FGV context (D.10 S8) -----
+
+        /// <summary>The flight id of the part FGV's separation takes off; 0 for none.</summary>
+        internal uint SeparateFlightId;
+
+        /// <summary>That part on the live case vessel (resolved with the stowed inputs).</summary>
+        internal Part SeparatePart;
+
+        /// <summary>The vessel the separation made, killed once the state is reached (and at
+        /// teardown when the case stopped before).</summary>
+        internal Vessel SeparatedVessel;
+
         // ----- stowed inputs (step 2) -----
         internal ConfigNode StowedSnapshot;
         internal List<PartEvent> StowedSeeds = new List<PartEvent>();
@@ -247,6 +259,7 @@ namespace Parsek.TestCommands
         {
             failReason = null;
             PartParityStateRun run = wc.State;
+            if (run.Option.Fgv != null) return AuthorFgvVesselNode(wc, anchor, out failReason);
             AvailablePart info = wc.Entry.Info;
             List<string> nodes = run.Option.NodeNames ?? new List<string>();
             AvailablePart filler = nodes.Count > 0 ? PartLoader.getPartInfoByName(PartParityStateWave.FillerPartName) : null;
@@ -289,36 +302,58 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// The stowed pose of a family whose module spawns at its target by default (a lone
-        /// part's persistent fields are absent, so stock starts it at the field's initial
-        /// value): a landing gear's <c>ModuleWheelDeployment</c> starts Deployed unless its
-        /// <c>stateString</c> says Retracted, and a cargo bay whose <c>closedPosition</c> is 1
-        /// (the Mk2 and Mk3 bays) starts open at <c>animTime</c> 0. The stowed pose is written
-        /// into the subject's MODULE node at the module's prefab index.
+        /// An FGV context's vessel (D.10 S8): FGV's own authoring of the configuration
+        /// (<see cref="FairingGhostAuthoring"/>), with the case part as the vessel's root (the
+        /// engine shroud configuration authored engine-rooted: the same craft, the tank on the
+        /// engine's top node and the lower part on its bottom node), renamed to the case's
+        /// vessel name. Every other part is the context, hidden on every side like a stacked
+        /// filler. A colour-variant configuration's chosen variant becomes the case's real
+        /// variant, so the skin proof requests it.
         /// </summary>
+        private static ConfigNode AuthorFgvVesselNode(WaveCase wc, Vessel anchor, out string failReason)
+        {
+            PartParityStateRun run = wc.State;
+            PartParityFgvContext c = run.Option.Fgv;
+            FairingGhostConfig cfg = FairingGhostAuthoring.ByNumber(c.Number);
+            if (cfg == null)
+            {
+                failReason = "no FGV configuration " + c.Number.ToString(Ic);
+                return null;
+            }
+            FairingAuthoredVessel v = FairingGhostAuthoring.Build(cfg, anchor, Tag, wc.Entry.Info, true, out failReason);
+            if (v == null || v.Node == null)
+            {
+                failReason = "FGV " + c.Id + ": " + (failReason ?? "not authored");
+                return null;
+            }
+            ConfigNode[] parts = v.Node.GetNodes("PART");
+            string root = parts.Length > 0 ? parts[0].GetValue("name") : null;
+            if (root != wc.Entry.Info.name)
+            {
+                failReason = "FGV " + c.Id + ": the authored root is " + (root ?? "<none>") + ", not the case part " + wc.Entry.Info.name;
+                return null;
+            }
+            v.Node.SetValue("name", PartParityCaseRules.VesselName(wc.CaseId), true);
+            if (v.VariantName != null) wc.RealVariant = v.VariantName;
+            for (int i = 0; i < v.ContextParts.Count; i++)
+            {
+                run.Nodes.Add(new PartParityContextNode { Node = v.ContextParts[i].Key, Part = v.ContextParts[i].Value });
+                run.FillerFlightIds.Add(v.ContextFlightIds[i]);
+            }
+            run.SeparateFlightId = run.Option.State == PartParityStateRules.StateSeparated ? v.SeparatingFlightId : 0u;
+            ParsekLog.Verbose(Tag, $"case {wc.CaseId}: authored FGV context {c.Id} family={run.Option.Family} " +
+                $"state={run.Option.State} parts={parts.Length.ToString(Ic)} variant={v.VariantName ?? "<base>"} " +
+                $"separates={(run.SeparateFlightId != 0 ? "true" : "false")}");
+            return v.Node;
+        }
+
+        /// <summary>The stowed pose of the pressed module of a gear or cargo bay case
+        /// (<see cref="PartParityCaseAuthoring.AuthorStowedPose"/> restricted to it).</summary>
         private static void AuthorStowedPose(ConfigNode subject, AvailablePart info, PartParityStateOption opt)
         {
-            ConfigNode[] modules = subject.GetNodes("MODULE");
-            Part prefab = info.partPrefab;
-            if (modules.Length != prefab.Modules.Count) return;
-            int idx = opt.ModuleIndex;
-            if (idx < 0 || idx >= modules.Length) return;
-            if (opt.Family == PartParityStateRules.FamilyGear)
-            {
-                modules[idx].SetValue("stateString", PartParityStateWave.GearStowedStateString, true);
-                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] stateString={PartParityStateWave.GearStowedStateString}");
-            }
-            else if (opt.Family == PartParityStateRules.FamilyCargoBay)
-            {
-                ModuleCargoBay bay = prefab.FindModuleImplementing<ModuleCargoBay>();
-                if (bay == null) return;
-                float closed = PartParityStateWave.CargoBayClosedAnimTime(bay.closedPosition);
-                bool animSwitch = PartParityStateWave.AnimSwitchAt(closed);
-                modules[idx].SetValue("animTime", closed.ToString("R", Ic), true);
-                modules[idx].SetValue("animSwitch", animSwitch ? "True" : "False", true);
-                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] animTime={closed.ToString("0.###", Ic)} " +
-                    $"animSwitch={(animSwitch ? "True" : "False")} (closedPosition={bay.closedPosition.ToString("0.###", Ic)})");
-            }
+            if (opt.Family != PartParityStateRules.FamilyGear && opt.Family != PartParityStateRules.FamilyCargoBay) return;
+            foreach (string d in PartParityCaseAuthoring.AuthorStowedPose(subject, info.partPrefab, opt.ModuleIndex))
+                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {d}");
         }
 
         private static void AddCharge(ConfigNode part)
@@ -401,8 +436,25 @@ namespace Parsek.TestCommands
             run.SeedUT = Planetarium.GetUniversalTime();
             run.StowedSeeds = PartStateSeeder.EmitSeedEvents(run.Sets, PartNames(v), run.SeedUT, Tag);
             foreach (PartModule m in part.Modules)
+            {
                 if (m is ModuleJettison j && j.jettisonTransform != null && !run.JettisonTransforms.Contains(j.jettisonTransform))
                     run.JettisonTransforms.Add(j.jettisonTransform);
+                // A deployed fairing's panels leave as free physical objects (D.3, thrown
+                // parts): kept with the jettison transforms, hidden once thrown, destroyed at
+                // teardown.
+                if (m is ModuleProceduralFairing f && f.Panels != null)
+                    foreach (var panel in f.Panels)
+                        if (panel?.go != null && !run.JettisonTransforms.Contains(panel.go.transform))
+                            run.JettisonTransforms.Add(panel.go.transform);
+            }
+            if (run.SeparateFlightId != 0)
+            {
+                foreach (Part p in v.parts)
+                    if (p != null && p.flightID == run.SeparateFlightId) { run.SeparatePart = p; break; }
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: FGV separation part " +
+                    $"{(run.SeparatePart != null ? "'" + run.SeparatePart.partInfo?.name + "' pid=" + run.SeparatePart.persistentId.ToString(Ic) : "<not found>")} " +
+                    $"flightId={run.SeparateFlightId.ToString(Ic)}");
+            }
             run.SignatureBefore = Signature(part, run.Option);
             run.ReachedBeforePress = run.Option.Action != null
                 && PartParityStateRules.StateReached(run.Option, Observe(part, run.Option, out _, out _));
@@ -460,35 +512,18 @@ namespace Parsek.TestCommands
             run.Pressed = true;
             string result = PartParityStateRules.ActionInvoked;
             string detail = null;
-            foreach (int idx in run.Option.ModuleIndices)
+            if (run.Option.PreAction != null)
+                result = InvokeEvent(run, part, run.Option.ModuleIndex, run.Option.PreAction, out detail);
+            if (result == PartParityStateRules.ActionInvoked)
             {
-                PartModule m = idx >= 0 && idx < part.Modules.Count ? part.Modules[idx] : null;
-                if (m == null) { result = PartParityStateRules.ActionMissing; detail = "no module at " + idx.ToString(Ic); break; }
-                try
-                {
-                    if (run.Option.ActionIsKspAction)
-                    {
-                        BaseAction a = m.Actions[run.Option.Action];
-                        if (a == null) { result = PartParityStateRules.ActionMissing; detail = "no KSPAction " + run.Option.Action; break; }
-                        a.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
-                    }
-                    else
-                    {
-                        BaseEvent e = m.Events[run.Option.Action];
-                        if (e == null) { result = PartParityStateRules.ActionMissing; detail = "no KSPEvent " + run.Option.Action; break; }
-                        if (!run.EventVisible.HasValue) run.EventVisible = e.guiActive && e.active;
-                        e.Invoke();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    result = PartParityStateRules.ActionThrew;
-                    detail = ex.GetType().Name + ": " + ex.Message;
-                    break;
-                }
+                if (run.Option.Action == PartParityStateRules.ActionSeparate)
+                    result = PressSeparate(wc, run, part, out detail);
+                else
+                    result = PressModules(run, part, out detail);
             }
             run.ActionResult = result;
             ParsekLog.Info(Tag, $"case {wc.CaseId}: pressed {run.Option.Module}.{run.Option.Action} " +
+                (run.Option.PreAction != null ? "pre=" + run.Option.PreAction + " " : string.Empty) +
                 $"modules=[{string.Join(",", run.Option.ModuleIndices.ConvertAll(i => i.ToString(Ic)).ToArray())}] " +
                 $"kspAction={(run.Option.ActionIsKspAction ? "true" : "false")} " +
                 $"eventVisible={(run.EventVisible.HasValue ? (run.EventVisible.Value ? "true" : "false") : "-")} " +
@@ -508,6 +543,114 @@ namespace Parsek.TestCommands
             }
         }
 
+        /// <summary>The option's action on each of its modules: the KSPAction (Activate) or
+        /// the KSPEvent, stopping at the first that is missing or throws.</summary>
+        private static string PressModules(PartParityStateRun run, Part part, out string detail)
+        {
+            detail = null;
+            foreach (int idx in run.Option.ModuleIndices)
+            {
+                PartModule m = idx >= 0 && idx < part.Modules.Count ? part.Modules[idx] : null;
+                if (m == null) { detail = "no module at " + idx.ToString(Ic); return PartParityStateRules.ActionMissing; }
+                try
+                {
+                    if (run.Option.ActionIsKspAction)
+                    {
+                        BaseAction a = m.Actions[run.Option.Action];
+                        if (a == null) { detail = "no KSPAction " + run.Option.Action; return PartParityStateRules.ActionMissing; }
+                        a.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
+                    }
+                    else
+                    {
+                        string r = InvokeEvent(run, part, idx, run.Option.Action, out detail);
+                        if (r != PartParityStateRules.ActionInvoked) return r;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    detail = ex.GetType().Name + ": " + ex.Message;
+                    return PartParityStateRules.ActionThrew;
+                }
+            }
+            return PartParityStateRules.ActionInvoked;
+        }
+
+        /// <summary>One module's stock KSPEvent, recording whether the event was visible (the
+        /// first one pressed).</summary>
+        private static string InvokeEvent(PartParityStateRun run, Part part, int idx, string eventName, out string detail)
+        {
+            detail = null;
+            PartModule m = idx >= 0 && idx < part.Modules.Count ? part.Modules[idx] : null;
+            if (m == null) { detail = "no module at " + idx.ToString(Ic); return PartParityStateRules.ActionMissing; }
+            try
+            {
+                BaseEvent e = m.Events[eventName];
+                if (e == null) { detail = "no KSPEvent " + eventName; return PartParityStateRules.ActionMissing; }
+                if (!run.EventVisible.HasValue) run.EventVisible = e.guiActive && e.active;
+                e.Invoke();
+                return PartParityStateRules.ActionInvoked;
+            }
+            catch (Exception ex)
+            {
+                detail = ex.GetType().Name + ": " + ex.Message;
+                return PartParityStateRules.ActionThrew;
+            }
+        }
+
+        /// <summary>
+        /// FGV's separation (D.10 S8): the engine plate's own <c>ModuleDecouple.Decouple</c>,
+        /// else the leaving part's <c>Part.decouple</c> (the interstage's upper stage, the part
+        /// below the engine shroud), exactly the call FGV makes. The new vessel is killed once
+        /// the state is reached (<see cref="KillSeparatedVessel"/>).
+        /// </summary>
+        private static string PressSeparate(WaveCase wc, PartParityStateRun run, Part part, out string detail)
+        {
+            detail = null;
+            if (run.SeparatePart == null || run.SeparatePart.vessel != wc.Real)
+            {
+                detail = "the separating part (flightId " + run.SeparateFlightId.ToString(Ic) + ") is not on the case vessel";
+                return PartParityStateRules.ActionMissing;
+            }
+            try
+            {
+                ModuleDecouple dec = run.Option.Fgv != null && run.Option.Fgv.SeparateWithDecoupler
+                    ? part.FindModuleImplementing<ModuleDecouple>() : null;
+                if (run.Option.Fgv != null && run.Option.Fgv.SeparateWithDecoupler && dec == null)
+                {
+                    detail = "no ModuleDecouple on " + part.partInfo?.name;
+                    return PartParityStateRules.ActionMissing;
+                }
+                if (dec != null) dec.Decouple();
+                else run.SeparatePart.decouple();
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: FGV separation by {(dec != null ? "ModuleDecouple.Decouple" : "Part.decouple")} " +
+                    $"of '{run.SeparatePart.partInfo?.name}' pid={run.SeparatePart.persistentId.ToString(Ic)}");
+                return PartParityStateRules.ActionInvoked;
+            }
+            catch (Exception ex)
+            {
+                detail = ex.GetType().Name + ": " + ex.Message;
+                return PartParityStateRules.ActionThrew;
+            }
+        }
+
+        /// <summary>Kills the vessel an FGV separation made (FGV's <c>Die</c>), once. Idempotent.</summary>
+        internal static void KillSeparatedVessel(WaveCase wc, PartParityStateRun run, string why)
+        {
+            if (run == null || run.SeparatePart == null) return;
+            Vessel sv = run.SeparatePart != null ? run.SeparatePart.vessel : null;
+            if (sv == null || sv == wc.Real || sv.state == Vessel.State.DEAD) return;
+            run.SeparatedVessel = sv;
+            try
+            {
+                sv.Die();
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: separated vessel '{sv.vesselName}' pid={sv.persistentId.ToString(Ic)} killed ({why})");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"case {wc.CaseId}: separated vessel Die threw {ex.GetType().Name}: {ex.Message} ({why})");
+            }
+        }
+
         /// <summary>One frame of step 4 for one case: poll, then the done signal, the refused
         /// check, the timeout, and once reached the settle.</summary>
         internal static void Step(WaveCase wc)
@@ -521,9 +664,10 @@ namespace Parsek.TestCommands
             if (run.Air && run.Pressed) PartParityAirContext.StepFull(wc, run, part, now, animating);
             if (!run.Reached)
             {
-                PartParityStateObservation o = Observe(part, run.Option, out string field, out string value);
+                PartParityStateObservation o = Observe(part, run.Option, out string field, out string value, run);
                 if (PartParityStateRules.StateReached(run.Option, o))
                 {
+                    KillSeparatedVessel(wc, run, "reached");
                     run.Reached = true;
                     run.ReachedRealtime = now;
                     run.WaitSeconds = now - run.PressRealtime;
@@ -631,11 +775,18 @@ namespace Parsek.TestCommands
         /// <summary>The stock values the family's done signal reads (D.1), plus the field and
         /// value named in the proof's endpoint.</summary>
         internal static PartParityStateObservation Observe(Part part, PartParityStateOption opt,
-            out string field, out string value)
+            out string field, out string value, PartParityStateRun run = null)
         {
             var o = new PartParityStateObservation { AnimationPlaying = AnyAnimationPlaying(part) };
             field = null;
             value = null;
+            if (opt.State == PartParityStateRules.StateSeparated && run != null)
+            {
+                o.SeparatedPartGone = run.SeparatePart == null || run.SeparatePart.vessel != part.vessel;
+                field = "separated";
+                value = o.SeparatedPartGone == true ? "gone" : "attached";
+                return o;
+            }
             PartModule m = opt.ModuleIndex >= 0 && opt.ModuleIndex < part.Modules.Count ? part.Modules[opt.ModuleIndex] : null;
             switch (opt.Family)
             {
@@ -1024,7 +1175,13 @@ namespace Parsek.TestCommands
                     }
                     break;
                 case PartParityStateRules.FamilyFairing:
-                    g.HasInfo = state.fairingInfos != null && state.fairingInfos.ContainsKey(pid);
+                    if (state.fairingInfos != null && state.fairingInfos.TryGetValue(pid, out FairingGhostInfo fi) && fi != null)
+                    {
+                        // The shell: gone (built from a deployed snapshot) or hidden by the
+                        // jettison applier reads as deployed.
+                        g.HasInfo = true;
+                        g.On = fi.fairingMeshObject == null || !fi.fairingMeshObject.activeSelf;
+                    }
                     break;
                 default:
                     if (state.deployableInfos != null && state.deployableInfos.TryGetValue(pid, out DeployableGhostInfo d) && d != null)
@@ -1107,7 +1264,7 @@ namespace Parsek.TestCommands
         {
             PartParityStateRun run = wc.State;
             Part part = wc.Real.rootPart;
-            bool jettisoned = run.Option.State == PartParityStateRules.StateJettisoned;
+            bool jettisoned = PartParityStateRules.ThrowsJettisonTransforms(run.Option);
             shown = new List<Renderer>();
             hidden = new List<Renderer>();
             var seen = new HashSet<Renderer>();
@@ -1307,6 +1464,7 @@ namespace Parsek.TestCommands
             try { GhostCoOrbitalRig.DestroyLiveGhost(run.StowedGhost); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: stowed ghost destroy threw {ex.GetType().Name}: {ex.Message}"); }
             run.StowedGhost = null;
+            KillSeparatedVessel(wc, run, "teardown");
             int destroyed = 0, kept = 0;
             foreach (Transform t in run.JettisonTransforms)
             {

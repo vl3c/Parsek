@@ -801,8 +801,9 @@ namespace Parsek.TestCommands
         /// exactly <see cref="SelectCases"/> over the stowed keys, today's list in today's
         /// order. With either: ONLY the state and context keys whose state matches
         /// <c>states=</c> (any state when <c>none</c>) and whose context matches
-        /// <c>contexts=</c> (<see cref="PartParityStateRules.OrbitContexts"/> when <c>none</c>),
-        /// never a <c>stowed</c> / <c>alone</c> case, then the same filter / source / shard /
+        /// <c>contexts=</c> (<see cref="PartParityStateRules.OrbitContexts"/> when <c>none</c>;
+        /// matched by <see cref="PartParityStateRules.ContextClass"/>, so <c>fgv</c> selects
+        /// every FGV context), never a <c>stowed</c> / <c>alone</c> case, then the same filter / source / shard /
         /// limit selection. <c>skins=</c> governs stowed cases only (state cases are at the
         /// base skin, ruling R2).
         /// </summary>
@@ -822,8 +823,9 @@ namespace Parsek.TestCommands
                     string context = k.Context ?? DefaultContext;
                     if (state == DefaultState && context == DefaultContext) continue;
                     if (args.States != null && !args.States.Contains(state)) continue;
-                    if (args.Contexts != null ? !args.Contexts.Contains(context)
-                        : Array.IndexOf(PartParityStateRules.OrbitContexts, context) < 0) continue;
+                    string contextClass = PartParityStateRules.ContextClass(context);
+                    if (args.Contexts != null ? !args.Contexts.Contains(contextClass)
+                        : Array.IndexOf(PartParityStateRules.OrbitContexts, contextClass) < 0) continue;
                     kept.Add(k);
                 }
             }

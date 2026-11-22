@@ -1113,7 +1113,7 @@ this order: `deployable`, `gear`, `ladder`, `animation-group`, `cargo-bay`, `ani
 | Cabin light (colour changer) | `as ModuleColorChanger` with `toggleInFlight` (default true), the first on a part with no `ModuleLight` (same check) | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s plus 0.5 s (cap 5 s) | `LightOn` | 26 / 37 |
 | Parachute | `FindModuleImplementing<ModuleParachute>` (`PollParachutes`) | `semi`, `full`, context `air` | KSPEvent `Deploy` in the air, then the in-flight `deployAltitude` tweak for `full` (D.4) | `deploymentState` SEMIDEPLOYED / DEPLOYED (`ClassifyParachuteState`) and the deploy animation finished | `ParachuteSemiDeployed`, then `ParachuteDeployed` | 10 / 10 |
 | Engine shroud and other jettisons | every `as ModuleJettison` module (`PollJettisons`), one case set per part | `jettisoned`, context by node rule (D.3) | KSPEvent `Jettison` on every jettison module of the part | `isJettisoned` on every module | `ShroudJettisoned` | 37 / 60 parts, 66 / 108 cases |
-| Procedural fairing | `FindModuleImplementing<ModuleProceduralFairing>` (`PollFairings`) | FGV's states (intact, `deployed`, separated / rebuilt) in FGV's six contexts | KSPEvent `DeployFairing`, FGV's own separation | `GetScalar >= 0.5` and FGV's existing checks | `FairingJettisoned` | 18 / 18 (S8) |
+| Procedural fairing | `FindModuleImplementing<ModuleProceduralFairing>` (`PollFairings`) | FGV's states (`stowed` = intact, `deployed`, `separated`) in the four FGV fairing contexts | KSPEvent `DeployFairing`; FGV's own separation | `GetScalar >= 0.5`; the separated part off the vessel | `FairingJettisoned` | 9 / 9 (S8) |
 
 The counts were measured by S1 (2026-11-22) and are pinned by xUnit
 (`StockMinimal_EnumeratesTheD1Counts`, `ModdedCompat_EnumeratesTheD1Counts`) over committed
@@ -1126,9 +1126,43 @@ row loses the three / five service modules, whose `ModuleCargoBay` deploys a `Mo
 the poller skips (their shells are the jettison family's ignore-nodes cases; 11 / 14 -> 8 / 9); the
 standalone animate generic row loses the two thrust reversers (`JetEngine`, `turboFanSize2`), whose
 parts carry `ModuleAnimateHeat`, so `HasDedicatedAnimateHandler` is true and the recorder never polls
-them (12 / 17 -> 10 / 15; todo THRUST-REVERSER-NOT-RECORDED). The fairing row's 18 cases arrive with
-the FGV context table (D.10 S8); until then each fairing part is excluded
-`fairing-contexts-pending`.
+them (12 / 17 -> 10 / 15; todo THRUST-REVERSER-NOT-RECORDED). The fairing row's cases arrived with
+the FGV context table (D.10 S8, below); the plan's "18" was FGV's six configurations times three
+states, but FGV photographs only 16 phases and three of them pair up as the two routes of one
+case, so the migration is 13 cases.
+
+FGV contexts (BUILT, S8, 2026-11-22). FGV-1's six configurations are the contexts
+`fgv-<n>-<name>` (`PartParityStateRules.FairingContexts`, mirrored as `partparity.FAIRING_CONTEXTS`;
+the per-context table is `FgvContextTable`), each bound to the one part it is the subject of, with
+FGV's phases as state words: `stowed` (FGV's intact: no press, two atlas rows), `deployed` (FGV's
+jettisoned: KSPEvent `DeployFairing`) and the new word `separated` (FGV's separation: the engine
+plate's own `ModuleDecouple.Decouple`, else the leaving part's `Part.decouple`, exactly FGV's
+calls; the interstage deploys its fairing first, as FGV does). A separated case's two ghost routes
+are FGV's two separation images: the event route (the stowed snapshot plus the polled events) is
+`fgv-n-separated`, the start route (the post-separation snapshot) `fgv-n-separated-branch`. Done
+for `separated` is the leaving part no longer on the case vessel; the new vessel is killed then
+(and at teardown).
+
+| Context | Subject | Family | States | FGV images covered |
+| --- | --- | --- | --- | --- |
+| `fgv-1-plain-capped` | `fairingSize1` | fairing | stowed, deployed | intact, jettisoned |
+| `fgv-2-interstage-truss` | `fairingSize2` | fairing | stowed, deployed, separated | intact, jettisoned, separated, separated-branch |
+| `fgv-3-open-top` | `fairingSize2` | fairing | stowed, deployed | intact, jettisoned |
+| `fgv-4-colour-variant` | `fairingSize1` | fairing | stowed, deployed | intact, jettisoned |
+| `fgv-5-engine-plate` | `EnginePlate2` | jettison | stowed, separated | intact, separated, separated-branch |
+| `fgv-6-engine-shroud` | `liquidEngine2.v2` | jettison | stowed, separated | intact, separated, separated-branch |
+
+The two skirts are jettison-family cases (their state is the shroud leaving with the part below),
+so the fairing row counts 9 and the jettison row 66 + 4 / 108 + 4. The craft are FGV's own
+(`Parsek.InGameTests.FairingGhostAuthoring`, moved out of the FGV test file, which now calls it):
+the subject is the vessel's root (the engine shroud configuration is authored engine-rooted, the
+same craft), every other part is the context, hidden on every side like a stacked filler, and the
+colour-variant configuration's chosen variant becomes the case's real variant (the skin proof
+requests it; the id keeps the base skin, ruling R2). A deployed fairing's panels join the jettison
+transforms (hidden once thrown, destroyed at teardown). `contexts=fgv` selects all six
+(`PartParityStateRules.ContextClass`), and an orbit run with `contexts=none` plans them. A fairing
+part no context names (`fairingSize1p5`, `fairingSize3`, `fairingSize4`, the three ReStock bases)
+is excluded `fairing-no-context`; its stowed case still runs in PP-1 / PP-2.
 
 Same-word tiebreak (general, in the id rule, D.2): when two or more of one part's cases share a
 state word and a context (two standalone animate generics, two animation groups, or any future
@@ -1137,10 +1171,10 @@ first. No part of either install hits it today.
 
 Totals (each step logs the exact ones, D.2):
 
-| Lane | Single-part states | Shroud cases | Fairing contexts | Chute cases (air) | Controls | Cases |
+| Lane | Single-part states | Shroud cases | FGV contexts | Chute cases (air) | Controls | Cases |
 | --- | --- | --- | --- | --- | --- | --- |
-| PP-3 (stock, orbit) | 94 | 66 | 18 (S8) | - | 9 | 187 |
-| PP-4 (modded, orbit) | 117 | 108 | 18 (S8) | - | 9 | 252 |
+| PP-3 (stock, orbit) | 94 | 66 | 13 (S8) | - | 9 | 182 |
+| PP-4 (modded, orbit) | 117 | 108 | 13 (S8) | - | 9 | 247 |
 | PP-5 (stock, air) | - | - | - | 10 | 4 | 14 |
 | PP-6 (modded, air) | - | - | - | 10 | 4 | 14 |
 
@@ -1176,7 +1210,8 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
 - `p8-heat`: `ModuleAnimateHeat` glow (16 / 13) and `ModuleAblator` char: temperature-driven
   material properties, P8 (9.3). `p8-fx`: engine plumes and RCS (each `ModuleEngines` /
   `ModuleRCS` module); light blink is part of the light case.
-- `fairing-contexts-pending`: a fairing part while the FGV context table is empty (until S8).
+- `fairing-no-context`: a fairing part no FGV context names (3 stock, 6 modded; S8 replaced the
+  interim `fairing-contexts-pending`).
 - Not module exclusions, named here only: `broken` (a broken solar panel or wheel: stock breaks a
   panel into free debris and a wheel only under load; not a pose the part keeps) and decouple (a
   decoupler looks the same after it fires; the split is a recording-tree matter).
@@ -1199,9 +1234,10 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   key; the archived manifests stay outside the repo and CI never reads them.
 - The args (`TestCommandPartParitySweep.TryParseArgs`, mirrored by hlib's
   `validate_part_parity_sweep_step`): `states=none|all|<csv of stowed, deployed, open, lit, semi,
-  full, jettisoned>` (refused `states-arg-invalid`) and `contexts=none|<csv of alone, stacked,
-  air>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need a host at the
-  pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
+  full, jettisoned, separated>` (refused `states-arg-invalid`) and `contexts=none|<csv of alone,
+  stacked, air, fgv>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need
+  a host at the pad and the orbit cases an orbiting one; `fgv` selects every FGV context, D.1,
+  added by S8 with the word `separated`). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
   `host-not-at-pad`; every other run keeps `host-not-orbiting`. S1's interim `state-runs-not-built`
   refusal was dropped with its hlib mirror when S3 built the live orbit engine, and the interim

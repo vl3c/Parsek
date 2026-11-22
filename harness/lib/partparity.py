@@ -180,13 +180,36 @@ SETTING_CONTEXTS = "contexts"
 SETTING_CONTROL_SET = "controlSet"
 STATE_STOWED = "stowed"
 KNOWN_STATES: Tuple[str, ...] = (
-    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned",
+    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
 )
 CONTEXT_ALONE = "alone"
 CONTEXT_STACKED = "stacked"
 CONTEXT_AIR = "air"
-KNOWN_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED, CONTEXT_AIR)
-ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED)
+# The class word of the FGV contexts (PartParityStateRules.ContextFgv / ContextClass): a
+# contexts= csv names it to select every fgv-<n>-<name> context (design D.10 S8).
+CONTEXT_FGV = "fgv"
+CONTEXT_FGV_PREFIX = "fgv-"
+KNOWN_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED, CONTEXT_AIR, CONTEXT_FGV)
+ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED, CONTEXT_FGV)
+# FGV-1's six configurations as contexts (PartParityStateRules.FairingContexts), FGV's order.
+FAIRING_CONTEXTS: Tuple[str, ...] = (
+    "fgv-1-plain-capped", "fgv-2-interstage-truss", "fgv-3-open-top", "fgv-4-colour-variant",
+    "fgv-5-engine-plate", "fgv-6-engine-shroud",
+)
+
+
+def context_class(context: Optional[str]) -> Optional[str]:
+    """PartParityStateRules.ContextClass: ``fgv`` for every ``fgv-<n>-<name>`` context,
+    the context itself otherwise."""
+    if isinstance(context, str) and context.startswith(CONTEXT_FGV_PREFIX):
+        return CONTEXT_FGV
+    return context
+
+
+def is_context_case(context: Optional[str]) -> bool:
+    """A context that authors parts beside the subject and may plan a stowed case with no
+    press: the stacked shroud context and the FGV contexts (not alone, not air)."""
+    return context_class(context) in (CONTEXT_STACKED, CONTEXT_FGV)
 STATE_TIEBREAK_PREFIX = "-m"
 
 
@@ -228,7 +251,7 @@ PRESS_GATE_STATUSES: Tuple[str, ...] = (SETUP_ACTION_FAILED, SETUP_STATE_TIMEOUT
 STATE_EXCLUSION_REASONS: Tuple[str, ...] = (
     "ground-deploy", "no-pose", "fairing-bay", "bay-deploy-not-animated", "cs-deploy-sign",
     "jettison-blocked-by-node", "jettison-node-missing", "p7-robotics", "p8-heat", "p8-fx",
-    "not-polled", "no-animation", "fairing-contexts-pending",
+    "not-polled", "no-animation", "fairing-no-context",
 )
 # stateProof.actionResult and the two ghost routes' outcomes (design D.2, D.5).
 ACTION_RESULTS: Tuple[str, ...] = ("invoked", "missing", "threw", "refused")
@@ -840,10 +863,10 @@ def press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
       * a state case (``is_state_case``) needs a ``stateProof`` with a non-null ``action``;
       * a proof whose ``action`` is non-null needs ``actionResult == "invoked"`` and
         ``reached == true``, whatever the case's state;
-      * a proof whose ``action`` is null on a stowed-state case must be the stacked
-        stowed context case (context ``stacked``, ``reached == true``: no press is
-        required); a case with no proof and a stowed state (every pre-P6 sidecar, every
-        plain stowed case) is not checked.
+      * a proof whose ``action`` is null on a stowed-state case must be a stowed context
+        case (context ``stacked`` or an FGV context, ``is_context_case``, with
+        ``reached == true``: no press is required); a case with no proof and a stowed
+        state (every pre-P6 sidecar, every plain stowed case) is not checked.
     Returns the problem, or None. judge_case makes such a case ``error`` and
     evaluate_sweep lists it as a recompute mismatch, INVALID(parity-instrument): the
     sidecar contradicts itself, so neither its verdict nor its status can be trusted."""
@@ -863,12 +886,12 @@ def press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
         if state_case:
             return "press-proof: state=%s setup=%s but stateProof.action=null" % (
                 sidecar.get("state"), status)
-        # The one stowed shape that carries a proof: the stacked stowed context case,
-        # which presses nothing but must show its context reached.
-        if sidecar.get("context") == CONTEXT_STACKED and proof.get("reached") is True:
+        # The one stowed shape that carries a proof: a stowed context case (the stacked
+        # shroud, FGV's intact), which presses nothing but must show its context reached.
+        if is_context_case(sidecar.get("context")) and proof.get("reached") is True:
             return None
         return "press-proof: state=%s context=%s setup=%s stateProof.action=null reached=%s " \
-               "(only a reached stacked stowed case may skip the press)" % (
+               "(only a reached stowed context case may skip the press)" % (
                    sidecar.get("state"), sidecar.get("context"), status, proof.get("reached"))
     result, reached = proof.get("actionResult"), proof.get("reached")
     if result == ACTION_RESULT_INVOKED and reached is True:

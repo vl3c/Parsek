@@ -127,8 +127,13 @@ namespace Parsek.Tests
 
             r = Enumerate(Part("fairingSize1", "", Mod(0, "ModuleProceduralFairing"),
                 Mod(1, "ModuleCargoBay", null, "DeployModuleIndex", "0")));
+            Assert.Equal(new[] { "stowed/fgv-1-plain-capped", "deployed/fgv-1-plain-capped",
+                "stowed/fgv-4-colour-variant", "deployed/fgv-4-colour-variant" }, r.Cases.Select(Pair));
+            Assert.Equal(new[] { "fairing-bay" }, r.Exclusions.Select(e => e.Reason));
+            r = Enumerate(Part("fairingSize3", "", Mod(0, "ModuleProceduralFairing"),
+                Mod(1, "ModuleCargoBay", null, "DeployModuleIndex", "0")));
             Assert.Empty(r.Cases);
-            Assert.Equal(new[] { "fairing-bay", "fairing-contexts-pending" }, r.Exclusions.Select(e => e.Reason));
+            Assert.Equal(new[] { "fairing-bay", "fairing-no-context" }, r.Exclusions.Select(e => e.Reason));
 
             // DeployModuleIndex absent reads stock's default 0.
             r = Enumerate(Part("ServiceModule18", "top,bottom", Mod(0, "ModuleServiceModule"), Mod(1, "ModuleCargoBay")));
@@ -326,16 +331,18 @@ namespace Parsek.Tests
             {
                 ["deployable"] = 19, ["gear"] = 8, ["ladder"] = 2, ["animation-group"] = 5,
                 ["cargo-bay"] = 8, ["animate-generic"] = 10, ["airbrake"] = 1, ["light"] = 15,
-                ["cabin-light"] = 26, ["parachute"] = 10, ["jettison"] = 66,
+                ["cabin-light"] = 26, ["parachute"] = 10, ["jettison"] = 66 + 4, ["fairing"] = 9,
             };
             Assert.Equal(expected.OrderBy(p => p.Key), ByFamily(r).OrderBy(p => p.Key));
-            Assert.Equal(94, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"));
+            Assert.Equal(94, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
+                && k.StateOption.Fgv == null));
+            AssertFgvCases(r);
             Assert.Equal(37, r.Cases.Where(k => k.StateOption.Family == "jettison").Select(k => k.Part).Distinct().Count());
             Dictionary<string, int> reasons = ByReason(r);
             Assert.Equal(9, reasons["ground-deploy"]);
             Assert.Equal(2, reasons["no-pose"]);
             Assert.Equal(5, reasons["fairing-bay"]);
-            Assert.Equal(5, reasons["fairing-contexts-pending"]);
+            Assert.Equal(3, reasons["fairing-no-context"]);
             Assert.Equal(3, reasons["bay-deploy-not-animated"]);
             Assert.Equal(24, reasons["cs-deploy-sign"]);
             Assert.Equal(5, reasons["jettison-blocked-by-node"]);
@@ -352,19 +359,93 @@ namespace Parsek.Tests
             {
                 ["deployable"] = 22, ["gear"] = 9, ["ladder"] = 2, ["animation-group"] = 4,
                 ["cargo-bay"] = 9, ["animate-generic"] = 15, ["airbrake"] = 1, ["light"] = 18,
-                ["cabin-light"] = 37, ["parachute"] = 10, ["jettison"] = 108,
+                ["cabin-light"] = 37, ["parachute"] = 10, ["jettison"] = 108 + 4, ["fairing"] = 9,
             };
             Assert.Equal(expected.OrderBy(p => p.Key), ByFamily(r).OrderBy(p => p.Key));
-            Assert.Equal(117, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"));
+            Assert.Equal(117, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
+                && k.StateOption.Fgv == null));
+            AssertFgvCases(r);
             Assert.Equal(60, r.Cases.Where(k => k.StateOption.Family == "jettison").Select(k => k.Part).Distinct().Count());
             Dictionary<string, int> reasons = ByReason(r);
             Assert.Equal(9, reasons["ground-deploy"]);
-            Assert.Equal(8, reasons["fairing-contexts-pending"]);
+            Assert.Equal(6, reasons["fairing-no-context"]);
             Assert.Equal(5, reasons["bay-deploy-not-animated"]);
             Assert.Equal(7, reasons["jettison-blocked-by-node"]);
             Assert.Equal(2, reasons["not-polled"]);
             Assert.False(reasons.ContainsKey("jettison-node-missing"));
             AssertIdsUnique(r);
+        }
+
+        /// <summary>FGV's six configurations as 13 cases (D.10 S8), the same on both installs:
+        /// each context's subject, family, states and press.</summary>
+        private static void AssertFgvCases(PartParityStateEnumeration r)
+        {
+            var fgv = r.Cases.Where(k => k.StateOption.Fgv != null).ToList();
+            Assert.Equal(new[]
+            {
+                "fairingSize1 stowed/fgv-1-plain-capped -", "fairingSize1 deployed/fgv-1-plain-capped DeployFairing",
+                "fairingSize1 stowed/fgv-4-colour-variant -", "fairingSize1 deployed/fgv-4-colour-variant DeployFairing",
+                "fairingSize2 stowed/fgv-2-interstage-truss -", "fairingSize2 deployed/fgv-2-interstage-truss DeployFairing",
+                "fairingSize2 separated/fgv-2-interstage-truss DeployFairing+Separate",
+                "fairingSize2 stowed/fgv-3-open-top -", "fairingSize2 deployed/fgv-3-open-top DeployFairing",
+                "EnginePlate2 stowed/fgv-5-engine-plate -", "EnginePlate2 separated/fgv-5-engine-plate Separate",
+                "liquidEngine2.v2 stowed/fgv-6-engine-shroud -", "liquidEngine2.v2 separated/fgv-6-engine-shroud Separate",
+            }.OrderBy(x => x, StringComparer.Ordinal),
+                fgv.Select(k => k.Part + " " + Pair(k) + " " + (k.StateOption.Action == null ? "-"
+                    : (k.StateOption.PreAction != null ? k.StateOption.PreAction + "+" : "") + k.StateOption.Action))
+                    .OrderBy(x => x, StringComparer.Ordinal));
+            Assert.All(fgv.Where(k => k.Context.StartsWith("fgv-5", StringComparison.Ordinal)
+                    || k.Context.StartsWith("fgv-6", StringComparison.Ordinal)),
+                k => Assert.Equal("jettison", k.StateOption.Family));
+            Assert.Equal(13, fgv.Count);
+        }
+
+        [Fact]
+        public void FgvContexts_AreTheSixConfigurationsInFgvOrder_AndSelectByTheirClass()
+        {
+            Assert.Equal(new[]
+            {
+                "fgv-1-plain-capped", "fgv-2-interstage-truss", "fgv-3-open-top", "fgv-4-colour-variant",
+                "fgv-5-engine-plate", "fgv-6-engine-shroud",
+            }, PartParityStateRules.FairingContexts);
+            Assert.Equal(PartParityStateRules.FairingContexts, PartParityStateRules.FgvContextTable.Select(c => c.Id));
+            for (int i = 0; i < PartParityStateRules.FgvContextTable.Length; i++)
+                Assert.Equal(i + 1, PartParityStateRules.FgvContextTable[i].Number);
+            Assert.Equal("fgv", PartParityStateRules.ContextClass("fgv-3-open-top"));
+            Assert.Equal("stacked", PartParityStateRules.ContextClass("stacked"));
+            Assert.Null(PartParityStateRules.ContextClass(null));
+            Assert.Same(PartParityStateRules.FgvContextTable[4], PartParityStateRules.FgvContext("fgv-5-engine-plate"));
+            Assert.Null(PartParityStateRules.FgvContext("stacked"));
+            Assert.Contains("fgv", PartParityStateRules.OrbitContexts);
+            Assert.Contains("separated", PartParityStateRules.KnownStates);
+        }
+
+        [Fact]
+        public void FgvSeparation_IsReachedWhenThePartLeaves_AndThrownTransformsFollowTheState()
+        {
+            var sep = new PartParityStateOption { Family = "jettison", State = "separated", Action = "Separate" };
+            Assert.False(PartParityStateRules.StateReached(sep, new PartParityStateObservation()));
+            Assert.False(PartParityStateRules.StateReached(sep, new PartParityStateObservation { SeparatedPartGone = false }));
+            // The jettison modules' own done signal does not stand in for the separation.
+            Assert.False(PartParityStateRules.StateReached(sep,
+                new PartParityStateObservation { JettisonModules = 1, JettisonedModules = 1 }));
+            Assert.True(PartParityStateRules.StateReached(sep, new PartParityStateObservation { SeparatedPartGone = true }));
+            Assert.Equal(PartParityStateBucket.Quick, PartParityStateRules.BucketFor("fairing"));
+
+            Assert.True(PartParityStateRules.ThrowsJettisonTransforms(new PartParityStateOption { Family = "jettison", State = "jettisoned" }));
+            Assert.True(PartParityStateRules.ThrowsJettisonTransforms(sep));
+            Assert.True(PartParityStateRules.ThrowsJettisonTransforms(new PartParityStateOption { Family = "fairing", State = "deployed" }));
+            Assert.False(PartParityStateRules.ThrowsJettisonTransforms(new PartParityStateOption { Family = "fairing", State = "stowed" }));
+            Assert.False(PartParityStateRules.ThrowsJettisonTransforms(new PartParityStateOption { Family = "deployable", State = "deployed" }));
+            Assert.False(PartParityStateRules.ThrowsJettisonTransforms(new PartParityStateOption { Family = "jettison", State = "stowed" }));
+            Assert.False(PartParityStateRules.ThrowsJettisonTransforms(null));
+
+            // A deployed fairing ghost reads its shell's absence or hiding (the driver's On).
+            var dep = new PartParityStateOption { Family = "fairing", State = "deployed", Action = "DeployFairing" };
+            Assert.Equal("applied", PartParityStateRules.GhostStateReached(dep, new PartParityGhostStateInput { HasInfo = true, On = true }));
+            Assert.Equal("not-reached", PartParityStateRules.GhostStateReached(dep, new PartParityGhostStateInput { HasInfo = true, On = false }));
+            Assert.Equal("applied", PartParityStateRules.GhostStateReached(
+                new PartParityStateOption { Family = "fairing", State = "stowed" }, new PartParityGhostStateInput { HasInfo = true }));
         }
 
         private static void AssertIdsUnique(PartParityStateEnumeration r)

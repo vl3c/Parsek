@@ -71,6 +71,45 @@ namespace Parsek.TestCommands
 
         /// <summary>The attach nodes the context puts a filler part on (stacked context); empty otherwise.</summary>
         internal List<string> NodeNames = new List<string>();
+
+        /// <summary>A stock KSPEvent of the module pressed in the same frame before
+        /// <see cref="Action"/> (an FGV context's separation after the fairing is deployed);
+        /// null for none.</summary>
+        internal string PreAction;
+
+        /// <summary>The FGV context the case authors (<see cref="PartParityStateRules.FgvContextTable"/>);
+        /// null for every other case.</summary>
+        internal PartParityFgvContext Fgv;
+    }
+
+    /// <summary>
+    /// One of FGV-1's six stock configurations as a context of the part parity sweep (design
+    /// D.10 S8): its context id <c>fgv-&lt;n&gt;-&lt;name&gt;</c>, the one part it is the
+    /// subject of (the sweep's case part, its vessel's root), the family whose state it
+    /// shows and FGV's states in it. The live authoring is
+    /// <c>Parsek.InGameTests.FairingGhostAuthoring</c>, FGV's own.
+    /// </summary>
+    internal sealed class PartParityFgvContext
+    {
+        /// <summary>FGV's configuration number (1..6).</summary>
+        internal int Number;
+        internal string Id;
+        internal string Subject;
+        internal string Family;
+
+        /// <summary>FGV's phases as state words: <c>stowed</c> (FGV's intact), <c>deployed</c>
+        /// (jettisoned: the fairing deployed), <c>separated</c> (the part FGV separates has
+        /// left; the event route is FGV's <c>separated</c> image, the start route its
+        /// <c>separated-branch</c>).</summary>
+        internal string[] States;
+
+        /// <summary>The separation is the subject's own <c>ModuleDecouple</c> (the engine
+        /// plate); otherwise the leaving part's <c>Part.decouple</c>.</summary>
+        internal bool SeparateWithDecoupler;
+
+        /// <summary>The separation runs after the fairing is deployed (FGV's order on the
+        /// interstage: jettison, then separate).</summary>
+        internal bool DeployBeforeSeparating;
     }
 
     /// <summary>A module (or part) a state run leaves out, and why (design D.1).</summary>
@@ -142,6 +181,9 @@ namespace Parsek.TestCommands
 
         /// <summary><c>ModuleProceduralFairing.GetScalar</c>.</summary>
         internal float? FairingScalar;
+
+        /// <summary>An FGV separation: the leaving part is no longer on the case vessel.</summary>
+        internal bool? SeparatedPartGone;
     }
 
     /// <summary>A ghost's own playback state for one state case after its prime (design D.5),
@@ -230,6 +272,7 @@ namespace Parsek.TestCommands
         internal const string StateSemi = "semi";
         internal const string StateFull = "full";
         internal const string StateJettisoned = "jettisoned";
+        internal const string StateSeparated = "separated";
 
         /// <summary>Every state word a <c>states=</c> csv may name, in canonical order
         /// (<c>stowed</c> selects the stacked stowed context case; a state run never plans
@@ -237,17 +280,28 @@ namespace Parsek.TestCommands
         internal static readonly string[] KnownStates =
         {
             StateStowed, StateDeployed, StateOpen, StateLit, StateSemi, StateFull, StateJettisoned,
+            StateSeparated,
         };
 
         internal const string ContextAlone = "alone";
         internal const string ContextStacked = "stacked";
         internal const string ContextAir = "air";
 
+        /// <summary>The class word of every FGV context (<c>fgv-&lt;n&gt;-&lt;name&gt;</c>): a
+        /// <c>contexts=</c> csv names it to select all six.</summary>
+        internal const string ContextFgv = "fgv";
+        internal const string ContextFgvPrefix = "fgv-";
+
         /// <summary>Every context a <c>contexts=</c> csv may name, in canonical order.</summary>
-        internal static readonly string[] KnownContexts = { ContextAlone, ContextStacked, ContextAir };
+        internal static readonly string[] KnownContexts = { ContextAlone, ContextStacked, ContextAir, ContextFgv };
 
         /// <summary>The contexts an orbit run plans when <c>contexts=</c> is not given.</summary>
-        internal static readonly string[] OrbitContexts = { ContextAlone, ContextStacked };
+        internal static readonly string[] OrbitContexts = { ContextAlone, ContextStacked, ContextFgv };
+
+        /// <summary>The word a <c>contexts=</c> csv selects a case context by: <c>fgv</c> for
+        /// every <c>fgv-&lt;n&gt;-&lt;name&gt;</c> context, the context itself otherwise.</summary>
+        internal static string ContextClass(string context)
+            => context != null && context.StartsWith(ContextFgvPrefix, StringComparison.Ordinal) ? ContextFgv : context;
 
         /// <summary>The same-word tiebreak (D.1): when two or more cases of one part share a
         /// state word and a context, EVERY one of them writes <c>&lt;word&gt;-m&lt;moduleIndex&gt;</c>.</summary>
@@ -265,6 +319,10 @@ namespace Parsek.TestCommands
         internal const string ActionDeploy = "Deploy";
         internal const string ActionJettison = "Jettison";
         internal const string ActionDeployFairing = "DeployFairing";
+
+        /// <summary>An FGV context's separation (not a stock event name): the subject's
+        /// <c>ModuleDecouple.Decouple</c> or the leaving part's <c>Part.decouple</c>.</summary>
+        internal const string ActionSeparate = "Separate";
 
         /// <summary>The <c>stateProof.actionResult</c> vocabulary.</summary>
         internal const string ActionInvoked = "invoked";
@@ -320,7 +378,7 @@ namespace Parsek.TestCommands
         internal const string ExcludeP8Fx = "p8-fx";
         internal const string ExcludeNotPolled = "not-polled";
         internal const string ExcludeNoAnimation = "no-animation";
-        internal const string ExcludeFairingContextsPending = "fairing-contexts-pending";
+        internal const string ExcludeFairingNoContext = "fairing-no-context";
 
         /// <summary>Every exclusion reason a state run writes.</summary>
         internal static readonly string[] ExclusionReasons =
@@ -328,13 +386,62 @@ namespace Parsek.TestCommands
             ExcludeGroundDeploy, ExcludeNoPose, ExcludeFairingBay, ExcludeBayDeployNotAnimated,
             ExcludeCsDeploySign, ExcludeJettisonBlockedByNode, ExcludeJettisonNodeMissing,
             ExcludeP7Robotics, ExcludeP8Heat, ExcludeP8Fx, ExcludeNotPolled, ExcludeNoAnimation,
-            ExcludeFairingContextsPending,
+            ExcludeFairingNoContext,
         };
 
-        /// <summary>The fairing family's contexts (FGV's six configurations); filled with
-        /// their states by the FGV migration (D.10 S8). While empty, each fairing part is
-        /// excluded <c>fairing-contexts-pending</c>.</summary>
-        internal static readonly string[] FairingContexts = { };
+        internal const string ContextFgv1 = "fgv-1-plain-capped";
+        internal const string ContextFgv2 = "fgv-2-interstage-truss";
+        internal const string ContextFgv3 = "fgv-3-open-top";
+        internal const string ContextFgv4 = "fgv-4-colour-variant";
+        internal const string ContextFgv5 = "fgv-5-engine-plate";
+        internal const string ContextFgv6 = "fgv-6-engine-shroud";
+
+        /// <summary>The FGV contexts (FGV-1's six configurations, design D.10 S8), in FGV's
+        /// order. A fairing part none of them names is excluded <c>fairing-no-context</c>
+        /// (its stowed case still runs in PP-1 / PP-2).</summary>
+        internal static readonly string[] FairingContexts =
+        {
+            ContextFgv1, ContextFgv2, ContextFgv3, ContextFgv4, ContextFgv5, ContextFgv6,
+        };
+
+        /// <summary>Each FGV context's subject, family and states (FGV's phases as state
+        /// words). The fairings show the fairing family (intact, deployed, the interstage also
+        /// separated after its jettison); the two skirts the jettison family (intact, and the
+        /// shroud gone once the part below leaves). 13 cases, every FGV-1 image among them:
+        /// the three separated cases each carry FGV's <c>separated</c> (event route) and
+        /// <c>separated-branch</c> (start route) pair.</summary>
+        internal static readonly PartParityFgvContext[] FgvContextTable =
+        {
+            new PartParityFgvContext { Number = 1, Id = ContextFgv1, Subject = "fairingSize1", Family = FamilyFairing,
+                States = new[] { StateStowed, StateDeployed } },
+            new PartParityFgvContext { Number = 2, Id = ContextFgv2, Subject = "fairingSize2", Family = FamilyFairing,
+                States = new[] { StateStowed, StateDeployed, StateSeparated }, DeployBeforeSeparating = true },
+            new PartParityFgvContext { Number = 3, Id = ContextFgv3, Subject = "fairingSize2", Family = FamilyFairing,
+                States = new[] { StateStowed, StateDeployed } },
+            new PartParityFgvContext { Number = 4, Id = ContextFgv4, Subject = "fairingSize1", Family = FamilyFairing,
+                States = new[] { StateStowed, StateDeployed } },
+            new PartParityFgvContext { Number = 5, Id = ContextFgv5, Subject = "EnginePlate2", Family = FamilyJettison,
+                States = new[] { StateStowed, StateSeparated }, SeparateWithDecoupler = true },
+            new PartParityFgvContext { Number = 6, Id = ContextFgv6, Subject = "liquidEngine2.v2", Family = FamilyJettison,
+                States = new[] { StateStowed, StateSeparated } },
+        };
+
+        /// <summary>The FGV context of a context id; null for any other context.</summary>
+        internal static PartParityFgvContext FgvContext(string contextId)
+        {
+            foreach (PartParityFgvContext c in FgvContextTable)
+                if (string.Equals(c.Id, contextId, StringComparison.Ordinal)) return c;
+            return null;
+        }
+
+        /// <summary>Whether a case's state leaves its jettison transforms (a shroud, the
+        /// fairing's panels) off the part: jettisoned, separated (the shroud left with the
+        /// part below; the interstage's panels were deployed first) or a deployed fairing.
+        /// The real side then hides them as thrown debris.</summary>
+        internal static bool ThrowsJettisonTransforms(PartParityStateOption option)
+            => option != null
+               && (option.State == StateJettisoned || option.State == StateSeparated
+                   || (option.Family == FamilyFairing && option.State == StateDeployed));
 
         // ----- flags and tags a state case writes (D.3 to D.6) -----
 
@@ -429,10 +536,7 @@ namespace Parsek.TestCommands
             EnumerateLightsAndChutes(acc);
             EnumerateJettison(acc.Name, part, acc.Cases, acc.Contexts, r);
 
-            // Procedural fairing: PollFairings (FindModuleImplementing). FGV's contexts land with S8.
-            int fairing = FirstImplementing(acc.Mods, TypeProceduralFairing);
-            if (fairing >= 0 && FairingContexts.Length == 0)
-                r.Exclusions.Add(Ex(acc.Name, FamilyFairing, acc.Mods[fairing].Name, fairing, ExcludeFairingContextsPending));
+            EnumerateFgvContexts(acc);
 
             BuildKeys(acc, baseKey);
             return r;
@@ -579,6 +683,60 @@ namespace Parsek.TestCommands
                 acc.Case(FamilyParachute, mods[chute], StateSemi, ActionDeploy, false, ContextAir);
                 acc.Case(FamilyParachute, mods[chute], StateFull, ActionDeploy, false, ContextAir);
             }
+        }
+
+        /// <summary>
+        /// The FGV contexts whose subject is this part (D.10 S8), one case per state: a
+        /// fairing context reads the part's <c>ModuleProceduralFairing</c> (PollFairings,
+        /// FindModuleImplementing), a skirt context its jettison modules (PollJettisons). A
+        /// <c>stowed</c> case presses nothing (FGV's intact), <c>deployed</c> presses
+        /// <c>DeployFairing</c>, <c>separated</c> is FGV's separation (after
+        /// <c>DeployFairing</c> on the interstage). A fairing part no context names is
+        /// excluded <c>fairing-no-context</c>.
+        /// </summary>
+        private static void EnumerateFgvContexts(Accumulator acc)
+        {
+            List<PartParityStateModule> mods = acc.Mods;
+            int fairing = FirstImplementing(mods, TypeProceduralFairing);
+            var jettison = new List<int>();
+            foreach (PartParityStateModule m in mods)
+                if (m != null && m.Implements(TypeJettison)) jettison.Add(m.Index);
+            bool named = false;
+            foreach (PartParityFgvContext c in FgvContextTable)
+            {
+                if (!string.Equals(c.Subject, acc.Name, StringComparison.Ordinal)) continue;
+                List<int> indices;
+                if (c.Family == FamilyFairing)
+                {
+                    if (fairing < 0) continue;
+                    indices = new List<int> { fairing };
+                }
+                else
+                {
+                    if (jettison.Count == 0) continue;
+                    indices = new List<int>(jettison);
+                }
+                named = true;
+                PartParityStateModule first = mods[indices[0]];
+                foreach (string state in c.States)
+                {
+                    var opt = new PartParityStateOption
+                    {
+                        Family = c.Family, Module = first.Name, ModuleIndex = first.Index,
+                        ModuleIndices = new List<int>(indices), State = state, Fgv = c,
+                    };
+                    if (state == StateDeployed) opt.Action = ActionDeployFairing;
+                    else if (state == StateSeparated)
+                    {
+                        opt.Action = ActionSeparate;
+                        if (c.DeployBeforeSeparating) opt.PreAction = ActionDeployFairing;
+                    }
+                    acc.Cases.Add(opt);
+                    acc.Contexts.Add(c.Id);
+                }
+            }
+            if (fairing >= 0 && !named)
+                acc.Exclude(FamilyFairing, mods[fairing], ExcludeFairingNoContext);
         }
 
         /// <summary>The case keys of the part's options, the same-word tiebreak applied.</summary>
@@ -816,6 +974,7 @@ namespace Parsek.TestCommands
             if (option == null) return false;
             if (option.Action == null) return true;
             if (o == null) return false;
+            if (option.State == StateSeparated) return o.SeparatedPartGone == true;
             switch (option.Family)
             {
                 case FamilyDeployable:
