@@ -20,6 +20,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RCS-PER-NOZZLE-RECORDING: a ghost fires every nozzle of an RCS block at the block's mean power, where stock fires only the nozzles facing the input [FILED 2026-11-22 from the part parity P8 plan (owner ruling R4, `docs/dev/design-part-ghost-parity.md` Appendix E); OPEN; improvement, low (visual only)]
+
+What: the recorder keeps ONE power per RCS module (`FlightRecorder.ComputeRcsPower`: the sum of the nozzle forces over `thrusterPower` x the nozzle count) and the ghost plays every particle system of that module at it (`GhostPlaybackLogic.SetRcsEmissionWithOutcome`). Stock fires nozzle i at `Max(Dot(thrusterAxis_i, input), 0)` (decompiled `ModuleRCS.FixedUpdate`), so a translation fires one side of a block at full force. On a ghost the whole block puffs, each nozzle weaker than the real ones. Owner ruling 2026-11-22: a known difference for now; the part parity sweep reports it (`rcs-known-difference`) and never fails a case on it.
+
+Fix (not started): record which nozzles fire. That means a per-nozzle mask or a per-nozzle power on the RCS events, debounced like today, and the ghost mapping each particle system to its thruster index (the sweep's F2 adds that read-only record). The cost is more recorded RCS events per ghost; weigh it against the visual principle (record threshold crossings, not continuous values). P8's RCS cases are its measure: they flip from reported to judged when it lands.
+
 ## ~~PARITY-RESTOCK-MASK-ROOT-PART~~: the part parity sweep photographed ReStock depth masks as opaque cyan discs on the real part [FILED 2026-11-22 from PP-2 `2026-11-22_0045_PP-2-part-parity-modded` (86 x `Module ModuleRestockDepthMask threw during OnStart: System.NullReferenceException` at `Component.get_gameObject` <- `UpdateAllMaterials`, 59 cases capped at warn `depth-mask`); FIXED 2026-11-22, branch `part-parity-restock-mask`; low (automation-only; the real side of 74 modded cases was not the part a player sees)]
 
 What: on the ReStock install the REAL picture of every part with a `ModuleRestockDepthMask` (intakes, jets, RCS blocks, claws, InfraredTelescope, ...) showed the mask mesh with its authored placeholder material, so those cases compared a cyan disc against the ghost (which skips masks by owner ruling 2026-11-22) and were capped at warn.
