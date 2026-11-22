@@ -640,11 +640,22 @@ namespace Parsek.TestCommands
 
         internal static string ProfileNameOf(string rootPath)
         {
+            // Resolves "." and ".." itself over both separators: KSP's root path is
+            // "<install>/KSP_x64_Data/../" and Path.GetFullPath only understands the host's
+            // own separator, so a Windows path would not resolve on a mono host.
             if (string.IsNullOrEmpty(rootPath)) return string.Empty;
-            string full;
-            try { full = Path.GetFullPath(rootPath); }
-            catch (Exception) { full = rootPath; }
-            return Path.GetFileName(full.TrimEnd('/', '\\'));
+            var segments = new List<string>();
+            foreach (string seg in rootPath.Split('/', '\\'))
+            {
+                if (seg.Length == 0 || seg == ".") continue;
+                if (seg == "..")
+                {
+                    if (segments.Count > 0) segments.RemoveAt(segments.Count - 1);
+                    continue;
+                }
+                segments.Add(seg);
+            }
+            return segments.Count > 0 ? segments[segments.Count - 1] : string.Empty;
         }
 
         private static List<string> GameDataMods()
