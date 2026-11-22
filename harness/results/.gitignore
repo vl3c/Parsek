@@ -24,3 +24,6 @@ mutation-check/
 # Parallel-runner run folders (tools/parallel_runner.py): plan, control, events,
 # summary and per-lane child logs. Local run evidence, never committed.
 parallel/
+# Part ghost parity harvests (run.py's partparity leg): per-case atlases, thumbs and
+# sidecars, hundreds of MB per sweep. Local run evidence, never committed.
+*_partparity/

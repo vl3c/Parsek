@@ -935,6 +935,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     with the applied values and whether stock clamped them. OK `focus= pitch=
     #     heading= distance= pitchClamped= distanceClamped= frames= hold=`.
     "DumpMapGeometry", "MapCamera",
+    # ADDITIVE (62 -> 63 implemented, reserved unchanged at 4), the part ghost parity tool
+    # (docs/dev/design-part-ghost-parity.md section 7).
+    #   PartParitySweep label=<label> [op=reset|run] [filter=] [source=] [skins=] [views=]
+    #     [tile=] [shard=k/n] [limit=] [controls=] [maxSeconds=60..480], FLIGHT with an
+    #     orbiting active vessel, TWO-PHASE, 540 s: one time-boxed step of the sweep (real
+    #     one-part vessels spawned co-orbital, each beside its ghost, photographed and
+    #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
+    #     cases= complete= crashed= setupFaults= controls= wall= hostDamaged= hostDamage=`.
+    "PartParitySweep",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1201,10 +1210,15 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # NewGame joins for LoadGame's reason: its terminal is gated on two scene loads and a save
 # written by CreateNewGame then re-read by the Space Center bootstrap, a whole world load,
 # and its 300 s budget sits under the cap.
+#
+# PartParitySweep joins for WarpToUT's reason: one step holds the FIFO head for minutes of
+# real time (waves of spawns, settles, renders and removals until its maxSeconds time box,
+# at most 480 s, ends), so its 540 s budget sits AT the cap and a spec's step budget must
+# stay under it (design-part-ghost-parity.md section 7).
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
                                         "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert",
-                                        "NewGame")
+                                        "NewGame", "PartParitySweep")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -1319,6 +1333,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # a FLIGHT bootstrap that reads no save off disk (the LaunchFromEditor size). Not a
     # DEFERRED_SEAM_VERB: no spec declares a budget over the cap for it.
     "RevertToLaunch": 180.0,
+    # DeferralBudget.PartParitySweepSeconds: the step's own maxSeconds time box (at most
+    # 480 s) plus the last wave's teardown and the case files' write. The WarpToUT size, at
+    # MAX_DEFERRED_STEP_BUDGET_SECONDS.
+    "PartParitySweep": 540.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1590,6 +1608,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # which `inert` ("reads state or stamps the log") does not cover. The fail-safe
     # direction costs nothing: the UNMET tail skips both roles.
     "MapCamera": TAIL_ROLE_WORLD_MUTATING,
+    # PartParitySweep is WORLD-MUTATING, NOT inert, for PickUpFlag's reason and more
+    # strongly: it SPAWNS real vessels into the game, moves and destroys them, and writes
+    # the sweep files. `inert` ("reads state or stamps the log, never changes the game")
+    # cannot hold for a verb whose whole step is a sequence of vessel spawns and removals,
+    # and the C# NonMutatingVerbs list leaves it out for the same fact.
+    "PartParitySweep": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1826,6 +1850,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # in-world state.
     "DumpMapGeometry": POST_MISSION_ROLE_RECORDING,
     "MapCamera": POST_MISSION_ROLE_RECORDING,
+    # PartParitySweep is `recording` for DumpMapGeometry's reason: its OK means "a sweep step
+    # wrote N case files", a statement about instrumentation and Parsek's ghosts, never a
+    # kerbal's in-world state.
+    "PartParitySweep": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -5178,6 +5206,285 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
     return errors
 
 
+# PartParitySweep: mirrored from TestCommands/TestCommandPartParitySweep.cs and
+# TestCommandPartParitySweepCompletion.cs (PartParitySweepSourceSyncTests, comment-stripped).
+# Contract: docs/dev/design-part-ghost-parity.md section 7. `op` is UiAction's
+# VERB_SCOPED_CLOSED_ARGS row, so validate_spec skips the table's owner check for this
+# verb's own keys and validate_part_parity_sweep_step checks every value here, in the C#
+# parse order. Every present arg that does not parse is a typed REJECTED (never clamped):
+# a widened sweep would overrun its step budget, a narrowed one would read as complete.
+PARTPARITY_VERB = "PartParitySweep"
+PARTPARITY_ARG_KEYS: Tuple[str, ...] = (
+    "label", "op", "filter", "source", "skins", "views", "tile", "shard", "limit",
+    "controls", "maxSeconds",
+)
+PARTPARITY_OP_VALUES: Tuple[str, ...] = ("reset", "run")
+PARTPARITY_SKINS_VALUES: Tuple[str, ...] = ("default", "all")
+PARTPARITY_CONTROLS_VALUES: Tuple[str, ...] = ("true", "false")
+PARTPARITY_VIEWS_TOKENS: Tuple[str, ...] = ("required", "all")
+PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
+    "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
+)
+PARTPARITY_TILE_RANGE: Tuple[int, int] = (256, 1024)
+PARTPARITY_MAX_SECONDS_RANGE: Tuple[int, int] = (60, 480)
+PARTPARITY_LIMIT_RANGE: Tuple[int, int] = (1, 100000)
+PARTPARITY_MAX_SHARDS = 64
+PARTPARITY_MAX_FILTER_LENGTH = 128
+# The C# default when maxSeconds= is absent (DefaultMaxSeconds).
+PARTPARITY_DEFAULT_MAX_SECONDS = 480
+PARTPARITY_REASONS: Tuple[str, ...] = (
+    "label-arg-missing", "label-arg-invalid", "op-arg-invalid",
+    "filter-arg-invalid", "source-arg-invalid", "skins-arg-invalid",
+    "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
+    "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
+    "no-active-vessel", "host-not-orbiting",
+)
+# Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
+# subkind (nothing was refused; the runner may already have spawned vessels).
+PARTPARITY_ERROR_REASONS: Tuple[str, ...] = ("partparity-step-failed", "partparity-timeout")
+# The literal the capture engine's per-step summary Info line carries (design 11
+# "Logging"); a lane's logContract anchors on it.
+PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
+
+# The partParity verifier row's verdict classes (partparity.py owns the evaluation;
+# literals here because classify_verdict reads them, pinned equal by
+# PartParityVerdictWiringTests). All three INVALID subkinds are terminal (absent from
+# RETRYABLE_INVALID_SUBKINDS: a retry's `op=reset` would discard the sweep) and NOT
+# flake-exempt (a misbehaving instrument is this lane's own instability).
+#   parity-controls    a control case did not reach its required outcome (design 4.5)
+#   parity-instrument  the Python recompute of the shape measures disagrees with C#
+#   parity-incomplete  the sweep did not reach done, or a planned case has neither a
+#                      complete sidecar nor a recorded setup fault
+#   parity-host-damaged  the C# host-integrity guard stopped the sweep: the host vessel
+#                      lost parts, left its orbit or vanished, so the unrun cases are the
+#                      instrument's fault (partparity ranks it ahead of the other three)
+PARTPARITY_INVALID_SUBKINDS: Tuple[str, ...] = (
+    "parity-controls", "parity-instrument", "parity-incomplete", "parity-host-damaged",
+)
+PARTPARITY_PARSEK_FAIL_SUBKIND = "part-parity"
+
+# ---------------------------------------------------------------------------
+# The part parity harvest leg (design-part-ghost-parity.md section 5.1). After the
+# lane's KSP exits, while the instance lock is still held, run.py MOVES each sweep
+# directory the spec's PartParitySweep steps name,
+#   <instance>/parsek-partparity/<label>/  ->  results/<runId>_partparity/<label>/
+# instead of copying up to a GB into the pipelined verifier's private copy; the
+# partParity row reads it in place. A same-volume rename; across volumes a copy
+# then a delete. Its own retention pass (the `_shots` pass only prunes names ending
+# `_shots`), and only manifest.json and the sidecars go to the results archive, under
+# `<runId>/partparity/<label>/` (the archive already owns `<runId>/manifest.json`).
+# ---------------------------------------------------------------------------
+
+PARTPARITY_RESULTS_DIR_SUFFIX = "_partparity"
+PARTPARITY_INSTANCE_ROOT = "parsek-partparity"
+PARTPARITY_ARCHIVE_SUBDIR = "partparity"
+PARTPARITY_ARCHIVE_MANIFEST = "manifest.json"
+PARTPARITY_ARCHIVE_SIDECAR_SUFFIX = ".part.json"
+# A full stock sweep is ~0.7 MB per case (atlas + thumbnail), so 500-1500 MB per
+# install; keep the newest few whole.
+PARTPARITY_KEEP_DIRS = 6
+PARTPARITY_MAX_TOTAL_BYTES = 8 * 1024 * 1024 * 1024
+# errno / winerror values of a rename across volumes, the one failure the harvest
+# answers with copy + delete (EXDEV on POSIX; ERROR_NOT_SAME_DEVICE on Windows).
+PARTPARITY_CROSS_DEVICE_ERRNOS: Tuple[int, ...] = (18,)
+PARTPARITY_CROSS_DEVICE_WINERRORS: Tuple[int, ...] = (17,)
+
+
+def partparity_results_dir_name(run_id: str) -> str:
+    """``<runId>_partparity``: the run's harvested sweep directories live below it."""
+    return "%s%s" % (run_id, PARTPARITY_RESULTS_DIR_SUFFIX)
+
+
+@dataclass(frozen=True)
+class PartParityHarvestEntry:
+    label: str
+    # "move" (the source exists) or "absent" (the sweep never wrote the label dir)
+    action: str
+
+
+def plan_part_parity_harvest(labels: Sequence[str],
+                             present_labels: Iterable[str]) -> Tuple[PartParityHarvestEntry, ...]:
+    """One entry per spec label, in spec order: ``move`` when the instance holds
+    ``parsek-partparity/<label>/``, else ``absent`` (recorded; the verifier's
+    completeness check turns it into INVALID(parity-incomplete))."""
+    present = set(present_labels or ())
+    return tuple(PartParityHarvestEntry(l, "move" if l in present else "absent")
+                 for l in labels)
+
+
+def partparity_move_needs_copy(errno_value: Optional[int],
+                               winerror: Optional[int] = None) -> bool:
+    """True when a rename failed only because source and destination are on different
+    volumes, the one case the harvest falls back to copy + delete. Any other rename
+    error is the harvest failing (recorded, never a silent copy of a locked tree)."""
+    return (errno_value in PARTPARITY_CROSS_DEVICE_ERRNOS
+            or winerror in PARTPARITY_CROSS_DEVICE_WINERRORS)
+
+
+def select_partparity_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
+                                    protect_name: Optional[str] = None,
+                                    keep_dirs: Optional[int] = None,
+                                    max_total_bytes: Optional[int] = None) -> List[str]:
+    """Which ``*_partparity`` dirs the retention pass removes: the ``_shots`` rule
+    (``select_shots_dirs_to_prune``: newest first, stop-on-trip, the current run's dir
+    always kept) over its own budgets. Entries whose name does not end in the suffix
+    are ignored, so a caller cannot hand it a sibling dir to delete."""
+    own = [e for e in entries if e[0].endswith(PARTPARITY_RESULTS_DIR_SUFFIX)]
+    return select_shots_dirs_to_prune(
+        own, protect_name=protect_name,
+        keep_dirs=PARTPARITY_KEEP_DIRS if keep_dirs is None else keep_dirs,
+        max_total_bytes=(PARTPARITY_MAX_TOTAL_BYTES if max_total_bytes is None
+                         else max_total_bytes))
+
+
+def select_partparity_archive_files(label_dirs: Dict[str, Iterable[str]]
+                                    ) -> List[Tuple[str, str]]:
+    """``(label, file name)`` rows of a harvested ``<runId>_partparity`` dir that go to
+    the results archive: each label's ``manifest.json`` and every ``*.part.json``,
+    sorted; atlases, thumbnails and every other file stay out (a sweep is hundreds of
+    MB of PNGs). Names with a path separator are refused."""
+    rows: List[Tuple[str, str]] = []
+    for label in sorted(label_dirs):
+        if not _is_plain_name(label):
+            continue
+        for name in sorted(label_dirs[label] or ()):
+            if not _is_plain_name(name):
+                continue
+            if (name == PARTPARITY_ARCHIVE_MANIFEST
+                    or name.endswith(PARTPARITY_ARCHIVE_SIDECAR_SUFFIX)):
+                rows.append((label, name))
+    return rows
+_PARTPARITY_DECIMAL_RE = re.compile(r"[0-9]+")
+_PARTPARITY_ID_CHARS_RE = re.compile(r"[A-Za-z0-9._-]+")
+_PARTPARITY_FILTER_RE = re.compile(r"[A-Za-z0-9._*?-]+")
+
+
+def _partparity_int_in_range(text: str, lo: int, hi: int) -> bool:
+    """TestCommandPartParitySweep.TryParseIntInRange: ASCII digits only (no sign, no
+    whitespace), within [lo, hi]."""
+    return bool(_PARTPARITY_DECIMAL_RE.fullmatch(text)) and lo <= int(text) <= hi
+
+
+def _partparity_shard_ok(text: str) -> bool:
+    """TryParseShard: ``k/n``, exactly one slash not at the start, 1 <= n <= 64, 1 <= k <= n."""
+    slash = text.find("/")
+    if slash <= 0 or slash != text.rfind("/"):
+        return False
+    n_text, k_text = text[slash + 1:], text[:slash]
+    if not _partparity_int_in_range(n_text, 1, PARTPARITY_MAX_SHARDS):
+        return False
+    return _partparity_int_in_range(k_text, 1, int(n_text))
+
+
+def _partparity_source_ok(text: str) -> bool:
+    """TryParseSourceCsv: a non-empty csv, every item non-empty and ``[A-Za-z0-9._-]``."""
+    if not text:
+        return False
+    return all(item and _PARTPARITY_ID_CHARS_RE.fullmatch(item) for item in text.split(","))
+
+
+def _partparity_views_ok(text: str) -> bool:
+    """TryParseViews: ``required``, ``all``, or a csv of known view names."""
+    if text in PARTPARITY_VIEWS_TOKENS:
+        return True
+    if not text:
+        return False
+    return all(item in PARTPARITY_VIEW_VALUES for item in text.split(","))
+
+
+def _partparity_filter_ok(text: str) -> bool:
+    """IsValidFilter: 1..128 chars of ``[A-Za-z0-9._-]`` plus the wildcards ``*`` / ``?``."""
+    return (0 < len(text) <= PARTPARITY_MAX_FILTER_LENGTH
+            and bool(_PARTPARITY_FILTER_RE.fullmatch(text)))
+
+
+def validate_part_parity_sweep_step(index: int, step_args: Dict,
+                                    budget: Optional[Any] = None) -> List[str]:
+    """Pre-launch shape checks for one ``PartParitySweep`` step, the C# parse order.
+
+    ``label=`` is REQUIRED and filename-safe (CaptureScreenshot's rule, which the C#
+    delegates to); every other arg is optional and, when present, must parse exactly as
+    ``TestCommandPartParitySweep.TryParseArgs`` parses it: ``op`` reset|run, ``filter`` a
+    1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
+    ``skins`` default|all, ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
+    60..480. No other key is read. When an ``op=run`` step (the default op) declares a
+    ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
+    ``op=reset`` step only clears the label directory); the 540 s cap is validate_spec's
+    DEFERRED_SEAM_VERBS rule. A value carrying a ``${step.field}`` handle in an open arg
+    is resolved at run time, so its shape is not judged here; the closed args (op, skins,
+    controls) stay fail-closed."""
+    errors: List[str] = []
+    v = PARTPARITY_VERB
+
+    raw = step_args.get(CAPTURE_LABEL_KEY)
+    if raw is None:
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it - the label names the sweep "
+            "directory and the verb has no default, so the seam answers REJECTED "
+            "label-arg-missing" % (index, CAPTURE_LABEL_KEY, v))
+    else:
+        text = handle_shape_probe(raw)
+        if text is not None and (not _CAPTURE_LABEL_RE.fullmatch(text)
+                                 or len(text) > CAPTURE_LABEL_MAX_LENGTH):
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not filename-safe (CaptureScreenshot's "
+                "label rule, max %d chars); the seam answers REJECTED label-arg-invalid"
+                % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
+
+    def closed(key, values, reason):
+        if key in step_args and str(step_args.get(key)) not in values:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive string); "
+                "the seam answers REJECTED %s"
+                % (index, key, step_args.get(key), " or ".join(repr(x) for x in values),
+                   reason))
+
+    def shaped(key, ok, what, reason):
+        if key not in step_args:
+            return
+        text = handle_shape_probe(step_args.get(key))
+        if text is not None and not ok(text):
+            errors.append("driver.steps[%d].args.%s: %r must be %s; the seam answers "
+                          "REJECTED %s" % (index, key, text, what, reason))
+
+    closed("op", PARTPARITY_OP_VALUES, "op-arg-invalid")
+    shaped("filter", _partparity_filter_ok,
+           "a 1..%d-char glob of [A-Za-z0-9._-] plus * and ?" % PARTPARITY_MAX_FILTER_LENGTH,
+           "filter-arg-invalid")
+    shaped("source", _partparity_source_ok,
+           "a csv of [A-Za-z0-9._-] source names with no empty item", "source-arg-invalid")
+    closed("skins", PARTPARITY_SKINS_VALUES, "skins-arg-invalid")
+    shaped("views", _partparity_views_ok,
+           "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
+           "views-arg-invalid")
+    shaped("tile", lambda t: _partparity_int_in_range(t, *PARTPARITY_TILE_RANGE),
+           "an integer %d..%d" % PARTPARITY_TILE_RANGE, "tile-arg-invalid")
+    shaped("shard", _partparity_shard_ok,
+           "k/n with 1 <= k <= n <= %d" % PARTPARITY_MAX_SHARDS, "shard-arg-invalid")
+    shaped("limit", lambda t: _partparity_int_in_range(t, *PARTPARITY_LIMIT_RANGE),
+           "an integer %d..%d" % PARTPARITY_LIMIT_RANGE, "limit-arg-invalid")
+    closed("controls", PARTPARITY_CONTROLS_VALUES, "controls-arg-invalid")
+    shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
+           "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
+
+    if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
+            and str(step_args.get("op", "run")) == "run"):
+        box_text = handle_shape_probe(step_args.get("maxSeconds", PARTPARITY_DEFAULT_MAX_SECONDS))
+        if box_text is not None and _PARTPARITY_DECIMAL_RE.fullmatch(box_text):
+            if budget < int(box_text):
+                errors.append(
+                    "driver.steps[%d].budget: %r is below the step's own time box "
+                    "(maxSeconds=%s); the step would be waited on for less than it runs"
+                    % (index, budget, box_text))
+
+    extra = sorted(str(k) for k in step_args if k not in PARTPARITY_ARG_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently "
+                      "ignored" % (index, v, ", ".join(PARTPARITY_ARG_KEYS), ", ".join(extra)))
+    return errors
+
+
 def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape checks for one ``UiAction`` step.
 
@@ -8216,6 +8523,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # for op=pointer's true/false); validate_map_camera_step checks it.
             if cmd == MAPCAMERA_VERB and arg_key in MAPCAMERA_KEYS:
                 continue
+            # PartParitySweep reads its own `op=` (reset|run; UiAction owns the table row);
+            # validate_part_parity_sweep_step checks it.
+            if cmd == PARTPARITY_VERB and arg_key in PARTPARITY_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8253,6 +8564,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_dump_map_geometry_step(i, step_args))
         elif cmd == MAPCAMERA_VERB:
             errors.extend(validate_map_camera_step(i, step_args))
+        elif cmd == PARTPARITY_VERB:
+            errors.extend(validate_part_parity_sweep_step(i, step_args, step.get("budget")))
         elif cmd == STOCKSCREEN_VERB:
             errors.extend(validate_stock_screen_step(i, step_args))
         elif cmd == EDITORROUTE_GO_VERB:
@@ -8864,6 +9177,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     warnings.extend(ghostlife.ghost_lifecycle_expectation_warnings(
         expectations, steps))
 
+    # Part ghost parity verifier spec surface: [expectations.partParity]
+    # (partparity.py, design-part-ghost-parity.md section 10). Only `gating` is a key;
+    # a declared block with no PartParitySweep step naming a literal label is refused,
+    # because the row would have no sweep directory to judge.
+    if partparity.PART_PARITY_BLOCK in expectations:
+        errors.extend(partparity.validate_part_parity_expectations(
+            expectations.get(partparity.PART_PARITY_BLOCK), steps))
+
     # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
     # DECLARATION of [expectations.renderComposition] and by nothing else, so a
     # spec that drives ExportRenderManifest expecting OK without declaring the
@@ -9110,6 +9431,7 @@ import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surfa
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]]; same rule - the module that APPLIES the block validates its spec surface)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
+import partparity  # noqa: E402  (the part ghost parity pure sibling; same reason - the [expectations.partParity] surface is validated by the module that evaluates it)
 import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
 import endingsq  # noqa: E402  (the recording-ending pure sibling; the [expectations.recordings.endings] surface is validated by the module that evaluates it)
 
@@ -12231,6 +12553,12 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # Ships REPORT-ONLY with NO committed spec arming it; the GHOSTLIFE_ARMED_SPECS
     # sweep in test_hlib.py keeps that set deliberate.
     "ghost-lifecycle",
+    # A GATING-armed [expectations.partParity] block with a failing part case
+    # (partparity.evaluate_sweep). Its own class: a red names a part whose ghost looks
+    # different from the real part, which no log line states. Ships REPORT-ONLY with
+    # NO committed spec arming it; the PARTPARITY_ARMED_SPECS sweep in test_hlib.py
+    # keeps that set deliberate.
+    "part-parity",
     # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: the driver stage stayed valid but a
     # driven seam step missed its expect (a post-mission recording verb answered
     # ERROR). The last red before PASS, so a run never reads green over an unmet step.
@@ -12916,6 +13244,21 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "mapcamera-hold-out-of-range": "driver-arg",
     "map-view-closed": "driver-gate",
     "not-in-map-scene": "driver-gate",
+    # PartParitySweep (PartParitySweepSourceSyncTests): the arg spellings are the SPEC's
+    # fault; a FLIGHT with no active vessel, or one not in a stable orbit, is a live state
+    # the sweep does not spawn around. Its label refusals are CaptureScreenshot's tokens and
+    # stay unmapped like theirs, and so does `op-arg-invalid`, UiAction's token (one reason
+    # string, one classification for both verbs).
+    "filter-arg-invalid": "driver-arg",
+    "source-arg-invalid": "driver-arg",
+    "skins-arg-invalid": "driver-arg",
+    "views-arg-invalid": "driver-arg",
+    "tile-arg-invalid": "driver-arg",
+    "shard-arg-invalid": "driver-arg",
+    "limit-arg-invalid": "driver-arg",
+    "controls-arg-invalid": "driver-arg",
+    "maxseconds-arg-invalid": "driver-arg",
+    "host-not-orbiting": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
     # game would not start from (the wrong scene, another save loaded, stock's main-menu
     # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
@@ -13417,9 +13760,10 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
+      part-parity instrument (controls / recompute / completeness) -> INVALID (no retry)
       log-contract / results / anomaly / unity-exception / expectation /
-          save-structure / render-composition / ghost-lifecycle / ledger
-          -> PARSEK-FAIL
+          save-structure / render-composition / ghost-lifecycle / part-parity /
+          ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -13485,6 +13829,16 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
             elif analyzer.status == "PARSEK-FAIL":
                 base = V(VERDICT_PARSEK_FAIL, analyzer.subkind,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
+        if base is None and verifiers.get("part_parity_invalid", False):
+            # The part ghost parity instrument did not prove itself (a control not
+            # `ok`, a Python recompute that disagrees with the C# measures, a sweep
+            # that did not finish, or a host the integrity guard found damaged). Nothing the row measured is evidence about the
+            # ghost, and the lane's step-line pins would read the same fault as a
+            # log-contract red, so this INVALID is placed ahead of every contract
+            # verifier. Terminal: a retry re-runs `op=reset` and discards the sweep.
+            base = V(VERDICT_INVALID,
+                     verifiers.get("part_parity_subkind") or PARTPARITY_INVALID_SUBKINDS[0],
+                     "part parity instrument: %s" % (verifiers.get("part_parity_reason") or "-"))
         if base is None:
             if verifiers.get("mission_outcome_unmet", False):
                 # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a run whose
@@ -13544,6 +13898,13 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # career ledger.
                 base = V(VERDICT_PARSEK_FAIL, "ghost-lifecycle",
                          "gating ghost-lifecycle expectations mismatch")
+            elif verifiers.get("part_parity_mismatch", False):
+                # Only reachable for a scenario that DECLARED [expectations.partParity]
+                # with gating = true; the part verdicts are report-only otherwise (the
+                # PARTPARITY_ARMED_SPECS sweep in test_hlib.py keeps that set
+                # deliberate). A red names a part whose ghost differs from the real part.
+                base = V(VERDICT_PARSEK_FAIL, PARTPARITY_PARSEK_FAIL_SUBKIND,
+                         "gating part-parity verdicts: a part case failed")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             elif verifiers.get("unmet_step", False):
@@ -13670,11 +14031,15 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "exittospacecenter-quitwithoutsaving-arg-invalid",
-    "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
+    "factor-arg-invalid", "filter-arg-invalid", "find-ctrl-arg-invalid",
+    "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
     "goeditor-craft-arg-invalid",
     "goeditor-facility-arg-invalid", "goeditor-facility-arg-missing",
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
+    "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
+    "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
+    "views-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",
@@ -15662,7 +16027,9 @@ def _is_plain_name(name: str) -> bool:
 
 def plan_results_archive(run_id: str, present_names: Iterable[str],
                          shots_ksp_log_present: bool,
-                         harness_log_name: Optional[str]) -> ResultsArchivePlan:
+                         harness_log_name: Optional[str],
+                         partparity_files: Sequence[Tuple[str, str]] = ()
+                         ) -> ResultsArchivePlan:
     """Which of a run's artifacts go into its archive dir, and under which names.
 
     ``present_names`` is the results-dir listing (file names; the caller does
@@ -15671,6 +16038,9 @@ def plan_results_archive(run_id: str, present_names: Iterable[str],
     the invocation's harness log, or None when there is none to copy. A run
     with no result JSON archives nothing: the result is what names the verdict,
     and an archive without one cannot be told apart from a stray copy.
+    ``partparity_files`` are ``(label, name)`` rows of the run's harvested part
+    parity sweeps (``select_partparity_archive_files``); each is archived as
+    ``partparity/<label>/<name>``, never reported missing (most lanes sweep none).
     """
     if not _is_plain_name(run_id or ""):
         return ResultsArchivePlan(run_id, (), (), "invalid run id")
@@ -15696,6 +16066,10 @@ def plan_results_archive(run_id: str, present_names: Iterable[str],
                                     RESULTS_ARCHIVE_KSP_LOG_NAME, gzip=True))
     else:
         missing.append(run_id + "_shots/KSP.log")
+    for label, name in partparity_files or ():
+        if _is_plain_name(label) and _is_plain_name(name):
+            entries.append(ArchiveEntry((partparity_results_dir_name(run_id), label, name),
+                                        "/".join((PARTPARITY_ARCHIVE_SUBDIR, label, name))))
     return ResultsArchivePlan(run_id, tuple(entries), tuple(missing), None)
 
 

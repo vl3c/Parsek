@@ -80,6 +80,7 @@ namespace Parsek.Tests
             public void PickUpFlag(ParsedCommand cmd) => Calls.Add("PickUpFlag");
             public void DumpMapGeometry(ParsedCommand cmd) => Calls.Add("DumpMapGeometry");
             public void MapCamera(ParsedCommand cmd) => Calls.Add("MapCamera");
+            public void PartParitySweep(ParsedCommand cmd) => Calls.Add("PartParitySweep");
         }
 
         [Fact]
@@ -231,6 +232,8 @@ namespace Parsek.Tests
         // the map closed is the executor's typed REJECTED (map-view-closed).
         [InlineData("DumpMapGeometry", "RequiresMapScene")]
         [InlineData("MapCamera", "RequiresMapScene")]
+        // PartParitySweep: FLIGHT; the orbiting host is the executor's typed REJECTED.
+        [InlineData("PartParitySweep", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -303,6 +306,7 @@ namespace Parsek.Tests
             fake.PickUpFlag(cmd);
             fake.DumpMapGeometry(cmd);
             fake.MapCamera(cmd);
+            fake.PartParitySweep(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

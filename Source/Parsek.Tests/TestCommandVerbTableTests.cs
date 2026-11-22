@@ -75,6 +75,7 @@ namespace Parsek.Tests
         [InlineData("PickUpFlag")]
         [InlineData("DumpMapGeometry")]
         [InlineData("MapCamera")]
+        [InlineData("PartParitySweep")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -229,7 +230,9 @@ namespace Parsek.Tests
             // takes down the nearest real flag through stock's own FlagSite.PickUp.
             // The map-geometry pair DumpMapGeometry / MapCamera is ADDITIVE (60 -> 62; reserved
             // unchanged at 4): the map's drawn geometry as JSON, and the map camera framed by value.
-            Assert.Equal(62, TestCommandVerbs.ImplementedVerbNames.Count);
+            // PartParitySweep is ADDITIVE (62 -> 63; reserved unchanged at 4): one time-boxed step
+            // of the part ghost parity capture (real one-part vessels beside their ghosts).
+            Assert.Equal(63, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

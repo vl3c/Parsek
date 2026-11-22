@@ -322,7 +322,7 @@ namespace Parsek.InGameTests
                         run = null;
                         continue;
                     }
-                    run.SpawnedPid = SpawnCoOrbital(vesselNode, active, cfg.AlongTrackMeters, cfg.Name);
+                    run.SpawnedPid = GhostCoOrbitalRig.SpawnCoOrbital(vesselNode, active, cfg.AlongTrackMeters, cfg.Name, Tag);
                     if (run.SpawnedPid == 0)
                     {
                         failures.Add($"config {cfg.Number} {cfg.Name}: SpawnAtPosition returned pid=0");
@@ -515,7 +515,7 @@ namespace Parsek.InGameTests
                         run = null;
                         continue;
                     }
-                    run.SpawnedPid = SpawnCoOrbital(vesselNode, active, cfg.AlongTrackMeters, cfg.Name);
+                    run.SpawnedPid = GhostCoOrbitalRig.SpawnCoOrbital(vesselNode, active, cfg.AlongTrackMeters, cfg.Name, Tag);
                     if (run.SpawnedPid == 0)
                     {
                         failures.Add($"config {cfg.Number} {cfg.Name}: SpawnAtPosition returned pid=0");
@@ -686,8 +686,8 @@ namespace Parsek.InGameTests
                     failReason = "attach nodes missing on plate / probe / tank / engine";
                     return null;
                 }
-                var ids = UniqueFlightIds(5);
-                parts.Add(AuthorPartNode(plate, ids[0], 0, Vector3.zero,
+                var ids = GhostCoOrbitalRig.UniqueFlightIds(5);
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(plate, ids[0], 0, Vector3.zero,
                     new Dictionary<string, int> { { "top", 1 }, { "bottom", 2 }, { "N2_1", 3 }, { "N2_2", 4 } }, null,
                     (module, name) =>
                     {
@@ -697,13 +697,13 @@ namespace Parsek.InGameTests
                             module.AddValue("NodeSetIdx", "1");
                         }
                     }));
-                parts.Add(AuthorPartNode(probe, ids[1], 0, top.position - probeBottom.position,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(probe, ids[1], 0, top.position - probeBottom.position,
                     new Dictionary<string, int> { { "bottom", 0 } }, null, null));
-                parts.Add(AuthorPartNode(tank, ids[2], 0, bottom.position - tankTop.position,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[2], 0, bottom.position - tankTop.position,
                     new Dictionary<string, int> { { "top", 0 } }, null, null));
-                parts.Add(AuthorPartNode(engine, ids[3], 0, n1.position - engTop.position,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[3], 0, n1.position - engTop.position,
                     new Dictionary<string, int> { { "top", 0 } }, null, null));
-                parts.Add(AuthorPartNode(engine, ids[4], 0, n2.position - engTop.position,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[4], 0, n2.position - engTop.position,
                     new Dictionary<string, int> { { "top", 0 } }, null, null));
                 run.MaxFairingRadius = 1.4;
                 ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {plate.name} mount=Double (NodeSetIdx 1) " +
@@ -724,13 +724,13 @@ namespace Parsek.InGameTests
                     failReason = "attach nodes missing on tank / engine / lower part";
                     return null;
                 }
-                var ids = UniqueFlightIds(3);
+                var ids = GhostCoOrbitalRig.UniqueFlightIds(3);
                 Vector3 enginePos = tankBottom.position - engTop.position;
-                parts.Add(AuthorPartNode(tank, ids[0], 0, Vector3.zero,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(tank, ids[0], 0, Vector3.zero,
                     new Dictionary<string, int> { { "bottom", 1 } }, null, null));
-                parts.Add(AuthorPartNode(engine, ids[1], 0, enginePos,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(engine, ids[1], 0, enginePos,
                     new Dictionary<string, int> { { "top", 0 }, { "bottom", 2 } }, null, null));
-                parts.Add(AuthorPartNode(lower, ids[2], 1, enginePos + engBottom.position - lowerTop.position,
+                parts.Add(GhostCoOrbitalRig.AuthorPartNode(lower, ids[2], 1, enginePos + engBottom.position - lowerTop.position,
                     new Dictionary<string, int> { { "top", 1 } }, null, null));
                 run.MaxFairingRadius = 0.9;
                 ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: authored {tank.name} > {engine.name} > {lower.name} (shroud shown by the part below)");
@@ -741,17 +741,6 @@ namespace Parsek.InGameTests
                 anchor.orbit.epoch, anchor.orbit.referenceBody);
             return ProtoVessel.CreateVesselNode(
                 "FGV-" + cfg.Number.ToString(IC) + " " + cfg.Name, VesselType.Ship, placeholder, 0, parts.ToArray());
-        }
-
-        private static List<uint> UniqueFlightIds(int count)
-        {
-            var ids = new List<uint>();
-            while (ids.Count < count)
-            {
-                uint id = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
-                if (!ids.Contains(id)) ids.Add(id);
-            }
-            return ids;
         }
 
         /// <summary>The skirt part (plate or engine) and the part on its bottom node.</summary>
@@ -944,7 +933,7 @@ namespace Parsek.InGameTests
             var fairingAtt = new Dictionary<string, int>();
             if (childInfo != null && parentNodeId != null)
                 fairingAtt[parentNodeId] = 1;
-            ConfigNode fairingNode = AuthorPartNode(fairingInfo, fairingFlightId, 0, Vector3.zero, fairingAtt, variant,
+            ConfigNode fairingNode = GhostCoOrbitalRig.AuthorPartNode(fairingInfo, fairingFlightId, 0, Vector3.zero, fairingAtt, variant,
                 (module, name) =>
                 {
                     if (name == "ModuleProceduralFairing")
@@ -970,10 +959,6 @@ namespace Parsek.InGameTests
                         module.AddValue("spawnState", "False");
                         module.AddValue("visibilityState", "True");
                     }
-                    else if (name == "ModulePartVariants" && variant != null)
-                    {
-                        module.AddValue("selectedVariant", variant);
-                    }
                 });
             parts.Add(fairingNode);
 
@@ -991,7 +976,7 @@ namespace Parsek.InGameTests
                 if (childFlightId == fairingFlightId)
                     childFlightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
                 var childAtt = new Dictionary<string, int> { { "bottom", 0 } };
-                ConfigNode childNode = AuthorPartNode(childInfo, childFlightId, 0, childPos, childAtt, null, null);
+                ConfigNode childNode = GhostCoOrbitalRig.AuthorPartNode(childInfo, childFlightId, 0, childPos, childAtt, null, null);
                 parts.Add(childNode);
                 ParsekLog.Info(Tag, $"config {cfg.Number} {cfg.Name}: child part {childInfo.name} on {cfg.FairingPart}.{parentNodeId} " +
                     $"at root-local {FormatVector(childPos)}");
@@ -1012,45 +997,6 @@ namespace Parsek.InGameTests
                 "FGV-" + cfg.Number.ToString(IC) + " " + cfg.Name, VesselType.Ship, placeholder, 0, parts.ToArray());
         }
 
-        /// <summary>
-        /// A PART node for <paramref name="info"/> with every prefab module present IN PREFAB
-        /// ORDER (so stock's index-based module load never falls back to its name search),
-        /// each carrying only its name unless <paramref name="customize"/> adds values.
-        /// </summary>
-        private static ConfigNode AuthorPartNode(
-            AvailablePart info, uint flightId, int parentIndex, Vector3 position,
-            Dictionary<string, int> attachments, string variantName, Action<ConfigNode, string> customize)
-        {
-            ConfigNode p = ProtoVessel.CreatePartNode(info.name, flightId);
-            p.SetValue("parent", parentIndex.ToString(IC), true);
-            p.SetValue("position", KSPUtil.WriteVector(position), true);
-            p.RemoveValues("attN");
-            Part prefab = info.partPrefab;
-            if (prefab.attachNodes != null)
-            {
-                for (int i = 0; i < prefab.attachNodes.Count; i++)
-                {
-                    string id = prefab.attachNodes[i].id;
-                    int idx;
-                    if (attachments == null || !attachments.TryGetValue(id, out idx))
-                        idx = -1;
-                    p.AddValue("attN", id + ", " + idx.ToString(IC));
-                }
-            }
-            if (!string.IsNullOrEmpty(variantName))
-                p.SetValue("moduleVariantName", variantName, true);
-            for (int i = 0; i < prefab.Modules.Count; i++)
-            {
-                PartModule m = prefab.Modules[i];
-                if (m == null) continue;
-                ConfigNode mn = p.AddNode("MODULE");
-                mn.AddValue("name", m.moduleName);
-                mn.AddValue("isEnabled", "True");
-                customize?.Invoke(mn, m.moduleName);
-            }
-            return p;
-        }
-
         private static AvailablePart FirstKnownPart(string[] candidates)
         {
             for (int i = 0; i < candidates.Length; i++)
@@ -1060,34 +1006,6 @@ namespace Parsek.InGameTests
                     return info;
             }
             return null;
-        }
-
-        /// <summary>
-        /// Spawns the authored vessel on a clone of the anchor's orbit with the mean anomaly
-        /// advanced by the along-track offset, so it rides beside the anchor with near-zero
-        /// relative drift for the test's duration (the GrappleCapture co-orbital pattern).
-        /// </summary>
-        private static uint SpawnCoOrbital(ConfigNode vesselNode, Vessel anchor, double alongTrackMeters, string label)
-        {
-            Orbit src = anchor.orbit;
-            double ut = Planetarium.GetUniversalTime();
-            if (!TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
-                    alongTrackMeters, anchor.obt_speed, src.semiMajorAxis,
-                    src.referenceBody.gravParameter, out double dM))
-            {
-                ParsekLog.Info(Tag, $"spawn {label}: degenerate anchor orbit, no co-orbital shift (pid=0)");
-                return 0;
-            }
-            var orbit = new Orbit(src.inclination, src.eccentricity, src.semiMajorAxis, src.LAN,
-                src.argumentOfPeriapsis, src.meanAnomalyAtEpoch + dM, src.epoch, src.referenceBody);
-            orbit.Init();
-            orbit.UpdateFromUT(ut);
-            uint pid = VesselSpawner.SpawnAtPosition(
-                vesselNode, src.referenceBody, anchor.latitude, anchor.longitude, anchor.altitude,
-                anchor.obt_velocity, ut, terminalState: TerminalState.Orbiting, orbitOverride: orbit);
-            ParsekLog.Info(Tag, $"spawn {label}: pid={pid.ToString(IC)} alongTrack={alongTrackMeters.ToString("F0", IC)}m " +
-                $"dM={dM.ToString("R", IC)}rad body={src.referenceBody.name}");
-            return pid;
         }
 
         private static void ResolveLiveParts(ConfigRun run)
@@ -1113,43 +1031,14 @@ namespace Parsek.InGameTests
 
         private static bool BuildGhostBesideReal(ConfigRun run, out string failReason)
         {
-            failReason = null;
-            ConfigNode snapshot = FlightRecorder.TryBackupSnapshot(run.Real);
-            if (snapshot == null)
-            {
-                failReason = "TryBackupSnapshot returned null";
-                return false;
-            }
-            double t0 = Planetarium.GetUniversalTime();
             string id = "fgv-" + run.Config.Number.ToString(IC) + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            var rec = new Recording
-            {
-                RecordingId = id,
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
-                VesselName = run.Real.vesselName,
-                VesselPersistentId = run.Real.persistentId,
-                ExplicitStartUT = t0,
-                ExplicitEndUT = t0 + 100.0,
-                GhostVisualSnapshot = snapshot.CreateCopy(),
-                VesselSnapshot = snapshot.CreateCopy(),
-            };
-            GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(rec, "ParsekTest_fgv_" + id);
-            if (build == null || build.root == null)
-            {
-                failReason = "BuildTimelineGhostFromSnapshot returned no root";
+            if (!GhostCoOrbitalRig.TryBuildGhostFromLiveVessel(
+                    run.Real, id, "ParsekTest_fgv_" + id, out GhostCoOrbitalRig.LiveGhost live, out failReason))
                 return false;
-            }
+            ConfigNode snapshot = live.Snapshot;
+            GhostBuildResult build = live.Build;
+            GhostPlaybackState state = live.State;
             run.Build = build;
-            var state = new GhostPlaybackState
-            {
-                vesselName = rec.VesselName,
-                recordingId = rec.RecordingId,
-                ghost = build.root,
-            };
-            state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
-            state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
-            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, build, rec);
             run.State = state;
 
             // Choose the camera side facing the sun (lit faces toward the lens), then put the
@@ -1173,19 +1062,9 @@ namespace Parsek.InGameTests
             build.root.transform.localScale = Vector3.one;
             build.root.SetActive(true);
 
-            // The ghost now hangs under a live physics part. A collider or rigidbody in its
-            // hierarchy would join the real part's compound body (or fly off on its own), so
-            // neutralise them; neither changes what the camera sees. The counts are logged
-            // because a ghost carrying either is itself worth knowing.
-            Collider[] colliders = build.root.GetComponentsInChildren<Collider>(true);
-            for (int i = 0; i < colliders.Length; i++)
-                colliders[i].enabled = false;
-            Rigidbody[] bodies = build.root.GetComponentsInChildren<Rigidbody>(true);
-            for (int i = 0; i < bodies.Length; i++)
-            {
-                bodies[i].isKinematic = true;
-                bodies[i].detectCollisions = false;
-            }
+            // The ghost now hangs under a live physics part. The counts are logged because a
+            // ghost carrying a collider or rigidbody is itself worth knowing.
+            GhostCoOrbitalRig.NeutralisePhysics(build.root, out int collidersDisabled, out int rigidbodiesFrozen);
 
             int fairingInfos = state.fairingInfos != null ? state.fairingInfos.Count : 0;
             bool hasFairingInfo = state.fairingInfos != null && state.fairingInfos.ContainsKey(run.FairingPid);
@@ -1193,7 +1072,7 @@ namespace Parsek.InGameTests
                 $"snapshotParts={snapshot.GetNodes("PART").Length.ToString(IC)} logicalParts={(state.logicalPartIds != null ? state.logicalPartIds.Count : 0).ToString(IC)} " +
                 $"fairingInfos={fairingInfos.ToString(IC)} fairingInfoForPid{run.FairingPid.ToString(IC)}={hasFairingInfo} " +
                 $"offset={offset.ToString("F2", IC)}m side={FormatVector(rightLocal)} cameraSide={FormatVector(sideLocal)} " +
-                $"ghostCollidersDisabled={colliders.Length.ToString(IC)} ghostRigidbodiesFrozen={bodies.Length.ToString(IC)}");
+                $"ghostCollidersDisabled={collidersDisabled.ToString(IC)} ghostRigidbodiesFrozen={rigidbodiesFrozen.ToString(IC)}");
             // A missing FairingGhostInfo keeps the ghost for the images; the jettison
             // applier's outcome reports that gap as a failure.
             return true;
