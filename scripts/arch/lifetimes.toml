@@ -699,3 +699,10 @@ resolved = "process: cache keyed on the home body's reference identity"
 homeBodyNameOverrideForTesting = "test-hook"
 LiveHomeBodyReaderForTesting = "test-hook"
 BodyNameReaderForTesting = "test-hook"
+
+[[type]]
+name = "Parsek.GhostVisualBuilder"
+reason = "the ghost mesh builder; only the statics below are tagged, the rest stay in the untagged pin set"
+[type.fields]
+hingePistonTransformsField = "process: reflection cache of a stock field"
+hingePistonTransformsFieldResolved = "process: resolve-once latch for that reflection cache"

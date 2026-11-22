@@ -514,7 +514,8 @@ namespace Parsek
             GameObject ghostRoot,
             Dictionary<uint, HeatGhostInfo> heatInfos,
             int ghostIndex,
-            string vesselName)
+            string vesselName,
+            Dictionary<Material, string> ghostOwnedMaterials = null)
         {
             var info = new ReentryFxInfo();
             int skippedHeatCount = 0;
@@ -522,7 +523,8 @@ namespace Parsek
             // --- Layer A: Collect glow materials ---
             var renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
             skippedHeatCount = CollectReentryGlowMaterials(
-                ghostRoot, heatInfos, renderers, info.glowMaterials, info.allClonedMaterials);
+                ghostRoot, heatInfos, renderers, info.glowMaterials, info.allClonedMaterials,
+                ghostOwnedMaterials);
 
             // --- Measure vessel bounds for streak sizing ---
             // Reuse the renderers array already fetched for Layer A to avoid a second hierarchy scan
@@ -709,9 +711,11 @@ namespace Parsek
             Dictionary<uint, HeatGhostInfo> heatInfos,
             Renderer[] renderers,
             List<HeatMaterialState> glowMaterials,
-            List<Material> allClonedMaterials)
+            List<Material> allClonedMaterials,
+            Dictionary<Material, string> ghostOwnedMaterials)
         {
             int skippedHeatCount = 0;
+            int reusedOwned = 0;
             var heatPartIds = new HashSet<uint>();
             if (heatInfos != null)
             {
@@ -775,15 +779,34 @@ namespace Parsek
                         continue;
                     }
 
-                    Material materialClone = new Material(source);
+                    string ownerProperty = null;
+                    bool owned = ghostOwnedMaterials != null
+                        && ghostOwnedMaterials.TryGetValue(source, out ownerProperty);
+                    string sourceEmissive = TryGetHeatEmissiveProperty(source);
+                    ReentryGlowMaterialPlan plan = DecideReentryGlowMaterial(
+                        owned, ownerProperty, sourceEmissive);
+
+                    Material materialClone;
+                    if (plan.cloneMaterial)
+                    {
+                        materialClone = new Material(source);
+                        allClonedMaterials.Add(materialClone);
+                    }
+                    else
+                    {
+                        // Already a per-ghost instance another ghost info holds and writes
+                        // (light lens / flare, colour changer): reuse it so that reference
+                        // stays the drawn material; its owner destroys nothing and neither do we.
+                        materialClone = source;
+                        reusedOwned++;
+                    }
                     cloned[m] = materialClone;
-                    allClonedMaterials.Add(materialClone);
                     hasAnyMaterial = true;
 
                     string colorProperty = materialClone.HasProperty("_Color")
                         ? "_Color"
                         : null;
-                    string emissiveProperty = TryGetHeatEmissiveProperty(materialClone);
+                    string emissiveProperty = plan.driveEmissive ? sourceEmissive : null;
 
                     // Clear inherited emissive — see BuildHeatMaterialStates comment
                     if (emissiveProperty != null)
@@ -824,10 +847,49 @@ namespace Parsek
                 }
 
                 if (hasAnyMaterial)
-                    renderer.materials = cloned;
+                    renderer.sharedMaterials = cloned;
+            }
+
+            if (reusedOwned > 0)
+            {
+                ParsekLog.VerboseRateLimited("ReentryFx", "glow-reused-owned",
+                    $"Reentry glow reused {reusedOwned} per-ghost material(s) owned by light / " +
+                    $"colour-changer infos instead of re-cloning them", 60.0);
             }
 
             return skippedHeatCount;
+        }
+
+        /// <summary>What the reentry glow collector does with one material slot.</summary>
+        internal struct ReentryGlowMaterialPlan
+        {
+            public bool cloneMaterial;
+            public bool driveEmissive;
+        }
+
+        /// <summary>
+        /// Pure: how the reentry glow treats one material. A material another ghost info
+        /// already holds as a per-ghost instance (a light's lens / flare, a colour changer's
+        /// cabin-light or ablation-char material) is REUSED, never re-cloned: a clone would
+        /// leave that info writing to a material no renderer draws (a switched-on lens staying
+        /// dark, a heat shield never darkening). Reuse was chosen over remapping every info
+        /// through an old -> new map because it keeps one material per slot and needs no
+        /// knowledge of each info's list shapes. The glow also leaves alone the emissive
+        /// property the owner itself drives (the lens / cabin-light <c>_EmissiveColor</c>), so
+        /// the reentry glow neither blacks a lit lens nor fights its owner; any other material
+        /// is cloned and its emissive cleared and driven, as before.
+        /// </summary>
+        internal static ReentryGlowMaterialPlan DecideReentryGlowMaterial(
+            bool ownedByGhostInfo, string ownerDrivenProperty, string emissiveProperty)
+        {
+            bool ownerDrivesEmissive = ownedByGhostInfo
+                && !string.IsNullOrEmpty(emissiveProperty)
+                && string.Equals(ownerDrivenProperty, emissiveProperty, System.StringComparison.Ordinal);
+            return new ReentryGlowMaterialPlan
+            {
+                cloneMaterial = !ownedByGhostInfo,
+                driveEmissive = !string.IsNullOrEmpty(emissiveProperty) && !ownerDrivesEmissive,
+            };
         }
 
         /// <summary>

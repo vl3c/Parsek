@@ -23,54 +23,92 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        #region ClassifyVariantProperty
+        #region ResolveVariantMaterialCommand (stock PartMaterialCommand)
 
-        [Fact]
-        public void ClassifyVariantProperty_TextureURLKeys_ReturnTexture()
+        [Theory]
+        [InlineData("mainTextureURL", "Squad/Parts/x", "_MainTex")]
+        [InlineData("backTextureURL", "Squad/Parts/x", "_BackTex")]
+        [InlineData("_BumpMap", "Squad/Parts/x_n", "_BumpMap")]
+        [InlineData("_SpecMap", "ReStock/Assets/y", "_SpecMap")]
+        [InlineData("_Emissive", "Squad/Parts/z", "_Emissive")]
+        [InlineData("customURL", "Squad/Parts/x", "customURL")]
+        public void ResolveVariantMaterialCommand_NonColourNonFloat_IsTextureOnStockKey(
+            string key, string value, string expectedProperty)
         {
-            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ClassifyVariantProperty("mainTextureURL"));
-            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ClassifyVariantProperty("backTextureURL"));
+            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                key, value, out string prop, out _, out _));
+            Assert.Equal(expectedProperty, prop);
+        }
+
+        [Theory]
+        [InlineData("color", "#efe38b", "_Color")]
+        [InlineData("backColor", "#ffffffff", "_BackColor")]
+        [InlineData("_SpecColor", "#3a392d", "_SpecColor")]
+        [InlineData("_EmissiveColor", "#000", "_EmissiveColor")]
+        public void ResolveVariantMaterialCommand_HashValue_IsColour(
+            string key, string value, string expectedProperty)
+        {
+            Assert.Equal(VariantPropertyType.Color, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                key, value, out string prop, out _, out _));
+            Assert.Equal(expectedProperty, prop);
         }
 
         [Fact]
-        public void ClassifyVariantProperty_KnownTextureNames_ReturnTexture()
+        public void ResolveVariantMaterialCommand_NumericValue_IsFloat()
         {
-            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ClassifyVariantProperty("_BumpMap"));
-            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ClassifyVariantProperty("_Emissive"));
-            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ClassifyVariantProperty("_SpecMap"));
+            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                "_Shininess", "0.41", out string prop, out _, out float number));
+            Assert.Equal("_Shininess", prop);
+            Assert.Equal(0.41, (double)number, 4);
         }
 
         [Fact]
-        public void ClassifyVariantProperty_ColorKeys_ReturnColor()
+        public void ResolveVariantMaterialCommand_CommaColour_IsNotAColour()
         {
-            Assert.Equal(VariantPropertyType.Color, GhostVisualBuilder.ClassifyVariantProperty("_Color"));
-            Assert.Equal(VariantPropertyType.Color, GhostVisualBuilder.ClassifyVariantProperty("color"));
-            Assert.Equal(VariantPropertyType.Color, GhostVisualBuilder.ClassifyVariantProperty("_SpecColor"));
+            // Stock reads no comma colours: the value goes down the float / texture paths.
+            Assert.NotEqual(VariantPropertyType.Color, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                "_SpecColor", "0.75,0.75,0.5,1", out _, out _, out _));
         }
 
         [Fact]
-        public void ClassifyVariantProperty_FloatKeys_ReturnFloat()
+        public void ResolveVariantMaterialCommand_BadHash_FallsThroughToTexture()
         {
-            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ClassifyVariantProperty("_Shininess"));
-            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ClassifyVariantProperty("_Opacity"));
-            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ClassifyVariantProperty("_RimFalloff"));
-            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ClassifyVariantProperty("_AmbientMultiplier"));
-            Assert.Equal(VariantPropertyType.Float, GhostVisualBuilder.ClassifyVariantProperty("_TemperatureColor"));
+            Assert.Equal(VariantPropertyType.Texture, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                "color", "#zz", out _, out _, out _));
+        }
+
+        [Theory]
+        [InlineData("shader")]
+        [InlineData("materialName")]
+        [InlineData("transformName")]
+        [InlineData("")]
+        [InlineData(null)]
+        public void ResolveVariantMaterialCommand_FilterKeys_Skip(string key)
+        {
+            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ResolveVariantMaterialCommand(
+                key, "x", out _, out _, out _));
         }
 
         [Fact]
-        public void ClassifyVariantProperty_SkipKeys_ReturnSkip()
+        public void TryParseHtmlHexColor_Forms()
         {
-            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ClassifyVariantProperty("shader"));
-            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ClassifyVariantProperty("materialName"));
-            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ClassifyVariantProperty("transformName"));
-        }
+            Assert.True(GhostVisualBuilder.TryParseHtmlHexColor("#efe38b", out UnityEngine.Color c6));
+            Assert.Equal(0xef / 255.0, (double)c6.r, 4);
+            Assert.Equal(0xe3 / 255.0, (double)c6.g, 4);
+            Assert.Equal(0x8b / 255.0, (double)c6.b, 4);
+            Assert.Equal(1.0, (double)c6.a, 4);
 
-        [Fact]
-        public void ClassifyVariantProperty_NullOrEmpty_ReturnsSkip()
-        {
-            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ClassifyVariantProperty(null));
-            Assert.Equal(VariantPropertyType.Skip, GhostVisualBuilder.ClassifyVariantProperty(""));
+            Assert.True(GhostVisualBuilder.TryParseHtmlHexColor("#ffffff00", out UnityEngine.Color c8));
+            Assert.Equal(0.0, (double)c8.a, 4);
+
+            Assert.True(GhostVisualBuilder.TryParseHtmlHexColor("#f80", out UnityEngine.Color c3));
+            Assert.Equal(1.0, (double)c3.r, 4);
+            Assert.Equal(0x88 / 255.0, (double)c3.g, 4);
+            Assert.Equal(0.0, (double)c3.b, 4);
+
+            Assert.False(GhostVisualBuilder.TryParseHtmlHexColor("#12345", out _));
+            Assert.False(GhostVisualBuilder.TryParseHtmlHexColor("efe38b", out _));
+            Assert.False(GhostVisualBuilder.TryParseHtmlHexColor("#gggggg", out _));
         }
 
         #endregion
@@ -196,70 +234,6 @@ namespace Parsek.Tests
 
             Assert.False(GhostVisualBuilder.DoesRendererMatchTextureRule(
                 "SomeMat", null, rule));
-        }
-
-        #endregion
-
-        #region TextureUrlToShaderProperty
-
-        [Fact]
-        public void TextureUrlToShaderProperty_ConvertsCorrectly()
-        {
-            Assert.Equal("_MainTex", GhostVisualBuilder.TextureUrlToShaderProperty("mainTextureURL"));
-            Assert.Equal("_BackTex", GhostVisualBuilder.TextureUrlToShaderProperty("backTextureURL"));
-            Assert.Equal("_BumpMap", GhostVisualBuilder.TextureUrlToShaderProperty("_BumpMap"));
-            Assert.Equal("_Emissive", GhostVisualBuilder.TextureUrlToShaderProperty("_Emissive"));
-            Assert.Equal("_SpecMap", GhostVisualBuilder.TextureUrlToShaderProperty("_SpecMap"));
-        }
-
-        [Fact]
-        public void TextureUrlToShaderProperty_EmptyPrefixURL_ReturnsFallback()
-        {
-            Assert.Equal("_MainTex", GhostVisualBuilder.TextureUrlToShaderProperty("URL"));
-        }
-
-        #endregion
-
-        #region TryParseKspColor
-
-        [Fact]
-        public void TryParseKspColor_CommaSeparatedRGBA_Parses()
-        {
-            Assert.True(GhostVisualBuilder.TryParseKspColor("1.0, 0.5, 0.25, 0.8", out var color));
-            Assert.Equal(1.0, (double)color.r, 3);
-            Assert.Equal(0.5, (double)color.g, 3);
-            Assert.Equal(0.25, (double)color.b, 3);
-            Assert.Equal(0.8, (double)color.a, 3);
-        }
-
-        [Fact]
-        public void TryParseKspColor_CommaSeparatedRGB_DefaultsAlphaToOne()
-        {
-            Assert.True(GhostVisualBuilder.TryParseKspColor("0.5, 0.5, 0.5", out var color));
-            Assert.Equal(0.5, (double)color.r, 3);
-            Assert.Equal(1.0, (double)color.a, 3);
-        }
-
-        [Fact]
-        public void TryParseKspColor_NullOrEmpty_ReturnsFalse()
-        {
-            Assert.False(GhostVisualBuilder.TryParseKspColor(null, out _));
-            Assert.False(GhostVisualBuilder.TryParseKspColor("", out _));
-        }
-
-        [Fact]
-        public void TryParseKspColor_TooFewComponents_ReturnsFalse()
-        {
-            Assert.False(GhostVisualBuilder.TryParseKspColor("0.5, 0.5", out _));
-        }
-
-        // Hex format (#RRGGBB) is handled via ColorUtility.TryParseHtmlString
-        // which requires Unity runtime — can't be unit tested, verified in-game
-
-        [Fact]
-        public void TryParseKspColor_InvalidFloatComponents_ReturnsFalse()
-        {
-            Assert.False(GhostVisualBuilder.TryParseKspColor("abc, 0.5, 0.5, 1.0", out _));
         }
 
         #endregion
@@ -537,33 +511,6 @@ namespace Parsek.Tests
             var rule = GhostVisualBuilder.ParseVariantTextureRules(variantNode)[0];
             Assert.Equal("nozzle_mesh", rule.transformName);
             Assert.Single(rule.properties);
-        }
-
-        #endregion
-
-        #region Property classification edge cases
-
-        [Fact]
-        public void ClassifyVariantProperty_UnknownKey_ReturnsSkip()
-        {
-            Assert.Equal(VariantPropertyType.Skip,
-                GhostVisualBuilder.ClassifyVariantProperty("randomUnknownKey"));
-        }
-
-        [Fact]
-        public void ClassifyVariantProperty_ColorInMiddleOfKey_ReturnsColor()
-        {
-            Assert.Equal(VariantPropertyType.Color,
-                GhostVisualBuilder.ClassifyVariantProperty("_EmissiveColor"));
-        }
-
-        [Fact]
-        public void ClassifyVariantProperty_URLSuffix_CaseMatters()
-        {
-            Assert.Equal(VariantPropertyType.Texture,
-                GhostVisualBuilder.ClassifyVariantProperty("customURL"));
-            Assert.Equal(VariantPropertyType.Skip,
-                GhostVisualBuilder.ClassifyVariantProperty("customUrl"));
         }
 
         #endregion

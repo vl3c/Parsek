@@ -508,35 +508,6 @@ namespace Parsek
             return false;
         }
 
-        internal static bool TryParseKspColor(string raw, out Color color)
-        {
-            color = Color.white;
-            if (string.IsNullOrEmpty(raw))
-                return false;
-
-            string trimmed = raw.Trim();
-
-            if (trimmed.StartsWith("#", System.StringComparison.Ordinal))
-                return ColorUtility.TryParseHtmlString(trimmed, out color);
-
-            string[] parts = trimmed.Split(',');
-            if (parts.Length < 3)
-                return false;
-
-            if (!float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
-                return false;
-            if (!float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float g))
-                return false;
-            if (!float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float b))
-                return false;
-
-            float a = 1f;
-            if (parts.Length >= 4)
-                float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out a);
-
-            color = new Color(r, g, b, a);
-            return true;
-        }
 
         /// <summary>
         /// For multi-MODEL parts, transform names include the full GameDatabase path

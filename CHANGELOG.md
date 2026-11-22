@@ -94,6 +94,40 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
+  line and its far end even when the real strut or fuel line had no target. It now shows only the
+  base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
+- **ReStock Skiff engines with the orange shroud lose it like the real engine.** On the alternate
+  shroud variant, the replay kept the orange shroud on even where the real engine had none. The
+  ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
+- **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
+  its lens even while the real light was off. A light's lens and flare now follow the light:
+  dark when it is off, lit in the light's colour when it is on, and lights and cabin windows
+  keep switching after the replay flies fast through the air. (GHOST-LIGHT-LENS-GLOWS-OFF)
+- **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
+  drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
+  real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)
+- **Inflatable parts start deflated on their ghosts.** The stock inflatable heat shield and the
+  ReStock inflatable airlocks were replayed fully inflated even when the real part was packed.
+  They now start packed and inflate on the replay when the real part did.
+  (GHOST-INFLATABLE-SPAWNS-INFLATED)
+- **Hinge ghosts no longer show the piston arm.** The Alligator and G-32W hinges drew the bars
+  and knuckles that the real hinge hides in flight. The ghost now shows the hinge as the real part
+  does. (GHOST-HINGE-PISTON-ARM)
+- **A flag part's ghost shows one flag, not all of them.** The replay of every flag part drew
+  every size, both orientations and the panel and plain flags on top of each other. It now shows
+  only the flag the real part shows. (GHOST-FLAG-ALL-MESHES)
+- **A part's flag keeps its look on the ghost when a paint variant is chosen.** Picking the gold
+  or silver finish of the RoveMate also repainted its flag on the replay. The flag now stays a
+  flag, as on the real part. (GHOST-VARIANT-RESKINS-FLAG)
+- **Painted tank and nose cone variants look right on their ghosts.** A variant's bump texture was
+  loaded the wrong way, which also spoiled that texture for the real parts until a restart. Ghosts
+  of Size3 tanks and the orange nose cones now match the real part, and the real part stays
+  unharmed. (GHOST-VARIANT-BUMPMAP-CONVERTED)
+- **Heat shield ghosts are no longer black.** Every heat shield replay, and the shields on the
+  ReStock pods, drew the shield fully charred from the first frame. A shield now starts the colour
+  the real one shows, from how much ablator it had left, and still darkens during reentry.
+  (GHOST-HEATSHIELD-BLACK)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.

@@ -879,6 +879,51 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// Where stock <c>ModuleAnimateGeneric</c> holds its clip (decompiled KSP 1.12.5):
+        /// <c>OnStart</c> sets <c>normalizedTime = animTime</c>, a persisted field that starts
+        /// at 0, and the recorder and snapshot baseline read <c>animTime</c> near 0 as
+        /// retracted and near 1 as deployed (<c>FlightRecorder.ClassifyLadderState</c>). The
+        /// module has no invert flag (<c>revClampDirection</c> only reverses a deploy-limit
+        /// slider). So the stowed pose is clip time 0 and the deployed pose clip time 1, never
+        /// the endpoint scoring, which calls a part authored in its deployed pose (an
+        /// inflatable) stowed at time 1 (todo GHOST-INFLATABLE-SPAWNS-INFLATED).
+        /// </summary>
+        internal const float AnimateGenericStowedNormalizedTime = 0f;
+        internal const float AnimateGenericDeployedNormalizedTime = 1f;
+
+        /// <summary>
+        /// Samples a standalone <c>ModuleAnimateGeneric</c> deploy clip at stock's animTime
+        /// endpoints (stowed 0, deployed 1) instead of scoring them.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleStandaloneAnimateGenericStates(
+            Part prefab, string animationName)
+        {
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|animateGeneric|" + (animationName ?? string.Empty);
+            if (animationSampleCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationName))
+            {
+                animationSampleCache[cacheKey] = null;
+                return null;
+            }
+
+            var result = SampleAnimationStates(prefab, animationName, "AnimateGeneric",
+                AnimLookup.ByTransformThenClipSearch, null,
+                AnimateGenericStowedNormalizedTime, AnimateGenericDeployedNormalizedTime,
+                useScoring: false);
+            if (result != null)
+                ParsekLog.Verbose("GhostVisual",
+                    $"  AnimateGeneric '{partKey}': poses from stock animTime endpoints " +
+                    $"(stowed=animTime {AnimateGenericStowedNormalizedTime:0}, " +
+                    $"deployed=animTime {AnimateGenericDeployedNormalizedTime:0})");
+            animationSampleCache[cacheKey] = result;
+            return result;
+        }
+
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleLadderStates(
             Part prefab, string animationName, string animationRootName)

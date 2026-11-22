@@ -443,6 +443,14 @@ namespace Parsek
     {
         public uint partPersistentId;
         public List<Light> lights;
+        // Stock ModuleLight drives its lens renderer's _EmissiveColor (lightColor on, black off)
+        // and its flare renderer's _TintColor (white on, black off); per-ghost material clones.
+        public List<Material> lensMaterials;
+        public Color lensOnColor;
+        public List<Material> flareMaterials;
+        // Last lens / flare write, so the every-frame light driver skips unchanged writes.
+        public bool lensFlareWritten;
+        public bool lensFlareWrittenOn;
     }
 
     internal struct ColorChangerMaterialState
