@@ -355,6 +355,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClampPastUT_MovesLaterSnapshotsToTheNewEndKeepingFigures()
+        {
+            var list = new List<DeltaVSnapshot>
+            {
+                Ok(10, DeltaVTrigger.Start, 3000), Ok(20, DeltaVTrigger.BurnEnd, 2000), Ok(30, DeltaVTrigger.End, 2000),
+            };
+            Assert.True(DeltaVSnapshotList.ClampPastUT(list, 25));
+            Assert.Equal(new double[] { 10, 20, 25 }, list.Select(s => s.UT));
+            Assert.Equal(DeltaVTrigger.End, list[2].Trigger);
+            Assert.Equal(2000, list[2].TotalVacuum);
+            Assert.Equal(DeltaVSnapshotStatus.Ok, list[2].Status);
+            Assert.False(DeltaVSnapshotList.ClampPastUT(list, 25));
+            Assert.False(DeltaVSnapshotList.ClampPastUT(null, 25));
+        }
+
+        [Fact]
+        public void StopRead_DoesNotRequireFlightGlobalsReady()
+        {
+            // Stock FlightGlobals.OnSceneChange clears FlightGlobals.ready on the same
+            // onGameSceneLoadRequested that stops the recorder at scene exit; the End read takes
+            // the last computed figures, so it must not wait on that flag.
+            string path = System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "Recording", "FlightRecorder.DeltaV.cs");
+            string src = System.IO.File.ReadAllText(path);
+            int stop = src.IndexOf("private void CaptureDeltaVSnapshotAtStop(", StringComparison.Ordinal);
+            Assert.True(stop >= 0, "CaptureDeltaVSnapshotAtStop not found");
+            int next = src.IndexOf("ReadDeltaVReadiness(", stop, StringComparison.Ordinal);
+            Assert.True(next >= 0, "stop path no longer reads readiness");
+            int lineEnd = src.IndexOf('\n', next);
+            Assert.Contains("requireFlightReady: false", src.Substring(next, lineEnd - next));
+        }
+
+        [Fact]
         public void RemoveByReference_RemovesOnlyThatSnapshot()
         {
             var a = Ok(10, DeltaVTrigger.End, 1000);

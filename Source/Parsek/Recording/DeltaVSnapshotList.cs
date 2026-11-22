@@ -112,6 +112,38 @@ namespace Parsek
             return list.Count != before;
         }
 
+        /// <summary>
+        /// Moves every snapshot later than <paramref name="endUT"/> onto <paramref name="endUT"/>,
+        /// keeping its figures. For the boring-tail trim: a trimmed tail holds no burn, so the
+        /// vessel's delta-v at the new end is the one the later snapshots read, and dropping them
+        /// would lose the recording's End figures.
+        /// </summary>
+        internal static bool ClampPastUT(List<DeltaVSnapshot> list, double endUT)
+        {
+            if (list == null || list.Count == 0 || double.IsNaN(endUT))
+                return false;
+            bool changed = false;
+            for (int i = 0; i < list.Count; i++)
+            {
+                DeltaVSnapshot s = list[i];
+                if (s == null || s.UT <= endUT)
+                    continue;
+                list[i] = new DeltaVSnapshot(endUT, s.Trigger, s.Status,
+                    s.TotalVacuum, s.TotalSeaLevel, s.TotalActual, ToList(s.Stages));
+                changed = true;
+            }
+            return changed;
+        }
+
+        private static List<DeltaVStageReading> ToList(IReadOnlyList<DeltaVStageReading> stages)
+        {
+            var copy = new List<DeltaVStageReading>(stages != null ? stages.Count : 0);
+            if (stages != null)
+                for (int i = 0; i < stages.Count; i++)
+                    copy.Add(stages[i]);
+            return copy;
+        }
+
         internal static int CountUnknown(List<DeltaVSnapshot> list)
         {
             if (list == null)

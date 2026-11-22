@@ -544,13 +544,18 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   `OperatingStageInfo` of `DeltaVStageInfo` with `stage`, `deltaVinVac`, `stageBurnTime`), records
   the UT it was taken, and is written as unknown 3 s after that wait. A burn start describes the
   vessel BEFORE the burn, so it reads on the first ready tick, before the new figures replace the
-  old; the end reads at once (there is no later frame). A request of a kind already pending keeps the
+  old; the end reads at once (there is no later frame) and takes the last computed figures without the
+  `FlightGlobals.ready` gate, because stock clears that flag in `FlightGlobals.OnSceneChange` on the
+  same `onGameSceneLoadRequested` that stops the recorder at scene exit (review finding, 2026-11-22). A request of a kind already pending keeps the
   first. `GameSettings.DELTAV_CALCULATIONS_ENABLED` off means no snapshots. As built (P1a): an end
   written at a chain-boundary stop that resumes as a false alarm (a debris-only split) is removed
   again, and requests still pending at that stop complete after the resume; a vessel switch or the
   move to the background recorder ends the focused span with no end snapshot (stock has no figures
   for a vessel the player is not flying; the switch back starts a new span); at most 400 snapshots per
-  recording (one Warn when reached). Code: `Recording/DeltaVSnapshot*.cs`,
+  recording (one Warn when reached). End marks a stop, not the recording's last snapshot: a resumed
+  committed recording keeps its earlier End and adds a Resume after it. The boring-tail trim moves
+  snapshots past the new end onto it (no burn happens in a trimmed tail) instead of dropping the End.
+  Code: `Recording/DeltaVSnapshot*.cs`,
   `Recording/FlightRecorder.DeltaV.cs`.
 - What: UT, the trigger kind, total vacuum delta-v, total delta-v at the current pressure, and per
   stage the stage number with its vacuum delta-v (and burn time). Vacuum figures drive Spent and Left,

@@ -159,7 +159,10 @@ namespace Parsek
 
             if (deltaVVesselEligible)
             {
-                DeltaVReadiness readiness = ReadDeltaVReadiness(recordedVessel);
+                // No FlightGlobals.ready gate here: stock clears it in FlightGlobals.OnSceneChange,
+                // which runs on the same onGameSceneLoadRequested that stops the recorder at scene
+                // exit, and the End read takes the last computed figures rather than a new run.
+                DeltaVReadiness readiness = ReadDeltaVReadiness(recordedVessel, requireFlightReady: false);
                 DeltaVRequestOutcome outcome = DeltaVSnapshotTracker.DecideAtStop(readiness);
                 if (outcome != DeltaVRequestOutcome.Dropped)
                 {
@@ -315,10 +318,11 @@ namespace Parsek
         /// <summary>
         /// Live: whether stock has figures for <paramref name="v"/>. The stock calculation runs
         /// only for the loaded active vessel while <c>FlightGlobals.ready</c>
-        /// (<c>VesselDeltaV.CheckDirtyAndRun</c>, KSP 1.12.5).
+        /// (<c>VesselDeltaV.CheckDirtyAndRun</c>, KSP 1.12.5). The stop read passes
+        /// <paramref name="requireFlightReady"/> false: it reads the last computed figures.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static DeltaVReadiness ReadDeltaVReadiness(Vessel v)
+        private static DeltaVReadiness ReadDeltaVReadiness(Vessel v, bool requireFlightReady = true)
         {
             var readiness = new DeltaVReadiness
             {
@@ -328,7 +332,7 @@ namespace Parsek
             try
             {
                 bool active = v != null && v.loaded && !v.isEVA
-                    && FlightGlobals.ready
+                    && (!requireFlightReady || FlightGlobals.ready)
                     && ReferenceEquals(FlightGlobals.ActiveVessel, v);
                 VesselDeltaV dv = active ? v.VesselDeltaV : null;
                 readiness.VesselEligible = dv != null;
