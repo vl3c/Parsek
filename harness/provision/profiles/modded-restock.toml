@@ -1,0 +1,100 @@
+schema = 1
+name = "modded-restock"
+baseInstall = "Kerbal Space Program"        # dev install, relative to repo umbrella root
+instanceDir = "automation/modded-restock"   # created by CLONE
+
+# modded-restock = modded-compat MINUS the four Waterfall folders (Waterfall,
+# WaterfallRestock, RestockWaterfallExpansion, StockWaterfallEffects), so a
+# ReStock engine or RCS part keeps ReStock's own particle EFFECTS on the real
+# vessel and the part ghost parity plume cases can be judged rather than taken as
+# Waterfall reference (owner ruling R6, 2026-11-22; design
+# docs/dev/design-part-ghost-parity.md Appendix E, E.6). WaterfallCompat finds no
+# Waterfall assembly here, so its pristine fallback stays closed and ghosts take
+# the stock / ReStock EFFECTS path, the same one stock-minimal takes.
+#
+# EVERY other key is modded-compat's, byte for byte in meaning: the same
+# remaining devSourcedMods in the same order, the same stack components, the
+# same pinned optional mods, the same [settings].
+# test_provlib.ModdedRestockProfileTests asserts it key for key, so the two
+# profiles can only drift on purpose. The D17 registry dimension stays
+# modded-compat's.
+#
+# Squad + SquadExpansion are junctioned stock payloads (see stock-minimal note),
+# not listed here. PersistentRotation + SpaceTuxLibrary are PINNED optional mods
+# exactly as on modded-compat (see that profile's note).
+devSourcedMods = [
+  # --- shared with stock-minimal ---
+  "000_Harmony", "ModuleManager.4.2.3.dll",
+  "000_ClickThroughBlocker", "001_ToolbarControl",
+  "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
+  # --- modded-compat additions, the four Waterfall folders left out ---
+  "ReStock", "ReStockPlus", "BetterTimeWarp",
+  "Kopernicus", "ModularFlightIntegrator", "B9PartSwitch", "KSPCommunityFixes",
+  "DistantObject", "KSPTextureLoader", "HideEmptyTechTreeNodes",
+]
+
+# Stack components installed by the script (not from dev GameData): kRPC,
+# TestingTools.dll, MechJeb2, KRPC.MechJeb, Parsek.
+#
+# MUST stay ABOVE the [[optionalMods]] array-of-tables below: TOML assigns every
+# bare key that follows a [[table]] header to THAT table entry, so a
+# stackComponents defined after [[optionalMods]] would silently become a key of
+# the PersistentRotation entry and leave the profile with NO stack components
+# (a live run would install nothing while writing a manifest).
+# Guarded by test_provlib.RealProfileFileTests.
+stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
+# Optional mods that are not in the dev-sourced list (GT-8 / EC-12). Two sources:
+# - `pin = "<pins.toml table>"`: a PINNED mod. The dev GameData is never consulted;
+#   DOWNLOAD fetches the release zip through the shared artifact cache (content
+#   addressed by the committed sha256, re-hashed on every use) and INSTALL extracts the
+#   pin's `gamedataFolders` into the instance GameData, recorded under the manifest's
+#   `pinnedMods` and re-hashed by VERIFY.
+# - no `pin`: copied from the dev GameData when present. required=false => absent is a
+#   WARN + `absent-source` manifest record, not an abort; required=true => aborts.
+[[optionalMods]]
+name = "PersistentRotation"
+required = true
+pin = "persistentrotation"
+reason = "GT-8 closed 2026-09-26: PersistentRotationUpgraded 1.9.2.1, the only KSP 1.12 build, pinned in pins.toml; hosts D17 persistent-rotation."
+
+[[optionalMods]]
+name = "SpaceTuxLibrary"
+required = true
+pin = "spacetuxlibrary"
+reason = "PersistentRotationUpgraded's CKAN-declared dependency, pinned in pins.toml."
+
+# Same determinism-oriented settings deltas as stock-minimal (GT-8 keys).
+[settings]
+PHYSICS_FRAME_DT_LIMIT = "0.03"
+FRAMERATE_LIMIT = "60"
+QUALITY_PRESET = "0"
+TEXTURE_QUALITY = "3"
+SHADOWS_QUALITY = "0"
+AERO_FX_QUALITY = "0"
+TERRAIN_SHADER_QUALITY = "0"
+UI_SCALE = "1.0"
+FULLSCREEN = "False"
+SCREEN_RESOLUTION_WIDTH = "1280"
+SCREEN_RESOLUTION_HEIGHT = "720"
+SIMULATE_IN_BACKGROUND = "True"
+AUTOSTRUT_SYMMETRY = "False"
+CONIC_PATCH_DRAW_MODE = "3"
+CHECK_FOR_UPDATES = "False"
+# Volumes: unattended automation instance, no background audio - same
+# rationale as stock-minimal (operator request 2026-07-19). MASTER_VOLUME alone
+# silences everything; the other per-channel keys are zeroed too so a later
+# master tweak stays silent. SHIP_VOLUME = "1" is the same deliberate exception
+# stock-minimal carries (W2-SHIP-VOLUME-ZERO, 2026-08-05): a zero SHIP_VOLUME
+# makes Parsek's ghost-audio start path structurally unreachable, and the
+# UNATTENDED_SETTINGS contract pins these keys identically across profiles.
+MASTER_VOLUME = "0"
+SHIP_VOLUME = "1"
+AMBIENCE_VOLUME = "0"
+MUSIC_VOLUME = "0"
+UI_VOLUME = "0"
+VOICE_VOLUME = "0"
+# Player-default vessel budget and KSC declutter - same ruling and rationale as
+# stock-minimal (S6 / Q4, 2026-09-26).
+MAX_VESSELS_BUDGET = "250"
+DECLUTTER_KSC = "True"

@@ -2016,8 +2016,9 @@ nodes.
 | `heat` | `ModuleAnimateHeat` (`PartStatePoller.PollAnimateHeat`) | `heat-medium`, `heat-hot` | the heat clip's colour and pose on the body, P6 rows and judge | 32 / 26 / 26 |
 | `light` in context `plate` | the recorder's light check (P6 S2, `PartStatePoller.PollLights`) | `lit` | the light the lamp casts on a matte plate (E.2), plus the part's `Light` components structurally | 15 / 18 / 18 |
 
-modded-restock (E.6) is not provisioned yet: its counts are modded-compat's with the Waterfall
-patches gone, and its first step logs the exact ones.
+modded-restock (E.6) is provisioned (PR #2783, 2026-11-22; ModuleManager cache has no
+`ModuleWaterfallFX`, ReStock's own `restock-fx-*` particle FX are live on both sides); its counts
+are modded-compat's with the Waterfall patches gone, and its first step logs the exact ones.
 
 Engines by type, stock (modded): 28 (39) liquid, 12 (18) solid (throttle-locked, no `burn-low`),
 7 (7) air-breathing modules on 6 parts (`JetEngine`, `RAPIER`, `miniJetEngine`, `turboFanEngine`,
@@ -2446,7 +2447,7 @@ The Waterfall-free profile (R6), so ReStock's own particle plumes are judged on 
   finds no Waterfall assembly), so its ghosts take the stock / ReStock EFFECTS path, the same one
   the stock install takes. It also serves the `[FxFingerprint]` A/B of `MC-1-waterfall-compat`
   ("config pack disabled vs enabled") as a standing pair, a side benefit.
-- Provisioning is an owner-requested step (`provision.py --profile modded-restock`), about one
+- Provisioning (`provision.py --profile modded-restock`; done 2026-11-22 on owner ruling R6) is about one
   more modded-size install (about 4.3 GB RAM and 1 GB VRAM per running copy, D.8's measure).
 - Lanes on it (E.8): PP-9 (orbit FX) and PP-10 (air jets). Nothing else is required there: a
   ReStock part's models do not change without Waterfall (Waterfall adds only its FX meshes, which

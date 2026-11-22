@@ -1659,8 +1659,9 @@ Provisioning refuses `EC-10` while any slot lock is live. Contract:
 `docs/dev/design-autotest-stack-setup.md`, "Provisioning slot copies".
 
 **kRPC ports.** Each profile owns a block of 20 ports: stock-minimal 50000,
-stock-tree 50020, modded-compat 50040; copy k uses `base + 2*(k-1)` for RPC and
-the next port for the stream. Before EVERY launch (serial or slot) run.py
+stock-tree 50020, modded-compat 50040, modded-restock 50060; copy k uses
+`base + 2*(k-1)` for RPC and the next port for the stream. Before EVERY launch
+(serial or slot) run.py
 writes the instance's `GameData/kRPC/PluginData/settings.cfg` with its slot's
 ports and passes the same ports to the mission, then refuses
 `INVALID(port-busy)` when either port already accepts a connection on
@@ -1869,7 +1870,7 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
   `longhaul` (`tier_runner.FULL_RUN_TIER_ORDER`): a broken build shows inside the
   first half hour, and the five-hour long-haul set comes last. Inside a tier the
   reference install `stock-minimal` first, then `stock-tree`, then
-  `modded-compat`; inside that, spec file order. A test pins that every
+  `modded-compat`, then `modded-restock`; inside that, spec file order. A test pins that every
   `hlib.TIERS` member is either flown or named in `FULL_RUN_EXCLUDED_TIERS`
   (today only `pending-fixture`, whose fixture does not exist yet).
 - **Skipped lanes are named, never dropped.** A lane on an operator-local
