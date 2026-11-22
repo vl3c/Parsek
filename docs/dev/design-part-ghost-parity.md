@@ -1107,7 +1107,7 @@ this order: `deployable`, `gear`, `ladder`, `animation-group`, `cargo-bay`, `ani
 | Ladder | `moduleName == "RetractableLadder"`, first per part (`PollLadders`) | `deployed` | KSPEvent `Extend` | `TryClassifyRetractableLadderState` deployed | `DeployableExtended` midx | 2 / 2 |
 | Animation group, in-orbit parts | `moduleName == "ModuleAnimationGroup"`, every module (`PollAnimationGroups`), not on a `ModuleGroundPart` part, not `autoDeploy` | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed AND the module's own deploy clip finished (D.3) | `DeployableExtended` midx | 4 / 4 |
 | Cargo and service bay | `FindModuleImplementing<ModuleCargoBay>` whose `DeployModuleIndex` (default 0) is a `ModuleAnimateGeneric` (`PollCargoBays`) | `open` | the linked module's KSPEvent `Toggle` | `ClassifyCargoBayState` open | `CargoBayOpened` | 8 / 9 |
-| Standalone animate generic (doors, inflatables, port shields, Klaw, science doors) | `as ModuleAnimateGeneric` with an `animationName` (default `default`), on a part where `FlightRecorder.HasDedicatedAnimateHandler` is false (`PollAnimateGeneric`) | `deployed` | KSPEvent `Toggle` (a hidden event too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx | 10 / 15 |
+| Standalone animate generic (doors, inflatables, port shields, Klaw, science doors) | `as ModuleAnimateGeneric` with an `animationName` (default `default`), on a part where `FlightRecorder.HasDedicatedAnimateHandler` is false (`PollAnimateGeneric`) | `deployed` | KSPEvent `Toggle` (a hidden event too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx | 12 / 17 |
 | Airbrake | `moduleName == "ModuleAeroSurface"`, every module (`PollAeroSurfaces`) | `deployed` | KSPAction `ActionToggleBrakes` (Activate) | `TryClassifyAeroSurfaceState` deployed, then the surface transform still for 0.5 s (D.3) | `DeployableExtended` midx | 1 / 1 |
 | Light | `FindModuleImplementing<ModuleLight>` (the recorder's light check, D.10 S2) | `lit` | KSPEvent `LightsOn`, with electric charge authored (D.3) | `isOn`, then the lens fade: `lightBrightenSpeed` + 0.5 s in game time (3 s at stock's 2.5 s; at least 1 s, cap 5 s) | `LightOn` | 15 / 18 |
 | Cabin light (colour changer) | `as ModuleColorChanger` with `toggleInFlight` (default true), the first on a part with no `ModuleLight` (same check) | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s plus 0.5 s (cap 5 s) | `LightOn` | 26 / 37 |
@@ -1124,9 +1124,11 @@ install's ConfigCache). Rev 2's planning estimate differed in three rows: the de
 the Magnetometer Boom (its module is `ModuleDeployablePart` itself, 18 / 21 -> 19 / 22); the cargo
 row loses the three / five service modules, whose `ModuleCargoBay` deploys a `ModuleServiceModule`
 the poller skips (their shells are the jettison family's ignore-nodes cases; 11 / 14 -> 8 / 9); the
-standalone animate generic row loses the two thrust reversers (`JetEngine`, `turboFanSize2`), whose
-parts carry `ModuleAnimateHeat`, so `HasDedicatedAnimateHandler` is true and the recorder never polls
-them (12 / 17 -> 10 / 15; todo THRUST-REVERSER-NOT-RECORDED). The fairing row's cases arrived with
+standalone animate generic row lost the two thrust reversers (`JetEngine`, `turboFanSize2`), whose
+parts carry `ModuleAnimateHeat`, which `HasDedicatedAnimateHandler` then counted as a dedicated
+handler, so the recorder never polled them (12 / 17 -> 10 / 15). Todo THRUST-REVERSER-NOT-RECORDED
+took `ModuleAnimateHeat` out of that list (it drives only its own heat clip and owns no
+`ModuleAnimateGeneric`), so the reversers are cases again (10 / 15 -> 12 / 17). The fairing row's cases arrived with
 the FGV context table (D.10 S8, below); the plan's "18" was FGV's six configurations times three
 states, but FGV photographs only 16 phases and three of them pair up as the two routes of one
 case, so the migration is 13 cases.
@@ -1185,8 +1187,8 @@ Totals (each step logs the exact ones, D.2):
 
 | Lane | Single-part states | Shroud cases | FGV contexts | Chute cases (air) | Controls | Cases |
 | --- | --- | --- | --- | --- | --- | --- |
-| PP-3 (stock, orbit) | 93 | 66 | 13 (S8) | - | 9 | 181 |
-| PP-4 (modded, orbit) | 117 | 108 | 13 (S8) | - | 9 | 247 |
+| PP-3 (stock, orbit) | 95 | 66 | 13 (S8) | - | 9 | 183 |
+| PP-4 (modded, orbit) | 119 | 108 | 13 (S8) | - | 9 | 249 |
 | PP-5 (stock, air) | - | - | - | 10 | 4 | 14 |
 | PP-6 (modded, air) | - | - | - | 10 | 4 | 14 |
 
@@ -1214,7 +1216,8 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   on that node; the stacked stowed case still runs). 5 / 7 parts.
 - `jettison-node-missing`: a jettison node the prefab lacks; no part of either install.
 - `not-polled`: a `ModuleAnimateGeneric` on a part with a dedicated animate handler that is not the
-  cargo bay's own deploy module (the two thrust reversers).
+  cargo bay's own deploy module (no part of either install since todo THRUST-REVERSER-NOT-RECORDED,
+  which made the two thrust reversers cases).
 - `no-animation`: a `ModuleAnimateGeneric` whose config sets an empty `animationName`.
 - `p7-robotics`: servos, rotors, pistons (`BaseServo`, 22 parts) and `ModuleRobotArmScanner` (3; a
   `ModuleDeployablePart` that extends only while scanning a surface feature): continuous positions,

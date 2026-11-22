@@ -166,12 +166,18 @@ namespace Parsek.Tests
                 Mod(5, "ModuleAnimateGeneric")));
             Assert.Equal(new[] { "deployed-m2/alone", "deployed-m5/alone" }, r.Cases.Select(Pair));
 
-            // A thrust reverser on an engine with ModuleAnimateHeat: the recorder never polls it.
+            // A thrust reverser on an engine with ModuleAnimateHeat: the heat module owns only its
+            // heat clip, so the reverser is a standalone case (todo THRUST-REVERSER-NOT-RECORDED).
             r = Enumerate(Part("JetEngine", "bottom", Mod(0, "ModuleEnginesFX", "ModuleEngines"),
                 Mod(1, "ModuleAnimateHeat", "ModuleAnimationSetter"),
                 Mod(2, "ModuleAnimateGeneric", null, "animationName", "TF1ThrustReverser")));
-            Assert.Empty(r.Cases);
-            Assert.Equal(new[] { "p8-fx", "p8-heat", "not-polled" }, r.Exclusions.Select(e => e.Reason));
+            Assert.Equal(new[] { "deployed/alone" }, r.Cases.Where(k => k.StateOption.Family == "animate-generic").Select(Pair));
+            Assert.Equal(new[] { "p8-fx", "p8-heat" }, r.Exclusions.Select(e => e.Reason));
+
+            // A dedicated handler still hides every animate generic but a bay's own deploy module.
+            r = Enumerate(Part("ladderdoor", "", Mod(0, "RetractableLadder"),
+                Mod(1, "ModuleAnimateGeneric", null, "animationName", "a")));
+            Assert.Equal(new[] { "not-polled" }, r.Exclusions.Select(e => e.Reason));
 
             // An explicitly empty animationName is not polled either.
             r = Enumerate(Part("blank", "", Mod(0, "ModuleAnimateGeneric", null, "animationName", "")));
@@ -348,11 +354,11 @@ namespace Parsek.Tests
             var expected = new Dictionary<string, int>
             {
                 ["deployable"] = 19, ["gear"] = 8, ["ladder"] = 2, ["animation-group"] = 4,
-                ["cargo-bay"] = 8, ["animate-generic"] = 10, ["airbrake"] = 1, ["light"] = 15,
+                ["cargo-bay"] = 8, ["animate-generic"] = 12, ["airbrake"] = 1, ["light"] = 15,
                 ["cabin-light"] = 26, ["parachute"] = 10, ["jettison"] = 66 + 4, ["fairing"] = 9,
             };
             Assert.Equal(expected.OrderBy(p => p.Key), ByFamily(r).OrderBy(p => p.Key));
-            Assert.Equal(93, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
+            Assert.Equal(95, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
                 && k.StateOption.Fgv == null));
             AssertFgvCases(r);
             Assert.Equal(37, r.Cases.Where(k => k.StateOption.Family == "jettison").Select(k => k.Part).Distinct().Count());
@@ -365,7 +371,7 @@ namespace Parsek.Tests
             Assert.Equal(3, reasons["bay-deploy-not-animated"]);
             Assert.Equal(24, reasons["cs-deploy-sign"]);
             Assert.Equal(5, reasons["jettison-blocked-by-node"]);
-            Assert.Equal(2, reasons["not-polled"]);
+            Assert.False(reasons.ContainsKey("not-polled")); // the two thrust reversers are cases now
             Assert.False(reasons.ContainsKey("jettison-node-missing"));
             AssertIdsUnique(r);
         }
@@ -377,11 +383,11 @@ namespace Parsek.Tests
             var expected = new Dictionary<string, int>
             {
                 ["deployable"] = 22, ["gear"] = 9, ["ladder"] = 2, ["animation-group"] = 4,
-                ["cargo-bay"] = 9, ["animate-generic"] = 15, ["airbrake"] = 1, ["light"] = 18,
+                ["cargo-bay"] = 9, ["animate-generic"] = 17, ["airbrake"] = 1, ["light"] = 18,
                 ["cabin-light"] = 37, ["parachute"] = 10, ["jettison"] = 108 + 4, ["fairing"] = 9,
             };
             Assert.Equal(expected.OrderBy(p => p.Key), ByFamily(r).OrderBy(p => p.Key));
-            Assert.Equal(117, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
+            Assert.Equal(119, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
                 && k.StateOption.Fgv == null));
             AssertFgvCases(r);
             Assert.Equal(60, r.Cases.Where(k => k.StateOption.Family == "jettison").Select(k => k.Part).Distinct().Count());
@@ -390,7 +396,7 @@ namespace Parsek.Tests
             Assert.Equal(6, reasons["fairing-no-context"]);
             Assert.Equal(5, reasons["bay-deploy-not-animated"]);
             Assert.Equal(7, reasons["jettison-blocked-by-node"]);
-            Assert.Equal(2, reasons["not-polled"]);
+            Assert.False(reasons.ContainsKey("not-polled")); // the two thrust reversers are cases now
             // ReStock's ISRU carries no ModuleAnimationGroup, so no auto-deploy exclusion here.
             Assert.False(reasons.ContainsKey("auto-deploy"));
             Assert.False(reasons.ContainsKey("jettison-node-missing"));

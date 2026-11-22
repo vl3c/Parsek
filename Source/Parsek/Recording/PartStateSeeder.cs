@@ -431,8 +431,9 @@ namespace Parsek
         /// Seeds AnimateGeneric modules, using the same exclusion logic as
         /// FlightRecorder.CheckAnimateGenericState / HasDedicatedAnimateHandler.
         /// Parts with dedicated handlers (deployables, gear, cargo bays, ladders,
-        /// animation groups, aero/control surfaces, robot arm scanners, animate heat)
-        /// are skipped to avoid duplicate state tracking.
+        /// animation groups, aero/control surfaces, robot arm scanners) are skipped to
+        /// avoid duplicate state tracking; a ModuleAnimateHeat part (a jet engine's thrust
+        /// reverser) is seeded like any other, as the poll reads it.
         /// </summary>
         private static void SeedAnimateGeneric(Part p, ModuleCargoBay cargo,
             PartTrackingSets sets, string logTag)

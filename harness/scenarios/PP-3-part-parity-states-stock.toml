@@ -27,7 +27,8 @@ tier = "operator"
 # CASES (design D.1, measured by S1 on 2026-11-22 over the post-patch ConfigCache): 94
 # single-part state cases, 66 shroud cases (jettisoned and the stacked stowed case), the 5
 # fairing parts are excluded `fairing-contexts-pending` until S8, plus 9 controls: 169
-# cases. Each step logs the exact counts on its `state cases:` Info line.
+# cases. Each step logs the exact counts on its `state cases:` Info line. The two thrust
+# reversers became cases later (todo THRUST-REVERSER-NOT-RECORDED): 96 single-part states.
 #
 # STEP SIZING (design D.8). Measured: the stowed-free state run plans 160 cases (+9 controls)
 # and sweeps them in ~536 s at the 25 s sun-tracker cap (~3.3 s per case: four-case waves, the
