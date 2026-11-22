@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The ReStock Mk2 lander can keeps both hatches on its ghost.** Its replay drew one hatch on top
+  of the other, so one was missing at rest and slid through the cabin when the doors moved. Both
+  hatches now sit and move where the real part has them. (GHOST-POSE-DUPLICATE-PATHS)
 - **Spot light heads face the right way on their ghosts.** With ReStock installed, the replay of
   the spot lights drew the lamp head turned around. Adjustable lights now show their head at the
   angle the real light was set to. (GHOST-LIGHT-MOVEMENT-TRANSFORM)

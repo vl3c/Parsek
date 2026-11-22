@@ -480,5 +480,29 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Duplicate transform paths
+
+        [Fact]
+        public void PosePaths_RepeatedPathKeepsOnlyTheFirstTransform()
+        {
+            // mk2LanderCabin.v2: two sibling transforms named CommonHatchRound.
+            var paths = new List<string>
+            {
+                "model", "modelCommonHatchRound", "modelCommonHatchRoundDoor",
+                "modelCommonHatchRound", "modelCommonHatchRoundDoor", "modelLadder",
+            };
+            bool[] first = GhostVisualBuilder.MarkFirstPathOccurrences(paths);
+            Assert.Equal(new[] { true, true, true, false, false, true }, first);
+        }
+
+        [Fact]
+        public void PosePaths_NullPathIsNeverAFirstOccurrence()
+        {
+            bool[] first = GhostVisualBuilder.MarkFirstPathOccurrences(new List<string> { null, "a", "a" });
+            Assert.Equal(new[] { false, true, false }, first);
+        }
+
+        #endregion
     }
 }
