@@ -2222,10 +2222,13 @@ production brings a ghost onto the screen:
    (true after step 1, so the engine restarts from the last recorded power), then
    `UpdateEngineSmokeTrailFades` (stock's `SmokeTrailControl` air-density fade, which reads
    `state.lastInterpolatedBodyName` / `lastInterpolatedAltitude`: a part case sets both from the
-   real vessel, or its smoke is left as built), then `UpdateAudioAtmosphere`. F2 extracts exactly that tail as an engine-owned static,
+   real vessel, or its smoke is left as built), then `UpdateAudioAtmosphere`. F2 extracts that tail up
+   to and including the smoke fade as an engine-owned static,
    `GhostPlaybackEngine.ApplyUnsuppressedFxRestore(state, priorVisualFxSuppressed)`, called by
    `ApplyFrameVisuals` after `UpdateLaunchDust`; inlining it back gives the old body (P2's inline
-   fold proof). `state.visualFxSuppressed` is set false first, as `ApplyFrameVisuals` does.
+   fold proof). The audio update stays outside it, because `ApplyFrameVisuals` runs it after BOTH
+   branches; the part case calls it after the static. `state.visualFxSuppressed` is set false
+   first, as `ApplyFrameVisuals` does.
 
 So the ghost's effects start as on a playing ghost's first visible frame, and its particles then
 simulate in real time beside the real ones (the ghost is active, so `ParticleSystem.Play` is not a
@@ -2250,6 +2253,50 @@ none) or whose flame systems read 0 particles while they draw (the stock legacy
 press (the 7 s smoke lifetime dominates), the event-route ghost 4.1 to 7.7 s after its prime. Each side's time is recorded (`fx.warmupS.real` /
 `.ghost` / `.ghostStart`). A wave builds and primes all its ghosts first, so the warm-ups overlap,
 then accumulates case by case.
+
+
+F2 as built (2026-11-23, no behaviour change, IL proofs in `<umbrella>/logs/refactor/p8-f2/`):
+
+- `GhostPlaybackEngine.ApplyUnsuppressedFxRestore(state, priorVisualFxSuppressed)`
+  (`GhostPlaybackEngine.InRangeRender.cs`, `internal static`): `UpdateEvaJetpackPlumeForFrame`,
+  `RestoreAllRcsEmissions`, `MuteAllAudio` for a boundary-overlap secondary else
+  `UnmuteAllAudio`, `RestoreActiveEngineFx` when `ShouldRestartEngineFxAfterSuppression(false,
+  prior)`, then `UpdateEngineSmokeTrailFades`. The smoke fade belongs IN it: it is part of the
+  same unsuppressed branch, it runs after every emission write of the frame (the restore
+  re-enables smoke renderers, and the fade re-hides a vacuum trail), and leaving it out would
+  give a part case a smoke look production never shows. It reads the ghost's
+  `lastInterpolatedBodyName` / `lastInterpolatedAltitude`, so F3 sets both from the held real
+  vessel before the call (absent, the fade returns without a write and the smoke stays as built).
+  So F3's step 3 is: `state.visualFxSuppressed = false`, `ApplyUnsuppressedFxRestore(state,
+  true)`, `GhostPlaybackLogic.UpdateAudioAtmosphere(state)`. Proof: the inline fold of the
+  static back into `ApplyFrameVisuals` equals the old body instruction for instruction and local
+  for local, with one documented operand change (the restart predicate's first argument,
+  `ldarg suppressVisualFx` -> `ldc.i4.0`, which is false on that branch).
+- `GhostFxFingerprint.BuildEntries(EngineGhostInfo)` / `BuildEntries(RcsGhostInfo)`: one
+  `FormatEntry` line per live particle system, in build order, read straight from the info and
+  never rate-limited. `LogInfo` reads its lines through the same loop
+  (`BuildEntries(list, reader, out nullSystems)`, the Unity reads in a `NoInlining`
+  `ReadSystem`). Proof: every operand of the old `LogInfo` body is in the new three bodies; the
+  rest is the reading struct and the cached delegate.
+- `RcsGhostInfo.particleThrusters` (`RcsParticleThruster { transformName, thrusterIndex }`),
+  index-parallel to `particleSystems` as built, read through `TryGetParticleThruster` (false once
+  teardown clears the systems). `thrusterIndex` is the transform's position among every
+  transform of that name under the part prefab, depth-first pre-order, BEFORE the variant
+  filter: stock's `ModuleRCS.thrusterTransforms` walk (`Part.FindHeirarchyTransforms` from the
+  part's `model` child), so it is stock's nozzle index when the EFFECTS transform name equals
+  the module's `thrusterTransformName` and every match sits under `model`. F3 is to check both
+  per case (a mismatch is a setup fault, not a hide). Nothing in the build or playback reads it.
+  Proof: `TryBuildRcsFX` and the `RcsGhostInfo` constructor are their old bodies with
+  instructions inserted only (P3's check).
+- The recorder source pin, `PartParityFxRecorderPinTests`: at every call site of
+  `ShouldRecordEngineAsIgnited`, `ComputeRecordedEnginePower`, `CheckEngineTransition` and
+  `ProcessRcsDebounce` in `FlightRecorder.EngineAndRcs.cs`, `BackgroundRecorder.PartEventPolling.cs`
+  and every `*PartParity*.cs` under `TestCommands/` and `InGameTests/`, the arguments are the
+  recorder's live reads (receiver name free), and `RcsDebounceFrameThreshold` is 8. No sweep file
+  polls yet, so the sweep half binds when F3's driver lands. Correction to the paragraph above:
+  `ParsekFlightPostSwitchAutoRecord` calls only `CheckEngineTransition` and `ProcessRcsDebounce`,
+  and feeds the first `EngineIgnited && isOperational` and the raw throttle (an activity
+  detector), so it is not the sweep's reference; the recorders are.
 
 ### E.3 Capture changes
 
