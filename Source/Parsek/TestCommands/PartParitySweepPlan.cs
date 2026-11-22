@@ -120,6 +120,58 @@ namespace Parsek.TestCommands
         internal static bool ShouldUnloadAfterWave(int wavesDone)
             => wavesDone > 0 && wavesDone % UnloadEveryWaves == 0;
 
+        // ----- state waves (design D.3) -----
+
+        /// <summary>The most cases an orbit state wave holds: a deployed part reaches past its
+        /// stowed bounds, so a state wave uses every other slot.</summary>
+        internal const int MaxStateWaveCases = 4;
+
+        /// <summary>The most chutes an air wave holds (one state, 40 m apart along the band, D.4).</summary>
+        internal const int MaxAirWaveCases = 5;
+
+        /// <summary>The capture of one state case: four rows x four views x two clears.</summary>
+        internal const double StateCaptureSecondsPerCase = 0.3;
+
+        /// <summary>A wave's teardown, debris destroy included.</summary>
+        internal const double StateTeardownSeconds = 5.0;
+
+        /// <summary>
+        /// The worst-case wall time of one state wave (design D.3), the bound a wave is admitted
+        /// against: the spawn cap, the bucket's state wait, the sun-tracking cap when the wave
+        /// holds a sun tracker, the capture of every case and the teardown. Long:
+        /// <c>20 + 20 (+ 10) + 0.3 n + 5</c>; quick: <c>20 + 5 + 0.3 n + 5</c>; air: the spawn
+        /// cap, the 0.5 s settle, semi (10 s) and full (15 s) each followed by the 4 s canopy
+        /// window, then the capture and the teardown.
+        /// </summary>
+        internal static double WaveWorstCaseSeconds(PartParityStateBucket bucket, int cases, bool anySunTracker)
+        {
+            double capture = StateCaptureSecondsPerCase * Math.Max(0, cases);
+            switch (bucket)
+            {
+                case PartParityStateBucket.Quick:
+                    return SpawnTimeoutSeconds + PartParityStateRules.QuickStateTimeoutSeconds + capture + StateTeardownSeconds;
+                case PartParityStateBucket.Air:
+                    return SpawnTimeoutSeconds + MinSettleSeconds
+                        + PartParityStateRules.ChuteSemiTimeoutSeconds + PartParityStateRules.CanopyCapSeconds
+                        + PartParityStateRules.ChuteFullTimeoutSeconds + PartParityStateRules.CanopyCapSeconds
+                        + capture + StateTeardownSeconds;
+                default:
+                    return SpawnTimeoutSeconds + PartParityStateRules.LongStateTimeoutSeconds
+                        + (anySunTracker ? PartParityStateRules.SunTrackerCapSeconds : 0.0)
+                        + capture + StateTeardownSeconds;
+            }
+        }
+
+        /// <summary>Whether a step may start a state wave (design D.3): only when the time spent
+        /// so far plus the wave's own worst case stays inside the box (never the last wave's
+        /// wall). The first wave of a step always starts.</summary>
+        internal static bool ShouldStartStateWave(double elapsedSeconds, int maxSeconds, double worstCaseSeconds)
+        {
+            if (elapsedSeconds <= 0.0) return true;
+            double bound = double.IsNaN(worstCaseSeconds) || worstCaseSeconds < 0.0 ? 0.0 : worstCaseSeconds;
+            return elapsedSeconds + bound <= maxSeconds;
+        }
+
         // ----- controls (design 4.5) -----
 
         /// <summary>The part the four tank controls use.</summary>
@@ -127,6 +179,12 @@ namespace Parsek.TestCommands
 
         /// <summary>The asymmetric part of the rotation controls (hatch and ladder).</summary>
         internal const string ControlPodPart = "mk1pod.v2";
+
+        /// <summary>The orbit state control's subject, the Communotron 16 (design D.6).</summary>
+        internal const string ControlStatePart = "longAntenna";
+
+        /// <summary>The air controls' subject (design D.2, D.6).</summary>
+        internal const string ControlAirPart = "parachuteSingle";
 
         /// <summary>Candidates for <c>ctl-wrong-skin</c>, the first loaded part with a non-base
         /// colour variant wins (<c>FairingGhostVisualMath.ChooseColourVariant</c>).</summary>
@@ -152,10 +210,18 @@ namespace Parsek.TestCommands
         internal const double WrongSkinMinIou = 0.98;
 
         /// <summary>The control's subject (part) and its required outcome, in words.</summary>
-        internal static string ControlSubject(string controlId)
+        internal static string ControlSubject(string controlId) => ControlSubject(controlId, false);
+
+        /// <summary>As above for an orbit or an air run: the air run's real-vs-real control
+        /// photographs an armed, falling <see cref="ControlAirPart"/>.</summary>
+        internal static string ControlSubject(string controlId, bool airRun)
         {
+            if (airRun && controlId == TestCommandPartParitySweep.ControlRealVsReal)
+                return ControlAirPart + " armed and falling, real captured as both sides";
             switch (controlId)
             {
+                case TestCommandPartParitySweep.ControlStateEventsDropped: return ControlStatePart + " at deployed, event-route ghost built without the polled events";
+                case TestCommandPartParitySweep.ControlStateEventsDroppedAir: return ControlAirPart + " at semi in the air, event-route ghost built without the polled events";
                 case TestCommandPartParitySweep.ControlEmpty: return ControlTankPart + ", both sides hidden";
                 case TestCommandPartParitySweep.ControlGhostAbsent: return ControlTankPart + ", ghost not built";
                 case TestCommandPartParitySweep.ControlRealVsReal: return ControlTankPart + ", real captured as both sides";
@@ -180,11 +246,45 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostFlip: return "fails every view";
                 case TestCommandPartParitySweep.ControlGhostMissingMesh: return "fails a view on local measures, iou >= 0.99 everywhere, a rendered mesh missing on the ghost";
                 case TestCommandPartParitySweep.ControlWrongSkin: return "fails a view on colour, iou >= 0.98 everywhere";
+                case TestCommandPartParitySweep.ControlStateEventsDropped:
+                case TestCommandPartParitySweep.ControlStateEventsDroppedAir:
+                    return "the press reached its state, at least one event recorded, the event-route views and stowedRef fail on shape";
                 default: return null;
             }
         }
 
-        internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.ControlIds, id) >= 0;
+        internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.AllControlIds, id) >= 0;
+
+        /// <summary>
+        /// Judges a state control (<c>ctl-state-events-dropped</c>, its air twin; design D.6):
+        /// the press reached the state, at least one event was recorded, the event-route views
+        /// (built WITHOUT those events) fail on shape in at least one view, and the stowed
+        /// reference fails on shape too. A setup fault or no views is <c>bad</c>.
+        /// </summary>
+        internal static string JudgeStateControl(bool reached, int eventsRecorded,
+            IList<PartParityViewRecord> views, string setupStatus, out string detail)
+        {
+            detail = null;
+            if (TestCommandPartParitySweep.IsSetupFault(setupStatus))
+            {
+                detail = "setup " + (setupStatus ?? "<none>");
+                return TestCommandPartParitySweep.ControlsBad;
+            }
+            if (!reached) { detail = "the press never reached the state"; return TestCommandPartParitySweep.ControlsBad; }
+            if (eventsRecorded < 1) { detail = "no event recorded"; return TestCommandPartParitySweep.ControlsBad; }
+            if (views == null || views.Count == 0) { detail = "no views"; return TestCommandPartParitySweep.ControlsBad; }
+            if (!Any(views, ShapeFails, "the event-route views pass on shape", out detail))
+                return TestCommandPartParitySweep.ControlsBad;
+            bool stowedFails = false;
+            foreach (var v in views)
+                if (v?.StowedRef != null && ShapeFails(v.StowedRef)) { stowedFails = true; break; }
+            if (!stowedFails)
+            {
+                detail = "stowedRef passes on shape in every view";
+                return TestCommandPartParitySweep.ControlsBad;
+            }
+            return TestCommandPartParitySweep.ControlsOk;
+        }
 
         internal static bool ShapeFails(PartParityViewMeasures m)
         {
@@ -357,6 +457,9 @@ namespace Parsek.TestCommands
                 Context = c.Context,
                 Sidecar = TestCommandPartParitySweep.SidecarFileName(c.CaseId),
                 SetupStatus = c.Setup?.Status,
+                Family = c.StateProof?.Family,
+                ActionResult = c.StateProof?.ActionResult,
+                Reached = c.StateProof?.Reached,
             };
             if (c.Views != null && c.Views.Count > 0)
             {

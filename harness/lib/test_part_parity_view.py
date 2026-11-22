@@ -279,7 +279,7 @@ class GroupTests(unittest.TestCase):
     def test_one_group_per_part_and_controls_are_not_grouped(self):
         self.assertEqual({"Alpha", "Bravo", "Tank", "Crashy", "Ghosty", "Orphan"},
                          set(self.groups))
-        self.assertEqual(["pp1/" + c for c in pp.CONTROL_IDS], self.data["controls"])
+        self.assertEqual(["pp1/pp1/" + c for c in pp.CONTROL_IDS], self.data["controls"])
 
     def test_skins_order_base_variant_b9(self):
         tank = self.groups["Tank"]
@@ -389,7 +389,14 @@ class CrossProfileTests(unittest.TestCase):
         s = {"profile": "p", "dir": "/a", "manifest": manifest(CASES), "sidecars": sweep_sidecars()}
         data = ppv.build_site_data([s, dict(s, dir="/b")])
         self.assertEqual(len(set(c["id"] for c in data["cases"])), len(data["cases"]))
-        self.assertEqual(len(data["cases"]), data["sweeps"][1]["duplicates"].__len__())
+        parts = [c for c in data["cases"] if c["kind"] == ppv.KIND_PART]
+        # Every part case is a duplicate line; the controls are exempt from the merge
+        # (design D.7): each sweep keeps its own, under its own id.
+        self.assertEqual(sorted(c["caseId"] for c in parts),
+                         sorted(data["sweeps"][1]["duplicates"]))
+        self.assertEqual(["pp1", "pp1-2"], [h["sweep"] for h in data["sweeps"]])
+        self.assertEqual(2 * len(pp.CONTROL_IDS), len(data["controls"]))
+        self.assertEqual(["pp1", "pp1-2"], [cs["sweep"] for cs in data["controlSets"]])
 
 
 class HeaderTests(unittest.TestCase):
@@ -566,6 +573,375 @@ class CliTests(unittest.TestCase):
         for f in (js, os.path.join(out, ppv.DATA_JS_FILE)):
             r = subprocess.run([node, "--check", f], capture_output=True, text=True)
             self.assertEqual(0, r.returncode, r.stderr)
+
+
+# ---------------------------------------------------------------------------
+# State cases (design Appendix D.7). The synthetic set is built with partparity's own
+# state-sweep helpers (test_partparity), so its sidecars are the shape S4 judges.
+# ---------------------------------------------------------------------------
+
+PROFILE = "stock-minimal"
+STOWED_IDS = {"longAntenna": "longantenna--default--deadbeef",
+              "landingLeg": "landingleg--default--deadbeef",
+              "liquidEngine2": "liquidengine2--default--deadbeef",
+              "parachuteSingle": "parachutesingle--default--deadbeef"}
+ANT_DEPLOYED = "longantenna--default--deployed--0000a001"
+LEG_DEPLOYED = "landingleg--default--deployed--0000a002"
+LEG_LIT = "landingleg--default--lit--0000a003"
+BAY_OPEN = "mk2cargobays--default--open--0000a004"
+ENG_STACKED = "liquidengine2--default--stowed--stacked--0000a005"
+ENG_JETTISONED = "liquidengine2--default--jettisoned--stacked--0000a006"
+CHUTE_SEMI = "parachutesingle--default--semi--air--0000b001"
+CHUTE_FULL = "parachutesingle--default--full--air--0000b002"
+
+
+def _tpp():
+    import test_partparity as tpp  # the S4 state-sweep helpers
+    return tpp
+
+
+def orbit_cases():
+    tpp = _tpp()
+    return [
+        tpp._state_case(ANT_DEPLOYED, part="longAntenna"),
+        tpp._state_case(LEG_DEPLOYED, part="landingLeg", family="gear",
+                        proof={"module": "ModuleWheelDeployment", "action": "EventToggle"},
+                        start=tpp._shifted()),
+        tpp._state_case(LEG_LIT, part="landingLeg", family="light", state="lit",
+                        proof={"module": "ModuleLight", "action": "LightsOn",
+                               "ghostEvent": "no-info"}),
+        tpp._state_case(BAY_OPEN, part="mk2CargoBayS", family="cargo-bay", state="open",
+                        proof={"module": "ModuleAnimateGeneric", "action": "Toggle"}),
+        tpp._stacked_stowed_case(ENG_STACKED),
+        tpp._state_case(ENG_JETTISONED, part="liquidEngine2", family="jettison",
+                        state="jettisoned", context="stacked",
+                        proof={"module": "ModuleJettison", "action": "Jettison"}),
+    ]
+
+
+def air_cases():
+    tpp = _tpp()
+    proof = {"module": "ModuleParachute", "action": "Deploy"}
+    return [
+        tpp._state_case(CHUTE_SEMI, part="parachuteSingle", family="parachute", state="semi",
+                        context="air", proof=proof),
+        tpp._state_case(CHUTE_FULL, part="parachuteSingle", family="parachute", state="full",
+                        context="air", proof=proof),
+    ]
+
+
+def _relabel(label_dir, label):
+    path = os.path.join(label_dir, pp.MANIFEST_FILE)
+    with open(path, encoding="utf-8") as fh:
+        m = json.load(fh)
+    m["label"] = label
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(m, fh)
+
+
+def write_synthetic_state_set(root):
+    """Three sweep dirs of one profile under ``root``: ``pp1`` (stowed, with the stowed
+    cases the state cases pair with; the cargo bay has none), ``pp3`` (an orbit state
+    run) and ``pp5`` (an air run). Returns the three dirs."""
+    tpp = _tpp()
+    fx = tpp.fx
+    stowed, orbit, air = (os.path.join(root, n) for n in ("pp1", "pp3", "pp5"))
+    m = fx.build_sweep(stowed, label="pp1", parts=1, tile=tpp.STILE)
+    body = fx.rect_mask(tpp.STILE, 4, 4, 4, 4)
+    for part, cid in STOWED_IDS.items():
+        fx.write_case(stowed, cid, part, [body] * 4, [body] * 4, tpp.STILE)
+        m["cases"].append({"index": len(m["cases"]), "caseId": cid, "part": part,
+                           "title": part, "source": "Squad", "skin": "default",
+                           "state": "stowed", "context": "alone",
+                           "sidecar": cid + pp.SIDECAR_SUFFIX, "setupStatus": "ok",
+                           "maxShapeBlobPx": 0, "maxColorBlobPx": 0, "minIou": 1,
+                           "missingRendered": 0, "extraRendered": 0})
+    m["progress"]["cases"] = m["progress"]["completeCases"] = len(m["cases"])
+    with open(os.path.join(stowed, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(m, fh)
+    tpp._build_state_sweep(orbit, orbit_cases())
+    tpp._build_state_sweep(air, air_cases(), settings={"states": "semi,full", "contexts": "air"})
+    _relabel(air, "pp5")
+    return stowed, orbit, air
+
+
+class _StateSetMixin:
+    def setUp(self):
+        quiet = contextlib.ExitStack()
+        quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
+        self.addCleanup(quiet.close)
+        self.tmp = tempfile.mkdtemp(prefix="ppv-state-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.dirs = write_synthetic_state_set(self.tmp)
+
+    def data(self, dirs=None, **kw):
+        return ppv.build_site_data([ppv.load_sweep(d) for d in (dirs or self.dirs)], **kw)
+
+    @staticmethod
+    def rows(data):
+        return {c["caseId"]: c for c in data["cases"] if c["kind"] == ppv.KIND_PART}
+
+    @staticmethod
+    def group(data, part):
+        return [g for g in data["groups"] if g["part"] == part][0]
+
+
+class StateRowTests(_StateSetMixin, unittest.TestCase):
+    def test_state_rows_carry_partparitys_routes_and_flags(self):
+        rows = self.rows(self.data())
+        for doc, _ in orbit_cases() + air_cases():
+            cv = pp.judge_case(doc)
+            r = rows[doc["caseId"]]
+            self.assertEqual(cv.verdict, r["verdict"], doc["caseId"])
+            self.assertEqual(list(cv.reasons), r["reasons"])
+            self.assertEqual(cv.worst_view, r["worstView"])
+            self.assertEqual(list(cv.state_flags), r["stateFlags"])
+            if cv.is_state_case:
+                self.assertEqual({x.route: x.verdict for x in cv.routes},
+                                 {k: v["verdict"] for k, v in r["routes"].items()})
+            else:
+                self.assertIsNone(r["routes"])
+        leg = rows[LEG_DEPLOYED]
+        self.assertEqual(pp.VERDICT_FAIL, leg["verdict"])
+        self.assertEqual(pp.VERDICT_PASS, leg["routes"]["event"]["verdict"])
+        self.assertEqual(pp.VERDICT_FAIL, leg["routes"]["start"]["verdict"])
+        self.assertTrue(leg["worstView"].startswith("start:"), leg["worstView"])
+        self.assertTrue(leg["trigger"].startswith("start route: shape blob"), leg["trigger"])
+        self.assertEqual(pp.VERDICT_FAIL, leg["views"][0]["start"]["verdict"])
+        self.assertEqual(pp.VERDICT_PASS, leg["views"][0]["verdict"])
+        self.assertEqual(set(pp.STOWED_REF_KEYS), set(leg["views"][0]["stowedRef"]))
+        lit = rows[LEG_LIT]
+        self.assertEqual(["state-not-modelled:event:no-info"], lit["stateFlags"])
+        self.assertEqual(pp.VERDICT_WARN, lit["verdict"])
+        self.assertEqual("state not modelled on the event route (no-info)", lit["trigger"])
+        self.assertEqual(list(pp.ATLAS_ROWS_STATE), leg["atlasRows"])
+        self.assertTrue(leg["isState"])
+        self.assertFalse(rows[ENG_STACKED]["isState"])
+        self.assertFalse(rows[ENG_STACKED]["isRest"])
+        self.assertEqual("stowed (stacked)", rows[ENG_STACKED]["stateLabel"])
+
+    def test_route_reason_phrases(self):
+        self.assertEqual("event route: shape blob 300 px in side-a",
+                         ppv.reason_phrase("event:shape-blob-px:side-a=300"))
+        self.assertEqual("start route not measured (a view has no start block)",
+                         ppv.reason_phrase("start:no-views"))
+        self.assertEqual("start route not at its pose on the first frame",
+                         ppv.reason_phrase("flag:start-pose-not-first-frame"))
+        self.assertIn("no part event", ppv.reason_phrase("flag:state-not-recorded"))
+        self.assertTrue(ppv.reason_phrase("press-proof: setup=ok action=Extend actionResult="
+                                          "missing reached=False").startswith("press proof"))
+        # px and pct of one view collapse per route, not across routes
+        line = ppv.trigger_line(["event:shape-blob-px:top=300", "event:shape-blob-pct:top=0.4",
+                                 "start:shape-blob-pct:top=0.5"], limit=5)
+        self.assertEqual("event route: shape blob 300 px in top; "
+                         "start route: shape blob 0.5% of the box in top", line)
+        self.assertEqual("deployed", ppv.state_word("deployed-m3"))
+
+
+class StateGroupingTests(_StateSetMixin, unittest.TestCase):
+    def test_part_skin_state_with_the_stowed_case_first(self):
+        data = self.data()
+        ant = self.group(data, "longAntenna")
+        self.assertEqual(1, len(ant["skins"]))
+        self.assertEqual(["%s/%s" % (PROFILE, STOWED_IDS["longAntenna"]),
+                          "%s/%s" % (PROFILE, ANT_DEPLOYED)], ant["skins"][0]["cases"])
+        self.assertEqual(ant["cases"], ant["skins"][0]["cases"])
+        # two families of one part: one sub-block each, in the D.1 table order
+        leg = self.group(data, "landingLeg")
+        self.assertEqual([STOWED_IDS["landingLeg"], LEG_DEPLOYED, LEG_LIT],
+                         [i.split("/", 1)[1] for i in leg["cases"]])
+        self.assertEqual(pp.VERDICT_FAIL, leg["verdict"])
+        self.assertTrue(leg["trigger"].startswith("skin default deployed: start route"),
+                        leg["trigger"])
+        self.assertEqual(["stowed", "deployed", "lit"], leg["states"])
+        self.assertEqual(["gear", "light"], leg["families"])
+        self.assertEqual(["state-not-modelled"], leg["stateFlags"])
+        eng = self.group(data, "liquidEngine2")
+        self.assertEqual([STOWED_IDS["liquidEngine2"], ENG_STACKED, ENG_JETTISONED],
+                         [i.split("/", 1)[1] for i in eng["cases"]])
+        chute = self.group(data, "parachuteSingle")
+        self.assertEqual([STOWED_IDS["parachuteSingle"], CHUTE_SEMI, CHUTE_FULL],
+                         [i.split("/", 1)[1] for i in chute["cases"]])
+
+    def test_the_stowed_column_pairs_with_the_loaded_stowed_case(self):
+        data = self.data()
+        rows = self.rows(data)
+        self.assertEqual("%s/%s" % (PROFILE, STOWED_IDS["longAntenna"]),
+                         rows[ANT_DEPLOYED]["stowedPair"])
+        self.assertEqual("%s/%s" % (PROFILE, STOWED_IDS["parachuteSingle"]),
+                         rows[CHUTE_SEMI]["stowedPair"])
+        # the cargo bay's stowed case is not in the stowed sweep: no pair, the page falls
+        # back to the case's own ghost-stowed row, and the case forms its own base skin
+        self.assertIsNone(rows[BAY_OPEN]["stowedPair"])
+        bay = self.group(data, "mk2CargoBayS")
+        self.assertEqual([ppv.SKIN_BASE], [s["skinKind"] for s in bay["skins"]])
+        self.assertEqual(1, bay["skins"][0]["states"])
+        # without the stowed sweep nothing pairs, and no case is lost
+        alone = self.data(self.dirs[1:])
+        self.assertTrue(all(c["stowedPair"] is None for c in alone["cases"]))
+        self.assertEqual(len(orbit_cases()) + len(air_cases()),
+                         len([c for c in alone["cases"] if c["kind"] == ppv.KIND_PART]))
+
+    def test_merge_by_profile_with_controls_exempt_and_no_duplicate_line(self):
+        data = self.data()
+        self.assertEqual([PROFILE], data["profiles"])
+        self.assertEqual([[], [], []], [h["duplicates"] for h in data["sweeps"]])
+        self.assertEqual(["pp1", "pp3", "pp5"], [h["sweep"] for h in data["sweeps"]])
+        self.assertEqual([(ppv.CONTROL_SET_STOWED, 8), (ppv.CONTROL_SET_ORBIT, 9),
+                          (ppv.CONTROL_SET_AIR, 4)],
+                         [(cs["kind"], len(cs["ids"])) for cs in data["controlSets"]])
+        self.assertEqual(len(set(data["controls"])), len(data["controls"]))
+        self.assertIn("%s/pp3/%s" % (PROFILE, pp.CONTROL_STATE_EVENTS_DROPPED), data["controls"])
+        self.assertIn("%s/pp5/%s" % (PROFILE, pp.CONTROL_STATE_EVENTS_DROPPED_AIR),
+                      data["controls"])
+        self.assertEqual({"ok": 21, "bad": 0}, data["counts"]["controls"])
+        # a part case id present in two merged sweeps IS a duplicate line
+        dup = self.data([self.dirs[0], self.dirs[1], self.dirs[1]])
+        self.assertEqual(sorted(c["caseId"] for c, _ in orbit_cases()),
+                         sorted(dup["sweeps"][2]["duplicates"]))
+
+    def test_headers_carry_partparitys_state_gates(self):
+        heads = {h["sweep"]: h for h in self.data()["sweeps"]}
+        self.assertIsNone(heads["pp1"]["statePress"])
+        self.assertIsNone(heads["pp1"]["stateFlagCounts"])
+        self.assertEqual(ppv.CONTROL_SET_STOWED, heads["pp1"]["controlSet"])
+        self.assertTrue(heads["pp3"]["statePress"]["ok"])
+        self.assertEqual(9, heads["pp3"]["controls"]["expected"])
+        self.assertTrue(heads["pp3"]["controls"]["ok"], heads["pp3"]["controls"]["problems"])
+        self.assertEqual({"state-not-modelled": 1}, heads["pp3"]["stateFlagCounts"])
+        self.assertEqual([], heads["pp3"]["instrumentProblems"])
+        self.assertEqual(4, heads["pp5"]["controls"]["expected"])
+
+    def test_a_state_control_recorded_ok_is_re_judged_from_its_sidecar(self):
+        tpp = _tpp()
+        d = os.path.join(self.tmp, "pp3-bad-control")
+        # the events-dropped control whose ghost DID deploy: recorded ok, judged bad
+        tpp._build_state_sweep(d, orbit_cases()[:1],
+                               state_control=tpp._state_case(pp.CONTROL_STATE_EVENTS_DROPPED))
+        h = self.data([d])["sweeps"][0]
+        self.assertFalse(h["controls"]["ok"])
+        self.assertTrue(any("recorded-ok-judged-bad" in p for p in h["controls"]["problems"]),
+                        h["controls"]["problems"])
+
+    def test_a_state_control_recorded_ok_but_judged_bad_reads_bad_everywhere(self):
+        # Review of PR #2770: zero the blob counts in pp3's ctl-state-events-dropped
+        # stowedRef; the manifest outcome stays ok.
+        path = os.path.join(self.dirs[1], pp.CONTROL_STATE_EVENTS_DROPPED + pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for v in doc["views"]:
+            for k in v["stowedRef"]:
+                if "Blob" in k:
+                    v["stowedRef"][k] = 0
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        outcome, detail = pp.judge_state_control(doc)
+        self.assertEqual(pp.CONTROLS_BAD, outcome)
+        data = self.data()
+        row = [c for c in data["cases"]
+               if c["id"] == "%s/pp3/%s" % (PROFILE, pp.CONTROL_STATE_EVENTS_DROPPED)][0]
+        self.assertEqual("ok", row["control"]["outcome"])
+        self.assertEqual(ppv.VERDICT_CONTROL_BAD, row["verdict"])
+        self.assertEqual((pp.CONTROLS_BAD, detail),
+                         (row["control"]["judged"], row["control"]["judgedDetail"]))
+        self.assertIn(detail, row["trigger"])
+        self.assertEqual({"ok": 20, "bad": 1}, data["counts"]["controls"])
+        # The Controls box is bad when any control row is not control-ok; the Sweeps box
+        # is bad when a sweep's controls gate failed (the header the page reads).
+        heads = {h["sweep"]: h for h in data["sweeps"]}
+        self.assertFalse(heads["pp3"]["controls"]["ok"])
+        self.assertTrue(heads["pp1"]["controls"]["ok"] and heads["pp5"]["controls"]["ok"])
+        self.assertIn("(h.controls && !h.controls.ok)", ppv.INDEX_HTML)
+        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok"; })',
+                      ppv.INDEX_HTML)
+        # an untouched state control recorded ok stays ok, judged ok
+        air = [c for c in data["cases"] if c["caseId"] == pp.CONTROL_STATE_EVENTS_DROPPED_AIR][0]
+        self.assertEqual((ppv.VERDICT_CONTROL_OK, pp.CONTROLS_OK),
+                         (air["verdict"], air["control"]["judged"]))
+
+    def test_a_label_named_profile_says_how_to_merge(self):
+        name, note = ppv.profile_name({"profile": "..", "label": "pp3"}, "d")
+        self.assertEqual("pp3", name)
+        self.assertIn("NAME=DIR", note)
+
+    def test_state_filters(self):
+        f = self.data()["facets"]
+        self.assertEqual(["stowed", "deployed", "open", "lit", "semi", "full", "jettisoned"],
+                         [k for k, _ in f["state"]])
+        self.assertIn(["stowed", 5], f["state"])
+        self.assertEqual(["deployable", "gear", "cargo-bay", "light", "parachute", "jettison"],
+                         [k for k, _ in f["family"]])
+        self.assertEqual([["state-not-modelled", 1]], f["stateFlag"])
+        stowed_only = build()["facets"]
+        self.assertEqual(([], [], []), (stowed_only["state"], stowed_only["family"],
+                                        stowed_only["stateFlag"]))
+
+
+class StateRegressionTests(_StateSetMixin, unittest.TestCase):
+    def test_pairs_by_case_id_and_route(self):
+        tpp = _tpp()
+        base_dir = os.path.join(self.tmp, "base-pp3")
+        cases = orbit_cases()
+        # the baseline's landing leg start route was clean; the current one fails it
+        cases[1] = tpp._state_case(LEG_DEPLOYED, part="landingLeg", family="gear",
+                                   proof={"module": "ModuleWheelDeployment",
+                                          "action": "EventToggle"})
+        tpp._build_state_sweep(base_dir, cases)
+        data = self.data(baseline=[ppv.load_sweep(self.dirs[0]), ppv.load_sweep(base_dir)])
+        rows = self.rows(data)
+        leg = rows[LEG_DEPLOYED]["regression"]
+        self.assertEqual(ppv.REG_MOVED, leg["status"])
+        self.assertIn("start.verdict pass -> fail", leg["changes"])
+        self.assertNotIn("event.verdict pass -> fail", leg["changes"])
+        self.assertEqual({"event": "pass", "start": "pass"}, leg["baseline"]["routes"])
+        self.assertEqual(ppv.REG_SAME, rows[ANT_DEPLOYED]["regression"]["status"])
+        self.assertEqual(ppv.REG_NEW, rows[CHUTE_SEMI]["regression"]["status"])
+        # controls pair by set kind: the stowed and orbit ctl-empty are two pairs
+        ctl = [c for c in data["cases"] if c["caseId"] == "ctl-empty"]
+        self.assertEqual(3, len(ctl))
+        self.assertEqual([ppv.REG_SAME, ppv.REG_SAME, ppv.REG_NEW],
+                         [c["regression"]["status"] for c in ctl])
+
+    def test_compare_rows_route_and_flag_changes(self):
+        base = {"verdict": "warn", "routes": {"event": {"verdict": "pass", "maxShapeBlobPx": 0,
+                                                        "maxColorBlobPx": 0, "minIou": 1.0},
+                                              "start": {"verdict": "pass", "maxShapeBlobPx": 0,
+                                                        "maxColorBlobPx": 0, "minIou": 1.0}},
+                "stateFlags": ["state-not-recorded"]}
+        cur = json.loads(json.dumps(base))
+        cur["routes"]["start"].update(maxShapeBlobPx=40, minIou=0.9)
+        cur["stateFlags"] = ["start-pose-not-first-frame"]
+        self.assertEqual(["start.maxShapeBlobPx 0 -> 40", "start.minIou 1.0000 -> 0.9000",
+                          "stateFlags +start-pose-not-first-frame -state-not-recorded"],
+                         ppv.compare_rows(cur, base))
+        del cur["routes"]["start"]
+        self.assertIn("start route judged -> absent", ppv.compare_rows(cur, base))
+
+
+class StateSiteTests(_StateSetMixin, unittest.TestCase):
+    def test_a_site_over_stowed_orbit_and_air_sweeps(self):
+        out = os.path.join(self.tmp, "site")
+        self.assertEqual(0, ppv.main(list(self.dirs) + ["--out", out]))
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            data = ppv.parse_data_js(fh.read())
+        self.assertEqual([[], [], []], [h["duplicates"] for h in data["sweeps"]])
+        rows = {c["id"]: c for c in data["cases"]}
+        for g in data["groups"]:
+            for sk in g["skins"]:
+                for cid in sk["cases"]:
+                    c = rows[cid]
+                    if c["isState"]:
+                        self.assertTrue(c["atlas"], cid)
+                        self.assertTrue(os.path.isfile(os.path.join(out, *c["atlas"].split("/"))))
+                        if c["stowedPair"]:
+                            self.assertIn(c["stowedPair"], sk["cases"])
+        with open(os.path.join(out, ppv.INDEX_FILE), encoding="ascii") as fh:
+            page = fh.read()
+        p = _Balance()
+        p.feed(page)
+        self.assertEqual([], p.errors)
+        CliTests._node_check(self, out, page)
 
 
 class PageContractTests(unittest.TestCase):

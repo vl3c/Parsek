@@ -1,0 +1,1693 @@
+# Part parity state-rules fixture (design-part-ghost-parity.md D.1), profile stock-minimal.
+# Derived once from <umbrella>/automation/stock-minimal/GameData/ModuleManager.ConfigCache (post-patch
+# part configs), the PartModule type chains reflected from that install's assemblies, and the
+# part list of the archived sweep 2026-11-22_0033_PP-1-part-parity-stock (478 parts after the 3.1 exclusions).
+# Only parts carrying a module the state rules read are listed (234); every module of such a
+# part is listed in prefab order. P <part> <stack nodes>; M <index> <moduleName> <type chain or ->
+# <the config keys the rules read, key=value|...>. Tab-separated. Never hand-edited.
+P	AdvancedCanard	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	CanardController	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	CircularIntake	bottom01
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	Clydesdale	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	KOSNameTag	-	-
+P	DeployedCentralStation	
+M	0	ModuleGroundExpControl	ModuleGroundExpControl,ModuleGroundCommsPart,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedGoExOb	
+M	0	ModuleGroundExperiment	ModuleGroundExperiment,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedIONExp	
+M	0	ModuleGroundExperiment	ModuleGroundExperiment,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedRTG	
+M	0	ModuleGroundSciencePart	ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedSatDish	
+M	0	ModuleGroundCommsPart	ModuleGroundCommsPart,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedSeismicSensor	
+M	0	ModuleGroundExperiment	ModuleGroundExperiment,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedSolarPanel	
+M	0	ModuleGroundSciencePart	ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	DeployedWeatherStn	
+M	0	ModuleGroundExperiment	ModuleGroundExperiment,ModuleGroundSciencePart,ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	EnginePlate1p5	top,bottom
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	KOSNameTag	-	-
+P	EnginePlate2	top,bottom
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	KOSNameTag	-	-
+P	EnginePlate3	top,bottom
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	KOSNameTag	-	-
+P	EnginePlate4	top,bottom
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	KOSNameTag	-	-
+P	EnginePlate5	top,bottom
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	KOSNameTag	-	-
+P	GearLarge	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelBrakes	-	-
+M	3	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	4	ModuleWheelBogey	-	-
+M	5	FXModuleLookAtConstraint	-	-
+M	6	ModuleStatusLight	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleLight	-	animationName=LandingGearExtraLargeSpotlight
+M	9	ModuleWheelDamage	-	-
+M	10	ModuleDragModifier	-	-
+M	11	ModuleDragModifier	-	-
+M	12	KOSNameTag	-	-
+P	GearMedium	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelBrakes	-	-
+M	3	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	4	ModuleWheelBogey	-	-
+M	5	FXModuleLookAtConstraint	-	-
+M	6	ModuleStatusLight	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleLight	-	animationName=LandingGearLargeSpotlight
+M	9	ModuleWheelDamage	-	-
+M	10	ModuleDragModifier	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleCargoPart	-	-
+M	13	KOSNameTag	-	-
+P	GearSmall	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelSteering	-	-
+M	3	ModuleWheelBrakes	-	-
+M	4	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	5	FXModuleConstrainPosition	-	-
+M	6	FXModuleLookAtConstraint	-	-
+M	7	ModuleStatusLight	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleLight	-	animationName=LandingGearMediumSpotlight
+M	10	ModuleWheelDamage	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleDragModifier	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	GooExperiment	
+M	0	ModuleAnimateGeneric	-	animationName=Deploy
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	GrapplingDevice	top
+M	0	ModuleGrappleNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=Deploy
+M	2	FXModuleLookAtConstraint	-	-
+M	3	FlagDecal	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	HeatShield0	bottom,top
+M	0	ModuleAblator	-	-
+M	1	ModuleColorChanger	-	toggleInFlight=False
+M	2	ModuleDecouple	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModuleLiftingSurface	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	HeatShield1	direct,bottom,top
+M	0	ModuleJettison	-	bottomNodeName=bottom|checkBottomNode=True
+M	1	ModuleAblator	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=False
+M	3	ModuleDecouple	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield1p5	direct,bottom,top
+M	0	ModuleJettison	-	bottomNodeName=bottom|checkBottomNode=True
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=False
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield2	direct,bottom,top
+M	0	ModuleJettison	-	bottomNodeName=bottom|checkBottomNode=True
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=False
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield3	direct,bottom,top
+M	0	ModuleJettison	-	bottomNodeName=bottom|checkBottomNode=True
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=False
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	KOSNameTag	-	-
+P	HighGainAntenna	
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=Deploy
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	HighGainAntenna5	bottom
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=Extend
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	HighGainAntenna5.v2	bottom
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=Extend
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	ISRU	top,bottom
+M	0	ModuleOverheatDisplay	-	-
+M	1	ModuleResourceConverter	-	-
+M	2	ModuleResourceConverter	-	-
+M	3	ModuleResourceConverter	-	-
+M	4	ModuleResourceConverter	-	-
+M	5	ModuleAnimationGroup	-	-
+M	6	ModuleCoreHeat	-	-
+M	7	KOSNameTag	-	-
+P	InflatableAirlock	bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=AirlockDeploy
+M	2	ModuleScienceContainer	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	InflatableHeatShield	mid,bottom,top
+M	0	ModuleAnimateGeneric	-	animationName=InflatableHS
+M	1	ModuleDecouple	-	-
+M	2	ModuleJettison	-	bottomNodeName=top
+M	3	ModuleTestSubject	-	-
+M	4	KOSNameTag	-	-
+P	JetEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleAnimateGeneric	-	animationName=TF1ThrustReverser
+M	3	ModuleAlternator	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	Large.Crewed.Lab	top,bottom
+M	0	ModuleScienceContainer	-	-
+M	1	ModuleScienceLab	-	-
+M	2	ModuleScienceConverter	-	-
+M	3	ModuleKerbNetAccess	-	-
+M	4	ModuleExperienceManagement	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=true
+M	7	ModuleInventoryPart	-	-
+M	8	KOSNameTag	-	-
+P	LaunchEscapeSystem	bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	LgRadialSolarPanel	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	LiquidEngineKE-1	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineLV-T91	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleJettison	-	bottomNodeName=bottom
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleTestSubject	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineLV-TX87	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	ModuleGimbal	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	ModuleTestSubject	-	-
+M	7	KOSNameTag	-	-
+P	LiquidEngineRE-I2	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleCargoPart	-	-
+M	9	KOSNameTag	-	-
+P	LiquidEngineRE-J10	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleGimbal	-	-
+M	2	ModuleAlternator	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineRK-7	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleAlternator	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	LiquidEngineRV-1	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	MEMLander	bottom2,bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleColorChanger	-	toggleInFlight=true
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleConductionMultiplier	-	-
+M	7	ModuleDataTransmitter	-	-
+M	8	ModuleProbeControlPoint	-	-
+M	9	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleInventoryPart	-	-
+M	12	ModuleCargoPart	-	-
+M	13	MechJebCore	-	-
+M	14	KOSNameTag	-	-
+P	MK1CrewCabin	top,bottom
+M	0	ModuleScienceExperiment	-	-
+M	1	ModuleScienceContainer	-	-
+M	2	ModuleDataTransmitter	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=true
+M	4	ModuleCargoPart	-	-
+M	5	ModuleInventoryPart	-	-
+M	6	KOSNameTag	-	-
+P	MK1IntakeFuselage	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	Magnetometer	bottom
+M	0	ModuleDeployablePart	-	animationName=Deploy
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	Mark1Cockpit	bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleDataTransmitter	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=true
+M	7	ModuleCargoPart	-	-
+M	8	ModuleInventoryPart	-	-
+M	9	MechJebCore	-	-
+M	10	KOSNameTag	-	-
+P	Mark2Cockpit	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleDataTransmitter	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=true
+M	7	ModuleCargoPart	-	-
+M	8	ModuleInventoryPart	-	-
+M	9	MechJebCore	-	-
+M	10	KOSNameTag	-	-
+P	MassiveBooster	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	KOSNameTag	-	-
+P	MiniDrill	
+M	0	ModuleOverheatDisplay	-	-
+M	1	ModuleResourceHarvester	-	-
+M	2	ModuleAsteroidDrill	-	-
+M	3	ModuleCometDrill	-	-
+M	4	ModuleAnimationGroup	-	-
+M	5	ModuleCoreHeat	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	Mite	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Mk2Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleColorChanger	-	toggleInFlight=true
+M	6	FlagDecal	-	-
+M	7	ModuleCargoPart	-	-
+M	8	ModuleInventoryPart	-	-
+M	9	MechJebCore	-	-
+M	10	KOSNameTag	-	-
+P	OrbitalScanner	bottom
+M	0	ModuleGPS	-	-
+M	1	ModuleResourceScanner	-	-
+M	2	ModuleKerbNetAccess	-	-
+M	3	ModuleAnimationGroup	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Pollux	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleSurfaceFX	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	KOSNameTag	-	-
+P	R8winglet	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	RAPIER	top,bottom
+M	0	MultiModeEngine	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleGimbal	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	KOSNameTag	-	-
+P	RCSBlock.v2	
+M	0	ModulePartVariants	-	-
+M	1	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	2	FXModuleAnimateRCS	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	RCSLinearSmall	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	ModulePartVariants	-	-
+M	4	KOSNameTag	-	-
+P	RCSblock.01.small	
+M	0	ModulePartVariants	-	-
+M	1	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	2	FXModuleAnimateRCS	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	RadialDrill	
+M	0	ModuleOverheatDisplay	-	-
+M	1	ModuleResourceHarvester	-	-
+M	2	ModuleAsteroidDrill	-	-
+M	3	ModuleCometDrill	-	-
+M	4	ModuleAnimationGroup	-	-
+M	5	ModuleCoreHeat	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	RobotArmScanner.S1	bottom
+M	0	ModuleRobotArmScanner	ModuleRobotArmScanner,ModuleDeployablePart,PartModule	animationName=ROCScan1
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	RobotArmScanner.S2	bottom
+M	0	ModuleRobotArmScanner	ModuleRobotArmScanner,ModuleDeployablePart,PartModule	animationName=ROCScan2
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	RobotArmScanner.S3	bottom
+M	0	ModuleRobotArmScanner	ModuleRobotArmScanner,ModuleDeployablePart,PartModule	animationName=ROCScan
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	RotorEngine.02	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModuleResourceIntake	-	-
+M	3	ModuleAlternator	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	RotorEngine.03	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModuleResourceIntake	-	-
+M	3	ModuleAlternator	-	-
+M	4	KOSNameTag	-	-
+P	SSME	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	ModuleGimbal	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	ServiceBay.125.v2	top2,bottom2,top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=ServiceBayDoors
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleConductionMultiplier	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	ServiceBay.250.v2	top2,bottom2,top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=ServiceBayDoors
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleConductionMultiplier	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	ServiceModule18	top,bottom
+M	0	ModuleServiceModule	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleJettison	-	ignoreNodes=true
+M	3	ModuleJettison	-	ignoreNodes=true
+M	4	ModuleJettison	-	ignoreNodes=true
+M	5	ModuleJettison	-	ignoreNodes=true
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	ServiceModule25	core_A1,core_A2,core_A3,core_B1,core_B2,core_B3,top,bottom
+M	0	ModuleServiceModule	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleJettison	-	ignoreNodes=true
+M	3	ModuleJettison	-	ignoreNodes=true
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	Shrimp	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Size1p5.Tank.05	bottom
+M	0	ModuleEngines	-	-
+M	1	ModulePartVariants	-	-
+M	2	KOSNameTag	-	-
+P	Size1to0ServiceModule	top,bottom
+M	0	ModuleServiceModule	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleJettison	-	ignoreNodes=true
+M	3	ModuleJettison	-	ignoreNodes=true
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Size2LFB	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	FlagDecal	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	Size2LFB.v2	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	FlagDecal	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	Size3AdvancedEngine	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleAlternator	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	ModuleTestSubject	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	KOSNameTag	-	-
+P	Size3EngineCluster	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	SmallGearBay	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelSteering	-	-
+M	3	ModuleWheelBrakes	-	-
+M	4	ModuleStatusLight	-	-
+M	5	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	6	FXModuleConstrainPosition	-	-
+M	7	FXModuleLookAtConstraint	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleLight	-	animationName=LandingGearSmallSpotlight
+M	10	ModuleWheelDamage	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleDragModifier	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	StandardCtrlSrf	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	SurveyScanner	bottom
+M	0	ModuleOrbitalSurveyor	-	-
+M	1	ModuleOrbitalScanner	-	-
+M	2	ModuleAnimationGroup	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	Thoroughbred	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	KOSNameTag	-	-
+P	airbrake1	
+M	0	ModuleAeroSurface	ModuleAeroSurface,ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	FXModuleLookAtConstraint	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	airlinerCtrlSrf	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	airlinerTailFin	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	FlagDecal	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	airplaneTail	top
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	airplaneTailB	top
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	avionicsNoseCone	bottom
+M	0	ModuleSAS	-	-
+M	1	ModuleKerbNetAccess	-	-
+M	2	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	commDish	bottom
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=dish
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	crewCabin	top,bottom
+M	0	ModuleColorChanger	-	toggleInFlight=true
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleScienceContainer	-	-
+M	3	FlagDecal	-	-
+M	4	ModuleInventoryPart	-	-
+M	5	KOSNameTag	-	-
+P	cupola	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleColorChanger	-	toggleInFlight=true
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleCargoPart	-	-
+M	8	MechJebCore	-	-
+M	9	KOSNameTag	-	-
+P	dockingPort1	bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=dockingring
+M	2	ModuleCargoPart	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=true
+M	4	KOSNameTag	-	-
+P	dockingPort2	top,bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	KOSNameTag	-	-
+P	dockingPortLarge	top,bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModulePartVariants	-	-
+M	4	KOSNameTag	-	-
+P	dockingPortLateral	top,bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=dockingporthull
+M	2	ModuleCargoPart	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=true
+M	4	KOSNameTag	-	-
+P	domeLight1	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	elevon2	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	elevon3	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	elevon5	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	engineLargeSkipper.v2	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModulePartVariants	-	-
+M	8	KOSNameTag	-	-
+P	fairingSize1	interstage01a,interstage01b,interstage02a,interstage02b,interstage03a,interstage03b,interstage04a,interstage04b,interstage05a,interstage05b,interstage06a,interstage06b,top,bottom
+M	0	ModuleProceduralFairing	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleTestSubject	-	-
+M	3	ModuleStructuralNode	-	-
+M	4	ModuleStructuralNode	-	-
+M	5	ModuleStructuralNode	-	-
+M	6	ModuleStructuralNode	-	-
+M	7	ModuleStructuralNode	-	-
+M	8	ModuleStructuralNode	-	-
+M	9	ModuleStructuralNode	-	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleStructuralNode	-	-
+M	12	ModuleStructuralNode	-	-
+M	13	ModuleStructuralNode	-	-
+M	14	ModuleStructuralNode	-	-
+M	15	ModuleStructuralNodeToggle	-	-
+M	16	ModulePartVariants	-	-
+M	17	ModuleCargoPart	-	-
+M	18	KOSNameTag	-	-
+P	fairingSize1p5	interstage01a,interstage01b,interstage02a,interstage02b,interstage03a,interstage03b,interstage04a,interstage04b,interstage05a,interstage05b,interstage06a,interstage06b,top,bottom
+M	0	ModuleProceduralFairing	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleTestSubject	-	-
+M	3	ModuleStructuralNode	-	-
+M	4	ModuleStructuralNode	-	-
+M	5	ModuleStructuralNode	-	-
+M	6	ModuleStructuralNode	-	-
+M	7	ModuleStructuralNode	-	-
+M	8	ModuleStructuralNode	-	-
+M	9	ModuleStructuralNode	-	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleStructuralNode	-	-
+M	12	ModuleStructuralNode	-	-
+M	13	ModuleStructuralNode	-	-
+M	14	ModuleStructuralNode	-	-
+M	15	ModuleStructuralNodeToggle	-	-
+M	16	ModulePartVariants	-	-
+M	17	ModuleCargoPart	-	-
+M	18	KOSNameTag	-	-
+P	fairingSize2	interstage01a,interstage01b,interstage02a,interstage02b,interstage03a,interstage03b,interstage04a,interstage04b,interstage05a,interstage05b,interstage06a,interstage06b,top,bottom
+M	0	ModuleProceduralFairing	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleTestSubject	-	-
+M	3	ModuleStructuralNode	-	-
+M	4	ModuleStructuralNode	-	-
+M	5	ModuleStructuralNode	-	-
+M	6	ModuleStructuralNode	-	-
+M	7	ModuleStructuralNode	-	-
+M	8	ModuleStructuralNode	-	-
+M	9	ModuleStructuralNode	-	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleStructuralNode	-	-
+M	12	ModuleStructuralNode	-	-
+M	13	ModuleStructuralNode	-	-
+M	14	ModuleStructuralNode	-	-
+M	15	ModuleStructuralNodeToggle	-	-
+M	16	ModulePartVariants	-	-
+M	17	ModuleCargoPart	-	-
+M	18	KOSNameTag	-	-
+P	fairingSize3	interstage01a,interstage01b,interstage02a,interstage02b,interstage03a,interstage03b,interstage04a,interstage04b,interstage05a,interstage05b,interstage06a,interstage06b,top,bottom
+M	0	ModuleProceduralFairing	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleTestSubject	-	-
+M	3	ModuleStructuralNode	-	-
+M	4	ModuleStructuralNode	-	-
+M	5	ModuleStructuralNode	-	-
+M	6	ModuleStructuralNode	-	-
+M	7	ModuleStructuralNode	-	-
+M	8	ModuleStructuralNode	-	-
+M	9	ModuleStructuralNode	-	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleStructuralNode	-	-
+M	12	ModuleStructuralNode	-	-
+M	13	ModuleStructuralNode	-	-
+M	14	ModuleStructuralNode	-	-
+M	15	ModuleStructuralNodeToggle	-	-
+M	16	ModulePartVariants	-	-
+M	17	KOSNameTag	-	-
+P	fairingSize4	interstage01a,interstage01b,interstage02a,interstage02b,interstage03a,interstage03b,interstage04a,interstage04b,interstage05a,interstage05b,interstage06a,interstage06b,top,bottom
+M	0	ModuleProceduralFairing	-	-
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	ModuleTestSubject	-	-
+M	3	ModuleStructuralNode	-	-
+M	4	ModuleStructuralNode	-	-
+M	5	ModuleStructuralNode	-	-
+M	6	ModuleStructuralNode	-	-
+M	7	ModuleStructuralNode	-	-
+M	8	ModuleStructuralNode	-	-
+M	9	ModuleStructuralNode	-	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleStructuralNode	-	-
+M	12	ModuleStructuralNode	-	-
+M	13	ModuleStructuralNode	-	-
+M	14	ModuleStructuralNode	-	-
+M	15	ModuleStructuralNodeToggle	-	-
+M	16	ModulePartVariants	-	-
+M	17	KOSNameTag	-	-
+P	foldingRadLarge	
+M	0	ModuleDeployableRadiator	ModuleDeployableRadiator,ModuleDeployablePart,PartModule	animationName=Deploy
+M	1	ModuleActiveRadiator	-	-
+M	2	KOSNameTag	-	-
+P	foldingRadMed	
+M	0	ModuleDeployableRadiator	ModuleDeployableRadiator,ModuleDeployablePart,PartModule	animationName=Deploy
+M	1	ModuleActiveRadiator	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	foldingRadSmall	
+M	0	ModuleDeployableRadiator	ModuleDeployableRadiator,ModuleDeployablePart,PartModule	animationName=Deploy
+M	1	ModuleActiveRadiator	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	groundAnchor	top
+M	0	ModuleGroundPart	ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	1	ModuleAnimationGroup	-	-
+M	2	KOSNameTag	-	-
+P	groundLight1	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModuleGroundPart	ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	2	KOSNameTag	-	-
+P	groundLight2	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModuleGroundPart	ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	2	KOSNameTag	-	-
+P	hinge.01	bottom,top
+M	0	ModuleRoboticServoHinge	ModuleRoboticServoHinge,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	hinge.01.s	bottom,top
+M	0	ModuleRoboticServoHinge	ModuleRoboticServoHinge,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	hinge.03	bottom,top
+M	0	ModuleRoboticServoHinge	ModuleRoboticServoHinge,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleMirrorPlacement	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	hinge.03.s	bottom,top
+M	0	ModuleRoboticServoHinge	ModuleRoboticServoHinge,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleMirrorPlacement	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	hinge.04	bottom,top
+M	0	ModuleRoboticServoHinge	ModuleRoboticServoHinge,BaseServo,PartModule	-
+M	1	FXModuleLookAtConstraint	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleMirrorPlacement	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	ionEngine	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	kv1Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=False
+M	7	ModuleColorChanger	-	toggleInFlight=true
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	kv2Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=true
+M	7	ModuleColorChanger	-	toggleInFlight=False
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	kv3Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	toggleInFlight=False
+M	7	ModuleColorChanger	-	toggleInFlight=true
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	landerCabinSmall	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleCargoPart	-	-
+M	8	ModuleInventoryPart	-	-
+M	9	MechJebCore	-	-
+M	10	KOSNameTag	-	-
+P	landingLeg1	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	3	ModuleWheelLock	-	-
+M	4	ModuleWheelBogey	-	-
+M	5	ModuleWheelDamage	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	landingLeg1-2	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	3	ModuleWheelLock	-	-
+M	4	ModuleWheelBogey	-	-
+M	5	ModuleWheelDamage	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	largeFanBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	largeHeliBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	largePropeller	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	largeSolarPanel	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=bigsolarpanel
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	linearRcs	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	liquidEngine	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleAlternator	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	liquidEngine.v2	top,bottom
+M	0	ModulePartVariants	-	-
+M	1	ModuleEngines	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	liquidEngine2	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleTestSubject	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	liquidEngine2-2.v2	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleAlternator	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleSurfaceFX	-	-
+M	9	ModulePartVariants	-	-
+M	10	ModuleCargoPart	-	-
+M	11	KOSNameTag	-	-
+P	liquidEngine2.v2	top,bottom
+M	0	FXModuleLookAtConstraint	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleEngines	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	ModuleGimbal	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleAlternator	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleCargoPart	-	-
+M	10	KOSNameTag	-	-
+P	liquidEngine3.v2	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleGimbal	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	ModuleTestSubject	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModulePartVariants	-	-
+M	6	FXModuleAnimateThrottle	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	liquidEngineMainsail.v2	top,bottom
+M	0	ModulePartVariants	-	-
+M	1	ModuleEngines	-	-
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	ModuleGimbal	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleAlternator	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	FXModuleLookAtConstraint	-	-
+M	9	KOSNameTag	-	-
+P	liquidEngineMini.v2	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	ModuleGimbal	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModulePartVariants	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	longAntenna	bottom
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=antenna
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	mediumDishAntenna	
+M	0	ModuleDeployableAntenna	ModuleDeployableAntenna,ModuleDeployablePart,PartModule	animationName=Deploy
+M	1	ModuleDataTransmitter	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	mediumFanBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	mediumHeliBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	mediumPropeller	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	microEngine.v2	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleTestSubject	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	miniJetEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleAlternator	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	miniLandingLeg	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	3	ModuleWheelLock	-	-
+M	4	ModuleWheelDamage	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	mk1-3pod	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleConductionMultiplier	-	-
+M	7	ModuleDataTransmitter	-	-
+M	8	ModuleProbeControlPoint	-	-
+M	9	ModuleLiftingSurface	-	-
+M	10	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	11	ModuleInventoryPart	-	-
+M	12	MechJebCore	-	-
+M	13	KOSNameTag	-	-
+P	mk1pod.v2	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	ModuleConductionMultiplier	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleLiftingSurface	-	-
+M	8	FlagDecal	-	-
+M	9	ModulePartVariants	-	-
+M	10	ModuleCargoPart	-	-
+M	11	ModuleInventoryPart	-	-
+M	12	MechJebCore	-	-
+M	13	KOSNameTag	-	-
+P	mk2CargoBayL	top2,bottom2,top,bottom
+M	0	ModuleLiftingSurface	-	-
+M	1	ModuleAnimateGeneric	-	animationName=Mk2BayL
+M	2	ModuleCargoBay	-	DeployModuleIndex=1
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	mk2CargoBayS	top2,bottom2,top,bottom
+M	0	ModuleLiftingSurface	-	-
+M	1	ModuleAnimateGeneric	-	animationName=Mk2BayS
+M	2	ModuleCargoBay	-	DeployModuleIndex=1
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	mk2Cockpit.Inline	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleColorChanger	-	toggleInFlight=true
+M	8	ModuleCargoPart	-	-
+M	9	ModuleInventoryPart	-	-
+M	10	MechJebCore	-	-
+M	11	KOSNameTag	-	-
+P	mk2Cockpit.Standard	bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleColorChanger	-	toggleInFlight=true
+M	8	ModuleCargoPart	-	-
+M	9	ModuleInventoryPart	-	-
+M	10	MechJebCore	-	-
+M	11	KOSNameTag	-	-
+P	mk2CrewCabin	top,bottom
+M	0	ModuleScienceExperiment	-	-
+M	1	ModuleScienceContainer	-	-
+M	2	ModuleLiftingSurface	-	-
+M	3	ModuleColorChanger	-	toggleInFlight=true
+M	4	ModuleCargoPart	-	-
+M	5	ModuleInventoryPart	-	-
+M	6	KOSNameTag	-	-
+P	mk2DockingPort	top,bottom
+M	0	ModuleDockingNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=dockingPortDeploy
+M	2	ModuleLiftingSurface	-	-
+M	3	ModuleCargoPart	-	-
+M	4	ModuleColorChanger	-	toggleInFlight=true
+M	5	KOSNameTag	-	-
+P	mk2LanderCabin	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleProbeControlPoint	-	-
+M	8	ModuleCargoPart	-	-
+M	9	ModuleInventoryPart	-	-
+M	10	MechJebCore	-	-
+M	11	KOSNameTag	-	-
+P	mk2LanderCabin.v2	hatch,nose,bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleProbeControlPoint	-	-
+M	8	ModulePartVariants	-	-
+M	9	ModuleAnimateGeneric	-	animationName=Mk2Doors
+M	10	ModuleCargoPart	-	-
+M	11	ModuleInventoryPart	-	-
+M	12	MechJebCore	-	-
+M	13	KOSNameTag	-	-
+P	mk3CargoBayL	top2,bottom2,top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=MK3CargoBay
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	KOSNameTag	-	-
+P	mk3CargoBayM	top2,bottom2,top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=MK3CargoBay
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	KOSNameTag	-	-
+P	mk3CargoBayS	top2,bottom2,top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=MK3CargoBay
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	KOSNameTag	-	-
+P	mk3CargoRamp	top2,top
+M	0	ModuleAnimateGeneric	-	animationName=Mk3CargoRamp
+M	1	ModuleCargoBay	-	DeployModuleIndex=0
+M	2	KOSNameTag	-	-
+P	mk3Cockpit.Shuttle	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleColorChanger	-	toggleInFlight=true
+M	6	ModuleDataTransmitter	-	-
+M	7	ModuleInventoryPart	-	-
+M	8	MechJebCore	-	-
+M	9	KOSNameTag	-	-
+P	mk3CrewCabin	top,bottom
+M	0	ModuleScienceExperiment	-	-
+M	1	ModuleScienceContainer	-	-
+M	2	ModuleColorChanger	-	toggleInFlight=true
+M	3	ModuleInventoryPart	-	-
+M	4	KOSNameTag	-	-
+P	nacelleBody	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	navLight1	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	noseConeAdapter	top,bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	KOSNameTag	-	-
+P	nuclearEngine	top,bottom
+M	0	ModuleEngines	-	-
+M	1	ModuleJettison	-	bottomNodeName=bottom
+M	2	ModuleJettison	-	bottomNodeName=bottom
+M	3	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	omsEngine	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	parachuteDrogue	bottom
+M	0	ModuleParachute	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleDragModifier	-	-
+M	3	ModuleDragModifier	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	parachuteLarge	bottom
+M	0	ModuleParachute	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleDragModifier	-	-
+M	3	ModuleDragModifier	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	parachuteRadial	
+M	0	ModuleParachute	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleDragModifier	-	-
+M	3	ModuleDragModifier	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	parachuteSingle	bottom
+M	0	ModuleParachute	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleDragModifier	-	-
+M	3	ModuleDragModifier	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	piston.01	bottom,top
+M	0	ModuleRoboticServoPiston	ModuleRoboticServoPiston,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	piston.02	bottom,top
+M	0	ModuleRoboticServoPiston	ModuleRoboticServoPiston,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	piston.03	bottom,top
+M	0	ModuleRoboticServoPiston	ModuleRoboticServoPiston,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	piston.04	bottom,top
+M	0	ModuleRoboticServoPiston	ModuleRoboticServoPiston,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	pointyNoseConeA	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	pointyNoseConeB	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	radialDrogue	
+M	0	ModuleParachute	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleDragModifier	-	-
+M	3	ModuleDragModifier	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	radialEngineBody	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	KOSNameTag	-	-
+P	radialEngineMini.v2	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModulePartVariants	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	radialLiquidEngine1-2	
+M	0	ModuleEngines	-	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	ramAirIntake	bottom01
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	rotoServo.00	bottom,top
+M	0	ModuleRoboticRotationServo	ModuleRoboticRotationServo,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	rotoServo.02	bottom,top
+M	0	ModuleRoboticRotationServo	ModuleRoboticRotationServo,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	rotoServo.03	bottom,top
+M	0	ModuleRoboticRotationServo	ModuleRoboticRotationServo,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	rotoServo.04	bottom,top
+M	0	ModuleRoboticRotationServo	ModuleRoboticRotationServo,BaseServo,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleResourceAutoShiftState	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	rotor.01	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	rotor.01s	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	rotor.02	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	rotor.02s	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	rotor.03	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	rotor.03s	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleResourceAutoShiftState	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	roverWheelM1-F	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelSteering	-	-
+M	3	ModuleWheelMotor	-	-
+M	4	ModuleWheelBrakes	-	-
+M	5	ModuleWheelDamage	-	-
+M	6	FXModuleLookAtConstraint	-	-
+M	7	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	8	ModulePartVariants	-	-
+M	9	ModuleTestSubject	-	-
+M	10	ModuleCargoPart	-	-
+M	11	KOSNameTag	-	-
+P	science.module	top,bottom
+M	0	ModuleAnimateGeneric	-	animationName=Deploy
+M	1	ModuleScienceExperiment	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	sepMotor1	
+M	0	ModuleEngines	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	shockConeIntake	bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	size0.RotorEngine.02	bottom,top
+M	0	ModuleDynamicNodes	-	-
+M	1	ModuleRoboticServoRotor	ModuleRoboticServoRotor,BaseServo,PartModule	-
+M	2	ModuleResourceIntake	-	-
+M	3	ModuleAlternator	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	smallClaw	top
+M	0	ModuleGrappleNode	-	-
+M	1	ModuleAnimateGeneric	-	animationName=Deploy
+M	2	FXModuleLookAtConstraint	-	-
+M	3	FlagDecal	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	smallCtrlSrf	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	smallFanBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	smallHeliBlade	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	smallPropeller	bottom
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleMirrorPlacement	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	smallRadialEngine	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	smallRadialEngine.v2	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	ModuleGimbal	-	-
+M	2	FXModuleLookAtConstraint	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModulePartVariants	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	solarPanelOX10C	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=Solar_02
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanelOX10L	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=Solar_01
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanelSP10C	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=Solar_02
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanelSP10L	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=Solar_01_S
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanels1	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=solarpanels
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanels2	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=solarpanels2
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanels3	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=altsolarpanelbase
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanels4	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	animationName=solarpanels4
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solarPanels5	
+M	0	ModuleDeployableSolarPanel	ModuleDeployableSolarPanel,ModuleDeployablePart,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	solidBooster.sm.v2	bottom,top
+M	0	ModuleEngines	-	-
+M	1	ModuleTestSubject	-	-
+M	2	ModuleSurfaceFX	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleJettison	-	bottomNodeName=bottom
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	solidBooster.v2	bottom,top
+M	0	ModuleEngines	-	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	bottomNodeName=bottom
+M	6	KOSNameTag	-	-
+P	solidBooster1-1	bottom,top
+M	0	ModuleEngines	-	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	KOSNameTag	-	-
+P	spotLight1	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	KOSNameTag	-	-
+P	spotLight1.v2	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModuleCargoPart	-	-
+M	2	ModulePartVariants	-	-
+M	3	KOSNameTag	-	-
+P	spotLight2	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	KOSNameTag	-	-
+P	spotLight2.v2	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModuleCargoPart	-	-
+M	2	ModulePartVariants	-	-
+M	3	KOSNameTag	-	-
+P	spotLight3	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	standardNoseCone	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	stripLight1	
+M	0	ModuleLight	-	animationName=LightAnimation
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	tailfin	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	telescopicLadder	
+M	0	RetractableLadder	-	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	telescopicLadderBay	
+M	0	RetractableLadder	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModuleLight	-	-
+M	3	RetractableLadderLightController	-	-
+M	4	KOSNameTag	-	-
+P	toroidalAerospike	top,bottom
+M	0	ModuleEngines	-	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleAlternator	-	-
+M	3	ModuleJettison	-	bottomNodeName=bottom
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	turboFanEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	1	FXModuleAnimateThrottle	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleGimbal	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	turboFanSize2	top
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	2	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	3	ModuleAnimateGeneric	-	animationName=TF2ThrustReverser
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleJettison	-	bottomNodeName=top|checkBottomNode=true
+M	6	FlagDecal	-	-
+M	7	ModuleAlternator	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleSurfaceFX	-	-
+M	10	KOSNameTag	-	-
+P	turboJet	top
+M	0	MultiModeEngine	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleGimbal	-	-
+M	7	FXModuleConstrainPosition	-	-
+M	8	ModuleAlternator	-	-
+M	9	ModuleAlternator	-	-
+M	10	ModuleSurfaceFX	-	-
+M	11	ModuleSurfaceFX	-	-
+M	12	ModuleTestSubject	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	vernierEngine	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	wingShuttleElevon1	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	wingShuttleElevon2	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	wingShuttleRudder	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	KOSNameTag	-	-
+P	winglet3	
+M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
