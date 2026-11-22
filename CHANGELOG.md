@@ -62,6 +62,8 @@ Not released yet.
 
 ### Fixed
 
+- **Jet engine thrust reversers show on ghosts.** A Wheesley or Goliath reverser you deploy is
+  recorded and its ghost shows it deployed. (THRUST-REVERSER-NOT-RECORDED)
 - **Airbrakes already out stay out on the replay.** A replay that starts with airbrakes deployed
   shows them out from the first frame. (GHOST-AIRBRAKE-START-NOT-DEPLOYED)
 - **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
