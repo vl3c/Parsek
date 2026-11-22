@@ -2038,8 +2038,11 @@ HANDLE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 # ${<ref>.<field>} where <ref> is a step label OR a harness step id and <field> is
 # one payload key. `${runSave}` keeps its own meaning and is the ONLY dot-less
-# form, so it can never match here.
-HANDLE_REF_RE = re.compile(r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)\}")
+# form, so it can never match here. An optional numeric offset
+# (`${slp.relaunchUt+5}`, `${x.ut-0.5}`) adds to a numeric field at substitution
+# time: the watch lanes land a few seconds AFTER a captured UT.
+HANDLE_REF_RE = re.compile(
+    r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)([+-][0-9]+(?:\.[0-9]+)?)?\}")
 
 
 
@@ -2235,6 +2238,17 @@ def substitute_handle_refs(value, store: Optional[Dict[str, Dict[str, str]]]):
                                             ",".join(fields) or "<none>")})
             continue
         resolved = fields[field]
+        offset = HANDLE_REF_RE.fullmatch(token).group(3)
+        if offset:
+            try:
+                resolved = repr(float(resolved) + float(offset))
+            except ValueError:
+                unresolved.append({"ref": token,
+                                   "kind": UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                                   "reason": "%r field %r is %r, not a number, so the "
+                                             "offset %s cannot apply"
+                                             % (ref, field, fields[field], offset)})
+                continue
         out = out.replace(token, resolved)
         subs.append({"ref": token, "value": resolved})
     return out, subs, unresolved

@@ -460,9 +460,11 @@ def setup_steps(p: WatchLaneParams) -> List[Dict]:
         steps.append(_step("WarpToUT", {"ut": _fmt_num(p.at_ut + INSTANT_SETTLE_SECONDS),
                                         "maxRate": "1"}, budget=120))
     else:
-        # StartLoopPlayback lands 15 s before the launch; ride the clock to it at
-        # 1x so the ghost exists when the camera looks for it.
-        steps.append(_step("WarpToUT", {"ut": "${slp.relaunchUt}", "maxRate": "1"},
+        # StartLoopPlayback lands 15 s before the launch; ride the clock to 5 s past
+        # it at 1x so the ghost exists when the camera looks for it (a warp that
+        # targets the launch UT itself stops a fraction of a second short of it).
+        steps.append(_step("WarpToUT", {"ut": "${slp.relaunchUt+%s}"
+                                        % _fmt_num(INSTANT_SETTLE_SECONDS), "maxRate": "1"},
                            budget=120))
     return steps
 

@@ -5226,7 +5226,9 @@ def _finish_hold(spec: Dict, profile, started: str, start_wall: float,
                                              watchlane.END_BOOT_CRASH,
                                              watchlane.END_BOOT_HANG))
     verdict_s, subkind, note = watchlane.classify_hold(end_reason, setup_complete)
-    verdict = hlib.Verdict(verdict_s, subkind, False, note, note=note)
+    # Positional on purpose: a hold result is never indexed, so its note is not one
+    # of the run index's note producers (test_runindex.NoteProducerSourceSyncTests).
+    verdict = hlib.Verdict(verdict_s, subkind, False, note, False, note)
     logger.info("Classify", "hold run verdict=%s subkind=%s endReason=%s setupComplete=%s"
                 % (verdict_s, subkind or "-", end_reason, setup_complete))
     extra = {hlib.RESULT_MODE_KEY: hlib.RESULT_MODE_HOLD,

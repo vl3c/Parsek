@@ -38,6 +38,30 @@ LOAD = {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
 QUIT = {"cmd": "FlushAndQuit", "expect": "OK"}
 
 
+class HandleOffsetTests(unittest.TestCase):
+    """${ref.field+N}: the watch lanes' 'a few seconds after the captured UT'."""
+
+    def test_offset_adds_to_a_numeric_field(self):
+        store = {"slp": {"relaunchUt": "5336958314.5075293", "tree": "abc"}}
+        out, subs, unresolved = hlib.substitute_handle_refs("${slp.relaunchUt+5}", store)
+        self.assertEqual([], unresolved)
+        self.assertAlmostEqual(5336958319.5075293, float(out), places=4)
+        self.assertEqual("${slp.relaunchUt+5}", subs[0]["ref"])
+        out, _s, _u = hlib.substitute_handle_refs("${slp.relaunchUt-0.5}", store)
+        self.assertAlmostEqual(5336958314.0075293, float(out), places=4)
+
+    def test_offset_on_a_non_number_is_unresolved(self):
+        store = {"slp": {"tree": "abc"}}
+        out, _s, unresolved = hlib.substitute_handle_refs("${slp.tree+5}", store)
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD, unresolved[0]["kind"])
+
+    def test_the_static_scan_accepts_the_offset_form(self):
+        self.assertEqual([], hlib.find_malformed_handle_tokens("${slp.relaunchUt+5}"))
+        self.assertEqual([("${slp.relaunchUt+5}", "slp", "relaunchUt")],
+                         hlib.find_handle_refs("${slp.relaunchUt+5}"))
+        self.assertTrue(hlib.find_malformed_handle_tokens("${slp.relaunchUt+x}"))
+
+
 class HoldPlanTests(unittest.TestCase):
     def test_default_hold_point_is_the_first_flushandquit(self):
         steps = [LOAD, {"cmd": "MissionConfig", "expect": "OK"}, QUIT]
@@ -278,7 +302,7 @@ class GeneratorTests(unittest.TestCase):
         steps = spec["driver"]["steps"]
         self.assertEqual("12", steps[0]["args"]["focusPid"])
         warp = [s for s in steps if s["cmd"] == "WarpToUT"]
-        self.assertEqual(["${slp.relaunchUt}"], [s["args"]["ut"] for s in warp])
+        self.assertEqual(["${slp.relaunchUt+5}"], [s["args"]["ut"] for s in warp])
         registry = tomllib.load(open(os.path.join(HARNESS, "coverage", "registry.toml"), "rb"))
         self.assertEqual([], list(hlib.validate_spec(spec, registry, [], None).errors))
 

@@ -1445,6 +1445,12 @@ a handle and act on it; (c) the seam's `ListHandles` verb
 read. Every decision is pure in `hlib` / `mlib`; `run.py` and `mission_runner.py` do only
 the file I/O around it.
 
+Amendment (watch lanes, 2026-11-22): a reference may carry a numeric offset,
+`${ref.field+N}` / `${ref.field-N}` (`N` a decimal), added to the captured value at
+substitution time (`hlib.substitute_handle_refs`; written back as `repr(float)`). A
+non-numeric field with an offset is unresolved (`no-such-field`). The watch lanes use it to
+land 5 s after `StartLoopPlayback`'s captured `relaunchUt`.
+
 **The capture store.** After a step's FIRST terminal response line (the first-wins rule
 above) with `verdict=OK`, every payload field except the four envelope keys `id`, `cmd`,
 `verdict`, `seq` is percent-DECODED (`hlib.percent_decode`, the inverse of run.py's
@@ -1761,8 +1767,8 @@ hold=4.5` (the picture protocol of design-map-mirror.md), `CaptureScreenshot` an
 StopRecording / DiscardTree, the recorder and tracer settings, `MissionConfig loop=true`,
 `StartLoopPlayback` (lands 15 s before the next launch); then either a `--at` instant
 (`TimeJump ut=T`, `WarpToUT ut=T+5 maxRate=1`, the TP picture lanes' pattern, with T read
-off a reading run's log) or, without one, `WarpToUT ut=${slp.relaunchUt} maxRate=1` (ride
-the 15 s lead to the launch at 1x so the ghost exists when the camera looks). No seam verb targets a
+off a reading run's log) or, without one, `WarpToUT ut=${slp.relaunchUt+5} maxRate=1` (ride
+the 15 s lead to 5 s past the launch at 1x so the ghost exists when the camera looks; a warp that targets the launch UT itself stops a fraction of a second short of it). No seam verb targets a
 ghost in map view; in a hold the owner clicks it.
 
 **3. The tree handle.** `tree=` on `MissionConfig`, `StartLoopPlayback` and

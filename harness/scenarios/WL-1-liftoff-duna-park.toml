@@ -36,7 +36,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "ced7848157674b8ea19311377c0f6fbc", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, label = "slp", expect = "OK", budget = 300 },
-  { cmd = "WarpToUT", args = { ut = "${slp.relaunchUt}", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "${slp.relaunchUt+5}", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "EnterWatchMode", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, expect = "OK", budget = 120 },
   { cmd = "CaptureScreenshot", args = { label = "wl-1-liftoff-duna-park" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },

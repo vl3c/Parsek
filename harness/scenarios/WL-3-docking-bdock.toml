@@ -35,7 +35,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "MissionConfig", args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" }, label = "slp", expect = "OK", budget = 300 },
-  { cmd = "WarpToUT", args = { ut = "${slp.relaunchUt}", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "${slp.relaunchUt+5}", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "EnterWatchMode", args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" }, expect = "OK", budget = 120 },
   { cmd = "CaptureScreenshot", args = { label = "wl-3-docking-bdock" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
