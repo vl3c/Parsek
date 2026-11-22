@@ -1,6 +1,7 @@
 # Mission Profile window (design)
 
-Status: DESIGN, awaiting owner review (2026-11-22). Nothing is built yet. Roadmap Phase 17, first
+Status: P1a built and live-proven; the P1b core (analyzer, lines, builder, row model) built
+2026-11-22 (section 10.1); the window and its seams are next. Roadmap Phase 17, first
 deliverable. Mockup: the "Parsek Profile Mockup" HTML page published with this doc (three missions
 from committed fixtures). Inputs: `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md`
 (Fable review F1-F6), the split rule versions 2 / 3 (`RecordingOptimizer.SplitRules.cs`,
@@ -73,6 +74,11 @@ Non-goals for this feature:
 - No graphic phase diagram (the roadmap's later "graph with visuals"); the analyzer below is the
   data it will need.
 - No planning (what a burn should be), only what was flown.
+- No actions. Every row control stays on the Missions tab: Fly, Stash and Seal per vessel, the
+  include checkboxes (vessel, interval, chapter, partner journey) and Go to on a docked partner. The
+  Profile cannot take the include checkboxes over: its phases are cut at burns and atmosphere passes,
+  the include keys at separations and docks, so a phase checkbox would need a new saved key kind
+  (Missions-tree analysis 2026-11-22, `missions-tree-vs-profile.md` in the session notes).
 
 ## 2. What the player sees
 
@@ -146,7 +152,9 @@ and, for an interpreted element, the rule and evidence that named it, for exampl
 - data gap: `Orbit after the burn is unknown: the vessel stayed in physics range and no orbit sample was recorded.`
 - vessel header: `Kerbal X Probe: separated at T+0:05:01 (decoupled); 1 phase; ends Orbiting Kerbin.`
 - re-flown: `Flown again from here (Re-Fly at T+0:05:01). The first attempt is not shown.`
-- excluded: `Part of this span is excluded from the mission (Missions tab include set).`
+- excluded: `Part of this span is not in the mission: excluded on the Missions tab (Advanced).` The
+  cut applies in Basic too, as the Log and Watch already apply it (default taken 2026-11-22, owner may
+  override); only the wording names where it was set.
 
 ### 2.5 Collapse
 
@@ -219,6 +227,8 @@ never becomes a line (as in the Missions tab).
 | Atmosphere exit / entry | `Atmosphere exit` / `Atmosphere entry` | env boundary (physics sections) or the conic crossing the atmosphere top (on-rails sections) |
 | SOI change | `Entered Mun SOI` / `Left Mun SOI` | body change between sections |
 | Docking / Undocking | `Docked: <partner>` / `Undocked: <partner>` | Dock / Undock branch points (partner names via the Log's partner resolver) |
+| Docked by another mission | `Docked: <partner> (<other mission>)` / `Undocked: <partner> (<other mission>)` | a dock another mission recorded onto this mission's vessel: it lives in the other tree, so the line builder reads it from the same source the Missions tab's `Docked partner` rows read; named, never expanded (default taken 2026-11-22, owner may override) |
+| Switched to | `Switched to <vessel>` | the first recording of a vessel that joined the tree at a vessel switch (`VesselSwitchContinuation`); its line starts there, top level unless its identity already has a line, which it then continues |
 | EVA / Board | `EVA: <kerbal>` / `Boarded: <kerbal>` | EVA / Board branch points |
 | Ground parts | `Part placed: <part>` / `Inventory transfer` | `GroundPartPlaced` / `InventoryTransfer` branch points, on the EVA line that made them |
 | Parachutes | `Parachutes deployed` | first `ParachuteSemiDeployed` / `ParachuteDeployed` of a reentry |
@@ -324,7 +334,8 @@ de-duplicated by UT, the later piece winning. Facts:
     elements as its terminal orbit while three approach burns follow);
   - structural: the line's own boundaries (an SOI change, an atmosphere or ground entry, an
     atmosphere exit implies the orbit was falling there), and an altitude that holds within 2 % for
-    longer than a quarter of the circular period at that radius (bound and clear, inferred);
+    longer than a quarter of the circular period at that radius, or within 0.1 % for two minutes
+    (bound and clear, inferred);
   - none: unknown.
 - Boundary facts between spans: SOI change, atmosphere entry / exit, low-band entry / exit,
   touchdown / liftoff, the branch points at that UT, and the excluded spans.
@@ -396,7 +407,7 @@ surface (EVA)` from a touchdown, `Jetpack flight` for a surface-to-surface hop, 
 | inside a transfer, the encounter or escape unchanged | `Correction` |
 | escaping / encounter -> bound, after an SOI entry | `Capture burn` |
 | escaping -> bound in-air | `Capture burn (aerobraking orbit)` |
-| bound in-air -> bound clear | `Periapsis raise` (ends an aerocapture / aerobraking phase) |
+| bound in-air -> bound clear, after an atmosphere pass | `Periapsis raise` (ends an aerocapture / aerobraking phase) |
 | bound clear -> bound clear | `Orbit change`; `Plane change` when inclination moves over 2 deg and Ap / Pe under 5 %; `Phasing burn` / `Approach burn` inside a Rendezvous (several approach burns within 10 minutes collapse into one row, `Approach burns (3)`) |
 | bound clear -> falling | `Deorbit burn` (atmosphere body) / `Descent burn` (airless) |
 | in the low band or the reentry, ending at touchdown | `Landing burn` |
@@ -453,7 +464,12 @@ The cell shows `-` or the inferred wording, the hover the reason, and the build 
 ## 5. Vessel lines
 
 Lines are built on the model the Missions tab already uses, so the Profile's lines agree with the
-tab's vessel rows and include keys, and no second "same vessel" rule exists:
+tab's vessel rows and include keys, and no second "same vessel" rule exists. The line builder
+starts from `MissionVesselRowBuilder.Build` (one row per physical vessel / EVA kerbal, depth =
+separation lineage, own-side undocks, docked partner rows and the interval keys already resolved)
+rather than a second walker, and a fixture test pins that the Profile's line set equals the tab's
+vessel-row set on every committed mission fixture (Missions-tree analysis 2026-11-22). Underneath,
+that builder uses:
 
 - `MissionStructure` (`MissionStructureBuilder.Build(tree)`, the controlled-leg graph), the through
   line from `MissionThroughLineBuilder.ContinuationSuccessor` (it follows `IsBranchContinuation`, the
@@ -614,11 +630,11 @@ section 10): every flight flown after it ships carries real figures.
 
 | Piece | File | Module / layer |
 |---|---|---|
-| Phase analyzer, pure (stage 1 facts, strata, grouping) | `Recording/MissionPhaseAnalyzer.cs` (+ `.Facts.cs`, `.Passes.cs`, `.Burns.cs`, `.Grouping.cs`) | Recording / model |
+| Phase analyzer, pure (stage 1 facts, strata, grouping) | `Recording/MissionPhaseAnalyzer.cs` (+ `.Facts.cs`, `.Passes.cs`, `.Burns.cs`, `.Grouping.cs`, `.Placement.cs`) | Recording / model |
 | Element kinds and phase classes (F4's seed, no player words) | `Recording/ProfileElementKinds.cs` | Recording / model |
 | Player labels for the kinds | `Missions/ProfileLabels.cs` | Missions / features |
 | Line builder over `MissionStructure` + through line + `VesselIdentity` | `Missions/MissionProfileLines.cs` | Missions / features |
-| Profile builder: lines + plans -> rows with depth, cells, hovers | `Missions/MissionProfileBuilder.cs` | Missions / features |
+| Profile builder: lines + plans -> rows with depth, cells, hovers | `Missions/MissionProfileBuilder.cs` (+ `.Rows.cs`, `.Summary.cs`); row model `Missions/MissionProfileRows.cs` | Missions / features |
 | Window | `UI/MissionProfileWindowUI.cs` (chrome shared with `StructureListWindowUI` through a small extracted helper, not a third mode of that class: the tree, carets and six columns would branch every draw method) | UI / presentation |
 | Button | `UI/MissionsWindowUI.MissionRows.cs` | UI |
 | Gallery builder | `UI/Gallery/GuiMock.Profile.cs` | UI |
@@ -638,6 +654,60 @@ Phases:
   loopability and labels read the F4 table; ReaimClassifier uses the line model. A split-rule version
   bump, its own design.
 - P4: the graphic profile (Apollo-style phase diagram) from the same `PhasePlan`.
+
+### 10.1 As built: the P1b core (2026-11-22)
+
+The pure core is built (todo MISSION-PROFILE-P1B): the analyzer, the line builder, the profile
+builder and the row view model the window draws. The window, the buttons, the seam op, the gallery,
+the census lanes and the mirror are not. The one seam the window calls is
+`MissionProfileBuilder.BuildProfile(MissionProfileRequest)`: the request carries the mission, the
+tree, the window's cached structure / through line / vessel rows / vessel names / partner legs (each
+built the tab's way when absent), the ERS id set and the supersede rows, the body facts, the date
+formatter, the part-title and merge-partner resolvers and the ELS career totals. It returns a
+`MissionProfile` whose `Rows` are `MissionProfileRow`s (kind, depth, collapse key and parent key,
+caret, the seven cells as strings, the hover sentence, and the flags `HasSpent`, `SpentIsEstimate`,
+`IsInferred`, `IsClipped`, `IsReflown`, `HasDataGap`, `IsUnclassified`), the Summary row first.
+
+Where the build reads the design differently, against the real fixtures:
+
+- Files: the analyzer has a fifth partial, `.Placement.cs` (event placement, include clipping,
+  totality, counts); the row model is `Missions/MissionProfileRows.cs`; the builder is split into
+  `.Rows.cs` (cells) and `.Summary.cs` (hovers and the Summary block).
+- The burn definition is shared by making `RecordingOptimizer.ExtendBurn` a wrapper over a new
+  `ExtendBurnRun(IList<TrackSection>, int)` (and `IsBurnSection` internal), so the analyzer runs the
+  same run builder over a whole line's sections. Burn times are engine times (ignite to last
+  shutdown), so a burn row starts up to a second before its powered section.
+- Held altitude (4.3): besides the 2 % for a quarter period, an altitude that holds within 0.1 % of
+  its radius for two minutes is inferred bound and clear. mun-landing-recorded's capture coast holds
+  140 km to 8 m for three minutes, a sixth of the quarter period the looser rule asks for.
+- Periapsis raise (4.4) needs the last floor contact to be an atmosphere pass; otherwise bound
+  in-air -> bound clear is the circularization of a launch whose ascent coast dips in the air.
+- A line that starts in space on an orbit with Pe in the atmosphere reads by its energy: escaping is
+  a Transfer, bound is an Orbit (it only dips in); an orbit that is truly falling and has no ascent or
+  deorbit before it stays `In space` (logged).
+- A launch destroyed in the air before reaching space is an Ascent with rule `aborted-ascent`
+  ("reached N km"), not a Flight; a line that starts airborne with no space after it is a Flight.
+- A surface stay under 10 s at a line's end folds into the phase before it (a recovery right after
+  touchdown: A.1's Touchdown and Recovered sit in the Reentry).
+- Rendezvous (4.5) starts at the first in-orbit burn of the orbit phase that ends with the dock; the
+  partner's own start UT is not an input yet, so no partner-exists check.
+- The Docked phase row stands for the dock instant (no separate `Docked:` event row at its start);
+  the undock is its closing event.
+- Encounter wording: a burn reads `<Body> encounter, Pe N km` only when its own coast ends in that
+  SOI; a burn that leaves the body for its parent reads `escape, Pe N km`; a coast whose encounter
+  comes through later corrections reads its own Ap / Pe.
+- Not built: the `Docked by another mission` event of 3.2 (the other tree's dock onto this vessel).
+
+Appendix A against the build: the event rows follow Q14 (Liftoff, Atmosphere exit and Atmosphere
+entry are rows; an event's Location is blank unless it differs from its phase's or names a biome),
+stagings are rows (Q3), not folded into the Ascent label as A.2 / A.3 wrote them; Duration uses KSP
+6-hour days as 2.3 says (A.1's 8h 37m transfer reads `1d 2h`, its 18h 22m mission `3d 0h`); EVA
+lengths are floored (`1s`, not `2s`); inclinations print on burn rows too. The estimates the build
+computes (11.1, stored-frame vectors) match the appendix's hand values within 2 % except A.1's first
+Correction (~35 m/s against the hand ~14: the burn has a radial part). A.2's first Correction reads
+`Ap 11,100 km, Pe -201 km` (the encounter belongs to the coast after the second Correction). A.3's
+approach burns and final orbit read the stored terminal orbit (`117 x 102 km`) instead of `-` /
+`about 117 km`, and its final Kerbin orbit is 0.9 s (`0s`). The fixture tests pin the rows as built.
 
 ## 11. Tests
 
@@ -781,7 +851,8 @@ question.
 
 ## Appendix A. Worked profiles from committed fixtures
 
-Numbers read from the fixtures' `.prec.txt` mirrors and `persistent.sfs` (section UTs, checkpoint
+Written before the build; section 10.1 lists where the built rows differ (the fixture tests pin
+those). Numbers read from the fixtures' `.prec.txt` mirrors and `persistent.sfs` (section UTs, checkpoint
 elements, part events, branch points). The fixtures predate 8.1, so these tables show the estimate
 fallback (Spent column, burns only, Left empty); the mockup's "new flight" view shows the recorded
 layout with illustrative values. Times are floored like `FormatElapsed`. Delta-v values are

@@ -320,7 +320,9 @@ namespace Parsek
             return false;
         }
 
-        private static bool IsBurnSection(TrackSection s)
+        /// <summary>A physics-frame powered space section: the unit of a burn. Shared with the
+        /// Mission Profile's burn definition (MissionPhaseAnalyzer).</summary>
+        internal static bool IsBurnSection(TrackSection s)
         {
             return s.environment == SegmentEnvironment.ExoPropulsive
                 && s.referenceFrame != ReferenceFrame.OrbitalCheckpoint;
@@ -375,8 +377,15 @@ namespace Parsek
         /// sections on one body, with physics-frame engine-off gaps up to
         /// <see cref="BurnMergeGapSeconds"/> merged in.</summary>
         private static int ExtendBurn(Recording rec, int first)
+            => ExtendBurnRun(rec.TrackSections, first);
+
+        /// <summary>
+        /// <see cref="ExtendBurn"/> over any section list: the one burn definition the
+        /// version-3 cuts and the Mission Profile (MissionPhaseAnalyzer, over a whole vessel
+        /// line's sections) share. An on-rails section or an SOI change ends the run.
+        /// </summary>
+        internal static int ExtendBurnRun(IList<TrackSection> sections, int first)
         {
-            var sections = rec.TrackSections;
             int n = sections.Count;
             int last = first;
             while (true)
