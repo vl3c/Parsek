@@ -5446,6 +5446,16 @@ V3C_ATTEMPT = _census_tree(
     "tree-dd1", [V3C_DD1[0], ("rec-dd1-seg1", ORBITING, 420), V3C_DD1[2]],
     V3C_DD1_BPS, marker="isActive")
 
+# The same flight as committed under split rule version 3 (the lane's 2026-11-22 run): the
+# version 3 orbit-insertion cut adds one chain piece before the orbiting tip. The V3C spec's
+# structure windows are pinned to this shape; the census cells above keep the three-piece
+# tree, which is all their copy-dedupe logic needs.
+V3C_DD1_V3 = [V3C_DD1[0], ("rec-dd1-seg0b", None, 60), V3C_DD1[1], V3C_DD1[2]]
+V3C_COMMITTED_V3 = _census_tree("tree-dd1", V3C_DD1_V3, V3C_DD1_BPS)
+V3C_ATTEMPT_V3 = _census_tree(
+    "tree-dd1", [V3C_DD1_V3[0], V3C_DD1_V3[1], ("rec-dd1-seg1", ORBITING, 420), V3C_DD1_V3[3]],
+    V3C_DD1_BPS, marker="isActive")
+
 
 class InFlightCopyCensusTests(unittest.TestCase):
     """The structure census reads a committed tree once when the save also holds its
@@ -5480,8 +5490,8 @@ class InFlightCopyCensusTests(unittest.TestCase):
             spec = tomllib.load(fh)
         exp = spec["expectations"]
         snap = saveparse.parse_parsek_scenario(
-            _census_save(V3C_INJECTED, V3C_COMMITTED, V3C_ATTEMPT))
-        self.assertEqual(7, len(snap.recordings), "raw rows should carry the copy")
+            _census_save(V3C_INJECTED, V3C_COMMITTED_V3, V3C_ATTEMPT_V3))
+        self.assertEqual(9, len(snap.recordings), "raw rows should carry the copy")
         r = saveparse.evaluate_save_structure(exp, snap)
         self.assertEqual(saveparse.STATUS_PASS, r.status, r.mismatches)
 

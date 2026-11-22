@@ -208,12 +208,12 @@ class PerturbationKillTests(unittest.TestCase):
 
     def test_the_v3c_windows_are_proven_on_its_doubled_save(self):
         import tomllib
-        from test_saveparse import (SCENARIOS_DIR, V3C_ATTEMPT, V3C_COMMITTED,
+        from test_saveparse import (SCENARIOS_DIR, V3C_ATTEMPT_V3, V3C_COMMITTED_V3,
                                     V3C_INJECTED, _census_save)
         with open(os.path.join(SCENARIOS_DIR, "V3C-flight-arrival-companion.toml"), "rb") as fh:
             exp = tomllib.load(fh)["expectations"]
         exp = {"recordings": {"structure": exp["recordings"]["structure"]}}
-        _lane, gates = _run(exp, _census_save(V3C_INJECTED, V3C_COMMITTED, V3C_ATTEMPT))
+        _lane, gates = _run(exp, _census_save(V3C_INJECTED, V3C_COMMITTED_V3, V3C_ATTEMPT_V3))
         self.assertTrue(gates)
         for label, g in gates.items():
             with self.subTest(label=label):

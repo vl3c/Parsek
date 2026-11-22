@@ -456,7 +456,7 @@ allowedAnomalies = ["loop-seam-teleport"]
 # next=ExoBallistic`, 146 + 369 points, chainIndex 0 / 1, the terminal and the spawn
 # stamp on the second half). _0732 red only on this count; every other expectation
 # and the seam token were met.
-# RE-PINNED 5 (2026-11-22, run 2026-11-22_0241): split rule version 3 adds an ascent-end and an orbit-insertion row
+# RE-PINNED 5 (2026-11-22, run 2026-11-22_0241): split rule version 3 adds an orbit-insertion row
 # to this flight (burn cuts at orbit-kind changes, design section 14.1). The
 # ascent and debris population above is unchanged; this was `count = { min = 4, max = 4 }`.
 count = { min = 5, max = 5 }
@@ -480,7 +480,9 @@ count = { min = 5, max = 5 }
 gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
-recordings     = { min = 4, max = 4 }
+# RE-PINNED 2026-11-22 with [expectations.recordings] count: split rule version 3 adds
+# an orbit-insertion row; this was `recordings = { min = 4, max = 4 }`.
+recordings     = { min = 5, max = 5 }
 terminalStates = { Orbiting = { min = 2, max = 2 }, Destroyed = { min = 1, max = 1 } }
 branchPoints   = { JointBreak = { min = 1, max = 1 } }
 

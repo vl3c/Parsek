@@ -548,7 +548,7 @@ allowedAnomalies = []
 # Still exact: 10 and 12 both red.
 # Confirmed on the new pin (mission warp policy flights): `2026-10-01_1905_B13-mun-landing` PASS
 # attempt 1, same splits.
-# RE-PINNED 13 (2026-11-22, run 2026-11-22_0204): split rule version 3 adds circularization, departure-burn, capture and descent rows
+# RE-PINNED 13 (2026-11-22, run 2026-11-22_0204): split rule version 3 adds two burn-cut rows
 # to this flight (burn cuts at orbit-kind changes, design section 14.1). The
 # ascent and debris population above is unchanged; this was `count = { min = 11, max = 11 }`.
 count = { min = 13, max = 13 }
