@@ -127,6 +127,7 @@ namespace Parsek
             int lightApplied = 0;
             int servoApplied = 0;
             int servoSkipped = 0;
+            int loopsApplied = 0;
 
             foreach (var kvp in baselines)
             {
@@ -143,6 +144,17 @@ namespace Parsek
                         : ApplyDeployableState(state, evt, actions.deployableTarget.Value);
                     if (applied)
                         deployableApplied++;
+                }
+
+                // A ModuleAnimationGroup deployed in the snapshot runs its deploy-driven loop from
+                // spawn (phase origin UT 0, so every spawn and loop cycle lands on the same pose);
+                // a start-UT seed for the same state is then the duplicate the loop ignores. A
+                // stowed one needs nothing: the loop starts stopped and the loop-cycle reset stops it.
+                if (baseline.animationGroupDeployed == true
+                    && ApplyDeployDrivenLoopStateWithOutcome(state, pid, true, 0.0)
+                        == GhostPartEventOutcome.Applied)
+                {
+                    loopsApplied++;
                 }
 
                 // S6, applied AFTER any pose so the hide is not undone by ApplyDeployableState's
@@ -197,6 +209,7 @@ namespace Parsek
                 $"brokenWheels={wheelsBroken} " +
                 $"parachutes={parachuteApplied} " +
                 $"lights={lightApplied} servos={servoApplied} servosSkipped={servoSkipped} " +
+                $"deployLoops={loopsApplied} " +
                 $"(vessel='{state.vesselName ?? "unknown"}')";
             if (rateLimitLog)
                 ParsekLog.VerboseRateLimited("GhostVisual", "snapshot-baseline-loop", summary, 1.0);

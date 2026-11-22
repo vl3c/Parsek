@@ -62,6 +62,10 @@ Not released yet.
 
 ### Fixed
 
+- **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
+  ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
+- **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above
+  the body as on the real antenna. (GHOST-RESTOCK-COMMDISH-DEPLOY-POSE)
 - **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
   above the part, instead of turned or hanging upside down. (GHOST-CHUTE-CANOPY-AIM)
 - **RealChute stages are seen under their chutes.** With RealChute, a stage left under open chutes
