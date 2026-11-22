@@ -1890,6 +1890,17 @@ controls ok, press ok, complete, recompute 0 mismatches. Findings: `docs/dev/tod
 adds the 13 FGV cases to both orbit lanes' plans (`contexts=none` includes the `fgv` class), about
 45 s more per lane at the measured rate; PP-3 / PP-4 have not flown with them yet.
 
+Instrument round (2026-11-22, branch `parity-instrument-fixes`: the tracker cap and still rule per
+`trackingSpeed`, the animation-group clip wait and `auto-deploy`, the light fade settle, the canopy
+lever arm, the colour-changer leak repair): PP-3 plans 172 cases (93 single-part states, 66
+shrouds, 13 FGV; the ISRU is excluded) and PP-4 238 (117, 108, 13), each plus the 9 controls. The
+final flights `2026-11-22_2014` (PP-3, 457 s + 176 s of sweep, 727 s wall; the radiators'
+tracking settle adds about 80 s) and `_2026` (PP-4, 444 s + 246 s + 0.2 s, 784 s wall), PP-5 `_2039` and
+PP-6 `_2041`, all PASS attempt 1, controls ok, complete: PP-3 139 pass / 21 warn / 12 fail / 0
+error, PP-4 193 / 24 / 21 / 0, PP-5 and PP-6 10 warn each. The first FGV flight in the orbit lanes
+reads 12 pass and 1 warn on each install (`fairingsize2--white--stowed--fgv-3-open-top`, colour
+blobs of 140 px). Per-fix readings: the todo entries the findings entry names.
+
 ### D.9 What P6 leaves ready for P7
 
 The P7 strips (9.2) reuse D.1's table (family, module, done signal as t = 1), the event route's
