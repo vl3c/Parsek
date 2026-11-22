@@ -97,6 +97,10 @@ Not released yet.
 
 ### Fixed
 
+- **RealChute stages are seen under their chutes.** With the RealChute mod, a stage you stopped
+  watching while it was still nearby and under open chutes was predicted to fall and crash. It
+  now comes down under its canopies like a stock one, and a partly open canopy is judged by its
+  size. (ABANDONED-STAGE-REALCHUTE-LOADED)
 - **Predicted paths are drawn on the map, in the Tracking Station and at the Space Center.** A
   ghost past its last recorded point used to freeze there; it now moves along its predicted path
   with a line under it, slides across a long gap instead of jumping, and explodes at the ground,
