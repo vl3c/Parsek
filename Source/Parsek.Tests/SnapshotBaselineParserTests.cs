@@ -244,6 +244,28 @@ namespace Parsek.Tests
             Assert.Null(GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode));
         }
 
+        [Theory]
+        [InlineData("1", true)]
+        [InlineData("0", false)]
+        public void StandaloneAnimateGeneric_BesideAnimateHeat_KeepsItsOpinion(string animTime, bool deployed)
+        {
+            // A jet engine's thrust reverser (JetEngine / turboFanSize2): ModuleAnimateHeat owns
+            // only its heat clip, so it does not suppress the reverser's standalone read, the
+            // same as FlightRecorder.HasDedicatedAnimateHandler (todo THRUST-REVERSER-NOT-RECORDED).
+            ConfigNode partNode = PartWithModules(
+                Module("ModuleEnginesFX"),
+                Module("ModuleAnimateHeat"),
+                Module("ModuleAnimateGeneric", ("animTime", animTime)));
+
+            SnapshotPartBaseline baseline =
+                GhostVisualBuilder.TryParseSnapshotPartBaseline(partNode);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(deployed, baseline.animateGenericDeployed);
+            Assert.Equal(deployed,
+                GhostPlaybackLogic.ResolveSnapshotBaselineActions(baseline).deployableTarget);
+        }
+
         [Fact]
         public void AnimationGroup_IsDeployedParses()
         {
