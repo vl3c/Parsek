@@ -240,6 +240,10 @@ namespace Parsek.TestCommands
             internal bool StillTracking;
             internal int ContextHidden;
             internal int DebrisHidden;
+
+            /// <summary>An air case's <c>canopy-wobble:&lt;deg&gt;</c> (the window's cap forced its
+            /// capture); null otherwise.</summary>
+            internal string CanopyWobbleTag;
         }
 
         /// <summary>
@@ -247,7 +251,8 @@ namespace Parsek.TestCommands
         /// <c>state-not-recorded</c> (a press reached the state, no event recorded),
         /// <c>state-not-modelled:&lt;route&gt;:&lt;outcome&gt;</c> per judged route not applied,
         /// <c>start-pose-not-first-frame</c>, <c>sun-tracker-first-frame:&lt;deg&gt;</c>,
-        /// <c>still-tracking</c>, <c>context-hidden:&lt;n&gt;</c>, <c>jettison-debris-hidden:&lt;n&gt;</c>.
+        /// <c>still-tracking</c>, <c>context-hidden:&lt;n&gt;</c>, <c>jettison-debris-hidden:&lt;n&gt;</c>,
+        /// <c>canopy-wobble:&lt;deg&gt;</c>.
         /// A route outcome that is null (the route was not built) writes nothing.
         /// </summary>
         internal static List<string> StateFlags(FlagInputs f)
@@ -265,6 +270,9 @@ namespace Parsek.TestCommands
             if (f.StillTracking) flags.Add(PartParityStateRules.TagStillTracking);
             if (f.ContextHidden > 0) flags.Add(PartParityStateRules.TagContextHiddenPrefix + f.ContextHidden.ToString(Ic));
             if (f.DebrisHidden > 0) flags.Add(PartParityStateRules.TagJettisonDebrisHiddenPrefix + f.DebrisHidden.ToString(Ic));
+            if (!string.IsNullOrEmpty(f.CanopyWobbleTag)
+                && f.CanopyWobbleTag.StartsWith(PartParityStateRules.TagCanopyWobblePrefix, StringComparison.Ordinal))
+                flags.Add(f.CanopyWobbleTag);
             return flags;
         }
 

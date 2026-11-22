@@ -5694,15 +5694,17 @@ that does not parse is REJECTED with its own token, never clamped: `label-arg-mi
 `label-arg-invalid`, `op-arg-invalid`, `filter-arg-invalid`, `source-arg-invalid`,
 `skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `views-arg-invalid`,
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
-`maxseconds-arg-invalid` (the parse order), then `air-runs-not-built` for a well-formed
-`contexts=air` step while the air context is not built (design D.10 S7 lifts it).
+`maxseconds-arg-invalid` (the parse order). A well-formed `contexts=air` step parses like any
+other (the interim `air-runs-not-built` refusal was dropped when design D.10 S7 built the air
+context).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
-arg parse the applier admits the host (`TestCommandPartParitySweep.DecideHostAdmission`):
+arg parse the applier admits the host (`PartParityAirContext.DecideAdmission`, the runner's own
+rule over `TestCommandPartParitySweep.DecideHostAdmission(args, ...)`):
 REJECTED `no-active-vessel` or `host-not-orbiting` (the active vessel's situation is not
 `ORBITING`; the co-orbital spawns need an orbiting host). An air run (`contexts=air`) instead
-needs a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED `host-not-at-pad` (the
-pure rule is built; the applier wiring lands with the air context, design D.10 S7). On admission it starts the capture
+needs a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED `host-not-at-pad`
+(detail `situation=<s> distanceToPad=<m>m`; design D.4). On admission it starts the capture
 engine's step coroutine (`PartParitySweepRunner.RunStep`), driving its enumerator by hand so a
 throw inside it ends the step at once. `op=reset` clears `<KSP root>/parsek-partparity/<label>/`;
 `op=run` processes cases in the stable order until its `maxSeconds` time box ends and resumes

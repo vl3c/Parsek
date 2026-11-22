@@ -1204,10 +1204,10 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
   `host-not-at-pad`; every other run keeps `host-not-orbiting`. S1's interim `state-runs-not-built`
-  refusal was dropped with its hlib mirror when S3 built the live orbit engine; until S7 builds the
-  air context, a well-formed `contexts=air` step is REJECTED `air-runs-not-built`
-  (`TestCommandPartParitySweep.AirRunsBuilt`, hlib `PARTPARITY_AIR_RUNS_BUILT`; S7 flips both and
-  drops it), so no chute is pressed in orbit; the pure planning rules read `TryParseGrammar`.
+  refusal was dropped with its hlib mirror when S3 built the live orbit engine, and the interim
+  `air-runs-not-built` refusal (`AirRunsBuilt`, hlib `PARTPARITY_AIR_RUNS_BUILT`) when S7 built the
+  air context: a well-formed `contexts=air` step parses like any other and meets the pad rule at
+  the admission, so no chute is pressed in orbit; the pure planning rules read `TryParseGrammar`.
 - What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
   - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
     today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
@@ -1239,7 +1239,8 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
     `type`, `ut`, `pid`, `midx`), `ghostEvent` / `ghostStart` (`applied|no-info|pose-not-sampled|
     not-reached`, D.5), `startFirstFrame` (`atTarget`, `trackerDeg`: the start route at its first
     frame, D.5), `sunTracker` (`targetDeg`, `eventDeg`, `startFirstFrameDeg`), `canopy` (`tiltDeg`,
-    `wobbleDeg`: air cases, airflow tilt and wobble at capture, D.4), `nodes` (`node`, `part`: the
+    `wobbleDeg`: air cases, airflow tilt and wobble at capture, D.4; `transform`: the module's
+    `canopyName`, added by S7), `nodes` (`node`, `part`: the
     context's filler parts by node).
   - `atlas.rows`: `["real", "ghost", "ghost-start", "ghost-stowed"]` for a state case (any state
     but `stowed`), `["real", "ghost"]` for a stowed case as today, the stacked stowed shroud
@@ -1403,8 +1404,10 @@ so no range override. The chutes never come near the host (they end the case ove
 Deterministic semi then full, with stock doing both:
 
 1. Spawn at 1600 m ASL moving 10 m/s down (stock needs more than 1 m/s, `IsMovingFastEnoughToDeploy`),
-   the module node authored with `deployAltitude = 1000` (a persistent field the player sets in the
-   editor; the stock range is 50 to 5000). Settle 0.5 s.
+   the module node authored with `deployAltitude = 500` (a persistent field the player sets in the
+   editor; the stock range is 50 to 5000; S7 lowered it from the planned 1000 because stock also
+   opens fully once a raycast of `deployAltitude` metres down meets the terrain,
+   `ModuleParachute.ShouldDeploy`, and a semi case must keep its margin while it falls). Settle 0.5 s.
 2. Press `Deploy`. Stock arms the chute; at 1600 m the pressure (about 0.8 atm) passes
    `minAirPressureToOpen`, and the altitude is above `deployAltitude`, so stock goes SEMIDEPLOYED at
    once and plays `semiDeployedAnimation`. Done for `semi`: SEMIDEPLOYED and the animation finished
@@ -1548,8 +1551,8 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   window: numeric `stateProof.canopy.tiltDeg` and `wobbleDeg` with `|tilt| + |wobble| < 3`
   (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` marker in `tags` or `flags` (both mark the 4 s
   timeout capture, which is never capped), and a non-empty `stateProof.canopy.transform`, the
-  module's `canopyName` (an ADDITIVE key S7 writes and adds to `CanopyKeys` / `CANOPY_KEYS`;
-  until then no air case is capped). A canopy renderer is a structure key one of whose `/`
+  module's `canopyName` (an ADDITIVE key S7 writes, listed in `CanopyKeys` / `CANOPY_KEYS`; a
+  null or empty value is never capped). A canopy renderer is a structure key one of whose `/`
   segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
   it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
   one `transformDiffers` entry and every entry is a canopy renderer with `|rotationDeltaDeg| <=

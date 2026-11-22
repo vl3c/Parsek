@@ -1,0 +1,129 @@
+schema = 1
+id = "PP-6-part-parity-chutes-modded"
+tier = "operator"
+# PART GHOST PARITY, MODDED INSTALL, PARACHUTES IN THE AIR (PP-5 on modded-compat: ReStock,
+# ReStock+, Waterfall, B9PartSwitch; phase P6 of
+# docs/dev/design-part-ghost-parity.md, Appendix D.4, row S7 of D.10; owner ruling R1:
+# parachutes are deployed FOR REAL in the air near KSC, never posed in vacuum). PP-4
+# photographs every other transforming part of the install in orbit; this lane photographs
+# every ModuleParachute part of the install (stock and modded) at its semi and its full
+# canopy beside THREE ghosts (D.5): the event route (the
+# stowed snapshot plus the ParachuteSemiDeployed / ParachuteDeployed events the recorder's
+# own pollers recorded while stock opened the real chute), the start route (the deployed
+# snapshot) and the stowed reference.
+#
+# WHAT THE LANE FLIES. `b1-pad-craft` (sandbox, every part available, the "Jumping Flea"
+# PRELAUNCH on the KSC pad) boots into FLIGHT, turns every auto-record setting off (no case
+# vessel may be recorded), turns verbose logging on (the per-case lines are verbose-tier),
+# clears the label directory (`op=reset`), runs ONE `op=run contexts=air states=all` step
+# and quits. The host never moves: the admission needs it PRELAUNCH or LANDED within 500 m
+# of the pad (else REJECTED host-not-at-pad) and the host guard reads PRELAUNCH / LANDED
+# (host.txt mode=air). Each case vessel spawns through VesselSpawner.SpawnAtPosition 1600 m
+# above sea level over the KSC showcase band (200 m east of the pad, up to five per wave
+# 40 m apart), upright, falling at 10 m/s, its chute authored with deployAltitude = 500;
+# within stock's flying unpack range (2000 m) of the host, so no range override. Stock then
+# does both steps: Deploy arms the chute and it opens SEMI at once (pressure above
+# minAirPressureToOpen, above deployAltitude); a full case then raises deployAltitude to
+# 5000, the in-flight slider, and stock opens it FULLY. After the done signal the case
+# waits for its canopy window (airflow tilt plus wobble under 3 deg, at most 4 s, else
+# tagged canopy-wobble:<deg>), captures its prepare and every view in that one frame and is
+# destroyed at once; a case under 300 m above the terrain is ended before it can land.
+# `controls=true` runs the air control set: ctl-empty, ctl-ghost-absent, ctl-real-vs-real
+# (the Mk16 armed and falling) and ctl-state-events-dropped-air (the Mk16 at semi with its
+# event-route ghost built WITHOUT the polled events, which must fail on shape).
+#
+# CASES (design D.1): every ModuleParachute part at semi and full, at its base skin (R2).
+# The step logs the exact counts on its `state cases:` Info line.
+#
+# STEP SIZING (design D.8). About 1 minute of sweep: waves of up to five chutes, each about
+# 20 s (spawn, settle, semi, full, the canopy window, capture), plus the controls. One
+# step, time-boxed at maxSeconds=480 (budget 540, the S8 deferred-step cap).
+#
+# GATES. (1) The partParity verifier row: the air control set behaved, the state control
+# re-judged from its sidecar (else INVALID(parity-controls)); the chute press path did not
+# break (more than half of the family's cases action-failed / state-timeout is
+# INVALID(parity-state-press)); the Python recompute of the four-row state atlases agrees
+# with the C# sidecars (else INVALID(parity-instrument)); the sweep reached done (else
+# INVALID(parity-incomplete)); the host survived (else INVALID(parity-host-damaged)). (2)
+# The part verdicts are REPORT-ONLY (`[expectations.partParity] gating = false`); an air
+# case whose only structural difference is the canopy's airflow rotation inside the
+# measured window caps at warn (canopy-airflow, D.4). (3) The log pins as a second guard:
+# the run-step summary line with `crashed=0` and `controls=ok`, the seam applier's OK line,
+# the step's `state cases:` line with `contexts=air`, and no `[Parsek][ERROR]`.
+#
+# READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp6/` into
+# `harness/results/<runId>_partparity/pp6/`, where the row writes `partparity-verdicts.json`.
+# The viewer (`harness/tools/part_parity_view.py modded=<pp2 dir> modded=<pp6 dir>`) shows each
+# chute's stowed, semi and full cases side by side. Every ghost-visual defect a case shows
+# is filed in docs/dev/todo-and-known-bugs.md with its case id.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - the
+# orbit sweeps need an orbiting host and the air cases a host at the pad, and a lane stages
+# one fixture (D.4). (2) No idle waits: no warp at all, the sweep starts on the pad. (3) The
+# time box is the measurement itself. (4)/(5) no burns, no coasts. (6) `[retry] policy =
+# "none"`: a retry's `op=reset` would clear the files a reading run exists to keep. (7)
+# Recording count pinned at 0. (8)/(9) tier operator by purpose (a report-only reading
+# lane), flight_efficiency.py after the first green flight.
+description = "AUTHORED 2026-11-22 (part ghost parity P6 S7): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+instanceProfile = "modded-compat"
+tags = ["part-parity", "ghost-visual", "pending-flight", "PP-6"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp6", op = "reset" }, expect = "OK", budget = 120 },
+  # One time-boxed air step over every chute at semi and full.
+  { cmd = "PartParitySweep", args = { label = "pp6", op = "run", contexts = "air", states = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 claim: the part verdicts are report-only, so no part-event family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design D.6); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp6 op=run ok=true label=pp6 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp6 elapsed=[0-9.]+s label=pp6 done=(true|false) ",
+  # The step planned an air state run (design D.2, PartParityStateRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] state cases: states=all contexts=air install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The load step 300 s, the reset 120, one 540 s run step.
+budgetSeconds = 1020
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

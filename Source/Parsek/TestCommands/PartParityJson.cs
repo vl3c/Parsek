@@ -121,6 +121,10 @@ namespace Parsek.TestCommands
         internal double? CanopyTiltDeg;
         internal double? CanopyWobbleDeg;
 
+        /// <summary>An air case's canopy transform name (<c>ModuleParachute.canopyName</c>);
+        /// the judge's canopy cap reads renderers at or under it (design D.4, D.6).</summary>
+        internal string CanopyTransform;
+
         /// <summary>The context's filler parts by node; null when the context has none.</summary>
         internal List<PartParityContextNode> Nodes;
     }
@@ -339,7 +343,7 @@ namespace Parsek.TestCommands
 
         internal static readonly string[] SunTrackerKeys = { "targetDeg", "eventDeg", "startFirstFrameDeg" };
 
-        internal static readonly string[] CanopyKeys = { "tiltDeg", "wobbleDeg" };
+        internal static readonly string[] CanopyKeys = { "tiltDeg", "wobbleDeg", "transform" };
 
         internal static readonly string[] ContextNodeKeys = { "node", "part" };
 
@@ -647,7 +651,8 @@ namespace Parsek.TestCommands
                     M("trackerDeg", Num(p.StartFirstFrameTrackerDeg)))),
                 M("sunTracker", Obj(M("targetDeg", Num(p.SunTargetDeg)), M("eventDeg", Num(p.SunEventDeg)),
                     M("startFirstFrameDeg", Num(p.SunStartFirstFrameDeg)))),
-                M("canopy", Obj(M("tiltDeg", Num(p.CanopyTiltDeg)), M("wobbleDeg", Num(p.CanopyWobbleDeg)))),
+                M("canopy", Obj(M("tiltDeg", Num(p.CanopyTiltDeg)), M("wobbleDeg", Num(p.CanopyWobbleDeg)),
+                    M("transform", Str(p.CanopyTransform)))),
                 M("nodes", nodes));
         }
 

@@ -183,8 +183,8 @@ namespace Parsek.Tests
             // A stopped wave deletes its inflight (no process died) and still tears down.
             Assert.True(wave.IndexOf("if (ctx.HostDamage != null)", StringComparison.Ordinal)
                         < wave.IndexOf("TearDownWave(ctx, wave)", StringComparison.Ordinal));
-            Assert.Contains("CheckHost(ctx, \"spawn wait\")", Body(src, "private static IEnumerator WaitReady("));
-            Assert.Contains("CheckHost(ctx, \"settle wait\")", Body(src, "private static IEnumerator WaitSettled("));
+            Assert.Contains("CheckHost(ctx, \"spawn wait\")", Body(src, "internal static IEnumerator WaitReady("));
+            Assert.Contains("CheckHost(ctx, \"settle wait\")", Body(src, "internal static IEnumerator WaitSettled("));
         }
 
         [Fact]
