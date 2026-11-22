@@ -1036,115 +1036,169 @@ Owner rulings, 2026-11-22:
 
 One state case per (part, family, module). A part with two families (the LY-35 gear also carries a
 light) gets one case per family, never the cross product (the B9 rule of 3.2). Detection is pure,
-in a new `PartParityStateRules` (D.10 S1), over the prefab's module list (each module's
-`moduleName` and its type chain up to `PartModule`) and its `partConfig` MODULE nodes. Each family
-matches with the SAME predicate its recorder poller uses, so the sweep never finds a family the
-recorder would not poll, and a subclass lands in one family only:
+in `PartParityStateRules` (BUILT, S1), over the prefab's module list (each module's `moduleName`
+and its type chain up to `PartModule`) and its `partConfig` MODULE nodes. Each family matches with
+the SAME predicate its recorder poller uses, so the sweep never finds a family the recorder would
+not poll, and a subclass lands in one family only (the xUnit cell
+`EveryFamilyPredicate_IsTheRecordersOwn` reds when a poller's predicate changes). Family ids, in
+this order: `deployable`, `gear`, `ladder`, `animation-group`, `cargo-bay`, `animate-generic`,
+`airbrake`, `light`, `cabin-light`, `parachute`, `jettison`, `fairing`.
 
 | Family | Predicate (the poller's own) | State word | Stock action pressed | Done signal (the stock field the recorder classifies) | Recorder event (poller) | Stock / modded cases |
 | --- | --- | --- | --- | --- | --- | --- |
-| Deployable panel, antenna, radiator | `FindModuleImplementing<ModuleDeployablePart>` and `DeployableHasNoPoseAnimation` false (`PollDeployables`) | `deployed` | KSPEvent `Extend` | `deployState == EXTENDED`; sun trackers also settle (D.3) | `DeployableExtended` | 18 / 21 |
+| Deployable panel, antenna, radiator | `FindModuleImplementing<ModuleDeployablePart>` and `DeployableHasNoPoseAnimation` false (`PollDeployables`) | `deployed` | KSPEvent `Extend` | `deployState == EXTENDED`; sun trackers also settle (D.3) | `DeployableExtended` | 19 / 22 |
 | Landing gear, legs, deploying wheels | `as ModuleWheels.ModuleWheelDeployment`, first per part (`PollGear`) | `deployed` | KSPEvent `EventToggle` (when retracted) | `FlightRecorder.ClassifyGearState(stateString)` deployed | `GearDeployed` | 8 / 9 |
-| Ladder | `moduleName == "RetractableLadder"` (`PollLadders`) | `deployed` | KSPEvent `Extend` | `TryClassifyRetractableLadderState` deployed | `DeployableExtended` midx | 2 / 2 |
-| Animation group, in-orbit parts | `moduleName == "ModuleAnimationGroup"` (`PollAnimationGroups`) | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed | `DeployableExtended` midx | 5 / 4 |
-| Cargo and service bay | `FindModuleImplementing<ModuleCargoBay>` whose `DeployModuleIndex` is a `ModuleAnimateGeneric` (`PollCargoBays`) | `open` | the linked module's KSPEvent `Toggle` | `ClassifyCargoBayState` open | `CargoBayOpened` | 11 / 14 |
-| Standalone animate generic (doors, inflatables, thrust reversers, port shields, Klaw, science doors) | `as ModuleAnimateGeneric` with an `animationName`, on a part where `FlightRecorder.HasDedicatedAnimateHandler` is false (`PollAnimateGeneric`) | `deployed` | KSPEvent `Toggle` (a hidden event too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx | 12 / 17 |
-| Airbrake | `moduleName == "ModuleAeroSurface"` (`PollAeroSurfaces`) | `deployed` | KSPAction `ActionToggleBrakes` (Activate) | `TryClassifyAeroSurfaceState` deployed, then the surface transform still for 0.5 s (D.3) | `DeployableExtended` midx | 1 / 1 |
+| Ladder | `moduleName == "RetractableLadder"`, first per part (`PollLadders`) | `deployed` | KSPEvent `Extend` | `TryClassifyRetractableLadderState` deployed | `DeployableExtended` midx | 2 / 2 |
+| Animation group, in-orbit parts | `moduleName == "ModuleAnimationGroup"`, every module (`PollAnimationGroups`), not on a `ModuleGroundPart` part | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed | `DeployableExtended` midx | 5 / 4 |
+| Cargo and service bay | `FindModuleImplementing<ModuleCargoBay>` whose `DeployModuleIndex` (default 0) is a `ModuleAnimateGeneric` (`PollCargoBays`) | `open` | the linked module's KSPEvent `Toggle` | `ClassifyCargoBayState` open | `CargoBayOpened` | 8 / 9 |
+| Standalone animate generic (doors, inflatables, port shields, Klaw, science doors) | `as ModuleAnimateGeneric` with an `animationName` (default `default`), on a part where `FlightRecorder.HasDedicatedAnimateHandler` is false (`PollAnimateGeneric`) | `deployed` | KSPEvent `Toggle` (a hidden event too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx | 10 / 15 |
+| Airbrake | `moduleName == "ModuleAeroSurface"`, every module (`PollAeroSurfaces`) | `deployed` | KSPAction `ActionToggleBrakes` (Activate) | `TryClassifyAeroSurfaceState` deployed, then the surface transform still for 0.5 s (D.3) | `DeployableExtended` midx | 1 / 1 |
 | Light | `FindModuleImplementing<ModuleLight>` (the recorder's light check, D.10 S2) | `lit` | KSPEvent `LightsOn`, with electric charge authored (D.3) | `isOn`, then 1 s | `LightOn` | 15 / 18 |
-| Cabin light (colour changer) | `as ModuleColorChanger` with `toggleInFlight`, on a part with no `ModuleLight` (same check) | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s plus 0.5 s (cap 5 s) | `LightOn` | 26 / 37 |
+| Cabin light (colour changer) | `as ModuleColorChanger` with `toggleInFlight` (default true), the first on a part with no `ModuleLight` (same check) | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s plus 0.5 s (cap 5 s) | `LightOn` | 26 / 37 |
 | Parachute | `FindModuleImplementing<ModuleParachute>` (`PollParachutes`) | `semi`, `full`, context `air` | KSPEvent `Deploy` in the air, then the in-flight `deployAltitude` tweak for `full` (D.4) | `deploymentState` SEMIDEPLOYED / DEPLOYED (`ClassifyParachuteState`) and the deploy animation finished | `ParachuteSemiDeployed`, then `ParachuteDeployed` | 10 / 10 |
-| Engine shroud and other jettisons | `FindModuleImplementing<ModuleJettison>` (`PollJettisons`) | `jettisoned`, context by node rule (D.3) | KSPEvent `Jettison` on every jettison module of the part | `isJettisoned` | `ShroudJettisoned` | 37 / 60 parts, 66 / 108 cases |
-| Procedural fairing | `FindModuleImplementing<ModuleProceduralFairing>` (`PollFairings`) | FGV's states (intact, `deployed`, separated / rebuilt) in FGV's six contexts | KSPEvent `DeployFairing`, FGV's own separation | FGV's existing checks | `FairingJettisoned` | 18 / 18 |
+| Engine shroud and other jettisons | every `as ModuleJettison` module (`PollJettisons`), one case set per part | `jettisoned`, context by node rule (D.3) | KSPEvent `Jettison` on every jettison module of the part | `isJettisoned` on every module | `ShroudJettisoned` | 37 / 60 parts, 66 / 108 cases |
+| Procedural fairing | `FindModuleImplementing<ModuleProceduralFairing>` (`PollFairings`) | FGV's states (intact, `deployed`, separated / rebuilt) in FGV's six contexts | KSPEvent `DeployFairing`, FGV's own separation | `GetScalar >= 0.5` and FGV's existing checks | `FairingJettisoned` | 18 / 18 (S8) |
+
+The counts were measured by S1 (2026-11-22) and are pinned by xUnit
+(`StockMinimal_EnumeratesTheD1Counts`, `ModdedCompat_EnumeratesTheD1Counts`) over committed
+fixtures (`Source/Parsek.Tests/Fixtures/PartParity/state-parts-<profile>.txt`: every part of the
+archived PP-1 / PP-2 manifests that carries a module the rules read, with its modules in prefab
+order, their reflected type chains and the config keys the rules read, derived once from each
+install's ConfigCache). Rev 2's planning estimate differed in three rows: the deployable row adds
+the Magnetometer Boom (its module is `ModuleDeployablePart` itself, 18 / 21 -> 19 / 22); the cargo
+row loses the three / five service modules, whose `ModuleCargoBay` deploys a `ModuleServiceModule`
+the poller skips (their shells are the jettison family's ignore-nodes cases; 11 / 14 -> 8 / 9); the
+standalone animate generic row loses the two thrust reversers (`JetEngine`, `turboFanSize2`), whose
+parts carry `ModuleAnimateHeat`, so `HasDedicatedAnimateHandler` is true and the recorder never polls
+them (12 / 17 -> 10 / 15; todo THRUST-REVERSER-NOT-RECORDED). The fairing row's 18 cases arrive with
+the FGV context table (D.10 S8); until then each fairing part is excluded
+`fairing-contexts-pending`.
 
 Same-word tiebreak (general, in the id rule, D.2): when two or more of one part's cases share a
-state word and a context (two standalone animate generics, or any future pair), EVERY one of them
-writes `<word>-m<moduleIndex>`, so no id depends on which module was found first.
+state word and a context (two standalone animate generics, two animation groups, or any future
+pair), EVERY one of them writes `<word>-m<moduleIndex>`, so no id depends on which module was found
+first. No part of either install hits it today.
 
-Totals (upper bounds read from configs; each step logs the exact ones, D.2):
+Totals (each step logs the exact ones, D.2):
 
 | Lane | Single-part states | Shroud cases | Fairing contexts | Chute cases (air) | Controls | Cases |
 | --- | --- | --- | --- | --- | --- | --- |
-| PP-3 (stock, orbit) | 98 | 66 | 18 | - | 9 | 191 |
-| PP-4 (modded, orbit) | 123 | 108 | 18 | - | 9 | 258 |
+| PP-3 (stock, orbit) | 94 | 66 | 18 (S8) | - | 9 | 187 |
+| PP-4 (modded, orbit) | 117 | 108 | 18 (S8) | - | 9 | 252 |
 | PP-5 (stock, air) | - | - | - | 10 | 4 | 14 |
 | PP-6 (modded, air) | - | - | - | 10 | 4 | 14 |
 
-Excluded, each named in the manifest's exclusions with a reason (never silently dropped):
+Excluded, each named in the manifest's exclusions with a reason (never silently dropped; reasons
+in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUSION_REASONS`):
 
-- `ground-deploy`: the Breaking Ground deployed science parts (`DeployedCentralStation` and its six
-  siblings) and `groundAnchor`, whose animation group deploys only when placed on a surface.
+- `ground-deploy`: the animation group of a part carrying a `ModuleGroundPart` (the Breaking Ground
+  deployed science parts, `DeployedCentralStation` and its seven siblings, and `groundAnchor`: 9
+  modules on both installs), which deploys only when placed on a surface. Their other families
+  (lights) keep their cases.
 - `no-pose`: fixed solar panels (`solarPanels5`, `LgRadialSolarPanel`); the recorder emits nothing
   for them by design.
 - `fairing-bay`: a `ModuleCargoBay` whose deploy module is a `ModuleProceduralFairing` (every
   fairing base); the fairing family owns it.
+- `bay-deploy-not-animated`: a `ModuleCargoBay` whose deploy module is not a `ModuleAnimateGeneric`
+  (the service modules' `ModuleServiceModule`): `PollCargoBays` skips it.
 - `cs-deploy-sign`: control-surface deploy (`moduleName == "ModuleControlSurface"`, 24 parts,
   blades included). Its deflection has no Animation: it moves by `Mathf.MoveTowards` at
   `actuatorSpeed`, and on a lone part its direction is `deflectionDirection`, the sign of the
   surface's offset from the vessel's centre of mass (decompiled `ModuleControlSurface`), a float
   accident on a one-part vessel. Left to P7, with an authored mirror context that pins the sign.
   The airbrake keeps its case: its deploy angle sign comes from `brakeDeployInvert` in config.
-- `jettison-blocked-by-node`: the jettisoned state of a module with `checkBottomNode = true` in the
-  stacked context (stock's `Jettison` refuses while a part is on that node; the stacked stowed
-  case still runs).
-- `p7-robotics`: servos, rotors, pistons (22 parts) and `ModuleRobotArmScanner` (3; it extends only
-  while scanning a surface feature): continuous positions, the P7 strips (9.2).
-- `p8-heat`: `ModuleAnimateHeat` glow (16 / 13) and ablator char: temperature-driven material
-  properties, P8 (9.3). `p8-fx`: engine plumes, RCS, light blink.
-- `broken`: a broken solar panel or wheel: stock breaks a panel into free debris and a wheel only
-  under load; not a pose the part keeps.
-- Decouple: a decoupler looks the same after it fires; the split is a recording-tree matter.
+- `jettison-blocked-by-node`: the jettisoned state of a part whose jettison modules include one
+  with `checkBottomNode = true`, in the stacked context (stock's `Jettison` refuses while a part is
+  on that node; the stacked stowed case still runs). 5 / 7 parts.
+- `jettison-node-missing`: a jettison node the prefab lacks; no part of either install.
+- `not-polled`: a `ModuleAnimateGeneric` on a part with a dedicated animate handler that is not the
+  cargo bay's own deploy module (the two thrust reversers).
+- `no-animation`: a `ModuleAnimateGeneric` whose config sets an empty `animationName`.
+- `p7-robotics`: servos, rotors, pistons (`BaseServo`, 22 parts) and `ModuleRobotArmScanner` (3; a
+  `ModuleDeployablePart` that extends only while scanning a surface feature): continuous positions,
+  the P7 strips (9.2).
+- `p8-heat`: `ModuleAnimateHeat` glow (16 / 13) and `ModuleAblator` char: temperature-driven
+  material properties, P8 (9.3). `p8-fx`: engine plumes and RCS (each `ModuleEngines` /
+  `ModuleRCS` module); light blink is part of the light case.
+- `fairing-contexts-pending`: a fairing part while the FGV context table is empty (until S8).
+- Not module exclusions, named here only: `broken` (a broken solar panel or wheel: stock breaks a
+  panel into free debris and a wheel only under load; not a pose the part keeps) and decouple (a
+  decoupler looks the same after it fires; the split is a recording-tree matter).
 
 ### D.2 Case identity and what a state run plans
 
-- The case key gains a `StateOption` beside `SkinOption` (family, module name, module index, state
-  word, action, node names): not part of the identity; the id reads `State` and `Context`.
+- The case key gains a `StateOption` beside `SkinOption` (family, module name, module index, every
+  module index the press acts on, state word, action and whether it is a KSPAction, node names):
+  not part of the identity; the id reads `State` and `Context`.
 - The id rule (5.2) is unchanged for every existing case: `<part>--<skin>--<state>[--<context>]--
   <hash>`, the state written because it is not `stowed`, plus the same-word tiebreak of D.1.
   Examples: `longantenna--default--deployed--<hash>`,
   `parachutesingle--default--semi--air--<hash>`,
   `liquidengine2--default--jettisoned--stacked--<hash>`,
-  `liquidengine2--default--stowed--stacked--<hash>`.
+  `liquidengine2--default--stowed--stacked--<hash>`. State cases run at the part's base skin (R2).
 - Stowed case ids cannot move: `stowed` and `alone` are the defaults and are already in the hashed
-  tuple (`CaseTuple`). The xUnit pin is a COMMITTED literal: about 20 ids copied into the test source
-  (base, variant and B9 cases of both installs, among them `advancedcanard--default--9301994f`),
-  each recomputed from its key; the archived manifests stay outside the repo and CI never reads them.
-- What a run plans (pure, `TestCommandPartParitySweep.PlanCases`):
-  - Without `states=` (default `none`) and `contexts=` (default `none`): exactly today's list in
-    today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample are untouched.
-  - With `states=` and / or `contexts=`: ONLY the state and context cases (D.1) plus the run's
-    control set. A state run plans no `stowed` / `alone` case at all, so it never re-runs the
-    stowed sweep (the stacked stowed shroud case is a context case and does run).
-  - `skins=` governs stowed cases only; state cases are always at the base skin (R2).
+  tuple (`CaseTuple`). The xUnit pin is a COMMITTED literal: 19 ids copied into
+  `PartParityStateContractTests.StowedIds` (base, variant and B9 cases of both installs, among them
+  `advancedcanard--default--9301994f` and a variant name with a space), each recomputed from its
+  key; the archived manifests stay outside the repo and CI never reads them.
+- The args (`TestCommandPartParitySweep.TryParseArgs`, mirrored by hlib's
+  `validate_part_parity_sweep_step`): `states=none|all|<csv of stowed, deployed, open, lit, semi,
+  full, jettisoned>` (refused `states-arg-invalid`) and `contexts=none|<csv of alone, stacked,
+  air>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need a host at the
+  pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
+  admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
+  `host-not-at-pad`; every other run keeps `host-not-orbiting`.
+- What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
+  - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
+    today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
+    are untouched.
+  - With either: ONLY the state and context keys whose state matches `states=` (any when `none`;
+    the tiebreak is ignored, `deployed` selects `deployed-m3`) and whose context matches
+    `contexts=` (`alone` and `stacked` when `none`, so an orbit run never plans the air chutes),
+    then the same filter / source / shard / limit selection. A state run plans no `stowed` /
+    `alone` case at all, so it never re-runs the stowed sweep (the stacked stowed shroud case is a
+    context case and does run).
+  - `skins=` governs stowed cases only.
 - The control set is a function of the args, the same rule on both sides
   (`TestCommandPartParitySweep.ControlSetFor(args)`, mirrored by `partparity.control_set(settings)`):
   no `states=` / `contexts=` (or `controls=true` with neither): the existing eight, unchanged, so
   PP-1 / PP-2 stay exactly as they are; an orbit state run: the eight plus `ctl-state-events-dropped`;
   an air run: `ctl-empty`, `ctl-ghost-absent`, `ctl-real-vs-real` (subject `parachuteSingle`,
-  armed, falling) and `ctl-state-events-dropped-air`. `ControlsState`, the judge and the manifest
-  read that set instead of the fixed `ControlIds` array; the manifest writes it as
-  `settings.controlSet`, and `check_controls` requires every id of the set it recomputes from the
-  manifest's `settings` (a manifest whose written set differs from the recomputed one is
-  INVALID(parity-instrument)).
+  armed, falling) and `ctl-state-events-dropped-air`. `ControlsState(enabled, outcomes,
+  controlSet)`, the judge (`PartParitySweepPlan.JudgeStateControl` for the two state controls) and
+  the manifest read that set instead of the fixed `ControlIds` array; the manifest writes it as
+  `settings.controlSet` (`TestCommandPartParitySweep.StateSettings`: `states`, `contexts`,
+  `controlSet`; a manifest without them reads as `none`), and `check_controls` requires every id of
+  the set it recomputes from the manifest's `settings` (a manifest whose written set differs from
+  the recomputed one is INVALID(parity-instrument)).
 - Sidecar (`parsek-part-parity-case/1`, additive keys only, every key always written, null when
-  not measured, stowed cases included):
-  - `stateProof`: `family`, `module`, `moduleIndex`, `state`, `action`, `eventVisible`,
-    `actionResult` (`invoked|missing|threw|refused`), `reached`, `waitS`, `endpoint` (the stock
-    field and value read), `events` (the event route's recorded events: type, ut, pid, midx),
-    `ghostEvent` / `ghostStart` (`applied|no-info|pose-not-sampled|not-reached`, D.5),
-    `startFirstFrame` (the start route's state at its first frame, D.5), `sunTracker` (target,
-    event-route angle, start-route first-frame angle), `canopy` (air cases: airflow tilt and wobble
-    at capture, D.4), `nodes` (the context's filler parts by node).
-  - `atlas.rows`: `["real", "ghost", "ghost-start", "ghost-stowed"]` for a state case,
-    `["real", "ghost"]` for a stowed case as today. The row table lives in ONE pure literal
-    (`PartParityJson.AtlasRowsFor(isStateCase)`), moved there from `PartParityCaseCapture` in S1, so
-    the live capture code holds no literal the Python mirror reads.
-  - Per view, `start` (real vs ghost-start, the full measure key set of a view) and `stowedRef`
-    (real vs ghost-stowed, only the shape keys: the masks' pixel counts, the tolerant mismatch
-    counts, the two largest blobs and their percentages). `structureStart`: the structural diff of
-    the start-route ghost. `stowedCaseId`: the id of the same part / skin at `stowed` / `alone`.
-- Manifest: each case row adds `state`, `family`, the setup summary; `settings` records `states=`,
-  `contexts=` and `controlSet`; one Info `state cases: states=<...> contexts=<...> install=<n> (by
-  family) planned=<n> excluded=<n> (by reason)` per step, the `skin cases:` pattern of 7.
+  not measured, stowed cases included; tables in `PartParityJson`, mirrored in `partparity.py`):
+  - `stateProof` (`StateProofKeys`): `family`, `module`, `moduleIndex`, `state`, `action`,
+    `eventVisible`, `actionResult` (`invoked|missing|threw|refused`), `reached`, `waitS`, `endpoint`
+    (`field`, `value`: the stock field and value read), `events` (the event route's recorded events:
+    `type`, `ut`, `pid`, `midx`), `ghostEvent` / `ghostStart` (`applied|no-info|pose-not-sampled|
+    not-reached`, D.5), `startFirstFrame` (`atTarget`, `trackerDeg`: the start route at its first
+    frame, D.5), `sunTracker` (`targetDeg`, `eventDeg`, `startFirstFrameDeg`), `canopy` (`tiltDeg`,
+    `wobbleDeg`: air cases, airflow tilt and wobble at capture, D.4), `nodes` (`node`, `part`: the
+    context's filler parts by node).
+  - `atlas.rows`: `["real", "ghost", "ghost-start", "ghost-stowed"]` for a state case (any state
+    but `stowed`), `["real", "ghost"]` for a stowed case as today, the stacked stowed shroud
+    included. The row table lives in ONE pure literal (`PartParityJson.AtlasRowsFor(isStateCase)`,
+    BUILT), moved there from `PartParityCaseCapture` in S1, so the live capture code holds no
+    literal the Python mirror reads.
+  - Per view, `start` (real vs ghost-start, the full measure key set of a view, `StartKeys`) and
+    `stowedRef` (real vs ghost-stowed, only the shape keys, `StowedRefKeys`: `realPx`, `ghostPx`,
+    `realOnlyPx`, `ghostOnlyPx`, `realOnlyTolPx`, `ghostOnlyTolPx`, `realOnlyBlobPx`,
+    `ghostOnlyBlobPx`, `realOnlyBlobPct`, `ghostOnlyBlobPct`). `structureStart`: the structural diff
+    of the start-route ghost. `stowedCaseId`: the id of the same part / skin at `stowed` / `alone`.
+- Manifest: each case row adds `family`, `actionResult` and `reached` (the setup summary; null for
+  a stowed case); `settings` records `states=`, `contexts=` and `controlSet`; one Info
+  `state cases: states=<...> contexts=<...> install=<n> (<family>=<n> ...) planned=<n>
+  excluded=<n> (<reason>=<n> ...)` per step (`PartParityStateRules.FormatCounts`), the
+  `skin cases:` pattern of 7. An air run's `host.txt` adds `mode=air`, and the host guard then
+  reads PRELAUNCH / LANDED as intact (an orbit baseline writes no `mode=` and is unchanged).
+- New setup statuses `action-failed` and `state-timeout` (both setup faults, the press gate's two,
+  D.6) join `SetupStatuses` and `partparity.SETUP_STATUSES`.
 - Regression keys (P5 baseline, viewer regression mode): `<caseId>/<view>` for the event route, as
   today, plus `<caseId>/<view>/start`; `accepted.toml` entries name the route.
 

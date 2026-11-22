@@ -849,7 +849,9 @@ class PartParitySourceSyncTests(unittest.TestCase):
     """Reads OUTSIDE harness/: the C# key tables, schema ids, statuses, control ids,
     file names and the measuring constants the reader and the recompute depend on
     (Source/Parsek/TestCommands/PartParityJson.cs, TestCommandPartParitySweep.cs,
-    PartParityMetrics.cs, comment-stripped), so a renamed C# key or a changed
+    PartParityMetrics.cs, PartParityHostIntegrity.cs, PartParityStateRules.cs, and
+    PartParityCaseCapture.cs only to see that it reads its atlas rows from
+    PartParityJson.AtlasRowsFor; comment-stripped), so a renamed C# key or a changed
     definition reds here rather than as a flight's INVALID(parity-instrument)."""
 
     @staticmethod
@@ -883,7 +885,15 @@ class PartParitySourceSyncTests(unittest.TestCase):
                            ("SetupKeys", pp.SETUP_KEYS), ("ManifestKeys", pp.MANIFEST_KEYS),
                            ("ControlKeys", pp.CONTROL_KEYS),
                            ("CaseSummaryKeys", pp.CASE_SUMMARY_KEYS),
-                           ("ProgressKeys", pp.PROGRESS_KEYS)):
+                           ("ProgressKeys", pp.PROGRESS_KEYS),
+                           ("StartKeys", pp.START_KEYS), ("StowedRefKeys", pp.STOWED_REF_KEYS),
+                           ("StateProofKeys", pp.STATE_PROOF_KEYS),
+                           ("EndpointKeys", pp.ENDPOINT_KEYS),
+                           ("StateEventKeys", pp.STATE_EVENT_KEYS),
+                           ("StartFirstFrameKeys", pp.START_FIRST_FRAME_KEYS),
+                           ("SunTrackerKeys", pp.SUN_TRACKER_KEYS),
+                           ("CanopyKeys", pp.CANOPY_KEYS),
+                           ("ContextNodeKeys", pp.CONTEXT_NODE_KEYS)):
             with self.subTest(table=cs):
                 self.assertEqual(list(mirror), self._string_array(text, cs))
         self.assertEqual(pp.MANIFEST_SCHEMA, self._const(text, "ManifestSchemaId"))
@@ -899,10 +909,10 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(pp.SIDECAR_SUFFIX, self._const(text, "SidecarSuffix"))
         self.assertEqual(pp.ATLAS_SUFFIX, self._const(text, "AtlasSuffix"))
         self.assertEqual(pp.THUMB_SUFFIX, self._const(text, "ThumbSuffix"))
-        statuses = {self._const(text, n) for n in (
-            "SetupOk", "SetupSkinNotApplied", "SetupSpawnTimeout", "SetupStillAnimating",
-            "SetupDiedSettling", "SetupCrashed")}
-        self.assertEqual(set(pp.SETUP_STATUSES), statuses)
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.SETUP_STATUSES), self._ident_array(text, "SetupStatuses", consts))
+        self.assertEqual((pp.SETUP_ACTION_FAILED, pp.SETUP_STATE_TIMEOUT),
+                         (consts["SetupActionFailed"], consts["SetupStateTimeout"]))
         controls = [self._const(text, n) for n in (
             "ControlEmpty", "ControlGhostAbsent", "ControlRealVsReal", "ControlGhostScale90",
             "ControlGhostRot90", "ControlGhostFlip", "ControlGhostMissingMesh",
@@ -949,10 +959,118 @@ class PartParitySourceSyncTests(unittest.TestCase):
         flood = text[text.index("internal static int LargestBlob("):text.index("private static void Push(")]
         self.assertEqual(4, flood.count("Push(mask, seen, stack, ref top,"))
 
-    def test_the_atlas_rows_are_real_then_ghost(self):
-        text = self._source("PartParityCaseCapture.cs")
-        self.assertIn('Rows = new[] { "real", "ghost" }', text)
-        self.assertIn("new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }", text)
+    @staticmethod
+    def _string_consts(text):
+        return dict(re.findall(r'internal const string (\w+) = "([^"\\]*)";', text))
+
+    @staticmethod
+    def _ident_array(text, name, consts):
+        """The members of one C# array initializer of const identifiers, resolved."""
+        m = re.search(r"\b%s\s*=\s*\{(.*?)\};" % re.escape(name), text, flags=re.S)
+        if m is None:
+            raise AssertionError("array %s not found" % name)
+        return [consts[n] for n in re.findall(r"\b([A-Za-z_]\w*)\b", m.group(1))
+                if n != "TestCommandPartParitySweep"]
+
+    def test_the_atlas_rows_live_in_the_pure_writer(self):
+        # The row tables are PartParityJson's (AtlasRowsFor); the live capture reads its rows
+        # there, so it holds no literal of its own (design D.2).
+        text = self._source("PartParityJson.cs")
+        self.assertEqual(list(pp.ATLAS_ROWS), self._string_array(text, "StowedAtlasRows"))
+        self.assertEqual(list(pp.ATLAS_ROWS_STATE), self._string_array(text, "StateAtlasRows"))
+        self.assertIn("isStateCase ? StateAtlasRows : StowedAtlasRows", text)
+        capture = self._source("PartParityCaseCapture.cs")
+        self.assertIn("PartParityJson.AtlasRowsFor(", capture)
+        self.assertNotIn('"ghost-start"', capture)
+
+    def test_the_control_sets_and_the_state_settings(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS), self._ident_array(text, "ControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_ORBIT_STATE),
+                         self._ident_array(text, "OrbitStateControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_AIR), self._ident_array(text, "AirControlIds", consts))
+        self.assertEqual(list(pp.ALL_CONTROL_IDS), self._ident_array(text, "AllControlIds", consts))
+        self.assertEqual((pp.CONTROL_STATE_EVENTS_DROPPED, pp.CONTROL_STATE_EVENTS_DROPPED_AIR),
+                         (consts["ControlStateEventsDropped"], consts["ControlStateEventsDroppedAir"]))
+        self.assertEqual((pp.ARG_NONE, pp.STATES_ALL),
+                         (consts["ArgNoneToken"], consts["StatesAllToken"]))
+        self.assertEqual((pp.SETTING_STATES, pp.SETTING_CONTEXTS, pp.SETTING_CONTROL_SET),
+                         (consts["SettingStates"], consts["SettingContexts"],
+                          consts["SettingControlSet"]))
+        # ControlSetFor's three branches, by their code shape: no state run -> ControlIds,
+        # an air run -> AirControlIds, else OrbitStateControlIds. control_set mirrors them.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertIn("if (!IsStateRun(args)) return (string[])ControlIds.Clone();", body)
+        self.assertIn("IsAirRun(args) ? AirControlIds : OrbitStateControlIds", body)
+        self.assertIn("args != null && (args.States != null || args.Contexts != null)", text)
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set({}))
+        self.assertEqual(pp.CONTROL_IDS_AIR, pp.control_set({"contexts": "air"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"states": "all"}))
+
+    def test_the_state_rules_contract(self):
+        text = self._source("PartParityStateRules.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.FAMILIES), self._ident_array(text, "Families", consts))
+        self.assertEqual(list(pp.KNOWN_STATES), self._ident_array(text, "KnownStates", consts))
+        self.assertEqual(list(pp.KNOWN_CONTEXTS), self._ident_array(text, "KnownContexts", consts))
+        self.assertEqual(list(pp.ORBIT_CONTEXTS), self._ident_array(text, "OrbitContexts", consts))
+        self.assertEqual(list(pp.STATE_EXCLUSION_REASONS),
+                         self._ident_array(text, "ExclusionReasons", consts))
+        self.assertEqual(list(pp.ACTION_RESULTS), self._ident_array(text, "ActionResults", consts))
+        self.assertEqual(list(pp.GHOST_OUTCOMES), self._ident_array(text, "GhostOutcomes", consts))
+        sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
+        self.assertEqual(list(pp.PRESS_GATE_STATUSES),
+                         self._ident_array(text, "PressGateStatuses", sweep))
+        self.assertEqual(pp.STATE_TIEBREAK_PREFIX, consts["ModuleTiebreakPrefix"])
+        self.assertEqual(pp.STATE_STOWED, consts["StateStowed"])
+        self.assertEqual(pp.CONTEXT_AIR, consts["ContextAir"])
+        self.assertEqual((pp.ROUTE_EVENT, pp.ROUTE_START), (consts["RouteEvent"], consts["RouteStart"]))
+        for name, mirror in (
+                ("FlagStateNotModelledPrefix", pp.FLAG_STATE_NOT_MODELLED_PREFIX),
+                ("FlagStateNotRecorded", pp.FLAG_STATE_NOT_RECORDED),
+                ("FlagStartPoseNotFirstFrame", pp.FLAG_START_POSE_NOT_FIRST_FRAME),
+                ("FlagStateInvisible", pp.FLAG_STATE_INVISIBLE),
+                ("FlagSunTrackerFirstFramePrefix", pp.FLAG_SUN_TRACKER_FIRST_FRAME_PREFIX),
+                ("TagStillTracking", pp.TAG_STILL_TRACKING),
+                ("TagCanopyWobblePrefix", pp.TAG_CANOPY_WOBBLE_PREFIX),
+                ("TagContextHiddenPrefix", pp.TAG_CONTEXT_HIDDEN_PREFIX),
+                ("TagJettisonDebrisHiddenPrefix", pp.TAG_JETTISON_DEBRIS_HIDDEN_PREFIX)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+        host = self._string_consts(self._source("PartParityHostIntegrity.cs"))
+        self.assertEqual(pp.HOST_MODE_AIR, host["ModeAir"])
+
+
+class PartParityStateReaderTests(unittest.TestCase):
+    """The P6 readers (design D.2): the control set a manifest's settings recompute to, the
+    atlas rows of a case, the state-case test."""
+
+    def test_control_set_reads_the_settings(self):
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set(None))
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set({"states": "none", "contexts": "none"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"states": "deployed,lit"}))
+        self.assertEqual(pp.CONTROL_IDS_ORBIT_STATE, pp.control_set({"contexts": "stacked"}))
+        self.assertEqual(pp.CONTROL_IDS_AIR, pp.control_set({"states": "all", "contexts": "air"}))
+        self.assertEqual(9, len(pp.CONTROL_IDS_ORBIT_STATE))
+        self.assertEqual(len(pp.ALL_CONTROL_IDS), len(set(pp.ALL_CONTROL_IDS)))
+
+    def test_atlas_rows_and_state_cases(self):
+        self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False))
+        self.assertEqual(("real", "ghost", "ghost-start", "ghost-stowed"), pp.atlas_rows_for(True))
+        self.assertFalse(pp.is_state_case("stowed"))
+        self.assertFalse(pp.is_state_case(None))
+        self.assertTrue(pp.is_state_case("deployed-m3"))
+
+    def test_the_new_setup_statuses_are_faults_and_known(self):
+        for status in pp.PRESS_GATE_STATUSES:
+            self.assertIn(status, pp.SETUP_STATUSES)
+            self.assertTrue(pp.is_setup_fault(status))
+
+    def test_the_view_blocks_are_subsets_of_the_view_keys(self):
+        self.assertEqual(pp.VIEW_KEYS[1:-2], pp.START_KEYS)
+        self.assertTrue(set(pp.STOWED_REF_KEYS) <= set(pp.START_KEYS))
 
 
 if __name__ == "__main__":

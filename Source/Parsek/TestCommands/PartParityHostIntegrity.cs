@@ -12,6 +12,10 @@ namespace Parsek.TestCommands
         internal uint Pid;
         internal int PartCount;
         internal string Situation;
+
+        /// <summary>The run kind the label was started as (<c>mode=</c>, design D.6): an air
+        /// run's host sits at the pad, an orbit run's host orbits. Absent reads as orbit.</summary>
+        internal bool Air;
     }
 
     /// <summary>One look at the host during a step: the vessel with the baseline's pid.</summary>
@@ -62,8 +66,17 @@ namespace Parsek.TestCommands
         /// <summary>The host has fewer parts than at the baseline.</summary>
         internal const string DamageParts = "parts";
 
-        /// <summary>The host is no longer ORBITING.</summary>
+        /// <summary>The host is no longer ORBITING (an orbit run), or no longer PRELAUNCH or
+        /// LANDED (an air run).</summary>
         internal const string DamageSituation = "situation";
+
+        /// <summary>The baseline's <c>mode=</c> values; an orbit baseline writes none, so its
+        /// file stays what it was before air runs existed.</summary>
+        internal const string ModeOrbit = "orbit";
+        internal const string ModeAir = "air";
+
+        /// <summary>The situations an air run's host keeps (design D.4).</summary>
+        internal static readonly string[] AirHostSituations = { "PRELAUNCH", "LANDED" };
 
         /// <summary>The damage vocabulary, in decision order.</summary>
         internal static readonly string[] DamageReasons = { DamageGone, DamageParts, DamageSituation };
@@ -77,15 +90,25 @@ namespace Parsek.TestCommands
         /// Null while the host is intact, else the damage reason: <c>gone</c> (no live
         /// vessel with the baseline pid, or it is not the active vessel), then <c>parts</c>
         /// (fewer parts than the baseline; a gain is not damage), then <c>situation</c> (no
-        /// longer ORBITING). A missing baseline or observation decides nothing.
+        /// longer ORBITING; for an air run's baseline, no longer PRELAUNCH or LANDED). A
+        /// missing baseline or observation decides nothing.
         /// </summary>
         internal static string Decide(PartParityHostBaseline baseline, PartParityHostObservation now)
         {
             if (baseline == null || now == null) return null;
             if (!now.Present || !now.Active) return DamageGone;
             if (now.PartCount < baseline.PartCount) return DamageParts;
-            if (!now.Orbiting) return DamageSituation;
+            if (!SituationHolds(baseline.Air, now)) return DamageSituation;
             return null;
+        }
+
+        /// <summary>The host's situation is the one its run needs: ORBITING for an orbit run,
+        /// PRELAUNCH or LANDED for an air run.</summary>
+        internal static bool SituationHolds(bool airRun, PartParityHostObservation now)
+        {
+            if (now == null) return false;
+            if (!airRun) return now.Orbiting;
+            return now.Situation != null && Array.IndexOf(AirHostSituations, now.Situation) >= 0;
         }
 
         /// <summary>The damage detail: what changed against the baseline, one line.</summary>
@@ -131,7 +154,8 @@ namespace Parsek.TestCommands
             if (b == null) return string.Empty;
             return "pid=" + b.Pid.ToString(Ic) + "\n"
                    + "parts=" + b.PartCount.ToString(Ic) + "\n"
-                   + "situation=" + OneLine(b.Situation ?? string.Empty) + "\n";
+                   + "situation=" + OneLine(b.Situation ?? string.Empty) + "\n"
+                   + (b.Air ? "mode=" + ModeAir + "\n" : string.Empty);
         }
 
         /// <summary>Null when the text holds no valid <c>pid=</c> and <c>parts=</c>.</summary>
@@ -144,7 +168,12 @@ namespace Parsek.TestCommands
                 || !int.TryParse(partsText, NumberStyles.None, Ic, out int parts))
                 return null;
             kv.TryGetValue("situation", out string situation);
-            return new PartParityHostBaseline { Pid = pid, PartCount = parts, Situation = situation };
+            kv.TryGetValue("mode", out string mode);
+            return new PartParityHostBaseline
+            {
+                Pid = pid, PartCount = parts, Situation = situation,
+                Air = string.Equals(mode, ModeAir, StringComparison.Ordinal),
+            };
         }
 
         internal static string FormatDamage(PartParityHostDamage d)

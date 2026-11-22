@@ -71,6 +71,7 @@ CASE_KEYS: Tuple[str, ...] = (
     "schema", "caseId", "part", "title", "source", "partUrl", "modelUrls", "category",
     "tags", "skin", "state", "context", "measure", "atlas", "framing", "ghostRootOffsetM",
     "layers", "flags", "views", "structure", "setup", "log",
+    "stateProof", "structureStart", "stowedCaseId",
 )
 SKIN_KEYS: Tuple[str, ...] = ("module", "moduleId", "requested", "real", "snapshot", "ghost")
 ATLAS_KEYS: Tuple[str, ...] = ("file", "thumb", "tile", "rows", "cols")
@@ -82,7 +83,26 @@ VIEW_KEYS: Tuple[str, ...] = (
     "bbox", "centroid", "touchesBorder",
     "colorOverlapPx", "colorOverPx", "colorBlobPx", "colorP99", "colorBlockMax",
     "iou", "matte",
+    "start", "stowedRef",
 )
+# A state case's view blocks (design D.2): `start` carries the full measure set of a view
+# (real vs ghost-start), `stowedRef` exactly the shape keys the recompute checks for it.
+START_KEYS: Tuple[str, ...] = VIEW_KEYS[1:-2]
+STOWED_REF_KEYS: Tuple[str, ...] = (
+    "realPx", "ghostPx", "realOnlyPx", "ghostOnlyPx", "realOnlyTolPx", "ghostOnlyTolPx",
+    "realOnlyBlobPx", "ghostOnlyBlobPx", "realOnlyBlobPct", "ghostOnlyBlobPct",
+)
+STATE_PROOF_KEYS: Tuple[str, ...] = (
+    "family", "module", "moduleIndex", "state", "action", "eventVisible", "actionResult",
+    "reached", "waitS", "endpoint", "events", "ghostEvent", "ghostStart",
+    "startFirstFrame", "sunTracker", "canopy", "nodes",
+)
+ENDPOINT_KEYS: Tuple[str, ...] = ("field", "value")
+STATE_EVENT_KEYS: Tuple[str, ...] = ("type", "ut", "pid", "midx")
+START_FIRST_FRAME_KEYS: Tuple[str, ...] = ("atTarget", "trackerDeg")
+SUN_TRACKER_KEYS: Tuple[str, ...] = ("targetDeg", "eventDeg", "startFirstFrameDeg")
+CANOPY_KEYS: Tuple[str, ...] = ("tiltDeg", "wobbleDeg")
+CONTEXT_NODE_KEYS: Tuple[str, ...] = ("node", "part")
 STRUCTURE_KEYS: Tuple[str, ...] = (
     "realRenderers", "ghostRenderers", "pairs", "missingOnGhost", "extraOnGhost",
     "transformDiffers", "materialDiffers", "meshDiffers", "renderedDiffers",
@@ -93,7 +113,7 @@ CONTROL_KEYS: Tuple[str, ...] = ("id", "subject", "required", "outcome", "detail
 CASE_SUMMARY_KEYS: Tuple[str, ...] = (
     "index", "caseId", "part", "title", "source", "skin", "state", "context", "sidecar",
     "setupStatus", "maxShapeBlobPx", "maxColorBlobPx", "minIou", "missingRendered",
-    "extraRendered",
+    "extraRendered", "family", "actionResult", "reached",
 )
 PROGRESS_KEYS: Tuple[str, ...] = (
     "complete", "cases", "completeCases", "setupFaults", "controls", "crashed",
@@ -104,6 +124,8 @@ PROGRESS_KEYS: Tuple[str, ...] = (
 HOST_DAMAGE_REASONS: Tuple[str, ...] = ("gone", "parts", "situation")
 HOST_BASELINE_FILE = "host.txt"
 HOST_DAMAGE_FILE = "hostdamage.txt"
+# host.txt's `mode=` for an air run's baseline (absent = an orbit run).
+HOST_MODE_AIR = "air"
 
 # TestCommandPartParitySweep: setup statuses, IsSetupFault, the control ids and the
 # controls-state tokens.
@@ -113,19 +135,113 @@ SETUP_SPAWN_TIMEOUT = "spawn-timeout"
 SETUP_STILL_ANIMATING = "still-animating"
 SETUP_DIED_SETTLING = "died-settling"
 SETUP_CRASHED = "crashed"
+SETUP_ACTION_FAILED = "action-failed"
+SETUP_STATE_TIMEOUT = "state-timeout"
 SETUP_STATUSES: Tuple[str, ...] = (
     SETUP_OK, SETUP_SKIN_NOT_APPLIED, SETUP_SPAWN_TIMEOUT, SETUP_STILL_ANIMATING,
-    SETUP_DIED_SETTLING, SETUP_CRASHED,
+    SETUP_DIED_SETTLING, SETUP_CRASHED, SETUP_ACTION_FAILED, SETUP_STATE_TIMEOUT,
 )
+# The stowed run's eight controls (ControlIds): a run without states= / contexts=.
 CONTROL_IDS: Tuple[str, ...] = (
     "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", "ctl-ghost-scale90",
     "ctl-ghost-rot90", "ctl-ghost-flip", "ctl-ghost-missing-mesh", "ctl-wrong-skin",
 )
+CONTROL_STATE_EVENTS_DROPPED = "ctl-state-events-dropped"
+CONTROL_STATE_EVENTS_DROPPED_AIR = "ctl-state-events-dropped-air"
+# OrbitStateControlIds / AirControlIds (design D.2).
+CONTROL_IDS_ORBIT_STATE: Tuple[str, ...] = CONTROL_IDS + (CONTROL_STATE_EVENTS_DROPPED,)
+CONTROL_IDS_AIR: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", CONTROL_STATE_EVENTS_DROPPED_AIR,
+)
+ALL_CONTROL_IDS: Tuple[str, ...] = CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
+
+# The states= / contexts= selection (TestCommandPartParitySweep, PartParityStateRules) and
+# the manifest settings a run records it under.
+ARG_NONE = "none"
+STATES_ALL = "all"
+SETTING_STATES = "states"
+SETTING_CONTEXTS = "contexts"
+SETTING_CONTROL_SET = "controlSet"
+STATE_STOWED = "stowed"
+KNOWN_STATES: Tuple[str, ...] = (
+    "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned",
+)
+CONTEXT_ALONE = "alone"
+CONTEXT_STACKED = "stacked"
+CONTEXT_AIR = "air"
+KNOWN_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED, CONTEXT_AIR)
+ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_STACKED)
+STATE_TIEBREAK_PREFIX = "-m"
+
+
+def _setting(settings: Optional[Dict], key: str) -> str:
+    value = settings.get(key) if isinstance(settings, dict) else None
+    return value if isinstance(value, str) and value else ARG_NONE
+
+
+def is_air_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsAirRun over a manifest's ``settings``: ``contexts=air``."""
+    return CONTEXT_AIR in _setting(settings, SETTING_CONTEXTS).split(",")
+
+
+def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
+    """TestCommandPartParitySweep.ControlSetFor, recomputed from a manifest's ``settings``
+    (design D.2): no ``states`` / ``contexts`` (absent or ``none``, as every manifest written
+    before P6 reads) is the stowed eight; an air run its four; any other state run the eight
+    plus ``ctl-state-events-dropped``."""
+    if (_setting(settings, SETTING_STATES) == ARG_NONE
+            and _setting(settings, SETTING_CONTEXTS) == ARG_NONE):
+        return CONTROL_IDS
+    return CONTROL_IDS_AIR if is_air_run(settings) else CONTROL_IDS_ORBIT_STATE
+
+
+def is_state_case(state: Optional[str]) -> bool:
+    """TestCommandPartParitySweep.IsStateCase: any state but ``stowed`` (four atlas rows)."""
+    return (state or STATE_STOWED) != STATE_STOWED
+
+
+# The transformation families (PartParityStateRules.Families, design D.1 table order):
+# the press gate's family table (design D.6) and the viewer's state order.
+FAMILIES: Tuple[str, ...] = (
+    "deployable", "gear", "ladder", "animation-group", "cargo-bay", "animate-generic",
+    "airbrake", "light", "cabin-light", "parachute", "jettison", "fairing",
+)
+# The setup statuses the press gate counts per family (PartParityStateRules.PressGateStatuses).
+PRESS_GATE_STATUSES: Tuple[str, ...] = (SETUP_ACTION_FAILED, SETUP_STATE_TIMEOUT)
+# The exclusion reasons a state run writes (PartParityStateRules.ExclusionReasons).
+STATE_EXCLUSION_REASONS: Tuple[str, ...] = (
+    "ground-deploy", "no-pose", "fairing-bay", "bay-deploy-not-animated", "cs-deploy-sign",
+    "jettison-blocked-by-node", "jettison-node-missing", "p7-robotics", "p8-heat", "p8-fx",
+    "not-polled", "no-animation", "fairing-contexts-pending",
+)
+# stateProof.actionResult and the two ghost routes' outcomes (design D.2, D.5).
+ACTION_RESULTS: Tuple[str, ...] = ("invoked", "missing", "threw", "refused")
+GHOST_OUTCOME_APPLIED = "applied"
+GHOST_OUTCOMES: Tuple[str, ...] = (GHOST_OUTCOME_APPLIED, "no-info", "pose-not-sampled", "not-reached")
+ROUTE_EVENT = "event"
+ROUTE_START = "start"
+# The flags and tags a state case writes (design D.3 to D.6).
+FLAG_STATE_NOT_MODELLED_PREFIX = "state-not-modelled:"
+FLAG_STATE_NOT_RECORDED = "state-not-recorded"
+FLAG_START_POSE_NOT_FIRST_FRAME = "start-pose-not-first-frame"
+FLAG_STATE_INVISIBLE = "state-invisible"
+FLAG_SUN_TRACKER_FIRST_FRAME_PREFIX = "sun-tracker-first-frame:"
+TAG_STILL_TRACKING = "still-tracking"
+TAG_CANOPY_WOBBLE_PREFIX = "canopy-wobble:"
+TAG_CONTEXT_HIDDEN_PREFIX = "context-hidden:"
+TAG_JETTISON_DEBRIS_HIDDEN_PREFIX = "jettison-debris-hidden:"
 CONTROLS_OK = "ok"
 CONTROLS_BAD = "bad"
 CONTROLS_PENDING = "pending"
 CONTROLS_OFF = "off"
+# PartParityJson.StowedAtlasRows / StateAtlasRows (AtlasRowsFor).
 ATLAS_ROWS: Tuple[str, ...] = ("real", "ghost")
+ATLAS_ROWS_STATE: Tuple[str, ...] = ("real", "ghost", "ghost-start", "ghost-stowed")
+
+
+def atlas_rows_for(state_case: bool) -> Tuple[str, ...]:
+    """PartParityJson.AtlasRowsFor: four rows for a state case, two for a stowed one."""
+    return ATLAS_ROWS_STATE if state_case else ATLAS_ROWS
 
 # PartParityMetrics: coverage is alpha >= 0.5, i.e. the alpha byte >= 128.
 COVERAGE_ALPHA_BYTE = 128
