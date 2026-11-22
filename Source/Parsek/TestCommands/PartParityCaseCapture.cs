@@ -109,20 +109,24 @@ namespace Parsek.TestCommands
         /// </summary>
         private static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
         {
+            // Mesh renderers only, the set the capture records and photographs (an engine's
+            // idle FX quads carry a colour changer's _TintColor too and draw nothing here).
             var candidates = new List<Renderer>();
             foreach (Renderer r in part.GetComponentsInChildren<Renderer>(true))
-                if (r != null && r.GetComponentInParent<Part>() == part) candidates.Add(r);
+                if (IsMeshRenderer(r) && r.GetComponentInParent<Part>() == part) candidates.Add(r);
             if (jettisonTransforms != null)
                 foreach (Transform t in jettisonTransforms)
                     if (t != null)
                         foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
-                            if (r != null && !candidates.Contains(r)) candidates.Add(r);
+                            if (IsMeshRenderer(r) && !candidates.Contains(r)) candidates.Add(r);
             int n = PartParityColorChangerLeakRepair.Repair(part, candidates, out string detail);
             if (n == 0) return;
             wc.Flags.Add(PartParityColorChangerLeakRepair.Flag(n));
             ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: colour-changer leak repaired n={n} " +
                 $"part={part.partInfo?.name} renderers=[{detail}] candidates={candidates.Count}");
         }
+
+        private static bool IsMeshRenderer(Renderer r) => r is MeshRenderer || r is SkinnedMeshRenderer;
 
         /// <summary>The three controls that photograph no ghost.</summary>
         internal static bool BuildsGhost(string controlId)

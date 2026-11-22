@@ -1412,7 +1412,8 @@ Per family:
   fairing from the ablation char; the stacked stowed case (the fairing shown) photographed the
   real fairing at the full-ablator char (0.85 of its texture, the top face 153k to 161k px) in some
   runs and plain in others, while the ghost honours the exclusion every time. Before the real
-  renderers are read (both preparation branches), every real renderer outside a colour changer's
+  renderers are read (both preparation branches), every real mesh renderer (the set the capture
+  records) outside a colour changer's
   list whose property block holds exactly that module's current colour (the value `Part.mpb`
   holds) and whose material's own value differs gets the property set back to its material's
   value, the look the module's own filter gives; the case carries `colorchanger-leak-repaired:<n>`
