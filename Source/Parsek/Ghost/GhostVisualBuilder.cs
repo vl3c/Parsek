@@ -1366,6 +1366,9 @@ namespace Parsek
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             parachuteInfo = TryBuildParachuteInfo(prefab, partName, persistentId,
                 cloneMap, modelRoot, partRoot.transform, ref meshCount, ref added);
+            if (parachuteInfo != null)
+                parachuteInfo.symmetryCount = GhostPlaybackLogic.StockParachuteSymmetryCount(
+                    partNode != null ? partNode.GetValues("sym").Length : 0);
 
             // Detect jettison parts (shrouds/fairings) via cloneMap.
             jettisonInfo = ResolveJettisonTransforms(

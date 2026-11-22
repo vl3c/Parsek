@@ -127,6 +127,45 @@ namespace Parsek
             return poses;
         }
 
+        /// <summary>
+        /// Re-expresses the sampled semi / deployed canopy pose (model frame, see
+        /// <see cref="CanopySample.deployedInModelFrame"/>) in the ghost canopy's parent frame,
+        /// through the ghost's own clone of the sampled model root. Left as sampled when the
+        /// ghost has no clone of that root or the canopy has no parent.
+        /// </summary>
+        private static void MoveCanopySampleToParentFrame(
+            Part prefab, Transform partRootTransform, Dictionary<Transform, Transform> cloneMap,
+            Transform ghostCanopy, CanopySample sample, ParachuteGhostInfo info,
+            string partName, uint persistentId)
+        {
+            Transform parent = ghostCanopy.parent;
+            // The sampler's frame: the clone of prefab "model", else of the prefab root.
+            Transform sampleRoot = prefab.transform.Find("model") ?? prefab.transform;
+            cloneMap.TryGetValue(sampleRoot, out Transform ghostModel);
+            if (parent == null || ghostModel == null)
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"  Part '{partName}' pid={persistentId}: canopy sample left in model frame " +
+                    $"(parent={(parent != null ? "yes" : "none")} ghostModel={(ghostModel != null ? "yes" : "none")})");
+                return;
+            }
+            Quaternion toParent = Quaternion.Inverse(parent.rotation) * ghostModel.rotation;
+            if (sample.deployedInModelFrame)
+            {
+                info.deployedCanopyPos = parent.InverseTransformPoint(ghostModel.TransformPoint(sample.dPos));
+                info.deployedCanopyRot = toParent * sample.dRot;
+            }
+            if (sample.semiDeployedSampled)
+            {
+                info.semiDeployedCanopyPos = parent.InverseTransformPoint(ghostModel.TransformPoint(sample.sdPos));
+                info.semiDeployedCanopyRot = toParent * sample.sdRot;
+            }
+            ParsekLog.Verbose("GhostVisual",
+                $"  Part '{partName}' pid={persistentId}: canopy sample moved to parent frame " +
+                $"deployed={sample.deployedInModelFrame} semi={sample.semiDeployedSampled} " +
+                $"offset={(info.deployedCanopyPos - sample.dPos).magnitude.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)}m");
+        }
+
         private static ParachuteGhostInfo TryBuildParachuteInfo(
             Part prefab, string partName, uint persistentId,
             Dictionary<Transform, Transform> cloneMap, Transform modelRoot,
@@ -225,8 +264,24 @@ namespace Parsek
                     semiDeployedCanopyScale = sample.sdScale,
                     semiDeployedCanopyPos = sample.sdPos,
                     semiDeployedCanopyRot = sample.sdRot,
-                    semiDeployedSampled = sample.semiDeployedSampled
+                    semiDeployedSampled = sample.semiDeployedSampled,
+                    // Stock's airflow aim inputs. ModuleEvaChute poses its canopy kerbal-relative
+                    // (and is the one module that sets the protected dontRotateParachute), so an
+                    // EVA canopy keeps the fixed overhead pose below.
+                    partTransform = partRootTransform,
+                    aimCanopy = !(chute is ModuleEvaChute) && !partName.StartsWith("kerbalEVA"),
+                    invertCanopy = chute.invertCanopy,
+                    rotationSpeedDegPerSec = chute.rotationSpeedDPS,
+                    spreadAngleDeg = chute.spreadAngle,
+                    canopyAimStage = CanopyPoseStage.Stowed
                 };
+
+                // The sampler reads the clip's end pose in the sampled model's frame, but the
+                // event appliers write it as the canopy's LOCAL pose: a canopy under an offset
+                // parent (Mk2-R / Mk12-R / Mk25 'model/chute/canopy') landed off by that offset.
+                if (canopySubtreeRoot == null)
+                    MoveCanopySampleToParentFrame(prefab, partRootTransform, cloneMap, ghostCanopy,
+                        sample, parachuteInfo, partName, persistentId);
 
                 // Stowed = invisible (canopy mesh starts at zero scale in KSP prefabs)
                 ghostCanopy.localScale = Vector3.zero;

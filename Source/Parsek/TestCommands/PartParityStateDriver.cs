@@ -1052,9 +1052,45 @@ namespace Parsek.TestCommands
         {
             if (pc.canopyTransform == null) return null;
             Vector3 s = pc.canopyTransform.localScale;
-            if ((s - pc.deployedCanopyScale).sqrMagnitude < 1e-6f) return PartParityStateRules.StateFull;
-            if (pc.semiDeployedSampled && (s - pc.semiDeployedCanopyScale).sqrMagnitude < 1e-6f) return PartParityStateRules.StateSemi;
+            return ClassifyCanopyStage(
+                (s - pc.deployedCanopyScale).sqrMagnitude < 1e-6f,
+                CanopyBonesAt(pc, CanopyPoseStage.Deployed),
+                pc.semiDeployedSampled,
+                (s - pc.semiDeployedCanopyScale).sqrMagnitude < 1e-6f,
+                CanopyBonesAt(pc, CanopyPoseStage.SemiDeployed));
+        }
+
+        /// <summary>
+        /// The canopy stage a ghost canopy shows, from whether its root scale and its animated
+        /// bones (a rigged canopy such as ReStock's, whose root keeps one scale while the bones
+        /// open it) sit at each stage's sampled pose. A stage matches only when both do; when
+        /// both stages match (no bones and one scale), the deployed reading wins.
+        /// </summary>
+        internal static string ClassifyCanopyStage(bool fullScale, bool fullBones,
+            bool semiSampled, bool semiScale, bool semiBones)
+        {
+            bool full = fullScale && fullBones;
+            bool semi = semiSampled && semiScale && semiBones;
+            if (full) return PartParityStateRules.StateFull;
+            if (semi) return PartParityStateRules.StateSemi;
             return PartParityStateRules.StateStowed;
+        }
+
+        /// <summary>True when every animated canopy bone sits at its pose for
+        /// <paramref name="stage"/> (none to check reads true).</summary>
+        private static bool CanopyBonesAt(ParachuteGhostInfo pc, CanopyPoseStage stage)
+        {
+            if (pc.canopyBones == null) return true;
+            foreach (CanopyBonePose b in pc.canopyBones)
+            {
+                if (b?.bone == null) continue;
+                if (!GhostPlaybackLogic.TrySelectCanopyBonePose(b, stage, out Vector3 pos, out Quaternion rot, out Vector3 scale))
+                    continue;
+                if ((b.bone.localPosition - pos).sqrMagnitude > 1e-6f) return false;
+                if ((b.bone.localScale - scale).sqrMagnitude > 1e-6f) return false;
+                if (Mathf.Abs(Quaternion.Dot(b.bone.localRotation, rot)) < 0.99999f) return false;
+            }
+            return true;
         }
 
         /// <summary>A ghost's renderers, split: the subject's shown, a context filler's

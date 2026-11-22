@@ -82,6 +82,9 @@ namespace Parsek
             // in one frame is a no-op: the progress is a pure function of the event UT, so the
             // second pass recomputes the same fraction and writes the same pose.
             UpdateActiveDeployables(state, currentUT);
+            // Same reason again: the KSC-scene and preview ghosts reach only ApplyPartEvents.
+            // A second call in one frame holds (same UT), so the flight engine's call is a no-op.
+            UpdateParachuteCanopyAim(state, currentUT);
         }
 
         /// <summary>
@@ -885,6 +888,7 @@ namespace Parsek
             semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
             semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
             ApplyCanopyBonePoses(semiInfo, CanopyPoseStage.SemiDeployed);
+            BeginCanopyAim(state, semiInfo, CanopyPoseStage.SemiDeployed);
             if (semiInfo.capTransform != null)
                 semiInfo.capTransform.gameObject.SetActive(false);
             return GhostPartEventOutcome.Applied;
@@ -937,6 +941,7 @@ namespace Parsek
                 else
                 {
                     bool touched = false;
+                    StopCanopyAim(cutInfo);
                     if (cutInfo.canopyTransform != null)
                     {
                         cutInfo.canopyTransform.localScale = Vector3.zero;
@@ -987,6 +992,7 @@ namespace Parsek
                 else
                 {
                     bool touched = false;
+                    StopCanopyAim(repackInfo);
                     if (repackInfo.canopyTransform != null)
                     {
                         repackInfo.canopyTransform.localScale = repackInfo.stowedCanopyScale;
@@ -1029,6 +1035,7 @@ namespace Parsek
                 ParachuteGhostInfo destroyedInfo;
                 if (state.parachuteInfos.TryGetValue(partPersistentId, out destroyedInfo))
                 {
+                    StopCanopyAim(destroyedInfo);
                     if (destroyedInfo.canopyTransform != null)
                         destroyedInfo.canopyTransform.localScale = Vector3.zero;
                 }
@@ -1643,6 +1650,7 @@ namespace Parsek
                     info.canopyTransform.localPosition = info.deployedCanopyPos;
                     info.canopyTransform.localRotation = info.deployedCanopyRot;
                     ApplyCanopyBonePoses(info, CanopyPoseStage.Deployed);
+                    BeginCanopyAim(state, info, CanopyPoseStage.Deployed);
                     if (info.capTransform != null)
                         info.capTransform.gameObject.SetActive(false);
                     usedRealCanopy = true;

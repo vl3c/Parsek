@@ -547,9 +547,13 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The canopy's airflow tilt and wobble this frame (design D.4): stock aims the canopy
-        /// at <c>LookRotation(+-dragVectorDir, up)</c> and then wobbles it, so the un-wobbled aim
-        /// is <c>(invertCanopy ? -1 : 1) * dragVectorDir</c>; the tilt is the angle between the
-        /// part's +Y and that aim, the wobble the angle between <c>canopy.forward</c> and it.
+        /// at <c>LookRotation(+-dragVectorDir, up)</c> and then wobbles it about all three axes, so
+        /// the un-wobbled aim is <c>(invertCanopy ? -1 : 1) * dragVectorDir</c>; the tilt is the
+        /// angle between the part's +Y and that aim, the wobble the whole rotation between the
+        /// canopy and stock's un-wobbled pose <c>LookRotation(aim, up)</c> (its roll about the aim
+        /// included: the noise turns the canopy about its own axis too, which a ghost canopy
+        /// posed at the un-wobbled aim shows as a rotation difference). <c>up</c> is stock's:
+        /// the part's +Z, or for a symmetry group <c>vessel.CurrentCoM - part.transform.localPosition</c>.
         /// NaN when the part has no drag direction yet or no canopy transform.
         /// </summary>
         private static void MeasureCanopy(WaveCase wc, out double tilt, out double wobble)
@@ -565,9 +569,11 @@ namespace Parsek.TestCommands
             if (canopy == null || drag == Vector3.zero) return;
             Vector3 aim = (chute.invertCanopy ? -1f : 1f) * drag;
             Vector3 up = part.transform.up;
-            Vector3 fwd = canopy.forward;
             tilt = PartParityAirPlan.AngleDeg(up.x, up.y, up.z, aim.x, aim.y, aim.z);
-            wobble = PartParityAirPlan.AngleDeg(fwd.x, fwd.y, fwd.z, aim.x, aim.y, aim.z);
+            Vector3 upwards = part.transform.forward;
+            if (chute.symmetryCount > 0 && part.vessel != null)
+                upwards = Vector3.Normalize(part.vessel.CurrentCoM - part.transform.localPosition);
+            wobble = Quaternion.Angle(canopy.rotation, Quaternion.LookRotation(aim, upwards));
         }
 
         private static double HeightAboveTerrain(Vessel v)
