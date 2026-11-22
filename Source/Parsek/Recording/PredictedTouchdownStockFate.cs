@@ -32,9 +32,13 @@ namespace Parsek
         StockStillDeciding,
         // In the air past the touchdown, loaded and unpacked: stock physics decides right now.
         StockStillSimulating,
-        // A predicted final orbit (owner ruling Q8) whose vessel stock still holds: left as
-        // committed (its orbit is not compared with the prediction).
+        // A predicted final orbit (owner ruling Q8) whose vessel stock still holds where the
+        // prediction says (HeldFinalOrbitComparison agrees): left as committed.
         FinalOrbitHeld,
+        // A predicted final orbit stock still holds, but nothing the recording claims now can be
+        // compared with stock's orbit (no live orbit, before the prediction, past the final
+        // conic's horizon): left as committed.
+        FinalOrbitNotCompared,
         // In the air past the touchdown, on rails, still falling toward stock's deletion line.
         StockMayStillRemove,
         // Gone, and the player recovered or terminated it (a ledger row says so, Q13).
@@ -47,7 +51,8 @@ namespace Parsek
         // (b) Stock held the vessel in this timeline and it is gone with no recovery, merge or
         // termination: stock deleted it (Vessel.CheckKill, crew killed). Owner ruling Q4d.
         StockDeleted,
-        // (c) Stock kept the vessel in the air past the touchdown: the prediction was wrong.
+        // (c) Stock kept the vessel in the air past the touchdown, or holds a predicted final
+        // orbit on another body or orbit: the prediction was wrong.
         Contradicted,
     }
 
@@ -73,6 +78,8 @@ namespace Parsek
         public readonly List<Recording> Contradicted = new List<Recording>();
         // Candidates whose vessel stock holds right now (the host stamps StockHeldVesselUT).
         public readonly List<Recording> Sighted = new List<Recording>();
+        // The earliest UT at which a held final orbit's prediction changes conic: worth a pass then.
+        public double NextDueUT = double.PositiveInfinity;
         public readonly Dictionary<PredictedTouchdownOutcome, int> Counts =
             new Dictionary<PredictedTouchdownOutcome, int>();
         public int Candidates;
@@ -107,8 +114,11 @@ namespace Parsek
     /// runs through the same pass with the same "gone" rules (two sightings, the stock-held
     /// stamp): gone from stock in this timeline with no recovery, termination or merge, stock
     /// destroyed it (an encounter or a deletion the predictor missed) and it ends Destroyed,
-    /// crew dead, quietly. A vessel stock still holds is left as committed: its orbit is not
-    /// compared with the prediction.</para>
+    /// crew dead, quietly. A vessel stock still holds is compared with the prediction
+    /// (<see cref="HeldFinalOrbitComparison"/>): held on another body or orbit (or on the
+    /// ground) on two passes, the prediction is contradicted and dropped as a contradicted
+    /// touchdown is, and the ending follows the live vessel; held where predicted, or not
+    /// comparable, it is left as committed.</para>
     /// <para>Pure decisions plus two guarded live reads (the guid lookup and the clock), each
     /// behind a test override; the committed-history change is
     /// <c>PredictedCrashReconciler.ApplyStockDeletion</c>, the scene host is
@@ -228,7 +238,8 @@ namespace Parsek
             double nowUT,
             bool sceneSettled,
             bool observedBefore,
-            double secondsSinceFirstObservation)
+            double secondsSinceFirstObservation,
+            HeldFinalOrbitResult finalOrbit = default(HeldFinalOrbitResult))
         {
             if (!candidate.IsPredictedTouchdown && !candidate.IsPredictedFinalOrbit)
                 return PredictedTouchdownOutcome.NotPredictedTouchdown;
@@ -247,7 +258,7 @@ namespace Parsek
                 if (live.IsActiveVessel)
                     return PredictedTouchdownOutcome.VesselIsActive;
                 if (candidate.IsPredictedFinalOrbit)
-                    return PredictedTouchdownOutcome.FinalOrbitHeld;
+                    return DecideHeldFinalOrbit(live, finalOrbit, confirmed);
                 if (live.LandedOrSplashed)
                     return PredictedTouchdownOutcome.Consistent;
                 if (!IsFinite(candidate.TouchdownUT) || !IsFinite(nowUT)
@@ -273,12 +284,38 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: a predicted final orbit whose vessel stock holds. In physics stock is still
+        /// moving it (drag, the player nearby); otherwise the comparison decides: another body
+        /// or orbit, or the ground, contradicts the prediction once confirmed.
+        /// </summary>
+        internal static PredictedTouchdownOutcome DecideHeldFinalOrbit(
+            PredictedCrashLiveFacts live, HeldFinalOrbitResult finalOrbit, bool confirmed)
+        {
+            if (live.InPhysics)
+                return PredictedTouchdownOutcome.StockStillSimulating;
+            switch (finalOrbit.Verdict)
+            {
+                case HeldFinalOrbitVerdict.Agrees:
+                    return PredictedTouchdownOutcome.FinalOrbitHeld;
+                case HeldFinalOrbitVerdict.Differs:
+                    return confirmed
+                        ? PredictedTouchdownOutcome.Contradicted
+                        : PredictedTouchdownOutcome.AwaitingConfirmation;
+                default:
+                    return PredictedTouchdownOutcome.FinalOrbitNotCompared;
+            }
+        }
+
+        /// <summary>
         /// Pure over its inputs: one pass over <paramref name="recordings"/> (the effective
         /// committed set). <paramref name="liveLookup"/> is called once per settled, identified
         /// candidate no session owns. <paramref name="firstObserved"/> holds, per recording and
         /// verdict kind, the real time a pass first saw it; a verdict acts on a later pass at
         /// least <see cref="ConfirmRealSeconds"/> on, and a sighting no longer seen is dropped.
         /// Recordings in <paramref name="skipIds"/> (failed to apply this scene) are left alone.
+        /// A held final orbit is compared with <see cref="PredictedCrashLiveFacts.LiveOrbit"/>
+        /// (<see cref="HeldFinalOrbitComparison.Compare"/>; <paramref name="gravParameterOfBody"/>
+        /// bounds a closed final conic around another body).
         /// </summary>
         internal static PredictedTouchdownPassResult EvaluatePass(
             IReadOnlyList<Recording> recordings,
@@ -289,7 +326,8 @@ namespace Parsek
             bool sceneSettled,
             double realtimeNow,
             Dictionary<string, double> firstObserved,
-            ICollection<string> skipIds = null)
+            ICollection<string> skipIds = null,
+            Func<string, double> gravParameterOfBody = null)
         {
             var result = new PredictedTouchdownPassResult();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -315,9 +353,14 @@ namespace Parsek
                     bool observed = firstObserved != null && firstObserved.ContainsKey(key);
                     double since = observed ? realtimeNow - firstObserved[key] : double.NaN;
 
+                    HeldFinalOrbitResult finalOrbit = candidate.IsPredictedFinalOrbit && live.Found
+                        ? HeldFinalOrbitComparison.Compare(
+                            rec, nowUT, live.LandedOrSplashed, live.LiveOrbit, gravParameterOfBody)
+                        : default(HeldFinalOrbitResult);
                     PredictedTouchdownOutcome outcome = Decide(
-                        candidate, live, nowUT, sceneSettled, observed, since);
+                        candidate, live, nowUT, sceneSettled, observed, since, finalOrbit);
                     result.Counts[outcome] = result.Count(outcome) + 1;
+                    NoteHeldFinalOrbit(result, rec, outcome, finalOrbit);
                     if (live.Found)
                         result.Sighted.Add(rec);
 
@@ -359,6 +402,34 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// The final-orbit half of one pass entry: schedules the next look at a predicted conic
+        /// change and logs a disagreement (a standing condition on a polled pass, so rate-limited
+        /// per recording and reason).
+        /// </summary>
+        private static void NoteHeldFinalOrbit(
+            PredictedTouchdownPassResult result, Recording rec, PredictedTouchdownOutcome outcome,
+            HeldFinalOrbitResult finalOrbit)
+        {
+            if (outcome == PredictedTouchdownOutcome.FinalOrbitHeld
+                || outcome == PredictedTouchdownOutcome.FinalOrbitNotCompared)
+            {
+                if (finalOrbit.NextCheckUT < result.NextDueUT)
+                    result.NextDueUT = finalOrbit.NextCheckUT;
+                return;
+            }
+            if (finalOrbit.Verdict != HeldFinalOrbitVerdict.Differs
+                || (outcome != PredictedTouchdownOutcome.AwaitingConfirmation
+                    && outcome != PredictedTouchdownOutcome.Contradicted))
+                return;
+            ParsekLog.InfoRateLimited(LogTag,
+                "final-orbit-differs|" + rec.RecordingId + "|" + (finalOrbit.Reason ?? ""),
+                "Held final orbit differs from stock: rec=" + rec.RecordingId
+                + " vessel='" + (rec.VesselName ?? "") + "' outcome=" + outcome + " "
+                + HeldFinalOrbitComparison.Format(finalOrbit)
+                + " - stock holds the vessel elsewhere; a confirmed difference drops the prediction");
+        }
+
         /// <summary>One summary line for a pass.</summary>
         internal static string FormatPassSummary(
             PredictedTouchdownPassResult pass, string scene, double nowUT, int deleted, int contradicted, int failed)
@@ -367,7 +438,8 @@ namespace Parsek
                 "Touchdown pass: scene={0} nowUT={1} candidates={2} stockDeleted={3} contradicted={4} " +
                 "failed={5} consistent={6} stillDeciding={7} stillSimulating={8} mayStillRemove={9} " +
                 "awaitingConfirmation={10} removedByPlayer={11} notInThisTimeline={12} spawned={13} " +
-                "active={14} ownedElsewhere={15} noLaunchGuid={16} recheck={17} finalOrbitHeld={18}",
+                "active={14} ownedElsewhere={15} noLaunchGuid={16} recheck={17} finalOrbitHeld={18} " +
+                "finalOrbitNotCompared={19}",
                 scene ?? "(none)",
                 FormatUT(nowUT),
                 pass.Candidates,
@@ -386,7 +458,8 @@ namespace Parsek
                 pass.Count(PredictedTouchdownOutcome.OwnedElsewhere),
                 pass.Count(PredictedTouchdownOutcome.NoLaunchGuid),
                 pass.NeedsRecheck ? "true" : "false",
-                pass.Count(PredictedTouchdownOutcome.FinalOrbitHeld));
+                pass.Count(PredictedTouchdownOutcome.FinalOrbitHeld),
+                pass.Count(PredictedTouchdownOutcome.FinalOrbitNotCompared));
         }
 
         /// <summary>

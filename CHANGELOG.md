@@ -47,6 +47,10 @@ Not released yet.
   would land or settle in orbit, the replay no longer recreates it at its end: it ends lost with
   its crew, the ghost coming down quietly. If the game keeps it flying instead, Parsek follows the
   real stage. (ABANDONED-STAGE-STOCK-FATE)
+- **A stage the game keeps on another orbit appears where the game has it.** When the game holds a
+  stage Parsek said would settle in orbit somewhere else (around another body, on another orbit,
+  or on the ground), the replay follows the real stage instead of bringing it back on the
+  predicted orbit. (ABANDONED-STAGE-HELD-FINAL-ORBIT-NOT-COMPARED)
 - **The crew of a crashed stage are lost, as the game would have it.** A crewed stage whose replay
   ends in a crash loses its crew, whether the game destroyed it or Parsek worked the crash out. In a
   breakup only kerbals whose part was destroyed die, and no reputation is taken that the game did
