@@ -255,7 +255,10 @@ allowedAnomalies = []
 # (PersistedPhaseChange) ... prev=Atmospheric next=ExoBallistic`, 147 + 365 points, one
 # chain, the terminal on the second half), the same split V3C `2026-10-01_0732` shows on
 # this mission. Main recording = two chain segments, + the booster debris = 3.
-count = { min = 3, max = 3 }
+# RE-PINNED 4 (2026-11-22, run 2026-11-22_0250): split rule version 3 adds an ascent-end and an orbit-insertion row
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# ascent and debris population above is unchanged; this was `count = { min = 3, max = 3 }`.
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary

@@ -2567,6 +2567,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FindSplitCandidatesForOptimizer_NotCommittedRecording_KeptWhole()
+        {
+            // A live Re-Fly provisional: the marker and the supersede commit name it by id and
+            // read its terminal, so a split would hand the terminal to an unnamed second half.
+            EnableLogCapture();
+            var live = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            live.MergeState = MergeState.NotCommitted;
+            var committedRow = MakeRecordingWithSections(17000, 17030, 17060,
+                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
+            committedRow.MergeState = MergeState.CommittedProvisional;
+
+            var candidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(
+                new List<Recording> { live, committedRow });
+
+            Assert.Equal((1, 1), Assert.Single(candidates));
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("kept 1 NotCommitted recording(s) whole"));
+        }
+
+        [Fact]
         public void FindSplitCandidatesForOptimizer_ExoToAtmoBoundary_TreeIdIsNotAGate()
         {
             // Renamed from ..._FindsTreeRecordings: RecordingOptimizer reads
