@@ -5065,6 +5065,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # relative-anchor cell, EVA-4's flight rewound and replayed, `total=3` literal with the
     # split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its
     # `total=`. It leaves on its first flight.
+    # OSC-1-orbit-spawn-clearance-lko was authored on 2026-11-22 (the owed live proof of
+    # todos SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) and LEFT on
+    # its first flight, run 2026-11-22_1141 (PASS attempt 1; passed=4 failed=0 skipped=0;
+    # pinned whole) before it was committed.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
         "GPOS-2-eva-chute-relative-ghost-position",
@@ -5689,6 +5693,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `miner-rover-landed` with the drills deployed by the lane's own seam steps.
         # Authored 2026-11-06, never flown, INTERIM.
         "MINE-5a-rover-live-drill-harvest-cap": ("MiningHarvest", 2),
+        # The orbit-route spawn clearance's live proof (todos
+        # SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) on
+        # `eva2-lko-crewed`: four FLIGHT cells, two of them isolated-only (the rock
+        # push-out and the spawn gate's live lookup spawn vessels). Authored 2026-11-22 and
+        # flown green the same day (run 2026-11-22_1141, 4 of 4), pinned whole.
+        "OSC-1-orbit-spawn-clearance-lko": ("OrbitSpawnClearance", 4),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -5720,6 +5730,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
 
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 # OSC-1: ordinary 2 of the 4 OrbitSpawnClearance
+                                 # cells, isolated 4 (the rock and live-lookup cells).
+                                 "OSC-1-orbit-spawn-clearance-lko",
                                  # HV-1: H38's host and category, same 8-vs-46.
                                  "HV-1-harvest-route-analysis",
                                  "H38-logistics-isolated",
@@ -7028,6 +7041,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # needs. `loaded-vessel` and `logistics` are both silent about the situation.
         # Hence `orbiting`, implemented below beside `staging`.
         "AutoMergeCommit": "orbiting",
+        # Three of the four cells skip unless the active vessel is ORBITING, loaded and
+        # unpacked with part colliders (`RequireOrbitingActiveVessel`: the orbit-route
+        # clearance moves a spawn along an orbit, and the rock cell parks a PotatoRoid on
+        # the active vessel's orbit); a PRELAUNCH or LANDED host skips them all. Hence
+        # `orbiting`, the class `AutoMergeCommit` added.
+        "OrbitSpawnClearance": "orbiting",
     }
 
     # spec id -> the requirement THAT LANE's host is held to, consulted BEFORE

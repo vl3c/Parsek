@@ -799,13 +799,14 @@
       }
     },
     "EX-2-single-point-held-ghost": {
-      "last": 98.0,
-      "lastVsP50": 1.0,
-      "n": 1,
+      "last": 140.0,
+      "lastVsP50": 1.429,
+      "n": 2,
       "p50": 98.0,
-      "p95": 98.0,
+      "p95": 140.0,
       "samples": {
-        "2026-10-11T15:19:29Z": 98.0
+        "2026-10-11T15:19:29Z": 98.0,
+        "2026-11-22T11:42:13Z": 140.0
       }
     },
     "FFC-1-time-jump-across-committed-ksc-rows": {
@@ -2763,6 +2764,16 @@
       "p95": 44.0,
       "samples": {
         "2026-10-12T07:36:59Z": 44.0
+      }
+    },
+    "OSC-1-orbit-spawn-clearance-lko": {
+      "last": 82.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 82.0,
+      "p95": 82.0,
+      "samples": {
+        "2026-11-22T11:43:19Z": 82.0
       }
     },
     "PADX-1-pad-destroyed-by-flight-rewind": {
