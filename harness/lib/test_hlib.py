@@ -2304,13 +2304,13 @@ class SpecValidationRejectTests(unittest.TestCase):
     # roster lives HERE rather than in a doc, so arming costs a deliberate edit in
     # the file whose test reds when someone arms without one.
     #
-    # THE NAME AVOIDS THE SUBSTRING `ARMED_ALLOWLIST` ON PURPOSE, and a future
-    # sibling roster must do the same. `Cl3SpecArmedTests
-    # .test_it_is_on_the_save_structure_armed_allowlist` reads the save-structure
-    # roster OUT OF THIS FILE'S SOURCE with `re.search(r"ARMED_ALLOWLIST\s*=\s*\{
-    # ([^}]*)\}")`, which takes the FIRST match - so a second constant whose name
-    # ended in `ARMED_ALLOWLIST` and sat above it would silently hand CL-3 the wrong
-    # list. It did exactly that on the first draft of this roster.
+    # THE NAME AVOIDS `ARMED_ALLOWLIST` ON PURPOSE, and a future sibling roster
+    # must too. `Cl3SpecArmedTests.test_it_is_on_the_save_structure_armed_allowlist`
+    # reads the save-structure roster OUT OF THIS FILE'S SOURCE through the parser
+    # (`_read_armed_allowlist`: the set literal assigned to exactly that name), and
+    # reds when two such assignments exist. Its first form, a regex, took the first
+    # name ENDING in it (which this roster's first draft was) and stopped at the
+    # first `}`, so a braced comment inside the roster hid every entry after it.
     RUNTESTS_STRICT_ARMED_SPECS = {
         # career-ledger B.4, ARMED 2026-08-20 (wave C). Subject:
         # `career-earned-pad` - the save harness run
