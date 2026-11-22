@@ -534,17 +534,23 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   end (the burn definition of 4.3, from the engine ignite / shutdown part events the recorder already
   polls), at each staging (`onStageActivate`), at each separation, dock and undock (the branch points),
   and at the recording's end. Event-driven, a few dozen per flight, never per frame (the recording
-  design principle). The game computes delta-v over several frames after a change, so a snapshot
-  waits for the calculation to settle (`VesselDeltaV` ready state; member names checked with
-  `ilspycmd` against `Assembly-CSharp.dll` before the code is written) and records the UT it was
-  taken, with a short timeout after which the snapshot is written as unknown.
+  design principle). The game recomputes delta-v a few frames after a change, and after a vessel
+  event only once `GameSettings.DELTAV_VESSEL_EVENT_DELAY_SECS` has passed, so a snapshot request waits
+  for that delay and `VesselDeltaV.IsReady` before it reads (members checked with `ilspycmd`:
+  `TotalDeltaVVac`, `TotalDeltaVASL`, `TotalDeltaVActual`, `OperatingStageInfo` of `DeltaVStageInfo`
+  with `stage`, `deltaVinVac`, `stageBurnTime`), records the UT it was taken, and is written as unknown
+  after a short timeout. `GameSettings.DELTAV_CALCULATIONS_ENABLED` off means no snapshots.
 - What: UT, the trigger kind, total vacuum delta-v, total delta-v at the current pressure, and per
   stage the stage number with its vacuum delta-v (and burn time). Vacuum figures drive Spent and Left,
   because the at-pressure figure changes with altitude while no fuel is spent; the at-pressure total
   rides along for the ascent hover.
-- Which vessels: every recorded vessel the game computes delta-v for (owner decision): the focused
-  vessel always, background vessels while loaded in physics range; an unloaded vessel's snapshot is
-  written as unknown (its burns cannot happen on rails anyway). Debris and EVA kerbals record none.
+- Which vessels: every recorded vessel the game computes delta-v for (owner decision). Decompiled
+  fact (KSP 1.12.5, `VesselDeltaV.FixedUpdate`): the stock calculation returns early unless the vessel
+  is `FlightGlobals.ActiveVessel`, loaded and `FlightGlobals.ready`, so in practice only the vessel
+  the player is flying has figures. The focused recorder (`FlightRecorder`) takes the snapshots; a
+  background-recorded vessel takes none until the player switches to it (its switch continuation is
+  then focused). Debris and EVA kerbals record none. A separated probe flown later gets real figures
+  for the part flown; its first span shows the estimate or `-`.
 - Spent and Left: Left is the snapshot after an element; a burn's Spent is the vacuum left before
   minus after; a staging that drops fuel lowers Left without anything being spent, and the
   `Stage separation` row shows that drop in its hover. The stock Delta-V app can be switched off in
