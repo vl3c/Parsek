@@ -1265,7 +1265,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # two: the map / Tracking Station picture instrument and its camera framing.
         # 63 / 4 after PartParitySweep, an ADDITION by one: one time-boxed step of the part
         # ghost parity capture (PP-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 63)
+        # 64 / 4 after EvaMove, an ADDITION by one: the active EVA kerbal driven by jetpack
+        # or on foot with the player's own movement input (EVA-17).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 64)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -18979,6 +18981,84 @@ class PickUpFlagSourceSyncTests(unittest.TestCase):
         errs = v(4, {"pid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[4]", errs[0])
+        self.assertIn("silently ignored", errs[0])
+
+
+class EvaMoveSourceSyncTests(unittest.TestCase):
+    """`EvaMove`. Reads OUTSIDE harness/: the verb, arg keys, closed value sets, the seconds
+    range and the arg / refusal / error reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandEvaMove.cs, and the input patch's target, so the pre-launch
+    validator, the refusal subkinds and a spec's pinned reasons cannot drift from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# EvaMove tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_keys_values_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandEvaMove.cs")
+        arr = StockScreenSourceSyncTests._cs_string_array
+        self.assertIn('internal const string Verb = "%s";' % hlib.EVAMOVE_VERB, text)
+        self.assertEqual(list(hlib.EVAMOVE_ARG_KEYS), arr(text, "ArgKeys"))
+        self.assertEqual(list(hlib.EVAMOVE_MODES), arr(text, "ModeValues"))
+        self.assertEqual(list(hlib.EVAMOVE_DIRS), arr(text, "DirValues"))
+        self.assertIn("internal const double MinSeconds = %s;" % hlib.EVAMOVE_MIN_SECONDS, text)
+        self.assertIn("internal const double MaxSeconds = %s;" % hlib.EVAMOVE_MAX_SECONDS, text)
+        self.assertEqual(list(hlib.EVAMOVE_ARG_REASONS), arr(text, "ArgReasons"))
+        self.assertEqual(list(hlib.EVAMOVE_REASONS), arr(text, "string[] Reasons"))
+        self.assertEqual(list(hlib.EVAMOVE_ERROR_REASONS), arr(text, "ErrorReasons"))
+        for reason in hlib.EVAMOVE_ARG_REASONS:
+            self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+        for reason in hlib.EVAMOVE_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.EVAMOVE_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_input_patch_targets_stocks_movement_input(self):
+        patch = self._source("TestCommands", "EvaMoveInputPatch.cs")
+        self.assertIn('[HarmonyPatch(typeof(KerbalEVA), "HandleMovementInput")]', patch)
+        self.assertIn("ParsekTestCommandAddon.IsArmed(", patch)
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.EvaMove.cs")
+        self.assertIn("evaCtl.ToggleJetpack();", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.EVAMOVE_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(90.0, hlib.dispatch_deferral_budget(verb))
+        dispatcher = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn('["EvaMove"] = VerbSceneRequirement.RequiresFlight,', dispatcher)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_OUTCOME, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertTrue(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_eva_move_step
+        self.assertEqual([], v(0, {"mode": "jetpack", "dir": "up", "seconds": 1.5, "stow": True}))
+        self.assertEqual([], v(0, {"mode": "walk", "dir": "left", "seconds": "3"}))
+        self.assertEqual([], v(0, {"mode": "jetpack", "dir": "down", "seconds": "${hop.seconds}"}))
+        bad = [
+            ({"mode": "fly", "dir": "up", "seconds": 1}, "evamove-mode-invalid"),
+            ({"mode": "jetpack", "dir": "Up", "seconds": 1}, "evamove-dir-invalid"),
+            ({"mode": "walk", "dir": "up", "seconds": 1}, "evamove-dir-invalid"),
+            ({"mode": "jetpack", "dir": "up"}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 0.05}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 31}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": True}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 1, "stow": "yes"}, "evamove-stow-invalid"),
+            ({"mode": "walk", "dir": "left", "seconds": 1, "stow": True}, "evamove-stow-invalid"),
+        ]
+        for args, reason in bad:
+            errs = v(3, args)
+            self.assertEqual(1, len(errs), (args, errs))
+            self.assertIn(reason, errs[0])
+            self.assertIn("driver.steps[3]", errs[0])
+        errs = v(2, {"mode": "jetpack", "dir": "up", "seconds": 1, "label": "x"})
+        self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
 
 
