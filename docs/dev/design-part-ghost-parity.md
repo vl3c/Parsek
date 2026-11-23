@@ -2382,7 +2382,26 @@ label of PP-5 / PP-6 needs spec steps only (F7's lane half, after F6). Decisions
   come within 0.01 of the request when that is longer, capped at 120 s. Stock closes on the request
   at `engineAccelerationSpeed` (decompiled `ModuleEngines.UpdateThrottle`): 0.12 /s is 38 s, but the
   Goliath's 0.06 /s is 77 s full and 57 s low, so 45 s would always end its two cases
-  `state-timeout`. Every orbit engine keeps the 45 s floor.
+  `state-timeout`. Every stock orbit engine keeps the 45 s floor.
+
+Acceptance (2026-11-23, stock-minimal, throwaway spec, one flight
+`2026-11-23_1014_PPS-10a-fx-f7-air-stock`, PASS attempt 1, DLL sha256 prefix 5059a943; evidence
+`<umbrella>/logs/flights/p8-f7/`). Label `f7chute` (the Mk16 at semi and full, the P6 air controls)
+ran first and label `f7fx` second on the same host, the PP-5 shape: both controls=ok. `f7fx`: all 14
+jet cases reached, 0 setup faults, both ghost routes `applied` on every case, every side of every
+part case plateaued inside the 8 s cap, and the four air controls `ok` in C# and in F4's judge
+(recompute 10 cases, 0 mismatches, problems none). Spool to within 0.01 of the request: JetEngine
+39.4 s full and 29.0 s low, RAPIER in air mode 23.5 and 17.5 s, Juno 38.8 and 28.8 s, Whiplash 23.5
+and 17.5 s, Panther dry 9.2 and 6.8 s and wet 5.7 and 4.2 s, Goliath 77.0 and 56.9 s (both past 45 s).
+Render-time drift 0.00000 m and 0.000 deg on all 18 cases, controls included; `stepM` at most 0.041 m
+(the Flea). A case fell 1.0 to 3.7 m before its hold took it. The RAPIER's own trail is in the flame
+layer on both sides: `burn-full` smoke core and envelope are 0 on the real, event and start sides in
+all four views, flame core real / event 39344 / 37148 px on `fx-side-a` and 19447 / 27515 on `fx-far`
+(todo GHOST-RAPIER-TRAIL-EXTENT). Teardown: cheat `restored -> False`, `casesDestroyed=0 faults=0`,
+no Parsek ERROR, and the produced save holds the fixture's two vessels with the host's RCS group off,
+as before. Wall: `f7fx` 336 s (waves 29, 84, 77, 114 and 32 s: the slowest spool of a wave sets it),
+over E.8's 210 s estimate, inside one 480 s step. First readings: todo
+PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23.
 
 ### E.3 Capture changes
 
