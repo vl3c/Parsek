@@ -1740,8 +1740,9 @@ main { padding: 8px 16px 40px; }
   padding: 0 7px; border-radius: 9px; color: #fff; text-transform: uppercase; white-space: nowrap; }
 .vc.pass { background: var(--pass); } .vc.warn { background: var(--warn); color: #1d1600; }
 .vc.fail { background: var(--fail); } .vc.error { background: var(--error); color: #111; }
-/* not a verdict: a reference case or entry (design E.6), a not-applicable control */
-.vc.reference, .vc.na { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
+/* not a verdict: a reference case or entry (design E.6), a not-applicable control, an entry
+   whose measures were skipped (weak cores, E.4) */
+.vc.reference, .vc.na, .vc.skipped { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
 .chip { display: inline-block; font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 9px;
   background: var(--code); border: 1px solid var(--border); white-space: nowrap; }
 .chip.moved { border-color: var(--warn); }
@@ -2098,7 +2099,7 @@ dialog .tile { cursor: default; }
   function fxRows(c, zoom) { return c.kind === "control" ? FX_CTL_ROWS : (zoom ? FX_PART_ROWS.concat([FX_ZOOM_ROW]) : FX_PART_ROWS); }
   function ratioText(x) { return Object.keys(x).filter(function (k) { return x[k] !== null && x[k] !== undefined; }).map(function (k) { return k + " " + fmt(x[k], 2); }).join(", ") || "length, width and brightness not measured"; }
   function ratios(x) { return ratioText({length: x.lengthRatio, width: x.widthRatio, brightness: x.brightnessRatio}); }
-  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason; }).join("\n") || null); }
+  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || (e.verdict === "skipped" ? "both cores are weak: only presence was judged" : null)); }
   function fxLine(c, name, e) {
     if (!e) return el("div", {cls: "note", text: name + ": not measured"});
     var x = e.compare, rcs = c.fx.family === "rcs";
