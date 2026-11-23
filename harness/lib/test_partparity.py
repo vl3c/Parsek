@@ -1175,6 +1175,17 @@ class PartParitySourceSyncTests(unittest.TestCase):
             for k in range(n + 1):
                 self.assertEqual(k, pp.fx_covered_samples(pp.fx_tile_alpha(k, n), n))
 
+    def test_the_fx_weak_core_rule_is_the_csharp_one(self):
+        text = self._source("PartParityFxMetrics.cs")
+        self.assertIn("=> realCorePx < PartParityFxRules.PresenceMinPx && "
+                      "ghostCorePx < PartParityFxRules.PresenceMinPx;", text)
+        # It returns before any other measure is read, after presence was added.
+        body = text[text.index("internal static List<string> FailingMeasures(string layer"):]
+        body = body[:body.index("internal static string PresenceReason(")]
+        self.assertLess(body.index("PresenceReason(layer, real.CorePx, ghost.CorePx)"),
+                        body.index("if (BothCoresWeak(real.CorePx, ghost.CorePx)) return"))
+        self.assertLess(body.index("if (BothCoresWeak("), body.index("c.OriginDeltaPx"))
+
     def test_the_fx_sweep_contract(self):
         text = self._source("TestCommandPartParitySweep.cs")
         consts = self._string_consts(text)
@@ -2660,6 +2671,100 @@ class FxJudgeTests(unittest.TestCase):
         self.assertIsNone(pp.fx_presence_reason("smoke", 255, 0))
         self.assertIsNone(pp.fx_presence_reason("flame", 64, 1))
 
+    def _weak_entry(self, real, ghost, layer="flame", real_env=None, ghost_env=None, compare=None):
+        side = lambda core, env: {"corePx": core, "envelopePx": core if env is None else env,
+                                  "lengthPx": 100.0}
+        return {"route": "event", "view": "fx-far", "layer": layer, "real": side(real, real_env),
+                "ghost": side(ghost, ghost_env), "compare": compare or {}}
+
+    WILD = {"originDeltaPx": -29.0, "lateralOffsetPx": 40.0, "lengthRatio": 1.373, "widthRatio": 3.0,
+            "directionDeg": 50.0, "crossSectionAreaRatio": 9.0, "crossSectionOffset": 2.0,
+            "chromaDistance": 0.5, "hueL1": 1.5, "brightnessRatio": 9.0, "coreIou": 0.0}
+
+    def test_two_weak_cores_are_judged_on_presence_only(self):
+        # The ReStock Flea's smoke against itself (PP-8 `2026-11-23_1112`): cores 0, envelopes
+        # 1570 and 3680 px, length 1.37, origin -29 px, all of it stray particles.
+        for real, ghost in ((0, 0), (63, 63), (63, 0), (0, 63)):
+            for layer in pp.FX_LAYERS:
+                with self.subTest(real=real, ghost=ghost, layer=layer):
+                    e = self._weak_entry(real, ghost, layer, 1570, 3680, self.WILD)
+                    self.assertEqual([], pp.fx_entry_findings(e, False))
+                    self.assertEqual("fx-weak-core:event:fx-far:%s:real=%d,ghost=%d" % (layer, real, ghost),
+                                     pp.fx_weak_core_flag(e))
+        # One core at the minimum is enough for every measure to be judged, either way round.
+        for real, ghost in ((64, 63), (63, 64), (64, 64)):
+            for layer in pp.FX_LAYERS:
+                e = self._weak_entry(real, ghost, layer, None, None, self.WILD)
+                self.assertEqual(["origin", "lateral", "length", "width", "direction", "cross-section",
+                                  "colour"], pp.fx_failing_measures(e), (real, ghost, layer))
+
+    def test_one_weak_core_never_passes_silently(self):
+        """Every (weak, strong) pair, both ways round and on both layers, with every other
+        measure matching: presence fails it or the flag names it."""
+        for layer in pp.FX_LAYERS:
+            for strong in range(64, 300):
+                for weak in range(64):
+                    for real, ghost in ((weak, strong), (strong, weak)):
+                        e = self._weak_entry(real, ghost, layer)
+                        failed = [f.measure for f in pp.fx_entry_findings(e, False)
+                                  if f.level == pp.VERDICT_FAIL]
+                        flag = pp.fx_weak_core_flag(e)
+                        self.assertTrue(failed or flag, (layer, real, ghost))
+                        if weak == 0 and strong >= (256 if layer == "smoke" else 64):
+                            self.assertEqual(["smoke" if layer == "smoke" else "presence"], failed)
+                            self.assertIsNone(flag)  # presence says it
+
+    def test_nothing_drawn_and_strong_cores_raise_no_weak_flag(self):
+        self.assertIsNone(pp.fx_weak_core_flag(self._weak_entry(0, 0)))
+        self.assertIsNone(pp.fx_weak_core_flag(self._weak_entry(64, 64)))
+        self.assertIsNone(pp.fx_weak_core_flag({}))
+
+    def test_a_missing_plume_still_fails(self):
+        # Real core over the minimum, ghost core 0.
+        c = pp.judge_case(_fx_case(event={"flame": FX_DARK})[0])
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertEqual({"event:%s:flame:fx-missing" % v for v in pp.FX_VIEWS}, set(c.reasons))
+
+    def _faint(self, real_px, ghost_px):
+        """A case whose smoke is a one-sample smear on each side: an envelope, no core."""
+        tile = lambda n: _fx_tile({(x, y): (1, GREY) for x in range(FTILE) for y in range(FTILE)
+                                   if y * FTILE + x < n})
+        real = dict(REAL_FX, smoke=(tile(real_px), tile(real_px)))
+        ghost = {"smoke": (tile(ghost_px), tile(ghost_px))}
+        return _fx_case(real=real, event=ghost, start=ghost)
+
+    def test_two_empty_cores_with_different_envelopes_warn_and_never_pass(self):
+        for real_px, ghost_px in ((300, 2000), (2000, 0), (0, 2000), (500, 500)):
+            with self.subTest(real=real_px, ghost=ghost_px):
+                doc, _m, tiles = self._faint(real_px, ghost_px)
+                self.assertEqual([], pp.fx_block_problems(doc))
+                self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_WARN, c.verdict)
+                want = {"fx-weak-core:%s:%s:smoke:real=0,ghost=0" % (r, v)
+                        for r in ("event", "start") for v in pp.FX_VIEWS}
+                self.assertEqual(want, set(c.fx.flags) - {pp.CAP_FX_UNSETTLED})
+                self.assertEqual({"flag:" + f for f in want}, set(c.reasons) - {pp.REASON_FX_UNSETTLED})
+                self.assertEqual(want, set(c.to_dict()["fx"]["flags"]) - {pp.CAP_FX_UNSETTLED})
+
+    def test_a_weak_core_never_hides_a_fail_elsewhere(self):
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        doc = _fx_case(real=dict(REAL_FX, smoke=(smear, smear)), event={"flame": FX_DARK})[0]
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertTrue(any(f.startswith("fx-weak-core:") for f in c.fx.flags))
+
+    def test_the_real_vs_real_control_skips_two_weak_cores_and_no_more(self):
+        doc = _fx_case(case_id="ctl-fx-real-vs-real", control=True)[0]
+        smoke = [e for e in doc["fx"]["views"] if e["layer"] == "smoke"]
+        self.assertEqual(4, len(smoke))
+        for e in smoke:
+            e["real"]["corePx"] = e["ghost"]["corePx"] = 0
+            e["compare"].update(originDeltaPx=-29.0, lengthRatio=1.373)
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_fx_control("ctl-fx-real-vs-real", doc))
+        smoke[0]["ghost"]["corePx"] = 64
+        self.assertEqual((pp.CONTROLS_BAD, "fails origin,length"), pp.judge_fx_control("ctl-fx-real-vs-real", doc))
+
     def test_a_dim_plume_only_warns(self):
         dim = (60, 30, 15)
         c = pp.judge_case(_fx_case(event={"flame": (_plume(rgb=dim), _disc(rgb=dim))})[0])
@@ -2677,8 +2782,10 @@ class FxJudgeTests(unittest.TestCase):
         self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, c.verdict, c.reasons)
-        self.assertTrue(all(":core-iou=" in r for r in c.reasons), c.reasons)
-        self.assertEqual(("rcs-known-difference:nozzles=2/4,power=0.500",), c.fx.flags)
+        # The ghost's 24 px core on the 34 px tile is the weak one of a pair: named, still judged.
+        self.assertTrue(all(":core-iou=" in r or r.startswith("flag:fx-weak-core:event:")
+                            for r in c.reasons), c.reasons)
+        self.assertEqual("rcs-known-difference:nozzles=2/4,power=0.500", c.fx.flags[0])
         d = c.to_dict()["fx"]["rcs"]
         self.assertEqual(0.5, d["powerRatio"])
         row = next(r for r in d["reportedOnly"]

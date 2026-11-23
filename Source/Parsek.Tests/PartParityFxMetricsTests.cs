@@ -328,6 +328,54 @@ namespace Parsek.Tests
             Assert.Equal(PartParityFxRules.ReasonSmokeExtra, PartParityFxMetrics.PresenceReason(Smoke, 0, PartParityFxRules.SmokeMinPx));
         }
 
+        /// <summary>A comparison over every fail line (the Python cell's WILD).</summary>
+        private static PartParityFxCompare Wild() => new PartParityFxCompare
+        {
+            OriginDeltaPx = -29.0, LateralOffsetPx = 40.0, LengthRatio = 1.373, WidthRatio = 3.0, DirectionDeg = 50.0,
+            CrossSectionAreaRatio = 9.0, CrossSectionOffset = 2.0, ChromaDistance = 0.5, HueL1 = 1.5,
+            BrightnessRatio = 9.0, CoreIou = 0.0,
+        };
+
+        private static List<string> FailingOf(string layer, int realCore, int ghostCore)
+            => PartParityFxMetrics.FailingMeasures(layer,
+                new PartParityFxSideMeasures { CorePx = realCore, EnvelopePx = 1570, LengthPx = 100.0 },
+                new PartParityFxSideMeasures { CorePx = ghostCore, EnvelopePx = 3680, LengthPx = 137.3 }, Wild(), false);
+
+        [Theory]
+        [InlineData(0, 0)]
+        [InlineData(63, 63)]
+        [InlineData(63, 0)]
+        [InlineData(0, 63)]
+        public void TwoWeakCores_JudgePresenceOnly(int real, int ghost)
+        {
+            foreach (string layer in new[] { Flame, Smoke })
+                Assert.Empty(FailingOf(layer, real, ghost));
+        }
+
+        [Theory]
+        [InlineData(64, 63)]
+        [InlineData(63, 64)]
+        [InlineData(64, 64)]
+        public void OneCoreAtTheMinimum_JudgesEveryMeasure(int real, int ghost)
+        {
+            foreach (string layer in new[] { Flame, Smoke })
+                Assert.Equal(new[]
+                {
+                    PartParityFxRules.MeasureOrigin, PartParityFxRules.MeasureLateral, PartParityFxRules.MeasureLength,
+                    PartParityFxRules.MeasureWidth, PartParityFxRules.MeasureDirection, PartParityFxRules.MeasureCrossSection,
+                    PartParityFxRules.MeasureColour,
+                }, FailingOf(layer, real, ghost));
+        }
+
+        [Theory]
+        [InlineData(64, 0)]
+        [InlineData(0, 64)]
+        public void AMissingOrExtraPlumeAtTheMinimum_FailsPresence(int real, int ghost)
+        {
+            Assert.Contains(PartParityFxRules.MeasurePresence, FailingOf(Flame, real, ghost));
+            Assert.Contains(PartParityFxRules.MeasureSmoke, FailingOf(Smoke, real * 4, ghost * 4));
+        }
+
         [Fact]
         public void BothPlumesEmpty_FailsNothing_IouIsOne()
         {

@@ -564,7 +564,9 @@ namespace Parsek.TestCommands
         /// cross-section (area ratio outside [0.6, 1.6], offset over 0.1) and colour
         /// (chromaticity distance over 0.06 or hue L1 over 0.5). A measure that is null is not
         /// measured and never fails. Brightness and core IoU are warn-only and never listed;
-        /// an rcs case drops <see cref="PartParityFxRules.RcsReportOnlyMeasures"/>.
+        /// an rcs case drops <see cref="PartParityFxRules.RcsReportOnlyMeasures"/>. Where both
+        /// cores are weak (<see cref="BothCoresWeak"/>) only presence is judged: the envelope
+        /// the other measures read is then stray particles.
         /// </summary>
         internal static List<string> FailingMeasures(string layer, PartParityFxSideMeasures real,
             PartParityFxSideMeasures ghost, PartParityFxCompare c, bool rcsCase)
@@ -574,6 +576,7 @@ namespace Parsek.TestCommands
             bool smoke = string.Equals(layer, PartParityFxRules.LayerSmoke, StringComparison.Ordinal);
             if (PresenceReason(layer, real.CorePx, ghost.CorePx) != null)
                 failing.Add(smoke ? PartParityFxRules.MeasureSmoke : PartParityFxRules.MeasurePresence);
+            if (BothCoresWeak(real.CorePx, ghost.CorePx)) return new List<string>(failing);
             double realLength = real.LengthPx ?? 0.0;
             if (Over(Abs(c.OriginDeltaPx), Math.Max(PartParityFxRules.OriginFailMinPx,
                     PartParityFxRules.OriginFailLengthFraction * realLength)))
@@ -612,6 +615,12 @@ namespace Parsek.TestCommands
                 return smoke ? PartParityFxRules.ReasonSmokeExtra : PartParityFxRules.ReasonFxExtra;
             return null;
         }
+
+        /// <summary>True when neither core reaches <see cref="PartParityFxRules.PresenceMinPx"/>,
+        /// on either layer (E.4): the tile holds no plume to compare. One weak core is not enough,
+        /// so a plume one side lacks stays judged.</summary>
+        internal static bool BothCoresWeak(int realCorePx, int ghostCorePx)
+            => realCorePx < PartParityFxRules.PresenceMinPx && ghostCorePx < PartParityFxRules.PresenceMinPx;
 
         private static double? Abs(double? v) => v.HasValue ? Math.Abs(v.Value) : (double?)null;
 

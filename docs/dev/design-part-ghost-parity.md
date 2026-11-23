@@ -2458,6 +2458,20 @@ Per route (event, start), FX view and layer:
 | smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256); an additive trail is judged in the flame layer | all | either | - |
 | core IoU | of the two cores | all | - | under 0.5 (sorting) |
 
+Weak cores (F6, 2026-11-23). Where neither side's core reaches `PresenceMinPx` (64), on either
+layer, only presence is judged: origin, length and width read the envelope, and the envelope of a
+layer with no core is stray particles. Found by PP-8's first reading flight (`2026-11-23_1112`):
+`ctl-fx-real-vs-real` compared the ReStock Flea's smoke with itself, cores 0 and 0, envelopes 1570
+and 3680 px, and failed origin (-29 px) and length (1.37). One weak core is not enough: there every
+measure stays judged and presence keeps its rule above. A weak core never passes silently: the
+Python flag `fx-weak-core:<route>:<view>:<layer>:real=<n>,ghost=<n>` raises the case to at least
+`warn` on every entry where both cores are weak and anything is drawn (an envelope pixel on either
+side), and on every entry where exactly one is weak and presence does not decide (the weak core is
+1 to 63 px, or a smoke core is under `SmokeMinPx`). `PartParityFxMetrics.BothCoresWeak` is the C#
+half (the control judges read `FailingMeasures`, so they follow the same rule), mirrored by
+`fx_both_cores_weak`. Re-judged offline, the F6 sweeps moved no case verdict: PP-7 carries no such
+entry, PP-9 carries it on 18 of 165 cases, all `warn` before and after.
+
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
 (count, speed, direction, length and width percentiles; the two-sided form of the existing
 ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-only in P8: they are
@@ -2729,11 +2743,11 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - RCS (R4). Length, width and brightness leave the verdict and land in
     `fx.rcs.reportedOnly` beside `powerRatio`; the flag `rcs-known-difference:*` is the written
     one, else derived from `fx.rcs`. Flags (`fx.flags`, none moves a verdict but the cap):
-    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and three that
+    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and four that
     raise to at least `warn` because a check did not run: `fx-structure-not-measured` (a null
     `fxMissingOnGhost` or `fxExtraOnGhost`), `fx-nozzle-not-measured` (no `nozzleDiameterPx`
-    on the bottom view) and `fx-no-real-effect` (an empty real side, as the static `JetEngine`
-    draws).
+    on the bottom view), `fx-no-real-effect` (an empty real side, as the static `JetEngine`
+    draws) and, since F6, `fx-weak-core:*` (E.4, weak cores).
   - Controls. In an FX run every control recorded `ok` is re-judged from its sidecar
     (`judge_fx_control`): evidence = the `event` entries, a measure fails when any entry fails
     it. Stricter than `JudgeFxControl` in two ways: a plume control whose intact side has no
@@ -2750,8 +2764,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
     would-be counts, flag counts, thresholds). A sweep with no FX case writes what it wrote
     before.
   - Open for the first flights: `directionDeg` is noisy on a flat or compact core (2 to 4 px
-    across: the halves' centroids differ by fractions of a pixel), and every measure is judged
-    on cores below the presence minimum too; no guard was added, the reading runs re-pin. Two
+    across: the halves' centroids differ by fractions of a pixel); measures on cores below the
+    presence minimum got their guard in F6 (E.4, weak cores). Two
     orbit controls look unmeetable as E.5 states them: `ctl-fx-smoke-dropped`, because since
     GHOST-SMOKE-IN-VACUUM the intact ghost draws no smoke in vacuum, unless its two ghosts
     leave `lastInterpolatedBodyName` unset (smoke as built); and `ctl-fx-plume-shift`, whose
