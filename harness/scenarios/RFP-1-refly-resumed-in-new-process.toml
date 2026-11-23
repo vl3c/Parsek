@@ -1,0 +1,103 @@
+schema = 1
+id = "RFP-1-refly-resumed-in-new-process"
+# =====================================================================================
+# RFP-1: A RE-FLY SAVED MID-SESSION, RESUMED IN A NEW GAME PROCESS, THEN MERGED. Test-gap
+# list 2026-11-18, batch 4, item 4. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+#
+# PENDING FIXTURE. Its host `refly-midsession-saved` does not exist yet: FORGE-refly-midsession
+# stamps it (that spec's header carries the harvest recipe). Until it lands this lane is
+# `tier = "pending-fixture"` and listed in test_hlib.SharedShipsManifestTests.
+# PENDING_FIXTURE_LANES; re-tier it to `nightly` in the commit that adds the fixture.
+#
+# In gameplay terms: the player re-flies a booster, the game saves (or the player saves and
+# quits), and the next day they start KSP and load that save. The Re-Fly must still be live:
+# the marker loaded, its provisional bound to a live recorder, the rewind point and its file
+# there, and the attempt mergeable from the scene-exit dialog.
+#
+# WHAT THE CODE SAYS (read 2026-11-23 on main 0003b8107): the first load of a process is
+# Cold with coldReason=boot (LoadReconcilePolicy.ResolveColdReason, coldLoadsBefore = 0);
+# RewindStaging loads the marker from the save (`[ReFlySession] Marker loaded: <sess>`);
+# LoadTimeSweep validates its six durable fields against the loaded state, none of which is
+# process-scoped (`[LoadSweep] Marker valid=True`); the restored tree is the live session's
+# (QL-16's `TryRestoreActiveTreeNode ... the restored tree is the live Re-Fly session`). The
+# F9 lanes (QL-5c, QL-16) prove the same load shape inside one process; this lane is the
+# process boundary.
+#
+# PRE-REGISTERED RED READINGS: `Marker valid=False` or `Zombie discarded` (the sweep read the
+# session as stale across the process), `Marker loaded: none` (the marker was not saved), a
+# recorder that never goes live (awaitRecorderLive=refly times out), `missingQuicksaveRps=1`
+# (the harvest lost the point's file: a FIXTURE error, re-harvest with --keep-parsek).
+# =====================================================================================
+tier = "pending-fixture"
+description = "Re-Fly resumed in a new process (batch 4 item 4): boot the refly-midsession-saved fixture (a save written mid Re-Fly of rp_b9_root slot 1 by FORGE-refly-midsession) in a fresh KSP process; the Cold boot load restores the marker, the sweep keeps it valid, the recorder goes live on the provisional, the point and its file are there, and the attempt merges."
+instanceProfile = "stock-minimal"
+tags = ["RFP-1", "refly", "rewind", "save-file-load", "merge", "timeline-ops",
+        "pending-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-midsession-saved"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r1",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfp1-resumed-${r1.count}-${r1.rp0}-${r1.rp0slot1open}" }, expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r2",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfp1-merged-${r2.count}" },               expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "load-time-sweep"]
+D14 = ["scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# QL-16's measured 4: the B9 corpus's three plus the merged attempt.
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required = [
+  # ---- the boot load is Cold and restores the live session ----
+  "Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=boot\\b",
+  "\\[ReFlySession\\] Marker loaded: sess_[0-9a-f]{32}\\b",
+  "Re-Fly subsystem state loaded \\(restored collections, not a rewind action; reFlyInProgress=True\\): rewindPoints=1 supersedes=0 rewindRetirements=0 tombstones=0 marker=True journal=False",
+  "\\[LoadSweep\\] Marker valid=True;[^\\r\\n]*\\bmissingQuicksaveRps=0 ",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  "MISSIONMARK label=rfp1-resumed-1-rp_b9_root-true ut=",
+
+  # ---- the resumed attempt merges ----
+  "MISSIONMARK label=rfp1-resumed-1-rp_b9_root-true [\\s\\S]*Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+  "MISSIONMARK label=rfp1-resumed-1-rp_b9_root-true [\\s\\S]*answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=rfp1-merged-[0-9]+ ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ReFlySession\\] Marker loaded: none",
+  "\\[LoadSweep\\] Marker valid=False",
+  "Zombie discarded",
+  "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
+  "MISSIONMARK label=rfp1-resumed-(?!1-rp_b9_root-true )",
+]
+
+[runtime]
+# LoadGame + AnswerMergeDialog at max(budget, 600) + 60 = 1320; the rest (SetSetting x2,
+# RecordingState x2, ListHandles x2, MissionMark x2, FlushAndQuit) 9 x 120 = 1080.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

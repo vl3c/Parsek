@@ -1,0 +1,124 @@
+schema = 1
+id = "RFN-2-refly-nested-separation-discard"
+# =====================================================================================
+# RFN-2: A SEPARATION INSIDE A RE-FLY, THEN THE RE-FLY DISCARDED: THE NESTED, SESSION-SCOPED
+# REWIND POINT GOES WITH THE ATTEMPT AND THE ORIGIN POINT STAYS. Test-gap list 2026-11-18,
+# batch 4, item 2, case (b); cases (a) and (c) are RFN-1. AUTHORED 2026-11-23 (branch
+# `b4-refly`), NOT FLOWN.
+#
+# In gameplay terms: the player re-flies the Flea slot of a pad split, drops the second probe
+# stand (a second rewind point, born inside the Re-Fly), then leaves for the Space Center and
+# picks Discard in the merge dialog. The second point must be gone (it belonged to an attempt
+# that no longer exists) and the first one must stay so the slot can be re-flown.
+#
+# WHAT THE CODE SAYS (read 2026-11-23 on main 0003b8107): the merge dialog's Discard runs
+# MergeDialog.DiscardReFlyAttemptRecordingsAndRewindPoints, which promotes the origin point
+# (PromoteOriginRewindPointForDiscard) and purges every SessionProvisional point the session
+# created except the origin (PurgeDiscardedSessionRewindPoints), releasing its quicksave file
+# and logging `Discard removed session provisional RP rp= bp= sess=` per point and one
+# `Discard removed N session provisional RP(s) sess=` summary. The scene-exit Discard ends the
+# session with `End reason=discardReFlyAttemptFromMergeDialog`.
+#
+# HOST AND CRAFT: RFN-1's (cs-career-mun4, CS Flea Twin Probe, decoupler pids 3615180009 and
+# 3615180012).
+#
+# PRE-REGISTERED RED READINGS: `rfn2-discarded-2` (the nested point survived its attempt),
+# `rfn2-discarded-0` (the origin went with it), a `TagRpsForReap` line (the discard took the
+# merge path).
+# =====================================================================================
+tier = "operator"
+description = "Re-Fly nested separation (batch 4 item 2, case b): on cs-career-mun4 a CS Flea Twin Probe drops stand A on the pad (a rewind point) and is committed with its Flea slot stashed; a Re-Fly of that slot drops stand B (a nested session-provisional rewind point) and the scene-exit merge dialog discards the attempt, which purges the nested point and keeps the origin."
+instanceProfile = "stock-tree"
+tags = ["RFN-2", "RFN-1", "career", "rewind", "refly", "nested-rewind-point", "discard-refly", "editor", "timeline-ops", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- G: stand A dropped on the pad (rp0), committed with the Flea slot stashed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Twin Probe" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler", partPid = "3615180009" }, expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185812", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+
+  # ---- the Re-Fly of the Flea slot, stand B dropped inside it: a nested point ----
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn2-refly-live" },                          expect = "OK" },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler", partPid = "3615180012" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185825", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n1",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn2-nested-${n1.count}-${n1.rp1provisional}" }, expect = "OK" },
+
+  # ---- (case b) the scene-exit merge dialog's Discard ----
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },                              expect = "OK", budget = 240 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n2",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn2-discarded-${n2.count}-${n2.rp0}" },     expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "unfinished-flights-stash"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 plus G's two; the discarded attempt adds none. A reading run sets the max.
+count = { min = 36 }
+
+[expectations.logContracts]
+required = [
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Twin Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1858[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+
+  # ---- the nested point, born session-scoped ----
+  "MISSIONMARK label=rfn2-refly-live (?:(?!MISSIONMARK label=rfn2-nested-)[\\s\\S])*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 [\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=rfn2-nested-2-true ut=",
+
+  # ---- the discard purges the nested point and keeps the origin ----
+  "MISSIONMARK label=rfn2-nested-2-true [\\s\\S]*answermergedialog choice=discard result=discarded",
+  "MISSIONMARK label=rfn2-nested-2-true [\\s\\S]*\\[ReFlySession\\] Discard removed session provisional RP rp=rp_[0-9a-f]{32} bp=[0-9a-f]{32} sess=(sess_[0-9a-f]{32})[\\s\\S]*?Discard removed 1 session provisional RP\\(s\\) sess=\\1",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) [\\s\\S]*MISSIONMARK label=rfn2-discarded-1-\\1 ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "TagRpsForReap: promoted",
+  "MISSIONMARK label=rfn2-nested-(?!2-true )",
+  "MISSIONMARK label=rfn2-discarded-(?!1-)",
+]
+
+[runtime]
+# LoadGame + InvokeRewind + AnswerMergeDialog at max(budget, 600) + 60 = 1980; warps x3,
+# editor, launch, StartRecording, CommitTree at 660 each = 4620; the rest (SetSetting x3,
+# PartAction x2, RecordingState x3, StopRecording x2, ListHandles x3, StashSlot, MissionMark
+# x3, FlushAndQuit) 18 x 120 = 2160. Sum 8760; expected wall about 5 minutes.
+budgetSeconds = 9000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

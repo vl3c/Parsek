@@ -1,0 +1,186 @@
+schema = 1
+id = "RFK-1-ksc-purchases-before-refly-merge"
+# =====================================================================================
+# RFK-1: SPACE CENTER PURCHASES MADE BETWEEN A SEPARATION AND ITS RE-FLY, ACROSS A MERGED
+# RE-FLY. Test-gap list 2026-11-18, batch 4, item 3 ("KSC purchases between a separation and
+# its Re-Fly"); RFK-2 is the discard twin. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+#
+# In gameplay terms: the player drops a probe stand on the pad (a rewind point) and commits
+# the flight, goes to the Space Center, upgrades the runway, repairs a building they knocked
+# down and dismisses a kerbal, then re-flies the Flea from the separation (back before those
+# clicks) and merges. Every click must still count exactly once: the runway upgraded, the
+# building standing, the kerbal gone, each paid once, no pool correction.
+#
+# THE RULE UNDER TEST (game-actions design 2.12 / 15.4): a Re-Fly winds the clock back to the
+# separation; the Space Center rows dated after it are committed future (KSC-origin rows are
+# committed by origin, CommittedFutureIndex), so the world reads them as not yet happened and
+# the warp past their UT crosses each once. The Re-Fly merge removes none of them (they are
+# not the attempt's rows).
+#
+# PART PURCHASE DROPPED HERE: `cs-career-mun4` sets BypassEntryPurchaseAfterResearch = True, so
+# a researched part is never bought. The five entry-purchase hosts (career-pad-craft-hard,
+# career-pad-craft-purchase, career-science-pad-hard, stock-screen-census, -repair) carry only
+# one-command-part craft (Jumping Flea, Settings Probe), so none authors a rewind point; RW-23
+# and L11 own part purchases across a Rewind-to-Launch.
+#
+# PLAN (cs-career-mun4 = CS-6c's produced save, UT ~185734, stock-tree):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   G          RW-25's G verbatim: CS Flea Probe decoupled on the pad (rp0), committed in
+#              flight, the Flea slot stashed; exit to the Space Center.
+#   ksc        warp to 185900 (T1): upgrade SpaceCenter/Runway (RW-1's click), demolish the
+#              R&D annex ForeverAlone and repair SpaceCenter/ResearchAndDevelopment (RW-10's),
+#              sack Bob Kerman (RW-14's).
+#   back       save, load that save focused on the Flea (InvokeRewind runs from FLIGHT only).
+#   refly      InvokeRewind slot 0: the clock back at the separation, ~185805.
+#   merge      AnswerMergeDialog choice=merge: the attempt lands at the Space Center.
+#   crossing   warp to 186000: the four Space Center rows cross once each.
+#   check      an unrecorded CS Flea Probe onto the pad, the default save, LedgerGroundTruth.
+#
+# PINNED LITERALS (read 2026-11-23 on main 0003b8107, the same literals RW-1 / RW-10 / RW-14
+# pin): `kscaction action=... applied=true`, `Clock-crossing reached committed-future rows:`,
+# `Committed dismissal applied:`, `filed StockPoolAdjustment amount=`.
+#
+# PRE-REGISTERED READINGS (not gated): whether the runway reads level 0 inside the Re-Fly
+# (KspStatePatcher's facility walk at the separation's UT), and the LedgerGroundTruth
+# report-only facets.
+#
+# PRE-REGISTERED RED READINGS: a second `applied=true` for any of the four clicks (a row paid
+# twice), a `filed StockPoolAdjustment` (the walk and the pools disagreed), a crossing that
+# names none of FacilityUpgrade / FacilityRepair (the merge dropped a KSC row), hardFailures.
+# =====================================================================================
+tier = "operator"
+description = "Re-Fly after Space Center purchases (batch 4 item 3, merge): on cs-career-mun4 a CS Flea Probe decoupled on the pad is committed with its Flea slot stashed; at the Space Center the runway is upgraded, the R&D annex demolished and repaired and Bob Kerman sacked; the save is loaded back onto the Flea, the slot re-flown from the separation (before the clicks) and merged; the warp crosses the four Space Center rows once each, no pool correction, LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["RFK-1", "career", "ledger", "rewind", "refly", "facility-upgrade", "facility-repair",
+        "demolish", "dismissal", "merge", "editor", "ground-truth", "ingame-batch",
+        "timeline-ops", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- G: RW-25's pad split, committed with the Flea slot stashed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" },      expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185812", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+
+  # ---- the Space Center clicks at T1 = 185900 ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rfk1-before-ksc" },                          expect = "OK" },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "ForeverAlone" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/ResearchAndDevelopment" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "sack-kerbal", kerbal = "Bob Kerman" },      expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rfk1-after-ksc" },                           expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rfk1-01-after-ksc" },                         expect = "OK", budget = 120 },
+
+  # ---- back to FLIGHT on the Flea, then the Re-Fly from the separation ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rfk1-01-after-ksc", focusPid = "${g.pid}" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfk1-before-refly" },                        expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfk1-refly-live" },                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185830", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rfk1-concluded" },                           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+
+  # ---- the crossing ----
+  { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rfk1-crossed" },                             expect = "OK" },
+
+  # ---- the check ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186030" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-separation", "unfinished-flights-stash"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 plus G's two and the merged attempt; a reading run sets the max.
+count = { min = 36 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1858[0-9]{2}\\.[0-9]{2}",
+
+  # ---- the four clicks, once each, at T1 ----
+  "MISSIONMARK label=rfk1-before-ksc ut=(?:(?!MISSIONMARK label=rfk1-after-ksc )[\\s\\S])*?kscaction action=upgrade-facility target=SpaceCenter/Runway applied=true",
+  "MISSIONMARK label=rfk1-before-ksc ut=(?:(?!MISSIONMARK label=rfk1-after-ksc )[\\s\\S])*?kscaction action=demolish-building target=SpaceCenter/ResearchAndDevelopment/Facility/ForeverAlone applied=true",
+  "MISSIONMARK label=rfk1-before-ksc ut=(?:(?!MISSIONMARK label=rfk1-after-ksc )[\\s\\S])*?kscaction action=repair-facility target=SpaceCenter/ResearchAndDevelopment applied=true",
+  "MISSIONMARK label=rfk1-before-ksc ut=(?:(?!MISSIONMARK label=rfk1-after-ksc )[\\s\\S])*?kscaction action=sack-kerbal target=Bob Kerman applied=true",
+
+  # ---- the Re-Fly from the separation, merged ----
+  "MISSIONMARK label=rfk1-before-refly ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke[\\s\\S]*?Invocation complete[\\s\\S]*?MISSIONMARK label=rfk1-refly-live ut=1858[0-9]{2}\\.",
+  "MISSIONMARK label=rfk1-refly-live ut=[\\s\\S]*?answermergedialog choice=merge result=committed[\\s\\S]*?MISSIONMARK label=rfk1-concluded ut=",
+
+  # ---- the crossing: the Space Center rows cross once ----
+  "MISSIONMARK label=rfk1-concluded ut=(?:(?!MISSIONMARK label=rfk1-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*FacilityUpgrade@",
+  "MISSIONMARK label=rfk1-concluded ut=(?:(?!MISSIONMARK label=rfk1-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[0-9]+ \\[[^\\]]*FacilityRepair@",
+  "MISSIONMARK label=rfk1-concluded ut=(?:(?!MISSIONMARK label=rfk1-crossed )[\\s\\S])*?Committed dismissal applied:",
+
+  # ---- the ground truth ----
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  # Each click once: never applied again after the Re-Fly started.
+  "MISSIONMARK label=rfk1-before-refly ut=[\\s\\S]*kscaction action=(?:upgrade-facility|demolish-building|repair-facility|sack-kerbal) [^\\r\\n]*applied=true",
+  "MISSIONMARK label=rfk1-before-refly ut=[\\s\\S]*Committed dismissal applied:[\\s\\S]*Committed dismissal applied:",
+  "filed StockPoolAdjustment amount=",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "facet=Facility kind=PhantomInRecon",
+]
+
+[runtime]
+# RW-25's sizing (5400 for a longer road): the deferred verbs' own budgets (LoadGame x2 600,
+# InvokeRewind 300, AnswerMergeDialog 240, RunTests 540, warps x6 720, editor / launch x2 600,
+# StartRecording 180, CommitTree / ExitToSpaceCenter 240, SaveGame x2 240, KscAction x4 240)
+# sum 4500; the inert steps and FlushAndQuit fit in the rest. Expected wall about 8 minutes.
+budgetSeconds = 7200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

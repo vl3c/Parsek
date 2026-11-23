@@ -1168,6 +1168,50 @@ commit / auto-commit log lines, not through this verb's payload.
   "exittospacecenter failed-returned-to-menu ...", or `Error` "exittospacecenter timeout
   ...".
 
+#### R12/A3 - `ExitToMainMenu` (2026-11-23, lanes QTM-1 / RFQ-2)
+
+**Contract.** FLIGHT-only (`RequiresFlight`), two-phase, budget 120 s (the
+`ExitToSpaceCenter` size). Drives stock's flight Esc-menu Quit to Main Menu
+(`saveAndExit(MAINMENU)`): `SceneExitInterceptor.SafeWritePersistent(MAINMENU)` (confirm-exit,
+the pid dictionaries, the save), then `HighLogic.LoadScene(MAINMENU)`, so the LoadScene
+prefix's main-menu branch runs. Terminal `OK scene=MAINMENU persisted=true` once the scene is
+MAINMENU with no game loaded and the `MainMenu` object present for
+`TestCommandNewGame.MinMenuSettlePolls` consecutive polls; `ERROR msg=exittomainmenu-timeout`
+at the budget; `ERROR msg=exittomainmenu-save-failed` when the pre-exit save threw (the
+prefix hard-blocks that exit, so no load is requested). The addon is `DontDestroyOnLoad` and
+its pump runs at the main menu, so the two-phase state crosses the game unload; the next
+step is typically `LoadGame` (a Cold load, `coldReason=main-menu`).
+
+**Wedge gate.** The same shape as `ExitToSpaceCenter`'s, read for MAINMENU
+(`TestCommandExitToMainMenu.DecideExitGate`): the session branch first (an armed
+`SwitchSegmentSession` refuses unless `ShouldSessionExitFollowAutoMerge`), then the live tree,
+then the pending tree; a tree proceeds only when
+`SceneExitInterceptor.ShouldCommitMainMenuExitWithoutDialog` is true for its variant (auto-merge
+on, a RegularMerge, no merge journal), since that is the branch that commits without the
+dialog. Everything else is `REJECTED msg=dialog-required variant=<token>`; a live Re-Fly
+always refuses (`ReFlyAttempt` keeps its dialog at the main menu too) and a lane concludes it
+with `AnswerMergeDialog exit=mainMenu`. Dispatch-level rejects: `load-in-flight`,
+`merge-journal-in-flight`; no `recording-active` reject.
+
+**Logging.** `Info` "exittomainmenu start scene= autoMerge= hasActiveTree= hasPendingTree=
+switchSegmentSession= reFly= activeTreeVariant= pendingTreeVariant=
+activeCommitsWithoutDialog= pendingCommitsWithoutDialog=", then `Warn` "exittomainmenu
+refused reason=dialog-required variant= gate= ..." or `Info` "exittomainmenu driving
+scene-exit dest=MAINMENU persisted=true ...", closing `Info` "exittomainmenu complete
+scene=MAINMENU game-loaded=false elapsed=<n>s" or `Error` "exittomainmenu timeout ...".
+
+**`AnswerMergeDialog exit=quitWithoutSaving|mainMenu`.** The Re-Fly conclusion's exit (the
+route that LEAVES flight so the prefix shows the Re-Fly dialog) is the saving exit to the
+Space Center by default. `exit=quitWithoutSaving` takes stock's no-save exit instead
+(`onSceneConfirmExit`, then `LoadScene(SPACECENTER)`, no save); `exit=mainMenu` takes the
+saving exit to MAINMENU. Completion is OK on any settled non-FLIGHT, non-LOADING scene, so
+MAINMENU qualifies. Closed arg (`VERB_SCOPED_CLOSED_ARGS`); any other value is `REJECTED
+msg=answermergedialog-exit-arg-invalid`. The drive lines are "answermergedialog driving
+re-fly conclusion quit-without-saving dest=<d> (sess=<s>) ..." and "answermergedialog
+driving re-fly conclusion scene-exit (persisted=<bool> sess=<s> exit=<token> dest=<d>) ...".
+hlib gates both verbs' literals (`ExitToMainMenuSourceSyncTests`,
+`AnswerMergeExitSourceSyncTests`).
+
 #### R12/B - `SimulateStockSwitchClick` (the promoted reserved verb)
 
 **What it closes.** kRPC's `active_vessel` setter calls `FlightGlobals.SetActiveVessel`

@@ -1,0 +1,126 @@
+schema = 1
+id = "RFQ-2-refly-quit-to-main-menu-merge"
+# =====================================================================================
+# RFQ-2: STOCK "QUIT TO MAIN MENU" OUT OF A LIVE RE-FLY, THEN THE SAVE LOADED BACK FROM THE
+# MAIN MENU. Test-gap list 2026-11-18, Medium "Quit to main menu, or Quit without saving,
+# during a Re-Fly", half (b), the Re-Fly variant (the live-recording variant is QTM-1). Batch
+# 4, AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+#
+# In gameplay terms: the player re-flies the crashed booster of the B9 split, opens the Esc
+# menu and presses "Quit to Main Menu". Leaving flight under auto-merge commits a plain live
+# flight without the dialog (SceneExitInterceptor.ShouldCommitMainMenuExitWithoutDialog, owner
+# ruling 2026-11-01), but NOT a Re-Fly: the commit-without-dialog predicate is false for the
+# ReFlyAttempt variant, so the Re-Fly merge dialog comes up at the main-menu exit too. The
+# player merges, the game unloads at the main menu, and loading the save back must show the
+# merged attempt with the session concluded.
+#
+# THE ROAD: RFQ-1's (RF-16's on `gloops-airshow` + `rewind-b9`), then
+#   1. the new `ExitToMainMenu` verb must be REFUSED pre-exit (`dialog-required
+#      variant=ReFlyAttempt`): the verb samples the prefix's own predicates;
+#   2. `AnswerMergeDialog exit=mainMenu choice=merge` runs stock's saveAndExit(MAINMENU)
+#      (the save, then LoadScene(MAINMENU)) and answers the Re-Fly dialog the prefix shows;
+#      the verb completes when the main menu is the scene;
+#   3. `LoadGame persistent` from the main menu (the boot channel): a Cold load with
+#      `coldReason=main-menu`, the marker gone.
+#
+# THE GATE: the refusal; the driven exit with `exit=mainMenu dest=MAINMENU`; the idle
+# auto-discard refusing for the live Re-Fly with `dest=MAINMENU`; the dialog offered with the
+# Re-Fly labels; Merge committed; then the main-menu Cold load and `Marker loaded: none`.
+# Forbidden: the main-menu commit-without-dialog branch (a Re-Fly must keep its dialog) and
+# the ExitToMainMenu driving line.
+#
+# PRE-REGISTERED RED READINGS:
+#   - `main-menu exit under auto-merge branch=live-tree`: the Re-Fly was committed without its
+#     dialog (the ReFlyAttempt exception lost);
+#   - the LoadGame from the main menu answering ERROR: the AnswerMergeDialog completed on the
+#     MAINMENU scene before the game finished unloading (a seam timing reading: the verb's
+#     completion takes any non-FLIGHT, non-LOADING scene);
+#   - `Marker loaded: ` naming a session after the reload: the merge's marker clear was not
+#     saved before the game unloaded.
+#
+# FAST-LANE CHECKLIST: 1 reuse: no host exits to the main menu; 2 the one wait is RF-16's
+# explicit TimeJump; 3-5 not applicable; 6 retry once; 7 rewind windows report-only until a
+# reading run; 8 tier nightly (RF-16's cost plus one cold load); 9 flight_efficiency.py after
+# the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Quit to Main Menu out of a live Re-Fly (S4.1's host + rewind-b9): ExitToMainMenu is refused dialog-required, stock's saveAndExit(MAINMENU) shows the Re-Fly merge dialog (never the commit-without-dialog branch), Merge commits at the main menu, and the save loaded back from the main menu is a Cold load with the session concluded."
+instanceProfile = "stock-minimal"
+tags = ["RFQ-2", "rewind", "refly", "merge", "main-menu", "scene-exit", "cold-load", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },        expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                              expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",      args = { rp = "rp_b9_root", slot = "1" },                      expect = "OK", budget = 300 },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfq2-refly-live" },                          expect = "OK" },
+  { cmd = "ExitToMainMenu",                                                                   expect = "REJECTED" },
+  { cmd = "MissionMark",       args = { label = "rfq2-seam-exit-refused" },                   expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge", exit = "mainMenu" },                expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "rfq2-at-main-menu" },                        expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r1",                 expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfq2-reloaded-${r1.count}" },                expect = "OK" },
+  { cmd = "RecordingState",                                                                   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "refly-gate", "merge-journal"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Invocation complete",
+  "exittomainmenu start scene=FLIGHT autoMerge=(true|false) hasActiveTree=true [^\\r\\n]*reFly=true activeTreeVariant=ReFlyAttempt ",
+  "MISSIONMARK label=rfq2-refly-live ut=[\\s\\S]*?exittomainmenu refused reason=dialog-required variant=ReFlyAttempt gate=RefusedActiveTreeDialog[\\s\\S]*?MISSIONMARK label=rfq2-seam-exit-refused ut=",
+  "MISSIONMARK label=rfq2-seam-exit-refused ut=[\\s\\S]*?answermergedialog driving re-fly conclusion scene-exit \\(persisted=True sess=[^ ]+ exit=mainMenu dest=MAINMENU\\)",
+  "TryAutoDiscardIdleActiveTree: refusing - refly-active sess=.* dest=MAINMENU",
+  "Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=rfq2-at-main-menu ut=[\\s\\S]*?Load classified: early=Cold refined=Cold scene=[A-Z]+ [^\\r\\n]*\\bcoldReason=main-menu\\b",
+  "MISSIONMARK label=rfq2-at-main-menu ut=[\\s\\S]*?Marker loaded: none",
+  "MISSIONMARK label=rfq2-reloaded-[0-9]+ ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+  "exittomainmenu driving scene-exit",
+  "LoadScene prefix: main-menu exit under auto-merge",
+  "LoadScene prefix: main-menu exit committed without the dialog",
+  "End reason=retry ",
+  "End reason=discardReFly sess=",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+]
+
+[expectations.rewind]
+# Report-only until a reading run.
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

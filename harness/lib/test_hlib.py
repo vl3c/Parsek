@@ -1265,7 +1265,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # two: the map / Tracking Station picture instrument and its camera framing.
         # 63 / 4 after PartParitySweep, an ADDITION by one: one time-boxed step of the part
         # ghost parity capture (PP-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 63)
+        # 64 / 4 after ExitToMainMenu, an ADDITION by one: the flight Esc-menu Quit to Main
+        # Menu (QTM-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 64)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -11016,6 +11018,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "SWS-1-save-switch-through-main-menu.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's save-switch lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): NewGame as= quits to the main menu into a new sandbox in another folder that must hold no recordings, LoadGame brings the career back whole, and a VAB launch passes LedgerGroundTruth. LIVE-PROVEN 2026-10-31 (run 2026-10-31_2358, PASS attempt 1, 96 s, committed 34 / 0 / 34); stays operator because stock-tree is not in the nightly instance set",
         "REV-1-revert-to-vab-in-rewound-timeline.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's Revert to VAB / SPH lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a committed pad Flea and a Rewind-to-Launch to it, a recorded relaunch while the committed ghost plays, Esc > Revert to VAB (RevertToLaunch target=prelaunch) landing in the editor with the relaunch dropped, no scene-exit write over stock's revert state and no orphan recovery left armed, then a launch from that editor and LedgerGroundTruth. LIVE-PROVEN 2026-10-31 (run 2026-10-31_2355, PASS attempt 1, 173 s, pruned 1); stays operator because stock-tree is not in the nightly instance set",
         "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1811`, 348 s); owed: the ordinary promotion call",
+        # Test-gap list batch 4 (2026-11-23, branch `b4-refly`, todo TEST-GAPS-BATCH4-REFLY-2026-11-23).
+        "RFN-1-refly-nested-separation-merge-f9.toml": "tier=operator by the calibration discipline, NOT debt: a separation inside a Re-Fly on `cs-career-mun4` (stock-tree, not in the nightly instance set) with the new `CS Flea Twin Probe`: stand A dropped on the pad and committed, the Flea slot re-flown, F5, stand B dropped (a nested session-provisional rewind point), F9 back to before it (the point gone), stand B dropped again and the attempt merged (TagRpsForReap fromSession=1). Authored 2026-11-23, never flown; owed: the first flight, then the ordinary promotion call",
+        "RFN-2-refly-nested-separation-discard.toml": "tier=operator by the calibration discipline, NOT debt: RFN-1's road on `cs-career-mun4` (stock-tree) without the F5 / F9, concluded by the merge dialog's Discard, which purges the nested session-provisional rewind point and keeps the origin. Authored 2026-11-23, never flown; owed: the first flight, then the ordinary promotion call",
+        "RFK-1-ksc-purchases-before-refly-merge.toml": "tier=operator by the calibration discipline, NOT debt: on `cs-career-mun4` (stock-tree) a pad split committed, a runway upgrade, an annex demolished and repaired and a kerbal sacked at the Space Center, then a Re-Fly from before those clicks, merged; the warp crosses each Space Center row once and LedgerGroundTruth closes the career. Authored 2026-11-23, never flown; owed: the first flight, then the ordinary promotion call",
+        "RFK-2-ksc-purchases-before-refly-discard.toml": "tier=operator by the calibration discipline, NOT debt: RFK-1 on `cs-career-mun4` (stock-tree) with the Re-Fly discarded; every Space Center row still crosses once. Authored 2026-11-23, never flown; owed: the first flight, then the ordinary promotion call",
+        "FORGE-refly-midsession.toml": "mechanism, not debt - a FIXTURE-FORGE run (operator tier keeps it off every cadence): a save written mid Re-Fly on gloops-airshow + rewind-b9, harvested into `refly-midsession-saved` for RFP-1 (recipe in its header)",
         "SLM-1-standalone-loop-map-position.toml": "tier=operator by the calibration discipline, NOT debt: a Recordings-tab loop on `pad-runway-pair` (stock-minimal, the `standalone-loop-map` preset: a 1500 s orbital run looping every 4000 s) whose map ghost is read by position against the recorded orbit in FLIGHT map view 300 s into its second run. LIVE-PROVEN 2026-11-01 (`2026-11-01_0034`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "SLM-1T-standalone-loop-ts-position.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), saved 400 s into its third run and reloaded into the Tracking Station, where its map ghost is read by position against the recorded orbit. LIVE-PROVEN 2026-11-01 (`2026-11-01_0037`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "FAR-1-ike-rewind-to-launch-career.toml": "tier=operator by the calibration discipline, NOT debt: a Rewind-to-Launch whose launch is a recorded segment of the DD1 probe's Ike orbit on `duna-ike-recorded-career` (stock-minimal), its ghost read at Ike in the Tracking Station, the leaf spawn at the Space Center read by position (LeafVesselPlacement) and the ledger by the rewind-aware oracle. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2321`, third flight, after a fixture rebuild); owed: the ordinary promotion call",
@@ -17693,6 +17701,62 @@ class ExitQuitWithoutSavingSourceSyncTests(unittest.TestCase):
                       hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
             hlib.EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON))
+
+
+class ExitToMainMenuSourceSyncTests(unittest.TestCase):
+    """`ExitToMainMenu`, the flight Esc-menu Quit to Main Menu. Reads OUTSIDE harness/: the
+    verb, its two ERROR reasons in the comment-stripped TestCommandExitToMainMenu.cs and the
+    verb in TestCommandVerbs.cs, and checks the verb sits on every harness axis."""
+
+    def _source(self, name):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", name)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# %s moved; this mirror is vacuous: %s" % (name, path))
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommandExitToMainMenu.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.EXIT_TO_MAIN_MENU_VERB, text)
+        self.assertIn('internal const string TimeoutReason = "%s";'
+                      % hlib.EXIT_TO_MAIN_MENU_TIMEOUT_REASON, text)
+        self.assertIn('internal const string SaveFailedReason = "%s";'
+                      % hlib.EXIT_TO_MAIN_MENU_SAVE_FAILED_REASON, text)
+        self.assertIn('"%s"' % hlib.EXIT_TO_MAIN_MENU_VERB, self._source("TestCommandVerbs.cs"))
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.EXIT_TO_MAIN_MENU_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertEqual(120.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[verb])
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        # Two-phase like ExitToSpaceCenter, and like it NOT a DEFERRED_SEAM_VERB: its
+        # budget is the dispatch budget, under the cap.
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+
+
+class AnswerMergeExitSourceSyncTests(unittest.TestCase):
+    """`AnswerMergeDialog exit=`: the key, its two values and the arg-invalid reason in the
+    comment-stripped TestCommandMergeAnswer.cs."""
+
+    def test_the_key_values_and_reason_mirror_the_c_sharp(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandMergeAnswer.cs")
+        self.assertTrue(os.path.isfile(path), "the C# merge-answer tables moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+        self.assertIn('internal const string ExitArg = "%s";' % hlib.ANSWERMERGE_EXIT_KEY, text)
+        self.assertEqual(("quitWithoutSaving", "mainMenu"), hlib.ANSWERMERGE_EXIT_VALUES)
+        self.assertIn('internal const string ExitQuitWithoutSavingValue = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_VALUES[0], text)
+        self.assertIn('internal const string ExitMainMenuValue = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_VALUES[1], text)
+        self.assertIn('internal const string ExitArgInvalidReason = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_INVALID_REASON, text)
+        self.assertEqual(("AnswerMergeDialog", hlib.ANSWERMERGE_EXIT_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.ANSWERMERGE_EXIT_KEY])
+        self.assertIn(hlib.ANSWERMERGE_EXIT_INVALID_REASON, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
+            hlib.ANSWERMERGE_EXIT_INVALID_REASON))
 
 
 class RealSpawnRecoverSourceSyncTests(unittest.TestCase):
@@ -26679,7 +26743,14 @@ class SharedShipsManifestTests(unittest.TestCase):
     # fixture; tier "pending-fixture", the hand-over in SUB-1's header.
     # RETIRED 2026-11-18: FORGE-psub-pad flew green (`2026-11-18_0056`) and
     # `psub-pad` / `psub-splashed` are committed.
-    PENDING_FIXTURE_LANES: dict = {}
+    #
+    # RE-ARMED 2026-11-23 by the test-gap list's batch 4 item 4: the forge
+    # FORGE-refly-midsession is authored, not flown, and RFP-1 (a Re-Fly saved
+    # mid-session, resumed in a new process) names the fixture its harvest becomes,
+    # tier "pending-fixture", the hand-over in the forge's header.
+    PENDING_FIXTURE_LANES: dict = {
+        "RFP-1-refly-resumed-in-new-process.toml": "refly-midsession-saved",
+    }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture

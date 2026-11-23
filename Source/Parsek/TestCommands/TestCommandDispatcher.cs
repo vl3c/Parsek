@@ -205,6 +205,7 @@ namespace Parsek.TestCommands
 
         // ----- R12 (scene routing) -----
         void ExitToSpaceCenter(ParsedCommand cmd);
+        void ExitToMainMenu(ParsedCommand cmd);
 
         // ----- R12 (stock switch click; the promoted reserved verb) -----
         void SimulateStockSwitchClick(ParsedCommand cmd);
@@ -571,6 +572,9 @@ namespace Parsek.TestCommands
                 // (StartRecording / InvokeRewind / TimeJump / the EVA family). The verb's
                 // REAL refusals - the wedge guard - are executor-side and typed REJECTED.
                 ["ExitToSpaceCenter"] = VerbSceneRequirement.RequiresFlight,
+                // The flight Esc-menu Quit to Main Menu: FLIGHT is its precondition for
+                // ExitToSpaceCenter's reasons (a defer on a scene still settling in).
+                ["ExitToMainMenu"] = VerbSceneRequirement.RequiresFlight,
                 // R12. SimulateStockSwitchClick's scene depends on its site=: the map-view
                 // "Switch To" click exists only in FLIGHT (the map is a FLIGHT overlay), the
                 // Tracking Station Fly only in TRACKSTATION, the KSC marker Fly only at the
@@ -1004,6 +1008,7 @@ namespace Parsek.TestCommands
                     break;
 
                 case "ExitToSpaceCenter":
+                case "ExitToMainMenu":
                     // A scene exit mid-load would race the boot channel's own scene change,
                     // and a re-fly merge journal mid-finalize must not be raced by a driven
                     // transition (both mirror InvokeRewind's guards verbatim). NOTE the
@@ -1300,6 +1305,11 @@ namespace Parsek.TestCommands
         /// cold save off disk.</summary>
         internal const double ExitToSpaceCenterSeconds = 120.0;
 
+        /// <summary>ExitToMainMenu: the pre-exit save, the main-menu branch's commit and
+        /// second save, the FLIGHT teardown and the main-menu bootstrap. A scene exit that
+        /// re-reads no save: the ExitToSpaceCenter size (120 s).</summary>
+        internal const double ExitToMainMenuSeconds = 120.0;
+
         /// <summary>StartLoopPlayback (player-workflow lane): the forward jump itself
         /// is an instantaneous <c>Planetarium.SetUniversalTime</c> set, exactly like
         /// TimeJump's, so it is sized identically (120 s) and for the same reason -
@@ -1428,6 +1438,8 @@ namespace Parsek.TestCommands
                     return EvaGroundScienceSeconds;
                 case "ExitToSpaceCenter":
                     return ExitToSpaceCenterSeconds;
+                case "ExitToMainMenu":
+                    return ExitToMainMenuSeconds;
                 case "StartLoopPlayback":
                     return StartLoopPlaybackSeconds;
                 case "WarpToUT":

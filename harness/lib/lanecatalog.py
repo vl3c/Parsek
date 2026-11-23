@@ -67,6 +67,7 @@ VERB_TIMELINE_OPS: Dict[str, Tuple[str, ...]] = {
     "SaveGame": ("save",),
     "TimeJump": ("time-jump",),
     "ExitToSpaceCenter": ("scene-change",),
+    "ExitToMainMenu": ("scene-change",),
     "GoToEditor": ("scene-change",),
     "LaunchFromEditor": ("scene-change",),
     "SimulateStockSwitchClick": ("vessel-switch",),

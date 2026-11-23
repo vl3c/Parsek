@@ -151,6 +151,8 @@ namespace Parsek.TestCommands
         private bool mergeAnswerApplied;
         private string mergeAnswerResult;
         private bool mergeAnswerDrivePending;
+        // AnswerMergeDialog exit=: which stock exit a driven Re-Fly conclusion takes.
+        private ReFlyConclusionExit mergeAnswerExit = ReFlyConclusionExit.SpaceCenter;
 
         // FlushAndQuit (P5.8): the response + journal DONE are written and flushed BEFORE
         // Application.Quit, which is deferred one frame via a coroutine scheduled only
@@ -1067,6 +1069,13 @@ namespace Parsek.TestCommands
                 TryCompleteExitToSpaceCenter(now);
                 return;
             }
+            // The flight Esc-menu Quit to Main Menu, in the
+            // ParsekTestCommandAddon.ExitToMainMenu.cs partial: completes on a settled main menu.
+            if (completionVerb == TestCommandExitToMainMenu.Verb)
+            {
+                TryCompleteExitToMainMenu(now);
+                return;
+            }
             // The D18 player-action pair, in the ParsekTestCommandAddon.RealSpawn.cs /
             // .Recover.cs partials: a spawn read-back and a stock recovery observed at the
             // Space Center, each with its own bounded completion.
@@ -1355,6 +1364,7 @@ namespace Parsek.TestCommands
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
             mergeAnswerDrivePending = false;
+            mergeAnswerExit = ReFlyConclusionExit.SpaceCenter;
             // A LaunchFromEditor lock wait must never outlive its command (a gate throw
             // clears the two-phase state through here).
             launchFromEditorLockWait = false;
@@ -1648,6 +1658,9 @@ namespace Parsek.TestCommands
         // R12 scene routing: the ExitToSpaceCenter body + its two-phase completion live in
         // the sibling ParsekTestCommandAddon.ExitToSpaceCenter.cs partial.
         void ITestCommandExecutor.ExitToSpaceCenter(ParsedCommand cmd) => ExitToSpaceCenterImpl(cmd);
+        // The flight Quit to Main Menu: body + two-phase completion in the sibling
+        // ParsekTestCommandAddon.ExitToMainMenu.cs partial.
+        void ITestCommandExecutor.ExitToMainMenu(ParsedCommand cmd) => ExitToMainMenuImpl(cmd);
 
         // R12 stock switch click: the body lives in the sibling
         // ParsekTestCommandAddon.SimulateSwitchClick.cs partial. Single-phase - the switch
@@ -1833,6 +1846,7 @@ namespace Parsek.TestCommands
                 case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
                 case "EvaGroundScience": exec.EvaGroundScience(cmd); break;
                 case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
+                case "ExitToMainMenu": exec.ExitToMainMenu(cmd); break;
                 case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
                 case "MissionConfig": exec.MissionConfig(cmd); break;
                 case "StartLoopPlayback": exec.StartLoopPlayback(cmd); break;
@@ -2994,6 +3008,16 @@ namespace Parsek.TestCommands
             ParsekLog.Verbose(Tag, $"answermergedialog target dialog={dialogToken} "
                 + $"name={dialogName}");
 
+            string exitRaw = ArgOrNull(cmd, TestCommandMergeAnswer.ExitArg);
+            string exitReject = TestCommandMergeAnswer.ParseExit(exitRaw, out ReFlyConclusionExit exit);
+            if (exitReject != null)
+            {
+                ParsekLog.Warn(Tag, $"answermergedialog refused reason={exitReject} exit={exitRaw}");
+                SetExecResult("REJECTED", null, exitReject);
+                return;
+            }
+            mergeAnswerExit = exit;
+
             ParsekScenario scenario = ParsekScenario.Instance;
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
 
@@ -3103,13 +3127,32 @@ namespace Parsek.TestCommands
         // flow diverging from production shape and presenting as a product defect.
         private PopupDialog DriveReFlyConclusion(ParsekScenario scenario)
         {
-            bool persisted = SceneExitInterceptor.SafeWritePersistent(GameScenes.SPACECENTER);
+            ReFlyConclusionExit exit = mergeAnswerExit;
+            GameScenes destination = TestCommandMergeAnswer.ExitDestination(exit);
+            string sess = scenario?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>";
+            if (!TestCommandMergeAnswer.ExitSavesFirst(exit))
+            {
+                // Stock's Quit without saving (PauseMenu.drawExitWithoutSaveOptions, decompiled
+                // KSP 1.12.5): the confirm-exit, then LoadScene, no save. A live Re-Fly keeps
+                // its dialog on that exit (NoSaveSceneExit.ShouldFollowTheSave), and the
+                // dialog's own postChoice persists after the answer, so the marker this branch
+                // leaves unsaved is concluded before any save the destination reads.
+                if (HighLogic.CurrentGame != null)
+                    GameEvents.onSceneConfirmExit.Fire(HighLogic.CurrentGame.startScene);
+                ParsekLog.Info(Tag,
+                    $"answermergedialog driving re-fly conclusion quit-without-saving dest={destination} " +
+                    $"(sess={sess}) - stock no-save exit: confirm-exit, no save");
+                HighLogic.LoadScene(destination);
+                return FindReFlyMergePopup();
+            }
+
+            bool persisted = SceneExitInterceptor.SafeWritePersistent(destination);
             ParsekLog.Info(Tag,
                 $"answermergedialog driving re-fly conclusion scene-exit " +
-                $"(persisted={persisted} sess={scenario?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}) " +
+                $"(persisted={persisted} sess={sess} exit={TestCommandMergeAnswer.ExitToken(exit)} dest={destination}) " +
                 "- the marker must survive into the destination scene or the load-time " +
                 "sweep discards this session's provisional as a zombie");
-            HighLogic.LoadScene(GameScenes.SPACECENTER);
+            HighLogic.LoadScene(destination);
             return FindReFlyMergePopup();
         }
 
