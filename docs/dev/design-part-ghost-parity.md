@@ -2503,14 +2503,18 @@ layer, only presence is judged: origin, length and width read the envelope, and 
 layer with no core is stray particles. Found by PP-8's first reading flight (`2026-11-23_1112`):
 `ctl-fx-real-vs-real` compared the ReStock Flea's smoke with itself, cores 0 and 0, envelopes 1570
 and 3680 px, and failed origin (-29 px) and length (1.37). One weak core is not enough: there every
-measure stays judged and presence keeps its rule above. A weak core never passes silently: the
+measure stays judged and presence keeps its rule above. Nor do the split halves of such an entry
+tag `fx-unsettled` (its stray particles would cap a fail elsewhere at `warn`). A weak core never
+passes silently: the
 Python flag `fx-weak-core:<route>:<view>:<layer>:real=<n>,ghost=<n>` raises the case to at least
 `warn` on every entry where both cores are weak and anything is drawn (an envelope pixel on either
 side), and on every entry where exactly one is weak and presence does not decide (the weak core is
 1 to 63 px, or a smoke core is under `SmokeMinPx`). `PartParityFxMetrics.BothCoresWeak` is the C#
 half (the control judges read `FailingMeasures`, so they follow the same rule), mirrored by
-`fx_both_cores_weak`. Re-judged offline, the F6 sweeps moved no case verdict: PP-7 carries no such
-entry, PP-9 carries it on 18 of 165 cases, all `warn` before and after.
+`fx_both_cores_weak`. Re-judged offline: PP-7 (`2026-11-23_1027`) carries no such entry and moved no
+verdict; PP-9 (`2026-11-23_1050`) carries it on 18 of 165 cases and moved three from `warn` to `fail`
+(`liquidengine--size1--burn-low`, `liquidengine.v2--trussmount--burn-low`,
+`radialliquidengine1-2--shrouded--burn-full`: only weak smoke halves had capped them).
 
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
 (count, speed, direction, length and width percentiles; the two-sided form of the existing

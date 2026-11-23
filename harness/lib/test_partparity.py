@@ -1185,6 +1185,11 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertLess(body.index("PresenceReason(layer, real.CorePx, ghost.CorePx)"),
                         body.index("if (BothCoresWeak(real.CorePx, ghost.CorePx)) return"))
         self.assertLess(body.index("if (BothCoresWeak("), body.index("c.OriginDeltaPx"))
+        # The entry's convergence follows it, on the whole-set cores.
+        body = text[text.index("internal string SplitHalfDisagreement()"):]
+        body = body[:body.index("internal List<string> FailingMeasures(bool rcsCase)")]
+        self.assertLess(body.index("PartParityFxMetrics.BothCoresWeak(Real.CorePx, Ghost.CorePx)) return null;"),
+                        body.index("RealEven, RealOdd"))
 
     def test_the_fx_sweep_contract(self):
         text = self._source("TestCommandPartParitySweep.cs")
@@ -2743,9 +2748,9 @@ class FxJudgeTests(unittest.TestCase):
                 self.assertEqual(pp.VERDICT_WARN, c.verdict)
                 want = {"fx-weak-core:%s:%s:smoke:real=0,ghost=0" % (r, v)
                         for r in ("event", "start") for v in pp.FX_VIEWS}
-                self.assertEqual(want, set(c.fx.flags) - {pp.CAP_FX_UNSETTLED})
-                self.assertEqual({"flag:" + f for f in want}, set(c.reasons) - {pp.REASON_FX_UNSETTLED})
-                self.assertEqual(want, set(c.to_dict()["fx"]["flags"]) - {pp.CAP_FX_UNSETTLED})
+                self.assertEqual(want, set(c.fx.flags))
+                self.assertEqual({"flag:" + f for f in want}, set(c.reasons))
+                self.assertEqual(want, set(c.to_dict()["fx"]["flags"]))
 
     def test_a_weak_core_never_hides_a_fail_elsewhere(self):
         smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
@@ -2753,6 +2758,17 @@ class FxJudgeTests(unittest.TestCase):
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertTrue(any(f.startswith("fx-weak-core:") for f in c.fx.flags))
+        # Nor do its unsettled halves cap the fail (PP-9 `2026-11-23_1050`,
+        # liquidengine--size1--burn-low: smoke halves 21 and 12 px over an 18 px core).
+        for e in doc["fx"]["views"]:
+            if e["layer"] == "smoke":
+                e["splitHalf"]["odd"]["real"]["lengthPx"] = 1.0
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_FAIL, ()), (c.verdict, c.fx.unsettled))
+        # A judged layer that did not settle still caps (E.4).
+        doc["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] = 1.0
+        self.assertEqual("flame", doc["fx"]["views"][0]["layer"])
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
 
     def test_the_real_vs_real_control_skips_two_weak_cores_and_no_more(self):
         doc = _fx_case(case_id="ctl-fx-real-vs-real", control=True)[0]
@@ -2993,7 +3009,7 @@ class FxJudgeTests(unittest.TestCase):
     def test_the_split_half_rule(self):
         def halves(even, odd, layer="flame"):
             blank = {"corePx": 0, "lengthPx": None, "widthPx": None}
-            return pp.fx_split_half_disagreement({"layer": layer, "splitHalf": {
+            return pp.fx_split_half_disagreement({"layer": layer, "real": {"corePx": 64}, "splitHalf": {
                 "even": {"real": blank, "ghost": dict(blank, **even)},
                 "odd": {"real": blank, "ghost": dict(blank, **odd)}}})
         self.assertIsNone(halves({"lengthPx": 100.0}, {"lengthPx": 90.0}))
@@ -3003,6 +3019,11 @@ class FxJudgeTests(unittest.TestCase):
         self.assertEqual("ghost width even=10.000 odd=12.000", halves({"widthPx": 10.0}, {"widthPx": 12.0}))
         self.assertEqual("ghost presence even=64 odd=0", halves({"corePx": 64}, {}))
         self.assertIsNone(halves({"corePx": 255}, {}, "smoke"))
+        # Both whole-set cores weak: stray particles, no convergence to read. One is not enough.
+        for real, ghost, settled in ((63, 63, True), (0, 0, True), (64, 0, False), (0, 64, False)):
+            e = {"layer": "smoke", "real": {"corePx": real}, "ghost": {"corePx": ghost}, "splitHalf": {
+                "even": {"ghost": {"corePx": 441, "lengthPx": 21.0}}, "odd": {"ghost": {"corePx": 0, "lengthPx": 12.0}}}}
+            self.assertEqual(settled, pp.fx_split_half_disagreement(e) is None, (real, ghost))
         side, _atlas = _fx_fixture()
         self.assertEqual([None] * 16, [pp.fx_split_half_disagreement(e) for e in side["fx"]["views"]])
 

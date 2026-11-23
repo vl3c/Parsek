@@ -1415,7 +1415,12 @@ def fx_failing_measures(entry: Dict, rcs_case: bool = False) -> List[str]:
 
 def fx_split_half_disagreement(entry: Dict) -> Optional[str]:
     """PartParityFxViewResult.SplitHalfDisagreement over the written halves: the real side's,
-    else the ghost's, as ``<side> <measure> even=<v> odd=<v>``; None when both settled."""
+    else the ghost's, as ``<side> <measure> even=<v> odd=<v>``; None when both settled, and
+    where both whole-set cores are weak (stray particles must not cap a case that fails
+    elsewhere)."""
+    whole = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    if fx_both_cores_weak(*(_fx_count(s, "corePx") for s in whole)):
+        return None
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves = [split.get(h) if isinstance(split.get(h), dict) else {} for h in FX_SPLIT_HALF_KEYS]
     for side in ("real", "ghost"):

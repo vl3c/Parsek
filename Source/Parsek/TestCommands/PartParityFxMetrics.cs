@@ -878,9 +878,12 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The split-half disagreement of this entry: the real side's, else the
-        /// ghost's, prefixed with the side; null when both settled.</summary>
+        /// ghost's, prefixed with the side; null when both settled, and where both whole-set
+        /// cores are weak (<see cref="PartParityFxMetrics.BothCoresWeak"/>): stray particles that
+        /// differ between the halves must not cap a case whose plume fails elsewhere.</summary>
         internal string SplitHalfDisagreement()
         {
+            if (Real != null && Ghost != null && PartParityFxMetrics.BothCoresWeak(Real.CorePx, Ghost.CorePx)) return null;
             string real = PartParityFxMetrics.SplitHalfDisagreement(Layer, RealEven, RealOdd);
             if (real != null) return PartParityFxRules.SideReal + " " + real;
             string ghost = PartParityFxMetrics.SplitHalfDisagreement(Layer, GhostEven, GhostOdd);

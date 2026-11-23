@@ -368,6 +368,24 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(63, 63, true)]
+        [InlineData(0, 0, true)]
+        [InlineData(64, 0, false)]
+        [InlineData(0, 64, false)]
+        public void TwoWeakCores_NeverReadAsUnsettled(int real, int ghost, bool settled)
+        {
+            var r = new PartParityFxViewResult
+            {
+                Layer = Smoke,
+                Real = new PartParityFxSideMeasures { CorePx = real },
+                Ghost = new PartParityFxSideMeasures { CorePx = ghost },
+                RealEven = new PartParityFxSideMeasures { LengthPx = 21.0 },
+                RealOdd = new PartParityFxSideMeasures { LengthPx = 12.0 },
+            };
+            Assert.Equal(settled, r.SplitHalfDisagreement() == null);
+        }
+
+        [Theory]
         [InlineData(64, 0)]
         [InlineData(0, 64)]
         public void AMissingOrExtraPlumeAtTheMinimum_FailsPresence(int real, int ghost)
