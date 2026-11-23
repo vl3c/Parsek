@@ -1,0 +1,87 @@
+schema = 1
+id = "FORGE-refly-midsession"
+# operator tier: a FIXTURE-FORGE run, not a coverage flight. It never runs on a cadence,
+# only under an explicit `--id FORGE-refly-midsession` / `--tier operator`. Test-gap list
+# 2026-11-18, batch 4, item 4 ("a Re-Fly resumed in a new game process"). AUTHORED
+# 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+#
+# WHAT IT STAMPS. A save written in the MIDDLE of a live Re-Fly: QL-16's host
+# (`gloops-airshow` + the injected `rewind-b9` corpus), rp_b9_root slot 1 (the crashed booster
+# `b9-booster-a`) re-flown and flown on 30 s (QL-16's own TimeJump), then `SaveGame` to the
+# default slot (persistent). The produced persistent.sfs carries the Re-Fly marker, the
+# NotCommitted provisional, the session's tree and the RP list; Parsek/RewindPoints carries
+# rp_b9_root's quicksave. RFP-1 boots that save in a FRESH KSP process (every harness lane is
+# one process) and asks whether the session resumes there.
+#
+# HARVEST RECIPE (run from the worktree root right after a PASS, before any sibling run can
+# re-stage the shared gloops-airshow run save):
+#   python harness/tools/harvest_bdock_station.py \
+#       --save-dir harness/results/<runId>_save \
+#       --target-name refly-midsession-saved --keep-parsek
+# --keep-parsek keeps Parsek/Recordings (the injected corpus plus the provisional) and
+# Parsek/RewindPoints (rp_b9_root.sfs); without it the marker would name a point with no
+# file. No --expect-situation: the booster may be FLYING or already LANDED at the save
+# (QL-16 measured its merged attempt Landed). Then, in the SAME commit: re-tier RFP-1 from
+# `pending-fixture` to `nightly`, drop its PENDING_FIXTURE_LANES entry in
+# harness/lib/test_hlib.py (that map's self-retiring cell reds until you do), add the fixture's
+# payload row to test_saveparse's pinned set, and register the fixture where the committed-set
+# cell lists them.
+tier = "operator"
+description = "FIXTURE-FORGE: on gloops-airshow + rewind-b9 re-fly rp_b9_root slot 1, fly on 30 s, SaveGame to persistent mid-session -- stamps the refly-midsession-saved fixture RFP-1 boots in a fresh process (harvest_bdock_station.py --target-name refly-midsession-saved --keep-parsek)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "refly", "rewind", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "TimeJump",       args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",   args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  { cmd = "TimeJump",       args = { deltaSeconds = "30.0" },                           expect = "OK", budget = 120 },
+  # The DEFAULT slot: the harvest reads persistent.sfs.
+  { cmd = "SaveGame",                                                                   expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "forge-refly-saved" },                     expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation"]
+D14 = ["scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The B9 corpus's three plus the live provisional.
+count = { min = 3 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true[\\s\\S]*savegame name=persistent folder=.+ saved=true[\\s\\S]*MISSIONMARK label=forge-refly-saved ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ReFlySession\\] End reason=",
+]
+
+[runtime]
+# LoadGame, InvokeRewind, TimeJump x2 at max(budget, 600) + 60 = 2640; SaveGame 180; the
+# rest (SetSetting x2, RecordingState x2, MissionMark, FlushAndQuit) 6 x 120 = 720.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
