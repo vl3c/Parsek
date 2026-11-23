@@ -837,6 +837,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 230 lan
 | ghostLifecycle | 9 |
 | renderComposition | 7 |
 | recordings.points | 5 |
+| partParity | 4 |
 | recordings.sampling | 3 |
 
 ## Dimension coverage (`dimensionsCovered`)

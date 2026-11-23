@@ -58,6 +58,8 @@ from __future__ import annotations
 import math
 import random
 import re
+
+import slots
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Collection, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
@@ -3304,6 +3306,804 @@ def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
 
 
 # ---------------------------------------------------------------------------
+# P5: the committed baseline, the accepted-differences list and the regression gate
+# (design section 10).
+#
+# The baseline ``harness/partparity/baseline-<profile>.json`` holds, per sweep label and
+# case, the RAW measures of the reading runs that wrote it: for every judged view (a
+# state case's two routes as ``event:<view>`` / ``start:<view>``) the band [lo, hi] of
+# ``realOnlyBlobPx``, ``ghostOnlyBlobPx``, ``colorBlobPx`` and ``iou`` over those runs,
+# leaving out a band that is exactly the identical-sides value (0 px, iou 1). Verdicts
+# are never stored: they are recomputed from the sidecars, so a threshold re-pin needs
+# no new baseline. ``harness/partparity/accepted.toml`` lists the known differences
+# (case / view / measure, reason, todo id), each a ruling or an open todo.
+#
+# Armed (``gating = true``), a sweep reds PARSEK-FAIL(part-parity) on any of:
+#   * drift: a measure moved past its tolerance on the WORSE side of its band (more blob
+#     pixels, a lower IoU), unless an accepted entry marked ``noisy`` covers it;
+#   * an unaccepted fail: a failing case with a fail-level reason no accepted entry
+#     covers, where the reason is qualitative (a missing / extra rendered mesh, a skin
+#     mismatch, a state flag that raises to fail) or the case has no baseline (a new
+#     case). A numeric fail reason of a baselined case is judged by the drift rule: a
+#     measure inside its band's tolerance that crosses the fail line is the noise of a
+#     case that sits near the line in every run, not a regression;
+#   * a case the baseline holds that the sweep no longer plans (``gone``), and a gated
+#     sweep with no baseline section at all (``no-baseline``).
+#   * a qualitative difference whatever the case's verdict, unless an entry names its group:
+#     a renderer one side draws and the other hides (``renderedDiffers``; a ghost mesh that
+#     exists but is disabled is in no missing / extra list), a ghost that was not built
+#     (``ghost-not-built*``), a state the ghost does not model or the recorder did not
+#     record (``state-not-*``), a case the capture recorded ``crashed`` (the ghost builder
+#     runs inside that guard).
+# A baselined case the sweep could NOT measure any more (another setup fault, a view or a
+# route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or an FX
+# check that did not run, ``fx_unmeasured``) is ``unmeasured``: the armed row is
+# INVALID(parity-incomplete), because silence is neither a pass nor a ghost defect. A fault
+# or an FX check the baseline itself recorded for that case is a note. Moves to the BETTER side, new
+# cases that pass, near-line fails and accepted entries that matched nothing are notes:
+# the fix that removes a difference removes its accepted entry and re-pins the baseline
+# in the same commit (``harness/tools/part_parity_baseline.py``).
+# ---------------------------------------------------------------------------
+
+BASELINE_DIR_NAME = "partparity"
+BASELINE_SCHEMA = "parsek-part-parity-baseline/1"
+ACCEPTED_FILE = "accepted.toml"
+ACCEPTED_SCHEMA = 1
+ACCEPTED_TABLE = "accepted"
+
+
+def baseline_file_name(profile: str) -> str:
+    """``baseline-<profile>.json``: one file per install profile, one section per label."""
+    return "baseline-%s.json" % profile
+
+
+BASELINE_MEASURES: Tuple[str, ...] = ("realOnlyBlobPx", "ghostOnlyBlobPx", "colorBlobPx", "iou")
+# The value identical sides read; a band equal to it on both ends is not stored.
+MEASURE_IDENTITY: Dict[str, float] = {"realOnlyBlobPx": 0, "ghostOnlyBlobPx": 0,
+                                      "colorBlobPx": 0, "iou": 1.0}
+GROUP_SHAPE = "shape-blob"
+GROUP_COLOR = "color-blob"
+GROUP_IOU = "iou"
+GROUP_STRUCTURE = "structure"
+GROUP_SKIN = "skin"
+# renderedDiffers: the real side draws a renderer the ghost hides / the reverse.
+GROUP_HIDDEN = "hidden"
+GROUP_DRAWN = "drawn"
+GROUP_FLAG_PREFIX = "flag:"
+# An FX measure over its fail line (``fx:<measure>`` of FX_MEASURES) or a rendered FX asset
+# only one side has (``fx:structure``). Never covered by ``*``.
+GROUP_FX_PREFIX = "fx:"
+GROUP_FX_STRUCTURE = GROUP_FX_PREFIX + "structure"
+GROUP_ANY = "*"
+MEASURE_GROUP: Dict[str, str] = {"realOnlyBlobPx": GROUP_SHAPE, "ghostOnlyBlobPx": GROUP_SHAPE,
+                                 "colorBlobPx": GROUP_COLOR, "iou": GROUP_IOU}
+ACCEPT_GROUPS: Tuple[str, ...] = (GROUP_SHAPE, GROUP_COLOR, GROUP_IOU, GROUP_STRUCTURE,
+                                  GROUP_SKIN, GROUP_HIDDEN, GROUP_DRAWN, GROUP_ANY)
+# What ``measure = "*"`` covers. Never structure, skin or flag:*, and never the gate's own
+# unexplained-fail group: those need an entry that names them.
+PICTURE_GROUPS: Tuple[str, ...] = (GROUP_SHAPE, GROUP_COLOR, GROUP_IOU)
+VIEW_ANY = "*"
+IOU_DIGITS = 4
+# TestCommandPartParitySweep.KnownViews (an accepted entry names one of them).
+KNOWN_VIEWS: Tuple[str, ...] = ("side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero")
+
+# Drift tolerances (a measure is worse when it leaves its band by more than these). A
+# blob's limit is hi + max(abs, rel * hi); an IoU's is lo - abs. Pinned from the measured
+# run-to-run spread of matching reading runs on one build (design Appendix F): edge
+# shading and seam-line pixels move a stable case's blobs by tens of pixels, and a
+# blob that already reads hundreds of pixels moves by a fraction of itself.
+DRIFT_SHAPE_ABS_PX = 48
+DRIFT_COLOR_ABS_PX = 192
+DRIFT_BLOB_REL = 0.5
+DRIFT_IOU_ABS = 0.01
+# A noisy entry waives the drift rule, not a picture that is gone: an IoU under this
+# fraction of its band's low end reds on a noisy case too (a blank ghost reads IoU 0).
+NOISY_IOU_FLOOR = 0.5
+
+GATE_DRIFT = "drift"
+GATE_UNACCEPTED_FAIL = "unaccepted-fail"
+GATE_GONE = "gone"
+GATE_NO_BASELINE = "no-baseline"
+GATE_RED_KINDS: Tuple[str, ...] = (GATE_DRIFT, GATE_UNACCEPTED_FAIL, GATE_GONE, GATE_NO_BASELINE)
+NOTE_IMPROVED = "improved"
+NOTE_NEW_CASE = "new-case"
+NOTE_NEAR_LINE_FAIL = "near-line-fail"
+NOTE_ACCEPTED_FAIL = "accepted-fail"
+NOTE_STALE_ACCEPTED = "stale-accepted"
+NOTE_SETUP_FAULT = "setup-fault"
+NOTE_REFERENCE = "reference"
+# An FX entry or check the baseline runs could not judge either (``fx_unmeasured``).
+NOTE_FX_UNMEASURED = "fx-unmeasured"
+# A baselined case the sweep could not measure (INVALID, not a red).
+GATE_UNMEASURED = "unmeasured"
+
+_CASE_ID_RE = re.compile(r"^[a-z0-9._-]{1,128}$")
+_TODO_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]*[A-Z0-9]$")
+ACCEPTED_KEYS: Tuple[str, ...] = ("case", "profile", "view", "measure", "noisy", "reason", "todo")
+ACCEPTED_REQUIRED: Tuple[str, ...] = ("case", "view", "measure", "reason", "todo")
+_PLACEHOLDER_RE = re.compile(r"^\s*(todo|tbd|fixme|xxx|\?+)?\s*$", re.IGNORECASE)
+
+
+def view_key(view: str, route: Optional[str]) -> str:
+    """A judged view's key: the bare view of a stowed case, ``<route>:<view>`` of a state case."""
+    return view if route is None else "%s:%s" % (route, view)
+
+
+def case_measures(sidecar: Dict) -> Dict[str, Dict[str, float]]:
+    """The raw measures of one case by view key (``case_measures`` is what the baseline
+    stores and the gate compares): every BASELINE_MEASURES value that is a number. A
+    stowed case keys its views bare; a state case keys its event route ``event:<view>``
+    (the view block itself) and its start route ``start:<view>`` (each view's ``start``
+    block). The ``stowedRef`` block is not judged, so it is not baselined."""
+    out: Dict[str, Dict[str, float]] = {}
+    state_case = is_state_case(sidecar.get("state"))
+    for v in sidecar.get("views") or []:
+        if not isinstance(v, dict) or not isinstance(v.get("view"), str):
+            continue
+        blocks = ((ROUTE_EVENT, v), (ROUTE_START, v.get("start"))) if state_case else ((None, v),)
+        for route, block in blocks:
+            if not isinstance(block, dict):
+                continue
+            rec = {}
+            for m in BASELINE_MEASURES:
+                x = _num(block.get(m))
+                if x is not None:
+                    rec[m] = x if m == "iou" else int(x)
+            out[view_key(v["view"], route)] = rec
+    return out
+
+
+def _band_value(measure: str, lo: float, hi: float) -> List[float]:
+    if measure == "iou":
+        return [math.floor(lo * 10 ** IOU_DIGITS) / 10 ** IOU_DIGITS,
+                math.ceil(hi * 10 ** IOU_DIGITS) / 10 ** IOU_DIGITS]
+    return [int(lo), int(hi)]
+
+
+def baseline_case_entry(sidecars: Sequence[Dict]) -> Dict[str, Any]:
+    """One case's baseline entry from its sidecars in the reading runs (one per run):
+    ``setup`` the sorted set of setup statuses seen, ``views`` the measure bands over the
+    runs whose setup is not a fault (a band equal to the identity on both ends is left
+    out; a missing view or measure means the identity)."""
+    statuses = sorted({str((s.get("setup") or {}).get("status")) for s in sidecars
+                       if isinstance(s, dict)})
+    bands: Dict[str, Dict[str, List[float]]] = {}
+    for s in sidecars:
+        if not isinstance(s, dict) or is_setup_fault((s.get("setup") or {}).get("status")):
+            continue
+        for vk, rec in case_measures(s).items():
+            for m, x in rec.items():
+                b = bands.setdefault(vk, {}).setdefault(m, [x, x])
+                b[0], b[1] = min(b[0], x), max(b[1], x)
+    views: Dict[str, Dict[str, List[float]]] = {}
+    for vk in sorted(bands):
+        kept = {}
+        for m in BASELINE_MEASURES:
+            if m not in bands[vk]:
+                continue
+            lo, hi = bands[vk][m]
+            if lo == MEASURE_IDENTITY[m] and hi == MEASURE_IDENTITY[m]:
+                continue
+            kept[m] = _band_value(m, lo, hi)
+        if kept:
+            views[vk] = kept
+    measured = any(isinstance(s, dict) and not is_setup_fault((s.get("setup") or {}).get("status"))
+                   for s in sidecars)
+    entry = {"setup": statuses, "measured": measured, "views": views}
+    if any(isinstance(s, dict) and judge_case(s).verdict == VERDICT_REFERENCE for s in sidecars):
+        # Waterfall reference case: never gated (E.6). Written only when true.
+        entry["reference"] = True
+    fx_lost = sorted({t for s in sidecars if isinstance(s, dict)
+                      for t in fx_unmeasured(judge_case(s))})
+    if fx_lost:
+        # What the runs could not judge of the case's FX. Written only when any.
+        entry["fxUnmeasured"] = fx_lost
+    return entry
+
+
+def build_baseline_section(runs: Sequence[Tuple[str, Dict, Dict[str, Optional[Dict]]]],
+                           written_utc: Optional[str] = None) -> Dict[str, Any]:
+    """A label's baseline section from its reading runs, each ``(run id, manifest,
+    sidecars by case id)``. Cases are the union of the runs' planned part cases (controls
+    are instrument cases, judged by their recorded outcomes, never baselined)."""
+    per_case: Dict[str, List[Dict]] = {}
+    hashes: List[str] = []
+    views: List[str] = []
+    for _run_id, manifest, sidecars in runs:
+        views += [str(v) for v in manifest.get("views") or [] if str(v) not in views]
+        h = manifest.get("dllHash")
+        if isinstance(h, str) and h not in hashes:
+            hashes.append(h)
+        for entry in manifest.get("cases") or []:
+            cid = entry.get("caseId") if isinstance(entry, dict) else None
+            if not isinstance(cid, str) or cid in ALL_CONTROL_IDS:
+                continue
+            per_case.setdefault(cid, [])
+            s = sidecars.get(cid)
+            if isinstance(s, dict):
+                per_case[cid].append(s)
+    return {"runs": [r[0] for r in runs], "dllHashes": hashes, "writtenUtc": written_utc, "views": views,
+            "tolerances": drift_tolerances(),
+            "cases": {cid: baseline_case_entry(per_case[cid]) for cid in sorted(per_case)}}
+
+
+def drift_tolerances() -> Dict[str, Any]:
+    return {"shapeAbsPx": DRIFT_SHAPE_ABS_PX, "colorAbsPx": DRIFT_COLOR_ABS_PX,
+            "blobRel": DRIFT_BLOB_REL, "iouAbs": DRIFT_IOU_ABS}
+
+
+def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
+    """Shape problems of a parsed baseline file (empty: usable)."""
+    if not isinstance(doc, dict):
+        return ["baseline is not a JSON object"]
+    errors = []
+    if doc.get("schema") != BASELINE_SCHEMA:
+        errors.append("baseline schema=%s (expected %s)" % (doc.get("schema"), BASELINE_SCHEMA))
+    if profile is not None and doc.get("profile") != profile:
+        errors.append("baseline profile=%s (expected %s)" % (doc.get("profile"), profile))
+    labels = doc.get("labels")
+    if not isinstance(labels, dict):
+        return errors + ["baseline has no labels object"]
+    for label, section in sorted(labels.items()):
+        if not isinstance(section, dict) or not isinstance(section.get("cases"), dict):
+            errors.append("baseline label %s has no cases object" % label)
+            continue
+        for cid, entry in section["cases"].items():
+            if not isinstance(entry, dict) or not isinstance(entry.get("views"), dict):
+                errors.append("baseline %s/%s has no views object" % (label, cid))
+                continue
+            if not isinstance(entry.get("measured"), bool) or not isinstance(entry.get("setup"), list):
+                errors.append("baseline %s/%s has no measured / setup" % (label, cid))
+            lost = entry.get("fxUnmeasured", [])
+            if not isinstance(lost, list) or not all(isinstance(t, str) for t in lost):
+                errors.append("baseline %s/%s fxUnmeasured is not a list of strings" % (label, cid))
+            for vk, rec in entry["views"].items():
+                for m, band in (rec or {}).items():
+                    if m not in BASELINE_MEASURES or not (
+                            isinstance(band, list) and len(band) == 2
+                            and all(_num(x) is not None for x in band) and band[0] <= band[1]):
+                        errors.append("baseline %s/%s %s.%s is not a [lo, hi] band"
+                                      % (label, cid, vk, m))
+    return errors
+
+
+@dataclass(frozen=True)
+class AcceptedEntry:
+    """One known difference: ``case`` (exact case id), ``view`` (``*``, a view, or a
+    route-qualified ``event:<view>`` / ``start:<view>``), ``measure`` (a group of
+    ACCEPT_GROUPS, or ``flag:<flag>`` with an optional trailing ``*`` for a prefix; ``*`` is
+    every PICTURE measure and nothing else),
+    ``reason`` and ``todo`` (the ruling or open todo that owns it), ``profile`` (None:
+    every profile) and ``noisy`` (the measure moves run to run, so the drift rule is
+    waived for it too; otherwise only its fail verdict is waived and drift still gates)."""
+    case: str
+    view: str
+    measure: str
+    reason: str
+    todo: str
+    profile: Optional[str] = None
+    noisy: bool = False
+
+    def covers(self, case_id: str, profile: Optional[str], vk: Optional[str], group: str) -> bool:
+        if self.case != case_id:
+            return False
+        if self.profile is not None and profile is not None and self.profile != profile:
+            return False
+        if self.view != VIEW_ANY:
+            if vk is None:
+                return False
+            if self.view != vk and not (":" not in self.view and vk.split(":")[-1] == self.view):
+                return False
+        if self.measure == GROUP_ANY:
+            # Pictures only: a wildcard that also waived a missing mesh, a skin mismatch or a
+            # state flag would let a hidden renderer through on every noisy case.
+            return group in PICTURE_GROUPS
+        if self.measure.endswith("*") and self.measure.startswith(GROUP_FLAG_PREFIX):
+            return group.startswith(self.measure[:-1])
+        return self.measure == group
+
+    def label(self) -> str:
+        return "%s %s %s (%s)" % (self.case, self.view, self.measure, self.todo)
+
+
+def parse_accepted(doc: Any) -> Tuple[List[AcceptedEntry], List[str]]:
+    """``accepted.toml`` (already parsed) -> (entries, errors). Every entry needs a case
+    id, a view, a measure, a reason and a todo id; a placeholder reason or todo is refused
+    (a difference is never accepted silently), as is an exact duplicate."""
+    if doc is None:
+        return [], []
+    if not isinstance(doc, dict):
+        return [], ["accepted list is not a table"]
+    errors: List[str] = []
+    for key in sorted(doc):
+        if key not in ("schema", ACCEPTED_TABLE):
+            errors.append("accepted list: unknown top-level key %s" % key)
+    if doc.get("schema") != ACCEPTED_SCHEMA:
+        errors.append("accepted list: schema=%s (expected %d)" % (doc.get("schema"), ACCEPTED_SCHEMA))
+    rows = doc.get(ACCEPTED_TABLE, [])
+    if not isinstance(rows, list):
+        return [], errors + ["accepted list: [[accepted]] must be an array of tables"]
+    entries: List[AcceptedEntry] = []
+    seen = set()
+    for i, row in enumerate(rows):
+        where = "accepted[%d]" % i
+        if not isinstance(row, dict):
+            errors.append("%s is not a table" % where)
+            continue
+        bad = [k for k in sorted(row) if k not in ACCEPTED_KEYS]
+        if bad:
+            errors.append("%s: unknown key(s) %s" % (where, ", ".join(bad)))
+        missing = [k for k in ACCEPTED_REQUIRED if not isinstance(row.get(k), str) or not row.get(k)]
+        if missing:
+            errors.append("%s: missing or empty %s" % (where, ", ".join(missing)))
+            continue
+        case, view, measure = row["case"], row["view"], row["measure"]
+        if not _CASE_ID_RE.match(case):
+            errors.append("%s: case %r is not a case id" % (where, case))
+        if view != VIEW_ANY:
+            route, _, bare = view.rpartition(":")
+            if bare not in KNOWN_VIEWS + FX_VIEWS or route not in ("", ROUTE_EVENT, ROUTE_START):
+                errors.append("%s: view %r is not *, a view or <event|start>:<view>" % (where, view))
+        fx_groups = [GROUP_FX_STRUCTURE] + [GROUP_FX_PREFIX + m for m in FX_MEASURES]
+        if measure not in ACCEPT_GROUPS and measure not in fx_groups and not (
+                measure.startswith(GROUP_FLAG_PREFIX) and len(measure) > len(GROUP_FLAG_PREFIX)):
+            errors.append("%s: measure %r is not one of %s, fx:<measure> or flag:<flag>"
+                          % (where, measure, ", ".join(ACCEPT_GROUPS)))
+        if _PLACEHOLDER_RE.match(row["reason"]):
+            errors.append("%s: reason is a placeholder" % where)
+        if not _TODO_ID_RE.match(row["todo"]) or _PLACEHOLDER_RE.match(row["todo"]):
+            errors.append("%s: todo %r is not a todo id" % (where, row["todo"]))
+        profile = row.get("profile")
+        if profile is not None and (not isinstance(profile, str) or not profile):
+            errors.append("%s: profile must be a non-empty string" % where)
+            profile = None
+        noisy = row.get("noisy", False)
+        if not isinstance(noisy, bool):
+            errors.append("%s: noisy must be a bool" % where)
+            noisy = False
+        entry = AcceptedEntry(case, view, measure, row["reason"], row["todo"], profile, noisy)
+        key = (case, view, measure, profile)
+        if key in seen:
+            errors.append("%s: duplicate of an earlier entry (%s)" % (where, entry.label()))
+        seen.add(key)
+        entries.append(entry)
+    return entries, errors
+
+
+# Reasons of judge_case, classified for the gate.
+_ROUTE_PREFIX_RE = re.compile(r"^(event|start):(.*)$")
+_NUMERIC_REASON_RE = re.compile(r"^(shape-blob-px|shape-blob-pct|color-blob-px):([^=]+)=(-?[0-9.]+)$")
+_STRUCTURE_REASON_RE = re.compile(r"^(missing-rendered|extra-rendered):")
+_CAP_REASONS: Tuple[str, ...] = (REASON_CONTEXT_POSE, REASON_CANOPY_AIRFLOW)
+_FX_REASON_RE = re.compile(r"^((event|start):)?fx-[a-z]+(-[a-z]+)?:|^(missing|extra)-fx:")
+
+
+@dataclass(frozen=True)
+class FailReason:
+    """A reason that holds a case at ``fail``: ``group`` an ACCEPT_GROUPS member or
+    ``flag:<flag>``; ``view`` the view key (None for a case-level reason); ``numeric``
+    when it is a measure over its fail line (the drift rule judges it on a baselined case)."""
+    reason: str
+    group: str
+    view: Optional[str]
+    numeric: bool
+
+
+def _split_route(reason: str) -> Tuple[Optional[str], str]:
+    m = _ROUTE_PREFIX_RE.match(reason)
+    return (m.group(1), m.group(2)) if m else (None, reason)
+
+
+def _numeric_over_fail_line(kind: str, value: float) -> bool:
+    if kind == "shape-blob-px":
+        return value > SHAPE_BLOB_FAIL_PX
+    if kind == "shape-blob-pct":
+        # The reason prints three decimals, so a fail just over the line reads as the line.
+        return value >= SHAPE_BLOB_FAIL_PCT
+    return value > COLOR_BLOB_FAIL_PX
+
+
+def fx_fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
+    """The fail-level FX findings of a case, read from its FX judgement (its reason text
+    mixes warn-level findings in): one per entry and measure over its fail line, one per
+    rendered FX asset one side lacks. They carry no baseline band, so each reds unless an
+    entry names it. An FX half that failed with no finding to show, or FX reasons with no
+    judgement to read, yields one unexplained reason: a body fail never hides it."""
+    fx = verdict.fx
+    if fx is None:
+        texts = [r for r in verdict.reasons if _FX_REASON_RE.match(r)]
+        return [FailReason("unexplained-fx:%s" % ",".join(texts[:3]), GROUP_ANY, None, False)] \
+            if texts else []
+    if fx.verdict != VERDICT_FAIL:
+        return []
+    out: List[FailReason] = []
+    for j in fx.entries:
+        if j.reference:
+            continue
+        for f in j.findings:
+            if f.level == VERDICT_FAIL:
+                out.append(FailReason(fx_reason(j.route, j.view, j.layer, f.reason),
+                                      GROUP_FX_PREFIX + f.measure, view_key(j.view, j.route), False))
+    for side in ("missing", "extra"):
+        out.extend(FailReason("%s-fx:%s" % (side, k), GROUP_FX_STRUCTURE, None, False)
+                   for k in fx.structure.get(side) or [])
+    if not out:
+        out.append(FailReason("unexplained-fx:%s" % ",".join(fx.reasons[:3]), GROUP_ANY, None, False))
+    return out
+
+
+def fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
+    """The reasons that hold a ``fail`` case at fail (empty for any other verdict): a
+    numeric view reason over its fail line on a route no cap lowered (the context-pose
+    and canopy caps lower a whole route to warn), a missing / extra rendered mesh, a skin
+    mismatch, a state flag that raises to fail, and every fail-level FX finding beside
+    them. A fail none of these explains yields one ``unexplained`` reason, so the gate
+    fails closed."""
+    if verdict.verdict != VERDICT_FAIL:
+        return []
+    capped = set()
+    for r in verdict.reasons:
+        route, rest = _split_route(r)
+        if rest in _CAP_REASONS:
+            capped.add(route)
+    out: List[FailReason] = []
+    for r in verdict.reasons:
+        route, rest = _split_route(r)
+        m = _NUMERIC_REASON_RE.match(rest)
+        if m:
+            if route in capped or not _numeric_over_fail_line(m.group(1), float(m.group(3))):
+                continue
+            group = GROUP_COLOR if m.group(1) == "color-blob-px" else GROUP_SHAPE
+            out.append(FailReason(r, group, view_key(m.group(2), route), True))
+        elif _STRUCTURE_REASON_RE.match(rest):
+            out.append(FailReason(r, GROUP_STRUCTURE, None, False))
+        elif rest.startswith(SKIN_FLAG_MISMATCH + ":"):
+            out.append(FailReason(r, GROUP_SKIN, None, False))
+        elif rest.startswith("flag:") and state_flag_floor(rest[len("flag:"):]) == VERDICT_FAIL:
+            out.append(FailReason(r, GROUP_FLAG_PREFIX + rest[len("flag:"):], None, False))
+    out.extend(fx_fail_reasons(verdict))
+    if not out:
+        out.append(FailReason("unexplained-fail:%s" % ",".join(verdict.reasons[:3]),
+                              GROUP_ANY, None, False))
+    return out
+
+
+# The flags of an FX check that did not run (``FX_FLAGS_RAISE_TO_WARN`` without the weak-core
+# one: a weak core's measures are judged unless the entry is ``skipped``).
+_FX_NOT_RUN_FLAGS: Tuple[str, ...] = (FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED,
+                                      FLAG_FX_NO_REAL_EFFECT)
+
+
+def fx_unmeasured(verdict: CaseVerdict) -> Tuple[str, ...]:
+    """What the FX half of a judged case did not judge, sorted (empty for any other case, an
+    ``error`` and a ``reference`` one): ``skipped:<route>:<view>:<layer>`` per judged entry
+    whose two weak cores left only presence (``fx_entry_skipped``), and each flag of a check
+    that did not run. A skip needs BOTH cores weak, the real one too, so one the baseline runs
+    also show is the part's own effect, never a plume the ghost lost."""
+    fx = verdict.fx
+    if fx is None or verdict.verdict in (VERDICT_ERROR, VERDICT_REFERENCE):
+        return ()
+    out = {"skipped:%s:%s:%s" % (e.route, e.view, e.layer) for e in fx.entries
+           if e.verdict == VERDICT_SKIPPED and not e.reference}
+    out.update(f for f in fx.flags if f in _FX_NOT_RUN_FLAGS)
+    return tuple(sorted(out))
+
+
+@dataclass(frozen=True)
+class GateFinding:
+    kind: str
+    case_id: Optional[str]
+    detail: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"kind": self.kind, "caseId": self.case_id, "detail": self.detail}
+
+    def text(self) -> str:
+        return "%s %s: %s" % (self.kind, self.case_id or "-", self.detail)
+
+
+@dataclass
+class GateResult:
+    """The regression gate over one sweep. ``reds`` would red an armed lane; ``notes``
+    are report-only; ``accepted`` lists the entries that matched a fail reason."""
+    label: str
+    profile: Optional[str]
+    baseline_runs: Tuple[str, ...]
+    reds: List[GateFinding]
+    notes: List[GateFinding]
+    accepted: List[str]
+    unmeasured: List[GateFinding] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.reds and not self.unmeasured
+
+    def counts(self) -> Dict[str, int]:
+        out = {k: 0 for k in GATE_RED_KINDS}
+        for f in self.reds:
+            out[f.kind] = out.get(f.kind, 0) + 1
+        for f in self.notes + self.unmeasured:
+            out[f.kind] = out.get(f.kind, 0) + 1
+        return out
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"label": self.label, "profile": self.profile,
+                "baselineRuns": list(self.baseline_runs), "ok": self.ok,
+                "tolerances": drift_tolerances(), "counts": self.counts(),
+                "reds": [f.to_dict() for f in self.reds],
+                "unmeasured": [f.to_dict() for f in self.unmeasured],
+                "notes": [f.to_dict() for f in self.notes],
+                "accepted": list(self.accepted)}
+
+
+def _drift_limit(measure: str, band: Sequence[float]) -> float:
+    lo, hi = float(band[0]), float(band[1])
+    if measure == "iou":
+        return lo - DRIFT_IOU_ABS
+    absolute = DRIFT_COLOR_ABS_PX if MEASURE_GROUP[measure] == GROUP_COLOR else DRIFT_SHAPE_ABS_PX
+    return hi + max(absolute, DRIFT_BLOB_REL * hi)
+
+
+def _improve_limit(measure: str, band: Sequence[float]) -> float:
+    lo, hi = float(band[0]), float(band[1])
+    if measure == "iou":
+        return hi + DRIFT_IOU_ABS
+    absolute = DRIFT_COLOR_ABS_PX if MEASURE_GROUP[measure] == GROUP_COLOR else DRIFT_SHAPE_ABS_PX
+    return lo - max(absolute, DRIFT_BLOB_REL * lo)
+
+
+def measure_drift(measure: str, value: float, band: Sequence[float]) -> int:
+    """+1 when ``value`` left ``band`` past its tolerance on the worse side (more blob
+    pixels, a lower IoU), -1 past it on the better side, 0 inside."""
+    if measure == "iou":
+        if value < _drift_limit(measure, band):
+            return 1
+        return -1 if value > _improve_limit(measure, band) else 0
+    if value > _drift_limit(measure, band):
+        return 1
+    return -1 if value < _improve_limit(measure, band) else 0
+
+
+def _band(entry: Dict, vk: str, measure: str) -> List[float]:
+    rec = (entry.get("views") or {}).get(vk) or {}
+    band = rec.get(measure)
+    if isinstance(band, list) and len(band) == 2:
+        return [float(band[0]), float(band[1])]
+    ident = float(MEASURE_IDENTITY[measure])
+    return [ident, ident]
+
+
+def _fmt(measure: str, value: float) -> str:
+    return "%.4f" % value if measure == "iou" else "%d" % int(value)
+
+
+_GATED_FLAG_PREFIXES: Tuple[str, ...] = (FLAG_GHOST_NOT_BUILT, FLAG_STATE_NOT_MODELLED_PREFIX,
+                                         FLAG_STATE_NOT_RECORDED)
+_CAPTURE_FAULT_PREFIXES: Tuple[str, ...] = ("exception-", "capture-error:")
+
+
+def qualitative_differences(sidecar: Dict) -> List[FailReason]:
+    """Differences that red whatever the verdict (the rules above): hidden / drawn
+    renderers of both routes and the ghost-not-built / state-not-* flags, written or
+    derived. Non-visual renderers are left out, as in the judge."""
+    out: List[FailReason] = []
+    for key in ("structure", "structureStart"):
+        structure = sidecar.get(key)
+        for e in (structure.get("renderedDiffers") or []) if isinstance(structure, dict) else []:
+            # No path fallback here: these entries carry no nonVisual key, and a mesh whose
+            # name merely contains "mask" must not hide from the gate.
+            if not isinstance(e, dict) or e.get("nonVisual"):
+                continue
+            real, ghost = str(e.get("real")).lower(), str(e.get("ghost")).lower()
+            group = GROUP_HIDDEN if (real, ghost) == ("true", "false") else GROUP_DRAWN
+            out.append(FailReason("rendered-differs:%s.%s real=%s ghost=%s"
+                                  % (key, e.get("key"), real, ghost), group, None, False))
+    flags = list(sidecar.get("flags") or [])
+    flags += [f for f in derived_state_flags(sidecar) if f not in flags]
+    for f in flags:
+        if isinstance(f, str) and f.startswith(_GATED_FLAG_PREFIXES):
+            out.append(FailReason("flag:%s" % f, GROUP_FLAG_PREFIX + f, None, False))
+    return out
+
+
+def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
+                      baseline_views: Sequence[str] = ()) -> Optional[str]:
+    """Why a case that has no setup fault still says nothing about its ghost, or None:
+    a planned view or a route missing, a measure that is not a number, a structure that
+    was not measured, a capture that threw."""
+    if not isinstance(sidecar, dict):
+        return "no readable sidecar"
+    for f in sidecar.get("flags") or []:
+        if isinstance(f, str) and f.startswith(_CAPTURE_FAULT_PREFIXES):
+            return "flag %s" % f
+    state_case = is_state_case(sidecar.get("state"))
+    current = case_measures(sidecar)
+    # The baseline's own view set too: a view dropped from the manifest is still owed.
+    views = [str(v) for v in manifest.get("views") or []]
+    views += [v for v in baseline_views if v not in views]
+    for view in views or sorted({k.split(":")[-1] for k in current}):
+        for route in ((ROUTE_EVENT, ROUTE_START) if state_case else (None,)):
+            vk = view_key(str(view), route)
+            lost = [m for m in BASELINE_MEASURES if m not in current.get(vk, {})]
+            if lost:
+                return "view %s has no %s" % (vk, ", ".join(lost))
+    for key in ("structure", "structureStart") if state_case else ("structure",):
+        if not isinstance(sidecar.get(key), dict):
+            return "%s was not measured" % key
+    return None
+
+
+def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
+               sidecars: Dict[str, Optional[Dict]], verdicts: Sequence[CaseVerdict],
+               section: Optional[Dict], accepted: Sequence[AcceptedEntry]) -> GateResult:
+    """The regression gate of one sweep against its baseline ``section`` (None: the
+    label has no baseline) and the accepted list (the rules are in the section comment
+    above). Pure: the caller reads the files."""
+    reds: List[GateFinding] = []
+    notes: List[GateFinding] = []
+    unmeasured: List[GateFinding] = []
+    used: List[str] = []
+    entries = [e for e in accepted if e.profile is None or profile is None or e.profile == profile]
+    if section is None:
+        reds.append(GateFinding(GATE_NO_BASELINE, None,
+                                "no baseline section for label %s in %s"
+                                % (label, baseline_file_name(profile or "?"))))
+        base_cases: Dict[str, Dict] = {}
+        runs: Tuple[str, ...] = ()
+    else:
+        base_cases = section.get("cases") if isinstance(section.get("cases"), dict) else {}
+        runs = tuple(str(r) for r in section.get("runs") or [])
+    planned = [e["caseId"] for e in manifest.get("cases") or []
+               if isinstance(e, dict) and isinstance(e.get("caseId"), str)
+               and e["caseId"] not in ALL_CONTROL_IDS]
+    planned_set = set(planned)
+    matched_entries = set()
+    for cv in verdicts:
+        cid = cv.case_id
+        base = base_cases.get(cid) if section is not None else None
+        baselined = isinstance(base, dict) and bool(base.get("measured"))
+        side = sidecars.get(cid)
+        if cv.verdict == VERDICT_ERROR:
+            text = ", ".join(cv.reasons[:2]) or "error"
+            if section is None or cv.setup_status in ((base or {}).get("setup") or []) \
+                    and is_setup_fault(cv.setup_status):
+                notes.append(GateFinding(NOTE_SETUP_FAULT, cid, text))
+            elif cv.setup_status == SETUP_CRASHED:
+                reds.append(GateFinding(GATE_UNACCEPTED_FAIL, cid, "crashed (the ghost builder "
+                                        "runs inside that guard): %s" % text))
+            elif baselined:
+                unmeasured.append(GateFinding(GATE_UNMEASURED, cid, text))
+            else:
+                notes.append(GateFinding(NOTE_SETUP_FAULT, cid, text))
+            continue
+        if cv.verdict == VERDICT_REFERENCE:
+            # Shown and measured, never gated (E.6). A case the baseline pinned as an ordinary
+            # one that now calls itself a reference would otherwise leave the gate unseen.
+            if baselined and not base.get("reference"):
+                unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "reads reference; its baseline was judged"))
+            else:
+                notes.append(GateFinding(NOTE_REFERENCE, cid, "reference (Waterfall), not gated"))
+            continue
+        for fr in fail_reasons(cv) + (qualitative_differences(side) if isinstance(side, dict) else []):
+            cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)), None)
+            if cover is not None:
+                matched_entries.add(cover)
+                used.append("%s <- %s" % (fr.reason, cover.label()))
+                notes.append(GateFinding(NOTE_ACCEPTED_FAIL, cid, "%s (%s)" % (fr.reason, cover.todo)))
+            elif fr.numeric and baselined:
+                notes.append(GateFinding(NOTE_NEAR_LINE_FAIL, cid,
+                                         "%s (inside its baseline band's tolerance; the drift "
+                                         "rule judges it)" % fr.reason))
+            elif section is not None:
+                reds.append(GateFinding(GATE_UNACCEPTED_FAIL, cid,
+                                        "%s%s" % (fr.reason, "" if baselined else " (no baseline: a new case)")))
+        if section is None:
+            continue
+        known = (base or {}).get("fxUnmeasured") or []
+        fx_lost = fx_unmeasured(cv)
+        fx_new = [t for t in fx_lost if t not in known] if baselined else []
+        fx_noted = [t for t in fx_lost if t not in fx_new]
+        if fx_new:
+            unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_new)))
+        if fx_noted:
+            notes.append(GateFinding(NOTE_FX_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_noted)))
+        if not baselined:
+            if base is None:
+                notes.append(GateFinding(NOTE_NEW_CASE, cid, "not in the baseline (verdict %s)" % cv.verdict))
+            else:
+                notes.append(GateFinding(NOTE_NEW_CASE, cid, "baselined only as a setup fault "
+                                         "(verdict %s)" % cv.verdict))
+            continue
+        lost = unmeasured_reason(side, manifest, section.get("views") or ())
+        if lost:
+            unmeasured.append(GateFinding(GATE_UNMEASURED, cid, lost))
+        current = case_measures(side) if isinstance(side, dict) else {}
+        for vk in sorted(current):
+            for m in BASELINE_MEASURES:
+                if m not in current[vk]:
+                    continue
+                v = current[vk][m]
+                band = _band(base, vk, m)
+                d = measure_drift(m, v, band)
+                if d == 0:
+                    continue
+                text = "%s %s %s outside band [%s, %s] (limit %s)" % (
+                    vk, m, _fmt(m, v), _fmt(m, band[0]), _fmt(m, band[1]),
+                    _fmt(m, _drift_limit(m, band) if d > 0 else _improve_limit(m, band)))
+                if d < 0:
+                    notes.append(GateFinding(NOTE_IMPROVED, cid, text))
+                    continue
+                cover = next((e for e in entries if e.noisy
+                              and e.covers(cid, profile, vk, MEASURE_GROUP[m])), None)
+                if cover is not None and m == "iou" and v < NOISY_IOU_FLOOR * band[0]:
+                    cover, text = None, text + " and under the noisy floor"
+                if cover is not None:
+                    matched_entries.add(cover)
+                    used.append("drift %s %s <- %s" % (vk, m, cover.label()))
+                    continue
+                reds.append(GateFinding(GATE_DRIFT, cid, text))
+    if section is not None:
+        for cid in sorted(base_cases):
+            if cid not in planned_set:
+                reds.append(GateFinding(GATE_GONE, cid, "in the baseline but not planned by this sweep"))
+    swept = {cv.case_id for cv in verdicts}
+    for cid in sorted(planned_set & set(base_cases)):
+        if cid not in swept and (base_cases[cid] or {}).get("measured"):
+            unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "planned but no readable sidecar"))
+    for e in entries:
+        if e.case in swept and e not in matched_entries:
+            notes.append(GateFinding(NOTE_STALE_ACCEPTED, e.case,
+                                     "accepted %s %s (%s) matched nothing in this sweep"
+                                     % (e.view, e.measure, e.todo)))
+    return GateResult(label, profile, runs, reds, notes, used, unmeasured)
+
+
+def unaccepted_fails(verdicts: Sequence[CaseVerdict], profile: Optional[str],
+                     accepted: Sequence[AcceptedEntry],
+                     sidecars: Optional[Dict[str, Optional[Dict]]] = None
+                     ) -> List[Tuple[str, FailReason]]:
+    """Every fail reason of these verdicts (and, with ``sidecars``, every qualitative
+    difference) no accepted entry covers: what the baseline
+    writer refuses to pin (a difference is never accepted silently)."""
+    entries = [e for e in accepted if e.profile is None or profile is None or e.profile == profile]
+    out = []
+    for cv in verdicts:
+        side = (sidecars or {}).get(cv.case_id)
+        extra = qualitative_differences(side) if isinstance(side, dict) \
+            and cv.verdict not in (VERDICT_ERROR, VERDICT_REFERENCE) else []
+        for fr in fail_reasons(cv) + extra:
+            if not any(e.covers(cv.case_id, profile, fr.view, fr.group) for e in entries):
+                out.append((cv.case_id, fr))
+    return out
+
+
+def profile_of(manifest: Optional[Dict], fallback: Optional[str]) -> Optional[str]:
+    """The install profile a sweep ran on: ``fallback`` (the spec's instanceProfile) when the
+    caller has one, else the manifest's ``profile`` without a slot copy's ``-<k>`` (the C#
+    side writes the install folder's name), else None (``..`` on sweeps before P6)."""
+    if fallback:
+        return fallback
+    p = (manifest or {}).get("profile")
+    if not (isinstance(p, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", p)):
+        return None
+    try:
+        return slots.parse_slot_name(p)[0]
+    except slots.SlotError:
+        return p
+
+
+@dataclass(frozen=True)
+class GateInput:
+    """What the shell read for one sweep's gate: the profile, the label's baseline
+    section (None: absent), the accepted entries and any read error (a baseline or
+    accepted file that would not load: the gate reds with it)."""
+    profile: Optional[str]
+    section: Optional[Dict]
+    accepted: Tuple[AcceptedEntry, ...] = ()
+    errors: Tuple[str, ...] = ()
+
+
+# ---------------------------------------------------------------------------
 # One sweep directory, and the row over every label.
 # ---------------------------------------------------------------------------
 
@@ -3338,6 +4138,9 @@ class SweepResult:
     counts: Dict[str, int]
     # The press gate (design D.6); None for a sweep with no state case (a stowed run).
     press: Optional[PressCheck] = None
+    # The P5 regression gate (baseline + accepted list); None when the caller passed no
+    # GateInput (then an armed sweep fails on any failing case, the pre-P5 rule).
+    gate: Optional[GateResult] = None
 
     def worst(self, n: int = WORST_CASES_IN_SUMMARY) -> List[CaseVerdict]:
         ranked = [c for c in self.cases if c.verdict in (VERDICT_FAIL, VERDICT_WARN, VERDICT_ERROR)]
@@ -3358,11 +4161,14 @@ def _count(cases: Iterable[CaseVerdict]) -> Dict[str, int]:
 
 def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                    read_png: Optional[PngReader],
-                   atlas_path: Callable[[str], str]) -> SweepResult:
+                   atlas_path: Callable[[str], str],
+                   gate_input: Optional[GateInput] = None) -> SweepResult:
     """Judge one sweep directory. ``read_png(path) -> (w, h, bpp, pixels)`` decodes an
     atlas; ``atlas_path(file_name)`` resolves a file of this sweep to a path the reader
     takes. ``read_png`` None skips the recompute and records that as an instrument
-    problem (the row cannot vouch for the C# numbers without it)."""
+    problem (the row cannot vouch for the C# numbers without it). ``gate_input`` runs the
+    P5 regression gate (``gate_sweep``) over the judged cases: armed, the sweep FAILs on
+    any gate red instead of on any failing case; report-only, the gate is recorded."""
     problems: List[str] = []
     if not sweep.present:
         return SweepResult(sweep.label, STATUS_INVALID, INVALID_INCOMPLETE_SUBKIND, gating,
@@ -3448,6 +4254,12 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     recompute_ids = recompute_ids + fx_ids
 
     counts = _count(cases)
+    gate = None
+    if gate_input is not None:
+        gate = gate_sweep(sweep.label, gate_input.profile, manifest, sweep.sidecars, cases,
+                          gate_input.section, gate_input.accepted)
+        for err in gate_input.errors:
+            gate.reds.insert(0, GateFinding(GATE_NO_BASELINE, None, err))
     damaged = host_damage(manifest)
     if damaged:
         # The root cause outranks its symptoms: the controls, completeness and recompute
@@ -3468,7 +4280,18 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     else:
         subkind = None
         if gating:
-            status = STATUS_FAIL if counts[VERDICT_FAIL] else STATUS_PASS
+            failed = bool(gate.reds) if gate is not None else bool(counts[VERDICT_FAIL])
+            status = STATUS_FAIL if failed else STATUS_PASS
+            if gate is not None and gate.unmeasured:
+                # A red is a finding even when another case went unmeasured.
+                if not failed:
+                    status, subkind = STATUS_INVALID, INVALID_INCOMPLETE_SUBKIND
+                problems.append("gate: %d baselined case(s) not measured: %s" % (
+                    len(gate.unmeasured), "; ".join(f.text() for f in gate.unmeasured[:5])))
+            if failed and gate is not None:
+                problems.append("gate: %d red(s): %s" % (
+                    len(gate.reds), "; ".join(f.text() for f in gate.reds[:5])
+                    + (" ..." if len(gate.reds) > 5 else "")))
         else:
             status = STATUS_REPORT
     if press is not None and not press.ok:
@@ -3480,7 +4303,7 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     if not completeness.ok:
         problems.append("completeness: " + "; ".join(completeness.problems))
     return SweepResult(sweep.label, status, subkind, gating, problems, controls,
-                       completeness, cases, recompute_ids, mismatches, counts, press)
+                       completeness, cases, recompute_ids, mismatches, counts, press, gate)
 
 
 # The row's INVALID ranking: the host first (its symptoms show in every other gate), then
@@ -3535,7 +4358,18 @@ def format_summary(row: RowResult) -> str:
                         else ("-" if s.controls is None else "bad"),
                         "-" if s.completeness is None else str(s.completeness.ok).lower(),
                         len(s.recompute_ids), len(s.recompute_mismatches), worst or "-")
-                     + ("" if s.press is None else " press=%s" % ("ok" if s.press.ok else "bad")))
+                     + ("" if s.press is None else " press=%s" % ("ok" if s.press.ok else "bad"))
+                     + ("" if s.gate is None else " gate=%s reds=%d unmeasured=%d drift=%d unaccepted=%d gone=%d "
+                        "accepted=%d nearLine=%d improved=%d new=%d"
+                        % ("ok" if s.gate.ok else ("red" if s.gate.reds else "unmeasured"),
+                           len(s.gate.reds), len(s.gate.unmeasured),
+                           s.gate.counts().get(GATE_DRIFT, 0),
+                           s.gate.counts().get(GATE_UNACCEPTED_FAIL, 0),
+                           s.gate.counts().get(GATE_GONE, 0),
+                           s.gate.counts().get(NOTE_ACCEPTED_FAIL, 0),
+                           s.gate.counts().get(NOTE_NEAR_LINE_FAIL, 0),
+                           s.gate.counts().get(NOTE_IMPROVED, 0),
+                           s.gate.counts().get(NOTE_NEW_CASE, 0))))
         parts[-1] += fx_summary(s.cases)
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
@@ -3590,6 +4424,8 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
     if sweep.press is not None:
         doc["statePress"] = sweep.press.to_dict()
         doc["stateFlags"] = state_flag_counts(sweep.cases)
+    if sweep.gate is not None:
+        doc["gate"] = sweep.gate.to_dict()
     return doc
 
 
@@ -3603,6 +4439,11 @@ def detail_record(row: RowResult) -> Dict[str, Any]:
                     "recomputed": len(s.recompute_ids),
                     "recomputeMismatches": len(s.recompute_mismatches),
                     "worst": [{"caseId": w.case_id, "verdict": w.verdict,
-                               "reasons": list(w.reasons[:3])} for w in s.worst()]}
+                               "reasons": list(w.reasons[:3])} for w in s.worst()],
+                    "gate": None if s.gate is None else {
+                        "ok": s.gate.ok, "profile": s.gate.profile,
+                        "baselineRuns": list(s.gate.baseline_runs),
+                        "counts": s.gate.counts(),
+                        "reds": [f.text() for f in s.gate.reds[:20]]}}
                    for s in row.sweeps],
     }
