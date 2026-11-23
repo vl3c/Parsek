@@ -2651,6 +2651,74 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
     stock-minimal 43 + 31 orbit plume, 14 air plume, 7 rcs, 32 heat, 15 plate, 12
     throttle-locked, 7 needs-air, 8 ablator; modded-compat 60 + 42, 14, 19, 26, 18, 18, 7, 12,
     with 109 reference cases.
+- F4 as built (2026-11-23). The judge is one block of `harness/lib/partparity.py` ("P8 F4: the
+  FX judge"), called from the shared functions by name; `run.py` did not change.
+  - Measures and recompute. `fx_measure_tile` / `fx_compare` transcribe "F1b as built"
+    (stdlib); `FxMeasureTests` recomputes the committed fixture: all 528 values are
+    bit-identical, and every tampered one reds. `recompute_fx_case` holds `corePx`,
+    `envelopePx` and `saturatedPx` to exact equality and every other value to 1e-9, checks
+    the atlas layout against `FxAtlasRowsFor` / `Views`, and refuses a pixel the tile rule
+    cannot write (an alpha that is no sample count, a colour on an uncovered pixel). It runs on
+    every control with an FX atlas and on its own seeded 2 % sample of the part cases with one
+    (a run's mixed sample could draw only heat cases); the ids are listed as `<caseId>.fx`. The
+    block shape is checked on EVERY captured FX case, halves included: every key, each
+    expected entry exactly once at the atlas's tile size, a usable axis on every side and far
+    view of a plume or rcs case (without one five measures are undefined, so unjudged), each
+    value null exactly where the C# side defines it null, and every compare value the side
+    blocks determine (all but `coreIou` and `directionDeg`) recomputed from them. So are
+    `fx.family` against the state word, `stateProof.family` and the row family (it decides
+    what is judged), an `ok` rcs case that did not fire exactly the predicted nozzles, an `ok`
+    light case under the plate floor (both also `error`), and an rcs family whose every
+    captured case drew nothing on its real side (no control has an rcs subject). Any of it is
+    INVALID(parity-instrument).
+  - Entries a stochastic case must write, else the case is `error` (`fx-no-entries:`) and the
+    sweep INVALID: the `event` and `start` routes x 4 views x 2 layers (a control: `event`
+    only), and on an rcs part case the route `all` (the `ghost-all` rows, never judged).
+    `fx.samples` is one side's sample count (8 for a real-vs-real control that splits 16).
+  - Verdict. `judge_fx` gives each `event` / `start` entry its E.4 measures at warn and fail,
+    the worst per route, reasons `<route>:<view>:<layer>:<measure>=<value>`; a layer one side
+    lacks is named by its presence reason alone. A null measure never moves a verdict. The case
+    is the worse of its body routes and its FX half; a rendered FX asset in
+    `fxMissingOnGhost` / `fxExtraOnGhost` (a key string, or `{key, rendered}` unless `rendered`
+    is false) raises it to fail. `fxDiffers` and `lightsDiffer` are counted, report-only.
+  - `fx-unsettled` caps the WHOLE case at `warn` (E.4: a case that did not converge never
+    fails), its body routes included. Only judged entries of plume and rcs cases can unsettle.
+  - Reference (E.6). A plume or rcs case with `fx.reference = waterfall` reads the verdict
+    `reference` with its `wouldBe` beside it, body routes included, unless it is an `error`; it
+    is counted under `counts.reference`, printed as ` reference=<n>` and never gates. Any other
+    value, or a reference on a heat or light case, is INVALID(parity-instrument) and the case
+    stays judged. The FX entries of a light case (a lamp's `flame` layer) are always reference.
+  - RCS (R4). Length, width and brightness leave the verdict and land in
+    `fx.rcs.reportedOnly` beside `powerRatio`; the flag `rcs-known-difference:*` is the written
+    one, else derived from `fx.rcs`. Flags (`fx.flags`, none moves a verdict but the cap):
+    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and three that
+    raise to at least `warn` because a check did not run: `fx-structure-not-measured` (a null
+    `fxMissingOnGhost` or `fxExtraOnGhost`), `fx-nozzle-not-measured` (no `nozzleDiameterPx`
+    on the bottom view) and `fx-no-real-effect` (an empty real side, as the static `JetEngine`
+    draws).
+  - Controls. In an FX run every control recorded `ok` is re-judged from its sidecar
+    (`judge_fx_control`): evidence = the `event` entries, a measure fails when any entry fails
+    it. Stricter than `JudgeFxControl` in two ways: a plume control whose intact side has no
+    flame core is `bad` (real-vs-real would pass on two empty pictures), and
+    `ctl-fx-plume-off` needs an event of type `EngineIgnited`. `n/a` is met, and owes no
+    sidecar, only for `ctl-plate-light-off-point`.
+  - Press gate. The four families count as P6's do (family from the row, `stateProof`, else
+    `fx.family`). An rcs press that fired NOTHING is `rcs-input-mismatch`, not a timeout (the
+    RCS group books `RCSActivated` at zero input), so that status with an empty `fired` counts
+    too (other fired nozzles than predicted do not), and so does `plate-not-lit` (a lamp that
+    never lights).
+  - Verdicts JSON: each FX case's `fx` block (family, reference, wouldBe, routes, entries,
+    unsettled, flags, structure, rcs) and the document's `fx` (cases per family, reference and
+    would-be counts, flag counts, thresholds). A sweep with no FX case writes what it wrote
+    before.
+  - Open for the first flights: `directionDeg` is noisy on a flat or compact core (2 to 4 px
+    across: the halves' centroids differ by fractions of a pixel), and every measure is judged
+    on cores below the presence minimum too; no guard was added, the reading runs re-pin. Two
+    orbit controls look unmeetable as E.5 states them: `ctl-fx-smoke-dropped`, because since
+    GHOST-SMOKE-IN-VACUUM the intact ghost draws no smoke in vacuum, unless its two ghosts
+    leave `lastInterpolatedBodyName` unset (smoke as built); and `ctl-fx-plume-shift`, whose
+    shift (10 % of the body) stays under the fail lines (10 % / 5 % of the real PLUME's length)
+    whenever the plume is longer than the body.
 
 ### E.6 Waterfall installs and the Waterfall-free profile
 
@@ -2950,6 +3018,10 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
 - A setup fault on a baselined case was only a note, and the ghost builder runs inside the guard
   that records `crashed`: a sweep whose every case crashed read PASS. `crashed` now reds; any other
   new fault is `unmeasured`, which makes the armed row INVALID(parity-incomplete).
+- A case that reads `reference` (a Waterfall FX case, E.6) is never gated; one whose baseline was
+  judged and that now reads `reference` is `unmeasured`. FX findings over their fail line (groups
+  `fx:<measure>` and `fx:structure`) red unless an entry names them, and a body fail never hides
+  them. No FX lane is armed.
 - A missing view or route, a null measure, an unmeasured structure or a capture that threw was
   skipped. Each is `unmeasured` now.
 - A ghost renderer that exists but is disabled, a ghost that was not built and a state the ghost did

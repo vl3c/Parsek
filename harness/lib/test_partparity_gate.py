@@ -28,6 +28,7 @@ for _p in (HERE, TOOLS):
 import _partparity_fixture as fx  # noqa: E402
 import gui_mirror  # noqa: E402
 import partparity as pp  # noqa: E402
+import test_partparity as tp  # noqa: E402  (the FX case builders)
 import part_parity_baseline as ppb  # noqa: E402
 import part_parity_view as ppv  # noqa: E402
 
@@ -522,6 +523,101 @@ class GateTests(unittest.TestCase):
         g = _gate({"a--x--deployed--1": state(pp.DRIFT_SHAPE_ABS_PX + 5)}, _section([base]),
                   [_entry("a--x--deployed--1", "event:side-a", "shape-blob", noisy=True)])
         self.assertFalse(g.ok, "an event-route entry does not cover the start route")
+
+
+class FxGateTests(unittest.TestCase):
+    """FX cases in the gate (design E.4, E.6). No FX lane is armed today."""
+
+    ID = "engine--default--burn-full--0000aaaa"
+
+    def _case(self, **kw):
+        doc = tp._fx_case(**kw)[0]
+        doc["structure"] = doc.get("structure") or {"pairs": 1}
+        return doc
+
+    def _gate_of(self, doc, base=None, accepted=()):
+        return _gate({self.ID: doc}, _section([{self.ID: base or doc}]), accepted)
+
+    def test_a_baselined_reference_case_never_reds_on_drift_or_fails(self):
+        base = self._case(reference="waterfall")
+        worse = self._case(reference="waterfall", ghost=tp._shifted(), event=tp._broken("off"))
+        for v in worse["views"]:
+            v["realOnlyBlobPx"] = v["colorBlobPx"] = 99999
+            v["iou"] = 0.0
+        g = self._gate_of(worse, base)
+        self.assertEqual(([], []), (g.reds, g.unmeasured))
+        self.assertIn(pp.NOTE_REFERENCE, _kinds(g.notes))
+        self.assertTrue(_section([{self.ID: base}])["cases"][self.ID]["reference"])
+        self.assertNotIn("reference", _section([{self.ID: self._case()}])["cases"][self.ID])
+        # Drift does red the same pictures on an ordinary case.
+        plain = self._case()
+        for v in plain["views"]:
+            v["colorBlobPx"] = 99999
+        self.assertTrue(self._gate_of(plain, self._case()).reds)
+
+    def test_a_judged_case_that_turns_into_a_reference_is_not_a_pass(self):
+        g = self._gate_of(self._case(reference="waterfall"), self._case())
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+
+    def test_a_body_fail_does_not_drop_the_fx_reasons(self):
+        both = self._case(event=tp._broken("off"), ghost=tp._shifted())
+        groups = {f.group for f in pp.fail_reasons(pp.judge_case(both))}
+        self.assertTrue(groups & {pp.GROUP_SHAPE, pp.GROUP_STRUCTURE}, groups)
+        self.assertIn("fx:presence", groups)
+        # Accepting every body picture measure and structure does not accept the plume.
+        accepted = [_entry(self.ID, "*", "*", noisy=True), _entry(self.ID, "*", "structure")]
+        reds = self._gate_of(both, accepted=accepted).reds
+        self.assertTrue(reds)
+        self.assertTrue(all("fx-" in r.detail for r in reds), [r.detail for r in reds])
+
+    def test_an_fx_only_fail_is_explained_by_its_measures(self):
+        for name, measures in (("off", "presence"), ("short", "length")):
+            with self.subTest(name):
+                doc = self._case(event=tp._broken(name))
+                cv = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+                frs = pp.fail_reasons(cv)
+                self.assertTrue(frs and all(f.group.startswith("fx:") and not f.numeric for f in frs), frs)
+                self.assertIn("fx:" + measures, {f.group for f in frs})
+                self.assertTrue(self._gate_of(doc, self._case()).reds)
+                accepted = [_entry(self.ID, "*", g) for g in {f.group for f in frs}]
+                self.assertEqual([], self._gate_of(doc, self._case(), accepted).reds)
+
+    def test_a_missing_fx_asset_is_its_own_reason(self):
+        structure = {"fxMissingOnGhost": [{"key": "fx/Plume", "rendered": True}], "fxExtraOnGhost": [],
+                     "fxDiffers": [], "lightsDiffer": []}
+        frs = pp.fail_reasons(pp.judge_case(self._case(structure=structure)))
+        self.assertEqual([("fx:structure", "missing-fx:fx/Plume")], [(f.group, f.reason) for f in frs])
+
+    def test_a_warn_level_fx_finding_is_not_a_fail_reason(self):
+        cv = pp.judge_case(self._case(event=tp._broken("off")))
+        warn = pp.FxEntryVerdict("event", "fx-side-a", "flame", pp.VERDICT_WARN,
+                                 (pp.FxFinding("length", pp.VERDICT_WARN, "length=1.2"),), False)
+        cv = pp.replace(cv, fx=pp.replace(cv.fx, entries=cv.fx.entries + (warn,)))
+        self.assertNotIn("length=1.2", " ".join(f.reason for f in pp.fail_reasons(cv)))
+
+    def test_an_fx_fail_with_nothing_to_show_fails_closed_beside_a_body_fail(self):
+        cv = pp.judge_case(self._case(event=tp._broken("off"), ghost=tp._shifted()))
+        blind = pp.replace(cv, fx=pp.replace(cv.fx, entries=(), structure={"missing": [], "extra": []}))
+        unread = pp.replace(cv, fx=None)
+        for case in (blind, unread):
+            with self.subTest(fx=case.fx is not None):
+                frs = pp.fail_reasons(case)
+                self.assertTrue(any(f.reason.startswith("unexplained-fx:") for f in frs), frs)
+                # No accepted entry covers an unexplained reason.
+                everything = [_entry(self.ID, "*", "*", noisy=True), _entry(self.ID, "*", "structure")]
+                self.assertTrue(pp.unaccepted_fails([case], "stock-minimal", everything))
+
+    def test_the_accepted_list_takes_fx_measures_and_views_and_no_others(self):
+        def errs(**kw):
+            row = {"case": self.ID, "view": "event:fx-side-a", "measure": "fx:length", "reason": "r x", "todo": "A-TODO"}
+            row.update(kw)
+            return pp.parse_accepted({"schema": 1, "accepted": [row]})[1]
+        self.assertEqual([], errs())
+        self.assertEqual([], errs(measure="fx:structure", view="*"))
+        self.assertTrue(errs(measure="fx:nonsense"))
+        self.assertTrue(errs(view="event:fx-nonsense"))
+        self.assertFalse(_entry(self.ID, "*", "*").covers(self.ID, None, "event:fx-side-a", "fx:length"))
 
 
 class EvaluateSweepGateTests(unittest.TestCase):
