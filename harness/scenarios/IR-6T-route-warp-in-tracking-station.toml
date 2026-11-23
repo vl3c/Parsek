@@ -1,0 +1,180 @@
+schema = 1
+id = "IR-6T-route-warp-in-tracking-station"
+tier = "operator"
+# =====================================================================================
+# IR-6T: IR-6's TRACKING STATION HALF (test-gap list 2026-11-18, batch 4; roadmap IR-6 row,
+# "The Tracking Station half is owed"). A supply route under REAL rails warp across several
+# cycles with the player in the Tracking Station, with the destination tank read at every step.
+#
+# WHY IT WAS OWED. IR-6 (LIVE-PROVEN 2026-11-01) flew phase C in the Tracking Station first and
+# was refused `warptout refused reason=warp-locked ... holders=intro_TS`: its host holds
+# `ScenarioNewGameIntro tsComplete = False`, so stock's first-visit Tracking Station tutorial
+# locks every rate above 1x. IR-6 moved to the Space Center. Since then the fixture knob
+# `trackingStationIntroDone = true` (savepatch.apply_ts_intro_done, flown green by TSS-2 / TSS-3 /
+# KSS-2) sets `tsComplete` in the staged copy, so the lock is never set.
+#
+# THE RULE UNDER TEST is IR-6's, logistics design 10.7 AS BUILT: ParsekScenario is a
+# TRACKSTATION scenario too, its Update drives RouteTickClock (one tick per second of game
+# time) and each tick fires at most once, for the newest owed dock cycle. So in the Tracking
+# Station as at the Space Center:
+#   * a warp whose frames advance less than one loop period delivers EVERY cycle it crosses,
+#     one by one (phases A and B: no `warp jump=` line);
+#   * a warp whose frames advance more than a period collapses the cycles a frame spans into
+#     one fire (phase C: a `warp jump=` line, every fire BLOCKED);
+#   * cargo is conserved: the tank ends at its start fill plus one manifest per delivery, and a
+#     full destination blocks the cycle whole.
+#
+# HOST AND ARITHMETIC: IR-6's, unchanged (`rover-route-recorded`, the rover route's one stop
+# `rover fuel 0` pid 2123618197; liveState LiquidFuel 200 / 400 and inventory cleared, so two
+# deliveries of 97.6 LiquidFuel plus three items fit). Measured on IR-6: activation at ~981.2,
+# `PhaseLock APPLIED ... anchor 981.2->983.5 P=5 cadence 45.04->50`, cycle-0 at ~1029.4,
+# cycle-1 at ~1079.4. The route is created and activated in FLIGHT exactly as IR-6 does it (the
+# measured anchor), then the lane exits to the Space Center, saves and loads straight into the
+# Tracking Station (an InSessionOther load at the save's instant: LoadReconcilePolicy Routes x
+# InSessionOther touches nothing, as IR-6's phase C reload proved at the Space Center). The
+# saved clock is well before cycle-0, so every delivery happens in the Tracking Station, on the
+# unloaded path:
+#   Phase A  Tracking Station  WarpToUT 1048  maxRate 10      -> cycle-0, tank 200 -> 297.6
+#   Phase B  Tracking Station  WarpToUT 1100  maxRate 10      -> cycle-1, tank 297.6 -> 395.2
+#   Phase C  Tracking Station  WarpToUT 60000 maxRate 100000  -> every fire BLOCKED, frames of
+#            200+ s at 10000x collapse several periods into one fire (IR-6's sizing: the auto
+#            ladder takes 10000x only while more than 25000 s remain).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `warptout refused reason=warp-locked ... holders=intro_TS`: the knob did not apply (read
+#     the staging log for `trackingStationIntroDone patched`).
+#   - a delivery before the `ir6t-ts` mark: the clock passed cycle-0 before the save; activate
+#     later or move the exit.
+#   - no fire at all in phases A / B: the route does not tick in the Tracking Station (a
+#     product finding: read the `TryActivate` line and the route read-back at `ir6t-ts`).
+#   - `readvesselresources ... match=false`: the unloaded write and the proto read disagree.
+#   - no `warp jump=` in phase C: the Tracking Station ladder never reached 10000x (driver).
+#
+# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), never flown. Todo
+# TEST-GAPS-BATCH4-CAREER. Operator by the calibration discipline until its first green flight.
+# =====================================================================================
+description = "IR-6's Tracking Station half: on rover-route-recorded (Tracking Station intro marked done, endpoint set so two deliveries fit) the rover route is created and activated in flight, the save is reloaded straight into the Tracking Station, and real warp runs there: 10x past one crossing (one unloaded delivery, tank 297.6), 10x past the next (tank 395.2), then 100000x across hundreds of periods (every fire BLOCKED DestinationFull, frames collapse into `warp jump=` fires). Gates the route ticking in the Tracking Station, one delivery per crossed cycle at moderate warp, the collapse rule at high warp, and the tank conserved at 395.2."
+instanceProfile = "stock-minimal"
+tags = ["IR-6T", "logistics", "route", "warp", "tracking-station", "timeline-ops",
+        "recorded-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+# The host holds `ScenarioNewGameIntro tsComplete = False` (IR-6 flight 1's refusal); the stage
+# step sets it complete in the staged copy (logged `trackingStationIntroDone patched`).
+trackingStationIntroDone = true
+
+[[fixture.liveState]]
+pid       = 2123618197
+resources = { LiquidFuel = 200 }
+inventory = "clear"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The kill triple, as on every rover-route-recorded lane (RVR-3's header).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "IR6T Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "IR6T Rover Supply" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ir6t-activated" },                  expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:200", tolerance = "0.01" }, expect = "OK" },
+  # Into the Tracking Station before cycle-0: exit, save, and load the save there.
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "SaveGame",     args = { name = "persistent" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ir6t-ts" },                         expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:200", tolerance = "0.01" }, expect = "OK" },
+  # PHASE A: one crossing at a warp whose frames are a fraction of a period.
+  { cmd = "WarpToUT",     args = { ut = "1048", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir6t-a-warped" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:297.6", tolerance = "0.01" }, expect = "OK" },
+  # PHASE B: the next crossing, the same way.
+  { cmd = "WarpToUT",     args = { ut = "1100", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "ir6t-b-warped" },                   expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  # PHASE C: hundreds of periods at full speed against a full destination.
+  { cmd = "WarpToUT",     args = { ut = "60000", maxRate = "100000" },          expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "ir6t-long-warped" },                expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "2123618197", resources = "LiquidFuel", expect = "LiquidFuel:395.2", tolerance = "0.01" }, expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# No step creates or removes a recording: the host's five committed recordings.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required = [
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='IR6T Rover Supply' status=Paused",
+  "TryActivate: route=\\S+ now Active ",
+  # BEFORE: activated, nothing run, the endpoint at the live-state fill.
+  "(?s)MISSIONMARK label=ir6t-activated (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6T Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* stopPids=2123618197 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  # In the Tracking Station: the route carried across the load, still nothing run.
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6T Rover Supply' status=Active completed=0 skipped=0 cursor=-1 [^\\r\\n]* dispatched=0 debited=0 pickedUp=0 delivered=0 ",
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=200\\.0000 actual=(?:200\\.0|199\\.9)[0-9]{3} [^\\r\\n]*match=true",
+  # PHASE A: one unloaded delivery in the Tracking Station, 200 -> 297.6.
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!MISSIONMARK label=ir6t-a-warped ).)*LoopRoute: route \\S+ cycle=cycle-0 FIRED full cycle ",
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!MISSIONMARK label=ir6t-a-warped ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=(?:200|199\\.999)[0-9.]* tankAfter=297\\.(?:6|599999)[0-9]* capacity=400 path=unloaded",
+  "(?s)MISSIONMARK label=ir6t-a-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6T Rover Supply' status=Active completed=1 skipped=0 cursor=0 [^\\r\\n]* dispatched=1 debited=[01] pickedUp=0 delivered=1 ",
+  "(?s)MISSIONMARK label=ir6t-a-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=297\\.6000 actual=297\\.[56][0-9]{3} [^\\r\\n]*match=true",
+  # PHASE B: the next unloaded delivery, 297.6 -> 395.2.
+  "(?s)MISSIONMARK label=ir6t-a-warped (?:(?!MISSIONMARK label=ir6t-b-warped ).)*LoopRoute: route \\S+ cycle=cycle-1 FIRED full cycle ",
+  "(?s)MISSIONMARK label=ir6t-a-warped (?:(?!MISSIONMARK label=ir6t-b-warped ).)*Delivery write: route=\\S+ dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.(?:6|599999)[0-9]* written=97\\.(?:6|599999)[0-9]* tankBefore=297\\.(?:6|599999)[0-9]* tankAfter=395\\.(?:2|199999)[0-9]* capacity=400 path=unloaded",
+  "(?s)MISSIONMARK label=ir6t-b-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6T Rover Supply' status=Active completed=2 skipped=0 cursor=1 [^\\r\\n]* dispatched=2 debited=[0-2] pickedUp=0 delivered=2 ",
+  "(?s)MISSIONMARK label=ir6t-b-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[12][0-9]{3} [^\\r\\n]*match=true",
+  # PHASE C: every fire blocked, frames that span several periods collapsing into one fire.
+  "(?s)MISSIONMARK label=ir6t-b-warped (?:(?!MISSIONMARK label=ir6t-long-warped ).)*LoopRoute: route \\S+ cycle=cycle-[0-9]+ BLOCKED kind=DestinationFull reason=\\S+ ",
+  "(?s)MISSIONMARK label=ir6t-b-warped (?:(?!MISSIONMARK label=ir6t-long-warped ).)*LoopRoute: route \\S+ warp jump=(?:[2-9]|[1-9][0-9]+) ",
+  "(?s)MISSIONMARK label=ir6t-long-warped (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='IR6T Rover Supply' status=Active completed=2 skipped=[1-9][0-9]* cursor=[0-9]+ [^\\r\\n]* dispatched=2 debited=[0-2] pickedUp=0 delivered=2 ",
+  "(?s)MISSIONMARK label=ir6t-long-warped (?:(?!readvesselresources expect ).)*readvesselresources expect resource=LiquidFuel expected=395\\.2000 actual=395\\.[12][0-9]{3} [^\\r\\n]*match=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "readvesselresources rejected",
+  "readvesselresources expect [^\\r\\n]*match=false",
+  "warptout refused",
+  # Every delivery happens in the Tracking Station: none before its mark.
+  "(?s)MISSIONMARK label=ir6t-activated (?:(?!MISSIONMARK label=ir6t-ts ).)*Delivery write: route=",
+  # No collapse at moderate warp: phases A and B deliver each cycle on its own tick.
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!MISSIONMARK label=ir6t-b-warped ).)*LoopRoute: route \\S+ warp jump=",
+  # Phase A delivers once, phase B once, phase C never.
+  "(?s)MISSIONMARK label=ir6t-ts (?:(?!MISSIONMARK label=ir6t-a-warped ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir6t-a-warped ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir6t-a-warped (?:(?!MISSIONMARK label=ir6t-b-warped ).)*Delivery write: route=(?:(?!MISSIONMARK label=ir6t-b-warped ).)*Delivery write: route=",
+  "(?s)MISSIONMARK label=ir6t-b-warped (?:(?!MISSIONMARK label=ir6t-long-warped ).)*Delivery write: route=",
+  # A cycle blocked before the destination was full.
+  "(?s)MISSIONMARK label=ir6t-activated (?:(?!MISSIONMARK label=ir6t-b-warped ).)*BLOCKED kind=",
+]
+
+[runtime]
+# Two LoadGame boots, one scene exit, three WarpToUT, plus the short steps (IR-6 measured 144 s
+# wall for one more scene change than this).
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
