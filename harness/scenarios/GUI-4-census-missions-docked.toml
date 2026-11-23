@@ -53,11 +53,11 @@ tier = "operator"
 #     block, so the mirror files them under the `mock` dataset rather than this fixture's.
 #     Each apply is paired with its `mockState=none` clear before the next step.
 #
-# THE PROFILE CAPTURES ARE NEVER FLOWN (added 2026-11-23 with the Mission Profile window,
-# P1b). They are QUESTIONS in the GUI-3 sense and sit after the Structure capture they
+# THE PROFILE CAPTURES (added 2026-11-23 with the Mission Profile window, P1b; flown green
+# six times that day, 2 lines and 28 rows each time) sit after the Structure capture they
 # share a mission with: `op=target window=profile mission=Kerbal X #2` reaches the same
 # mission resolver the Structure target above already proved on this host. The gallery
-# pair is the newest question of all and goes last, after every real capture.
+# pair goes last, after every real capture.
 #
 # STEP ORDER IS DEFENSIVE, the GUI-3 rule: a step whose answer is a QUESTION goes as late
 # as its own capture allows, because a driver-INVALID run still harvests every picture
@@ -257,7 +257,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "bd-structure-mission-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
 
-  # --- the Mission Profile on the same mission (a QUESTION, never flown; see the header) ---
+  # --- the Mission Profile on the same mission (see the header) ---
   # The production opener the Missions tab's Profile button calls, through the same mission
   # resolver as the Structure target above. 1000 x 520 is above the window's 480 x 160 floor
   # and readable at the census frame.
@@ -327,7 +327,7 @@ steps = [
   # Leave the install in Advanced.
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
 
-  # --- THE MISSION PROFILE GALLERY (never flown; see the header), LAST of all ---
+  # --- THE MISSION PROFILE GALLERY (see the header), LAST of all ---
   # In Advanced (the pass above left the install there). `op=mock` opens the window at the
   # state's own 960 x 960 rect, captures a baseline, installs the synthetic model and
   # answers only after a drawn frame carried every witness string; the clear puts the
@@ -375,8 +375,14 @@ required = [
   # --- the targeted Structure open (`steps=` is the row count the rebuild produced) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=structure target=mission id=.* steps=[0-9]+",
   # --- the targeted Mission Profile (the Advanced and the Basic open both match it;
-  # `steps=` is the profile's row count, at least one on a recorded mission) ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=profile target=mission id=.* steps=[1-9][0-9]*",
+  # `steps=` is the profile's row count) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction target window=profile target=mission id=.* steps=28\\b",
+  # The window's own open line: the live request path yields 2 vessel lines and 28 rows on
+  # this committed host, the figures of all six 2026-11-23 flights (the mission id is seeded
+  # per load, so the tree id and the title anchor it). Phase rules are xUnit's
+  # (`MissionProfileFixtureTests.AppendixA3_Bdock_ReadsTheWorkedProfile`): a deliberate rule
+  # change that moves that cell's rows, or a re-harvest of the host, moves these two pins too.
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Profile window opened: tree=8c677bba0ec04e558c6ebec4ad8c3c9f mission=.* lines=2 rows=28 title='Parsek - Profile: Kerbal X #2'",
   # --- the two gallery states, each applied with a draw-produced read-back and cleared ---
   "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock applied state=profile.mission.mun-return nodes=[0-9]+ readback=ok witness=[1-9][0-9]*",
   "\\[Parsek\\]\\[INFO\\]\\[GuiMock\\] mock clear cleared=true window=profile state=profile.mission.mun-return",
