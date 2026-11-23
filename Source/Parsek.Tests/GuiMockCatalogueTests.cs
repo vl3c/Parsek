@@ -68,7 +68,7 @@ namespace Parsek.Tests
                 + GuiMockCatalogue.All.Count);
 
             Assert.Equal(
-                new[] { "kerbals", "structure" },
+                new[] { "kerbals", "structure", "profile" },
                 GuiMockCatalogue.SupportedWindows);
 
             foreach (string window in GuiMockCatalogue.SupportedWindows)
@@ -154,7 +154,8 @@ namespace Parsek.Tests
                 // Exactly one carrier is populated: a payload with two would be a state
                 // the applier installs into one window and witnesses through another.
                 int carriers = (payload.Kerbals.HasValue ? 1 : 0)
-                               + (payload.Structure != null ? 1 : 0);
+                               + (payload.Structure != null ? 1 : 0)
+                               + (payload.Profile != null ? 1 : 0);
                 Assert.True(carriers == 1,
                     "state '" + state.Id + "' populated " + carriers + " payload carriers");
 

@@ -153,8 +153,20 @@ namespace Parsek.Tests
         public void Control_RealVsReal()
         {
             Assert.Equal("ok", Judge(TestCommandPartParitySweep.ControlRealVsReal, Four(v => View(v))));
-            Assert.Equal("bad", Judge(TestCommandPartParitySweep.ControlRealVsReal, Four(v => View(v, colorOver: 1))));
             Assert.Equal("bad", Judge(TestCommandPartParitySweep.ControlRealVsReal, Four(v => View(v, realOnly: 1))));
+            // Render noise: the 2026-11-22_2141 PPX-0 flight read one colour pixel over the
+            // threshold in its bottom view with identical masks (todo
+            // PARTPARITY-REAL-VS-REAL-ONE-PIXEL); a handful of pixels is noise, more is a defect.
+            var onePixel = Four(v => View(v));
+            onePixel[3] = View("bottom", colorOver: 1);
+            Assert.Equal("ok", Judge(TestCommandPartParitySweep.ControlRealVsReal, onePixel));
+            Assert.Equal("ok", Judge(TestCommandPartParitySweep.ControlRealVsReal,
+                Four(v => View(v, colorOver: PartParitySweepPlan.RealVsRealColorNoisePx))));
+            Assert.Equal("bad", Judge(TestCommandPartParitySweep.ControlRealVsReal,
+                Four(v => View(v, colorOver: PartParitySweepPlan.RealVsRealColorNoisePx + 1))));
+            var ghostOnly = Four(v => View(v));
+            ghostOnly[2] = View("top", ghostOnly: 1);
+            Assert.Equal("bad", Judge(TestCommandPartParitySweep.ControlRealVsReal, ghostOnly));
         }
 
         [Fact]

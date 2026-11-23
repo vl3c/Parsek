@@ -101,8 +101,11 @@ namespace Parsek.TestCommands
         internal readonly string Layer;
         internal readonly int Width;
         internal readonly int Height;
-        private readonly int[] covered;
-        private readonly long[] sumR, sumG, sumB;
+        // k <= MaxSamples (255) fits a byte, and 255 covered samples of a 255 channel sum to 65025,
+        // so one 512 px side / view / layer holds 7 bytes per pixel: a case's 32 sample sets of
+        // two halves stay near 120 MB instead of 700.
+        private readonly byte[] covered;
+        private readonly ushort[] sumR, sumG, sumB;
 
         internal int Samples { get; private set; }
 
@@ -113,10 +116,10 @@ namespace Parsek.TestCommands
             Width = width;
             Height = height;
             int n = width * height;
-            covered = new int[n];
-            sumR = new long[n];
-            sumG = new long[n];
-            sumB = new long[n];
+            covered = new byte[n];
+            sumR = new ushort[n];
+            sumG = new ushort[n];
+            sumB = new ushort[n];
         }
 
         /// <summary>Adds one sample: RGBA8, rows top-down, the tile's size. A flame sample is
@@ -137,6 +140,24 @@ namespace Parsek.TestCommands
                 sumB[p] += b;
             }
             Samples++;
+        }
+
+        /// <summary>Adds another accumulator of the same size and layer: the sum of its samples.</summary>
+        internal void Merge(PartParityFxAccumulator other)
+        {
+            if (other == null) throw new ArgumentNullException(nameof(other));
+            if (other.Width != Width || other.Height != Height || other.Layer != Layer)
+                throw new ArgumentException("accumulators differ in size or layer");
+            if (Samples + other.Samples > PartParityFxRules.MaxSamples)
+                throw new InvalidOperationException("more than " + PartParityFxRules.MaxSamples + " samples");
+            for (int p = 0; p < covered.Length; p++)
+            {
+                covered[p] += other.covered[p];
+                sumR[p] += other.sumR[p];
+                sumG[p] += other.sumG[p];
+                sumB[p] += other.sumB[p];
+            }
+            Samples += other.Samples;
         }
 
         /// <summary>The samples that covered pixel <paramref name="p"/>.</summary>
@@ -167,22 +188,42 @@ namespace Parsek.TestCommands
     /// </summary>
     internal sealed class PartParityFxSampleSet
     {
-        internal readonly PartParityFxAccumulator All;
         internal readonly PartParityFxAccumulator Even;
         internal readonly PartParityFxAccumulator Odd;
+        private readonly string layer;
+        private readonly int width;
+        private readonly int height;
+        private PartParityFxAccumulator all;
 
         internal PartParityFxSampleSet(string layer, int width, int height)
         {
-            All = new PartParityFxAccumulator(layer, width, height);
+            this.layer = layer;
+            this.width = width;
+            this.height = height;
             Even = new PartParityFxAccumulator(layer, width, height);
             Odd = new PartParityFxAccumulator(layer, width, height);
         }
 
+        /// <summary>Every sample: the even and odd halves' sums, built on first read and dropped
+        /// by the next <see cref="Add"/> (a live case holds the two halves, never a third copy).</summary>
+        internal PartParityFxAccumulator All
+        {
+            get
+            {
+                if (all == null)
+                {
+                    all = new PartParityFxAccumulator(layer, width, height);
+                    all.Merge(Even);
+                    all.Merge(Odd);
+                }
+                return all;
+            }
+        }
+
         internal void Add(byte[] rgba)
         {
-            bool even = All.Samples % 2 == 0;
-            All.Add(rgba);
-            (even ? Even : Odd).Add(rgba);
+            all = null;
+            ((Even.Samples + Odd.Samples) % 2 == 0 ? Even : Odd).Add(rgba);
         }
     }
 
@@ -523,7 +564,9 @@ namespace Parsek.TestCommands
         /// cross-section (area ratio outside [0.6, 1.6], offset over 0.1) and colour
         /// (chromaticity distance over 0.06 or hue L1 over 0.5). A measure that is null is not
         /// measured and never fails. Brightness and core IoU are warn-only and never listed;
-        /// an rcs case drops <see cref="PartParityFxRules.RcsReportOnlyMeasures"/>.
+        /// an rcs case drops <see cref="PartParityFxRules.RcsReportOnlyMeasures"/>. Where both
+        /// cores are weak (<see cref="BothCoresWeak"/>) only presence is judged: the envelope
+        /// the other measures read is then stray particles.
         /// </summary>
         internal static List<string> FailingMeasures(string layer, PartParityFxSideMeasures real,
             PartParityFxSideMeasures ghost, PartParityFxCompare c, bool rcsCase)
@@ -533,6 +576,7 @@ namespace Parsek.TestCommands
             bool smoke = string.Equals(layer, PartParityFxRules.LayerSmoke, StringComparison.Ordinal);
             if (PresenceReason(layer, real.CorePx, ghost.CorePx) != null)
                 failing.Add(smoke ? PartParityFxRules.MeasureSmoke : PartParityFxRules.MeasurePresence);
+            if (BothCoresWeak(real.CorePx, ghost.CorePx)) return new List<string>(failing);
             double realLength = real.LengthPx ?? 0.0;
             if (Over(Abs(c.OriginDeltaPx), Math.Max(PartParityFxRules.OriginFailMinPx,
                     PartParityFxRules.OriginFailLengthFraction * realLength)))
@@ -571,6 +615,12 @@ namespace Parsek.TestCommands
                 return smoke ? PartParityFxRules.ReasonSmokeExtra : PartParityFxRules.ReasonFxExtra;
             return null;
         }
+
+        /// <summary>True when neither core reaches <see cref="PartParityFxRules.PresenceMinPx"/>,
+        /// on either layer (E.4): the tile holds no plume to compare. One weak core is not enough,
+        /// so a plume one side lacks stays judged.</summary>
+        internal static bool BothCoresWeak(int realCorePx, int ghostCorePx)
+            => realCorePx < PartParityFxRules.PresenceMinPx && ghostCorePx < PartParityFxRules.PresenceMinPx;
 
         private static double? Abs(double? v) => v.HasValue ? Math.Abs(v.Value) : (double?)null;
 
@@ -828,9 +878,12 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The split-half disagreement of this entry: the real side's, else the
-        /// ghost's, prefixed with the side; null when both settled.</summary>
+        /// ghost's, prefixed with the side; null when both settled, and where both whole-set
+        /// cores are weak (<see cref="PartParityFxMetrics.BothCoresWeak"/>): stray particles that
+        /// differ between the halves must not cap a case whose plume fails elsewhere.</summary>
         internal string SplitHalfDisagreement()
         {
+            if (Real != null && Ghost != null && PartParityFxMetrics.BothCoresWeak(Real.CorePx, Ghost.CorePx)) return null;
             string real = PartParityFxMetrics.SplitHalfDisagreement(Layer, RealEven, RealOdd);
             if (real != null) return PartParityFxRules.SideReal + " " + real;
             string ghost = PartParityFxMetrics.SplitHalfDisagreement(Layer, GhostEven, GhostOdd);

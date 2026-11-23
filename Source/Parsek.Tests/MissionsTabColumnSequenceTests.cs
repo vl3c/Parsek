@@ -127,11 +127,10 @@ namespace Parsek.Tests
             Assert.Equal(MissionsWindowUI.ColW_Interact,
                 MissionsWindowUI.InteractButtonWidth + 2f * MissionsWindowUI.InteractCellInset);
 
-            // Every single-width button in the file names the one constant: Log, Go to,
-            // Watch and Rewind / Forward, and nothing spells a literal Interact width.
+            // Every single-width button in the Interact column names the one constant: Go to,
+            // Watch and Rewind / Forward, and nothing spells a literal Interact width. (Profile
+            // and Log moved to the name cell's column C, LoopGridColumnCWidth.)
             string prepared = ReadPreparedSource();
-            string nameCell = MethodBody(prepared, "DrawMissionNameCell");
-            Assert.Contains("GUILayout.Width(InteractButtonWidth)", nameCell);
             foreach (string method in new[] { "DrawInteractGoTo", "DrawInteractWatch",
                                               "DrawInteractRewindForward" })
             {
@@ -264,48 +263,47 @@ namespace Parsek.Tests
             Assert.Equal(before, after);
         }
 
-        // The Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01): "Warp to..."
-        // fills column B and is ALWAYS drawn (greyed when it cannot act), Log follows it, and the
-        // line-2 loop row spans column B plus the Log slot, so its left edge is Warp's left edge
-        // and its right edge is Log's right edge. Inside the row, "Loop [x] every" fills column B
-        // under Warp and the period fills the Log slot under Log. No Clone / Delete column: the
-        // grid's first control on either line is Warp / the loop row.
+        // The mission bar's button grid (owner layout A, 2026-11-22, two columns since the
+        // Clone / Delete removal): column B is "Warp to..." over the loop row, which holds the
+        // period field inside it, and column C is Profile over Log, in BOTH modes. Both lines are
+        // right-aligned in the name cell, so B starts at the same x on both lines and C is the
+        // same width on both. No Clone / Delete column.
         [Fact]
         public void TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines()
         {
-            // Both lines are right-aligned in the same name cell, so with every grid control at
-            // zero horizontal margin their right edges coincide at the cell's right edge R.
             const float R = 1000f;
-            float logRight = R;
-            float logLeft = logRight - MissionsWindowUI.InteractButtonWidth;
-            float warpRight = logLeft;
-            float warpLeft = warpRight - MissionsWindowUI.LoopGridColumnBWidth;
-            float rowRight = R;
-            float rowLeft = rowRight - MissionsWindowUI.LoopCellWidth;
+            // Line 1: [B Warp][gap][C Profile]; line 2: [B loop row][gap][C Log].
+            float cLeft = R - MissionsWindowUI.LoopGridColumnCWidth;
+            float bRight = cLeft - MissionsWindowUI.LoopGridGap;
+            float warpLeft = bRight - MissionsWindowUI.LoopGridColumnBWidth;
+            float rowLeft = bRight - MissionsWindowUI.LoopCellWidth;
             Assert.Equal(warpLeft, rowLeft);
-            Assert.Equal(logRight, rowRight);
-            // Column B of the row ("Loop", the checkbox slot, "every") ends where Warp ends, so
-            // the period starts at Log's left edge and ends at Log's right edge.
-            float everyRight = rowLeft + MissionsWindowUI.LoopRowLabelWidth
-                + MissionsWindowUI.LoopRowToggleSlotWidth + MissionsWindowUI.LoopRowEveryWidth;
-            Assert.Equal(warpRight, everyRight);
-            float periodRight = everyRight + MissionsWindowUI.LoopPeriodValueWidth
-                + MissionsWindowUI.LoopPeriodGap + MissionsWindowUI.LoopPeriodUnitButtonWidth;
-            Assert.Equal(logRight, periodRight);
+            // Inside the loop row: "Loop", the checkbox slot, "every", then the period slot
+            // (value field, gap, unit button), ending exactly at Warp's right edge.
+            float periodRight = rowLeft + MissionsWindowUI.LoopRowLabelWidth
+                + MissionsWindowUI.LoopRowToggleSlotWidth + MissionsWindowUI.LoopRowEveryWidth
+                + MissionsWindowUI.LoopPeriodValueWidth + MissionsWindowUI.LoopPeriodGap
+                + MissionsWindowUI.LoopPeriodUnitButtonWidth;
+            Assert.Equal(bRight, periodRight);
+            Assert.Equal(MissionsWindowUI.LoopPeriodSlotWidth, MissionsWindowUI.LoopPeriodValueWidth
+                + MissionsWindowUI.LoopPeriodGap + MissionsWindowUI.LoopPeriodUnitButtonWidth);
 
-            // The widths themselves (a change here moves the grid against the summary).
-            Assert.Equal(92f, MissionsWindowUI.LoopGridColumnBWidth);
-            Assert.Equal(192f, MissionsWindowUI.LoopCellWidth);
+            // The owner's widths (design-mission-profile.md 2.1): B 150 so the whole loop row
+            // fits under Warp, C 72 for Profile and Log, 4 px gap: 226 px in all.
+            Assert.Equal(150f, MissionsWindowUI.LoopGridColumnBWidth);
+            Assert.Equal(72f, MissionsWindowUI.LoopGridColumnCWidth);
+            Assert.Equal(4f, MissionsWindowUI.LoopGridGap);
+            Assert.Equal(150f, MissionsWindowUI.LoopCellWidth);
             Assert.Equal(28f, MissionsWindowUI.LoopRowLabelWidth);
-            Assert.Equal(22f, MissionsWindowUI.LoopRowToggleSlotWidth);
-            Assert.Equal(42f, MissionsWindowUI.LoopRowEveryWidth);
-            Assert.Equal(56f, MissionsWindowUI.LoopPeriodValueWidth);
-            Assert.Equal(40f, MissionsWindowUI.LoopPeriodUnitButtonWidth);
+            Assert.Equal(20f, MissionsWindowUI.LoopRowToggleSlotWidth);
+            Assert.Equal(34f, MissionsWindowUI.LoopRowEveryWidth);
+            Assert.Equal(26f, MissionsWindowUI.LoopPeriodValueWidth);
+            Assert.Equal(38f, MissionsWindowUI.LoopPeriodUnitButtonWidth);
+            Assert.True(MissionsWindowUI.LoopRowEveryWidth > 0f);
 
             string prepared = ReadPreparedSource();
             string line1 = MethodBody(prepared, "DrawMissionNameCell");
             string line2 = MethodBody(prepared, "DrawMissionSummaryNameCell");
-            Assert.Contains("GUILayout.Width(InteractButtonWidth)", line1);    // Log
             // Warp is drawn in every Advanced state: no loop-state branch and no blank slot.
             Assert.Contains("DrawMissionWarpToWindowButton(", line1);
             Assert.DoesNotContain("GUILayout.Space(LoopGridColumnBWidth)", line1);
@@ -313,6 +311,14 @@ namespace Parsek.Tests
             Assert.Contains("GUILayout.Width(LoopGridColumnBWidth)",
                 MethodBody(prepared, "DrawMissionWarpToWindowButton"));
             Assert.Contains("DrawMissionLoopRow(", line2);
+            // Column C: Profile on line 1 and Log on line 2, both at the column C width, each
+            // OUTSIDE the Advanced branch (both modes draw them).
+            AssertDrawnAfterTheAdvancedBranch(line1, "DrawMissionProfileButton(mission);");
+            AssertDrawnAfterTheAdvancedBranch(line2, "DrawMissionLogButton(mission);");
+            Assert.Contains("GUILayout.Width(LoopGridColumnCWidth)", MethodBody(prepared, "DrawMissionProfileButton"));
+            Assert.Contains("GUILayout.Width(LoopGridColumnCWidth)", MethodBody(prepared, "DrawMissionLogButton"));
+            Assert.Contains("parentUI.OpenProfileWindowForMission(", MethodBody(prepared, "DrawMissionProfileButton"));
+            Assert.Contains("parentUI.OpenStructureWindowForMission(", MethodBody(prepared, "DrawMissionLogButton"));
             // The removed Clone / Delete column stays removed, on both lines.
             foreach (string body in new[] { line1, line2 })
             {
@@ -333,13 +339,13 @@ namespace Parsek.Tests
             Assert.Contains("= LoopPeriodValueWidth", period);
             Assert.Contains("= LoopPeriodUnitButtonWidth", period);
             Assert.Contains("GUILayout.Space(LoopPeriodGap)", period);
-            Assert.Contains("GUILayout.Width(InteractButtonWidth)", period);  // locked value
+            Assert.Contains("GUILayout.Width(LoopPeriodSlotWidth)", period);  // locked value
             // A content-sized control would make the row's width depend on its text.
             Assert.DoesNotContain("ExpandWidth(false)", period);
 
             // Every control style in the row has zero horizontal margin, so the fixed widths
             // above are the controls' exact rects (a skin margin would push the period past
-            // Log's right edge).
+            // Warp's right edge into the gap before column C).
             foreach (string style in new[] { "loopCellRowStyle", "loopCellLabelStyle",
                                              "loopCellToggleStyle", "loopCellFieldStyle",
                                              "loopCellUnitButtonStyle", "loopGridButtonStyle",
@@ -365,6 +371,23 @@ namespace Parsek.Tests
         {
             Assert.Equal((MissionsWindowUI.LoopRowKind)expected,
                 MissionsWindowUI.ResolveLoopRowKind(routeBound, looping, lockedOrReaim, autoUnit));
+        }
+
+        // A column C button is drawn after the `if (loopAuthoring) { ... }` block closes, so
+        // both modes reach it.
+        private static void AssertDrawnAfterTheAdvancedBranch(string body, string call)
+        {
+            int branch = body.IndexOf("if (loopAuthoring)", StringComparison.Ordinal);
+            int at = body.IndexOf(call, StringComparison.Ordinal);
+            Assert.True(branch >= 0 && at > branch, call + " must follow the Advanced branch");
+            int open = body.IndexOf('{', branch);
+            int depth = 0, close = -1;
+            for (int i = open; i < body.Length; i++)
+            {
+                if (body[i] == '{') depth++;
+                else if (body[i] == '}' && --depth == 0) { close = i; break; }
+            }
+            Assert.True(close > 0 && at > close, call + " sits inside the Advanced-only branch");
         }
 
         private static void AssertZeroHorizontalMarginStyle(string prepared, string style)

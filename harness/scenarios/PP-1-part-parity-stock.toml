@@ -65,7 +65,7 @@ tier = "operator"
 # 1, 134 s wall, 19.0 s of sweep wall over 4 waves, controls=ok). LIVE-PROVEN 2026-11-22 in
 # THIS P3 SHAPE (all parts, all skins, two steps, the partParity row): `2026-11-22_0033`, PASS
 # attempt 1, 660 s wall, 792 cases, controls ok, complete, recompute 24 / 0 mismatches.
-description = "LIVE-PROVEN 2026-11-22 in its P3 shape (all stock parts, skins=all, two PartParitySweep steps, the partParity row): every stock part photographed beside its Parsek ghost in LKO, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
+description = "LIVE-PROVEN 2026-11-22 in its P3 shape (all stock parts, skins=all, two PartParitySweep steps, the partParity row): every stock part photographed beside its Parsek ghost in LKO, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts ARMED 2026-11-23 (P5): the regression gate against harness/partparity/ reds PARSEK-FAIL(part-parity))."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-1"]
 
@@ -107,9 +107,12 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.partParity]
-# Report-only part verdicts (design 10): controls, completeness and the recompute gate
-# regardless. Arming waits for a reading run of this shape.
-gating = false
+# ARMED 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
+# (2026-11-22_2159 / 2026-11-22_2317): the regression gate against harness/partparity/baseline-<profile>.json
+# and harness/partparity/accepted.toml reds PARSEK-FAIL(part-parity) on a measure past its
+# drift tolerance, an unaccepted fail, a gone case or a missing baseline. The instrument
+# gates (controls, completeness, recompute, host, press) gate regardless.
+gating = true
 
 [expectations.logContracts]
 required = [

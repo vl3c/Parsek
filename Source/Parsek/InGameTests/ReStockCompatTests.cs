@@ -111,8 +111,8 @@ namespace Parsek.InGameTests
             HashSet<string> moduleGroups = entry.EngineModuleEffectNames.Count > 0
                 ? entry.EngineModuleEffectNames[0]
                 : null;
-            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanEffects(entry.EffectsNode, moduleGroups, modelFx, prefabFx);
 
             InGameAssert.IsGreaterThan(modelFx.Count, 0,
@@ -202,8 +202,8 @@ namespace Parsek.InGameTests
                     $"RAPIER midx={midx}: expected a named group filter, got all-groups " +
                     $"(source={source}); modes would bleed FX onto each other");
 
-                var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-                var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+                var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+                var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
                 ScanEffects(entry.EffectsNode, names, modelFx, prefabFx);
                 InGameAssert.IsGreaterThan(modelFx.Count + prefabFx.Count, 0,
                     $"RAPIER midx={midx}: ReStock EFFECTS yielded no entries for groups " +
@@ -234,20 +234,19 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // Every part name with a hardcoded stock tuning block that ReStock covers.
-            // HasAuthoredEffectsFor(true) is exactly the condition that stands the
-            // tunings down in TryBuildEngineFX.
+            // HasAuthoredEffectsFor(true) is exactly the condition that stands the RAPIER tuning down
+            // in TryBuildEngineFX. The other parts have no tuning: on an install whose Waterfall pack
+            // strips them, the index is the only source of their ReStock plume.
             string[] coveredTunedParts =
             {
-                "microEngine.v2", "radialEngineMini.v2",        // Ant/Spider supplement
-                "microEngine",                                   // v1 Ant: ReStock PatchesLegacy authors fresh EFFECTS{fx-ant-running}
-                "MassiveBooster",                                // Kickback forced plume
-                "omsEngine",                                     // Puff supplement
-                "Size3AdvancedEngine", "Size3EngineCluster",     // Rhino plume + heavy white flame
-                "Size2LFB.v2", "Size2LFB",                       // Twin-Boar white flame
-                "SSME",                                          // Vector blue flame
-                "RAPIER",                                        // RAPIER plume forcing
-                "LaunchEscapeSystem"                             // LES particle-FX skip
+                "microEngine.v2", "radialEngineMini.v2",
+                "microEngine",                 // v1 Ant: ReStock PatchesLegacy authors fresh EFFECTS{fx-ant-running}
+                "MassiveBooster", "omsEngine",
+                "Size3AdvancedEngine", "Size3EngineCluster",
+                "Size2LFB.v2", "Size2LFB",
+                "SSME",
+                "RAPIER",                      // RAPIER plume forcing
+                "LaunchEscapeSystem"
             };
             var missing = new List<string>();
             for (int i = 0; i < coveredTunedParts.Length; i++)
@@ -406,8 +405,8 @@ namespace Parsek.InGameTests
         private static void ScanEffects(
             ConfigNode effectsNode,
             HashSet<string> moduleGroups,
-            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFx,
-            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFx)
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)> modelFx,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)> prefabFx)
         {
             ConfigNode[] allGroups = effectsNode.GetNodes();
             string[] allGroupNames = new string[allGroups.Length];
@@ -439,8 +438,8 @@ namespace Parsek.InGameTests
             if (effectsNode == null)
                 return 0;
 
-            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanEffects(effectsNode, moduleGroups, modelFx, prefabFx);
             return modelFx.Count + prefabFx.Count;
         }

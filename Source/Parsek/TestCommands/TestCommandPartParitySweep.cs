@@ -395,13 +395,6 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
-        /// <summary>REJECTED: a well-formed <c>fx=</c> run while the live FX engine is not built
-        /// (design E.9: F3 lifts it); the grammar alone is <see cref="TryParseGrammar"/>.</summary>
-        internal const string FxRunsNotBuiltReason = "fx-runs-not-built";
-
-        /// <summary>False until the live FX engine (design E.9 piece F3) lands.</summary>
-        internal const bool FxRunsBuilt = false;
-
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
 
@@ -425,7 +418,7 @@ namespace Parsek.TestCommands
             StatesArgInvalidReason, ContextsArgInvalidReason, FxArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            FxRunsNotBuiltReason, NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
+            NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
         /// <summary>Every arg key the verb reads.</summary>
@@ -463,25 +456,13 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
-        /// admission (<c>host-not-at-pad</c>). An <c>fx=</c> run is refused
-        /// <c>fx-runs-not-built</c> (detail <c>fx=..</c>) while <see cref="FxRunsBuilt"/> is
-        /// false. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. On a refusal <paramref name="rejectReason"/> is the reason token and
         /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
-        {
-            if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
-            if (!FxRunsBuilt && IsFxRun(parsed))
-            {
-                rejectReason = FxRunsNotBuiltReason;
-                rejectDetail = "fx=" + FormatFx(parsed);
-                parsed = null;
-                return false;
-            }
-            return true;
-        }
+            => TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);
 
         /// <summary>
         /// The arg grammar alone: every arg of one step, each present one that does not parse

@@ -46,6 +46,10 @@ namespace Parsek.TestCommands
         /// <summary>The engine's <c>useEngineResponseTime</c> (a spooling engine).</summary>
         internal bool UseEngineResponseTime;
 
+        /// <summary>The engine's <c>engineAccelerationSpeed</c> (1/s; a spooling engine's throttle
+        /// closes on its request at this rate), NaN when it names none.</summary>
+        internal double EngineAccelerationSpeed = double.NaN;
+
         /// <summary>The engine's <c>engineID</c>; null when it names none.</summary>
         internal string EngineId;
 
@@ -55,6 +59,14 @@ namespace Parsek.TestCommands
         /// <summary><see cref="PartParityFxRules.ReferenceWaterfall"/> for a case judged
         /// reference-only (E.6), else null.</summary>
         internal string Reference;
+
+        /// <summary>The same option in another context.</summary>
+        internal PartParityFxOption InContext(string context)
+        {
+            var o = (PartParityFxOption)MemberwiseClone();
+            o.Context = context;
+            return o;
+        }
     }
 
     /// <summary>A module (or part) an FX run leaves out, and why (design E.1).</summary>
@@ -131,6 +143,9 @@ namespace Parsek.TestCommands
 
         /// <summary>The <c>UnityEngine.LightType</c> names of the prefab's <c>Light</c> components.</summary>
         internal List<string> LightTypes = new List<string>();
+
+        /// <summary>The prefab's model carries the <c>ModuleAnimateHeat</c> clip the module names.</summary>
+        internal bool HasHeatClip;
     }
 
     /// <summary>The subject an FX control runs on, or why it has none.</summary>
@@ -267,6 +282,7 @@ namespace Parsek.TestCommands
         // Config keys and their stock defaults (decompiled KSP 1.12.5 ModuleEngines field initializers).
         internal const string KeyThrottleLocked = "throttleLocked";              // default false
         internal const string KeyUseEngineResponseTime = "useEngineResponseTime"; // default false
+        internal const string KeyEngineAccelerationSpeed = "engineAccelerationSpeed";
         internal const string KeyEngineId = "engineID";
         internal const string NodePropellant = "PROPELLANT";
         internal const string KeyPropellantName = "name";
@@ -285,13 +301,17 @@ namespace Parsek.TestCommands
         internal const string ExcludeNeedsAir = "fx-needs-air";
         internal const string ExcludeThrottleLocked = "fx-throttle-locked";
 
-        /// <summary>Every FX exclusion reason. The enumeration writes the last three per
+        /// <summary>A <c>ModuleLight</c> on a part with no <c>Light</c> component: nothing to
+        /// photograph on a plate (ReStock's <c>telescopicLadderBay</c>).</summary>
+        internal const string ExcludeNoLight = "fx-no-light";
+
+        /// <summary>Every FX exclusion reason. The enumeration writes the last four per
         /// module; reentry fire and blackbody glow are out of every part case (R1 covers
         /// them), so no part names them.</summary>
         internal static readonly string[] ExclusionReasons =
         {
             ExcludeReentryCamera, ExcludeBlackbody, ExcludeAblatorChar, ExcludeNeedsAir,
-            ExcludeThrottleLocked,
+            ExcludeThrottleLocked, ExcludeNoLight,
         };
 
         // ----- drive (E.2) -----
@@ -307,6 +327,11 @@ namespace Parsek.TestCommands
         /// <summary>A spooling engine (<c>useEngineResponseTime</c>): a jet's spool has a
         /// time constant of about 8 s, so it reaches 0.99 of the request after about 38 s (E0 U1).</summary>
         internal const double SpoolTimeoutSeconds = 45.0;
+
+        /// <summary>The margin over stock's own spool time and the longest press timeout a slow
+        /// spool may ask for (<see cref="SpoolPressTimeoutSeconds"/>).</summary>
+        internal const double SpoolTimeoutMargin = 1.1;
+        internal const double SpoolTimeoutCapSeconds = 120.0;
 
         internal const double RcsTimeoutSeconds = 10.0;
         internal const double HeatTimeoutSeconds = 5.0;
@@ -334,6 +359,15 @@ namespace Parsek.TestCommands
         internal const double PlateauWindowSeconds = 0.5;
         internal const double PlateauMaxChange = 0.10;
         internal const double PlateauCapSeconds = 8.0;
+
+        /// <summary>A side whose particles outlive <see cref="PlateauCapSeconds"/> cannot settle
+        /// under it (<see cref="PlateauSettled"/> waits for the longest lifetime), so the cap
+        /// follows that lifetime: this much past it (the window and its ticks), at most
+        /// <see cref="PlateauLifetimeCapSeconds"/>. Measured longest lifetimes: 17.5 s on stock
+        /// booster smoke, 15 s on the Twin-Boar's, 10 s on ReStock's Pollux, 7.5 s or less
+        /// elsewhere.</summary>
+        internal const double PlateauLifetimeMarginSeconds = 1.0;
+        internal const double PlateauLifetimeCapSeconds = 20.0;
 
         /// <summary>The coverage signal of a side with no readable particles: one flame render
         /// of this many pixels per <see cref="PlateauCoveragePeriodSeconds"/>.</summary>
@@ -387,6 +421,9 @@ namespace Parsek.TestCommands
 
         internal const double PlateSpotDistanceM = 3.0;
         internal const double PlatePointDistanceM = 1.0;
+        internal const double PlateFootprintMargin = 1.3;
+        internal const double PlateMinSizeM = 2.0;
+        internal const double PlateFixedSizeM = 3.0;
         internal const double PlateLitMinPct = 0.02;
         internal const int PlateLitMinLum = 8;
 
@@ -505,7 +542,8 @@ namespace Parsek.TestCommands
         /// every <c>as ModuleRCS</c> module, <c>rcs-fire</c>. Heat: every module named
         /// <c>ModuleAnimateHeat</c> (<c>PollAnimateHeat</c>), <c>heat-medium</c> and
         /// <c>heat-hot</c>. A lamp: the first <c>ModuleLight</c> (the recorder's light check),
-        /// <c>lit</c> in the <c>plate</c> context. A <c>ModuleAblator</c> is <c>fx-ablator-char</c>.
+        /// <c>lit</c> in the <c>plate</c> context (<c>fx-no-light</c> when the prefab has no
+        /// <c>Light</c>). A <c>ModuleAblator</c> is <c>fx-ablator-char</c>.
         /// </summary>
         internal static PartParityFxEnumeration Enumerate(PartParityStatePart part, PartParityCaseKey baseKey)
         {
@@ -543,7 +581,13 @@ namespace Parsek.TestCommands
             foreach (PartParityStateModule m in part.Modules)
             {
                 if (m == null || !m.Implements(TypeLight)) continue;
-                cases.Add(Option(FamilyLight, m, StateLit, ContextPlate, false));
+                if (part.LightCount == 0)
+                    r.Exclusions.Add(new PartParityFxExclusion
+                    {
+                        Part = name, Family = FamilyLight, Module = m.Name, ModuleIndex = m.Index,
+                        Reason = ExcludeNoLight, Context = ContextPlate,
+                    });
+                else cases.Add(Option(FamilyLight, m, StateLit, ContextPlate, false));
                 break;
             }
             BuildKeys(cases, baseKey, name, r);
@@ -587,6 +631,8 @@ namespace Parsek.TestCommands
             o.AirBreathing = air;
             o.ThrottleLocked = locked;
             o.UseEngineResponseTime = PartParityStateRules.ParseBool(m.Value(KeyUseEngineResponseTime), false);
+            if (double.TryParse(m.Value(KeyEngineAccelerationSpeed), NumberStyles.Float, Ic, out double accel))
+                o.EngineAccelerationSpeed = accel;
             o.EngineId = m.Value(KeyEngineId);
             o.MultiMode = multiMode;
             return o;
@@ -729,12 +775,29 @@ namespace Parsek.TestCommands
         {
             switch (BucketFor(o))
             {
-                case PartParityFxBucket.Spool: return SpoolTimeoutSeconds;
+                case PartParityFxBucket.Spool: return SpoolPressTimeoutSeconds(o.Throttle, o.EngineAccelerationSpeed);
                 case PartParityFxBucket.Rcs: return RcsTimeoutSeconds;
                 case PartParityFxBucket.Heat: return HeatTimeoutSeconds;
                 case PartParityFxBucket.Plate: return PlateTimeoutSeconds;
                 default: return PlumeTimeoutSeconds;
             }
+        }
+
+        /// <summary>
+        /// A spooling engine's press timeout: 45 s, or the time stock's own spool needs to come
+        /// within <see cref="ThrottleDoneTolerance"/> of the request, with its margin, when that is
+        /// longer (the Goliath's 0.06 /s needs 77 s; the Wheesley's 0.12 /s 38 s), capped. Stock
+        /// moves the throttle by <c>Lerp(current, requested, engineAccelerationSpeed * dt)</c>
+        /// (decompiled <c>ModuleEngines.UpdateThrottle</c>), so it closes on the request
+        /// exponentially.
+        /// </summary>
+        internal static double SpoolPressTimeoutSeconds(double requested, double accelerationSpeed)
+        {
+            if (double.IsNaN(requested) || double.IsNaN(accelerationSpeed) || accelerationSpeed <= 0.0
+                || requested <= ThrottleDoneTolerance)
+                return SpoolTimeoutSeconds;
+            double needed = SpoolTimeoutMargin * Math.Log(requested / ThrottleDoneTolerance) / accelerationSpeed;
+            return Math.Min(SpoolTimeoutCapSeconds, Math.Max(SpoolTimeoutSeconds, needed));
         }
 
         /// <summary>The wave bucket of a case.</summary>
@@ -965,6 +1028,15 @@ namespace Parsek.TestCommands
             return windowMax - windowMin < PlateauMaxChange * windowMax;
         }
 
+        /// <summary>How long after the last prime a case waits for its plateau: the flat cap, or
+        /// past its longest particle lifetime (over its sides) when that is later.</summary>
+        internal static double PlateauCapFor(double longestLifetimeSeconds)
+        {
+            if (double.IsNaN(longestLifetimeSeconds)) return PlateauCapSeconds;
+            return Math.Min(PlateauLifetimeCapSeconds,
+                Math.Max(PlateauCapSeconds, longestLifetimeSeconds + PlateauLifetimeMarginSeconds));
+        }
+
         /// <summary>The <c>fx-not-plateaued:&lt;side&gt;</c> tag.</summary>
         internal static string NotPlateauedTag(string side) => TagFxNotPlateauedPrefix + (side ?? string.Empty);
 
@@ -1045,6 +1117,14 @@ namespace Parsek.TestCommands
             b = g0;
         }
 
+        /// <summary>How many samples a case takes per view: <see cref="Samples"/>, twice that for
+        /// a real-vs-real control, whose two sides take alternate samples, so each side holds as
+        /// many as a judged side does and the noise floor is read at the judged sample count.</summary>
+        internal static int SampleRounds(string controlId)
+            => string.Equals(controlId, TestCommandPartParitySweep.ControlFxRealVsReal, StringComparison.Ordinal)
+               || string.Equals(controlId, TestCommandPartParitySweep.ControlFxRealVsRealAir, StringComparison.Ordinal)
+                ? 2 * Samples : Samples;
+
         /// <summary>A plate case's floor (E.2): the real side lit at least
         /// <see cref="PlateLitMinPct"/> of the plate.</summary>
         internal static bool PlateLit(double litFraction)
@@ -1053,6 +1133,22 @@ namespace Parsek.TestCommands
         /// <summary>The plate's distance along the light's forward: 3 m for a spot, 1 m for a point light.</summary>
         internal static double PlateDistanceM(string lightType)
             => string.Equals(lightType, LightTypePoint, StringComparison.Ordinal) ? PlatePointDistanceM : PlateSpotDistanceM;
+
+        /// <summary>
+        /// The side of the plate at <paramref name="distanceM"/> in front of the light, metres: a
+        /// spot's footprint with a margin, at least <see cref="PlateMinSizeM"/>, or a fixed plate
+        /// for any other light. The footprint's radius is the smaller of the cone's and the range
+        /// sphere's: a 170 degree spot with a 15 m range has a 34 m cone but lights nothing past
+        /// 14.7 m, and the lit share of a cone-sized plate read under the floor
+        /// (<c>stripLight1</c>).
+        /// </summary>
+        internal static double PlateSizeM(string lightType, double spotAngleDeg, double rangeM, double distanceM)
+        {
+            if (!string.Equals(lightType, LightTypeSpot, StringComparison.Ordinal)) return PlateFixedSizeM;
+            double radius = distanceM * Math.Tan(spotAngleDeg * 0.5 * Math.PI / 180.0);
+            double reach = rangeM > distanceM ? Math.Sqrt(rangeM * rangeM - distanceM * distanceM) : 0.0;
+            return Math.Max(PlateMinSizeM, 2.0 * Math.Min(radius, reach) * PlateFootprintMargin);
+        }
 
         /// <summary>A judged reason's name: <c>&lt;route&gt;:&lt;view&gt;:&lt;layer&gt;:&lt;reason&gt;</c>.</summary>
         internal static string FormatReason(string route, string view, string layer, string reason)
@@ -1064,8 +1160,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The worst-case wall time of one FX wave, the bound a wave is admitted against: the
-        /// spawn cap, the slowest case's press timeout, then for a stochastic wave the plateau
-        /// cap and <see cref="FxCaptureSecondsPerCase"/> per case, for a heat wave the minimum
+        /// spawn cap, the slowest case's press timeout, then for a stochastic wave the longest
+        /// plateau cap and <see cref="FxCaptureSecondsPerCase"/> per case, for a heat wave the minimum
         /// settle and P6's capture, for a plate wave the light settle cap and the plate capture;
         /// then the teardown.
         /// </summary>
@@ -1084,7 +1180,7 @@ namespace Parsek.TestCommands
                     if (b == PartParityFxBucket.Plate) plate = true;
                 }
             double tail;
-            if (stochastic) tail = PlateauCapSeconds + FxCaptureSecondsPerCase * n;
+            if (stochastic) tail = PlateauLifetimeCapSeconds + FxCaptureSecondsPerCase * n;
             else if (plate) tail = PartParityStateRules.LightSettleCapSeconds + PlateCaptureSecondsPerCase * n;
             else tail = PartParitySweepPlan.MinSettleSeconds + PartParitySweepPlan.StateCaptureSecondsPerCase * n;
             return PartParitySweepPlan.SpawnTimeoutSeconds + press + tail + PartParitySweepPlan.StateTeardownSeconds;
@@ -1095,13 +1191,19 @@ namespace Parsek.TestCommands
         // =====================================================================================
 
         /// <summary>The plume controls' preference (stock-minimal and modded-restock: the LV-T45;
-        /// modded-compat, where the liquids carry Waterfall: the Flea).</summary>
-        internal static readonly string[] PlumeControlParts = { "liquidEngine2.v2", "liquidEngine", "solidBooster.sm.v2" };
+        /// modded-compat, where the liquids carry Waterfall: the separation motor, which draws no
+        /// smoke). A solid booster last: in orbit a ReStock booster's smoke is noise against itself
+        /// (the Krakensbane shear), so it cannot prove the noise floor.</summary>
+        internal static readonly string[] PlumeControlParts = { "liquidEngine2.v2", "liquidEngine", "sepMotor1", "solidBooster.sm.v2" };
 
         /// <summary>The smoke control's and every air control's subject.</summary>
         internal static readonly string[] SmokeControlParts = { "solidBooster.sm.v2" };
 
-        internal static readonly string[] HeatControlParts = { "standardNoseCone", "pointyNoseConeA" };
+        /// <summary>The heat control's preference. Stock's two nose cones name a clip
+        /// (<c>Cone_Heat</c>) their models do not carry, so the real part never glows there
+        /// (F3 flight); a candidate with no clip is skipped.</summary>
+        internal static readonly string[] HeatControlParts =
+            { "standardNoseCone", "pointyNoseConeA", "noseConeAdapter", "avionicsNoseCone" };
 
         /// <summary>The spot-light plate control's preference: the lamps first, then the parts
         /// whose light is a spot too (E0 U9: every light part checked is a spot light).</summary>
@@ -1124,6 +1226,33 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlPlateLightOffPoint: return null;
                 default: return PlumeControlParts;
             }
+        }
+
+        /// <summary>
+        /// The key a plume control stands for among its subject's cases: the burn-full plume of the
+        /// run's own context. An air run's subject is a booster, whose only plume is an orbit case
+        /// (it breathes no air), so there it is that case taken into the air; null when the subject
+        /// has no plume.
+        /// </summary>
+        internal static PartParityCaseKey ControlPlumeKey(IEnumerable<PartParityCaseKey> cases, bool airRun)
+        {
+            if (cases == null) return null;
+            string context = airRun ? PartParityStateRules.ContextAir : PartParityStateRules.ContextAlone;
+            PartParityCaseKey orbit = null;
+            foreach (PartParityCaseKey k in cases)
+            {
+                PartParityFxOption o = k?.FxOption;
+                if (o == null || o.Family != FamilyPlume || o.State != StateBurnFull) continue;
+                if (o.Context == context) return k;
+                if (airRun && orbit == null && o.Context == PartParityStateRules.ContextAlone) orbit = k;
+            }
+            if (orbit == null) return null;
+            return new PartParityCaseKey
+            {
+                Part = orbit.Part, Source = orbit.Source, Skin = orbit.Skin, SkinOrdinal = orbit.SkinOrdinal,
+                SkinOption = orbit.SkinOption, State = orbit.State, StateOption = orbit.StateOption,
+                Context = context, FxOption = orbit.FxOption.InContext(context),
+            };
         }
 
         /// <summary>The light type a control's subject must carry, or null for none.</summary>
@@ -1161,7 +1290,7 @@ namespace Parsek.TestCommands
             var notes = new List<string>();
             foreach (string part in candidates)
             {
-                string why = SubjectRefusal(facts?.Invoke(part), light);
+                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun);
                 if (why == null)
                 {
                     choice.Subject = part;
@@ -1180,11 +1309,12 @@ namespace Parsek.TestCommands
             return choice;
         }
 
-        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType)
+        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip)
         {
             if (f == null || !f.Present) return "absent";
             if (f.HasWaterfall) return "waterfall";
             if (lightType != null && (f.LightTypes == null || !f.LightTypes.Contains(lightType))) return "no-" + lightType.ToLowerInvariant() + "-light";
+            if (needsHeatClip && !f.HasHeatClip) return "no-heat-clip";
             return null;
         }
 
@@ -1200,7 +1330,7 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostAbsent: return plume + " burning, ghost not built";
                 case TestCommandPartParitySweep.ControlFxRealVsReal: return plume + " burning, real against itself in alternate samples";
                 case TestCommandPartParitySweep.ControlFxPlumeOff: return plume + ", event-route ghost built without the polled events";
-                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost with particle speed, lifetime and energy scaled 0.5";
+                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost whose FX roots are scaled to 0.4 (Hierarchy scaling)";
                 case TestCommandPartParitySweep.ControlFxPlumeHue: return plume + ", intact ghost vs a ghost whose rendered flame channels are rotated (r,g,b)->(b,r,g)";
                 case TestCommandPartParitySweep.ControlFxPlumeShift: return plume + ", intact ghost vs a ghost whose FX roots are moved 10 % across and along the axis";
                 case TestCommandPartParitySweep.ControlFxSmokeDropped: return SmokeControlParts[0] + ", intact ghost vs a ghost with its smoke renderers hidden";

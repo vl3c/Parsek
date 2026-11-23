@@ -155,6 +155,11 @@ namespace Parsek.Tests
             // list of an Event cell the builder shortened), so the scan finds no literal;
             // MissionStructureListBuilder's ShortenList cells pin the cell side.
             yield return new object[] { "UI/StructureListWindowUI.cs", 900f, 0, TooltipEchoBox.SingleLine };
+            // Mission Profile (MissionProfileWindowUI): first-open DefaultWindowWidth = 960.
+            // Single-line strip; floor 0 - every row hover is the builder's runtime sentence
+            // (the strip's marquee carries the long ones) and the caret hovers are consts
+            // picked at runtime; ProfileButtonAndCaretHovers_FitTheirStrips pins those.
+            yield return new object[] { "UI/MissionProfileWindowUI.cs", 960f, 0, TooltipEchoBox.SingleLine };
             // Test runner (Settings-launched) and the global Ctrl+Shift+T twin: 440.
             yield return new object[] { "UI/TestRunnerUI.cs", 440f, 3, TooltipEchoBox.DoubleLine };
             yield return new object[] { "InGameTests/TestRunnerShortcut.cs", 440f, 2, TooltipEchoBox.DoubleLine };
@@ -207,6 +212,21 @@ namespace Parsek.Tests
                     + "Either the tooltips moved out of the file or the scanner stopped matching - "
                     + "a vacuous budget gate is worse than none.",
                     relPath, found, minTooltips));
+        }
+
+        // catches: the Missions tab's Profile button hover (a MissionPresentation const, so
+        // the literal scan cannot see it) outgrowing the single-line Recordings strip it
+        // echoes in, and the Profile window's caret hovers outgrowing its own strip.
+        [Fact]
+        public void ProfileButtonAndCaretHovers_FitTheirStrips()
+        {
+            string button = MissionPresentation.ProfileButtonTooltip;
+            Assert.DoesNotContain("\n", button);
+            Assert.True(button.Length <= BudgetChars(1355f, TooltipEchoBox.SingleLine), button);
+            int profileBudget = BudgetChars(960f, TooltipEchoBox.SingleLine);
+            foreach (string caret in new[] { MissionProfileWindowUI.CaretExpandedTooltip,
+                                             MissionProfileWindowUI.CaretCollapsedTooltip })
+                Assert.True(caret.Length <= profileBudget, caret);
         }
 
         // catches: the sampling-density helper (fed into the Settings window's density

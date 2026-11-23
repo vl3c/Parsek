@@ -1175,6 +1175,22 @@ class PartParitySourceSyncTests(unittest.TestCase):
             for k in range(n + 1):
                 self.assertEqual(k, pp.fx_covered_samples(pp.fx_tile_alpha(k, n), n))
 
+    def test_the_fx_weak_core_rule_is_the_csharp_one(self):
+        text = self._source("PartParityFxMetrics.cs")
+        self.assertIn("=> realCorePx < PartParityFxRules.PresenceMinPx && "
+                      "ghostCorePx < PartParityFxRules.PresenceMinPx;", text)
+        # It returns before any other measure is read, after presence was added.
+        body = text[text.index("internal static List<string> FailingMeasures(string layer"):]
+        body = body[:body.index("internal static string PresenceReason(")]
+        self.assertLess(body.index("PresenceReason(layer, real.CorePx, ghost.CorePx)"),
+                        body.index("if (BothCoresWeak(real.CorePx, ghost.CorePx)) return"))
+        self.assertLess(body.index("if (BothCoresWeak("), body.index("c.OriginDeltaPx"))
+        # The entry's convergence follows it, on the whole-set cores.
+        body = text[text.index("internal string SplitHalfDisagreement()"):]
+        body = body[:body.index("internal List<string> FailingMeasures(bool rcsCase)")]
+        self.assertLess(body.index("PartParityFxMetrics.BothCoresWeak(Real.CorePx, Ghost.CorePx)) return null;"),
+                        body.index("RealEven, RealOdd"))
+
     def test_the_fx_sweep_contract(self):
         text = self._source("TestCommandPartParitySweep.cs")
         consts = self._string_consts(text)
@@ -2306,6 +2322,1305 @@ class StatePressWiringTests(unittest.TestCase):
                                        "part_parity_reason": "family=light"}, {}, 1, "once")
         self.assertEqual((hlib.VERDICT_INVALID, "parity-state-press"), (v.verdict, v.subkind))
         self.assertFalse(hlib.should_retry(v, 1, "once"))
+
+
+# ---------------------------------------------------------------------------
+# P8 F4: the FX judge (design Appendix E.4 to E.6). The measures are anchored on the
+# committed C# fixture (F1b's builder wrote its numbers and its atlas); the judge runs on
+# synthetic plumes drawn straight as 8-bit tiles.
+# ---------------------------------------------------------------------------
+
+FX_FIXTURE = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "Fixtures", "PartParity", "fx",
+                          "fxfixtureplume--default--burn-full--aae6c591")
+FTILE, FN = 48, 16
+FX_AXIS = {"originPx": [4, 24], "dirPx": [1, 0], "nozzleDiameterPx": 10}
+ORANGE, GREEN, GREY = (200, 100, 50), (50, 200, 100), (90, 90, 96)
+
+
+def _fx_fixture():
+    with open(FX_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        return json.load(fh), gui_mirror.read_png(FX_FIXTURE + pp.FX_ATLAS_SUFFIX)
+
+
+def _fx_tile(pixels):
+    """RGBA bytes of a tile from {(x, y): (k, (r, g, b))}."""
+    out = bytearray(FTILE * FTILE * 4)
+    for (x, y), (k, rgb) in pixels.items():
+        i = (y * FTILE + x) * 4
+        out[i:i + 4] = bytes(rgb) + bytes([pp.fx_tile_alpha(k, FN)])
+    return bytes(out)
+
+
+def _plume(x0=4, y0=19, length=34, width=10, rgb=ORANGE, skew=0.0):
+    """A side-on plume: a box of one-sample envelope whose middle 70 % is core. ``skew``
+    turns the core inside the same envelope."""
+    px = {}
+    for x in range(x0, x0 + length):
+        for y in range(y0, y0 + width):
+            u, v = (x - x0) / (length - 1) - 0.5, (y - y0) / (width - 1) - 0.5
+            px[(x, y)] = (FN if abs(v - skew * u) <= 0.35 else 1, rgb)
+    return _fx_tile(px)
+
+
+def _disc(radius=10, cx=24, cy=24, rgb=ORANGE):
+    return _fx_tile({(x, y): (FN, rgb) for x in range(FTILE) for y in range(FTILE)
+                     if (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= radius * radius})
+
+
+FX_BLANK = _fx_tile({})
+FX_DARK = (FX_BLANK, FX_BLANK)
+# One side's tiles: {layer: (the side and far views, the bottom view)}.
+REAL_FX = {"flame": (_plume(), _disc()),
+           "smoke": (_plume(y0=14, width=20, rgb=GREY), _disc(14, rgb=GREY))}
+NO_FX = {"flame": FX_DARK, "smoke": FX_DARK}
+
+
+def _fx_side(table, layer, view):
+    side, bottom = table[layer]
+    return bottom if view == pp.FX_VIEW_AXIS else side
+
+
+_FX_MEASURED = {}
+
+
+def _fx_measured(tile, view):
+    key = (tile, view)
+    if key not in _FX_MEASURED:
+        _FX_MEASURED[key] = pp.fx_measure_tile(tile, FTILE, 0, 0, FTILE, FN, view, FX_AXIS)
+    return _FX_MEASURED[key]
+
+
+def _fx_entry(route, view, layer, real, ghost):
+    r, g = _fx_measured(real, view), _fx_measured(ghost, view)
+    half = {"samples": FN // 2, "real": r.measures, "ghost": g.measures,
+            "compare": pp.fx_compare(view, FX_AXIS, r, g)}
+    doc = {"view": view, "route": route, "layer": layer, "width": FTILE, "height": FTILE,
+           "axis": FX_AXIS, "real": r.measures, "ghost": g.measures, "compare": half["compare"],
+           "splitHalf": {"even": half, "odd": copy.deepcopy(half)}}
+    return json.loads(json.dumps(doc))  # no object shared between two entries
+
+
+def _fx_case(case_id="engine--default--burn-full--0000aaaa", event=None, start=None, all_=None,
+             family="plume", state="burn-full", control=False, reference=None, real=REAL_FX,
+             rcs=None, structure=None, **kw):
+    """(sidecar, body masks, FX tiles by atlas row and view) of one stochastic FX case. Each
+    side is a {layer: tiles} table; a ghost side is the real one with its table's layers
+    replaced."""
+    sides = {"real": real, "ghost": dict(real, **(event or {})),
+             "ghost-start": dict(real, **(start or {})), "ghost-all": dict(real, **(all_ or {}))}
+    if control:
+        sides["ghost-start"] = NO_FX
+    doc, masks = _state_case(case_id, part=kw.pop("part", "liquidEngine2.v2"), family=family,
+                             state=state, **kw)
+    doc["stateProof"]["events"] = [{"type": "EngineIgnited", "ut": 10.0, "pid": 100000, "midx": 0}]
+    block = {k: None for k in pp.FX_KEYS}
+    block.update({"family": family, "samples": FN, "reference": reference, "rcs": rcs,
+                  "structure": structure if structure is not None else {
+                      "fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [],
+                      "lightsDiffer": []},
+                  "views": [_fx_entry(r, v, layer, _fx_side(real, layer, v),
+                                      _fx_side(sides[pp.FX_ROUTE_ROW[r]], layer, v))
+                            for r, v, layer in pp.fx_expected_entries(family, control)]})
+    doc["fx"] = block
+    rows = pp.fx_atlas_rows_for(family == "rcs")
+    doc["fxAtlas"] = {"file": case_id + pp.FX_ATLAS_SUFFIX, "rows": list(rows),
+                      "cols": list(pp.FX_VIEWS), "tile": FTILE}
+    tiles = {(row, v): _fx_side(sides[row.rsplit("-", 1)[0]], row.rsplit("-", 1)[1], v)
+             for row in rows for v in pp.FX_VIEWS}
+    return doc, masks, tiles
+
+
+def _fx_atlas(doc, tiles):
+    """(w, h, 4, pixels) of a case's FX atlas."""
+    rows, cols = doc["fxAtlas"]["rows"], doc["fxAtlas"]["cols"]
+    out = bytearray()
+    for row in rows:
+        for y in range(FTILE):
+            for v in cols:
+                out += tiles[(row, v)][y * FTILE * 4:(y + 1) * FTILE * 4]
+    return len(cols) * FTILE, len(rows) * FTILE, 4, bytes(out)
+
+
+def _fx_fails(doc):
+    """{(route, view, layer): failing measures}, the passing entries left out."""
+    rcs = doc["fx"]["family"] == "rcs"
+    fails = {(e["route"], e["view"], e["layer"]): pp.fx_failing_measures(e, rcs)
+             for e in doc["fx"]["views"]}
+    return {k: v for k, v in fails.items() if v}
+
+
+# The broken plumes: the event ghost's broken layer, and the only measures it fails.
+BROKEN_PLUMES = {
+    "off": ({"flame": FX_DARK}, {"presence"}),
+    "smoke-dropped": ({"smoke": FX_DARK}, {"smoke"}),
+    "short": ({"flame": (_plume(length=20), _disc())}, {"length"}),
+    "wide": ({"flame": (_plume(y0=16, width=16), _disc())}, {"width"}),
+    "shifted-along": ({"flame": (_plume(x0=10), _disc())}, {"origin"}),
+    "shifted-across": ({"flame": (_plume(y0=25), _disc())}, {"lateral"}),
+    "shifted": ({"flame": (_plume(x0=10, y0=25), _disc())}, {"origin", "lateral"}),
+    "turned": ({"flame": (_plume(skew=0.8), _disc())}, {"direction"}),
+    "hue": ({"flame": (_plume(rgb=GREEN), _disc(rgb=GREEN))}, {"colour"}),
+    "thin-section": ({"flame": (_plume(), _disc(7))}, {"cross-section"}),
+    "offset-section": ({"flame": (_plume(), _disc(cx=27))}, {"cross-section"}),
+}
+
+
+def _broken(name):
+    return BROKEN_PLUMES[name][0]
+
+
+class FxMeasureTests(unittest.TestCase):
+    """The Python transcription of PartParityFxMetrics against the committed C# fixture."""
+
+    def test_the_c_sharp_fixture_recomputes(self):
+        side, atlas = _fx_fixture()
+        self.assertEqual([], pp.fx_block_problems(side))
+        self.assertEqual([], pp.recompute_fx_case(side, atlas))
+        self.assertEqual(16, len(side["fx"]["views"]))
+        e = side["fx"]["views"][0]
+        self.assertEqual((386, 400, 179), tuple(e["real"][k] for k in pp.FX_EXACT_KEYS))
+
+    def test_every_value_of_the_fixture_is_bit_identical(self):
+        side, (w, _h, _bpp, px) = _fx_fixture()
+        rows, tile, n = side["fxAtlas"]["rows"], side["fxAtlas"]["tile"], side["fx"]["samples"]
+        checked = 0
+        for e in side["fx"]["views"]:
+            col = pp.FX_VIEWS.index(e["view"])
+            got = {}
+            for name, row in (("real", "real"), ("ghost", pp.FX_ROUTE_ROW[e["route"]])):
+                y = rows.index("%s-%s" % (row, e["layer"])) * tile
+                got[name] = pp.fx_measure_tile(px, w, col * tile, y, tile, n, e["view"], e["axis"])
+                for key in pp.FX_SIDE_MEASURE_KEYS:
+                    self.assertEqual(e[name][key], got[name].measures[key], (e["view"], name, key))
+                    checked += 1
+            for key, value in pp.fx_compare(e["view"], e["axis"], got["real"], got["ghost"]).items():
+                self.assertEqual(e["compare"][key], value, (e["view"], e["route"], key))
+                checked += 1
+        self.assertEqual(528, checked)
+
+    def test_every_tampered_fixture_number_is_a_mismatch(self):
+        side, atlas = _fx_fixture()
+        targets = [("real", k) for k in pp.FX_SIDE_MEASURE_KEYS] \
+            + [("ghost", k) for k in pp.FX_SIDE_MEASURE_KEYS] \
+            + [("compare", k) for k in pp.FX_COMPARE_KEYS]
+        for block, key in targets:
+            with self.subTest(block=block, key=key):
+                bad = copy.deepcopy(side)
+                hit = next(e for e in bad["fx"]["views"] if e[block][key] is not None)
+                value = hit[block][key]
+                if isinstance(value, list):
+                    value[-1] += 0.001
+                else:
+                    hit[block][key] = value + (1 if key in pp.FX_EXACT_KEYS else 1e-6)
+                diffs = pp.recompute_fx_case(bad, atlas)
+                self.assertEqual(1, len(diffs), diffs)
+                self.assertIn("%s.%s" % (block, key), diffs[0])
+                hit[block][key] = None
+                self.assertEqual(1, len(pp.recompute_fx_case(bad, atlas)))
+
+    def test_the_float_tolerance_is_a_billionth(self):
+        side, atlas = _fx_fixture()
+        compare = side["fx"]["views"][0]["compare"]
+        compare["chromaDistance"] += 5e-10
+        self.assertEqual([], pp.recompute_fx_case(side, atlas))
+        compare["chromaDistance"] += 5e-9
+        self.assertEqual(1, len(pp.recompute_fx_case(side, atlas)))
+
+    def test_a_count_must_be_an_integer(self):
+        side, atlas = _fx_fixture()
+        side["fx"]["views"][0]["real"]["corePx"] = 386.0
+        self.assertEqual(1, len(pp.recompute_fx_case(side, atlas)))
+
+    def test_a_mutated_atlas_pixel_is_a_mismatch(self):
+        side, (w, h, bpp, px) = _fx_fixture()
+        tile = side["fxAtlas"]["tile"]
+        # A fully covered, unsaturated core pixel of the real flame in fx-side-a.
+        i = next(p * 4 for p in range(tile * w) if p % w < tile and px[p * 4 + 3] == 255
+                 and not pp.fx_is_saturated(*px[p * 4:p * 4 + 3]))
+        for what, channel, value in (("colour", 0, px[i] ^ 1), ("uncovered", 3, 0),
+                                     ("no sample count", 3, 250)):
+            with self.subTest(what):
+                buf = bytearray(px)
+                buf[i + channel] = value
+                self.assertTrue(pp.recompute_fx_case(side, (w, h, bpp, bytes(buf))))
+        # A colour on an uncovered pixel of a row that holds a plume.
+        row = (i // 4 // w) * w * 4
+        blank = next(j for j in range(row, row + tile * 4, 4) if px[j + 3] == 0)
+        buf = bytearray(px)
+        buf[blank] = 9
+        diffs = pp.recompute_fx_case(side, (w, h, bpp, bytes(buf)))
+        self.assertTrue(any("colour on an uncovered pixel" in d for d in diffs), diffs)
+
+    def test_a_layout_disagreement_is_a_mismatch(self):
+        side, atlas = _fx_fixture()
+        for key, value in (("tile", 32), ("rows", list(pp.FX_ATLAS_ROWS_RCS)),
+                           ("cols", list(pp.FX_VIEWS[:3])), ("tile", None)):
+            with self.subTest(key=key, value=value):
+                bad = copy.deepcopy(side)
+                bad["fxAtlas"][key] = value
+                self.assertEqual(1, len(pp.recompute_fx_case(bad, atlas)))
+        for samples in (0, None, 256, 16.0):
+            bad = copy.deepcopy(side)
+            bad["fx"]["samples"] = samples
+            self.assertEqual(1, len(pp.recompute_fx_case(bad, atlas)))
+        bad = copy.deepcopy(side)
+        bad["fx"]["views"][3]["route"] = "all"  # a plume atlas has no ghost-all row
+        self.assertTrue(any("not in the fx atlas" in d for d in pp.recompute_fx_case(bad, atlas)))
+        bad = copy.deepcopy(side)
+        bad["fx"]["views"][3]["width"] = 63
+        self.assertEqual(1, len(pp.recompute_fx_case(bad, atlas)))
+        self.assertEqual(["fx atlas is not RGBA (bytes per pixel 3)"],
+                         pp.recompute_fx_case(side, (atlas[0], atlas[1], 3, atlas[3])))
+
+    def test_hue_bins_and_wraps(self):
+        self.assertEqual(-1, pp.fx_hue_bin(9, 9, 9))
+        self.assertEqual([0, 4, 8, 2, 6, 10], [pp.fx_hue_bin(*c) for c in (
+            (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255))])
+        self.assertEqual(11, pp.fx_hue_bin(255, 0, 1))
+        self.assertEqual([180.0, -170.0, 180.0], [pp.fx_wrap_deg(d) for d in (-180.0, 190.0, 540.0)])
+
+    def test_no_axis_on_the_axis_view_or_a_zero_direction(self):
+        self.assertIsNone(pp.fx_axis("fx-bottom", FX_AXIS))
+        self.assertIsNone(pp.fx_axis("fx-far", dict(FX_AXIS, dirPx=[0, 0])))
+        self.assertIsNone(pp.fx_axis("fx-far", dict(FX_AXIS, originPx=None)))
+        self.assertIsNone(pp.fx_axis("fx-far", None))
+        self.assertEqual((4, 24, 0.6, 0.8), pp.fx_axis("fx-far", dict(FX_AXIS, dirPx=[3, 4])))
+
+
+class FxJudgeTests(unittest.TestCase):
+    """judge_case on FX cases: the measures per route, the caps and the classes."""
+
+    def test_a_matching_case_passes(self):
+        doc, _m, tiles = _fx_case()
+        self.assertEqual([], pp.fx_block_problems(doc))
+        self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, c.verdict, c.reasons)
+        self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
+        self.assertEqual(16, len(c.fx.entries))
+        self.assertEqual((), c.fx.flags)
+
+    def test_each_broken_plume_fails_only_its_own_measure(self):
+        for name, (broken, want) in BROKEN_PLUMES.items():
+            with self.subTest(name):
+                doc, _m, tiles = _fx_case(event=broken)
+                self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+                fails = _fx_fails(doc)
+                self.assertEqual(want, {m for ms in fails.values() for m in ms}, fails)
+                self.assertEqual({"event"}, {k[0] for k in fails})
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+                self.assertEqual((("event", "fail"), ("start", "pass")), c.fx.routes)
+
+    def test_the_broken_fixture_fails_its_own_measures(self):
+        # The committed C# atlas: a short event ghost; a hue-rotated, shifted, smoke-less start one.
+        fails = _fx_fails(_fx_fixture()[0])
+        by_route = {r: {m for k, ms in fails.items() if k[0] == r for m in ms} for r in ("event", "start")}
+        self.assertEqual({"length"}, by_route["event"])
+        self.assertEqual({"origin", "lateral", "colour", "cross-section", "smoke"}, by_route["start"])
+
+    def test_the_start_route_is_judged_on_its_own(self):
+        c = pp.judge_case(_fx_case(start=_broken("short"))[0])
+        self.assertEqual((("event", "pass"), ("start", "fail")), c.fx.routes)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertEqual({"start:%s:flame:length=0.576" % v for v in pp.FX_VIEWS if v != "fx-bottom"},
+                         set(c.reasons))
+
+    def test_reasons_name_route_view_and_layer(self):
+        c = pp.judge_case(_fx_case(event=_broken("smoke-dropped"))[0])
+        self.assertEqual({"event:%s:smoke:smoke-missing" % v for v in pp.FX_VIEWS}, set(c.reasons))
+        c = pp.judge_case(_fx_case(real=dict(REAL_FX, flame=FX_DARK), event={"flame": REAL_FX["flame"]})[0])
+        self.assertEqual({"event:%s:flame:fx-extra" % v for v in pp.FX_VIEWS}, set(c.reasons))
+
+    def test_the_lines(self):
+        def levels(compare, length=100.0):
+            e = {"layer": "flame", "real": {"corePx": 100, "lengthPx": length},
+                 "ghost": {"corePx": 100}, "compare": compare}
+            return [(f.measure, f.level) for f in pp.fx_entry_findings(e, False)]
+        for compare, want in (
+                ({"originDeltaPx": 10.0}, [("origin", "warn")]),
+                ({"originDeltaPx": -10.1}, [("origin", "fail")]),
+                ({"originDeltaPx": 5.0}, []),
+                ({"lateralOffsetPx": 5.0}, [("lateral", "warn")]),
+                ({"lateralOffsetPx": -5.1}, [("lateral", "fail")]),
+                ({"lengthRatio": 0.75}, [("length", "warn")]),
+                ({"lengthRatio": 1.26}, [("length", "fail")]),
+                ({"lengthRatio": 1.125}, []),
+                ({"widthRatio": 0.69}, [("width", "fail")]),
+                ({"widthRatio": 1.2}, [("width", "warn")]),
+                ({"directionDeg": -10.1}, [("direction", "fail")]),
+                ({"directionDeg": 6.0}, [("direction", "warn")]),
+                ({"directionDeg": 5.0}, []),
+                ({"crossSectionAreaRatio": 0.59}, [("cross-section", "fail")]),
+                ({"crossSectionAreaRatio": 1.61}, [("cross-section", "fail")]),
+                ({"crossSectionAreaRatio": 1.3}, [("cross-section", "warn")]),
+                ({"crossSectionOffset": 0.11}, [("cross-section", "fail")]),
+                ({"crossSectionOffset": 0.1}, []),
+                ({"chromaDistance": 0.061}, [("colour", "fail")]),
+                ({"chromaDistance": 0.016}, [("colour", "warn")]),
+                ({"hueL1": 0.51}, [("colour", "fail")]),
+                ({"hueL1": 0.126}, [("colour", "warn")]),
+                ({"brightnessRatio": 0.1}, [("brightness", "warn")]),
+                ({"coreIou": 0.1}, [("core-iou", "warn")]),
+                ({"lengthRatio": None, "directionDeg": None}, [])):
+            with self.subTest(compare):
+                self.assertEqual(want, levels(compare))
+        # The pixel floors hold on a short plume.
+        self.assertEqual([("origin", "fail"), ("lateral", "warn")],
+                         levels({"lateralOffsetPx": 4.0, "originDeltaPx": 4.1}, length=10.0))
+
+    def test_presence_floors(self):
+        self.assertEqual("fx-missing", pp.fx_presence_reason("flame", 64, 0))
+        self.assertIsNone(pp.fx_presence_reason("flame", 63, 0))
+        self.assertEqual("smoke-extra", pp.fx_presence_reason("smoke", 0, 256))
+        self.assertIsNone(pp.fx_presence_reason("smoke", 255, 0))
+        self.assertIsNone(pp.fx_presence_reason("flame", 64, 1))
+
+    def _weak_entry(self, real, ghost, layer="flame", real_env=None, ghost_env=None, compare=None):
+        side = lambda core, env: {"corePx": core, "envelopePx": core if env is None else env,
+                                  "lengthPx": 100.0}
+        return {"route": "event", "view": "fx-far", "layer": layer, "real": side(real, real_env),
+                "ghost": side(ghost, ghost_env), "compare": compare or {}}
+
+    WILD = {"originDeltaPx": -29.0, "lateralOffsetPx": 40.0, "lengthRatio": 1.373, "widthRatio": 3.0,
+            "directionDeg": 50.0, "crossSectionAreaRatio": 9.0, "crossSectionOffset": 2.0,
+            "chromaDistance": 0.5, "hueL1": 1.5, "brightnessRatio": 9.0, "coreIou": 0.0}
+
+    def test_two_weak_cores_are_judged_on_presence_only(self):
+        # The ReStock Flea's smoke against itself (PP-8 `2026-11-23_1112`): cores 0, envelopes
+        # 1570 and 3680 px, length 1.37, origin -29 px, all of it stray particles.
+        for real, ghost in ((0, 0), (63, 63), (63, 0), (0, 63)):
+            for layer in pp.FX_LAYERS:
+                with self.subTest(real=real, ghost=ghost, layer=layer):
+                    e = self._weak_entry(real, ghost, layer, 1570, 3680, self.WILD)
+                    self.assertEqual([], pp.fx_entry_findings(e, False))
+                    self.assertEqual("fx-weak-core:event:fx-far:%s:real=%d,ghost=%d" % (layer, real, ghost),
+                                     pp.fx_weak_core_flag(e))
+        # One core at the minimum is enough for every measure to be judged, either way round.
+        for real, ghost in ((64, 63), (63, 64), (64, 64)):
+            for layer in pp.FX_LAYERS:
+                e = self._weak_entry(real, ghost, layer, None, None, self.WILD)
+                self.assertEqual(["origin", "lateral", "length", "width", "direction", "cross-section",
+                                  "colour"], pp.fx_failing_measures(e), (real, ghost, layer))
+
+    def test_one_weak_core_never_passes_silently(self):
+        """Every (weak, strong) pair, both ways round and on both layers, with every other
+        measure matching: presence fails it or the flag names it."""
+        for layer in pp.FX_LAYERS:
+            for strong in range(64, 300):
+                for weak in range(64):
+                    for real, ghost in ((weak, strong), (strong, weak)):
+                        e = self._weak_entry(real, ghost, layer)
+                        failed = [f.measure for f in pp.fx_entry_findings(e, False)
+                                  if f.level == pp.VERDICT_FAIL]
+                        flag = pp.fx_weak_core_flag(e)
+                        self.assertTrue(failed or flag, (layer, real, ghost))
+                        if weak == 0 and strong >= (256 if layer == "smoke" else 64):
+                            self.assertEqual(["smoke" if layer == "smoke" else "presence"], failed)
+                            self.assertIsNone(flag)  # presence says it
+
+    def test_nothing_drawn_and_strong_cores_raise_no_weak_flag(self):
+        self.assertIsNone(pp.fx_weak_core_flag(self._weak_entry(0, 0)))
+        self.assertIsNone(pp.fx_weak_core_flag(self._weak_entry(64, 64)))
+        self.assertIsNone(pp.fx_weak_core_flag({}))
+
+    def test_a_missing_plume_still_fails(self):
+        # Real core over the minimum, ghost core 0.
+        c = pp.judge_case(_fx_case(event={"flame": FX_DARK})[0])
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertEqual({"event:%s:flame:fx-missing" % v for v in pp.FX_VIEWS}, set(c.reasons))
+
+    def _faint(self, real_px, ghost_px):
+        """A case whose smoke is a one-sample smear on each side: an envelope, no core."""
+        tile = lambda n: _fx_tile({(x, y): (1, GREY) for x in range(FTILE) for y in range(FTILE)
+                                   if y * FTILE + x < n})
+        real = dict(REAL_FX, smoke=(tile(real_px), tile(real_px)))
+        ghost = {"smoke": (tile(ghost_px), tile(ghost_px))}
+        return _fx_case(real=real, event=ghost, start=ghost)
+
+    def test_two_empty_cores_with_different_envelopes_warn_and_never_pass(self):
+        for real_px, ghost_px in ((300, 2000), (2000, 0), (0, 2000), (500, 500)):
+            with self.subTest(real=real_px, ghost=ghost_px):
+                doc, _m, tiles = self._faint(real_px, ghost_px)
+                self.assertEqual([], pp.fx_block_problems(doc))
+                self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_WARN, c.verdict)
+                want = {"fx-weak-core:%s:%s:smoke:real=0,ghost=0" % (r, v)
+                        for r in ("event", "start") for v in pp.FX_VIEWS}
+                self.assertEqual(want, set(c.fx.flags))
+                self.assertEqual({"flag:" + f for f in want}, set(c.reasons))
+                self.assertEqual(want, set(c.to_dict()["fx"]["flags"]))
+
+    def test_a_weak_core_never_hides_a_fail_elsewhere(self):
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        doc = _fx_case(real=dict(REAL_FX, smoke=(smear, smear)), event={"flame": FX_DARK})[0]
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertTrue(any(f.startswith("fx-weak-core:") for f in c.fx.flags))
+        # Nor do its unsettled halves cap the fail (PP-9 `2026-11-23_1050`,
+        # liquidengine--size1--burn-low: smoke halves 21 and 12 px over an 18 px core).
+        for e in doc["fx"]["views"]:
+            if e["layer"] == "smoke":
+                e["splitHalf"]["odd"]["real"]["lengthPx"] = 1.0
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_FAIL, ()), (c.verdict, c.fx.unsettled))
+        # A judged layer that did not settle still caps (E.4).
+        for e in doc["fx"]["views"]:
+            if e["layer"] == "flame" and e["route"] == "event":
+                e["splitHalf"]["odd"]["real"]["corePx"] = 0
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+
+    def test_a_skipped_entry_says_so(self):
+        c = pp.judge_case(self._faint(300, 2000)[0])
+        smoke = [e for e in c.fx.entries if e.layer == "smoke"]
+        self.assertEqual({pp.VERDICT_SKIPPED}, {e.verdict for e in smoke})
+        self.assertEqual({pp.VERDICT_PASS}, {e.verdict for e in c.fx.entries if e.layer == "flame"})
+        self.assertEqual({"skipped"}, {e["verdict"] for e in c.to_dict()["fx"]["entries"]
+                                       if e["layer"] == "smoke"})
+        # It counts as a pass: the flag raises the case, the routes read pass.
+        self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
+        self.assertNotIn(pp.VERDICT_SKIPPED, pp.VERDICTS)
+        # Two empty pictures agree, and are judged.
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        for real, ghost, skipped in ((FX_DARK, FX_DARK, False), ((smear, smear), FX_DARK, True),
+                                     (FX_DARK, (smear, smear), True)):
+            e = pp.judge_case(_fx_case(real=dict(REAL_FX, smoke=real), event={"smoke": ghost})[0])
+            got = {x.verdict for x in e.fx.entries if x.layer == "smoke" and x.route == "event"}
+            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_PASS}, got)
+        gone = pp.judge_case(_fx_case(event=_broken("off"))[0])
+        self.assertIn(pp.VERDICT_FAIL, {x.verdict for x in gone.fx.entries if x.layer == "flame"})
+
+    def test_the_real_vs_real_control_skips_two_weak_cores_and_no_more(self):
+        doc = _fx_case(case_id="ctl-fx-real-vs-real", control=True)[0]
+        smoke = [e for e in doc["fx"]["views"] if e["layer"] == "smoke"]
+        self.assertEqual(4, len(smoke))
+        for e in smoke:
+            e["real"]["corePx"] = e["ghost"]["corePx"] = 0
+            e["compare"].update(originDeltaPx=-29.0, lengthRatio=1.373)
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_fx_control("ctl-fx-real-vs-real", doc))
+        smoke[0]["ghost"]["corePx"] = 64
+        self.assertEqual((pp.CONTROLS_BAD, "fails origin,length"), pp.judge_fx_control("ctl-fx-real-vs-real", doc))
+
+    def test_a_dim_plume_only_warns(self):
+        dim = (60, 30, 15)
+        c = pp.judge_case(_fx_case(event={"flame": (_plume(rgb=dim), _disc(rgb=dim))})[0])
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertTrue(all(":brightness=" in r for r in c.reasons), c.reasons)
+
+    RCS = {"input": [1, 0, 0], "predicted": [0, 1], "fired": [0, 1], "nozzles": 4,
+           "ghostHidden": 2, "powerRatio": 0.5}
+
+    def test_an_rcs_case_never_fails_on_length_width_or_brightness(self):
+        small = {"flame": (_plume(length=12, y0=22, width=4, rgb=(40, 20, 10)), _disc(rgb=(40, 20, 10)))}
+        doc, _m, tiles = _fx_case(family="rcs", state="rcs-fire", event=small, rcs=self.RCS,
+                                  all_={"flame": (_plume(y0=2, width=40, rgb=GREEN), _disc(20))})
+        self.assertEqual([], pp.fx_block_problems(doc))
+        self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict, c.reasons)
+        # The ghost's 24 px core on the 34 px tile is the weak one of a pair: named, still judged.
+        self.assertTrue(all(":core-iou=" in r or r.startswith("flag:fx-weak-core:event:")
+                            for r in c.reasons), c.reasons)
+        self.assertEqual("rcs-known-difference:nozzles=2/4,power=0.500", c.fx.flags[0])
+        d = c.to_dict()["fx"]["rcs"]
+        self.assertEqual(0.5, d["powerRatio"])
+        row = next(r for r in d["reportedOnly"]
+                   if (r["route"], r["view"], r["layer"]) == ("event", "fx-far", "flame"))
+        self.assertAlmostEqual(11.0 / 33.0, row["length"])
+        self.assertAlmostEqual(3.0 / 9.0, row["width"])
+        self.assertAlmostEqual(0.2, row["brightness"])
+        # The ghost-all rows are written and recomputed, never judged.
+        self.assertEqual(8, sum(1 for e in doc["fx"]["views"] if e["route"] == "all"))
+        self.assertEqual({"event", "start"}, {e.route for e in c.fx.entries})
+        # The same gap on a plume fails length and width.
+        self.assertEqual({"length", "width"}, {m for ms in _fx_fails(_fx_case(event=small)[0]).values()
+                                               for m in ms})
+
+    def test_an_rcs_case_still_fails_on_the_judged_measures(self):
+        for name in ("off", "shifted-along", "shifted-across", "turned", "hue"):
+            with self.subTest(name):
+                doc = _fx_case(family="rcs", state="rcs-fire", rcs=self.RCS, event=_broken(name))[0]
+                self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_the_known_difference_flag(self):
+        kd = lambda **rcs: pp.fx_rcs_known_difference({"fx": {"family": "rcs", "rcs": rcs}})  # noqa: E731
+        self.assertEqual("rcs-known-difference:nozzles=1/4,power=null",
+                         kd(fired=[2], nozzles=[0, 1, 2, 3], powerRatio=None))
+        self.assertEqual("rcs-known-difference:nozzles=4/4,power=0.900",
+                         kd(fired=4, nozzles=4, powerRatio=0.9))
+        self.assertIsNone(kd(fired=4, nozzles=4, powerRatio=1.0))
+        self.assertIsNone(kd(fired=None, nozzles=4, powerRatio=1.0))
+        # A written flag stands; no second one is derived beside it.
+        doc = _fx_case(family="rcs", state="rcs-fire", rcs=self.RCS)[0]
+        doc["flags"] = ["rcs-known-difference:nozzles=1/4,power=0.250"]
+        c = pp.judge_case(doc)
+        self.assertEqual(("rcs-known-difference:nozzles=1/4,power=0.250",), c.fx.flags)
+        self.assertEqual(pp.VERDICT_PASS, c.verdict)
+
+    def test_a_reference_case_never_fails(self):
+        for name in BROKEN_PLUMES:
+            with self.subTest(name):
+                c = pp.judge_case(_fx_case(event=_broken(name), reference="waterfall")[0])
+                self.assertEqual((pp.VERDICT_REFERENCE, pp.VERDICT_FAIL), (c.verdict, c.fx.would_be))
+                self.assertEqual(pp.VERDICT_FAIL, c.to_dict()["fx"]["wouldBe"])
+        # Nor on its body routes.
+        doc = _fx_case(reference="waterfall", ghost=_shifted())[0]
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_REFERENCE, pp.VERDICT_FAIL), (c.verdict, c.fx.would_be))
+        # A setup fault is still an error.
+        doc["setup"] = {"status": "state-timeout", "detail": None}
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_ERROR, None), (c.verdict, c.fx.would_be))
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(_fx_case(reference="waterfall")[0]).fx.would_be)
+
+    def test_a_reference_marker_on_a_judged_family_is_an_instrument_problem(self):
+        doc = _fx_case()[0]
+        self._as_family(doc, "heat", "heat-hot", reference="waterfall", views=None)
+        self.assertIn("fx.reference=waterfall on a heat case", pp.fx_block_problems(doc))
+        doc["views"][0]["colorBlobPx"] = 5000
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        doc = _fx_case(event=_broken("off"), reference="other")[0]
+        self.assertIn("fx.reference=other on a plume case", pp.fx_block_problems(doc))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    @staticmethod
+    def _as_family(doc, family, state, **fx_values):
+        doc["state"] = doc["stateProof"]["state"] = state
+        doc["fx"]["family"] = doc["stateProof"]["family"] = family
+        doc["fx"].update(fx_values)
+
+    def test_the_family_must_agree_with_the_case(self):
+        # The family is what decides whether the FX is judged at all.
+        for family in ("light", "heat"):
+            doc = _fx_case(event=_broken("off"))[0]
+            doc["fx"].update({"family": family, "plate": {"litPct": 0.4}})
+            self.assertIn("fx.family=%s on a burn-full case" % family, pp.fx_block_problems(doc))
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+            doc["stateProof"]["family"] = family  # the state word alone still tells
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+        doc = _fx_case(state="burn-low-m2")[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+        for family in ("rcs", None):
+            doc["stateProof"]["family"] = family
+            self.assertEqual(["fx.family=plume stateProof.family=%s" % family], pp.fx_block_problems(doc))
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_dark_plate_is_an_error_never_a_pass(self):
+        doc = _fx_case()[0]
+        for plate in (None, {"litPct": None}, {"litPct": 0.0}, {"litPct": 0.0199}):
+            for status in ("ok", "still-animating"):
+                with self.subTest(plate=plate, status=status):
+                    self._as_family(doc, "light", "lit", plate=plate, views=None)
+                    doc["setup"] = {"status": status, "detail": None}
+                    self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+                    self.assertTrue(any("on an ok case" in p for p in pp.fx_block_problems(doc)))
+        doc["setup"] = {"status": "plate-not-lit", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(doc))
+        self._as_family(doc, "light", "lit", plate={"litPct": 0.02})
+        doc["setup"] = {"status": "ok", "detail": None}
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(doc).verdict)
+
+    def test_an_ok_rcs_case_fired_the_predicted_nozzles(self):
+        for rcs in (None, dict(self.RCS, fired=[]), dict(self.RCS, fired=[2, 3]),
+                    dict(self.RCS, fired=None), dict(self.RCS, nozzles=1),
+                    dict(self.RCS, predicted=None)):
+            with self.subTest(rcs):
+                doc = _fx_case(family="rcs", state="rcs-fire", rcs=rcs)[0]
+                self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+                self.assertTrue(any("on an ok case" in p for p in pp.fx_block_problems(doc)))
+        doc = _fx_case(family="rcs", state="rcs-fire", rcs=dict(self.RCS, fired=[1, 0]))[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+
+    def test_an_entry_without_an_axis_is_an_instrument_problem(self):
+        for axis in (None, dict(FX_AXIS, dirPx=None), dict(FX_AXIS, originPx=None),
+                     dict(FX_AXIS, dirPx=[0, 0]), dict(FX_AXIS, dirPx=["a", 1])):
+            with self.subTest(axis):
+                doc = _fx_case()[0]
+                doc["fx"]["views"][0]["axis"] = axis
+                self.assertTrue(any("axis" in p for p in pp.fx_block_problems(doc)))
+        # Consistently measured without one, the atlas recompute agrees; the shape does not.
+        doc, _m, tiles = _fx_case(event=_broken("short"))
+        for e in doc["fx"]["views"]:
+            rows = ("real-" + e["layer"], "%s-%s" % (pp.FX_ROUTE_ROW[e["route"]], e["layer"]))
+            r, g = [pp.fx_measure_tile(tiles[(row, e["view"])], FTILE, 0, 0, FTILE, FN, e["view"], None)
+                    for row in rows]
+            e.update(axis=None, real=r.measures, ghost=g.measures,
+                     compare=pp.fx_compare(e["view"], None, r, g))
+        self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+        self.assertIn("fx:event:fx-far:flame: no exhaust axis", pp.fx_block_problems(doc))
+
+    def test_a_bottom_view_without_its_nozzle_diameter_warns(self):
+        doc = _fx_case()[0]
+        for e in doc["fx"]["views"]:
+            if e["view"] == "fx-bottom":
+                e["axis"] = dict(FX_AXIS, dirPx=None, nozzleDiameterPx=None)
+                for block in (e, e["splitHalf"]["even"], e["splitHalf"]["odd"]):
+                    block["compare"]["crossSectionOffset"] = None
+        self.assertEqual([], pp.fx_block_problems(doc))
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_NOZZLE_NOT_MEASURED,)), (c.verdict, c.fx.flags))
+
+    def test_a_lost_or_bent_measure_is_an_instrument_problem_sampled_or_not(self):
+        doc = _fx_case(event=_broken("short"))[0]
+        for key in pp.FX_COMPARE_KEYS:
+            for value in (None, "0.5", float("nan"), True):
+                bad = copy.deepcopy(doc)
+                for e in bad["fx"]["views"]:
+                    if e["compare"][key] is not None:
+                        e["compare"][key] = value
+                with self.subTest(key=key, value=value):
+                    self.assertTrue(pp.fx_block_problems(bad))
+        for key in pp.FX_SIDE_MEASURE_KEYS:
+            for value in (None, "x", [], 10 ** 400):
+                bad = copy.deepcopy(doc)
+                bad["fx"]["views"][0]["real"][key] = value
+                with self.subTest(key=key, value=str(value)[:8]):
+                    self.assertTrue(pp.fx_block_problems(bad))
+                    pp.judge_case(bad)  # a verdict, never a raise
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["compare"]["lengthRatio"] = 1.0
+        self.assertTrue(any("lengthRatio" in p for p in pp.fx_block_problems(bad)))
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] = None
+        self.assertTrue(pp.fx_block_problems(bad))
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["real"]["corePx"] = 10 ** 6  # more core than envelope
+        self.assertTrue(pp.fx_block_problems(bad))
+
+    def test_a_case_with_no_real_effect_warns(self):
+        c = pp.judge_case(_fx_case(real=NO_FX)[0])
+        self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_NO_REAL_EFFECT,)), (c.verdict, c.fx.flags))
+        # Smoke alone is an effect (a stock jet draws no flame).
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(_fx_case(real=dict(REAL_FX, flame=FX_DARK))[0]).verdict)
+
+    def test_unmeasured_structure_lists_warn_and_malformed_ones_are_a_problem(self):
+        lists = {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
+        for key in ("fxMissingOnGhost", "fxExtraOnGhost"):
+            doc = _fx_case(structure=dict(lists, **{key: None}))[0]
+            c = pp.judge_case(doc)
+            self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_STRUCTURE_NOT_MEASURED,)), (c.verdict, c.fx.flags))
+            self.assertEqual([], pp.fx_block_problems(doc))
+            for bad in ({"key": "a"}, 3):
+                self.assertTrue(pp.fx_block_problems(_fx_case(structure=dict(lists, **{key: bad}))[0]))
+        doc = _fx_case()[0]
+        doc["fx"]["structure"].pop("fxExtraOnGhost")
+        self.assertTrue(pp.fx_block_problems(doc))
+
+    @staticmethod
+    def _loosen(doc, route="event", layer="flame", views=pp.FX_VIEWS, side="real"):
+        """Unsettles the entries named: their odd half's length is 0.89 of the even one's (the
+        axis view has none: its core goes to 0)."""
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == (route, layer) and e["view"] in views:
+                m = e["splitHalf"]["odd"][side]
+                if m["lengthPx"] is None:
+                    m["corePx"] = 0
+                else:
+                    m["lengthPx"] *= 0.89
+
+    def test_an_unsettled_entry_caps_its_own_fails_at_warn(self):
+        doc = _fx_case(event=_broken("off"))[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        self._loosen(doc)
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertEqual(pp.REASON_FX_UNSETTLED, c.reasons[-1])
+        self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
+        self.assertTrue(c.fx.unsettled[0].startswith("event:fx-side-a:flame:real length even="))
+        capped = [f for e in c.fx.entries if e.layer == "flame" and e.route == "event" for f in e.findings]
+        self.assertEqual({("presence", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
+        self.assertEqual({True}, {r["capped"] for e in c.to_dict()["fx"]["entries"] for r in e["reasons"]})
+        # One unsettled entry says nothing about the others: the plume is missing in three views.
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc, views=("fx-side-a",))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
+        self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
+        self.assertEqual({"fx-side-a": pp.VERDICT_WARN, "fx-side-b": pp.VERDICT_FAIL,
+                          "fx-bottom": pp.VERDICT_FAIL, "fx-far": pp.VERDICT_FAIL},
+                         {e.view: e.verdict for e in c.fx.entries if (e.route, e.layer) == ("event", "flame")})
+        # The other route's fails are not this one's.
+        doc = _fx_case(event=_broken("off"), start=_broken("off"))[0]
+        self._loosen(doc)
+        self.assertEqual((("event", pp.VERDICT_WARN), ("start", pp.VERDICT_FAIL)), pp.judge_case(doc).fx.routes)
+
+    def test_the_cap_never_holds_what_no_sample_decides(self):
+        lists = {"fxMissingOnGhost": ["fx_a<b"], "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
+        doc = _fx_case(structure=lists)[0]
+        self._loosen(doc)
+        c = pp.judge_case(doc)  # a rendered asset the ghost lacks
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_FAIL), (c.verdict, c.fx.verdict))
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc)
+        doc["views"][0]["colorBlobPx"] = 10 ** 6  # the body route (PP-9's nozzle glow)
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_WARN), (c.verdict, c.fx.verdict))
+        self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
+
+    def test_smoke_unsettled_in_one_view_is_unsettled_in_all(self):
+        # PP-9 `2026-11-23_1050`, solidbooster1-1: real smoke core 0 in every view (stray puffs,
+        # one view's halves 18 and 12 px long), the ghost's smoke there: noise, not smoke-extra.
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        doc = _fx_case(real=dict(REAL_FX, smoke=(smear, smear)),
+                       event={"smoke": REAL_FX["smoke"]}, start={"smoke": REAL_FX["smoke"]})[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        for route in ("event", "start"):
+            self._loosen(doc, route, "smoke", ("fx-side-b",))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertEqual({"smoke-extra"}, {f.reason for e in c.fx.entries for f in e.findings if f.capped})
+        # A flame's views are judged apart (above), and smoke never caps a flame.
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc, layer="smoke")
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_beside_an_unsettled_entry_a_fail_stands_only_when_both_halves_show_it(self):
+        def judged(name, spoil):
+            doc = _fx_case(event=_broken(name))[0]
+            self._loosen(doc, layer="smoke")  # the case has an unsettled entry
+            for e in doc["fx"]["views"]:
+                if (e["route"], e["layer"]) == ("event", "flame"):
+                    spoil(e)
+            return pp.judge_case(doc)
+
+        for name, key, agree, other in (
+                ("wide", "widthRatio", 1.0, 0.5), ("shifted-along", "originDeltaPx", 0.0, -30.0),
+                ("shifted-across", "lateralOffsetPx", 0.0, -30.0), ("turned", "directionDeg", 0.0, -60.0)):
+            with self.subTest(name):
+                self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None).verdict)
+                for value in (agree, other):  # one half passes, or fails the other way
+                    c = judged(name, lambda e: e["splitHalf"]["odd"]["compare"].update({key: value}))
+                    self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value))
+                    self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+        # Without an unsettled entry the same halves decide nothing: no settled fail is lowered.
+        doc = _fx_case(event=_broken("wide"))[0]
+        for e in doc["fx"]["views"]:
+            e["splitHalf"]["odd"]["compare"]["widthRatio"] = 1.0
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_beside_an_unsettled_entry_a_measure_noisy_against_itself_is_capped(self):
+        def doc_of(side, dx):
+            doc = _fx_case(event=_broken("offset-section"))[0]
+            self._loosen(doc, layer="smoke")
+            for e in doc["fx"]["views"]:
+                if e["view"] == "fx-bottom" and e["layer"] == "flame":
+                    e["splitHalf"]["odd"][side]["coreCentroid"][0] += dx
+            return doc
+
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc_of("real", 0.0)).verdict)
+        for side in ("real", "ghost"):
+            c = pp.judge_case(doc_of(side, 20.0))
+            self.assertEqual(pp.VERDICT_WARN, c.verdict)
+            e = next(e for e in doc_of(side, 20.0)["fx"]["views"]
+                     if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
+            self.assertEqual({"cross-section"}, set(pp.fx_self_failing(e, False)))
+        # A malformed half proves no noise (fx_block_problems is the finding).
+        e["splitHalf"]["odd"]["ghost"]["hueHistogram"] = "x"
+        self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
+        e["axis"] = {"originPx": [0, 0], "dirPx": None, "nozzleDiameterPx": "x"}
+        self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
+        # Nor does an integer whose square no double holds, and the judge does not raise on it.
+        big = 10 ** 200
+        for spoil in (lambda x: x["axis"].update(dirPx=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["real"].update(coreCentroid=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["ghost"].update(chromaticity=[big, 0])):
+            doc = doc_of("real", 0.0)
+            for x in doc["fx"]["views"]:
+                if x["axis"] is not None:
+                    x["axis"] = dict(x["axis"])
+                spoil(x)
+            self.assertEqual("engine--default--burn-full--0000aaaa", pp.judge_case(doc).case_id)
+
+    def test_an_unsettled_case_lowers_nothing_else(self):
+        doc = _fx_case()[0]
+        doc["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] *= 0.89
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_PASS, (pp.CAP_FX_UNSETTLED,)), (c.verdict, c.fx.flags))
+        # The unjudged ghost-all rows cap nothing.
+        doc = _fx_case(family="rcs", state="rcs-fire", rcs=self.RCS, event=_broken("off"))[0]
+        e = next(e for e in doc["fx"]["views"] if e["route"] == "all")
+        e["splitHalf"]["odd"]["ghost"]["lengthPx"] = 1.0
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_the_split_half_rule(self):
+        def halves(even, odd, layer="flame"):
+            blank = {"corePx": 0, "lengthPx": None, "widthPx": None}
+            return pp.fx_split_half_disagreement({"layer": layer, "real": {"corePx": 64}, "splitHalf": {
+                "even": {"real": blank, "ghost": dict(blank, **even)},
+                "odd": {"real": blank, "ghost": dict(blank, **odd)}}})
+        self.assertIsNone(halves({"lengthPx": 100.0}, {"lengthPx": 90.0}))
+        self.assertEqual("ghost length even=100.000 odd=89.900",
+                         halves({"lengthPx": 100.0}, {"lengthPx": 89.9}))
+        self.assertIsNone(halves({"lengthPx": 100.0}, {"lengthPx": None}))
+        self.assertEqual("ghost width even=10.000 odd=12.000", halves({"widthPx": 10.0}, {"widthPx": 12.0}))
+        self.assertEqual("ghost presence even=64 odd=0", halves({"corePx": 64}, {}))
+        self.assertIsNone(halves({"corePx": 255}, {}, "smoke"))
+        # Both whole-set cores weak: stray particles, no convergence to read. One is not enough.
+        for real, ghost, settled in ((63, 63, True), (0, 0, True), (64, 0, False), (0, 64, False)):
+            e = {"layer": "smoke", "real": {"corePx": real}, "ghost": {"corePx": ghost}, "splitHalf": {
+                "even": {"ghost": {"corePx": 441, "lengthPx": 21.0}}, "odd": {"ghost": {"corePx": 0, "lengthPx": 12.0}}}}
+            self.assertEqual(settled, pp.fx_split_half_disagreement(e) is None, (real, ghost))
+        side, _atlas = _fx_fixture()
+        self.assertEqual([None] * 16, [pp.fx_split_half_disagreement(e) for e in side["fx"]["views"]])
+
+    def test_a_body_difference_still_fails_the_case(self):
+        c = pp.judge_case(_fx_case(ghost=_shifted())[0])
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_PASS), (c.verdict, c.fx.verdict))
+
+    def test_the_fx_structure_raise(self):
+        s = {"fxMissingOnGhost": [{"key": "fx-smoke", "rendered": False}], "fxExtraOnGhost": [],
+             "fxDiffers": ["a", "b"], "lightsDiffer": []}
+        c = pp.judge_case(_fx_case(structure=s)[0])
+        self.assertEqual((pp.VERDICT_PASS, 2), (c.verdict, c.fx.structure["fxDiffers"]))
+        for entry in ({"key": "fx-flame", "rendered": True}, {"key": "fx-flame"}, "fx-flame"):
+            with self.subTest(entry=entry):
+                c = pp.judge_case(_fx_case(structure=dict(s, fxMissingOnGhost=[entry]))[0])
+                self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+                self.assertIn("missing-fx:fx-flame", c.reasons)
+        c = pp.judge_case(_fx_case(structure=dict(s, fxExtraOnGhost=["x"]))[0])
+        self.assertIn("extra-fx:x", c.reasons)
+        doc = _fx_case()[0]
+        doc["fx"]["structure"] = None
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("flag:" + pp.FLAG_FX_STRUCTURE_NOT_MEASURED, c.reasons)
+
+    def test_a_case_without_its_entries_is_an_error(self):
+        doc = _fx_case()[0]
+        doc["fx"]["views"].pop()
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_ERROR, c.verdict)
+        self.assertIn("fx-no-entries:1 lost, first start:fx-far:smoke", c.reasons)
+        self.assertTrue(any("lacks 1 entr" in p for p in pp.fx_block_problems(doc)))
+        doc["fx"]["views"] = None
+        self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_the_tags_are_judged_not_caps(self):
+        doc = _fx_case(event=_broken("short"))[0]
+        doc["tags"] = ["fx-not-plateaued:ghost"]
+        doc["fx"]["plateau"] = {"real": {"signal": "coverage", "settled": False, "waitS": 8.0}}
+        doc["fx"]["framing"] = {"near": 1.0, "far": 80.0, "clamped": True}
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertEqual(("fx-not-plateaued:ghost", "fx-not-plateaued:real", "fx-framing-clamped"),
+                         c.fx.flags)
+
+    def test_a_lamps_flame_layer_is_reference(self):
+        doc = _fx_case(event=_broken("off"))[0]
+        self._as_family(doc, "light", "lit", plate={"litPct": 0.4})
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, c.verdict, c.reasons)
+        self.assertTrue(all(e.reference for e in c.fx.entries))
+        self.assertIn(pp.VERDICT_FAIL, {e.verdict for e in c.fx.entries})
+        # The plate pictures (the body routes) stay judged.
+        doc["views"][0]["colorBlobPx"] = 5000
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_a_non_fx_case_has_no_fx_half(self):
+        c = pp.judge_case(_state_case("a--default--deployed--00000000")[0])
+        self.assertIsNone(c.fx)
+        self.assertNotIn("fx", c.to_dict())
+
+    def test_the_block_shape(self):
+        doc = _fx_case()[0]
+        for what, mutate in (
+                ("family", lambda f: f.update(family="warp")),
+                ("samples", lambda f: f.update(samples=None)),
+                ("a compare key", lambda f: f["views"][0]["compare"].pop("hueL1")),
+                ("a side key", lambda f: f["views"][0]["ghost"].pop("corePx")),
+                ("a float count", lambda f: f["views"][0]["ghost"].update(corePx=1.5)),
+                ("hue bins", lambda f: f["views"][0]["real"].update(hueHistogram=[0.0] * 11)),
+                ("an axis key", lambda f: f["views"][0]["axis"].pop("nozzleDiameterPx")),
+                ("the size", lambda f: f["views"][0].update(width=10 ** 6)),
+                ("no half", lambda f: f["views"][0]["splitHalf"].update(odd=None)),
+                ("half samples", lambda f: f["views"][0]["splitHalf"]["odd"].update(samples=16)),
+                ("half side key", lambda f: f["views"][0]["splitHalf"]["even"]["ghost"].pop("widthPx")),
+                ("half compare", lambda f: f["views"][0]["splitHalf"]["even"].update(compare=None)),
+                ("a repeated entry", lambda f: f["views"].append(copy.deepcopy(f["views"][0]))),
+                ("an unknown route", lambda f: f["views"][0].update(route="rcs")),
+                ("the fx keys", lambda f: f.pop("drive"))):
+            with self.subTest(what):
+                bad = copy.deepcopy(doc)
+                mutate(bad["fx"])
+                self.assertTrue(pp.fx_block_problems(bad))
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"] = None
+        bad["setup"] = {"status": "state-timeout", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(bad))
+
+
+def _fx_control(cid):
+    """(sidecar, masks, tiles or None) of one FX control whose evidence meets its requirement."""
+    empty = fx.empty_mask(STILE)
+    if cid == "ctl-heat-events-dropped" or cid.startswith("ctl-plate"):
+        heat = cid == "ctl-heat-events-dropped"
+        doc, masks = _state_case(cid, family="heat" if heat else "light",
+                                 state="heat-hot" if heat else "lit",
+                                 context="alone" if heat else "plate")
+        doc["views"][1]["colorBlobPx"] = pp.COLOR_BLOB_FAIL_PX + 1
+        doc["fx"] = {k: None for k in pp.FX_KEYS}
+        doc["fx"]["family"] = "heat" if heat else "light"
+        if not heat:
+            doc["fx"]["plate"] = {"litPct": 0.4, "lightType": "Spot", "range": 60,
+                                  "spotAngle": 30, "cullingMask": 1}
+        return doc, masks, None
+    broken = {"ctl-fx-plume-off": "off", "ctl-fx-plume-off-air": "off", "ctl-fx-plume-short": "short",
+              "ctl-fx-plume-hue": "hue", "ctl-fx-plume-shift": "shifted",
+              "ctl-fx-smoke-dropped": "smoke-dropped"}.get(cid)
+    event = _broken(broken) if broken else (NO_FX if cid == "ctl-ghost-absent" else None)
+    doc, masks, tiles = _fx_case(cid, event=event, control=True,
+                                 real=NO_FX if cid == "ctl-empty" else REAL_FX)
+    if cid in ("ctl-empty", "ctl-ghost-absent"):
+        masks = (empty if cid == "ctl-empty" else _deployed(), empty, empty, empty)
+        doc["views"] = [_state_view(v, *masks) for v in fx.VIEWS]
+    return doc, masks, tiles
+
+
+def _write_fx_case(label_dir, doc, masks, tiles):
+    _write_state_case(label_dir, doc, masks)
+    if tiles is not None:
+        with open(os.path.join(label_dir, doc["fxAtlas"]["file"]), "wb") as fh:
+            fh.write(gui_mirror.write_png(*_fx_atlas(doc, tiles)))
+
+
+def _build_fx_sweep(label_dir, cases, settings=None, outcomes=None, controls=None):
+    """A COMPLETE FX sweep: every control of the run's set (the point-light one ``n/a`` by
+    default; an ``n/a`` control writes no sidecar) and ``cases``, a list of (sidecar, masks,
+    tiles or None). Returns the manifest."""
+    settings = dict(settings or {"fx": "all"})
+    outcomes = dict({"ctl-plate-light-off-point": pp.CONTROLS_NOT_APPLICABLE}, **(outcomes or {}))
+    manifest = _build_state_sweep(label_dir, [c[:2] for c in cases], settings=settings,
+                                  control_outcomes=outcomes)
+    for cid in pp.control_set(settings):
+        for name in os.listdir(label_dir):
+            if name.startswith(cid + "."):
+                os.remove(os.path.join(label_dir, name))
+        if outcomes.get(cid) != pp.CONTROLS_NOT_APPLICABLE:
+            _write_fx_case(label_dir, *((controls or {}).get(cid) or _fx_control(cid)))
+    for case in cases:
+        _write_fx_case(label_dir, *case)
+    manifest["progress"]["controls"] = "ok"
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+def _judge_fx_dir(label_dir, gating=False, read_png=gui_mirror.read_png):
+    return pp.evaluate_sweep(_read_dir(label_dir, "pp7"), RUN_ID, gating, read_png,
+                             lambda n: os.path.join(label_dir, n))
+
+
+def _fx_cases(n=3, **kw):
+    return [_fx_case("engine%d--default--burn-full--0000aaa%d" % (i, i), **kw) for i in range(n)]
+
+
+class FxSweepTests(unittest.TestCase):
+    """evaluate_sweep over a synthetic FX sweep."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pp-fx-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.n = 0
+
+    def _dir(self):
+        self.n += 1
+        return os.path.join(self.root, "s%d" % self.n)
+
+    def _eval(self, cases, gating=False, read_png=gui_mirror.read_png, **kw):
+        d = self._dir()
+        _build_fx_sweep(d, cases, **kw)
+        return _judge_fx_dir(d, gating, read_png)
+
+    def test_a_clean_sweep_reports(self):
+        res = self._eval(_fx_cases())
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(3, res.counts["pass"])
+        # Every stochastic control and one sampled case are recomputed from their FX atlas.
+        fx_ids = [c for c in res.recompute_ids if c.endswith(".fx")]
+        self.assertEqual(8 + 1, len(fx_ids), fx_ids)
+        self.assertIn("ctl-fx-plume-hue.fx", fx_ids)
+
+    def test_an_air_run(self):
+        case = _fx_case("solid--default--burn-full--air--0000aaaa", context="air")
+        res = self._eval([case], settings={"fx": "plume", "contexts": "air"})
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(4, len(res.controls.outcomes))
+
+    def test_a_mutated_fx_atlas_is_invalid_instrument(self):
+        cases = _fx_cases(1)
+        for name in (cases[0][0]["caseId"], "ctl-fx-real-vs-real"):
+            with self.subTest(name):
+                d = self._dir()
+                _build_fx_sweep(d, cases)
+                path = os.path.join(d, name + pp.FX_ATLAS_SUFFIX)
+                w, h, bpp, px = gui_mirror.read_png(path)
+                buf = bytearray(px)
+                i = (24 * w + 20) * 4  # a core pixel of real-flame, fx-side-a
+                self.assertEqual(255, buf[i + 3])
+                buf[i:i + 4] = b"\0\0\0\0"
+                with open(path, "wb") as fh:
+                    fh.write(gui_mirror.write_png(w, h, bpp, bytes(buf)))
+                res = _judge_fx_dir(d)
+                self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND),
+                                 (res.status, res.invalid_subkind))
+                self.assertTrue(all(m.startswith(name + " ") for m in res.recompute_mismatches))
+                self.assertTrue(any("real.corePx" in m for m in res.recompute_mismatches))
+
+    def test_a_tampered_sidecar_number_is_invalid_instrument(self):
+        cases = _fx_cases(1)
+        cases[0][0]["fx"]["views"][0]["compare"]["lengthRatio"] += 0.01
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, self._eval(cases).invalid_subkind)
+
+    def test_a_broken_block_is_invalid_instrument_sampled_or_not(self):
+        cases = _fx_cases(3)
+        for doc, _m, _t in cases:
+            doc["fx"]["views"][0]["splitHalf"]["odd"] = None
+        res = self._eval(cases)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertEqual(3, sum("splitHalf.odd: block missing" in m for m in res.recompute_mismatches))
+
+    def test_an_unreadable_or_missing_fx_atlas(self):
+        cases = _fx_cases(1)
+        d = self._dir()
+        _build_fx_sweep(d, cases)
+        path = os.path.join(d, cases[0][0]["fxAtlas"]["file"])
+        with open(path, "wb") as fh:
+            fh.write(b"not a png")
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, _judge_fx_dir(d).invalid_subkind)
+        os.remove(path)
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INCOMPLETE_SUBKIND, res.invalid_subkind)
+        self.assertIn("fxAtlas-missing", res.problems[0])
+        doc = cases[0][0]
+        doc["fxAtlas"] = None
+        self.assertEqual("no-fx-atlas", pp.fx_atlas_problem(doc, ()))
+        doc["fxAtlas"], doc["strip"] = {"file": "a"}, {"file": "b", "frames": 12}
+        self.assertEqual("strip-missing:b", pp.fx_atlas_problem(doc, ("a",)))
+        self.assertIsNone(pp.fx_atlas_problem(doc, ("a", "b")))
+
+    def test_a_row_family_that_is_not_the_sidecars(self):
+        d = self._dir()
+        _build_fx_sweep(d, _fx_cases(1))
+        path = os.path.join(d, pp.MANIFEST_FILE)
+        with open(path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        manifest["cases"][0]["family"] = "rcs"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh)
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertTrue(any("row family=rcs fx.family=plume" in m for m in res.recompute_mismatches))
+
+    def test_a_capture_that_sees_no_puff_is_invalid_instrument(self):
+        kw = dict(family="rcs", state="rcs-fire", rcs=FxJudgeTests.RCS)
+        dark = [_fx_case("rcs%d--default--rcs-fire--0000ccc%d" % (i, i), real=NO_FX, **kw) for i in range(2)]
+        res = self._eval(dark)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertEqual(["rcs: the real side of all 2 captured case(s) drew nothing"], res.recompute_mismatches)
+        res = self._eval(dark + [_fx_case("rcs9--default--rcs-fire--0000ccc9", **kw)])
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(2, res.counts["warn"])
+
+    def test_a_malformed_control_gives_a_verdict(self):
+        for key in ("route", "view", "layer"):
+            for value in ([], {}, None, 3):
+                with self.subTest(key=key, value=value):
+                    doc = _fx_control("ctl-fx-plume-short")[0]
+                    doc["fx"]["views"][2][key] = value
+                    self.assertEqual(pp.CONTROLS_BAD, pp.judge_fx_control("ctl-fx-plume-short", doc)[0])
+        manifest = {"controls": [{"id": ["ctl-empty"], "outcome": "ok"}], "settings": {"fx": "all"}}
+        self.assertFalse(pp.check_completeness(manifest, {}).ok)
+
+    def test_no_png_reader_is_an_instrument_problem(self):
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND,
+                         self._eval(_fx_cases(1), read_png=None).invalid_subkind)
+
+    def test_reference_cases_are_counted_apart_and_never_gate(self):
+        ref = _fx_case("ref--default--burn-full--0000bbbb", reference="waterfall", event=_broken("off"))
+        res = self._eval(_fx_cases(1) + [ref], gating=True)
+        self.assertEqual((pp.STATUS_PASS, []), (res.status, res.problems))
+        self.assertEqual((2, 1, 0, 1), tuple(res.counts[k] for k in ("cases", "pass", "fail", "reference")))
+        row = pp.combine([res], True)
+        self.assertFalse(row.part_fail)
+        self.assertIn(" reference=1", pp.format_summary(row))
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual({"fail": 1}, doc["fx"]["referenceWouldBe"])
+        self.assertEqual({"plume": 2}, doc["fx"]["families"])
+        self.assertEqual(pp.FX_THRESHOLDS, doc["fx"]["thresholds"])
+        self.assertEqual("reference", doc["cases"][1]["verdict"])
+        self.assertEqual([], doc["worst"])
+        json.dumps(doc)
+        # The same plume without the marker gates.
+        self.assertEqual(pp.STATUS_FAIL, self._eval(_fx_cases(1, event=_broken("off")), gating=True).status)
+
+    def test_the_document_of_a_non_fx_sweep_is_unchanged(self):
+        d = self._dir()
+        _build_state_sweep(d, [_state_case("a--default--deployed--00000000")])
+        res = _judge_fx_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertNotIn("fx", pp.verdicts_document(res, RUN_ID))
+        self.assertNotIn("reference", pp.format_summary(pp.combine([res], False)))
+        self.assertNotIn("reference", res.counts)
+
+    def test_the_run_shape(self):
+        d = self._dir()
+        _build_state_sweep(d, [_fx_cases(1)[0][:2]])
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertTrue(any("carries an fx block" in m for m in res.recompute_mismatches))
+        res = self._eval([_state_case("a--default--deployed--00000000") + (None,)])
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertTrue(any("has no fx block in an fx=all run" in m for m in res.recompute_mismatches))
+
+
+class FxControlTests(unittest.TestCase):
+    """The FX control judges and ``n/a`` (design E.5)."""
+
+    ALL_FX = tuple(dict.fromkeys(pp.CONTROL_IDS_FX_ORBIT + pp.CONTROL_IDS_FX_AIR))
+
+    def test_every_control_meets_its_requirement(self):
+        for cid in self.ALL_FX:
+            with self.subTest(cid):
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_fx_control(cid, _fx_control(cid)[0]))
+
+    def test_every_control_is_bad_on_an_intact_pair(self):
+        for cid in self.ALL_FX:
+            if cid.startswith("ctl-fx-real-vs-real"):
+                continue
+            with self.subTest(cid):
+                intact = _fx_case(cid, control=True)[0]
+                intact["fx"]["plate"] = {"litPct": 0.4}
+                self.assertEqual(pp.CONTROLS_BAD, pp.judge_fx_control(cid, intact)[0])
+
+    def test_every_control_is_bad_on_a_setup_fault_or_no_sidecar(self):
+        for cid in self.ALL_FX:
+            with self.subTest(cid):
+                doc = _fx_control(cid)[0]
+                doc["setup"] = {"status": "state-timeout", "detail": None}
+                self.assertEqual((pp.CONTROLS_BAD, "setup state-timeout"), pp.judge_fx_control(cid, doc))
+                self.assertEqual((pp.CONTROLS_BAD, "no sidecar"), pp.judge_fx_control(cid, None))
+
+    def test_the_noise_floor_is_not_vacuous_and_reads_every_measure(self):
+        self.assertEqual((pp.CONTROLS_BAD, "no real core"),
+                         pp.judge_fx_control("ctl-fx-real-vs-real", _fx_control("ctl-empty")[0]))
+        for name, (broken, want) in BROKEN_PLUMES.items():
+            with self.subTest(name):
+                doc = _fx_case("ctl-fx-real-vs-real", event=broken, control=True)[0]
+                self.assertEqual((pp.CONTROLS_BAD, "fails " + ",".join(
+                    m for m in pp.FX_MEASURES if m in want)), pp.judge_fx_control("ctl-fx-real-vs-real", doc))
+
+    def test_a_control_that_breaks_a_measure_it_must_pass_is_bad(self):
+        doc = _fx_case("ctl-fx-plume-short", event={"flame": (_plume(length=20, rgb=GREEN), _disc())},
+                       control=True)[0]
+        self.assertEqual((pp.CONTROLS_BAD, "colour fails"), pp.judge_fx_control("ctl-fx-plume-short", doc))
+        doc = _fx_control("ctl-fx-plume-hue")[0]
+        doc["fx"]["views"][0]["compare"]["lengthRatio"] = 0.5
+        self.assertEqual((pp.CONTROLS_BAD, "length fails"), pp.judge_fx_control("ctl-fx-plume-hue", doc))
+        doc = _fx_control("ctl-fx-plume-shift")[0]
+        for e in doc["fx"]["views"]:
+            e["compare"]["lateralOffsetPx"] = 0.0
+        self.assertEqual((pp.CONTROLS_BAD, "lateral passes"), pp.judge_fx_control("ctl-fx-plume-shift", doc))
+
+    def test_plume_off_needs_a_recorded_ignition(self):
+        doc = _fx_control("ctl-fx-plume-off")[0]
+        for events in ([], None, [{"type": "EngineThrottle"}]):
+            doc["stateProof"]["events"] = events
+            self.assertEqual((pp.CONTROLS_BAD, "no EngineIgnited recorded"),
+                             pp.judge_fx_control("ctl-fx-plume-off", doc))
+
+    def test_the_plate_floor_and_the_heat_press(self):
+        doc = _fx_control("ctl-plate-light-off")[0]
+        for lit in (None, 0.019):
+            doc["fx"]["plate"]["litPct"] = lit
+            self.assertEqual("the real side is under the plate floor",
+                             pp.judge_fx_control("ctl-plate-light-off", doc)[1])
+        heat = _fx_control("ctl-heat-events-dropped")[0]
+        heat["stateProof"]["reached"] = False
+        self.assertEqual(pp.CONTROLS_BAD, pp.judge_fx_control("ctl-heat-events-dropped", heat)[0])
+
+    def test_a_missing_entry_is_bad(self):
+        doc = _fx_control("ctl-fx-plume-short")[0]
+        doc["fx"]["views"].pop()
+        self.assertEqual("the event-route entries are incomplete",
+                         pp.judge_fx_control("ctl-fx-plume-short", doc)[1])
+
+    def _sweep(self, **kw):
+        with tempfile.TemporaryDirectory(prefix="pp-fxc-") as tmp:
+            _build_fx_sweep(os.path.join(tmp, "pp7"), _fx_cases(1), **kw)
+            return _judge_fx_dir(os.path.join(tmp, "pp7"))
+
+    def test_n_a_is_met_only_for_an_optional_control(self):
+        res = self._sweep()
+        self.assertEqual((True, pp.STATUS_REPORT), (res.controls.ok, res.status), res.problems)
+        self.assertIn(("ctl-plate-light-off-point", "n/a"), res.controls.outcomes)
+        res = self._sweep(outcomes={"ctl-plate-light-off-point": "ok"})
+        self.assertEqual((True, pp.STATUS_REPORT), (res.controls.ok, res.status), res.problems)
+        for cid in ("ctl-plate-light-off", "ctl-fx-plume-off"):
+            with self.subTest(cid):
+                res = self._sweep(outcomes={cid: "n/a"})
+                self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+                self.assertIn("%s:n/a" % cid, res.controls.problems)
+        self.assertFalse(pp.control_not_applicable("ctl-plate-light-off-point", "bad"))
+
+    def test_a_recorded_ok_is_re_judged(self):
+        res = self._sweep(controls={"ctl-fx-plume-shift": _fx_case("ctl-fx-plume-shift", control=True)})
+        self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+        self.assertEqual(("ctl-fx-plume-shift:recorded-ok-judged-bad(origin passes)",), res.controls.problems)
+
+
+class FxPressGateTests(unittest.TestCase):
+    """The press gate counts the four FX families (design E.5)."""
+
+    @staticmethod
+    def _run(family, state, statuses, context="alone", row_family=True, detail=None):
+        cases, sidecars = [], {}
+        for i, status in enumerate(statuses):
+            cid = "p%d--default--%s--0000000%d" % (i, state, i)
+            cases.append({"caseId": cid, "state": state, "context": context,
+                          "family": family if row_family else None})
+            sidecars[cid] = {"state": state, "stateProof": None, "fx": {"family": family},
+                             "setup": {"status": status, "detail": detail}}
+        return pp.check_state_press({"cases": cases}, sidecars)
+
+    def test_more_than_half_of_each_family(self):
+        for family, state, context in (("plume", "burn-full", "alone"), ("rcs", "rcs-fire", "alone"),
+                                       ("heat", "heat-hot", "alone"), ("light", "lit", "plate")):
+            for status in pp.PRESS_GATE_STATUSES:
+                with self.subTest(family=family, status=status):
+                    bad = self._run(family, state, [status, status, "ok"], context)
+                    self.assertFalse(bad.ok)
+                    self.assertEqual(((family, 3, 2),), bad.families)
+                    self.assertTrue(self._run(family, state, [status, "ok"], context).ok)
+
+    def test_the_family_falls_back_to_the_fx_block(self):
+        self.assertEqual((("rcs", 1, 1),),
+                         self._run("rcs", "rcs-fire", ["state-timeout"], row_family=False).families)
+
+    def test_an_rcs_that_never_fires_is_a_dead_press(self):
+        s = pp.SETUP_RCS_INPUT_MISMATCH
+        self.assertFalse(self._run("rcs", "rcs-fire", [s], detail="predicted=[0,1] fired=[]").ok)
+        # Fired the wrong nozzles: a wrong prediction (an error), not a dead press path.
+        self.assertTrue(self._run("rcs", "rcs-fire", [s], detail="predicted=[0,1] fired=[2]").ok)
+        self.assertTrue(pp.fx_press_failed(s, None, {"fx": {"rcs": {"fired": []}}}))
+        self.assertFalse(pp.fx_press_failed(s, "fired=[]", {"fx": {"rcs": {"fired": [1]}}}))
+        self.assertFalse(pp.fx_press_failed("ok", "fired=[]", None))
+
+    def test_a_lamp_that_never_lights_is_a_dead_press(self):
+        s = pp.SETUP_PLATE_NOT_LIT
+        self.assertFalse(self._run("light", "lit", [s, s, "ok"], "plate").ok)
+        self.assertTrue(self._run("light", "lit", [s, "ok"], "plate").ok)
+
+    def test_the_sweep_reads_state_press(self):
+        cases = _fx_cases(2)
+        for doc, _m, _t in cases:
+            doc["setup"] = {"status": "state-timeout", "detail": "no EngineIgnited"}
+        with tempfile.TemporaryDirectory(prefix="pp-fxp-") as tmp:
+            _build_fx_sweep(os.path.join(tmp, "pp7"), cases)
+            res = _judge_fx_dir(os.path.join(tmp, "pp7"))
+        self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+        self.assertEqual(2, res.counts["error"])
 
 
 if __name__ == "__main__":

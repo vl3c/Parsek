@@ -50,6 +50,10 @@ namespace Parsek.TestCommands
         /// <c>state-timeout</c> (a guard over the per-case timeouts, never the expected path).</summary>
         internal const double WaveCapSeconds = 120.0;
 
+        /// <summary>How fast an FX case held in the air (design E.2, "F7 as built") falls at its
+        /// spawn: it does not, its hold takes it the moment it is unpacked.</summary>
+        internal const double HeldDescentMps = 0.0;
+
         /// <summary>Metres north of the band centre for slot <paramref name="index"/> of a wave
         /// of <paramref name="count"/>: centred, <see cref="SlotSpacingM"/> apart.</summary>
         internal static double SlotNorthOffsetM(int index, int count)
@@ -163,7 +167,8 @@ namespace Parsek.TestCommands
     /// <see cref="VesselSpawner.SpawnAtPosition"/> 1600 m above sea level falling at 10 m/s,
     /// the chute sequence stock runs for real (semi by stock's own Deploy at the authored
     /// <c>deployAltitude</c>, full by the in-flight <c>deployAltitude</c> change), the canopy
-    /// capture window, and an air wave's per-frame loop: every case presses, waits, measures
+    /// capture window, the held spawn of an FX case (the FX wave itself is <see cref="PartParityFxDriver"/>'s),
+    /// and an air wave's per-frame loop: every case presses, waits, measures
     /// its canopy and is captured (prepare and every view in ONE frame, so the structural
     /// records, the pictures and the measured canopy angles are of the same pose) and
     /// destroyed as soon as it is ready, so no chute falls longer than it must. The pure rules
@@ -264,6 +269,60 @@ namespace Parsek.TestCommands
             {
                 wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
                 wc.Detail = "SpawnAtPosition returned pid=0";
+            }
+        }
+
+        /// <summary>
+        /// Spawns one FX case at slot <paramref name="slot"/> of a wave of <paramref name="count"/>
+        /// to be HELD 1600 m above sea level over the showcase band (design E.2, "F7 as built"): at
+        /// rest against the surface, its exhaust straight down (<paramref name="exhaustLocal"/>,
+        /// part space; null keeps the part upright), so no plume points along the band at a
+        /// neighbour slot. The held place is fixed here; <see cref="HoldReadyCases"/> holds the
+        /// vessel there once it is unpacked.
+        /// </summary>
+        internal static void SpawnHeld(StepContext ctx, WaveCase wc, ConfigNode node, Vector3? exhaustLocal, int slot, int count)
+        {
+            CelestialBody body = ctx.Host != null ? ctx.Host.mainBody : FlightGlobals.GetHomeBody();
+            PartParityAirPlan.SlotLatLon(slot, count, body.Radius, out double lat, out double lon);
+            double alt = PartParityStateRules.AirSpawnAltitudeM;
+            Quaternion rotation = GhostCoOrbitalRig.UprightRotation(body, lat, lon, alt, out Vector3 up);
+            if (exhaustLocal.HasValue)
+                rotation = Quaternion.FromToRotation(rotation * exhaustLocal.Value, -up) * rotation;
+            wc.Fx.HeldSlot = new PartParityHeldSlot
+            {
+                Body = body, Latitude = lat, Longitude = lon, AltitudeM = alt,
+                SurfaceRelativeRotation = Quaternion.Inverse(body.bodyTransform.rotation) * rotation,
+            };
+            wc.Pid = GhostCoOrbitalRig.SpawnInAir(node, body, lat, lon, alt, PartParityAirPlan.HeldDescentMps,
+                wc.CaseId, Tag, rotation);
+            wc.SpawnRealtime = Time.realtimeSinceStartup;
+            ParsekLog.Info(Tag, $"air spawn {wc.CaseId}: pid={wc.Pid.ToString(Ic)} held slot={slot.ToString(Ic)}/{count.ToString(Ic)} " +
+                $"lat={lat.ToString("0.00000", Ic)} lon={lon.ToString("0.00000", Ic)} alt={alt.ToString("0", Ic)}m " +
+                $"exhaust={(exhaustLocal.HasValue ? "down" : "unknown (upright)")} body={body.name}");
+            if (wc.Pid == 0)
+            {
+                wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
+                wc.Detail = "SpawnAtPosition returned pid=0";
+            }
+        }
+
+        /// <summary>Holds every case of an FX wave that is unpacked and not held yet (called each
+        /// frame of the spawn wait, so a case never falls while the wave's others load). Does
+        /// nothing for an orbit wave, whose cases have no held slot.</summary>
+        internal static void HoldReadyCases(StepContext ctx, List<WaveCase> wave)
+        {
+            foreach (var wc in wave)
+            {
+                PartParityFxRun fx = wc.Fx;
+                if (fx == null || fx.HeldSlot == null || fx.Hold != null || wc.Status != null) continue;
+                if (wc.Real == null || wc.Real.rootPart == null || ctx.Host == null) continue;
+                PartParityHeldSlot s = fx.HeldSlot;
+                double fell = s.AltitudeM - wc.Real.altitude;
+                fx.Hold = PartParityFxHold.AttachAtSlot(wc.Real, ctx.Host, s);
+                ParsekLog.Info(Tag, $"case {wc.CaseId}: held in the air at lat={s.Latitude.ToString("0.00000", Ic)} " +
+                    $"lon={s.Longitude.ToString("0.00000", Ic)} alt={s.AltitudeM.ToString("0", Ic)}m " +
+                    $"(fell {fell.ToString("0.00", Ic)}m before the hold, srfSpeed={wc.Real.srfSpeed.ToString("0.00", Ic)}m/s, " +
+                    $"situation={wc.Real.situation}, staticPressure={wc.Real.staticPressurekPa.ToString("0.0", Ic)}kPa)");
             }
         }
 

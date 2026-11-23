@@ -853,7 +853,8 @@ class StateGroupingTests(_StateSetMixin, unittest.TestCase):
         self.assertFalse(heads["pp3"]["controls"]["ok"])
         self.assertTrue(heads["pp1"]["controls"]["ok"] and heads["pp5"]["controls"]["ok"])
         self.assertIn("(h.controls && !h.controls.ok)", ppv.INDEX_HTML)
-        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok"; })',
+        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok" '
+                      '&& CASE[id].verdict !== "control-na"; })',
                       ppv.INDEX_HTML)
         # an untouched state control recorded ok stays ok, judged ok
         air = [c for c in data["cases"] if c["caseId"] == pp.CONTROL_STATE_EVENTS_DROPPED_AIR][0]
@@ -942,6 +943,796 @@ class StateSiteTests(_StateSetMixin, unittest.TestCase):
         p.feed(page)
         self.assertEqual([], p.errors)
         CliTests._node_check(self, out, page)
+
+
+FX_BURN = "liquidengine2.v2--default--burn-full--0000f001"
+FX_SHORT = "engineshort--default--burn-full--0000f002"
+FX_RCS = "rcsblock.v2--default--rcs-fire--0000f003"
+FX_REF = "engineref--default--burn-full--0000f004"
+FX_REF_OK = "engineref--default--burn-low--0000f005"
+FX_JET = "jetengine--default--burn-full--0000f006"
+FX_LOOSE = "engineloose--default--burn-full--0000f007"
+FX_RCS_BLOCK = {"input": [1, 0, 0], "predicted": [0, 1], "fired": [0, 1], "nozzles": 4,
+                "ghostHidden": [2, 3], "powerRatio": 0.5}
+FX_STRIP_K = 4
+
+
+def _strip_png(path, tpp, frames=FX_STRIP_K):
+    """A strip whose two rows step together: frame j is one grey level, the ghost row's
+    green channel tells the rows apart."""
+    n = 8
+    out = bytearray()
+    for row in range(2):
+        for _y in range(n):
+            for j in range(frames):
+                out += bytes((40 + 50 * j, 255 if row else 40 + 50 * j, 40 + 50 * j, 255)) * n
+    with open(path, "wb") as fh:
+        fh.write(tpp.gui_mirror.write_png(frames * n, 2 * n, 4, bytes(out)))
+
+
+def fx_cases():
+    """(sidecar, masks, tiles) of the synthetic FX sweep: a clean plume, a short one, an rcs
+    case whose ghost fires every nozzle, two Waterfall cases (would fail / would pass), a
+    static jet that draws nothing, and a plume that did not converge."""
+    tpp = _tpp()
+    plume = [
+        tpp._fx_case(FX_BURN),
+        tpp._fx_case(FX_SHORT, part="engineShort", event=tpp._broken("short")),
+        tpp._fx_case(FX_RCS, part="RCSBlock.v2", family="rcs", state="rcs-fire",
+                     rcs=FX_RCS_BLOCK, all_={"flame": (tpp._plume(y0=2, width=40), tpp._disc(20))}),
+        tpp._fx_case(FX_REF, part="engineRef", reference="waterfall", event=tpp._broken("off")),
+        tpp._fx_case(FX_REF_OK, part="engineRef", state="burn-low", reference="waterfall"),
+        tpp._fx_case(FX_JET, part="JetEngine", real=tpp.NO_FX),
+        tpp._fx_case(FX_LOOSE, part="engineLoose", event=tpp._broken("short")),
+    ]
+    rcs = plume[2][0]
+    rcs["fx"]["drive"] = {"ignited": None, "finalThrust": None, "currentThrottle": None,
+                          "recordedPower": 0.25, "cheat": True}
+    rcs["fx"]["inventory"] = {"real": ["a", "a", "b"], "ghost": ["a", "c"], "ghostStart": ["a"],
+                              "ghostAll": ["a", "a", "b"]}
+    rcs["fx"]["structure"]["lightsDiffer"] = ["x real=1 ghost=2", "x real=1 ghost=2"]
+    for loose in plume[6][0]["fx"]["views"]:
+        half = loose["splitHalf"]
+        if (loose["route"], loose["layer"]) == ("event", "flame") and half["even"]["real"]["lengthPx"]:
+            half["odd"]["real"]["lengthPx"] = half["even"]["real"]["lengthPx"] * 2
+    for doc, _m, _t in plume:
+        doc["strip"] = {"file": doc["caseId"] + pp.STRIP_SUFFIX, "frames": FX_STRIP_K}
+        for c in ("ghostEvent", "ghostStart"):
+            doc["stateProof"][c] = "applied"
+    return plume
+
+
+def write_synthetic_fx_sweep(root, name="pp7"):
+    tpp = _tpp()
+    d = os.path.join(root, name)
+    cases = fx_cases()
+    tpp._build_fx_sweep(d, cases)
+    _relabel(d, name)
+    for doc, _m, _t in cases:
+        _strip_png(os.path.join(d, doc["strip"]["file"]), tpp)
+    return d
+
+
+_FX_TEMPLATE = []
+
+
+def fx_sweep_copy(root, name="pp7"):
+    """A fresh copy of the synthetic FX sweep (built once per run of this module)."""
+    if not _FX_TEMPLATE:
+        tmp = tempfile.mkdtemp(prefix="ppv-fx-template-")
+        unittest.addModuleCleanup(shutil.rmtree, tmp, True)
+        unittest.addModuleCleanup(_FX_TEMPLATE.clear)
+        _FX_TEMPLATE.append(write_synthetic_fx_sweep(tmp))
+    d = os.path.join(root, name)
+    shutil.copytree(_FX_TEMPLATE[0], d)
+    return d
+
+
+class _FxSetMixin:
+    def setUp(self):
+        quiet = contextlib.ExitStack()
+        quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
+        self.addCleanup(quiet.close)
+        self.tmp = tempfile.mkdtemp(prefix="ppv-fx-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.dir = fx_sweep_copy(self.tmp)
+        self.sweep = ppv.load_sweep(self.dir)
+        self.sweep["imageUrl"] = lambda n: "../" + n if n in self.sweep["files"] else None
+        self.data = ppv.build_site_data([self.sweep])
+        self.by_id = {c["caseId"]: c for c in self.data["cases"]}
+
+    def _edit(self, case_id, fn, d=None):
+        path = os.path.join(d or self.dir, case_id + pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        fn(doc)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+    def _edit_manifest(self, fn, d=None):
+        path = os.path.join(d or self.dir, pp.MANIFEST_FILE)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        fn(doc)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+
+class FxRowTests(_FxSetMixin, unittest.TestCase):
+    def test_the_fx_half_is_partparitys(self):
+        for cid, sc in self.sweep["sidecars"].items():
+            row, cv = self.by_id[cid], pp.judge_case(sc)
+            if cv.fx is None:
+                self.assertIsNone(row["fx"], cid)
+                continue
+            want, fx = cv.fx.to_dict(), row["fx"]
+            for key in ("family", "wouldBe", "verdict", "routes", "unsettled", "flags"):
+                self.assertEqual(want[key], fx[key], (cid, key))
+            judged = {(e["route"], e["view"], e["layer"]): e for e in want["entries"]}
+            for e in fx["entries"]:
+                j = judged.pop((e["route"], e["view"], e["layer"]), None)
+                if j is None:
+                    self.assertEqual((pp.FX_ROUTE_ALL, None, None, []),
+                                     (e["route"], e["verdict"], e["regKey"], e["reasons"]))
+                else:
+                    self.assertEqual((j["verdict"], j["reasons"]), (e["verdict"], e["reasons"]))
+            self.assertEqual({}, judged, cid)
+            if row["kind"] == ppv.KIND_PART:
+                self.assertEqual(cv.verdict, row["verdict"])
+        self.assertIsNone(self.by_id["ctl-heat-events-dropped"]["fx"]["atlas"])
+
+    def test_the_verdicts_of_the_synthetic_sweep(self):
+        self.assertEqual(
+            {FX_BURN: "pass", FX_SHORT: "fail", FX_RCS: "pass", FX_REF: "reference",
+             FX_REF_OK: "reference", FX_JET: "warn", FX_LOOSE: "warn"},
+            {c["caseId"]: c["verdict"] for c in self.data["cases"] if c["kind"] == "part"})
+        self.assertEqual(("fail", "pass"),
+                         (self.by_id[FX_REF]["fx"]["wouldBe"], self.by_id[FX_REF_OK]["fx"]["wouldBe"]))
+        self.assertIn(pp.FLAG_FX_NO_REAL_EFFECT, self.by_id[FX_JET]["fx"]["flags"])
+        self.assertIn(pp.CAP_FX_UNSETTLED, self.by_id[FX_LOOSE]["fx"]["flags"])
+        capped = [r for e in self.by_id[FX_LOOSE]["fx"]["entries"] for r in e["reasons"] if r["capped"]]
+        self.assertEqual({("length", "warn")}, {(r["measure"], r["level"]) for r in capped})
+        self.assertIn(pp.REASON_FX_UNSETTLED, self.by_id[FX_LOOSE]["reasons"])
+
+    def test_entries_carry_both_halves_and_never_the_hue_histogram(self):
+        e = self.by_id[FX_SHORT]["fx"]["entries"][0]
+        for half in (e, e["even"], e["odd"]):
+            self.assertEqual(set(ppv.FX_SIDE_FIELDS), set(half["real"]))
+            self.assertEqual(set(ppv.FX_SIDE_FIELDS), set(half["ghost"]))
+            self.assertEqual(set(pp.FX_COMPARE_KEYS), set(half["compare"]))
+        self.assertNotIn("hueHistogram", json.dumps(self.data["cases"]))
+        self.assertEqual((8, 8), (e["even"]["samples"], e["odd"]["samples"]))
+
+    def test_empty_is_nothing_drawn_on_either_side(self):
+        self.assertTrue(all(e["empty"] for e in self.by_id[FX_JET]["fx"]["entries"]))
+        off = {(e["route"], e["layer"]): e["empty"] for e in self.by_id[FX_REF]["fx"]["entries"]}
+        self.assertFalse(off[("event", "flame")])  # the ghost side alone is empty
+
+    def test_regression_keys(self):
+        keys = {(e["route"], e["view"], e["layer"]): e["regKey"]
+                for e in self.by_id[FX_RCS]["fx"]["entries"]}
+        self.assertEqual(FX_RCS + "/fx/fx-side-a/flame", keys[("event", "fx-side-a", "flame")])
+        self.assertEqual(FX_RCS + "/fx/fx-far/smoke/start", keys[("start", "fx-far", "smoke")])
+        self.assertIsNone(keys[("all", "fx-side-a", "flame")])
+
+    def test_pictures_and_a_missing_one(self):
+        fx = self.by_id[FX_BURN]["fx"]
+        self.assertEqual(("../" + FX_BURN + pp.FX_ATLAS_SUFFIX, list(pp.FX_ATLAS_ROWS),
+                          list(pp.FX_VIEWS)), (fx["atlas"], fx["atlasRows"], fx["atlasCols"]))
+        self.assertEqual(("../" + FX_BURN + pp.STRIP_SUFFIX, FX_STRIP_K, ["real", "ghost"]),
+                         (fx["strip"], fx["stripFrames"], fx["stripRows"]))
+        self.assertEqual(list(pp.FX_ATLAS_ROWS_RCS), self.by_id[FX_RCS]["fx"]["atlasRows"])
+        os.remove(os.path.join(self.dir, FX_BURN + pp.STRIP_SUFFIX))
+        os.remove(os.path.join(self.dir, FX_BURN + pp.FX_ATLAS_SUFFIX))
+        sweep = ppv.load_sweep(self.dir)
+        sweep["imageUrl"] = lambda n: n if n in sweep["files"] else None
+        fx = [c for c in ppv.build_site_data([sweep])["cases"] if c["caseId"] == FX_BURN][0]["fx"]
+        self.assertEqual((None, None), (fx["atlas"], fx["strip"]))
+        self.assertTrue(fx["atlasFile"] and fx["stripFile"])  # the page names what is missing
+
+    def test_the_rcs_known_difference_row(self):
+        row = self.by_id[FX_RCS]
+        rcs = row["fx"]["rcs"]
+        self.assertEqual("rcs-known-difference:nozzles=2/4,power=0.500", rcs["flag"])
+        self.assertEqual((2, 4, 0.5, 0.25, 2, True),
+                         (rcs["fired"], rcs["total"], rcs["powerRatio"], rcs["recordedPower"],
+                          rcs["ghostHidden"], not rcs["noGap"]))
+        self.assertEqual(pp.judge_case(self.sweep["sidecars"][FX_RCS]).fx.to_dict()["rcs"],
+                         {"powerRatio": rcs["powerRatio"], "reportedOnly": rcs["reportedOnly"]})
+        drawn = [e for e in row["fx"]["entries"] if e["route"] == pp.FX_ROUTE_ALL and not e["empty"]]
+        self.assertEqual({(v, l) for v in pp.FX_VIEWS for l in pp.FX_LAYERS},
+                         {(e["view"], e["layer"]) for e in drawn})
+        # never a verdict, never a trigger
+        self.assertEqual(("pass", ""), (row["verdict"], row["trigger"]))
+        self.assertIsNone(self.by_id[FX_BURN]["fx"]["rcs"])
+        # a block with every nozzle at the recorded power is no difference
+        full = dict(FX_RCS_BLOCK, predicted=[0], fired=[0], nozzles=1, ghostHidden=[], powerRatio=1.0)
+        doc = _tpp()._fx_case(FX_RCS, family="rcs", state="rcs-fire", rcs=full)[0]
+        doc["flags"] = ["rcs-known-difference:nozzles=1/1,power=1.000"]
+        one = ppv.case_row("p", FX_RCS, doc, None, None, True, False, None)["fx"]["rcs"]
+        self.assertTrue(one["noGap"])
+        self.assertEqual(doc["flags"][0], one["flag"])  # the written flag still lists the case
+
+    def test_inventory_diff_and_tallies(self):
+        fx = self.by_id[FX_RCS]["fx"]
+        self.assertEqual({"real": 3, "ghost": 2, "ghostStart": 1, "ghostAll": 3},
+                         fx["inventory"]["counts"])
+        self.assertEqual({"realOnly": [["a", 1], ["b", 1]], "ghostOnly": [["c", 1]]},
+                         fx["inventory"]["diff"]["ghost"])
+        self.assertEqual({"realOnly": [], "ghostOnly": []}, fx["inventory"]["diff"]["ghostAll"])
+        self.assertEqual([["x real=1 ghost=2", 2]], fx["structure"]["lightsDiffer"])
+        self.assertEqual({}, ppv.fx_inventory_diff(None)["diff"])
+
+    def test_a_damaged_fx_sidecar_never_costs_the_page(self):
+        def build_with(**edits):
+            sc = json.loads(json.dumps(self.sweep["sidecars"][FX_RCS]))
+            for block, value in edits.items():
+                sc[block].update(value)
+            sweep = dict(self.sweep, sidecars=dict(self.sweep["sidecars"], **{FX_RCS: sc}))
+            data = ppv.build_site_data([sweep])
+            ppv.render_data_js(data)
+            return [c for c in data["cases"] if c["caseId"] == FX_RCS][0]["fx"]
+        for odd in (5, 1.5, True, None, "x", {}, []):
+            with self.subTest(odd=odd):
+                fx = build_with(fxAtlas={"rows": odd, "cols": odd})
+                self.assertEqual(([], []), (fx["atlasRows"], fx["atlasCols"]))
+        for odd in (5, [], ["a"], {}, {"a": 1}, None, ""):
+            with self.subTest(file=odd):
+                fx = build_with(fxAtlas={"file": odd}, strip={"file": odd, "frames": "4"})
+                self.assertEqual((None, None, None), (fx["atlas"], fx["strip"], fx["stripFrames"]))
+        for odd in (float("nan"), float("inf"), [float("nan")], {"a": float("inf")}, 10 ** 400):
+            with self.subTest(value=str(odd)[:9]):
+                build_with(fx={"throttle": odd, "module": odd, "plate": odd, "hold": odd})
+        views = json.loads(json.dumps(self.sweep["sidecars"][FX_RCS]["fx"]["views"]))
+        views[0]["compare"]["lengthRatio"] = 10 ** 400
+        build_with(fx={"views": views})
+        for key in pp.FX_KEYS:
+            for odd in (None, 5, "x", [], {}, [None]):
+                with self.subTest(key=key, odd=odd):
+                    build_with(fx={key: odd})
+
+    def test_triggers(self):
+        self.assertIn("event route: flame length 0.576 in fx-side-a", self.by_id[FX_SHORT]["trigger"])
+        self.assertTrue(self.by_id[FX_REF]["trigger"].startswith("reference, would be fail: "))
+        self.assertIn("ghost draws no flame in fx-side-a", self.by_id[FX_REF]["trigger"])
+        self.assertEqual("", self.by_id[FX_REF_OK]["trigger"])
+        self.assertIn("the real part draws no effect", self.by_id[FX_JET]["trigger"])
+        self.assertEqual("effect did not converge (capped at warn)",
+                         ppv.reason_phrase(pp.REASON_FX_UNSETTLED))
+        self.assertEqual("ghost missing effect k", ppv.reason_phrase("missing-fx:k"))
+        self.assertEqual("ghost draws smoke the real part does not in fx-far",
+                         ppv.reason_phrase("fx-far:smoke:smoke-extra"))
+
+    def test_the_half_that_decided_leads_the_trigger(self):
+        tpp = _tpp()
+        doc = tpp._fx_case(FX_SHORT, event=tpp._broken("short"))[0]
+        e = next(e for e in doc["fx"]["views"] if e["view"] == "fx-side-a")
+        e["compare"]["coreIou"] = 0.4  # a warn-level finding before the failing views
+        doc["views"][0]["colorBlobPx"] = 100  # and a warn-level body
+        line = ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc), doc))
+        self.assertTrue(line.startswith("event route: flame length"), line)
+        self.assertNotIn("core-iou", line)
+        doc["views"][0]["colorBlobPx"] = pp.COLOR_BLOB_FAIL_PX + 1  # now the body fails too
+        line = ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc), doc))
+        self.assertTrue(line.startswith("event route: colour blob"), line)
+
+    def test_a_skin_flag_or_setup_that_decided_leads_a_lesser_fx_half(self):
+        tpp = _tpp()
+
+        def line(edit, **kw):
+            doc = tpp._fx_case(FX_SHORT, **kw)[0]
+            for e in doc["fx"]["views"]:
+                e["compare"]["coreIou"] = 0.4  # the FX half is warn
+            edit(doc)
+            return ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc), doc))
+        self.assertTrue(line(lambda d: d.update(skin=variant_skin("A", ghost="B")))
+                        .startswith("skin mismatch"))
+        self.assertTrue(line(lambda d: d["stateProof"]["startFirstFrame"].update(atTarget=False))
+                        .startswith("start route not at its pose"))
+        self.assertTrue(line(lambda d: [v.pop("start") for v in d["views"]], event=tpp._broken("short"))
+                        .startswith("start route not measured"))
+        self.assertTrue(line(lambda d: d["setup"].update(status="crashed")).startswith("setup fault"))
+        self.assertTrue(line(lambda d: None).startswith("event route: flame core-iou"))
+
+
+class FxControlTests(_FxSetMixin, unittest.TestCase):
+    def test_control_set_kinds(self):
+        self.assertEqual("fx-orbit", ppv.control_set_kind(self.sweep["manifest"]))
+        self.assertEqual("fx-air", ppv.control_set_kind({"settings": {"fx": "plume", "contexts": "air"}}))
+        self.assertEqual("stowed", ppv.control_set_kind({"settings": {"fx": "none"}}))
+        self.assertEqual("fx-orbit", self.data["controlSets"][0]["kind"])
+        self.assertEqual("ctl:fx-orbit:ctl-empty", self.by_id["ctl-empty"]["regKey"])
+
+    def test_not_applicable_is_neither_ok_nor_bad(self):
+        row = self.by_id["ctl-plate-light-off-point"]
+        self.assertEqual((ppv.VERDICT_CONTROL_NA, "n/a"), (row["verdict"], row["control"]["outcome"]))
+        self.assertEqual({"ok": 10, "bad": 0}, self.data["counts"]["controls"])
+        self.assertEqual(1, self.data["counts"]["controlsNa"])
+        self.assertTrue(self.data["sweeps"][0]["controls"]["ok"])
+
+    def test_a_required_controls_na_is_bad(self):
+        self._edit_manifest(lambda m: [c.update(outcome="n/a") for c in m["controls"]
+                                       if c["id"] == "ctl-fx-plume-hue"])
+        data = ppv.build_site_data([ppv.load_sweep(self.dir)])
+        row = [c for c in data["cases"] if c["caseId"] == "ctl-fx-plume-hue"][0]
+        self.assertEqual(ppv.VERDICT_CONTROL_BAD, row["verdict"])
+        self.assertEqual(1, data["counts"]["controls"]["bad"])
+
+    def test_a_control_recorded_ok_is_re_judged_by_judge_fx_control(self):
+        def intact(doc):
+            for e in doc["fx"]["views"]:
+                e["ghost"], e["compare"] = e["real"], dict(e["compare"], lengthRatio=1.0)
+        self._edit("ctl-fx-plume-short", intact)
+        data = ppv.build_site_data([ppv.load_sweep(self.dir)])
+        row = [c for c in data["cases"] if c["caseId"] == "ctl-fx-plume-short"][0]
+        self.assertEqual((ppv.VERDICT_CONTROL_BAD, pp.CONTROLS_BAD, "length passes"),
+                         (row["verdict"], row["control"]["judged"], row["control"]["judgedDetail"]))
+        self.assertFalse(data["sweeps"][0]["controls"]["ok"])
+
+    def test_a_controls_rows_say_what_failed(self):
+        failing = {e["view"]: e["failing"] for e in self.by_id["ctl-fx-plume-off"]["fx"]["entries"]
+                   if e["layer"] == "flame"}
+        self.assertEqual({v: ["presence"] for v in pp.FX_VIEWS}, failing)
+        self.assertIsNone(self.by_id[FX_BURN]["fx"]["entries"][0]["failing"])
+        self.assertEqual({"event"}, {e["route"] for e in self.by_id["ctl-fx-plume-off"]["fx"]["entries"]})
+
+
+class FxPageDataTests(_FxSetMixin, unittest.TestCase):
+    def test_reference_is_counted_beside_the_judged_verdicts(self):
+        counts = self.data["counts"]
+        self.assertEqual({"pass": 2, "warn": 2, "fail": 1, "error": 0}, counts["cases"])
+        self.assertEqual({"cases": 2, "parts": 1}, counts["reference"])
+        self.assertEqual(2, self.data["sweeps"][0]["counts"][pp.VERDICT_REFERENCE])
+        self.assertIn(pp.VERDICT_REFERENCE, ppv.VERDICT_ORDER)
+        g = [g for g in self.data["groups"] if g["part"] == "engineRef"][0]
+        self.assertEqual((pp.VERDICT_REFERENCE, 2, ["reference"]),
+                         (g["verdict"], g["reference"], g["refs"]))
+        self.assertIn("would be fail", g["trigger"])
+        self.assertEqual("engineRef", self.data["groups"][-1]["part"])  # below the passes
+
+    def test_a_weak_core_reads_as_a_chip_and_a_phrase(self):
+        self.assertIn(pp.FLAG_FX_WEAK_CORE, ppv.FX_FLAG_FILTER_KINDS)
+        flag = "fx-weak-core:event:fx-far:smoke:real=39,ghost=79177"
+        self.assertEqual([pp.FLAG_FX_WEAK_CORE], ppv._fx_flag_kinds([flag]))
+        self.assertEqual("event route: weak smoke core in fx-far (real 39 px, ghost 79177 px)",
+                         ppv.reason_phrase("flag:" + flag))
+
+    def test_worst_with_reference(self):
+        self.assertEqual("reference", ppv.worst(["reference", "reference"]))
+        self.assertEqual("pass", ppv.worst(["reference", "pass"]))
+        self.assertEqual("error", ppv.worst(["reference", "error"]))
+
+    def test_filters(self):
+        f = self.data["facets"]
+        self.assertEqual([["plume", 5], ["rcs", 1]], f["family"])
+        self.assertEqual([["burn-full", 5], ["burn-low", 1], ["rcs-fire", 1]], f["state"])
+        self.assertEqual([["judged", 5], ["reference", 1]], f["reference"])
+        self.assertEqual([["rcs-known-difference", 1], ["fx-unsettled", 1],
+                          ["fx-no-real-effect", 1]], f["fxFlag"])
+        self.assertEqual(["reference", 1], f["verdict"][-1])
+        rcs = [g for g in self.data["groups"] if "rcs-known-difference" in g["fxFlags"]]
+        self.assertEqual(["RCSBlock.v2"], [g["part"] for g in rcs])
+        # a sweep with no FX case offers neither filter
+        plain = build()
+        self.assertEqual(([], []), (plain["facets"]["reference"], plain["facets"]["fxFlag"]))
+        self.assertIsNone(plain["fxThresholds"])
+        self.assertIsNone(plain["sweeps"][0]["fx"])
+
+    def test_an_fx_case_joins_its_skin_after_the_p6_states(self):
+        rows = [{"state": s, "family": f, "context": c, "sweepIndex": 0, "index": 0, "caseId": s}
+                for s, f, c in (("heat-hot", "heat", "alone"), ("burn-full", "plume", "alone"),
+                                ("lit", "light", "plate"), ("jettisoned", "jettison", "alone"),
+                                ("stowed", None, "alone"), ("rcs-fire", "rcs", "alone"),
+                                ("burn-low", "plume", "alone"))]
+        rows.sort(key=ppv.state_order_key)
+        self.assertEqual(["stowed", "jettisoned", "burn-full", "burn-low", "rcs-fire", "heat-hot",
+                          "lit"], [r["state"] for r in rows])
+        skins = [g for g in self.data["groups"] if g["part"] == "engineRef"][0]["skins"]
+        self.assertEqual([[self.by_id[FX_REF]["id"], self.by_id[FX_REF_OK]["id"]]],
+                         [s["cases"] for s in skins])
+
+    def test_the_header_counts_effects_and_runs_the_fx_writer_checks(self):
+        h = self.data["sweeps"][0]
+        self.assertEqual(({"plume": 6, "rcs": 1}, 2, {"fail": 1, "pass": 1}),
+                         (h["fx"]["families"], h["fx"]["reference"], h["fx"]["referenceWouldBe"]))
+        self.assertNotIn("thresholds", h["fx"])
+        self.assertEqual(pp.FX_THRESHOLDS, self.data["fxThresholds"])
+        # only FX_LOOSE's hand-edited half is a writer contradiction
+        self.assertTrue(all(p.startswith(FX_LOOSE) for p in h["instrumentProblems"]),
+                        h["instrumentProblems"])
+        self._edit_manifest(lambda m: [c.update(family="rcs") for c in m["cases"]
+                                       if c["caseId"] == FX_SHORT])
+        h = ppv.build_site_data([ppv.load_sweep(self.dir)])["sweeps"][0]
+        self.assertIn(FX_SHORT + " row family=rcs fx.family=plume", h["instrumentProblems"])
+        self._edit(FX_BURN, lambda doc: doc["fx"].update(family="heat"))
+        h = ppv.build_site_data([ppv.load_sweep(self.dir)])["sweeps"][0]
+        self.assertTrue(any(p.startswith(FX_BURN) for p in h["instrumentProblems"]))
+
+    def test_a_plate_case(self):
+        doc = _tpp()._fx_control("ctl-plate-light-off")[0]
+        row = ppv.case_row("p", "lamp--default--lit--plate--1", doc, None, None, True, False, None)
+        self.assertEqual((0.4, [], None), (row["fx"]["plate"]["litPct"], row["fx"]["entries"],
+                                           row["fx"]["atlas"]))
+        self.assertEqual({}, row["fx"]["routes"])
+
+
+class FxRegressionTests(_FxSetMixin, unittest.TestCase):
+    def _status(self, cur_dir, base_dir):
+        data = ppv.build_site_data([ppv.load_sweep(cur_dir)], [ppv.load_sweep(base_dir)])
+        return {c["caseId"]: c["regression"] for c in data["cases"]}
+
+    def test_same_then_moved_by_entry_key(self):
+        other = fx_sweep_copy(self.tmp, "again")
+        reg = self._status(self.dir, other)
+        self.assertEqual({ppv.REG_SAME}, {r["status"] for r in reg.values()})
+
+        def longer(doc):
+            e = next(e for e in doc["fx"]["views"] if (e["route"], e["view"], e["layer"])
+                     == ("start", "fx-far", "flame"))
+            e["compare"]["lengthRatio"] = 1.3
+            e["compare"]["widthRatio"] = 1.01  # under its warn line: noise
+            e["compare"]["originDeltaPx"] = 1.0
+            e["compare"]["lateralOffsetPx"] = -9.0
+        self._edit(FX_BURN, longer)
+        self._edit(FX_REF, lambda d: d["fx"].update(
+            views=json.loads(json.dumps(self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]))))
+        reg = self._status(self.dir, other)
+        key = FX_BURN + "/fx/fx-far/flame/start"
+        self.assertIn("verdict pass -> fail", reg[FX_BURN]["changes"])
+        self.assertIn(key + " verdict pass -> fail", reg[FX_BURN]["changes"])
+        self.assertIn(key + " lengthRatio 1.000 -> 1.300", reg[FX_BURN]["changes"])
+        self.assertIn(key + " lateralOffsetPx 0.000 -> -9.000", reg[FX_BURN]["changes"])
+        for under in ("widthRatio", "originDeltaPx"):
+            self.assertFalse(any(under in c for c in reg[FX_BURN]["changes"]), under)
+        self.assertIn("fx.wouldBe fail -> pass", reg[FX_REF]["changes"])
+        self.assertIn(FX_REF + "/fx/fx-side-a/flame ghost.corePx 0 -> %d" % next(
+            e["ghost"]["corePx"] for e in self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]),
+            reg[FX_REF]["changes"])
+        self.assertEqual(ppv.REG_SAME, reg[FX_RCS]["status"])
+
+    def test_flags_and_presence(self):
+        base = {"flags": ["fx-unsettled"], "entries": [], "wouldBe": None}
+        cur = {"flags": ["rcs-known-difference:nozzles=1/4,power=0.250"], "entries": [], "wouldBe": None}
+        self.assertEqual(["fx.flags +rcs-known-difference:nozzles=1/4,power=0.250 -fx-unsettled"],
+                         ppv.fx_changes(cur, base))
+        self.assertEqual(["fx absent -> present"], ppv.fx_changes(cur, None))
+        # a rendered FX asset the ghost newly lacks or adds moves a case that already failed
+        other = fx_sweep_copy(self.tmp, "struct")
+        self._edit(FX_SHORT, lambda d: d["fx"]["structure"].update(
+            fxMissingOnGhost=["a", {"key": "b", "rendered": False}], fxExtraOnGhost=["c", "c"]))
+        reg = self._status(self.dir, other)[FX_SHORT]
+        self.assertEqual(ppv.REG_MOVED, reg["status"])
+        self.assertEqual(["fx.missingRendered a 0 -> 1", "fx.extraRendered c 0 -> 2"], reg["changes"])
+        self.assertEqual([], ppv.fx_changes(None, None))
+
+
+class FxSiteTests(_FxSetMixin, unittest.TestCase):
+    def test_a_site_with_strips_and_the_known_difference_row(self):
+        out = os.path.join(self.tmp, "site")
+        self.assertEqual(0, ppv.main([self.dir, "--out", out]))
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            data = ppv.parse_data_js(fh.read())
+        for c in data["cases"]:
+            if c["kind"] == ppv.KIND_PART:
+                for url in (c["fx"]["atlas"], c["fx"]["strip"]):
+                    self.assertTrue(os.path.isfile(os.path.join(out, *url.split("/"))), url)
+        with open(os.path.join(out, ppv.INDEX_FILE), encoding="ascii") as fh:
+            page = fh.read()
+        p = _Balance()
+        p.feed(page)
+        self.assertEqual([], p.errors)
+        CliTests._node_check(self, out, page)
+
+    def test_the_diff_of_two_equal_covered_tiles_is_black(self):
+        # Each FX layer paints its own opaque ground, so a partly covered pixel differences
+        # against its flattened twin (an alpha layer would leave a residue).
+        self.assertIn(".tile.fx-flame, .tile.fx-flame .layer { background-color: #000; }", ppv.INDEX_HTML)
+        self.assertIn(".tile.fx-smoke, .tile.fx-smoke .layer { background-color: var(--tilebg); }",
+                      ppv.INDEX_HTML)
+
+    def test_the_page_reads_only_fx_keys_the_core_writes(self):
+        used = set(re.findall(r"\bfx\.([A-Za-z]+)", ppv.INDEX_HTML))
+        keys = set(self.by_id[FX_RCS]["fx"]) | set(self.data["sweeps"][0]["fx"])
+        self.assertEqual(set(), used - keys)
+        entry = set(self.by_id[FX_RCS]["fx"]["entries"][0])
+        body = ppv.INDEX_HTML[ppv.INDEX_HTML.index("function fxLine"):ppv.INDEX_HTML.index("function fxViews")]
+        self.assertEqual(set(), set(re.findall(r"\be\.([A-Za-z]+)", body)) - entry)
+
+
+# A DOM small enough to run the page's own script under node: every body is built at once
+# (no IntersectionObserver), then the harness below opens everything and reads it back.
+PAGE_RUNNER = r"""
+const fs = require('fs'), req = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const byId = {};
+class N {
+  constructor(t) { this.tagName = t.toUpperCase(); this.children = []; this.attrs = {}; this.style = {}; this.L = {}; this.parentNode = null; this._t = ''; this.hidden = false; this._c = new Set();
+    const c = this._c; this.classList = {add: x => c.add(x), remove: x => c.delete(x), contains: x => c.has(x), toggle: (x, on) => { if (on === undefined) on = !c.has(x); on ? c.add(x) : c.delete(x); return on; }}; }
+  set className(v) { this._c.clear(); String(v).split(/\s+/).forEach(x => x && this._c.add(x)); }
+  get className() { return [...this._c].join(' '); }
+  set textContent(v) { this.children = []; this._t = v === null ? '' : String(v); }
+  get textContent() { return this._t + this.children.map(c => c.textContent).join(''); }
+  setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') byId[v] = this; if (k === 'value') this.value = String(v); }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  hasAttribute(k) { return k in this.attrs; }
+  appendChild(c) { if (!(c instanceof N)) throw new TypeError('not a node: ' + c);
+    if (c.tagName === '#FRAG') { c.children.slice().forEach(x => this.appendChild(x)); return c; }
+    if (c.parentNode) c.parentNode.children = c.parentNode.children.filter(x => x !== c);
+    c.parentNode = this; this.children.push(c); return c; }
+  remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(x => x !== this); }
+  addEventListener(e, f) { (this.L[e] = this.L[e] || []).push(f); }
+  fire(e) { (this.L[e] || []).forEach(f => f({target: this, preventDefault() {}})); }
+  all() { return this.children.reduce((r, c) => r.concat([c], c.all()), []); }
+  cls(x) { return this.all().filter(n => n._c.has(x)); }
+  querySelectorAll(q) { return q === '.layer[data-src]' ? this.all().filter(n => n._c.has('layer') && n.hasAttribute('data-src')) : []; }
+  closest(q) { for (let n = this; n; n = n.parentNode) { if (q === 'dialog' ? n.tagName === 'DIALOG' : n._c.has('tile') && n.hasAttribute('data-case')) return n; } return null; }
+  getBoundingClientRect() { return {width: 200, height: 20, top: 0, left: 0, bottom: 0}; }
+  showModal() { this.open = true; } close() { this.open = false; } focus() {} blur() {}
+}
+const body = new N('body'), docL = {};
+const document = {body: body, createElement: t => new N(t), createTextNode: t => { const n = new N('#text'); n._t = String(t); return n; }, createDocumentFragment: () => new N('#frag'),
+  getElementById: i => { if (!byId[i]) { const n = new N(i === 'zoom' ? 'dialog' : 'div'); body.appendChild(n); n.setAttribute('id', i); } return byId[i]; },
+  addEventListener(e, f) { (docL[e] = docL[e] || []).push(f); }, querySelectorAll: () => []};
+const text = fs.readFileSync(req.data, 'utf8');
+const window = {PARITY_DATA: JSON.parse(text.slice(text.indexOf('=') + 1).trim().replace(/;$/, '')), addEventListener() {}, scrollTo() {}, scrollY: 0,
+  matchMedia: () => ({matches: req.reduce === true, addEventListener() {}})};
+new Function('window', 'document', 'localStorage', 'location', 'history', 'setTimeout', 'clearTimeout', 'requestAnimationFrame', req.script)(
+  window, document, {getItem: () => null, setItem() {}}, {hash: ''}, {replaceState() {}}, () => 0, () => 0, () => 0);
+const ctl = document.getElementById('controls'); ctl.open = true; ctl.fire('toggle');
+body.all().filter(n => n.tagName === 'DETAILS').forEach(n => { n.open = true; n.fire('toggle'); });
+const own = n => n.children.filter(c => c.className !== 'fxbox');
+const node = n => ({cls: n.className, text: n.textContent});
+const layer = n => ({style: n.getAttribute('style'), src: n.getAttribute('data-src'), cls: n.className});
+const fig = f => ({cls: f.className, cap: f.cls('full').map(x => x.textContent).join(''), tile: (f.cls('tile')[0] || {className: ''}).className, layers: f.cls('layer').map(layer)});
+const row = r => ({name: r.cls('vname')[0].textContent, figs: r.children.filter(c => c.tagName === 'FIGURE').map(fig), meta: r.cls('vmeta')[0].all().filter(c => c.tagName === 'DIV' && !c.children.some(x => x.tagName === 'DIV')).map(node), chips: r.cls('vc').map(node), metaText: r.cls('vmeta')[0].textContent});
+const out = {cases: {}, play: body.classList.contains('stripsplay'), groups: {}};
+body.all().filter(n => n._c.has('state') || n._c.has('skin')).forEach(b => {
+  if (b.cls('state').length) return;
+  const tile = b.cls('tile')[0], id = tile ? tile.getAttribute('data-case') : b.cls('skname')[0].textContent;
+  const box = b.children.filter(c => c._c.has('fxbox'))[0];
+  const rows = box ? box.children.filter(c => c._c.has('vrow')) : [];
+  const known = box ? box.children.filter(c => c._c.has('knownbox'))[0] : null;
+  out.cases[id] = {cls: b.className, head: b.children[0].children.map(node), headChips: b.children[0].cls('vc').map(node), text: b.textContent,
+    strip: rows.filter(r => r.cls('film').length).map(row), rows: rows.filter(r => !r.cls('film').length).map(row),
+    notes: box ? box.children.filter(c => c._c.has('note')).map(c => c.textContent) : null, box: !!box,
+    known: known ? {chips: known.cls('chip').map(node), cap: known.cls('cap')[0].textContent, rows: known.cls('vrow').map(row), all: known.all().map(c => c.className), text: known.textContent} : null,
+    tables: b.all().filter(n => n.tagName === 'TABLE').map(t => t.all().filter(n => n.tagName === 'TR').map(r => r.children.map(c => c.textContent))),
+    kv: b.cls('kv').map(k => k.children.map(c => c.textContent)).pop() || []};
+});
+const shown = () => body.cls('group').filter(g => !g.hidden).map(g => g.cls('name')[0].textContent).sort();
+const select = (label, v) => { const s = byId.top.all().filter(n => n.tagName === 'SELECT' && n.getAttribute('aria-label') === label)[0]; if (!s) return null; s.value = v; s.fire('change'); const r = shown(); s.value = ''; s.fire('change'); return r; };
+const button = label => byId.top.all().filter(n => n.tagName === 'BUTTON' && n.textContent === label)[0];
+out.flagged = select('Verdict', 'flagged'); out.reference = select('Reference', 'reference'); out.plume = select('Family', 'plume');
+const kb = button('known difference');
+if (kb) { kb.fire('click'); out.knownShown = shown(); out.knownPressed = kb.getAttribute('aria-pressed'); kb.fire('click'); out.knownOff = shown().length; }
+const pb = byId.stripbtn;
+if (pb) { out.btn = [pb.textContent]; for (let i = 0; i < 2; i++) { pb.fire('click'); out.btn.push(pb.textContent, body.classList.contains('stripsplay')); } }
+out.zoom = {};
+body.all().filter(n => n._c.has('tile') && n.hasAttribute('data-case') && (n.hasAttribute('data-layer') || n.getAttribute('data-view') === 'strip')).forEach(n => {
+  const key = [n.getAttribute('data-case'), n.getAttribute('data-view'), n.getAttribute('data-layer')].join('|');
+  if (key in out.zoom) return;
+  docL.click.forEach(f => f({target: n}));
+  out.zoom[key] = document.getElementById('zoombody').all().filter(x => x.tagName === 'FIGURE').map(fig);
+});
+out.counters = byId.top.children[0].children.map(node);
+out.fxlegend = byId.fxlegend ? !byId.fxlegend.hidden : null;
+fs.writeFileSync(req.out, JSON.stringify(out));
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on PATH")
+class FxPageTests(unittest.TestCase):
+    """The page's own script over the synthetic FX sweep, read back from the built nodes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-fxpage-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        sweep = fx_sweep_copy(cls.tmp)
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert 0 == ppv.main([sweep, "--out", os.path.join(cls.tmp, "site")])
+        cls.page = cls.run_page(os.path.join(cls.tmp, "site", ppv.DATA_JS_FILE))
+        with open(os.path.join(cls.tmp, "site", ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            cls.data = ppv.parse_data_js(fh.read())
+        cls.ids = {c["caseId"]: c["id"] for c in cls.data["cases"]}
+
+    @classmethod
+    def run_page(cls, data_js, reduce=False):
+        page = ppv.INDEX_HTML
+        script = page[page.rindex("<script>") + len("<script>"):page.rindex("</script>")]
+        paths = [os.path.join(cls.tmp, n) for n in ("runner.js", "req.json", "out.json")]
+        with open(paths[0], "w", encoding="utf-8") as fh:
+            fh.write(PAGE_RUNNER)
+        with open(paths[1], "w", encoding="utf-8") as fh:
+            json.dump({"data": data_js, "script": script, "reduce": reduce, "out": paths[2]}, fh)
+        r = subprocess.run([shutil.which("node"), paths[0], paths[1]], capture_output=True, text=True)
+        if r.returncode:
+            raise AssertionError(r.stderr)
+        with open(paths[2], encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def case(self, case_id):
+        return self.page["cases"][self.ids[case_id]]
+
+    def crops(self, figure, case_id):
+        """The (atlas row, view) each layer of a figure crops."""
+        fx = [c for c in self.data["cases"] if c["caseId"] == case_id][0]["fx"]
+        out = []
+        for l in figure["layers"]:
+            m = re.match(r"background-size:(\d+)% (\d+)%;background-position:([\d.]+)% ([\d.]+)%$", l["style"])
+            cols, rows = int(m.group(1)) // 100, int(m.group(2)) // 100
+            self.assertEqual((len(fx["atlasCols"]), len(fx["atlasRows"])), (cols, rows))
+            self.assertEqual(fx["atlas"], l["src"])
+            out.append((fx["atlasRows"][round(float(m.group(4)) / 100 * (rows - 1))],
+                        fx["atlasCols"][round(float(m.group(3)) / 100 * (cols - 1))]))
+        return out
+
+    def test_the_two_strip_rows_run_in_lock_step(self):
+        for cid in (FX_BURN, FX_RCS, FX_REF):
+            (strip,) = self.case(cid)["strip"]
+            real, ghost = strip["figs"]
+            self.assertEqual(["REAL part (stock KSP)", "GHOST event route"], [real["cap"], ghost["cap"]])
+            (a,), (b,) = real["layers"], ghost["layers"]
+            self.assertEqual("layer film", a["cls"])
+            self.assertEqual((a["cls"], a["src"]), (b["cls"], b["src"]))
+            # one strip, the rows apart only in which half they crop
+            self.assertTrue(a["src"].endswith(cid + pp.STRIP_SUFFIX))
+            self.assertIn("background-position:0% 0%;", a["style"])
+            self.assertIn("background-position:0% 100%;", b["style"])
+            self.assertEqual(a["style"], b["style"].replace("0% 100%", "0% 0%"))
+            self.assertIn("background-size:%d%% 200%%" % (FX_STRIP_K * 100), a["style"])
+            self.assertIn("--k:%d;" % FX_STRIP_K, a["style"])
+            end = float(re.search(r"--sxe:([\d.]+)%", a["style"]).group(1))
+            self.assertAlmostEqual(100.0 * FX_STRIP_K / (FX_STRIP_K - 1), end)  # frame j at j/(K-1)
+        # every animation the page declares: one keyframe set, one rule, one switch on <body>
+        css = ppv.INDEX_HTML[:ppv.INDEX_HTML.index("</style>")]
+        self.assertEqual([
+            "@keyframes filmstrip { from { background-position-x: 0%; } to { background-position-x: var(--sxe); } }",
+            ".layer.film { animation: filmstrip calc(var(--k) * 110ms) steps(var(--k)) infinite; animation-play-state: paused; }",
+            "body.stripsplay .layer.film { animation-play-state: running; }"],
+            [l for l in css.splitlines() if "animation" in l or "keyframes" in l])
+
+    def test_play_pause_and_reduced_motion(self):
+        self.assertTrue(self.page["play"])
+        self.assertEqual(["Pause strips", "Play strips", False, "Pause strips", True], self.page["btn"])
+        still = self.run_page(os.path.join(self.tmp, "site", ppv.DATA_JS_FILE), reduce=True)
+        self.assertFalse(still["play"])
+        self.assertEqual(["Play strips", "Pause strips", True], still["btn"][:3])
+
+    def test_the_effect_rows(self):
+        rows = self.case(FX_SHORT)["rows"]
+        self.assertEqual(["%s %s" % (v, l) for l in pp.FX_LAYERS for v in pp.FX_VIEWS],
+                         [r["name"] for r in rows])
+        view, layer = rows[3]["name"].split(" ")
+        figs = rows[3]["figs"]
+        self.assertEqual([[("real-" + layer, view)], [("ghost-" + layer, view)],
+                          [("ghost-start-" + layer, view)],
+                          [("real-" + layer, view), ("ghost-" + layer, view)]],
+                         [self.crops(f, FX_SHORT) for f in figs])
+        self.assertEqual(["tile fx-flame"] * 3 + ["tile fx-flame diff"], [f["tile"] for f in figs])
+        self.assertEqual("layer blend", figs[3]["layers"][1]["cls"])
+        self.assertEqual(["vc fail", "vc pass"], [c["cls"] for c in rows[0]["chips"]])
+        self.assertIn("core 204 / 120 px, length 0.58", rows[0]["metaText"])
+        self.assertIn({"cls": "tr-fail", "text": "flame length 0.576"}, rows[0]["meta"])
+        head = {c["text"]: c["cls"] for c in self.case(FX_SHORT)["head"]}
+        self.assertIn("effects event fail", head)
+        self.assertIn("effects start pass", head)
+
+    def test_a_layer_nothing_draws_is_named_not_drawn(self):
+        jet = self.case(FX_JET)
+        self.assertEqual([], jet["rows"])
+        self.assertEqual(1, len(jet["notes"]))
+        self.assertIn("flame fx-side-a", jet["notes"][0])
+        self.assertIn("chip", [c["cls"] for c in jet["head"] if c["text"] == pp.FLAG_FX_NO_REAL_EFFECT])
+        off = self.case(FX_REF)  # the ghost alone is empty: the rows stay
+        self.assertEqual(8, len(off["rows"]))
+
+    def test_the_rcs_known_difference_row(self):
+        c = self.case(FX_RCS)
+        known = c["known"]
+        self.assertEqual([{"cls": "chip known", "text": "rcs-known-difference"}], known["chips"])
+        self.assertEqual("known difference (owner ruling 2026-11-22): the ghost fires all 4 nozzles at "
+                         "the module's mean power 0.250; stock fired 2", known["cap"])
+        self.assertEqual([r["name"] for r in c["rows"]], [r["name"] for r in known["rows"]])
+        first = known["rows"][0]
+        self.assertEqual([[("real-flame", "fx-side-a")], [("ghost-all-flame", "fx-side-a")]],
+                         [self.crops(f, FX_RCS) for f in first["figs"]])
+        self.assertIn("rcsPowerRatio 0.500", first["metaText"])
+        for route in ("event", "start"):
+            self.assertIn("judged row (%s), reported only: length 1.00, width 1.00, brightness 1.00"
+                          % route, first["metaText"])
+        # never coloured as a verdict
+        self.assertEqual([], [x for x in known["all"] if re.search(r"(^| )(vc|tr-\w+)( |$)", x)])
+        self.assertIn({"cls": "chip known", "text": "rcs-known-difference:nozzles=2/4,power=0.500"}, c["head"])
+        # the judged rows print their length and width as reported only
+        for r in c["rows"]:
+            for m in r["meta"]:
+                if "length " in m["text"]:
+                    self.assertEqual("note", m["cls"])
+                    self.assertTrue(m["text"].endswith("(reported only)"))
+        self.assertIsNone(self.case(FX_BURN)["known"])
+        self.assertEqual((["RCSBlock.v2"], "true", 6),
+                         (self.page["knownShown"], self.page["knownPressed"], self.page["knownOff"]))
+
+    def test_the_known_difference_follows_the_flag(self):
+        tpp = _tpp()
+        rows = {"none": None, "full": dict(FX_RCS_BLOCK, predicted=[0], fired=[0], nozzles=1, powerRatio=1.0)}
+        for name, rcs in rows.items():
+            doc = tpp._fx_case(FX_RCS, part="RCSBlock.v2", family="rcs", state="rcs-fire", rcs=rcs)[0]
+            sweep = {"profile": "p", "dir": "/x", "manifest": None, "manifestError": "absent",
+                     "sidecars": {FX_RCS: doc}, "imageUrl": lambda n: n}
+            path = os.path.join(self.tmp, name + ".js")
+            with open(path, "w", encoding="ascii") as fh:
+                fh.write(ppv.render_data_js(ppv.build_site_data([sweep])))
+            known = self.run_page(path)["cases"]["p/" + FX_RCS]["known"]
+            self.assertEqual([], known["chips"], name)
+            self.assertNotIn("owner ruling", known["cap"])
+            self.assertIn("not known" if rcs is None else "no difference on this part", known["cap"])
+
+    def test_a_reference_case_shows_its_would_be_verdict_uncoloured(self):
+        c = self.case(FX_REF)
+        self.assertIn("reference", c["cls"].split())
+        self.assertIn({"cls": "vc reference", "text": "reference"}, c["headChips"])
+        self.assertIn({"cls": "chip", "text": "would be fail"}, c["head"])
+        self.assertIn({"cls": "vc reference", "text": "fail"}, c["headChips"])  # the event effects
+        self.assertEqual({"vc reference"}, {x["cls"] for r in c["rows"] for x in r["chips"]})
+        self.assertEqual("would be fail", c["rows"][0]["chips"][0]["text"])
+        self.assertEqual([], [m for r in c["rows"] for m in r["meta"] if m["cls"].startswith("tr-")])
+        self.assertEqual(["JetEngine", "engineLoose", "engineShort"], self.page["flagged"])
+        self.assertEqual(["engineRef"], self.page["reference"])
+        self.assertIn({"cls": "vc reference", "text": "reference 2"}, self.page["counters"])
+        self.assertIn({"cls": "chip", "text": "controls 10/10 ok, 1 n/a"}, self.page["counters"])
+
+    def test_controls_say_what_failed_and_na_says_why(self):
+        off = self.case("ctl-fx-plume-off")
+        # the smoke is there on both sides: its rows pass
+        said = {"flame": "fails presence", "smoke": "passes every FX measure"}
+        for r in off["rows"]:
+            self.assertIn(said[r["name"].split(" ")[1]], r["metaText"])
+        self.assertEqual(8, len(off["rows"]))
+        self.assertEqual([], [c for r in off["rows"] for c in r["chips"]])
+        self.assertEqual([3] * len(off["rows"]), [len(r["figs"]) for r in off["rows"]])
+        na = self.page["cases"]["ctl-plate-light-off-point"]
+        self.assertIn("Not applicable", na["text"])
+        self.assertIn({"cls": "vc na", "text": "control n/a"}, na["headChips"])
+        self.assertIn("ctl-na", na["cls"].split())
+
+    def test_the_details(self):
+        c = self.case(FX_LOOSE)
+        (table,) = [t for t in c["tables"] if t[0][0] == "event flame"]
+        self.assertEqual(["fx-side-a", "even half", "odd half"], table[0][1:4])
+        length = [r for r in table if r[0] == "real lengthPx"][0]
+        self.assertEqual(length[1], length[2])
+        self.assertEqual(float(length[1]) * 2, float(length[3]))  # the half that did not converge
+        self.assertIn("lengthRatio", [r[0] for r in table])
+        kv = self.case(FX_RCS)["kv"]
+        self.assertIn("fired [0,1] of 4 (predicted [0,1]), ghost nozzles hidden 2, input 1.000 0.000 0.000, "
+                      "mean power 0.250, rcsPowerRatio 0.500", kv)
+        diffs = [r for t in self.case(FX_RCS)["tables"] if t[0] == ["effect difference", "count", "detail"]
+                 for r in t[1:]]
+        self.assertIn(["lightsDiffer", "x2", "x real=1 ghost=2"], diffs)
+        self.assertIn(["inventory ghost ghostOnly", "x1", "c"], diffs)
+
+    def test_zoom(self):
+        zoom = self.page["zoom"]
+        self.assertEqual(2, len(zoom[self.ids[FX_BURN] + "|strip|"]))
+        self.assertEqual([[("real-flame", "fx-far")], [("ghost-flame", "fx-far")],
+                          [("ghost-start-flame", "fx-far")],
+                          [("real-flame", "fx-far"), ("ghost-flame", "fx-far")],
+                          [("real-flame", "fx-far"), ("ghost-start-flame", "fx-far")],
+                          [("ghost-all-flame", "fx-far")]],
+                         [self.crops(f, FX_RCS) for f in zoom[self.ids[FX_RCS] + "|fx-far|flame"]])
+
+    def test_a_page_with_no_fx_case_is_unchanged(self):
+        path = os.path.join(self.tmp, "plain.js")
+        with open(path, "w", encoding="ascii") as fh:
+            fh.write(ppv.render_data_js(build()))
+        page = self.run_page(path)
+        self.assertEqual([False], sorted({c["box"] for c in page["cases"].values()}))
+        self.assertNotIn("btn", page)
+        self.assertNotIn("knownShown", page)
+        self.assertIsNone(page["reference"])
+        self.assertTrue(self.page["fxlegend"])
 
 
 class PageContractTests(unittest.TestCase):

@@ -1360,6 +1360,12 @@ namespace Parsek
                 target.SegmentEvents.AddRange(sortedSegs);
             }
 
+            // 3b. Delta-v snapshots ride along in UT order (display data; no merge decision
+            // reads them).
+            if (absorbed.DeltaVSnapshots != null && absorbed.DeltaVSnapshots.Count > 0)
+                target.DeltaVSnapshots = DeltaVSnapshotList.Concat(
+                    target.DeltaVSnapshots, absorbed.DeltaVSnapshots);
+
             // 4. Concatenate TrackSections
             if (absorbed.TrackSections != null && absorbed.TrackSections.Count > 0)
                 target.TrackSections.AddRange(absorbed.TrackSections);
@@ -1747,6 +1753,9 @@ namespace Parsek
                 second.FlagEvents = new List<FlagEvent>();
                 PartitionFlagEvents(original.FlagEvents, second.FlagEvents, splitUT);
             }
+
+            // 5b. Delta-v snapshots go to the half that holds their UT, like the events.
+            second.DeltaVSnapshots = DeltaVSnapshotList.SplitAtUT(ref original.DeltaVSnapshots, splitUT);
 
             // 6. Partition TrackSections
             second.TrackSections = new List<TrackSection>(

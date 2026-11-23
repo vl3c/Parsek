@@ -32,6 +32,13 @@ route), GHOST (start route) and the DIFFERENCE. Sweeps of one profile merge (a s
 sweep and its state sweeps join one part list); controls are exempt: each sweep's
 controls keep their own id (``<profile>/<sweep>/<control>``) and controls section.
 
+FX cases (design Appendix E.7; a sidecar with an ``fx`` block): an FX case joins its part's
+skin like a state case. Under its body rows the page shows the plume strip (the strip PNG's
+real and ghost rows playing in lock step), one row per FX view and layer (REAL, GHOST event,
+GHOST start, DIFFERENCE crops of the FX atlas) with the judged entries of ``cv.fx``
+(partparity's ``judge_fx``), and for an rcs case the known-difference row. A Waterfall case's
+verdict ``reference`` and an optional control's ``n/a`` are neither good nor bad.
+
 Layout of this module: a PURE core (``build_site_data`` and the helpers it calls:
 profile naming, case rows, facets, regression diff, cross-profile links,
 ``render_data_js``) that takes parsed content and returns plain data, unit-tested in
@@ -59,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -77,6 +85,8 @@ DATA_SCHEMA = "parsek-part-parity-view/1"
 DATA_JS_FILE = "data.js"
 INDEX_FILE = "index.html"
 DEFAULT_OUT_LEAF = "viewer"
+# --pinned: the committed baseline and accepted list (design section 10).
+DEFAULT_PINNED_DIR = os.path.join(os.path.dirname(_HERE), pp.BASELINE_DIR_NAME)
 DATA_JS_PREFIX = "window.PARITY_DATA = "
 
 KIND_CONTROL = "control"
@@ -85,18 +95,22 @@ KIND_PART = "part"
 # A control's chip: its recorded outcome, not a part verdict (design 6).
 VERDICT_CONTROL_OK = "control-ok"
 VERDICT_CONTROL_BAD = "control-bad"
+# An optional control with no eligible subject on the install (pp.control_not_applicable).
+VERDICT_CONTROL_NA = "control-na"
 VERDICT_ORDER: Tuple[str, ...] = (
-    VERDICT_CONTROL_BAD, VERDICT_CONTROL_OK, pp.VERDICT_ERROR, pp.VERDICT_FAIL,
-    pp.VERDICT_WARN, pp.VERDICT_PASS,
+    VERDICT_CONTROL_BAD, VERDICT_CONTROL_OK, VERDICT_CONTROL_NA, pp.VERDICT_ERROR,
+    pp.VERDICT_FAIL, pp.VERDICT_WARN, pp.VERDICT_PASS, pp.VERDICT_REFERENCE,
 )
+# The judged verdicts; ``reference`` (E.6) is counted beside them, never among them.
 PART_VERDICTS: Tuple[str, ...] = (pp.VERDICT_PASS, pp.VERDICT_WARN, pp.VERDICT_FAIL,
                                   pp.VERDICT_ERROR)
 
 # The page's reading order (owner): flagged first - fail, then warn, then error (a setup
 # fault, not a ghost finding) - then pass. A part group's verdict is its worst skin by
-# this order, so a part with one failing skin and one setup fault reads fail.
+# this order, so a part with one failing skin and one setup fault reads fail. A reference
+# case (E.6) judges nothing, so any judged case outranks it.
 SEVERITY: Dict[str, int] = {pp.VERDICT_FAIL: 3, pp.VERDICT_WARN: 2, pp.VERDICT_ERROR: 1,
-                            pp.VERDICT_PASS: 0}
+                            pp.VERDICT_PASS: 0, pp.VERDICT_REFERENCE: -1}
 
 SKIN_BASE = "base"
 SKIN_VARIANT = "variant"
@@ -111,6 +125,18 @@ TRIGGER_MAX_PHRASES = 2
 REG_BLOB_MOVE_PX = 8
 REG_COLOR_MOVE_PX = 8
 REG_IOU_MOVE = 0.002
+# An FX measure is stochastic, so it "moved" past its own warn line (partparity's
+# FX_THRESHOLDS): a smaller step is the noise a re-run of the same build shows.
+_FXT = pp.FX_THRESHOLDS
+REG_FX_MOVES: Tuple[Tuple[str, float], ...] = (
+    ("lengthRatio", _FXT["lengthWarnFraction"]), ("widthRatio", _FXT["widthWarnFraction"]),
+    ("directionDeg", _FXT["directionWarnDeg"]),
+    ("crossSectionAreaRatio", _FXT["crossSectionAreaWarnMax"] - 1.0),
+    ("crossSectionOffset", _FXT["crossSectionOffsetFail"]),
+    ("chromaDistance", _FXT["chromaFail"] * _FXT["colourWarnFraction"]),
+    ("hueL1", _FXT["hueL1Fail"] * _FXT["colourWarnFraction"]),
+    ("brightnessRatio", _FXT["brightnessWarnMin"]),
+)
 REG_MOVED = "moved"
 REG_NEW = "new"
 REG_SAME = "same"
@@ -135,11 +161,31 @@ STATE_FLAG_FILTER_KINDS: Tuple[str, ...] = (
     pp.FLAG_START_POSE_NOT_FIRST_FRAME, pp.FLAG_STATE_INVISIBLE,
 )
 ROUTES: Tuple[str, ...] = (pp.ROUTE_EVENT, pp.ROUTE_START)
+# The FX families and states come after P6's (design E.7); ``light`` / ``lit`` are both.
+FAMILY_ORDER: Tuple[str, ...] = pp.FAMILIES + tuple(
+    f for f in pp.FX_FAMILIES if f not in pp.FAMILIES)
+STATE_ORDER: Tuple[str, ...] = pp.KNOWN_STATES + tuple(
+    s for s in pp.FX_STATES if s not in pp.KNOWN_STATES)
+CONTEXT_ORDER: Tuple[str, ...] = pp.KNOWN_CONTEXTS + (pp.CONTEXT_PLATE,)
+# The FX flag kinds the page filters on (the part before the first ``:`` of cv.fx.flags).
+FX_FLAG_KNOWN_DIFFERENCE = pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX.rstrip(":")
+FX_FLAG_FILTER_KINDS: Tuple[str, ...] = (
+    FX_FLAG_KNOWN_DIFFERENCE, pp.CAP_FX_UNSETTLED, pp.TAG_FX_NOT_PLATEAUED_PREFIX.rstrip(":"),
+    pp.FLAG_FX_FRAMING_CLAMPED,
+) + pp.FX_FLAGS_RAISE_TO_WARN
+# The Reference filter (E.7): what an FX case's verdict is worth.
+REF_JUDGED = "judged"
+REF_REFERENCE = "reference"
+# The FX side measures carried to the page (the hue histogram is bulky, and its comparison
+# is ``hueL1``).
+FX_SIDE_FIELDS: Tuple[str, ...] = tuple(k for k in pp.FX_SIDE_MEASURE_KEYS if k != "hueHistogram")
 # The control set a manifest's settings recompute to, by kind (regression pairs controls
 # by profile, kind and id, since a stowed sweep and its state sweeps share ctl-empty).
 CONTROL_SET_STOWED = "stowed"
 CONTROL_SET_ORBIT = "orbit"
 CONTROL_SET_AIR = "air"
+CONTROL_SET_FX_ORBIT = "fx-orbit"
+CONTROL_SET_FX_AIR = "fx-air"
 
 _PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _NAMED_DIR_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]{0,63})=(.+)$")
@@ -272,6 +318,22 @@ _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], .
     (re.compile(r"^skin-not-modelled:b9$"),
      lambda m: "skin not modelled: the ghost applies no B9 subtype (prefab look)"),
     (re.compile(r"^setup:(.*)$"), lambda m: "setup fault: %s" % m.group(1)),
+    (re.compile(r"^(%s):(%s):(.+)$" % ("|".join(pp.FX_VIEWS), "|".join(pp.FX_LAYERS))),
+     lambda m: "%s in %s" % (fx_measure_phrase(m.group(2), m.group(3)), m.group(1))),
+    (re.compile(r"^missing-fx:(.*)$"), lambda m: "ghost missing effect %s" % m.group(1)),
+    (re.compile(r"^extra-fx:(.*)$"), lambda m: "ghost has extra effect %s" % m.group(1)),
+    (re.compile(r"^%s:capped at warn$" % re.escape(pp.CAP_FX_UNSETTLED)),
+     lambda m: "effect did not converge (capped at warn)"),
+    (re.compile(r"^flag:%s$" % re.escape(pp.FLAG_FX_NO_REAL_EFFECT)),
+     lambda m: "the real part draws no effect (nothing to compare)"),
+    (re.compile(r"^flag:%s$" % re.escape(pp.FLAG_FX_STRUCTURE_NOT_MEASURED)),
+     lambda m: "the effect inventories were not compared"),
+    (re.compile(r"^flag:%s$" % re.escape(pp.FLAG_FX_NOZZLE_NOT_MEASURED)),
+     lambda m: "the nozzle diameter was not measured"),
+    (re.compile(r"^flag:%s:(%s|%s):([^:]+):([^:]+):real=(\d+),ghost=(\d+)$" % (
+        re.escape(pp.FLAG_FX_WEAK_CORE), pp.ROUTE_EVENT, pp.ROUTE_START)),
+     lambda m: "%s route: weak %s core in %s (real %s px, ghost %s px)" % (
+         m.group(1), m.group(3), m.group(2), m.group(4), m.group(5))),
     (re.compile(r"^%s:no-views$" % pp.ROUTE_START),
      lambda m: "start route not measured (a view has no start block)"),
     (re.compile(r"^(%s|%s):(.+)$" % (pp.ROUTE_EVENT, pp.ROUTE_START)),
@@ -290,6 +352,21 @@ _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], .
     (re.compile(r"^%s$" % SIDECAR_MISSING), lambda m: "no sidecar on disk"),
     (re.compile(r"^%s$" % SIDECAR_UNREADABLE), lambda m: "sidecar unreadable"),
 )
+
+
+_FX_PRESENCE_PHRASES: Dict[str, str] = {
+    pp.FX_REASON_FX_MISSING: "ghost draws no flame",
+    pp.FX_REASON_FX_EXTRA: "ghost draws a flame the real part does not",
+    pp.FX_REASON_SMOKE_MISSING: "ghost draws no smoke",
+    pp.FX_REASON_SMOKE_EXTRA: "ghost draws smoke the real part does not",
+}
+
+
+def fx_measure_phrase(layer: str, token: str) -> str:
+    """One FX finding's token (``length=0.72``, ``colour=hueL1 0.6``, ``fx-missing``)."""
+    if token in _FX_PRESENCE_PHRASES:
+        return _FX_PRESENCE_PHRASES[token]
+    return "%s %s" % (layer, token.replace("=", " ", 1))
 
 
 def reason_phrase(reason: str) -> str:
@@ -326,13 +403,37 @@ def trigger_line(reasons: Sequence[str], limit: int = TRIGGER_MAX_PHRASES) -> st
     return head + (" (+%d more)" % (len(phrases) - limit) if len(phrases) > limit else "")
 
 
+def trigger_reasons(cv: "pp.CaseVerdict", sidecar: Dict) -> List[str]:
+    """A case's reasons in the order its trigger line reads them: partparity's own order, but
+    for an FX case each fail-level FX reason comes before the warn-level ones, and the FX
+    half comes first when it is worse than everything else that judged the case (a trigger
+    must name what decided the verdict; what else judged it is ``judge_case`` without the
+    ``fx`` block: the routes, the skin, the state flags, the setup)."""
+    reasons = list(cv.reasons)
+    if cv.fx is None:
+        return reasons
+    warn = {pp.fx_reason(e.route, e.view, e.layer, f.reason) for e in cv.fx.entries
+            for f in e.findings if f.level == pp.VERDICT_WARN}
+    mine = set(cv.fx.reasons)
+    own = [r for r in reasons if r in mine]
+    own.sort(key=lambda r: 1 if r in warn or r.startswith("flag:") else 0)
+    rest = [r for r in reasons if r not in mine]
+    cap = [r for r in rest if r == pp.REASON_FX_UNSETTLED]
+    rest = [r for r in rest if r != pp.REASON_FX_UNSETTLED]
+    other = pp.judge_case(dict(sidecar, fx=None)).verdict
+    if pp._RANK[cv.fx.verdict] > pp._RANK[other]:
+        return own + rest + cap
+    return rest + own + cap
+
+
 def worst(verdicts: Iterable[str]) -> str:
-    """The worst part verdict by SEVERITY (pass when there is none)."""
-    out = pp.VERDICT_PASS
+    """The worst part verdict by SEVERITY (pass when there is none; ``reference`` only when
+    every case is a reference one)."""
+    out: Optional[str] = None
     for v in verdicts:
-        if SEVERITY.get(v, 0) > SEVERITY[out]:
+        if out is None or SEVERITY.get(v, 0) > SEVERITY.get(out, 0):
             out = v
-    return out
+    return out or pp.VERDICT_PASS
 
 
 ImageUrl = Callable[[str], Optional[str]]
@@ -365,6 +466,10 @@ def control_set_kind(manifest: Optional[Dict]) -> str:
     ids = pp.manifest_control_set(manifest)
     if ids == pp.CONTROL_IDS:
         return CONTROL_SET_STOWED
+    if ids == pp.CONTROL_IDS_FX_ORBIT:
+        return CONTROL_SET_FX_ORBIT
+    if ids == pp.CONTROL_IDS_FX_AIR:
+        return CONTROL_SET_FX_AIR
     return CONTROL_SET_AIR if ids == pp.CONTROL_IDS_AIR else CONTROL_SET_ORBIT
 
 
@@ -384,14 +489,172 @@ def _route_row(route: "pp.RouteJudgement", measured: Sequence[Dict]) -> Dict[str
     return out
 
 
+def _dict(value: Any) -> Dict:
+    return value if isinstance(value, dict) else {}
+
+
+def tally_lines(values: Any) -> List[List[Any]]:
+    """[text, count] per distinct entry of a list, in first-seen order."""
+    out: Dict[str, int] = {}
+    for v in values if isinstance(values, list) else []:
+        text = v if isinstance(v, str) else json.dumps(v, sort_keys=True)
+        out[text] = out.get(text, 0) + 1
+    return [[k, n] for k, n in out.items()]
+
+
+def fx_reg_key(case_id: str, route: str, view: str, layer: str) -> Optional[str]:
+    """An FX entry's regression key (E.7): ``<caseId>/fx/<view>/<layer>[/start]``; None for
+    the never-judged ``all`` route."""
+    if route not in pp.FX_JUDGED_ROUTES:
+        return None
+    return "%s/fx/%s/%s%s" % (case_id, view, layer, "/start" if route == pp.ROUTE_START else "")
+
+
+def fx_inventory_diff(inventory: Any) -> Dict[str, Any]:
+    """Per side the number of effects, and per ghost side the effects only the real part or
+    only the ghost lists (multiset difference of the inventory lines, tallied)."""
+    inv = _dict(inventory)
+    out: Dict[str, Any] = {"counts": {s: len(inv[s]) if isinstance(inv.get(s), list) else None
+                                      for s in pp.FX_SIDES}, "diff": {}}
+    if not isinstance(inv.get("real"), list):
+        return out
+    a = dict(tally_lines(inv["real"]))
+    for side in pp.FX_SIDES[1:]:
+        if not isinstance(inv.get(side), list):
+            continue
+        b = dict(tally_lines(inv[side]))
+        out["diff"][side] = {
+            "realOnly": [[k, n - b.get(k, 0)] for k, n in a.items() if n > b.get(k, 0)],
+            "ghostOnly": [[k, n - a.get(k, 0)] for k, n in b.items() if n > a.get(k, 0)]}
+    return out
+
+
+def _short(value: Any) -> Any:
+    """A measure at six significant digits (a case carries about 2000 of them)."""
+    if isinstance(value, float):
+        return float("%.6g" % value)
+    return [_short(v) for v in value] if isinstance(value, list) else value
+
+
+def _finite(value: Any) -> Any:
+    """A value ``data.js`` can carry: a NaN or an infinity (no writer emits one; a damaged
+    sidecar can) reads null."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    return [_finite(v) for v in value] if isinstance(value, list) else value
+
+
+def _name(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
+
+
+def _names(value: Any) -> List[str]:
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def _fx_half(half: Any) -> Dict[str, Any]:
+    h = _dict(half)
+    out: Dict[str, Any] = {"samples": h.get("samples")}
+    for block, keys in (("real", FX_SIDE_FIELDS), ("ghost", FX_SIDE_FIELDS),
+                        ("compare", pp.FX_COMPARE_KEYS)):
+        out[block] = {k: _short(_dict(h.get(block)).get(k)) for k in keys}
+    return out
+
+
+def fx_entry_row(case_id: str, entry: Dict, judged: Optional["pp.FxEntryVerdict"],
+                 is_control: bool, reference: bool) -> Dict[str, Any]:
+    """One ``fx.views[]`` entry: its measures (both halves), and for a judged route
+    partparity's entry verdict. ``reference``: that verdict is a would-be one."""
+    route, view, layer = (str(entry.get(k)) for k in ("route", "view", "layer"))
+    halves = _dict(entry.get("splitHalf"))
+    out = {"route": route, "view": view, "layer": layer,
+           "regKey": fx_reg_key(case_id, route, view, layer),
+           "verdict": None if judged is None else judged.verdict,
+           "reference": reference or (judged is not None and judged.reference),
+           "reasons": [] if judged is None else judged.to_dict()["reasons"],
+           "trigger": "" if judged is None else "; ".join(
+               fx_measure_phrase(layer, f.reason) for f in judged.findings),
+           "failing": pp.fx_failing_measures(entry) if is_control else None,
+           "empty": not (pp._fx_count(entry.get("real"), "envelopePx")
+                         or pp._fx_count(entry.get("ghost"), "envelopePx")),
+           "axis": entry.get("axis"),
+           "even": _fx_half(halves.get("even")), "odd": _fx_half(halves.get("odd"))}
+    out.update({k: v for k, v in _fx_half(entry).items() if k != "samples"})
+    return out
+
+
+def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
+           image_url: Optional[ImageUrl]) -> Dict[str, Any]:
+    """The FX half of a case row (design E.7): partparity's judgement as ``cv.fx`` returns
+    it, every captured entry, the pictures and the proof the details show."""
+    fx = _dict(pp.fx_block(sc))
+    judged = {(e.route, e.view, e.layer): e for e in fxj.entries}
+    reference = fxj.reference is not None
+    entries = [fx_entry_row(case_id, e, judged.get((str(e.get("route")), str(e.get("view")),
+                                                    str(e.get("layer")))),
+                            is_control, reference) for e in pp.fx_entries(sc)]
+    meta, strip = _dict(sc.get("fxAtlas")), _dict(sc.get("strip"))
+    atlas_file, strip_file = _name(meta.get("file")), _name(strip.get("file"))
+    frames = strip.get("frames")
+    rcs = None
+    if fxj.family == pp.FX_FAMILY_RCS:
+        raw = _dict(fx.get("rcs"))
+        fired, total = pp._fx_len(raw.get("fired")), pp._fx_len(raw.get("nozzles"))
+        known = next((f for f in fxj.flags
+                      if f.startswith(pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX)), None)
+        ratio = fxj.rcs_power_ratio
+        rcs = {"flag": known, "fired": fired, "total": total, "powerRatio": ratio,
+               "recordedPower": pp._num(_dict(fx.get("drive")).get("recordedPower")),
+               "ghostHidden": pp._fx_len(raw.get("ghostHidden")),
+               "input": raw.get("input"), "firedNozzles": raw.get("fired"),
+               "predicted": raw.get("predicted"),
+               # every nozzle fired at the recorded power: the R4 gap is empty on this part
+               "noGap": (fired is not None and fired == total and ratio is not None
+                         and "%.3f" % ratio == "1.000"),
+               "reportedOnly": [dict(r) for r in fxj.reported_only]}
+    structure = _dict(fx.get("structure"))
+    return _finite({
+        "family": fxj.family, "refClass": REF_REFERENCE if reference else REF_JUDGED,
+        "wouldBe": fxj.would_be, "verdict": fxj.verdict,
+        "trigger": trigger_line(list(fxj.reasons)),
+        "routes": dict(fxj.routes), "unsettled": list(fxj.unsettled),
+        "flags": list(fxj.flags), "entries": entries, "rcs": rcs,
+        "atlas": image_url(atlas_file) if image_url and atlas_file else None,
+        "atlasFile": atlas_file, "tile": meta.get("tile"),
+        "atlasRows": _names(meta.get("rows")), "atlasCols": _names(meta.get("cols")),
+        "strip": image_url(strip_file) if image_url and strip_file else None,
+        "stripFile": strip_file,
+        "stripFrames": frames if type(frames) is int and frames > 0 else None,
+        "stripRows": list(pp.STRIP_ROWS),
+        "structure": {k: tally_lines(structure.get(k)) if isinstance(structure.get(k), list)
+                      else None for k in pp.FX_STRUCTURE_KEYS},
+        "missingRendered": tally_lines(fxj.structure["missing"]),
+        "extraRendered": tally_lines(fxj.structure["extra"]),
+        "inventory": fx_inventory_diff(fx.get("inventory")),
+        "particles": fx.get("particles"), "plate": fx.get("plate"), "drive": fx.get("drive"),
+        "hold": fx.get("hold"), "warmupS": fx.get("warmupS"), "plateau": fx.get("plateau"),
+        "samples": fx.get("samples"), "cullingMask": fx.get("cullingMask"),
+        "clamped": _dict(fx.get("framing")).get("clamped"),
+        "layers": {side: {k: len(v) for k, v in names.items() if isinstance(v, list)}
+                   for side, names in _dict(fx.get("layers")).items() if isinstance(names, dict)},
+        "module": fx.get("module"), "moduleIndex": fx.get("moduleIndex"),
+        "engineMode": fx.get("engineMode"), "throttle": fx.get("throttle"),
+    })
+
+
 def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
              control: Optional[Dict], listed: bool, is_control: bool,
-             image_url: Optional[ImageUrl], row_id: Optional[str] = None) -> Dict[str, Any]:
+             image_url: Optional[ImageUrl], row_id: Optional[str] = None,
+             fx_run: bool = False) -> Dict[str, Any]:
     """One case as the page reads it. ``sidecar`` is the parsed sidecar, None when the
     file is absent, or the string ``SIDECAR_UNREADABLE`` when it would not parse.
     ``image_url(file_name)`` returns the page-relative URL of a file of this sweep, or
     None when the file is absent. A state case carries its two judged routes and its
-    state flags exactly as ``partparity.judge_case`` returns them."""
+    state flags exactly as ``partparity.judge_case`` returns them, an FX case its FX half
+    (``fx_row``). ``fx_run``: the sweep is an FX run, whose controls ``judge_fx_control``
+    re-judges, as ``check_controls`` does."""
     sc = sidecar if isinstance(sidecar, dict) else None
     summ = summary or {}
     problem = None if sc is not None else (
@@ -404,9 +667,15 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     start_list = pp.start_views(sc) if sc is not None and is_state else None
     routes = None
     state_flags: List[str] = []
+    fx = None
     if sc is not None:
         cv = pp.judge_case(sc)
         verdict, reasons = cv.verdict, list(cv.reasons)
+        trigger = trigger_line(trigger_reasons(cv, sc))
+        if cv.fx is not None:
+            fx = fx_row(case_id, sc, cv.fx, is_control, image_url)
+            if verdict == pp.VERDICT_REFERENCE and trigger:
+                trigger = "reference, would be %s: %s" % (cv.fx.would_be, trigger)
         worst_view, blob_px, blob_pct, color_px = (cv.worst_view, cv.max_shape_blob_px,
                                                    cv.max_shape_blob_pct, cv.max_color_blob_px)
         if cv.is_state_case:
@@ -415,6 +684,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
             state_flags = list(cv.state_flags)
     else:
         verdict, reasons = pp.VERDICT_ERROR, [problem]
+        trigger = trigger_line(reasons)
         worst_view, blob_px, blob_pct = None, int(summ.get("maxShapeBlobPx") or 0), None
         color_px = int(summ.get("maxColorBlobPx") or 0)
     part_verdict = verdict
@@ -422,10 +692,13 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     if is_control:
         outcome = (control or {}).get("outcome")
         verdict = VERDICT_CONTROL_OK if outcome == pp.CONTROLS_OK else VERDICT_CONTROL_BAD
-        if outcome == pp.CONTROLS_OK and case_id in pp.STATE_CONTROL_IDS:
-            # check_controls re-judges a state control recorded ok from its sidecar; the
+        if pp.control_not_applicable(case_id, outcome):
+            verdict = VERDICT_CONTROL_NA
+        elif outcome == pp.CONTROLS_OK and (fx_run or case_id in pp.STATE_CONTROL_IDS):
+            # check_controls re-judges a state or FX control recorded ok from its sidecar; the
             # chip follows that judgement, so a contradicted control never reads ok.
-            judged, judged_detail = pp.judge_state_control(sc)
+            judged, judged_detail = (pp.judge_fx_control(case_id, sc) if fx_run
+                                     else pp.judge_state_control(sc))
             if judged != pp.CONTROLS_OK:
                 verdict = VERDICT_CONTROL_BAD
     views = []
@@ -458,8 +731,6 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         trigger = ("outcome %s: %s" % (c.get("outcome") or "absent", c.get("required") or "-"))
         if judged is not None and judged != pp.CONTROLS_OK:
             trigger = "recorded ok, judged %s from its sidecar: %s" % (judged, judged_detail)
-    else:
-        trigger = trigger_line(reasons)
     index = summ.get("index") if isinstance(summ.get("index"), int) else None
     row = {
         "id": row_id or "%s/%s" % (profile, case_id),
@@ -494,6 +765,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         "family": family,
         "routes": routes,
         "stateFlags": state_flags,
+        "fx": fx,
         "stateProof": state_proof,
         "stowedCaseId": None if is_rest else (sc or {}).get("stowedCaseId"),
         "stowedPair": None,
@@ -544,18 +816,40 @@ def sweep_rows(profile: str, manifest: Optional[Dict], sidecars: Dict[str, Any],
     controls = _control_index(manifest)
     summaries = _summary_index(manifest)
     set_kind = control_set_kind(manifest)
+    settings = (manifest or {}).get("settings")
+    fx_run = pp.is_fx_run(settings if isinstance(settings, dict) else None)
     rows = []
     for cid, listed in ordered_case_ids(manifest, sidecars.keys()):
         is_control = cid in controls or cid in pp.ALL_CONTROL_IDS
         rid = "%s/%s/%s" % (profile, sweep_key, cid) if is_control and sweep_key else None
         r = case_row(profile, cid, sidecars.get(cid), summaries.get(cid),
-                     controls.get(cid), listed, is_control, image_url, rid)
+                     controls.get(cid), listed, is_control, image_url, rid, fx_run)
         r["sweep"], r["sweepIndex"] = sweep_key, sweep_index
         if is_control:
             r["controlSet"] = set_kind
             r["regKey"] = "ctl:%s:%s" % (set_kind, cid)
         rows.append(r)
     return rows
+
+
+def fx_writer_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """partparity's FX writer cross-checks over a sweep (``fx_run_problems``, and
+    ``fx_block_problems`` of every captured case). A value a check cannot read is itself a
+    problem, so one damaged sidecar never costs the page."""
+    problems: List[str] = []
+
+    def run(prefix: str, check: Callable[[], List[str]]) -> None:
+        try:
+            problems.extend(prefix + p for p in check())
+        except (TypeError, ValueError, ArithmeticError, AttributeError, KeyError) as exc:
+            problems.append("%sfx check unreadable (%s: %s)" % (
+                prefix, type(exc).__name__, str(exc)[:80]))
+    run("", lambda: pp.fx_run_problems(manifest, sidecars))
+    control_set = set(pp.manifest_control_set(manifest))
+    for cid, sc in sidecars.items():
+        if isinstance(sc, dict):
+            run(cid + " ", lambda c=cid, s=sc: pp.fx_block_problems(s, c in control_set))
+    return problems
 
 
 def sweep_header(profile: str, note: Optional[str], dir_label: str,
@@ -581,9 +875,13 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
         for p in (pp.run_shape_problem(m, with_unreadable), pp.control_set_disagreement(m)):
             if p:
                 instrument.append(p)
+        instrument.extend(fx_writer_problems(m, with_unreadable))
     control_ids = set(_control_index(manifest)) | set(pp.ALL_CONTROL_IDS)
     state_cvs = [pp.judge_case(sc) for cid, sc in parsed.items()
                  if cid not in control_ids and pp.is_state_case(sc.get("state"))]
+    fx_counts = pp.fx_case_counts(state_cvs)
+    if fx_counts is not None:
+        fx_counts.pop("thresholds")  # the page reads them once, from fxThresholds
     counts = {v: 0 for v in VERDICT_ORDER}
     for r in rows:
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
@@ -626,6 +924,7 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
         "statePress": None if press is None else press.to_dict(),
         "stateFlagCounts": pp.state_flag_counts(state_cvs) if state_cvs else None,
         "stateCases": len(state_cvs),
+        "fx": fx_counts,
         "instrumentProblems": instrument,
         "crashed": list(progress.get("crashed") or []),
         "counts": counts,
@@ -657,17 +956,17 @@ def _order_key(row: Dict) -> Tuple[int, int, str]:
 
 def state_order_key(row: Dict) -> Tuple:
     """A state sub-block's place inside its skin (design D.7): stowed first (alone, then
-    the context cases), then the families in the D.1 table order, each family's states
-    in the ``KNOWN_STATES`` order; load order breaks a tie."""
+    the context cases), then the families in the D.1 table order (the FX families after
+    P6's, E.7), each family's states in the ``STATE_ORDER`` order; load order breaks a tie."""
     st = row.get("state") or pp.STATE_STOWED
     ctx = row.get("context") or pp.CONTEXT_ALONE
     fam = row.get("family")
     word = state_word(st)
     return ((0 if st == pp.STATE_STOWED else 1),
             (0 if ctx == pp.CONTEXT_ALONE else 1),
-            pp.FAMILIES.index(fam) if fam in pp.FAMILIES else len(pp.FAMILIES),
-            pp.KNOWN_STATES.index(word) if word in pp.KNOWN_STATES else len(pp.KNOWN_STATES),
-            pp.KNOWN_CONTEXTS.index(ctx) if ctx in pp.KNOWN_CONTEXTS else len(pp.KNOWN_CONTEXTS),
+            FAMILY_ORDER.index(fam) if fam in FAMILY_ORDER else len(FAMILY_ORDER),
+            STATE_ORDER.index(word) if word in STATE_ORDER else len(STATE_ORDER),
+            CONTEXT_ORDER.index(ctx) if ctx in CONTEXT_ORDER else len(CONTEXT_ORDER),
             st) + _order_key(row)
 
 
@@ -676,6 +975,8 @@ def _case_trigger(rows: Sequence[Dict], verdict: str, label: Callable[[Dict], st
     """The trigger of a block of cases: the first case at the block's verdict, named
     by ``label`` when the block holds more than one case, then ``+n more``."""
     flagged = [r for r in rows if r["verdict"] == verdict and verdict != pp.VERDICT_PASS]
+    if verdict == pp.VERDICT_REFERENCE:
+        flagged = [r for r in flagged if r["trigger"]]  # its would-be verdict may be a pass
     if not flagged:
         return ""
     if len(rows) == 1:
@@ -688,6 +989,11 @@ def _case_trigger(rows: Sequence[Dict], verdict: str, label: Callable[[Dict], st
 def _flag_kinds(flags: Iterable[str]) -> List[str]:
     kinds = {f.split(":", 1)[0] for f in flags}
     return [k for k in STATE_FLAG_FILTER_KINDS if k in kinds]
+
+
+def _fx_flag_kinds(flags: Iterable[str]) -> List[str]:
+    kinds = {f.split(":", 1)[0] for f in flags}
+    return [k for k in FX_FLAG_FILTER_KINDS if k in kinds]
 
 
 def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
@@ -768,10 +1074,15 @@ def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
             "cases": [r["id"] for r in ordered],
             "skins": skin_out,
             "hasStates": has_states,
-            "states": [w for w in pp.KNOWN_STATES if any(r["stateWord"] == w for r in ordered)],
-            "families": [f for f in pp.FAMILIES if any(r.get("family") == f for r in ordered)],
+            "states": [w for w in STATE_ORDER if any(r["stateWord"] == w for r in ordered)],
+            "families": [f for f in FAMILY_ORDER if any(r.get("family") == f for r in ordered)],
             "stateFlags": _flag_kinds(f for r in ordered for f in r.get("stateFlags") or []),
+            "fxFlags": _fx_flag_kinds(f for r in ordered
+                                      for f in (r.get("fx") or {}).get("flags") or []),
+            "refs": [k for k in (REF_JUDGED, REF_REFERENCE)
+                     if any((r.get("fx") or {}).get("refClass") == k for r in ordered)],
             "counts": {v: sum(1 for r in ordered if r["verdict"] == v) for v in PART_VERDICTS},
+            "reference": sum(1 for r in ordered if r["verdict"] == pp.VERDICT_REFERENCE),
         })
     groups.sort(key=lambda g: (-SEVERITY.get(g["verdict"], 0),
                                str(g.get("title") or g.get("part") or "").lower(), g["id"]))
@@ -788,20 +1099,26 @@ def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
 
 def page_counts(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, Any]:
     """The header counter: part CASES by verdict (pass / warn / fail / error), the part
-    groups by verdict, and the controls ok / bad."""
+    groups by verdict, the reference cases and groups (E.6, never among the judged ones),
+    and the controls ok / bad / not applicable."""
     parts = [r for r in rows if r["kind"] == KIND_PART]
     ctl = [r for r in rows if r["kind"] == KIND_CONTROL]
     return {
         "cases": {v: sum(1 for r in parts if r["verdict"] == v) for v in PART_VERDICTS},
         "parts": {v: sum(1 for g in groups if g["verdict"] == v) for v in PART_VERDICTS},
+        "reference": {
+            "cases": sum(1 for r in parts if r["verdict"] == pp.VERDICT_REFERENCE),
+            "parts": sum(1 for g in groups if g["verdict"] == pp.VERDICT_REFERENCE)},
         "controls": {"ok": sum(1 for r in ctl if r["verdict"] == VERDICT_CONTROL_OK),
-                     "bad": sum(1 for r in ctl if r["verdict"] != VERDICT_CONTROL_OK)},
+                     "bad": sum(1 for r in ctl if r["verdict"] not in (VERDICT_CONTROL_OK, VERDICT_CONTROL_NA))},
+        "controlsNa": sum(1 for r in ctl if r["verdict"] == VERDICT_CONTROL_NA),
     }
 
 
 def facets(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, List[List[Any]]]:
     """The filters the page offers (owner: verdict, source, a search box; design D.7:
-    state, family and state flags once a state case is loaded), as
+    state, family and state flags once a state case is loaded; design E.7: reference and FX
+    flags once an FX case is), as
     [value, count-of-part-groups] pairs; ``regression`` only in regression mode."""
     def tally(values: Iterable[str]) -> Dict[str, int]:
         out: Dict[str, int] = {}
@@ -815,15 +1132,20 @@ def facets(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, List[List[
     states = tally(w for g in groups for w in g.get("states") or []) if any_states else {}
     families = tally(f for g in groups for f in g.get("families") or []) if any_states else {}
     flags = tally(f for g in groups for f in g.get("stateFlags") or [])
+    refs = tally(k for g in groups for k in g.get("refs") or [])
+    fx_flags = tally(f for g in groups for f in g.get("fxFlags") or [])
     return {
         "verdict": [[v, verdicts[v]] for v in (pp.VERDICT_FAIL, pp.VERDICT_WARN,
-                                               pp.VERDICT_ERROR, pp.VERDICT_PASS)
+                                               pp.VERDICT_ERROR, pp.VERDICT_PASS,
+                                               pp.VERDICT_REFERENCE)
                     if v in verdicts],
         "source": [[k, sources[k]] for k in sorted(sources, key=lambda s: s.lower())],
         "regression": [[k, regs[k]] for k in (REG_MOVED, REG_NEW, REG_SAME) if k in regs],
-        "state": [[k, states[k]] for k in pp.KNOWN_STATES if k in states],
-        "family": [[k, families[k]] for k in pp.FAMILIES if k in families],
+        "state": [[k, states[k]] for k in STATE_ORDER if k in states],
+        "family": [[k, families[k]] for k in FAMILY_ORDER if k in families],
         "stateFlag": [[k, flags[k]] for k in STATE_FLAG_FILTER_KINDS if k in flags],
+        "reference": [[k, refs[k]] for k in (REF_JUDGED, REF_REFERENCE) if k in refs],
+        "fxFlag": [[k, fx_flags[k]] for k in FX_FLAG_FILTER_KINDS if k in fx_flags],
     }
 
 
@@ -834,12 +1156,70 @@ def _iou_change(label: str, a: Optional[float], b: Optional[float]) -> Optional[
     return None
 
 
+def _fx_side_core(entry: Dict, side: str) -> int:
+    return pp._fx_count(entry.get(side), "corePx")
+
+
+def fx_changes(cur: Any, base: Any) -> List[str]:
+    """What moved between two FX halves (``fx_row``): its verdict and the would-be verdict of
+    a reference case, the rendered FX assets the ghost lacks or adds, the FX flag kinds (the known difference with its numbers, which are deterministic)
+    and, per judged entry keyed ``<caseId>/fx/<view>/<layer>[/start]``, its verdict, a flame
+    or smoke that came or went on either side, and each measure past ``REG_FX_MOVES``
+    (origin and lateral: past their own warn line at the real plume's length)."""
+    if not cur and not base:
+        return []
+    if not cur or not base:
+        return ["fx %s -> %s" % ("present" if base else "absent", "present" if cur else "absent")]
+    changes = []
+    for key in ("verdict", "wouldBe"):
+        if cur.get(key) != base.get(key):
+            changes.append("fx.%s %s -> %s" % (key, base.get(key), cur.get(key)))
+    for key in ("missingRendered", "extraRendered"):
+        a, b = dict(base.get(key) or ()), dict(cur.get(key) or ())
+        moved = ["%s %d -> %d" % (k, a.get(k, 0), b.get(k, 0))
+                 for k in list(a) + [k for k in b if k not in a] if a.get(k, 0) != b.get(k, 0)]
+        if moved:
+            changes.append("fx.%s %s" % (key, "; ".join(moved)))
+
+    def kinds(row: Dict) -> set:
+        return {f if f.startswith(pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX) else f.split(":", 1)[0]
+                for f in row.get("flags") or []}
+    fa, fb = kinds(base), kinds(cur)
+    if fa != fb:
+        changes.append("fx.flags %s" % " ".join(["+" + f for f in sorted(fb - fa)]
+                                                + ["-" + f for f in sorted(fa - fb)]))
+    old = {e["regKey"]: e for e in base.get("entries") or [] if e.get("regKey")}
+    new = {e["regKey"]: e for e in cur.get("entries") or [] if e.get("regKey")}
+    for key in list(old) + [k for k in new if k not in old]:
+        a, b = old.get(key), new.get(key)
+        if a is None or b is None:
+            changes.append("%s %s" % (key, "gone" if b is None else "new"))
+            continue
+        if a.get("verdict") != b.get("verdict"):
+            changes.append("%s verdict %s -> %s" % (key, a.get("verdict"), b.get("verdict")))
+        for side in ("real", "ghost"):
+            x, y = _fx_side_core(a, side), _fx_side_core(b, side)
+            if pp.fx_presence_reason(b.get("layer"), x, y) is not None:
+                changes.append("%s %s.corePx %d -> %d" % (key, side, x, y))
+        ca, cb = _dict(a.get("compare")), _dict(b.get("compare"))
+        length = pp._num(_dict(b.get("real")).get("lengthPx")) or 0.0
+        moves = list(REG_FX_MOVES) + [
+            (name, max(_FXT[m + "FailMinPx"], _FXT[m + "FailLengthFraction"] * length)
+             * _FXT["offsetWarnFraction"])
+            for m, name in (("origin", "originDeltaPx"), ("lateral", "lateralOffsetPx"))]
+        for name, tol in moves:
+            x, y = pp._num(ca.get(name)), pp._num(cb.get(name))
+            if x is not None and y is not None and abs(y - x) > tol:
+                changes.append("%s %s %.3f -> %.3f" % (key, name, x, y))
+    return changes
+
+
 def compare_rows(cur: Dict, base: Dict) -> List[str]:
     """What moved between a case and its baseline: verdict, setup status, the worst
     shape blob, the colour blob, the minimum IoU, the rendered missing / extra counts and
     the live skin names; for a state case also each judged route (``event`` / ``start``:
-    verdict, shape and colour blob, IoU) and the state flags. Empty when nothing moved
-    past the REG_* tolerances."""
+    verdict, shape and colour blob, IoU) and the state flags; for an FX case its FX half
+    (``fx_changes``). Empty when nothing moved past the REG_* tolerances."""
     changes = []
 
     def diff_text(key: str):
@@ -885,6 +1265,7 @@ def compare_rows(cur: Dict, base: Dict) -> List[str]:
         added = [f for f in fb if f not in fa]
         gone = [f for f in fa if f not in fb]
         changes.append("stateFlags %s" % " ".join(["+" + f for f in added] + ["-" + f for f in gone]))
+    changes.extend(fx_changes(cur.get("fx"), base.get("fx")))
     return changes
 
 
@@ -939,6 +1320,65 @@ def apply_regression(rows: List[Dict], baseline_rows: Sequence[Dict],
     return {"dirs": list(baseline_dirs), "pairs": pairs, "counts": counts,
             "gone": gone, "unpairedBaselineProfiles":
                 [p for p in base_profiles if p not in pairs.values()]}
+
+
+def apply_pinned_regression(rows: List[Dict], sweeps: Sequence[Dict], keys: Sequence[str],
+                            pinned: Dict[str, Any]) -> Dict[str, Any]:
+    """Regression mode against the COMMITTED baseline (``--pinned``, design section 8 and
+    10): each sweep's part cases go through ``partparity.gate_sweep`` with the baseline
+    section of its manifest's profile and label and the accepted list, exactly the armed
+    gate. A case is ``moved`` when the gate reds on it (drift past tolerance or an
+    unaccepted fail), ``new`` when the baseline lacks it, else ``same``; its ``changes``
+    list every gate finding on it (accepted fails, near-line fails and moves to the better
+    side included, as notes). ``gone`` lists the baseline cases a sweep no longer plans.
+    ``pinned`` is ``{"dir", "baselines": {profile: parsed file}, "accepted": [entries],
+    "errors": [...]}``. In place."""
+    counts = {REG_MOVED: 0, REG_NEW: 0, REG_SAME: 0}
+    gone: List[str] = []
+    gates: Dict[str, Any] = {}
+    by_sweep: Dict[str, List[Dict]] = {}
+    for r in rows:
+        by_sweep.setdefault(r.get("sweep"), []).append(r)
+    for k, s in enumerate(sweeps):
+        manifest = s.get("manifest") if isinstance(s.get("manifest"), dict) else None
+        sweep_rows_ = [r for r in by_sweep.get(keys[k], []) if r["kind"] == KIND_PART]
+        if manifest is None:
+            continue
+        profile = pp.profile_of(manifest, None)
+        label = manifest.get("label")
+        doc = (pinned.get("baselines") or {}).get(profile)
+        section = ((doc or {}).get("labels") or {}).get(label) if doc else None
+        sidecars = {cid: sc for cid, sc in (s.get("sidecars") or {}).items() if isinstance(sc, dict)}
+        verdicts = [pp.judge_case(sidecars[r["caseId"]]) for r in sweep_rows_
+                    if r["caseId"] in sidecars]
+        gate = pp.gate_sweep(str(label), profile, manifest, sidecars, verdicts, section,
+                             pinned.get("accepted") or [])
+        gates[keys[k]] = {"profile": profile, "label": label, "ok": gate.ok,
+                          "baselineRuns": list(gate.baseline_runs), "counts": gate.counts()}
+        findings: Dict[str, List[Any]] = {}
+        for f in gate.reds:
+            if f.case_id is None:
+                continue
+            if f.kind == pp.GATE_GONE:
+                gone.append("%s/%s" % (s["profile"], f.case_id))
+                continue
+            findings.setdefault(f.case_id, []).append(f)
+        for f in gate.unmeasured + gate.notes:
+            if f.case_id is not None:
+                findings.setdefault(f.case_id, []).append(f)
+        for r in sweep_rows_:
+            mine = findings.get(r["caseId"], [])
+            # An unmeasured case makes the armed row INVALID, so it is never "same".
+            red = any(f.kind in pp.GATE_RED_KINDS or f.kind == pp.GATE_UNMEASURED for f in mine)
+            new = any(f.kind == pp.NOTE_NEW_CASE for f in mine) or section is None
+            status = REG_MOVED if red else (REG_NEW if new else REG_SAME)
+            r["regression"] = {"status": status,
+                               "changes": [("%s: %s" % (f.kind, f.detail)) for f in mine],
+                               "baseline": None}
+            counts[status] += 1
+    return {"dirs": [pinned.get("dir") or ""], "pairs": {}, "counts": counts,
+            "gone": sorted(gone), "unpairedBaselineProfiles": [], "pinned": True,
+            "gates": gates, "errors": list(pinned.get("errors") or [])}
 
 
 def apply_cross_links(rows: List[Dict]) -> None:
@@ -997,7 +1437,8 @@ def sweep_keys(sweeps: Sequence[Dict]) -> List[str]:
 
 
 def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] = None,
-                    generated_utc: Optional[str] = None) -> Dict[str, Any]:
+                    generated_utc: Optional[str] = None,
+                    pinned: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The whole ``data.js`` payload. Each sweep is a dict with ``profile``,
     ``profileNote``, ``dir``, ``manifest``, ``manifestError``, ``sidecars`` (case id ->
     parsed / None / SIDECAR_UNREADABLE), ``imageUrl`` (callable or None) and optional
@@ -1039,6 +1480,8 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
             base_rows.extend(sweep_rows(b["profile"], b.get("manifest"),
                                         b.get("sidecars") or {}, None, base_keys[k], k))
         regression = apply_regression(rows, base_rows, [b.get("dir") or "" for b in baseline])
+    elif pinned is not None:
+        regression = apply_pinned_regression(rows, sweeps, keys, pinned)
     apply_cross_links(rows)
     apply_stowed_pairs(rows)
     groups = group_parts(rows)
@@ -1046,6 +1489,7 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
         "schema": DATA_SCHEMA,
         "generatedUtc": generated_utc,
         "thresholds": pp.thresholds(),
+        "fxThresholds": dict(pp.FX_THRESHOLDS) if any(r["fx"] for r in rows) else None,
         "regressionTolerances": {"blobPx": REG_BLOB_MOVE_PX, "colorPx": REG_COLOR_MOVE_PX,
                                  "iou": REG_IOU_MOVE},
         "sweeps": headers,
@@ -1176,6 +1620,34 @@ def load_sweep(directory: str, explicit_name: Optional[str] = None) -> Dict[str,
     }
 
 
+def load_pinned(base_dir: str, sweeps: Sequence[Dict]) -> Dict[str, Any]:
+    """The committed baseline files of every profile the sweeps name, and the accepted
+    list, for ``--pinned``. A file that will not load is recorded in ``errors``."""
+    import tomllib
+    out: Dict[str, Any] = {"dir": os.path.abspath(base_dir), "baselines": {}, "accepted": [],
+                           "errors": []}
+    for s in sweeps:
+        profile = pp.profile_of(s.get("manifest") if isinstance(s.get("manifest"), dict) else None, None)
+        if not profile or profile in out["baselines"]:
+            continue
+        doc, err = _read_json(os.path.join(base_dir, pp.baseline_file_name(profile)))
+        problems = [err] if err else pp.validate_baseline(doc, profile)
+        if problems:
+            out["errors"].append("%s: %s" % (pp.baseline_file_name(profile), "; ".join(problems[:3])))
+        else:
+            out["baselines"][profile] = doc
+    path = os.path.join(base_dir, pp.ACCEPTED_FILE)
+    if os.path.isfile(path):
+        try:
+            with open(path, "rb") as fh:
+                entries, errors = pp.parse_accepted(tomllib.load(fh))
+            out["accepted"] = entries
+            out["errors"].extend(errors)
+        except (OSError, ValueError) as exc:
+            out["errors"].append("%s: %s" % (pp.ACCEPTED_FILE, exc))
+    return out
+
+
 def plan_images(sweeps: List[Dict], out_dir: str, mode: str) -> List[Tuple[str, str]]:
     """Give every sweep an ``imageUrl`` callable; return the (src, dst) copies owed.
     ``in-place``: relative to the sweep dir (copy only when no relative path exists);
@@ -1240,6 +1712,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--baseline", action="append", default=[], metavar="DIR",
                     help="an earlier sweep directory to compare with (regression mode); "
                          "repeat for several profiles")
+    ap.add_argument("--pinned", nargs="?", const=DEFAULT_PINNED_DIR, metavar="DIR",
+                    help="regression mode against the committed baseline and accepted list "
+                         "(the armed gate's view; default dir harness/partparity)")
     ap.add_argument("--out", metavar="DIR",
                     help="output directory (default: <first dir>/viewer/)")
     ap.add_argument("--images", choices=("auto", "copy", "in-place"), default="auto",
@@ -1270,6 +1745,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 2
         baseline.append(load_sweep(directory, name))
 
+    if args.pinned and args.baseline:
+        print("part_parity_view: --pinned and --baseline are two regression modes; pass one",
+              file=sys.stderr)
+        return 2
+    pinned = load_pinned(args.pinned, sweeps) if args.pinned else None
+
     out_dir = os.path.abspath(args.out) if args.out else os.path.join(sweeps[0]["dir"],
                                                                        DEFAULT_OUT_LEAF)
     refusal = out_dir_refusal(out_dir, find_repo_root(_HERE))
@@ -1284,7 +1765,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     import datetime
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    data = build_site_data(sweeps, baseline if args.baseline else None, stamp)
+    data = build_site_data(sweeps, baseline if args.baseline else None, stamp, pinned)
     copied, kept = copy_images(copies)
     data_js = render_data_js(data)
     _write_text(os.path.join(out_dir, DATA_JS_FILE), data_js)
@@ -1360,6 +1841,9 @@ main { padding: 8px 16px 40px; }
   padding: 0 7px; border-radius: 9px; color: #fff; text-transform: uppercase; white-space: nowrap; }
 .vc.pass { background: var(--pass); } .vc.warn { background: var(--warn); color: #1d1600; }
 .vc.fail { background: var(--fail); } .vc.error { background: var(--error); color: #111; }
+/* not a verdict: a reference case or entry (design E.6), a not-applicable control, an entry
+   whose measures were skipped (weak cores, E.4) */
+.vc.reference, .vc.na, .vc.skipped { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
 .chip { display: inline-block; font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 9px;
   background: var(--code); border: 1px solid var(--border); white-space: nowrap; }
 .chip.moved { border-color: var(--warn); }
@@ -1389,7 +1873,8 @@ details.box.bad > summary { color: var(--fail); }
 .tr-error { color: var(--muted); font-weight: 600; }
 .skin { border: 2px solid var(--pass); border-radius: 8px; margin: 8px 0 0; padding: 6px 8px; }
 .skin.warn { border-color: var(--warn); } .skin.fail { border-color: var(--fail); } .skin.error { border-color: var(--error); }
-.skin.ctl-ok { border-color: var(--pass); } .skin.ctl-bad { border-color: var(--fail); }
+.skin.ctl-ok { border-color: var(--pass); } .skin.ctl-bad { border-color: var(--fail); } .skin.ctl-na { border-color: var(--border); }
+.group.reference, .skin.reference, .state.reference { border-color: var(--muted); border-style: dashed; }
 /* state sub-blocks inside a skin (design D.7) */
 .state { border: 2px solid var(--pass); border-radius: 8px; margin: 6px 0 0 10px; padding: 4px 8px; }
 .state.warn { border-color: var(--warn); } .state.fail { border-color: var(--fail); } .state.error { border-color: var(--error); }
@@ -1397,6 +1882,24 @@ details.box.bad > summary { color: var(--fail); }
 figure.st { width: var(--ts); } figure.st .tile { width: var(--ts); height: var(--ts); }
 figure.ref .tile { outline: 2px dashed var(--fg); outline-offset: -5px; }
 figcaption.ref { font-style: italic; }
+/* effects (design E.7): flame over black, smoke over the page's matte, each crop flattened so
+   the difference of two equal tiles is black whatever their coverage */
+.fxbox { margin: 6px 0 0; border-top: 1px solid var(--border); padding-top: 4px; }
+.fxbox .vname { width: 84px; }
+.tile.fx-flame, .tile.fx-flame .layer { background-color: #000; }
+.tile.fx-smoke, .tile.fx-smoke .layer { background-color: var(--tilebg); }
+.tile.film { background: #262626; }
+figure.fxs { width: var(--ts); } figure.fxs .tile { width: var(--ts); height: var(--ts); }
+figure.strip, figure.strip .tile { width: min(256px, calc((100vw - 60px) / 2)); }
+figure.strip .tile { height: min(256px, calc((100vw - 60px) / 2)); }
+@keyframes filmstrip { from { background-position-x: 0%; } to { background-position-x: var(--sxe); } }
+.layer.film { animation: filmstrip calc(var(--k) * 110ms) steps(var(--k)) infinite; animation-play-state: paused; }
+body.stripsplay .layer.film { animation-play-state: running; }
+.knownbox { border: 2px dashed var(--muted); border-radius: 8px; margin: 8px 0 2px; padding: 4px 8px; }
+.knownbox .tile { outline: 2px dashed var(--muted); outline-offset: -5px; }
+.knownbox .vmeta, .knownbox .cap { color: var(--muted); }
+.chip.known { border-style: dashed; color: var(--muted); }
+button[aria-pressed=true] { border-color: var(--focus); font-weight: 700; }
 .shead { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 13px; }
 .shead .skname { font-weight: 600; }
 .shead .trig { flex-basis: 100%; font-size: 12px; }
@@ -1430,7 +1933,7 @@ pre { background: var(--code); padding: 6px; border-radius: 6px; font-size: 11px
 dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--fg); max-width: 96vw; max-height: 94vh; padding: 10px; }
 dialog::backdrop { background: rgba(0, 0, 0, .6); }
 dialog .pair { display: flex; flex-wrap: wrap; gap: 8px; }
-dialog figure { width: auto; }
+dialog figure, dialog figure.st, dialog figure.fxs, dialog figure.strip { width: auto; }
 dialog .tile { cursor: default; }
 @media (max-width: 640px) {
   :root { --t: calc((100vw - 52px) / 2); --ts: calc((100vw - 52px) / 2); }
@@ -1452,6 +1955,7 @@ dialog .tile { cursor: default; }
     <span class="note">Verdicts are automatic (harness/lib/partparity.py); the border colour of a part and of each skin is its verdict. Click a picture for 1:1. j / k: next / previous part.</span>
   </div>
   <p class="note" id="statelegend" hidden>State cases (deployed, open, lit, semi, full, jettisoned): each view shows STOWED (the paired stowed case's REAL part when its sweep is loaded, else the case's own stowed ghost as a dashed reference, not judged), REAL in the state, GHOST event route (the stowed snapshot plus the recorded part events, as a flight replays it), GHOST start route (a recording that starts in the state) and the DIFFERENCE of real vs the event ghost. Both ghost routes are judged; the case takes the worse one.</p>
+  <p class="note" id="fxlegend" hidden>Effect cases (engine plumes, RCS puffs, heat glow, lamps on a plate): under the body rows, the strip plays 12 frames of fx-side-a, body and effects together, REAL and GHOST (event route) in lock step (Play / Pause in the header). Then one row per effect view and layer: flame over black, smoke over the matte, each picture the mean of the samples with how often a pixel was covered as its opacity; a layer is rendered alone, so the body never hides the plume. The measures beside a row are ghost against real (1.00 = equal). A layer nothing draws has no row; the line under the rows names it. A dashed verdict is not judged: a Waterfall case reads reference, with the verdict it would have had. An RCS ghost fires every nozzle at the module's mean power (a known difference, owner ruling 2026-11-22), so the judged rows hide its nozzles the real part did not fire and the dashed block shows all of them, for information only.</p>
   <p id="nodata" hidden>data.js did not load: open this page from the folder the viewer wrote, next to its data.js.</p>
   <details class="box" id="sweeps"><summary id="sweepsum">Sweeps</summary><div id="sweepbody"></div></details>
   <details class="box" id="controls"><summary id="ctlsum">Controls</summary><div id="ctlbody"></div></details>
@@ -1469,11 +1973,11 @@ dialog .tile { cursor: default; }
   D.groups.forEach(function (g, i) {
     g._i = i;
     g.cases.forEach(function (id) { CASE_GROUP[id] = g; });
-    g._text = [g.title, g.part, g.source, g.profile].concat(g.cases.map(function (id) { var c = CASE[id]; return [c.caseId, c.skin, c.stateLabel, c.family || ""].concat(c.tags || []).concat(c.stateFlags || []).join(" "); })).join(" ").toLowerCase();
+    g._text = [g.title, g.part, g.source, g.profile].concat(g.cases.map(function (id) { var c = CASE[id]; return [c.caseId, c.skin, c.stateLabel, c.family || ""].concat(c.tags || []).concat(c.stateFlags || []).concat(c.fx ? c.fx.flags : []).join(" "); })).join(" ").toLowerCase();
   });
-  var SEV = {fail: 3, warn: 2, error: 1, pass: 0};
-  var state = {verdict: "", source: "", q: "", sort: "severity", regression: "", stateWord: "", family: "", stateFlag: "", diff: true};
-  var FILTER_KEYS = ["verdict", "source", "regression", "stateWord", "family", "stateFlag"];
+  var KNOWN_DIFF = "rcs-known-difference";
+  var state = {verdict: "", source: "", q: "", sort: "severity", regression: "", stateWord: "", family: "", stateFlag: "", refClass: "", fxFlag: "", diff: true};
+  var FILTER_KEYS = ["verdict", "source", "regression", "stateWord", "family", "stateFlag", "refClass", "fxFlag"];
   try { var saved = JSON.parse(localStorage.getItem("parity-view-2") || "null"); if (saved) Object.keys(state).forEach(function (k) { if (k in saved) state[k] = saved[k]; }); } catch (e) {}
   function save() { try { localStorage.setItem("parity-view-2", JSON.stringify(state)); } catch (e) {} }
 
@@ -1493,25 +1997,45 @@ dialog .tile { cursor: default; }
   function fmt(v, d) { if (v === null || v === undefined) return "-"; if (typeof v === "number") return d === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(4)) : v.toFixed(d); return String(v); }
   function vchip(v, title) { return el("span", {cls: "vc " + v, text: v, title: title || null}); }
 
+  var SELECTS = {}, knownBtn = null;
   // ---- header: counters + filters ----
   function buildTop() {
     var top = document.getElementById("top"), cc = D.counts.cases;
     var counters = el("div", {cls: "counters", title: "part cases (one per skin) by verdict"});
     ["fail", "warn", "error", "pass"].forEach(function (v) { counters.appendChild(el("span", {cls: "vc " + v, text: v + " " + cc[v]})); });
     var ctl = D.counts.controls;
-    if (ctl.ok + ctl.bad) counters.appendChild(el("span", {cls: "chip", text: "controls " + ctl.ok + "/" + (ctl.ok + ctl.bad) + " ok", style: ctl.bad ? "border-color: var(--fail); color: var(--fail); font-weight: 700" : null}));
+    if (D.counts.reference.cases) counters.appendChild(el("span", {cls: "vc reference", text: "reference " + D.counts.reference.cases, title: "Waterfall effect cases: shown with the verdict they would have had, never judged"}));
+    if (ctl.ok + ctl.bad) counters.appendChild(el("span", {cls: "chip", text: "controls " + ctl.ok + "/" + (ctl.ok + ctl.bad) + " ok" + (D.counts.controlsNa ? ", " + D.counts.controlsNa + " n/a" : ""), style: ctl.bad ? "border-color: var(--fail); color: var(--fail); font-weight: 700" : null}));
     top.appendChild(counters);
     function select(key, label, values, extra) {
       var s = el("select", {"aria-label": label, on: {change: function () { state[key] = s.value; save(); applyFilters(); }}},
         [el("option", {value: "", text: "all"})].concat(extra || []).concat(values.map(function (v) { return el("option", {value: v[0], text: v[0] + " (" + v[1] + ")"}); })));
       s.value = state[key] || ""; if (s.value !== (state[key] || "")) state[key] = "";
       top.appendChild(el("label", null, [label, s]));
+      SELECTS[key] = s;
     }
     select("verdict", "Verdict", D.facets.verdict, [el("option", {value: "flagged", text: "flagged (fail, warn, error)"})]);
     select("source", "Source", D.facets.source);
     if (D.facets.state.length) select("stateWord", "State", D.facets.state);
     if (D.facets.family.length) select("family", "Family", D.facets.family);
-    if (D.facets.stateFlag.length) select("stateFlag", "State flags", D.facets.stateFlag);
+    if (D.facets.stateFlag.length) select("stateFlag", "State flags", D.facets.stateFlag); else state.stateFlag = "";
+    if (D.facets.reference.length) select("refClass", "Reference", D.facets.reference); else state.refClass = "";
+    if (D.facets.fxFlag.length) select("fxFlag", "FX flags", D.facets.fxFlag); else state.fxFlag = "";
+    if (D.facets.fxFlag.some(function (x) { return x[0] === KNOWN_DIFF; })) {
+      knownBtn = el("button", {type: "button", text: "known difference", title: "list every RCS case that carries " + KNOWN_DIFF, on: {click: function () {
+        state.fxFlag = state.fxFlag === KNOWN_DIFF ? "" : KNOWN_DIFF; SELECTS.fxFlag.value = state.fxFlag; save(); applyFilters(); }}});
+      top.appendChild(knownBtn);
+    }
+    if (D.cases.some(function (c) { return c.fx && c.fx.strip; })) {
+      // Every strip runs off one class on <body>: the two rows of a pair, inserted together,
+      // take one start time and pause and resume in the same style change (lock step).
+      var still = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+      var play = el("button", {type: "button", id: "stripbtn", on: {click: function () { setPlay(!document.body.classList.contains("stripsplay")); }}});
+      var setPlay = function (on) { document.body.classList.toggle("stripsplay", on); play.textContent = on ? "Pause strips" : "Play strips"; play.setAttribute("aria-pressed", on ? "true" : "false"); };
+      setPlay(!(still && still.matches));
+      if (still && still.addEventListener) still.addEventListener("change", function () { if (still.matches) setPlay(false); });
+      top.appendChild(play);
+    }
     if (D.regression) select("regression", "Baseline", D.facets.regression);
     var timer = null;
     var q = el("input", {type: "search", placeholder: "search  ( / )", value: state.q, "aria-label": "Search parts", id: "q",
@@ -1527,6 +2051,7 @@ dialog .tile { cursor: default; }
     document.body.classList.toggle("nodiff", !state.diff);
   }
 
+  function counted(o) { return Object.keys(o || {}).map(function (k) { return k + " " + o[k]; }).join(", "); }
   // ---- sweeps (collapsed) ----
   function buildSweeps() {
     var body = document.getElementById("sweepbody"), bad = false, parts = [], perProfile = {};
@@ -1552,6 +2077,7 @@ dialog .tile { cursor: default; }
       if (h.controls) row("control set", (h.controlSet || "-") + ", " + h.controls.expected + " control(s)" + (h.controls.ok ? ", ok" : " - " + h.controls.problems.join("; ")), h.controls.ok ? null : "bad-text");
       if (h.statePress) row("state press", (h.statePress.ok ? "ok" : "BAD") + ": " + Object.keys(h.statePress.families).map(function (f) { var x = h.statePress.families[f]; return f + " " + x.pressFailed + "/" + x.cases + " failed"; }).join(", ") + (h.statePress.problems.length ? " - " + h.statePress.problems.join("; ") : ""), h.statePress.ok ? null : "bad-text");
       if (h.stateCases) row("state flags", h.stateCases + " state case(s); " + (Object.keys(h.stateFlagCounts || {}).map(function (k) { return k + " " + h.stateFlagCounts[k]; }).join(", ") || "no state flag"));
+      if (h.fx) row("effects", h.fx.cases + " FX case(s): " + counted(h.fx.families) + (h.fx.reference ? "; " + h.fx.reference + " reference (would be " + counted(h.fx.referenceWouldBe) + ")" : "; none reference") + "; flags: " + (counted(h.fx.flags) || "none"));
       if (h.instrumentProblems.length) row("writer checks", h.instrumentProblems.slice(0, 5).join("; ") + (h.instrumentProblems.length > 5 ? " (+" + (h.instrumentProblems.length - 5) + " more)" : ""), "bad-text");
       if (h.verdictsFile) row("verifier row", fmt(h.verdictsFile.status) + (h.verdictsFile.invalidSubkind ? " (" + h.verdictsFile.invalidSubkind + ")" : "") + ", recompute " + h.verdictsFile.recomputed + " case(s), " + h.verdictsFile.recomputeMismatches + " mismatch(es)", h.verdictsFile.recomputeMismatches ? "bad-text" : null);
       if (h.duplicates.length) row("duplicates", h.duplicates.length + " case id(s) already loaded from another sweep: " + h.duplicates.slice(0, 5).join(", "), "bad-text");
@@ -1560,6 +2086,8 @@ dialog .tile { cursor: default; }
     });
     if (D.regression) body.appendChild(el("p", {cls: "note", text: "Baseline " + D.regression.dirs.join(", ") + ": moved " + D.regression.counts.moved + ", new " + D.regression.counts["new"] + ", same " + D.regression.counts.same + ", gone " + D.regression.gone.length + (D.regression.gone.length ? " (" + D.regression.gone.slice(0, 20).join(", ") + ")" : "")}));
     body.appendChild(el("p", {cls: "note", text: "Views are fixed in the part's frame: side-a from -Z, side-b from +X, top from +Y, bottom from -Y; the +Z and -X faces are only seen with views=all, and a rotationally symmetric part cannot prove its yaw. Verdict lines: shape blob > " + D.thresholds.shapeBlobFailPx + " px or " + D.thresholds.shapeBlobFailPct + "% of the box, colour blob > " + D.thresholds.colorBlobFailPx + " px, warn at " + D.thresholds.warnFraction + " of those; a rendered mesh missing or extra on the ghost, or a skin mismatch, fails the case. Generated " + (D.generatedUtc || "?") + "."}));
+    var T = D.fxThresholds;
+    if (T) body.appendChild(el("p", {cls: "note", text: "Effect lines (starting guesses, P8): fail when a layer one side lacks, origin off by more than " + T.originFailMinPx + " px and " + T.originFailLengthFraction + " of the real length, lateral " + T.lateralFailMinPx + " px and " + T.lateralFailLengthFraction + ", length +-" + T.lengthFailFraction + ", width +-" + T.widthFailFraction + ", direction " + T.directionFailDeg + " deg, cross-section area outside " + T.crossSectionAreaFailMin + " to " + T.crossSectionAreaFailMax + ", colour " + T.chromaFail + " chroma or " + T.hueL1Fail + " hue; brightness and IoU only warn. An rcs case does not judge length, width and brightness. An effect that did not converge is capped at warn."}));
     document.getElementById("sweepsum").textContent = "Sweeps: " + parts.join("; ");
     var box = document.getElementById("sweeps");
     if (bad) { box.classList.add("bad"); box.open = true; }
@@ -1567,7 +2095,10 @@ dialog .tile { cursor: default; }
 
   // ---- tiles: CSS crops of the atlas, image set only near the viewport ----
   function cropStyle(c, row, col) {
-    var cols = Math.max(1, c.atlasCols.length), rows = Math.max(1, c.atlasRows.length);
+    return cropAt(c.atlasRows.length, c.atlasCols.length, row, col);
+  }
+  function cropAt(nRows, nCols, row, col) {
+    var cols = Math.max(1, nCols), rows = Math.max(1, nRows);
     return "background-size:" + (cols * 100) + "% " + (rows * 100) + "%;background-position:" +
       (cols > 1 ? col / (cols - 1) * 100 : 0) + "% " + (rows > 1 ? row / (rows - 1) * 100 : 0) + "%";
   }
@@ -1641,6 +2172,166 @@ dialog .tile { cursor: default; }
       return el("span", {cls: "chip", title: (x.reasons || []).join("\n") || null}, [r + " route ", el("span", {cls: "vc " + x.verdict, text: x.verdict})]);
     });
   }
+  // ---- effects (design E.7) ----
+  function fxLayer(fx, rowName, view, cls) {
+    var r = fx.atlasRows.indexOf(rowName), k = fx.atlasCols.indexOf(view);
+    if (r < 0 || k < 0) return null;
+    return el("div", {cls: "layer" + (cls ? " " + cls : ""), style: cropAt(fx.atlasRows.length, fx.atlasCols.length, r, k), "data-src": fx.atlas});
+  }
+  function fxTile(c, layers, label, view, layer, s, diff) {
+    var n = el("div", {cls: "tile fx-" + layer + (diff ? " diff" : ""), role: "img", "aria-label": label, "data-case": c.id, "data-view": view, "data-layer": layer}, layers);
+    if (s) { n.style.width = s + "px"; n.style.height = s + "px"; }
+    return n;
+  }
+  function fxEntry(c, route, view, layer) { return c.fx.entries.filter(function (e) { return e.route === route && e.view === view && e.layer === layer; })[0] || null; }
+  // rows: [[figure class, atlas row, full caption, short caption], ...]
+  function fxFigures(c, view, layer, rows, s) {
+    if (!c.fx.atlas) return [el("div", {cls: "nopic", text: c.fx.atlasFile ? "FX atlas " + c.fx.atlasFile + " not found" : "no FX atlas"})];
+    return rows.map(function (r) {
+      var first = fxLayer(c.fx, r[1] + "-" + layer, view), over = r[4] ? fxLayer(c.fx, r[4] + "-" + layer, view, "blend") : null;
+      if (!first || (r[4] && !over)) return figure(r[0] + " fxs", el("div", {cls: "nopic", text: "row not in the atlas"}), r[2], r[3]);
+      return figure(r[0] + " fxs", fxTile(c, over ? [first, over] : [first], r[2] + " " + layer + " " + view, view, layer, s, !!over), r[2], r[3]);
+    });
+  }
+  var FX_PART_ROWS = [["real", "real", "REAL part (stock KSP)", "REAL"], ["ghost", "ghost", "GHOST event route", "GHOST ev"], ["ghost", "ghost-start", "GHOST start route", "GHOST st"], ["diff", "real", "DIFFERENCE real vs event ghost", "DIFF ev", "ghost"]];
+  var FX_ZOOM_ROW = ["diff", "real", "DIFFERENCE real vs start ghost", "DIFF st", "ghost-start"];
+  var FX_CTL_ROWS = [["real", "real", "REAL row (the intact side)", "REAL"], ["ghost", "ghost", "GHOST row (the altered side)", "GHOST"], ["diff", "real", "DIFFERENCE (black = same)", "DIFF", "ghost"]];
+  var FX_ALL_ROWS = [["real", "real", "REAL part (stock KSP)", "REAL"], ["ghost", "ghost-all", "GHOST all nozzles (not judged)", "GHOST all"]];
+  function fxRows(c, zoom) { return c.kind === "control" ? FX_CTL_ROWS : (zoom ? FX_PART_ROWS.concat([FX_ZOOM_ROW]) : FX_PART_ROWS); }
+  function ratioText(x) { return Object.keys(x).filter(function (k) { return x[k] !== null && x[k] !== undefined; }).map(function (k) { return k + " " + fmt(x[k], 2); }).join(", ") || "length, width and brightness not measured"; }
+  function ratios(x) { return ratioText({length: x.lengthRatio, width: x.widthRatio, brightness: x.brightnessRatio}); }
+  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || (e.verdict === "skipped" ? "both cores are weak: only presence was judged" : null)); }
+  function fxLine(c, name, e) {
+    if (!e) return el("div", {cls: "note", text: name + ": not measured"});
+    var x = e.compare, rcs = c.fx.family === "rcs";
+    var kids = [el("span", {cls: "note", text: name + " "})];
+    if (c.kind === "control") kids.push(el("span", {cls: "chip", text: e.failing.length ? "fails " + e.failing.join(", ") : "passes every FX measure"}));
+    else kids.push(fxVerdict(e));
+    kids.push(el("div", {text: "core " + fmt(e.real.corePx) + " / " + fmt(e.ghost.corePx) + " px" + (rcs ? "" : ", " + ratios(x)) + (x.directionDeg === null ? "" : ", direction " + fmt(x.directionDeg, 1) + " deg") + (x.crossSectionAreaRatio === null ? "" : ", section " + fmt(x.crossSectionAreaRatio, 2)) + ", IoU " + fmt(x.coreIou, 2)}));
+    if (rcs) kids.push(el("div", {cls: "note", text: ratios(x) + " (reported only)"}));
+    if (c.kind !== "control" && e.trigger) kids.push(el("div", {cls: e.reference ? "note" : "tr-" + e.verdict, text: e.trigger}));
+    return el("div", null, kids);
+  }
+  function fxViews(c) { var seen = []; c.fx.entries.forEach(function (e) { if (seen.indexOf(e.view) < 0) seen.push(e.view); }); return seen; }
+  function fxLayers(c) { var seen = []; c.fx.entries.forEach(function (e) { if (seen.indexOf(e.layer) < 0) seen.push(e.layer); }); return seen; }
+  function filmTile(c, rowName, label, s) {
+    var fx = c.fx, K = fx.stripFrames, R = fx.stripRows.length, r = fx.stripRows.indexOf(rowName);
+    var l = el("div", {cls: "layer film", "data-src": fx.strip, style: "background-size:" + (K * 100) + "% " + (R * 100) + "%;background-position:0% " + (R > 1 ? r / (R - 1) * 100 : 0) + "%;--k:" + K + ";--sxe:" + (K > 1 ? K / (K - 1) * 100 : 0) + "%"});
+    var n = el("div", {cls: "tile film", role: "img", "aria-label": label, "data-case": c.id, "data-view": "strip"}, [l]);
+    if (s) { n.style.width = s + "px"; n.style.height = s + "px"; }
+    return n;
+  }
+  function stripFigures(c, s) {
+    return [figure("real strip", filmTile(c, "real", "real strip", s), "REAL part (stock KSP)", "REAL"), figure("ghost strip", filmTile(c, "ghost", "ghost event route strip", s), "GHOST event route", "GHOST ev")];
+  }
+  function stripRow(c) {
+    var fx = c.fx;
+    if (!fx.stripFile) return null;
+    if (!fx.strip || !fx.stripFrames) return el("div", {cls: "note", text: fx.strip ? "Strip " + fx.stripFile + " names no frame count." : "Strip " + fx.stripFile + " not found."});
+    return el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: "strip"})].concat(stripFigures(c)).concat([el("div", {cls: "vmeta"}, [el("div", {cls: "note", text: fx.stripFrames + " frames of fx-side-a, both rows in lock step. Not measured; the rows below are."})])]));
+  }
+  // The RCS known difference (owner ruling R4): for information, never coloured as a verdict.
+  function knownBlock(c) {
+    var x = c.fx.rcs;
+    if (!x || c.kind === "control") return null;
+    var cap = x.noGap ? "no difference on this part: every nozzle fired (" + fmt(x.fired) + " of " + fmt(x.total) + ") at the recorded power" : !x.flag ? "the nozzles that fired were not recorded, so the difference is not known" : "known difference (owner ruling 2026-11-22): the ghost fires all " + fmt(x.total) + " nozzles at the module's mean power " + fmt(x.recordedPower, 3) + "; stock fired " + fmt(x.fired);
+    var box = el("div", {cls: "knownbox"}, [el("div", {cls: "shead"}, [x.flag ? el("span", {cls: "chip known", text: KNOWN_DIFF, title: x.flag}) : null, el("span", {cls: "cap", text: cap})])]);
+    var empty = [];
+    fxLayers(c).forEach(function (layer) { fxViews(c).forEach(function (view) {
+      var a = fxEntry(c, "all", view, layer);
+      if (!a) return;
+      if (a.empty) { empty.push(layer + " " + view); return; }
+      var judged = x.reportedOnly.filter(function (r) { return r.view === view && r.layer === layer; });
+      var meta = [el("div", {text: "all nozzles: core " + fmt(a.real.corePx) + " / " + fmt(a.ghost.corePx) + " px, " + ratios(a.compare)})].concat(judged.map(function (r) {
+        return el("div", {text: "judged row (" + r.route + "), reported only: " + ratioText({length: r.length, width: r.width, brightness: r.brightness})}); }));
+      meta.push(el("div", {text: "rcsPowerRatio " + fmt(x.powerRatio, 3)}));
+      box.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: view + " " + layer})].concat(fxFigures(c, view, layer, FX_ALL_ROWS)).concat([el("div", {cls: "vmeta"}, meta)])));
+    }); });
+    if (empty.length) box.appendChild(el("div", {cls: "note", text: "Nothing drawn: " + empty.join(", ") + "."}));
+    return box;
+  }
+  function fxSection(c) {
+    var fx = c.fx;
+    if (!fx || (!fx.entries.length && !fx.stripFile && !fx.plate)) return null;
+    var head = [el("span", {cls: "skname", text: "Effects"}), el("span", {cls: "chip", text: fx.family})];
+    if (c.kind !== "control" && fx.routes.event) head.push(c.verdict === "reference" ? el("span", {cls: "vc reference", text: "would be " + fx.verdict}) : vchip(fx.verdict));
+    if (c.kind !== "control" && fx.trigger) head.push(el("span", {cls: "trig " + (c.verdict === "reference" ? "note" : "tr-" + fx.verdict), text: fx.trigger}));
+    if (fx.plate) head.push(el("span", {cls: "note", text: "plate lit " + fmt(fx.plate.litPct === null || fx.plate.litPct === undefined ? null : fx.plate.litPct * 100, 1) + "% of its area, " + fmt(fx.plate.lightType) + " light"}));
+    var box = el("div", {cls: "fxbox"}, [el("div", {cls: "shead"}, head), stripRow(c)]);
+    var empty = [];
+    fxLayers(c).forEach(function (layer) { fxViews(c).forEach(function (view) {
+      var ev = fxEntry(c, "event", view, layer), st = fxEntry(c, "start", view, layer);
+      if (!ev && !st) return;
+      if ((!ev || (ev.empty && ev.verdict === "pass")) && (!st || (st.empty && st.verdict === "pass"))) { empty.push(layer + " " + view); return; }
+      var meta = [fxLine(c, c.kind === "control" ? "real vs ghost" : "event route", ev)];
+      if (c.kind !== "control") meta.push(fxLine(c, "start route", st));
+      box.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: view + " " + layer})].concat(fxFigures(c, view, layer, fxRows(c))).concat([el("div", {cls: "vmeta"}, meta)])));
+    }); });
+    if (empty.length) box.appendChild(el("div", {cls: "note", text: "Nothing drawn on any side: " + empty.join(", ") + "."}));
+    var known = knownBlock(c);
+    if (known) box.appendChild(known);
+    return box;
+  }
+  function fxChips(c) {
+    var fx = c.fx;
+    if (!fx) return [];
+    var out = [];
+    if (c.verdict === "reference") out.push(el("span", {cls: "chip", text: "would be " + fx.wouldBe}));
+    ["event", "start"].forEach(function (r) { if (fx.routes[r]) out.push(el("span", {cls: "chip"}, ["effects " + r + " ", el("span", {cls: "vc " + (c.verdict === "reference" ? "reference" : fx.routes[r]), text: fx.routes[r]})])); });
+    return out.concat(fx.flags.map(function (f) { return el("span", {cls: f.indexOf(KNOWN_DIFF) === 0 ? "chip known" : "chip", text: f}); }));
+  }
+  function plainTable(head, rows) {
+    return el("div", {cls: "tablewrap"}, [el("table", null, [el("thead", null, [el("tr", null, head.map(function (h) { return el("th", {text: h}); }))]),
+      el("tbody", null, rows.map(function (r) { return el("tr", null, r.map(function (x, i) { return el(i ? "td" : "th", {cls: i ? "num" : null, text: x}); })); }))])]);
+  }
+  function cell(v) { return Array.isArray(v) ? v.map(function (x) { return fmt(x, 3); }).join(" ") : fmt(v, typeof v === "number" && !Number.isInteger(v) ? 3 : undefined); }
+  var FX_SIDE_KEYS = ["corePx", "envelopePx", "saturatedPx", "originPx", "lengthPx", "widthPx", "luminance", "meanColor", "chromaticity", "coreCentroid"];
+  var FX_CMP_KEYS = ["originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg", "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1", "brightnessRatio", "coreIou"];
+  function fillFx(d, c) {
+    var fx = c.fx;
+    ["event", "start", "all"].forEach(function (route) { fxLayers(c).forEach(function (layer) {
+      var list = fxViews(c).map(function (v) { return fxEntry(c, route, v, layer); }).filter(function (e) { return e && !e.empty; });
+      if (!list.length) return;
+      var head = [route + " " + layer + (route === "all" ? " (not judged)" : "")], rows = [];
+      list.forEach(function (e) { head.push(e.view, "even half", "odd half"); });
+      function add(label, pick) { rows.push([label].concat([].concat.apply([], list.map(function (e) { return [cell(pick(e)), cell(pick(e.even)), cell(pick(e.odd))]; })))); }
+      FX_SIDE_KEYS.forEach(function (k) { ["real", "ghost"].forEach(function (side) { add(side + " " + k, function (x) { return x[side][k]; }); }); });
+      FX_CMP_KEYS.forEach(function (k) { if (list.some(function (e) { return e.compare[k] !== null; })) add(k, function (x) { return x.compare[k]; }); });
+      d.appendChild(plainTable(head, rows));
+    }); });
+    var P = fx.particles, sides = P ? Object.keys(P).filter(function (s) { return P[s]; }) : [];
+    if (sides.some(function (s) { return P[s].count !== null && P[s].count !== undefined; })) {
+      var keys = Object.keys(P[sides[0]]);
+      d.appendChild(plainTable(["particles (report only)"].concat(keys), sides.map(function (s) { return [s].concat(keys.map(function (k) { return cell(P[s][k]); })); })));
+    }
+    var lines = [];
+    Object.keys(fx.structure).forEach(function (k) {
+      if (fx.structure[k] === null) lines.push([k, "", "not measured"]);
+      else fx.structure[k].forEach(function (x) { lines.push([k, "x" + x[1], x[0]]); });
+    });
+    Object.keys(fx.inventory.diff).forEach(function (side) { ["realOnly", "ghostOnly"].forEach(function (k) {
+      fx.inventory.diff[side][k].forEach(function (x) { lines.push(["inventory " + side + " " + k, "x" + x[1], x[0]]); });
+    }); });
+    d.appendChild(el("div", {cls: "note", text: "effect inventory: " + counted(fx.inventory.counts) + (lines.length ? "" : ", no difference")}));
+    if (lines.length) d.appendChild(el("div", {cls: "tablewrap"}, [el("table", null, [el("thead", null, [el("tr", null, ["effect difference", "count", "detail"].map(function (h) { return el("th", {text: h}); }))]),
+      el("tbody", null, lines.map(function (x) { return el("tr", null, x.map(function (y) { return el("td", {text: y}); })); }))])]));
+  }
+  function bySide(o, pick) { return Object.keys(o || {}).filter(function (k) { return o[k] !== null; }).map(function (k) { return k + " " + pick(o[k]); }).join(", "); }
+  function fxProof(c, row) {
+    var fx = c.fx;
+    row("fx module", [fmt(fx.module) + "#" + fmt(fx.moduleIndex), fx.engineMode ? "mode " + fx.engineMode : "", fx.throttle === null ? "" : "throttle " + fmt(fx.throttle)].filter(Boolean).join(", "));
+    if (fx.drive) row("drive", Object.keys(fx.drive).map(function (k) { return k + " " + cell(fx.drive[k]); }).join(", "));
+    if (fx.hold) row("hold", Object.keys(fx.hold).map(function (k) { return k + " " + (k === "steps" ? fx.hold[k] : fmt(fx.hold[k], 6)); }).join(", "));
+    if (fx.warmupS) row("warm-up s", bySide(fx.warmupS, function (v) { return fmt(v, 2); }));
+    if (fx.plateau) row("plateau", bySide(fx.plateau, function (v) { return v.signal + (v.settled === true ? " settled" : " NOT settled") + " after " + fmt(v.waitS, 2) + " s"; }));
+    row("samples", fmt(fx.samples) + (fx.clamped ? ", framing clamped" : "") + ", culling mask " + fmt(fx.cullingMask));
+    row("effect renderers", bySide(fx.layers, function (v) { return "(" + counted(v) + ")"; }));
+    if (fx.plate) row("plate", Object.keys(fx.plate).map(function (k) { return k + " " + cell(fx.plate[k]); }).join(", "));
+    var x = fx.rcs;
+    if (x) row("rcs", "fired " + JSON.stringify(x.firedNozzles) + " of " + fmt(x.total) + " (predicted " + JSON.stringify(x.predicted) + "), ghost nozzles hidden " + fmt(x.ghostHidden) + ", input " + cell(x.input) + ", mean power " + fmt(x.recordedPower, 3) + ", rcsPowerRatio " + fmt(x.powerRatio, 3));
+    row("fx flags", fx.flags.join(", ")); if (fx.unsettled.length) row("not converged", fx.unsettled.join("; "));
+    if (fx.refClass === "reference") row("reference", "Waterfall: not judged, would be " + fmt(fx.wouldBe));
+  }
   function measureTable(title, list) {
     var keys = ["realPx", "ghostPx", "realOnlyTolPx", "ghostOnlyTolPx", "realOnlyBlobPx", "ghostOnlyBlobPx", "realOnlyBlobPct", "ghostOnlyBlobPct", "colorOverlapPx", "colorOverPx", "colorBlobPx", "colorP99", "colorBlockMax", "iou"];
     keys = keys.filter(function (k) { return list.some(function (x) { return x.m && x.m[k] !== undefined && x.m[k] !== null; }); });
@@ -1674,6 +2365,7 @@ dialog .tile { cursor: default; }
         d.appendChild(measureTable("real vs stowed ghost", c.views.map(function (v) { return {view: v.view, m: v.stowedRef}; })));
       }
     }
+    if (c.fx) fillFx(d, c);
     structureTable(c.isState ? "structure, event route" : "structure", c.structure).forEach(function (n) { d.appendChild(n); });
     if (c.isState) structureTable("structure, start route", c.structureStart).forEach(function (n) { d.appendChild(n); });
     var p = c.skinProof || {}, marks = p.marks || {}, sk = ["module", "moduleId", "requested", "real", "snapshot", "ghost"];
@@ -1694,6 +2386,7 @@ dialog .tile { cursor: default; }
     if (sp) row("state proof", [sp.family + "/" + sp.module + "#" + sp.moduleIndex, "action " + sp.action + " (" + sp.actionResult + ")", "reached " + sp.reached, "wait " + fmt(sp.waitS) + " s",
       "endpoint " + (sp.endpoint ? sp.endpoint.field + "=" + sp.endpoint.value : "-"), "events " + (Array.isArray(sp.events) ? sp.events.map(function (e) { return e.type + "@" + fmt(e.ut); }).join(" ") || "none" : "-"),
       "ghost event " + sp.ghostEvent, "ghost start " + sp.ghostStart, "first frame at target " + (sp.startFirstFrame ? sp.startFirstFrame.atTarget : "-")].join("; "));
+    if (c.fx) fxProof(c, row);
     if (c.stowedCaseId) row("stowed case", c.stowedCaseId + (c.stowedPair ? "" : " (not loaded: the stowed column is this case's own stowed ghost)"));
     if (c.regression) row("baseline", c.regression.status + (c.regression.changes.length ? ": " + c.regression.changes.join(", ") : ""));
     if (!c.listed) row("manifest", "this sidecar is not listed in the manifest");
@@ -1704,29 +2397,32 @@ dialog .tile { cursor: default; }
   // sub-block inside a skin container (opts.sub), or a control (opts.control).
   function caseBlock(c, opts) {
     opts = opts || {};
-    var isControl = !!opts.control, cls = isControl ? (c.verdict === "control-ok" ? "ctl-ok" : "ctl-bad") : c.verdict;
+    var isControl = !!opts.control, ctl = {"control-ok": ["ctl-ok", "pass", "control ok"], "control-na": ["ctl-na", "na", "control n/a"]}[c.verdict] || ["ctl-bad", "fail", "control BAD"], cls = isControl ? ctl[0] : c.verdict;
     var setup = c.setupStatus && c.setupStatus !== "ok" ? el("span", {cls: "chip", text: "setup " + c.setupStatus}) : null;
     var reg = c.regression && c.regression.status !== "same" ? el("span", {cls: "chip moved", text: c.regression.status, title: c.regression.changes.join("\n") || null}) : null;
     var flags = (c.stateFlags || []).map(function (f) { return el("span", {cls: "chip", text: f}); });
     var headKids;
     if (isControl) {
-      headKids = [el("span", {cls: "skname", text: c.caseId}), el("span", {cls: "vc " + (c.verdict === "control-ok" ? "pass" : "fail"), text: c.verdict === "control-ok" ? "control ok" : "control BAD"}),
+      headKids = [el("span", {cls: "skname", text: c.caseId}), el("span", {cls: "vc " + ctl[1], text: ctl[2]}),
         el("span", {cls: "note", text: (c.control.subject || "") + ". Required: " + (c.control.required || "-") + "."}),
         c.control.judged && c.control.judged !== "ok" ? el("span", {cls: "trig tr-fail", text: c.trigger}) : null];
     } else if (opts.sub) {
       headKids = [el("span", {cls: "skname", text: c.stateLabel}), c.family ? el("span", {cls: "chip", text: c.family}) : null, vchip(c.verdict, c.reasons.join("\n") || null)]
-        .concat(routeChips(c)).concat(flags).concat([setup, reg, c.trigger ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null]);
+        .concat(routeChips(c)).concat(fxChips(c)).concat(flags).concat([setup, reg, c.trigger ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null]);
     } else {
       headKids = [el("span", {cls: "skname", text: "skin " + c.skin}), el("span", {cls: "chip", text: c.skinKind || "-"}), vchip(c.verdict, c.reasons.join("\n") || null),
         setup, reg, c.trigger && !opts.single ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null];
     }
     var blk = el("div", {cls: (opts.sub ? "state " : "skin ") + cls, id: "c-" + idOf(c.id)}, [el("div", {cls: "shead"}, headKids)]);
-    if (!c.views.length) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
+    if (c.verdict === "control-na") blk.appendChild(el("div", {cls: "note", text: "Not applicable: no part of this install can be its subject, so it writes no sidecar" + (c.control.detail ? " (" + c.control.detail + ")" : "") + "."}));
+    else if (!c.views.length) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
     c.views.forEach(function (v) {
       var figs = c.isState ? stateFigures(c, v) : pairFigures(c, v), meta = c.isState ? stateViewMeta(v) : viewMeta(v);
       blk.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: v.view})].concat(figs).concat([meta])));
     });
-    blk.appendChild(moreDetails(c));
+    var fxBox = fxSection(c);
+    if (fxBox) blk.appendChild(fxBox);
+    if (c.verdict !== "control-na") blk.appendChild(moreDetails(c));
     return blk;
   }
   // A skin with state cases: its stowed case and each state, one bordered sub-block each.
@@ -1761,6 +2457,7 @@ dialog .tile { cursor: default; }
     });
     sec.appendChild(body);
   }
+  function fxRowCount(c) { return (c.fx.strip ? 1 : 0) + c.fx.entries.filter(function (e) { return e.route !== "start" && !e.empty; }).length; }
   function groupSection(g) {
     var head = el("div", {cls: "ghead"}, [vchip(g.verdict), el("h2", {text: g.title || g.part}), el("span", {cls: "name", text: g.part}), el("span", {cls: "src", text: g.source || "-"}),
       D.profiles.length > 1 ? el("span", {cls: "chip", text: g.profile}) : null,
@@ -1771,7 +2468,7 @@ dialog .tile { cursor: default; }
     if (g.trigger) head.appendChild(el("div", {cls: "trigger tr-" + g.verdict, text: g.trigger}));
     var sec = el("section", {cls: "group " + g.verdict, id: "g-" + g._i, "aria-label": (g.title || g.part) + ": " + g.verdict}, [head]);
     sec._group = g;
-    var views = 0; g.cases.forEach(function (id) { views += Math.max(1, CASE[id].views.length); });
+    var views = 0; g.cases.forEach(function (id) { views += Math.max(1, CASE[id].views.length) + (CASE[id].fx ? fxRowCount(CASE[id]) : 0); });
     sec.style.containIntrinsicSize = "auto " + (60 + g.cases.length * 70 + views * (tilePx() + 34)) + "px";
     GROUP_EL[g.id] = sec;
     if (io) io.observe(sec); else { ensureBody(sec); setImages(sec, true); }
@@ -1784,9 +2481,9 @@ dialog .tile { cursor: default; }
   var fillControls = function () {};
   function buildControls() {
     var box = document.getElementById("controls"), body = document.getElementById("ctlbody");
-    var ids = D.controls || [], bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok"; });
+    var ids = D.controls || [], bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok" && CASE[id].verdict !== "control-na"; }), na = ids.filter(function (id) { return CASE[id].verdict === "control-na"; });
     if (!ids.length) { document.getElementById("ctlsum").textContent = "Controls: none recorded (a sweep run with controls=false proves nothing about the instrument)"; box.classList.add("bad"); return; }
-    document.getElementById("ctlsum").textContent = "Controls: " + (ids.length - bad.length) + "/" + ids.length + " ok" + (bad.length ? " - NOT OK: " + bad.map(function (id) { return ((D.controlSets || []).length > 1 ? CASE[id].sweep + "/" : "") + CASE[id].caseId; }).join(", ") : " (the instrument proved it sees what it claims to)");
+    document.getElementById("ctlsum").textContent = "Controls: " + (ids.length - bad.length - na.length) + "/" + (ids.length - na.length) + " ok" + (na.length ? ", " + na.length + " n/a" : "") + (bad.length ? " - NOT OK: " + bad.map(function (id) { return ((D.controlSets || []).length > 1 ? CASE[id].sweep + "/" : "") + CASE[id].caseId; }).join(", ") : " (the instrument proved it sees what it claims to)");
     if (bad.length) { box.classList.add("bad"); box.open = true; }
     fillControls = function () {
       if (box._built) return; box._built = true;
@@ -1811,13 +2508,15 @@ dialog .tile { cursor: default; }
     host.appendChild(frag);
   }
   function matches(g) {
-    if (state.verdict === "flagged" && g.verdict === "pass") return false;
+    if (state.verdict === "flagged" && (g.verdict === "pass" || g.verdict === "reference")) return false;
     if (state.verdict && state.verdict !== "flagged" && !g.cases.some(function (id) { return CASE[id].verdict === state.verdict; })) return false;
     if (state.source && (g.source || "(none)") !== state.source) return false;
     if (state.regression && g.regression !== state.regression) return false;
     if (state.stateWord && g.states.indexOf(state.stateWord) < 0) return false;
     if (state.family && g.families.indexOf(state.family) < 0) return false;
     if (state.stateFlag && g.stateFlags.indexOf(state.stateFlag) < 0) return false;
+    if (state.refClass && g.refs.indexOf(state.refClass) < 0) return false;
+    if (state.fxFlag && g.fxFlags.indexOf(state.fxFlag) < 0) return false;
     if (state.q) { var w = state.q.toLowerCase().split(/\s+/); for (var i = 0; i < w.length; i++) if (w[i] && g._text.indexOf(w[i]) < 0) return false; }
     return true;
   }
@@ -1825,6 +2524,7 @@ dialog .tile { cursor: default; }
   function applyFilters() {
     VISIBLE = [];
     ORDERED.forEach(function (g) { var ok = matches(g); GROUP_EL[g.id].hidden = !ok; if (ok) VISIBLE.push(g); });
+    if (knownBtn) knownBtn.setAttribute("aria-pressed", state.fxFlag === KNOWN_DIFF ? "true" : "false");
     document.getElementById("shown").textContent = VISIBLE.length + " / " + D.groups.length + " part(s) shown";
   }
   function headerHeight() { return document.getElementById("top").getBoundingClientRect().height; }
@@ -1867,11 +2567,11 @@ dialog .tile { cursor: default; }
   document.addEventListener("click", function (e) {
     var t = e.target.closest ? e.target.closest(".tile[data-case]") : null;
     if (!t || t.closest("dialog")) return;
-    openZoom(t.getAttribute("data-case"), t.getAttribute("data-view"));
+    openZoom(t.getAttribute("data-case"), t.getAttribute("data-view"), t.getAttribute("data-layer"));
   });
   document.addEventListener("keydown", function (e) {
     var t = e.target;
-    if (e.key === "Enter" && t && t.classList && t.classList.contains("tile") && t.hasAttribute("data-case") && !t.closest("dialog")) { openZoom(t.getAttribute("data-case"), t.getAttribute("data-view")); e.preventDefault(); return; }
+    if (e.key === "Enter" && t && t.classList && t.classList.contains("tile") && t.hasAttribute("data-case") && !t.closest("dialog")) { openZoom(t.getAttribute("data-case"), t.getAttribute("data-view"), t.getAttribute("data-layer")); e.preventDefault(); return; }
     var typing = t && ((t.tagName === "INPUT" && t.type !== "checkbox") || t.tagName === "SELECT" || t.tagName === "TEXTAREA");
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.getElementById("zoom").open) return;
@@ -1881,7 +2581,16 @@ dialog .tile { cursor: default; }
     else if (e.key === "k") { step(-1); e.preventDefault(); }
     else if (e.key === "/") { document.getElementById("q").focus(); e.preventDefault(); }
   });
-  function openZoom(id, viewName) {
+  function openFxZoom(c, view, layer) {
+    var body = document.getElementById("zoombody"); body.textContent = "";
+    var figs = view === "strip" ? stripFigures(c, 512) : fxFigures(c, view, layer, fxRows(c, true).concat(c.fx.rcs && c.kind !== "control" ? [FX_ALL_ROWS[1]] : []), c.fx.tile || 512);
+    body.appendChild(el("div", {cls: "shead"}, [el("span", {cls: "skname", text: (c.title || c.caseId) + " - " + c.stateLabel + " - " + (view === "strip" ? "strip, enlarged" : view + " " + layer + " at 1:1")})]));
+    body.appendChild(el("div", {cls: "pair"}, figs));
+    setImages(body, true);
+    document.getElementById("zoom").showModal();
+  }
+  function openZoom(id, viewName, layer) {
+    if (CASE[id] && CASE[id].fx && (layer || viewName === "strip")) { openFxZoom(CASE[id], viewName, layer); return; }
     var c = CASE[id], v = (c.views || []).filter(function (x) { return x.view === viewName; })[0];
     if (!c || !v) return;
     var body = document.getElementById("zoombody"); body.textContent = "";
@@ -1893,6 +2602,7 @@ dialog .tile { cursor: default; }
   }
 
   if (D.cases.some(function (c) { return c.isState; })) document.getElementById("statelegend").hidden = false;
+  if (D.cases.some(function (c) { return c.fx; })) document.getElementById("fxlegend").hidden = false;
   buildTop(); buildSweeps(); buildControls();
   var host = document.getElementById("groups");
   if (!D.groups.length) host.appendChild(el("p", {cls: "note", text: "No part cases in these sweeps."}));

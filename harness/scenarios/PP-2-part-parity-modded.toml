@@ -56,7 +56,7 @@ tier = "operator"
 # LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, 963 s wall, after the reading
 # runs of 2026-11-21; three steps were enough: 1510 cases, controls ok, complete, recompute
 # 39 / 0 mismatches, 3 report-only fails).
-description = "LIVE-PROVEN 2026-11-22: the part ghost parity tool's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch) - every part in every skin photographed beside its Parsek ghost in LKO over three PartParitySweep steps, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
+description = "LIVE-PROVEN 2026-11-22: the part ghost parity tool's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch) - every part in every skin photographed beside its Parsek ghost in LKO over three PartParitySweep steps, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts ARMED 2026-11-23 (P5): the regression gate against harness/partparity/ reds PARSEK-FAIL(part-parity))."
 instanceProfile = "modded-compat"
 tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-2"]
 
@@ -100,9 +100,12 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.partParity]
-# Report-only part verdicts (design 10): controls, completeness and the recompute gate
-# regardless. Arming waits for a reading run.
-gating = false
+# ARMED 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
+# (2026-11-22_2236 / 2026-11-22_2343): the regression gate against harness/partparity/baseline-<profile>.json
+# and harness/partparity/accepted.toml reds PARSEK-FAIL(part-parity) on a measure past its
+# drift tolerance, an unaccepted fail, a gone case or a missing baseline. The instrument
+# gates (controls, completeness, recompute, host, press) gate regardless.
+gating = true
 
 [expectations.logContracts]
 required = [

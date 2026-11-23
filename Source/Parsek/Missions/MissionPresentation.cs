@@ -63,6 +63,10 @@ namespace Parsek
             "are. One click drops the whole chapter, the next brings all of it back. Does not " +
             "hide the ghost.";
 
+        /// <summary>The mission bar's Profile button hover (design-mission-profile.md 2.1).</summary>
+        internal const string ProfileButtonTooltip =
+            "The mission's phases: orbits, burns, transfers, landings, docking and EVA, with the numbers.";
+
         internal const string LoopToggleTooltip =
             "Loop this mission as one unit. At most one looping mission per recording tree - " +
             "enabling this clears the loop on any mission that shares its recordings.";

@@ -32,6 +32,7 @@ namespace Parsek.UI.Gallery
         {
             GuiMockSession.KerbalsWindow,
             GuiMockSession.StructureWindow,
+            GuiMockSession.ProfileWindow,
         };
 
         /// <summary>Every catalogue state, in declaration order (which is the order a
@@ -139,6 +140,7 @@ namespace Parsek.UI.Gallery
             var rows = new List<GuiMockState>();
             GuiMockKerbalsStates.Append(rows);
             GuiMockStructureStates.Append(rows);
+            GuiMockProfileStates.Append(rows);
             var index = new Dictionary<string, GuiMockState>(StringComparer.Ordinal);
             for (int i = 0; i < rows.Count; i++)
             {

@@ -35,9 +35,20 @@ tier = "operator"
 # CASES (design D.1): every ModuleParachute part at semi and full, at its base skin (R2).
 # The step logs the exact counts on its `state cases:` Info line.
 #
-# STEP SIZING (design D.8). About 1 minute of sweep: waves of up to five chutes, each about
+# THE SECOND LABEL, AIR FX (phase P8, Appendix E.2 "F7 as built", E.8, row F7 of E.9; added
+# 2026-11-23, LIVE-PROVEN `2026-11-23_1725`): the air-breathing engines need air, so their plume cases cannot join
+# the orbit lanes PP-7 / PP-8, and a sweep of about 340 s does not earn its own boot. After the
+# chute step the same host runs `op=reset` and two `op=run contexts=air fx=all` steps under the
+# label `pp6fx` (its own directory, manifest and control set). Each jet is held 1600 m up on a
+# surface-frame test stand, exhaust straight down, spooled to the request (Goliath: 77 s) and
+# compared with its event-route and start-route ghosts as a distribution over 16 samples per
+# view. The 14 jet cases in their ReStock models and the four air FX controls; every jet there
+# carries Waterfall, so each reads `reference` (E.6): captured and measured, never judged.
+#
+# STEP SIZING (design D.8). About 1 minute of chute sweep: waves of up to five chutes, each about
 # 20 s (spawn, settle, semi, full, the canopy window, capture), plus the controls. One
-# step, time-boxed at maxSeconds=480 (budget 540, the S8 deferred-step cap).
+# step, time-boxed at maxSeconds=480 (budget 540, the S8 deferred-step cap). The FX sweep took
+# 336 s on stock-minimal (F7 acceptance `2026-11-23_1014`), so with D.8's 50 % margin two steps.
 #
 # GATES. (1) The partParity verifier row: the air control set behaved, the state control
 # re-judged from its sidecar (else INVALID(parity-controls)); the chute press path did not
@@ -49,7 +60,9 @@ tier = "operator"
 # case whose only structural difference is the canopy's airflow rotation inside the
 # measured window caps at warn (canopy-airflow, D.4). (3) The log pins as a second guard:
 # the run-step summary line with `crashed=0` and `controls=ok`, the seam applier's OK line,
-# the step's `state cases:` line with `contexts=air`, and no `[Parsek][ERROR]`.
+# the step's `state cases:` line with `contexts=air`, and no `[Parsek][ERROR]`. The FX label adds
+# its own run-step line, applier line and `fx cases: fx=all contexts=air` line, and the row judges
+# it apart (the four air FX controls, its own press, recompute and completeness gates).
 #
 # READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp6/` into
 # `harness/results/<runId>_partparity/pp6/`, where the row writes `partparity-verdicts.json`.
@@ -71,7 +84,7 @@ tier = "operator"
 # and full for real with its events recorded and was captured inside the canopy window,
 # controls ok, complete, recompute 0 mismatches; the 10 report-only fails are todo
 # GHOST-CHUTE-CANOPY-AIM.
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1715`): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1715`): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp6fx (LIVE-PROVEN `2026-11-23_1725`: part ghost parity P8 F7), photographs the 14 held air-breathing engine cases (Waterfall: reference, never judged) over two contexts=air fx=all steps."
 instanceProfile = "modded-compat"
 tags = ["part-parity", "ghost-visual", "flown", "PP-6"]
 
@@ -96,6 +109,11 @@ steps = [
   { cmd = "PartParitySweep", args = { label = "pp6", op = "reset", contexts = "air" }, expect = "OK", budget = 120 },
   # One time-boxed air step over every chute at semi and full.
   { cmd = "PartParitySweep", args = { label = "pp6", op = "run", contexts = "air", states = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  # The second label: the held jets (never in the chute label's directory). The reset carries
+  # the run's own kind, as above.
+  { cmd = "PartParitySweep", args = { label = "pp6fx", op = "reset", contexts = "air", fx = "all" }, expect = "OK", budget = 120 },
+  { cmd = "PartParitySweep", args = { label = "pp6fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp6fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -122,14 +140,18 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp6 elapsed=[0-9.]+s label=pp6 done=(true|false) ",
   # The step planned an air state run (design D.2, PartParityStateRules.FormatCounts).
   "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] state cases: states=all contexts=air install=[1-9][0-9]* \\(",
+  # The FX label: the same two lines, and the air FX counts (PartParityFxRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp6fx op=run ok=true label=pp6fx done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp6fx elapsed=[0-9.]+s label=pp6fx done=(true|false) ",
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] fx cases: fx=all contexts=air install=[1-9][0-9]* \\(",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
 ]
 
 [runtime]
-# The load step 300 s, the reset 120, one 540 s run step.
-budgetSeconds = 1020
+# The load step 300 s, two resets 120 each, three 540 s run steps (2160 s).
+budgetSeconds = 2400
 
 [retry]
 policy = "none"

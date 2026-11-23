@@ -403,10 +403,11 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
             bool usedBodyFixedPrimary = false;
 
-            // Position the ghost. Parent-anchored debris is only valid
-            // while a recorded Relative section covers the playback UT; outside
-            // that coverage, hide instead of falling through to flat points,
-            // surface, or orbit-tail playback. The ShadowPositioned route has
+            // Position the ghost. A parent-anchored recording is only valid
+            // while its authored surface covers the playback UT: a track section
+            // whose frames do, or, past the last section, its own predicted tail.
+            // Outside that coverage, hide instead of falling through to flat
+            // points, surface, or a recorded orbit. The ShadowPositioned route has
             // already positioned the ghost via the bodyFixedFrames lerp, so the
             // normal positioning chain is also skipped for that frame.
             if (!TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -481,6 +482,7 @@ namespace Parsek
                 ApplyNonRetiredPostPosition(
                     i, traj, ctx, state, visiblePlaybackUT, suppressVisualFx, zoneResult,
                     ref ghostActive);
+                LogParentAnchoredPredictedTailDrawn(i, traj, state, visiblePlaybackUT);
             }
 
             // Targeted post-separation observability: emits one
@@ -640,6 +642,9 @@ namespace Parsek
             // tick; here for the same every-visible-frame reason (a snapshot-baseline canopy can
             // be open in a recording with no part events).
             GhostPlaybackLogic.UpdateParachuteCanopyAim(state, ut);
+
+            // A nozzle keeps heating or cooling between events, and cools in a recording with none.
+            GhostPlaybackLogic.UpdateNozzleGlows(state, ut);
         }
 
         /// <summary>The FX teardown of a suppressed frame in <see cref="ApplyFrameVisuals"/>:
@@ -780,6 +785,10 @@ namespace Parsek
             // unsuppressed frame, so the first argument is false.
             if (ShouldRestartEngineFxAfterSuppression(false, priorVisualFxSuppressed))
                 GhostPlaybackLogic.RestoreActiveEngineFx(state);
+
+            // The share of full thrust the engines make in the ghost's air, which sizes the plumes
+            // stock sizes by thrust.
+            GhostPlaybackLogic.UpdateEngineThrustFractions(state);
 
             // Stock fades engine smoke by air density every frame and hides it in vacuum
             // (SmokeTrailControl). Last, so it sees every emission write of this frame.

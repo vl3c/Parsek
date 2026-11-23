@@ -641,6 +641,13 @@ namespace Parsek.Tests
             "MissionStructure", "MissionStructureBuilder", "MissionStructureListBuilder",
             "MissionCompositionBuilder", "StructureLocationFormatter",
 
+            // The Mission Profile window (gallery P1b): its builder family, the window, the
+            // pure profile builder and row kind, and the pure track-section enums.
+            "GuiMockProfile", "GuiMockProfileStates", "PieceInputs",
+            "MissionProfileWindowUI", "MissionProfileBuilder", "MissionProfileRowKind",
+            "SegmentEnvironment", "ReferenceFrame", "TrackSectionSource", "DeltaVTrigger",
+            "DeltaVSnapshotStatus",
+
             "ParsekLog", "GuiTreeRecorder", "GuiTreeResult", "GuiTreeNode",
             "GuiTreeAssembler",
 

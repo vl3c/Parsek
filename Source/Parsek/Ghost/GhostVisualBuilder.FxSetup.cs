@@ -82,6 +82,18 @@ namespace Parsek
             if (result != null)
                 return result;
 
+            result = FindBuiltinEffectsPrefab(prefabName);
+            fromBuiltinEffects = result != null;
+            return result;
+        }
+
+        /// <summary>
+        /// KSP's builtin "Effects/{name}" asset for the exact name, the load stock
+        /// <c>PrefabParticleFX.OnInitialize</c> does. Substitutes nothing and neither reads nor
+        /// writes the shared fxPrefabCache.
+        /// </summary>
+        internal static GameObject FindBuiltinEffectsPrefab(string prefabName)
+        {
             string normalized = NormalizeFxPrefabName(prefabName);
             if (string.IsNullOrEmpty(normalized))
                 return null;
@@ -94,10 +106,7 @@ namespace Parsek
             if (builtinFxPrefabCache.TryGetValue(normalized, out GameObject cached))
             {
                 if (cached != null)
-                {
-                    fromBuiltinEffects = true;
                     return cached;
-                }
                 builtinFxPrefabCache.Remove(normalized);
             }
 
@@ -113,7 +122,6 @@ namespace Parsek
             }
 
             builtinFxPrefabCache[normalized] = builtin;
-            fromBuiltinEffects = true;
             ParsekLog.Verbose("GhostVisual",
                 $"FX prefab loaded from builtin Effects: '{normalized}'");
             return builtin;
@@ -380,6 +388,32 @@ namespace Parsek
                 $"    [DIAG] FX parent align '{partName}' midx={moduleIndex} " +
                 $"type={fxKind} transform='{transformName}' {diagnostic} " +
                 $"srcLocalRot={srcFxTransform.localRotation.eulerAngles} parentLocalRot={ghostFxParent.localRotation.eulerAngles}", 60.0);
+        }
+
+        /// <summary>
+        /// Pure: the local scale stock gives one instance of a MODEL_MULTI_PARTICLE model
+        /// (<c>ModelMultiParticleFX.OnInitialize</c>, decompiled). <c>NestToParent</c> keeps the world
+        /// scale, so the first mount's instance divides out its mount's scale. Every later instance is
+        /// a copy of the first made AFTER it was nested, so the first's local scale is its world
+        /// scale: on a part rescaled by 1.25 the first nozzle reads 0.8 and the rest 0.64. The node's
+        /// own <c>localScale</c> multiplies each nesting, so a copy takes it twice.
+        /// </summary>
+        internal static Vector3 NestedModelFxScale(
+            Vector3 assetScale, Vector3 firstMountScale, Vector3 mountScale, bool isFirstMount, Vector3 configScale)
+        {
+            Vector3 first = Vector3.Scale(DivideFxScale(assetScale, firstMountScale), configScale);
+            return isFirstMount
+                ? first
+                : Vector3.Scale(DivideFxScale(first, mountScale), configScale);
+        }
+
+        /// <summary>Per axis; a mount scaled to nothing keeps the value (nothing under it draws).</summary>
+        private static Vector3 DivideFxScale(Vector3 scale, Vector3 mount)
+        {
+            return new Vector3(
+                System.Math.Abs(mount.x) > 1e-6f ? scale.x / mount.x : scale.x,
+                System.Math.Abs(mount.y) > 1e-6f ? scale.y / mount.y : scale.y,
+                System.Math.Abs(mount.z) > 1e-6f ? scale.z / mount.z : scale.z);
         }
 
         internal static void LogFxInstancePlacementDiagnostic(
@@ -677,6 +711,12 @@ namespace Parsek
                         CaptureSmokeTrailFade(behaviours[i] as SmokeTrailControl, smokeFadeSink);
                         Object.Destroy(behaviours[i]);
                         break;
+                    case "FXFadeByPressure":
+                        // The RAPIER trail's version of the same rule (renderer on / off only),
+                        // also driven by the ACTIVE vessel's density.
+                        CapturePressureFade(behaviours[i] as FXFadeByPressure, smokeFadeSink);
+                        Object.Destroy(behaviours[i]);
+                        break;
                     case "ModelMultiParticlePersistFX":
                     case "ModelParticleFX":
                         // EffectBehaviour subclasses that reference Host (Part).
@@ -718,6 +758,43 @@ namespace Parsek
                 $"fadeEndDns={control.fadeEndDns.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"maxAlpha={control.maxAlpha.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"fadeToColor={control.fadeToColor}", 60.0);
+        }
+
+        /// <summary>
+        /// Captures a stock <c>FXFadeByPressure</c> as a visibility-only fade: its <c>Update</c>
+        /// computes an alpha and discards it, so only the renderer switch is visible. Its
+        /// <c>Start</c> also enables colour over lifetime, which a destroyed component never does.
+        /// </summary>
+        private static void CapturePressureFade(FXFadeByPressure control, List<GhostSmokeTrailFade> sink)
+        {
+            if (control == null) return;
+            ParticleSystem system = control.GetComponent<ParticleSystem>();
+            if (system != null)
+            {
+                var colorOverLifetime = system.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+            }
+            if (sink == null) return;
+            ParticleSystemRenderer renderer = control.GetComponent<ParticleSystemRenderer>();
+            if (renderer == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "smoke-fade-no-renderer",
+                    $"FXFadeByPressure on '{control.gameObject.name}' has no Renderer; " +
+                    "its smoke is not faded on the ghost", 60.0);
+                return;
+            }
+            sink.Add(new GhostSmokeTrailFade
+            {
+                renderer = renderer,
+                maxAlpha = control.maxAlpha,
+                fadeStartDns = control.fadeStartDns,
+                fadeEndDns = control.fadeEndDns
+            });
+            ParsekLog.VerboseRateLimited("GhostVisual", $"smoke-fade-capture-{control.gameObject.name}",
+                $"Smoke trail fade captured: fx='{control.gameObject.name}' kind=pressure-visibility " +
+                $"fadeStartDns={control.fadeStartDns.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"fadeEndDns={control.fadeEndDns.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"maxAlpha={control.maxAlpha.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}", 60.0);
         }
 
         /// <summary>

@@ -93,12 +93,16 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>Live wrapper of <see cref="RemnantSurvives(bool, bool, int)"/>; false for null.</summary>
+        /// <summary>Live wrapper of <see cref="RemnantSurvives(bool, bool, int)"/>; false for null.
+        /// A vessel stock is unloading right now lives on its proto snapshots.</summary>
         internal static bool RemnantSurvives(Vessel v)
         {
             if (ReferenceEquals(v, null))
                 return false;
-            return RemnantSurvives(v.state == Vessel.State.DEAD, v.loaded, v.parts?.Count ?? 0);
+            return RemnantSurvives(
+                v.state == Vessel.State.DEAD,
+                v.loaded && !VesselUnloadState.IsMidUnload(v),
+                v.parts?.Count ?? 0);
         }
 
         /// <summary>Where the identity check read the surviving vessel's parts from.</summary>
@@ -261,7 +265,9 @@ namespace Parsek
         /// Live wrapper for the BG go-on-rails seam and the finalization identity check.
         /// Adapts the live KSP types to the pure predicate: a dead vessel as no survivor, a
         /// loaded vessel through its live parts and <see cref="ParsekFlight.IsTrackableVessel"/>,
-        /// an unloaded one through its proto part snapshots. Null-safe on both inputs.
+        /// an unloaded one through its proto part snapshots, and one stock is unloading right
+        /// now as unloaded (it still reads loaded with no parts, which would seal a living
+        /// craft Destroyed at its unload). Null-safe on both inputs.
         /// </summary>
         internal static bool IsRecordedIdentityLost(Recording rec, Vessel v)
         {
@@ -277,7 +283,8 @@ namespace Parsek
             }
 
             bool vesselDead = v.state == Vessel.State.DEAD;
-            bool vesselLoaded = v.loaded;
+            bool midUnload = VesselUnloadState.IsMidUnload(v);
+            bool vesselLoaded = v.loaded && !midUnload;
             List<uint> livePids = null;
             if (!vesselDead && vesselLoaded && v.parts != null && v.parts.Count > 0)
             {
@@ -315,7 +322,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Recording",
                     $"IsRecordedIdentityLost: rec={rec.RecordingId ?? "(null)"} pid={v.persistentId} " +
-                    $"dead={vesselDead} loaded={vesselLoaded} partSource={source} " +
+                    $"dead={vesselDead} loaded={vesselLoaded} midUnload={midUnload} partSource={source} " +
                     $"liveParts={livePids?.Count ?? 0} protoParts={protoPids?.Count ?? 0} " +
                     $"protoCommand={protoHasCommand} recordedControllers={recordedPids?.Count ?? 0} lost={lost}");
             }

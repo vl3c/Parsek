@@ -52,9 +52,10 @@ namespace Parsek.InGameTests
         ///
         /// Measured on the ghost's own particle systems and (when the emitter fields were readable)
         /// on the cloned KSPParticleEmitter, because those are the two surfaces
-        /// <c>ApplyFxMagnitudeScale</c> writes. If this reds while the headless ratio cells stay
-        /// green, the arithmetic is fine and the failure is in CAPTURE — check that
-        /// <c>CaptureFxMagnitudeBaselines</c> still runs after the FX build in
+        /// <c>ApplyFxMagnitudeScale</c> and <c>ApplyEngineFxRules</c> write (a stock-ruled source
+        /// changes rate, lifetime or size, an S1 one speed and size). If this reds while the headless
+        /// cells stay green, the arithmetic is fine and the failure is in CAPTURE — check that
+        /// <c>CaptureFxMagnitudeBaselines</c> and the rules still run over the FX build in
         /// <c>EngineFxBuilder.TryBuildEngineFX</c>.
         /// </summary>
         [InGameTest(Category = "PlaybackFidelity", Scene = GameScenes.FLIGHT,
@@ -97,15 +98,15 @@ namespace Parsek.InGameTests
                 GhostPlaybackLogic.ResetFxMagnitudeWriteFailureCountForTesting();
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
-                float fullSpeed = SumStartSpeed(engine.particleSystems);
+                float fullSpeed = SumEngineMagnitude(engine);
                 float fullEmission = SumEmitterMaxEmission(engine.kspEmitters);
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 0.3f);
-                float lowSpeed = SumStartSpeed(engine.particleSystems);
+                float lowSpeed = SumEngineMagnitude(engine);
                 float lowEmission = SumEmitterMaxEmission(engine.kspEmitters);
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
-                float backToFullSpeed = SumStartSpeed(engine.particleSystems);
+                float backToFullSpeed = SumEngineMagnitude(engine);
 
                 // THE 2026-08-11 REGRESSION GUARD. Every emitter write threw
                 // ("Object of type 'System.Single' cannot be converted to type 'System.Int32'")
@@ -124,12 +125,12 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(fullSpeed > 0f,
                     "fixture is vacuous: '" + usedPart + "' produced a ghost whose particle systems " +
-                    "have zero total startSpeedMultiplier at full throttle, so a 'smaller at 30%' " +
+                    "have zero total magnitude at full throttle, so a 'smaller at 30%' " +
                     "assertion could not fail");
                 InGameAssert.IsLessThan(lowSpeed, fullSpeed,
-                    "S1: at 30% throttle the plume speed/size must be strictly smaller than at " +
+                    "At 30% throttle the plume magnitude must be strictly smaller than at " +
                     "full. '" + usedPart + "' measured " + lowSpeed + " vs " + fullSpeed +
-                    ". Check GhostPlaybackLogic.ApplyFxMagnitudeScale and the captured baselines.");
+                    ". Check GhostPlaybackLogic.ApplyFxMagnitudeScale / ApplyEngineFxRules and their baselines.");
                 InGameAssert.ApproxEqual(fullSpeed, backToFullSpeed, fullSpeed * 0.001f + 0.0001f,
                     "S1 IDEMPOTENCE: returning to full throttle must restore the captured baseline " +
                     "EXACTLY (ratio 1.0), not drift. Drift here means the applier is multiplying the " +
@@ -911,6 +912,24 @@ namespace Parsek.InGameTests
                 var main = systems[i].main;
                 total += main.startSpeedMultiplier + main.startSizeMultiplier;
             }
+            return total;
+        }
+
+        /// <summary>Every magnitude a throttle may change on an engine's sources: speed, size,
+        /// lifetime and rate of the particle systems, rate and energy of the emitters.</summary>
+        private static float SumEngineMagnitude(EngineGhostInfo engine)
+        {
+            float total = SumStartSpeed(engine.particleSystems) + SumEmitterMaxEmission(engine.kspEmitters);
+            for (int i = 0; i < engine.particleSystems.Count; i++)
+            {
+                ParticleSystem ps = engine.particleSystems[i];
+                if (ps == null) continue;
+                var emission = ps.emission;
+                total += ps.main.startLifetimeMultiplier + emission.rateOverTimeMultiplier;
+            }
+            for (int i = 0; i < engine.kspEmitters.Count; i++)
+                if (engine.kspEmitters[i].emitter is KSPParticleEmitter emitter && emitter != null)
+                    total += emitter.maxEnergy + emitter.localVelocity.magnitude;
             return total;
         }
 

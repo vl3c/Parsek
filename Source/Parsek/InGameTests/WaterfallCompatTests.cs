@@ -373,8 +373,8 @@ namespace Parsek.InGameTests
                     out effectGroups, out effectGroupNames);
             }
 
-            var modelFx = new List<(string, string, string, Vector3, Quaternion, string)>();
-            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string)>();
+            var modelFx = new List<(string, string, string, Vector3, Quaternion, string, GhostEngineFxCurves)>();
+            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string, GhostEngineFxCurves)>();
             FloatCurve emission = null, speed = null;
             EngineFxBuilder.ScanEffectsModelFxEntries(
                 effectGroups, effectGroupNames, modelFx, ref emission, ref speed);

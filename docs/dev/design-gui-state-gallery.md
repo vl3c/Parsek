@@ -8,7 +8,8 @@ judged in game and the mirror was an iteration aid; what landed stays (todo GUI-
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the GUI census gets from ~166 photographed states to ~450, and the owner-facing iteration loop built on top of that.*
 
 **Status:** P1 + P1b BUILT, NEVER RUN IN KSP. The `op=mock` primitive, the compiled catalogue
-(24 states: 13 Kerbals, 11 Structure List / mission Log), the session and its cache
+(26 states: 13 Kerbals, 11 Structure List / mission Log, 2 Mission Profile since 2026-11-23,
+section 18.10), the session and its cache
 suppressions, the dump's `mock` provenance block, the completeness guard and the raised
 harvest cap all ship, with four in-game `GuiMock` cells for the suppression-plus-draw path.
 NOTHING HAS FLOWN: P1 ships no lane by design (P2 owns them), the `GuiMock` category is driven
@@ -877,6 +878,24 @@ implies, and `GuiMockCatalogueTests.TheInlineStandInVesselFormIsUnreachableForRe
 pins the boundary against the real formatter: widen the column or shorten the form and that
 cell fails, telling the next author to ADD the inline state. Filed in
 `docs/dev/todo-and-known-bugs.md`.
+
+### 18.10 The Mission Profile window joins (2026-11-23)
+
+The third mockable window (`profile`, `docs/dev/design-mission-profile.md` section 7), added in
+the same commit as its builder, its applier arm and its payload field, per 18.5:
+`UI/Gallery/GuiMock.Profile.cs` (`GuiMockProfileStates`, `GuiMockProfile`), two states:
+`profile.mission.mun-return` (ONE detached `Recording` with track sections, orbit checkpoints,
+engine events, delta-v snapshots and a terminal, run through the REAL
+`MissionProfileBuilder.BuildProfile` with the stock body table, per 18.6b: no typed cell) and
+`profile.mission.empty` (a tree with no flight: the builder's own Empty row). The applier arm
+`InstallProfileMock` snapshots and restores the window's target like the Structure arm
+(`MissionProfileWindowUI.CaptureGalleryTarget` / `RestoreGalleryTarget` /
+`OpenWithGalleryProfile`); the window rebuilds only from an open or a signature change it skips
+with no target, so no suppression site is needed. Covers are two named bool branches,
+`MissionProfileRow.SpentOrange` and `MissionProfileRow.Empty`, whose witnesses are the rows'
+Element cells. The write-set allowlist gained the profile builder, the window, the row kind and
+the pure track-section and delta-v enums the detached recording is built from. First captured
+by GUI-4 (never flown).
 
 ### 18.9 What P2 needs from P1
 

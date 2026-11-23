@@ -489,6 +489,7 @@ namespace Parsek.TestCommands
             if (wc.ControlId != null) s.Tags.Add(TagControl);
             s.Flags.AddRange(wc.Flags);
             if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
+            if (wc.Fx != null) PartParityFxDriver.FillSidecar(ctx, wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));
@@ -617,6 +618,8 @@ namespace Parsek.TestCommands
             };
             // A state run's exclusions (design D.1), each with its reason.
             foreach (PartParityStateExclusion x in ctx.StateExclusions)
+                mf.Exclusions.Add(new PartParityExclusion { Part = x.Part, Reason = x.Reason });
+            foreach (PartParityFxExclusion x in ctx.FxExclusions)
                 mf.Exclusions.Add(new PartParityExclusion { Part = x.Part, Reason = x.Reason });
             mf.GameDataMods.AddRange(GameDataMods());
             AddSettings(ctx, mf.Settings);

@@ -82,19 +82,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SampleInterval_OutOfRange_ZeroHz()
+        public void SampleInterval_DebrisLeavesTheRange_OneHz_NotSilent()
         {
             BackgroundRecorder bg = Recorder();
-            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 100.0, 0.2, 0.2);
+            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 2200.0, 2.0, 0.5);
             logLines.Clear();
 
-            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 1.0e7, ProximityRateSelector.OutOfRangeInterval,
-                ProximityRateSelector.OutOfRangeInterval);
+            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 2304.0,
+                ProximityRateSelector.GetSampleInterval(2304.0),
+                ProximityRateSelector.BeyondRangeDebrisInterval);
 
-            Assert.Equal(ProximityRateSelector.OutOfRangeInterval, bg.GetCurrentSampleIntervalForTesting(Pid));
+            Assert.Equal(1.0, bg.GetCurrentSampleIntervalForTesting(Pid));
             Assert.Equal(
-                "[Parsek][INFO][BgRecorder] Sample rate changed: pid=5201 dist=10000000m interval=none (0.0 Hz)",
+                "[Parsek][INFO][BgRecorder] Sample rate changed: pid=5201 dist=2304m interval=1.0s (1.0 Hz) " +
+                "debris-cap=applied (rawTier=2.0s)",
                 Assert.Single(logLines));
+        }
+
+        [Fact]
+        public void SampleInterval_VesselLeavesTheRange_KeepsTheFarRate()
+        {
+            BackgroundRecorder bg = Recorder();
+            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 2200.0, 2.0, 2.0);
+            logLines.Clear();
+
+            double beyond = ProximityRateSelector.GetSampleInterval(1.0e7);
+            bg.UpdateBackgroundSampleIntervalForTesting(Pid, 1.0e7, beyond, beyond);
+
+            Assert.Equal(2.0, bg.GetCurrentSampleIntervalForTesting(Pid));
+            Assert.Empty(logLines);
         }
 
         // ---------------- NoteBackgroundFixedStepSampleSkip
@@ -119,7 +135,7 @@ namespace Parsek.Tests
         public void EffectiveIntervals_NoDebrisNoHighFidelity_ProximityIsTheFloor()
         {
             BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
-                ProximitySamplingTier.None, false, 2.0, 0.2f, 3.0f, new Recording(),
+                ProximitySamplingTier.None, false, false, 2.0, 0.2f, 3.0f, new Recording(),
                 out float min, out float max);
 
             Assert.Equal(2.0f, min);
@@ -133,7 +149,7 @@ namespace Parsek.Tests
         public void EffectiveIntervals_HighFidelity_ConfiguredForegroundFloor()
         {
             BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
-                ProximitySamplingTier.None, true, 2.0, 0.2f, 3.0f, new Recording(),
+                ProximitySamplingTier.None, true, false, 2.0, 0.2f, 3.0f, new Recording(),
                 out float min, out float max);
 
             Assert.Equal(FlightRecorder.ResolveEffectiveMinSampleInterval(true, 0.2f), min);
@@ -148,7 +164,7 @@ namespace Parsek.Tests
         {
             var debris = new Recording { IsDebris = true, ParentAnchorRecordingId = "parent" };
             BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
-                ProximitySamplingTier.Half, false, 2.0, 0.2f, 3.0f, debris,
+                ProximitySamplingTier.Half, false, false, 2.0, 0.2f, 3.0f, debris,
                 out float min, out float max);
 
             Assert.Equal(FlightRecorder.ResolveEffectiveMinSampleInterval(ProximitySamplingTier.None,
@@ -162,13 +178,44 @@ namespace Parsek.Tests
         {
             var debris = new Recording { IsDebris = true, ParentAnchorRecordingId = "parent" };
             BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
-                ProximitySamplingTier.None, false, 2.0, 0.2f, 30.0f, debris,
+                ProximitySamplingTier.None, false, false, 2.0, 0.2f, 30.0f, debris,
                 out float min, out float max);
 
             float uncapped = FlightRecorder.ResolveEffectiveMaxSampleInterval(ProximitySamplingTier.None,
                 ProximitySamplingTier.None, false, 30.0f, 0.2f);
             Assert.Equal(2.0f, min);
             Assert.Equal(BackgroundRecorder.ResolveDebrisAwareMaxSampleInterval(uncapped, debris), max);
+        }
+
+        [Fact]
+        public void EffectiveIntervals_DebrisBeyondRange_OneHzFloorAndTheConfiguredCeiling()
+        {
+            // Past the range the 0.5 s ceiling cap must not apply: ShouldRecordPoint checks the
+            // ceiling before the floor, so it would hold the debris at 2 Hz all the way down.
+            var debris = new Recording { IsDebris = true, ParentAnchorRecordingId = "parent" };
+            double floor = BackgroundRecorder.ResolveDebrisAwareSampleInterval(
+                ProximityRateSelector.GetSampleInterval(5000.0), debris, beyondRange: true);
+            BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
+                ProximitySamplingTier.None, false, true, floor, 0.2f, 3.0f, debris,
+                out float min, out float max);
+
+            Assert.Equal(1.0f, min);
+            Assert.Equal(3.0f, max);
+        }
+
+        [Fact]
+        public void EffectiveIntervals_DebrisTierBeyondRange_KeepsTheDebrisCadence()
+        {
+            // The focused vessel is elsewhere and the debris is still near its own parent.
+            var debris = new Recording { IsDebris = true, ParentAnchorRecordingId = "parent" };
+            BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
+                ProximitySamplingTier.Half, false, true, 1.0, 0.2f, 3.0f, debris,
+                out float min, out float max);
+
+            Assert.Equal(FlightRecorder.ResolveEffectiveMinSampleInterval(ProximitySamplingTier.None,
+                ProximitySamplingTier.Half, false, 0.2f, 3.0f), min);
+            Assert.Equal(FlightRecorder.ResolveEffectiveMaxSampleInterval(ProximitySamplingTier.None,
+                ProximitySamplingTier.Half, false, 3.0f, 0.2f), max);
         }
 
         // ---------------- ResolveBackgroundSampleTriggers
@@ -178,7 +225,7 @@ namespace Parsek.Tests
         {
             BackgroundRecorder bg = Recorder();
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity,
-                false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.True(motion);
         }
@@ -189,7 +236,7 @@ namespace Parsek.Tests
             BackgroundRecorder bg = Recorder();
             bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity);
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.1, new Vector3(0, 0, 100), Quaternion.identity,
-                false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.False(motion);
             Assert.False(attitude);
@@ -201,7 +248,7 @@ namespace Parsek.Tests
             BackgroundRecorder bg = Recorder();
             bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity);
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 13.5, new Vector3(0, 0, 100), Quaternion.identity,
-                false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.True(motion);
         }
@@ -213,7 +260,7 @@ namespace Parsek.Tests
             bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity);
             Quaternion turned = new Quaternion(0f, 0.0871557f, 0f, 0.9961947f); // 10 deg about y
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.5, new Vector3(0, 0, 100), turned,
-                false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.False(motion);
             Assert.True(attitude);
@@ -225,12 +272,30 @@ namespace Parsek.Tests
             BackgroundRecorder bg = Recorder();
             bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity);
             Quaternion turned = new Quaternion(0f, 0.0871557f, 0f, 0.9961947f);
-            float floor = BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval(false, 2.0f, 0.2f);
+            float floor = BackgroundRecorder.ResolveBackgroundAttitudeMinSampleInterval(false, false, 2.0f, 0.2f);
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.0 + floor * 0.5, new Vector3(0, 0, 100), turned,
-                false, 2.0f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 2.0f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.False(motion);
             Assert.False(attitude);
+        }
+
+        [Fact]
+        public void Triggers_TumblingBeyondRange_AttitudeWaitsForTheMotionFloor()
+        {
+            BackgroundRecorder bg = Recorder();
+            bg.SetLoadedSampleBaselineForTesting(Pid, 10.0, new Vector3(0, 0, 100), Quaternion.identity);
+            Quaternion turned = new Quaternion(0f, 0.0871557f, 0f, 0.9961947f); // 10 deg about y
+
+            bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.5, new Vector3(0, 0, 100), turned,
+                false, true, 1.0f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+            Assert.False(motion);
+            Assert.False(attitude);
+
+            bg.ResolveBackgroundSampleTriggersForTesting(Pid, 11.02, new Vector3(0, 0, 100), turned,
+                false, true, 1.0f, 3.0f, 0.2f, 2.0f, 0.05f, out motion, out attitude);
+            Assert.False(motion);
+            Assert.True(attitude);
         }
 
         [Fact]
@@ -244,7 +309,7 @@ namespace Parsek.Tests
                 hasWorldRotation: false);
             Quaternion turned = new Quaternion(0f, 0.0871557f, 0f, 0.9961947f);
             bg.ResolveBackgroundSampleTriggersForTesting(Pid, 10.5, new Vector3(0, 0, 100), turned,
-                false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
+                false, false, 0.2f, 3.0f, 0.2f, 2.0f, 0.05f, out bool motion, out bool attitude);
 
             Assert.False(motion);
             Assert.False(attitude);
