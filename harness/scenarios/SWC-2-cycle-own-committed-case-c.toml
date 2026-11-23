@@ -2,7 +2,7 @@ schema = 1
 id = "SWC-2-cycle-own-committed-case-c"
 # =====================================================================================
 # SWC-2: THE [ ] VESSEL CYCLE ONTO YOUR OWN SEPARATELY COMMITTED VESSEL WHILE RECORDING.
-# AUTHORED 2026-11-23, NEVER FLOWN (test-gap list 2026-11-18 batch 4; todo
+# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4; todo
 # PRESWITCH-CASE-C-LANES-2026-11-23).
 #
 # THE GAP. Pre-switch Case C (MapFocusObjectOnSelectPatch: no switch-segment session, a live
@@ -34,9 +34,9 @@ id = "SWC-2-cycle-own-committed-case-c"
 #   green flight. Takes no mouse and no focus: it can share a runner with other lanes.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo PRESWITCH-CASE-C-LANES-2026-11-23). GC-4's twin with a separately committed vessel in the bubble: on eva2-lko-crewed Kerbal X is recorded and committed (T1), a stock cycle goes to the probe, a second recording starts on the probe (T2), then the ] cycle press onto Kerbal X must be handed to the pre-switch handling (Case C, auto-resolved), switch, and restore Kerbal X through the committed-clone route."
+description = "AUTHORED AND FLOWN 2026-11-23 (todo PRESWITCH-CASE-C-LANES-2026-11-23). GC-4's twin with a separately committed vessel in the bubble: on eva2-lko-crewed Kerbal X is recorded and committed (T1), a stock cycle goes to the probe, a second recording starts on the probe (T2), then the ] cycle press onto Kerbal X must be handed to the pre-switch handling (Case C, auto-resolved), switch, and restore Kerbal X through the committed-clone route."
 instanceProfile = "stock-minimal"
-tags = ["SWC2", "switch", "pre-switch", "case-c", "committed-clone", "auto-merge", "pending-flight"]
+tags = ["SWC2", "switch", "pre-switch", "case-c", "committed-clone", "auto-merge", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -91,7 +91,7 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # READING (header item 7).
-count = { min = 2, max = 3 }
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [

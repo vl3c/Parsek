@@ -115,7 +115,10 @@ headlamp have no part event at all, on any path. Also by reading only: a quicklo
 mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
 recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 
-## SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
+
+Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
+(one frame drawn on neither ghost at the handoff; the pin allows 0 or 1).
 
 SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
 New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
@@ -125,7 +128,13 @@ one ghost, two or none; it fails on a run of 10 frames drawn twice or missing. L
 `SEAT-4-seat-replay-kerbal-visibility` (operator, seat-pad) runs it over UT 41-47 of SEAT-1's
 replay, across the recorded dismount at 44.90 (the handoff from the pod ghost to the EVA ghost).
 
-## PRESWITCH-CASE-C-LANES-2026-11-23: no lane switches to its own separately committed vessel while recording, by map or by `[` / `]` [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+## ~~PRESWITCH-CASE-C-LANES-2026-11-23~~: no lane switches to its own separately committed vessel while recording, by map or by `[` / `]` [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (SWC-1 `2026-11-23_2229`, SWC-2 `2026-11-23_2204`, branch `b4-eva`); DONE]
+
+Both first flights never left Kerbal X: the seam's `CycleVessel` leaves a cycle Parsek has no reason
+to take to stock (`outcome=left-to-stock switched=false`) and cannot press stock's own key, so the
+lanes now save and reload with the probe focused. Reading: auto-resolve `resolution=Merge
+reason=not-committed-restore-clone`, the committed-clone route, recordings exactly 2. The map press
+logs its Case C detection as `switchclick Case C:`, the cycle press as `pre-switch Case C:`.
 
 Pre-switch Case C (`case=C-loaded-separate-committed`) and the CYCLE-SWITCH-PRESWITCH-BYPASS fix
 are xUnit only. Lanes on eva2-lko-crewed with `autoMerge` on: Kerbal X recorded and committed,
@@ -134,7 +143,20 @@ the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchCl
 (`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
 committed-clone route; recordings 2..3 is a reading window until the first flight.
 
-## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, low]
+## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN TWICE 2026-11-23, RED ON THE LANE SHAPE (branch `b4-eva`); OPEN: reshape WDK-1; test gap, low]
+
+Flown: `2026-11-23_2118` PARSEK-FAIL (the jump landed 17242.8 s before the dock: the phasing knob keeps
+12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
+keptRevs=12`; WL-3's instant, PR #2782, has the same error) and `2026-11-23_2205` PARSEK-FAIL (the dock
+and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
+line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10); and
+in a looped mission the camera moves by the loop unit's own handoff (`IsSameWatchedVessel`, raw launch
+guids, `GhostPlaybackEngine.LoopUnits`), which never asks `FindNextWatchTarget` /
+`FindWatchedIdentityChild`, the code this lane pins. No product defect shown.
+Fix: fly it as an ordinary replay (no loop: an isolated Rewind-to-Launch of tree 2, or a host whose
+clock is before the dock) with the watched recording named by `index=`. To check at the same time (not
+proven by these runs): whether the loop unit's raw-guid comparison leaves the camera on the ended ship
+at a replayed dock, where the ordinary path follows it.
 
 WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION is xUnit only. Lane `WDK-1-watch-across-bdock-dock-undock`
 (operator, bdock-recorded) loops tree 2, jumps to WL-3's instant, enters watch mode and plays the
@@ -153,24 +175,24 @@ stays unlit for 30 frames and 1 s. No lane runs it: a B4 or LAY-1 descent replay
 descent UT (`ListHandles` gives `ut` only for rewind points). Unblock with a viewer placed near
 the descent (a spawn-at-orbit verb) or a descent-UT handle. Ghost sound does not apply mid-descent
 (no engine runs).
-## TEST-GAPS-B4-PART-BREAKS: no lane records a live solar panel or wheel break and replays it [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+## TEST-GAPS-B4-PART-BREAKS: no lane records a live solar panel or wheel break and replays it [FILED 2026-11-23 from the test-gap list, batch 4; PBR-1 LIVE-PROVEN 2026-11-23 (`2026-11-23_2118`); OPEN: the RAPIER mode switch]
 
 - Gap: the recorder's `DeployableBroken` / `WheelBroken` edges and the ghost's break appliers were proven only in xUnit and synthetically (H37 builds break visuals from prefabs); no seam verb could break a part (archived GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER).
 - Built: `PartAction button=breakpanel` (stock `ModuleDeployablePart.breakPanels()`) and `button=breakwheel` (stock `ModuleWheelDamage.DamageWheel()`), automation-only, refusing a part with no such module (`partaction-deployable-not-found` / `partaction-wheel-not-found`) and skipping an already broken one; the applied line's `state=` reads `deployable:state=` / `wheel:damaged=` after a break press. Lane PBR-1 on the derived fixture `pbr-break-rover` (`harness/tools/build_pbr_break_rover.py`).
-- Owed: PBR-1's first flight (stock-minimal); then retry `none` and a tier call.
+- Flown green on its first flight, retry `none` since. Owed: a tier call.
 - NOT BUILT, the RAPIER mode switch: no committed fixture carries a RAPIER, and the recorder skips a zero-throttle ignite, so a live switch needs a throttle seam (no verb sets the main throttle) plus an SPH host. PR #2792 changed only the RAPIER trail visuals and the part parity lanes read per-mode FX from a held ghost, not a recorded switch.
 
-## TEST-GAPS-B4-INERT-GAME-MODES: no lane loads a stock scenario or training save [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+## TEST-GAPS-B4-INERT-GAME-MODES: no lane loads a stock scenario or training save [FILED 2026-11-23 from the test-gap list, batch 4; GM-1 LIVE-PROVEN 2026-11-23 (`2026-11-23_2207`); OPEN: the Making History modes]
 
 - Gap: `ParsekGameModeGate` (owner ruling S9) and ParsekScenario's inert pass-through were pinned only headless; no committed fixture had a SCENARIO or SCENARIO_NON_RESUMABLE mode.
 - Built: lane GM-1 on the derived fixture `gm-scenario-modes` (`harness/tools/build_gm_scenario_modes.py`, from `b1-pad-craft`: `persistent.sfs` SCENARIO with a 4-value Parsek node, `training.sfs` SCENARIO_NON_RESUMABLE with none). Gates the inert lines, the refused StartRecording, the inert stash / write-back round trip, no normal ParsekScenario load or save and no backup; the produced save is the training game, whose report-only saveParse row must read no Parsek node.
 - Not covered: Making History MISSION / MISSION_BUILDER (a mission loads from `Missions/<name>/`, not a plain save). To fly one the PC must copy a stock mission folder from the install's `Missions/` (Making History ships them) into the automation instance and the seam needs a mission-load verb; neither exists.
-- Owed: GM-1's first flight (stock-minimal); a daily promotion call after it (no warps, three loads).
+- Flown: `2026-11-23_2120` red on REC-001 / REC-003 alone (hlib counted the refused StartRecording as a live recording; `spec_expects_live_recording` now skips a StartRecording expected refused), `2026-11-23_2207` PASS attempt 1, retry `none` since. Owed: the daily promotion call.
 
-## TEST-GAPS-B4-MODDED-TWINS: no route or Re-Fly lane flies with mods loaded [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+## ~~TEST-GAPS-B4-MODDED-TWINS~~: no route or Re-Fly lane flies with mods loaded [FILED 2026-11-23 from the test-gap list, batch 4; DONE 2026-11-23: MC-6 `2026-11-23_2121` and MC-7 `2026-11-23_2122` PASS attempt 1; MC-7 armed, armed re-flight `2026-11-23_2209` PASS]
 
 - Built: MC-6 (H6's RouteRewindTimeline batch, interim `total=7` pin) and MC-7 (S4.1's B9 Re-Fly merge cycle, its rewind block and Unity exception ceiling report-only) on modded-compat, steps and contracts verbatim from their stock lanes.
-- Owed: both first flights on modded-compat; then pin MC-6's split whole and arm MC-7's rewind block off a green reading matching S4.1's (supersedeRows 0, tombstones 0), and its exception ceiling only through UnityExceptionScanTests' allowlist with the measured count.
+- MC-6's split pinned whole (7 / 0 / 0). MC-7 read supersedeRows 0, tombstones 0, Unity exceptions 0 (parsekFrames 0): rewind block armed, ceiling S4.1's (maxTotal 3, maxParsekFrames 0) through UnityExceptionScanTests' allowlists.
 
 ## TEST-GAPS-B4-BATCH-CRASH-RECOVERY-LANE: the in-game batch crash recovery has no lane [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED on the harness]
 
@@ -1052,7 +1074,7 @@ Fix: `Object.DestroyImmediate(tempClone)`, like the siblings. `GhostTempCloneDes
 
 Proof: PP-1 `2026-11-21_2111` and every later PP-1 / PP-2 flight answered every step with the host in one piece and in orbit, through the final pair `2026-11-22_0033` / `_0045` (GHOST-PARITY-RESIDUALS-2026-11-22).
 
-## TEST-GAPS-BATCH4-REFLY-2026-11-23: Re-Fly quits, a separation inside a Re-Fly, KSC purchases before a Re-Fly, a Re-Fly resumed in a new process [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed; branch `b4-refly`; one new seam verb (`ExitToMainMenu`) and one new `AnswerMergeDialog` arg (`exit=`), automation-only C#]
+## ~~TEST-GAPS-BATCH4-REFLY-2026-11-23~~: Re-Fly quits, a separation inside a Re-Fly, KSC purchases before a Re-Fly, a Re-Fly resumed in a new process [FILED 2026-11-23 from the test-gap list, batch 4; DONE: ALL NINE LANES LIVE-PROVEN 2026-11-23; branch `b4-refly`; one new seam verb (`ExitToMainMenu`) and one new `AnswerMergeDialog` arg (`exit=`), automation-only C#]
 
 What: four Re-Fly gaps no lane drove. (1) Leaving a live Re-Fly by Quit without saving or by Quit to Main Menu (the second needs the flight Esc menu's Quit to Main Menu, which no seam verb drove, then a load back from the main menu). (2) A separation inside a Re-Fly: the nested, session-scoped rewind point it authors, kept by a merge, purged by a discard, dropped by an F9 to before the separation. RF-14's header named this as not driven. (3) Space Center purchases made between a separation and its Re-Fly. (4) A Re-Fly saved mid-session and resumed in a new game process.
 
@@ -1064,8 +1086,13 @@ Lanes (all never flown; rows under "Committed, not yet green" in `autotest-statu
 - item 3: `RFK-1-ksc-purchases-before-refly-merge` / `RFK-2-ksc-purchases-before-refly-discard`, operator, `cs-career-mun4`: runway upgrade, annex demolish and repair, a dismissal, then a Re-Fly from before them; LedgerGroundTruth pinned whole at `total=3 passed=3 failed=0 skipped=0`, the split every RW lane on this host reads. Part purchase is not covered: `cs-career-mun4` bypasses entry purchases, and the five entry-purchase hosts (`career-pad-craft-hard`, `career-pad-craft-purchase`, `career-science-pad-hard`, `stock-screen-census`, `-repair`) carry only one-command-part craft (Jumping Flea, Settings Probe), so none authors a rewind point; it needs a new host (an entry-purchase career with the CS Flea Probe's parts bought).
 - item 4: `FORGE-refly-midsession` (operator) stamps `refly-midsession-saved` (harvest recipe in its header); forged and harvested 2026-11-23 (run `2026-11-23_2058`, PASS attempt 1, 16 sidecar files, rp_b9_root quicksave kept); `RFP-1-refly-resumed-in-new-process` is nightly over it.
 
-Owed: the first flights, then the ordinary tier calls.
-## TEST-GAPS-BATCH4-CAREER: test-gap list batch 4, career and logistics: CPR-1, IR-6T and SSC-1 authored, two in-game cells added [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed; branch `b4-career`; in-game cells only (no production C# change); OPEN: the five first flights]
+Flown 2026-11-23 (runner runs `b4-first` / `b4-refly1`): FORGE-refly-midsession `_2058`, RFQ-1 `_2107`, RFQ-2 `_2107`,
+QTM-1 `_2108` and RFN-2 `_2124` green on the first flight. RFP-1 (`_2109`, then `_2201` green) and RFN-1 (`_2121`, then
+`_2208` green) reded on a forbidden `Marker valid=False` / `Marker loaded: none` that every load outside the session
+logs by design; both are rescoped to the load under test. RFK-1 (`_2126`, then `_2211` green) and RFK-2 (`_2132`, then
+`_2214` green) were INVALID twice on the check launch (G's vessels stand on the pad); it launches from the runway now.
+Owed: the ordinary tier calls.
+## TEST-GAPS-BATCH4-CAREER: test-gap list batch 4, career and logistics: CPR-1, IR-6T and SSC-1 authored, two in-game cells added [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, ALL FIVE GREEN; branch `b4-career`; in-game cells only (no production C# change); OPEN: only the options named below]
 
 From the 2026-11-18 test-gap list, five career / logistics gaps. None was covered on main (grep of
 `harness/scenarios`, the in-game tests and the open PRs on 2026-11-23).
@@ -1103,7 +1130,9 @@ From the 2026-11-18 test-gap list, five career / logistics gaps. None was covere
    without a red test. Later option (L): a full rescue rendezvous lane (accept a RecoverAsset
    rescue, fly to the stranded pod, EVA transfer, recover, then rewind and cross the row).
 
-Owed (flight prompt): CPR-1, IR-6T, SSC-1, H45, H48. No new fixture; none moves the mouse.
+Flown 2026-11-23 (runner runs `b4-first` / `b4-refly1` / `b4-refly2`): IR-6T `_2109`, H45 `_2124` (13 / 0) and H48
+`_2125` (5 / 0) green on the first flight, both batches pinned whole. CPR-1 `_2138` red on the count alone (4 rows,
+each hop split at its landing; pinned 4), `_2218` PASS. SSC-1 see SEAL-SPLIT-CHAIN-LANE-OWED.
 
 ## REWOUND-RESCUE-KERBAL-NEVER-JOINS-ROSTER: after a rewind past a committed rescue, the rescued kerbal never becomes crew when the clock reaches the rescue [FILED 2026-11-23 by code reading (test-gap list batch 4, branch `b4-career`); no red test, no flight; medium (a kerbal the committed timeline rescued stays Unowned, stranded or unlisted, for good)]
 
@@ -2965,7 +2994,7 @@ Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id besi
 Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
 Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
 
-## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; lane SWC-2 AUTHORED 2026-11-23 (PRESWITCH-CASE-C-LANES-2026-11-23), flight owed; medium (the vessel gets a second history and its own mission stops)]
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; lane SWC-2 LIVE-PROVEN 2026-11-23 (PRESWITCH-CASE-C-LANES-2026-11-23), flight owed; medium (the vessel gets a second history and its own mission stops)]
 
 What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
 stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
@@ -3758,7 +3787,7 @@ green reading run: pin the batch split whole, leave `INTERIM_PIN_IDS`, tighten t
 
 Flown 2026-11-20 (`2026-11-20_2310_SOI-3-bg-probe-mun-exit-on-rails`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(results) attempt 1. The crossing recorded as designed (one seam at UT 1317.090; two of the three cells passed), but the continuity cell measured a 9.1 km gap: filed as BG-SOI-SEAM-WORLD-GAP (top of this file), settled 2026-11-21 as the cell comparing two instants 1 s apart in the Sun-anchored world frame (the probe's 9127.7 m/s heliocentric speed); the cell now evaluates both sides at the seam UT within 1 km. Owed: the re-flight.
 
-## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only; LANE AUTHORED 2026-11-23, `SSC-1-sealed-split-chain-route-gate` (TEST-GAPS-BATCH4-CAREER), never flown; OPEN: its first flight; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
+## ~~SEAL-SPLIT-CHAIN-LANE-OWED~~: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only; LANE AUTHORED 2026-11-23, `SSC-1-sealed-split-chain-route-gate` (TEST-GAPS-BATCH4-CAREER), LIVE-PROVEN 2026-11-23 (`2026-11-23_2229`); DONE; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
 
 The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane
 that seals in tree mode or creates a route flew green on it, but none of them reached the shape it
@@ -3774,6 +3803,11 @@ kept open as an Unfinished Flight, then sealed (`SealSlot` in tree mode), then m
 rate-limited Verbose line, so confirm the lane's verbose setting before pinning it), and the
 create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
 flight (`harness/README.md` -> "Authoring a fast lane").
+
+Flown 2026-11-23: `_2110` red (FirstLaunch and two record rows of the sandbox hop sealed the pod's slot,
+`recordingAction:MilestoneAchievement`, design section 2.12: a counted row seals even at zero value), so an
+unrecorded Jumping Flea hop now reaches them first; `_2201` / `_2204` INVALID on a practice hop that left a
+stand behind (fixed), `_2229` PASS attempt 1 with the through-tip line and `sealed=True`.
 
 Authored 2026-11-23: `SSC-1-sealed-split-chain-route-gate` on `rover-route-recorded`, IR-3's CS
 Flea Probe pad decouple (a Rewind Point), RW-11's hop, a 30 s landed dwell and the pod exploded:

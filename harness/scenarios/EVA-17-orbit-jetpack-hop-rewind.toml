@@ -2,7 +2,7 @@ schema = 1
 id = "EVA-17-orbit-jetpack-hop-rewind"
 # =====================================================================================
 # EVA-17: A LIVE JETPACK FLIGHT RECORDED IN ORBIT AND READ BACK FROM THE GHOST.
-# AUTHORED 2026-11-23, NEVER FLOWN (test-gap list 2026-11-18 batch 4, "Walking and jetpack
+# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4, "Walking and jetpack
 # EVA recorded live"; todo EVA-JETPACK-LIVE-LANES-2026-11-23).
 #
 # WHY. Every committed EVA lane exits, floats, plants, boards or chutes; none flies the
@@ -48,7 +48,7 @@ id = "EVA-17-orbit-jetpack-hop-rewind"
 #   Takes no mouse and no focus: it can share a runner with other lanes.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
+description = "AUTHORED AND FLOWN 2026-11-23 (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
 instanceProfile = "stock-minimal"
 tags = ["EVA17", "eva", "jetpack", "eva-move", "rewind-to-launch", "ghost-render",
         "ingame-batch", "flown"]

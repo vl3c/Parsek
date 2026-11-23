@@ -161,7 +161,7 @@
 # leaves two controllable vessels, so it authors the rewind point the lane re-flies
 # while the route runs. Promoted from `cs-career-mun4`'s own Ships/VAB on that second
 # consumer (built by `tools/build_cs_flea_probe_craft.py`).
-"rover-route-recorded" = ["CS Flea Probe"]
+"rover-route-recorded" = ["CS Flea Probe", "Jumping Flea"]
 # AIR-1's harvest (the Mallard at rest in the sea east of KSC); the three craft are
 # the host fixture gs1-two-stage-pad's own, dropped from the copy by the harvest.
 "air-circuit-recorded" = ["GS1 Auto-Chute Booster", "Jumping Flea", "Kerbal X"]

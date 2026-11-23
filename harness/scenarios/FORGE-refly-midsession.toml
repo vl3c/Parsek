@@ -3,7 +3,7 @@ id = "FORGE-refly-midsession"
 # operator tier: a FIXTURE-FORGE run, not a coverage flight. It never runs on a cadence,
 # only under an explicit `--id FORGE-refly-midsession` / `--tier operator`. Test-gap list
 # 2026-11-18, batch 4, item 4 ("a Re-Fly resumed in a new game process"). AUTHORED
-# 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+# 2026-11-23 (branch `b4-refly`), FLOWN the same day.
 #
 # WHAT IT STAMPS. A save written in the MIDDLE of a live Re-Fly: QL-16's host
 # (`gloops-airshow` + the injected `rewind-b9` corpus), rp_b9_root slot 1 (the crashed booster

@@ -4,7 +4,7 @@ id = "RFN-2-refly-nested-separation-discard"
 # RFN-2: A SEPARATION INSIDE A RE-FLY, THEN THE RE-FLY DISCARDED: THE NESTED, SESSION-SCOPED
 # REWIND POINT GOES WITH THE ATTEMPT AND THE ORIGIN POINT STAYS. Test-gap list 2026-11-18,
 # batch 4, item 2, case (b); cases (a) and (c) are RFN-1. AUTHORED 2026-11-23 (branch
-# `b4-refly`), NOT FLOWN.
+# `b4-refly`), FLOWN the same day.
 #
 # In gameplay terms: the player re-flies the Flea slot of a pad split, drops the second probe
 # stand (a second rewind point, born inside the Re-Fly), then leaves for the Space Center and

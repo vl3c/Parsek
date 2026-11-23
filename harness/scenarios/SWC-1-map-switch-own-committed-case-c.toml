@@ -2,7 +2,7 @@ schema = 1
 id = "SWC-1-map-switch-own-committed-case-c"
 # =====================================================================================
 # SWC-1: MAP SWITCH-TO YOUR OWN SEPARATELY COMMITTED VESSEL WHILE RECORDING (PRE-SWITCH CASE C).
-# AUTHORED 2026-11-23, NEVER FLOWN (test-gap list 2026-11-18 batch 4; todo
+# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4; todo
 # PRESWITCH-CASE-C-LANES-2026-11-23).
 #
 # THE GAP. Pre-switch Case C (MapFocusObjectOnSelectPatch: no switch-segment session, a live
@@ -31,9 +31,9 @@ id = "SWC-1-map-switch-own-committed-case-c"
 #   green flight. Takes no mouse and no focus: it can share a runner with other lanes.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo PRESWITCH-CASE-C-LANES-2026-11-23). On eva2-lko-crewed: Kerbal X recorded and committed (T1), the save reloaded onto the probe, a second recording on the probe (T2), then the map's Switch To onto Kerbal X: pre-switch Case C (loaded, separately committed target) must auto-resolve T2 (merge or no-op discard), switch, and restore Kerbal X through the committed-clone route."
+description = "AUTHORED AND FLOWN 2026-11-23 (todo PRESWITCH-CASE-C-LANES-2026-11-23). On eva2-lko-crewed: Kerbal X recorded and committed (T1), the save reloaded onto the probe, a second recording on the probe (T2), then the map's Switch To onto Kerbal X: pre-switch Case C (loaded, separately committed target) must auto-resolve T2 (merge or no-op discard), switch, and restore Kerbal X through the committed-clone route."
 instanceProfile = "stock-minimal"
-tags = ["SWC1", "switch", "pre-switch", "case-c", "committed-clone", "auto-merge", "pending-flight"]
+tags = ["SWC1", "switch", "pre-switch", "case-c", "committed-clone", "auto-merge", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -88,12 +88,12 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # READING (header item 7).
-count = { min = 2, max = 3 }
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
   # THE SUBJECT: Case C detected on the loaded, separately committed Kerbal X ...
-  "MISSIONMARK label=swc1-switch [\\s\\S]*?pre-switch Case C: loaded target is separate committed vessel targetPid=3620499050 matchedTreeId=[0-9a-f]+ activeTreeId=[0-9a-f]+",
+  "MISSIONMARK label=swc1-switch [\\s\\S]*?(?:pre-switch|switchclick) Case C: loaded target is separate committed vessel targetPid=3620499050 matchedTreeId=[0-9a-f]+ activeTreeId=[0-9a-f]+",
   # ... decided without asking (merged, or discarded as a no-op) ...
   "MISSIONMARK label=swc1-switch [\\s\\S]*?pre-switch auto-resolve: resolution=(?:Merge|Discard) case=C-loaded-separate-committed autoMerge=True [^\\r\\n]*targetPid=3620499050",
   # ... and Kerbal X restored through the committed-clone route.

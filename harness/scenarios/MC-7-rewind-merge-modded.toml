@@ -2,7 +2,7 @@ schema = 1
 id = "MC-7-rewind-merge-modded"
 # =====================================================================================
 # MC-7: S4.1's Re-Fly merge cycle on the modded-compat install (todo
-# TEST-GAPS-B4-MODDED-TWINS; test-gap list batch 4, AUTHORED 2026-11-23, NEVER FLOWN).
+# TEST-GAPS-B4-MODDED-TWINS; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
 #
 # WHY. No Re-Fly lane has ever flown with mods loaded. This twin runs S4.1's whole cycle on
 # modded-compat (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp,
@@ -24,7 +24,7 @@ id = "MC-7-rewind-merge-modded"
 # FAST-LANE CHECKLIST: S4.1's shape; retry `once`; operator until measured (the modded
 # install is not in the nightly instance set).
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN: S4.1's B9 Re-Fly cycle (refly-gate refusal, TimeJump, InvokeRewind of the crashed-booster slot, merge dialog answered merge) run unchanged on the modded-compat install; the rewind block reads report-only until its first green flight."
+description = "AUTHORED AND FLOWN 2026-11-23: S4.1's B9 Re-Fly cycle (refly-gate refusal, TimeJump, InvokeRewind of the crashed-booster slot, merge dialog answered merge) run unchanged on the modded-compat install; the rewind block reads report-only until its first green flight."
 instanceProfile = "modded-compat"
 tags = ["rewind", "refly", "merge", "MC-7", "B9", "D9", "modded-compat", "twin-of-S4.1", "flown"]
 
