@@ -5587,6 +5587,46 @@ def _load_png_reader():
     return _gui_mirror_module.read_png
 
 
+# The committed P5 baseline and accepted list (design-part-ghost-parity.md section 10).
+PARTPARITY_BASELINE_DIR = os.path.join(HARNESS_ROOT, partparity.BASELINE_DIR_NAME)
+
+
+def load_part_parity_accepted(base_dir: str = PARTPARITY_BASELINE_DIR
+                              ) -> Tuple[List["partparity.AcceptedEntry"], List[str]]:
+    """``accepted.toml`` -> (entries, errors). An absent file is an empty list."""
+    path = os.path.join(base_dir, partparity.ACCEPTED_FILE)
+    if not os.path.isfile(path):
+        return [], []
+    try:
+        with open(path, "rb") as fh:
+            doc = tomllib.load(fh)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+        return [], ["%s unreadable (%s: %s)" % (partparity.ACCEPTED_FILE, type(exc).__name__, exc)]
+    return partparity.parse_accepted(doc)
+
+
+def load_part_parity_baseline_section(profile: Optional[str], label: str,
+                                      base_dir: str = PARTPARITY_BASELINE_DIR
+                                      ) -> Tuple[Optional[Dict], List[str]]:
+    """The label's section of ``baseline-<profile>.json`` -> (section or None, errors).
+    An absent file or label is (None, []): the gate names it ``no-baseline``."""
+    if not profile:
+        return None, ["no install profile to pick a baseline file by"]
+    path = os.path.join(base_dir, partparity.baseline_file_name(profile))
+    if not os.path.isfile(path):
+        return None, []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return None, ["%s unreadable (%s: %s)" % (os.path.basename(path), type(exc).__name__, exc)]
+    errors = partparity.validate_baseline(doc, profile)
+    if errors:
+        return None, errors[:5]
+    section = (doc.get("labels") or {}).get(label)
+    return (section if isinstance(section, dict) else None), []
+
+
 def evaluate_part_parity(spec: Dict, run_id: str, harvest: Optional[Dict],
                          logger: HarnessLogger) -> Optional["partparity.RowResult"]:
     """The partParity row's I/O shell: judge every label the spec sweeps, in place
@@ -5605,13 +5645,19 @@ def evaluate_part_parity(spec: Dict, run_id: str, harvest: Optional[Dict],
         read_png = None
     failed = {r.get("label"): r for r in (harvest or {}).get("labels", [])
               if r.get("result") == "failed"}
+    accepted, accepted_errors = load_part_parity_accepted()
     results = []
     for label in labels:
         label_dir = os.path.join(root, label)
         sweep = (partparity.SweepInput(label, False) if label in failed
                  else read_part_parity_sweep(label_dir, label))
+        profile = partparity.profile_of(sweep.manifest, spec.get("instanceProfile"))
+        section, baseline_errors = load_part_parity_baseline_section(profile, label)
+        gate_input = partparity.GateInput(profile, section, tuple(accepted),
+                                          tuple(accepted_errors + baseline_errors))
         res = partparity.evaluate_sweep(sweep, run_id, gating, read_png,
-                                        lambda name, d=label_dir: os.path.join(d, name))
+                                        lambda name, d=label_dir: os.path.join(d, name),
+                                        gate_input)
         results.append(res)
         if sweep.present:
             try:

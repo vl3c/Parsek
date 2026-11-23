@@ -11026,10 +11026,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp5fx`, photographs the 14 held air-breathing engine cases (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): NEVER FLOWN, tag `pending-flight`; owed: that flight",
         "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp6fx`, photographs the 14 held air-breathing engine cases as Waterfall references (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): NEVER FLOWN, tag `pending-flight`; owed: that flight",
-        "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape flew green 2026-11-22 (`2026-11-22_0033`, PASS attempt 1); nothing owed beyond its status row",
-        "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. AUTHORED 2026-11-21, LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, after the 2026-11-21 reading runs); nothing owed beyond its status row",
-        "PP-3-part-parity-states-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit state reading run on stock-minimal (design-part-ghost-parity.md Appendix D, D.10 row S6; owner rulings R2 / R3): every transforming stock part deployed / open / lit / jettisoned beside its event-route, start-route and stowed ghosts over two `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1656`, PASS attempt 1, after the reading run `2026-11-22_1627`); nothing owed beyond its status row",
-        "PP-4-part-parity-states-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-3's orbit state reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D, D.10 row S6) over three `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1644` and, at the 25 s sun-tracker cap, `2026-11-22_1718`, both PASS attempt 1, after the reading run `2026-11-22_1631`); nothing owed beyond its status row",
+        "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape flew green 2026-11-22 (`2026-11-22_0033`, PASS attempt 1); nothing owed beyond its status row",
+        "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). AUTHORED 2026-11-21, LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, after the 2026-11-21 reading runs); nothing owed beyond its status row",
+        "PP-3-part-parity-states-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit state reading run on stock-minimal (design-part-ghost-parity.md Appendix D, D.10 row S6; owner rulings R2 / R3): every transforming stock part deployed / open / lit / jettisoned beside its event-route, start-route and stowed ghosts over two `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1656`, PASS attempt 1, after the reading run `2026-11-22_1627`); nothing owed beyond its status row",
+        "PP-4-part-parity-states-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-3's orbit state reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D, D.10 row S6) over three `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1644` and, at the 25 s sun-tracker cap, `2026-11-22_1718`, both PASS attempt 1, after the reading run `2026-11-22_1631`); nothing owed beyond its status row",
         "PP-7-part-parity-fx-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit visual effects reading run on stock-minimal (design-part-ghost-parity.md Appendix E, E.9 row F6): every working stock part's plume, RCS, heat glow and lamp plate beside its event-route and start-route ghosts over four `fx=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1027`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-8-part-parity-fx-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, where a Waterfall part's plume reads `reference` (never judged); parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1232`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-9-part-parity-fx-restock.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-restock (ReStock and ReStock+ without Waterfall, owner ruling R6; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, every case judged; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1050`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
@@ -15096,11 +15096,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # with GS-4's window shape and ARMED the same day (see the armed roster):
         # GS-7 declares spawned {min 8} (parent + six boosters + the probe child
         # the far-crash profile discards before the fall) and GS-8 spawned {min 8}
-        # (GS-4's census - the longer burn adds distance, not recordings). Both
-        # keep requireBalanced because
-        # the balance IS the claim each lane makes about its round trip (the
-        # explosion hold's derender, the zone teardown/rebuild); arming follows
-        # the reading runs through GHOSTLIFE_ARMED_SPECS.
+        # (GS-4's census - the longer burn adds distance, not recordings). The
+        # balance IS the claim each lane makes about its round trip (the
+        # explosion hold's derender, the zone teardown/rebuild): GS-7 keeps
+        # requireBalanced, and GS-8 states it per vessel since 2026-11-23, because
+        # the dropped core's predicted fall outlives its quit (one Probe destroy
+        # short, unless the quit teardown is logged); arming follows the reading
+        # runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
         # [D] THE FIRST DECLARER OF THE LINE-COUNT WINDOWS (GS-9, 2026-09-10,
@@ -19508,7 +19510,8 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
                 self.assertEqual(partparity.CONTROL_IDS_AIR,
                                  partparity.control_set({"states": a["states"], "contexts": a["contexts"]}))
                 self.assertEqual([label, label + "fx"], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
                 self.assertEqual("none", spec["retry"]["policy"])
@@ -19637,7 +19640,8 @@ class PartParityLaneShapeTests(unittest.TestCase):
                         self.assertNotIn(key, a)
                     self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -19696,7 +19700,8 @@ class PartParityStateLaneShapeTests(unittest.TestCase):
                     self.assertEqual(partparity.CONTROL_IDS_ORBIT_STATE,
                                      partparity.control_set(settings))
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -19858,7 +19863,13 @@ class PartParityArmedRosterTests(unittest.TestCase):
     gate every sweeping lane from the start. The roster's name deliberately does not end
     in `ARMED_ALLOWLIST` (the RENDERCOMPOSE_ARMED_SPECS NAMING note: a second symbol ending so would break the first-match roster scrape in harness/missions/lib/test_cl3_refly_crew_tombstone.py)."""
 
-    PARTPARITY_ARMED_SPECS = set()
+    # Armed 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
+    # each: PP-1 2026-11-22_2159 / _2317, PP-2 _2236 / _2343, PP-3 _2220 / _2328, PP-4
+    # 2026-11-22_2359 / 2026-11-23_0016. PP-5 / PP-6 stay report-only: a canopy follows the
+    # airflow, so no measure band holds run to run.
+    PARTPARITY_ARMED_SPECS = {"PP-1-part-parity-stock.toml", "PP-2-part-parity-modded.toml",
+                              "PP-3-part-parity-states-stock.toml",
+                              "PP-4-part-parity-states-modded.toml"}
 
     def test_no_committed_spec_arms_part_parity_gating(self):
         armed = []
@@ -25444,9 +25455,9 @@ class DebrisPopulationGateTests(unittest.TestCase):
     GATED = {
         "PWR-2-physwarp-ascent-medium.toml": (7, 8, "b2_decide", False),
         "B4-reentry-splashdown.toml": (11, 11, "b4_decide", True),
-        "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
-        "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
-        "B7-duna-flyby.toml":         (9, 9, "b5_decide", True),
+        "B5-mun-flyby.toml":          (11, 11, "b5_decide", True),
+        "B6-minmus-flyby.toml":       (11, 11, "b5_decide", True),
+        "B7-duna-flyby.toml":         (10, 10, "b5_decide", True),
     }
 
     # Stacks a spec drops BEYOND the one extra stage the GATED flag counts. B4's
@@ -25464,15 +25475,21 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # B5 and B6 read the same +1 inside their existing max (2026-10-01_1127 / _1201 /
     # _1210). B4 reads two splits (ascent exit plus reentry): re-pinned 9..10 -> 11 exact
     # by the 2026-10-01 operator ruling that closed todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS
-    # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11).
-    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 1, "B4-reentry-splashdown.toml": 2}
+    # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11). Split rule version
+    # 3 adds the orbit-insertion cut on B5 / B6 / B7 and the departure cut on B5 / B6 (B7's
+    # departure stays inside its interplanetary transfer row): each re-pinned exact.
+    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 2, "B4-reentry-splashdown.toml": 2,
+                        "B5-mun-flyby.toml": 3, "B6-minmus-flyby.toml": 3}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
     # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
     # was inferred from sharing b5_decide; both measured at exactly what was
     # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
-    # which is why all seven run ids are from that morning.
+    # which is why the run ids of that reading are from that morning. The three
+    # 2026-11-23 ids are the version-3 readings, PARSEK-FAIL on `recordings.count` ALONE
+    # (the stale windows) with every other verifier green; replace each with its first
+    # PASS on the new pin.
     #
     # These are NOT re-derivable from the archived `logs/*/KSP.log` folders:
     # run.py collects logs on NON-PASS only, so every archived B-lane folder is a
@@ -25486,12 +25503,11 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
         # 11 since 2026-10-01: plus #1931's two in-flight optimizer splits.
         "B4-reentry-splashdown.toml": (11, ("2026-10-01_2023_B4-reentry-splashdown",)),
-        "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
-                                           "2026-07-25_0847_B5-mun-flyby")),
-        "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
-                                           "2026-07-25_0856_B6-minmus-flyby")),
-        # 9 since 2026-10-01: #1931's in-flight optimizer split (OPTIMIZER_SPLITS).
-        "B7-duna-flyby.toml":         (9, ("2026-10-01_1508_B7-duna-flyby",)),
+        # 8 recordings plus three optimizer splits (OPTIMIZER_SPLITS).
+        "B5-mun-flyby.toml":          (11, ("2026-11-23_0848_B5-mun-flyby",)),
+        "B6-minmus-flyby.toml":       (11, ("2026-11-23_0858_B6-minmus-flyby",)),
+        # 8 recordings plus two optimizer splits (OPTIMIZER_SPLITS).
+        "B7-duna-flyby.toml":         (10, ("2026-11-23_0828_B7-duna-flyby",)),
     }
 
     CELL = "parent-anchored-debris"
