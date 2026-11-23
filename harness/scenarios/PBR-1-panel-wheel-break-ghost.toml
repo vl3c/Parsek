@@ -137,7 +137,7 @@ count = { min = 1, max = 3 }
 required = [
   # ---- the recorded flight: each press broke its part, and the recorder saw the edge ----
   "MISSIONMARK label=pbr1-break-panel ut=[\\s\\S]*?partaction applied button=breakpanel pid=[0-9]+ part='solarPanels2' partId=[0-9]+ event=breakPanels [^\\r\\n]*state='[^']*deployable:state=BROKEN[^']*'",
-  "MISSIONMARK label=pbr1-break-wheel ut=[\\s\\S]*?partaction applied button=breakwheel pid=2261801323 part='roverWheel1' partId=[0-9]+ event=DamageWheel [^\\r\\n]*state='[^']*wheel:damaged=1[^']*'",
+  "MISSIONMARK label=pbr1-break-wheel ut=[\\s\\S]*?partaction applied button=breakwheel pid=[0-9]+ part='roverWheel1' partId=[0-9]+ event=DamageWheel [^\\r\\n]*state='[^']*wheel:damaged=1[^']*'",
   # No break edge before its own press (a load-settle impact would read as a recorded break).
   "MISSIONMARK label=pbr1-recording ut=(?:(?!Part event: (?:DeployableBroken|WheelBroken) )[\\s\\S])*?MISSIONMARK label=pbr1-break-panel ut=",
   "MISSIONMARK label=pbr1-break-panel ut=(?:(?!MISSIONMARK label=pbr1-break-wheel )(?!Part event: WheelBroken )[\\s\\S])*?Part event: DeployableBroken 'solarPanels2' pid=[0-9]+ \\(deployable-broken edge, deployState=BROKEN\\)[\\s\\S]*?MISSIONMARK label=pbr1-break-wheel ut=",
