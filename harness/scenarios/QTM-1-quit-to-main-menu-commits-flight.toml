@@ -34,7 +34,7 @@ id = "QTM-1-quit-to-main-menu-commits-flight"
 tier = "nightly"
 description = "Quit to Main Menu out of a live recording under auto-merge (eva2-lko-crewed): the new ExitToMainMenu verb drives stock's saveAndExit(MAINMENU), the LoadScene prefix commits the live tree without the merge dialog and saves, and the save loaded back from the main menu is a Cold load holding the one committed recording."
 instanceProfile = "stock-minimal"
-tags = ["QTM-1", "scene-exit", "auto-merge", "live-recording", "main-menu", "cold-load", "pending-flight"]
+tags = ["QTM-1", "scene-exit", "auto-merge", "live-recording", "main-menu", "cold-load", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"

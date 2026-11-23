@@ -257,9 +257,9 @@ count = { min = 2, max = 2 }
 #  - 2026-11-23 (test-gap list batch 4, todo TEST-GAPS-BATCH4-CAREER): total=13, the facility
 #    Rebuild pairing cell `FacilityRebuildRefusedWithTheMenusReason`
 #    (`InGameTests/StockUiFacilityRebuildTests.cs`) added. It needs a facility at stock level 0
-#    on this host and skips otherwise, so the split is regexed (INTERIM_PIN_IDS) until its
-#    first flight; predicted 13 / 0.
-required  = ["BATCH_COMPLETE v1 total=13 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StockUiOverlay scene=SPACECENTER"]
+#    on this host and skips otherwise, so the split was regexed until its
+#    first flight; pinned WHOLE off `2026-11-23_2124` (13 passed, 0 skipped, as predicted).
+required  = ["BATCH_COMPLETE v1 total=13 passed=13 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

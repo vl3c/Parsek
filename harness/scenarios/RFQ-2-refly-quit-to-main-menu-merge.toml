@@ -46,7 +46,7 @@ id = "RFQ-2-refly-quit-to-main-menu-merge"
 tier = "nightly"
 description = "Quit to Main Menu out of a live Re-Fly (S4.1's host + rewind-b9): ExitToMainMenu is refused dialog-required, stock's saveAndExit(MAINMENU) shows the Re-Fly merge dialog (never the commit-without-dialog branch), Merge commits at the main menu, and the save loaded back from the main menu is a Cold load with the session concluded."
 instanceProfile = "stock-minimal"
-tags = ["RFQ-2", "rewind", "refly", "merge", "main-menu", "scene-exit", "cold-load", "pending-flight"]
+tags = ["RFQ-2", "rewind", "refly", "merge", "main-menu", "scene-exit", "cold-load", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gloops-airshow"

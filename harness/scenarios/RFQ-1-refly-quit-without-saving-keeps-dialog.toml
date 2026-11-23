@@ -44,7 +44,7 @@ id = "RFQ-1-refly-quit-without-saving-keeps-dialog"
 tier = "nightly"
 description = "Quit without saving out of a live Re-Fly (S4.1's host + rewind-b9): the seam's no-save exit is refused dialog-required, then stock's no-save exit (confirm-exit, LoadScene, no save) keeps the usual exit handling for the live Re-Fly, the Re-Fly merge dialog is offered and Merge commits; nothing follows the save."
 instanceProfile = "stock-minimal"
-tags = ["RFQ-1", "rewind", "refly", "merge", "quit-without-saving", "scene-exit", "pending-flight"]
+tags = ["RFQ-1", "rewind", "refly", "merge", "quit-without-saving", "scene-exit", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gloops-airshow"

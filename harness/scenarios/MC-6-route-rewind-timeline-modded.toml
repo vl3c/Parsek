@@ -22,7 +22,7 @@ id = "MC-6-route-rewind-timeline-modded"
 tier = "operator"
 description = "AUTHORED 2026-11-23, NEVER FLOWN: H6's RouteRewindTimeline in-game category run unchanged on the modded-compat install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation) on gloops-airshow; the route-rewind lifecycle rows, dormant materialize, kept-route reconcile and auto-pause / resume nets must hold with the mods loaded."
 instanceProfile = "modded-compat"
-tags = ["route", "rewind", "logistics", "route-x-rewind", "timeline-events", "MC-6", "modded-compat", "twin-of-H6", "pending-flight"]
+tags = ["route", "rewind", "logistics", "route-x-rewind", "timeline-events", "MC-6", "modded-compat", "twin-of-H6", "flown"]
 
 [fixture]
 # gloops-airshow SANDBOX pod host (see S0.5). No injected recordings: every test
@@ -128,7 +128,7 @@ required  = [
   "Restore: retired 1 free-standing route row\\(s\\)",
   "Restore: dropped 1 pending science subject\\(s\\)",
   "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
-  "BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteRewindTimeline scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

@@ -26,7 +26,7 @@ id = "MC-7-rewind-merge-modded"
 tier = "operator"
 description = "AUTHORED 2026-11-23, NEVER FLOWN: S4.1's B9 Re-Fly cycle (refly-gate refusal, TimeJump, InvokeRewind of the crashed-booster slot, merge dialog answered merge) run unchanged on the modded-compat install; the rewind block reads report-only until its first green flight."
 instanceProfile = "modded-compat"
-tags = ["rewind", "refly", "merge", "MC-7", "B9", "D9", "modded-compat", "twin-of-S4.1", "pending-flight"]
+tags = ["rewind", "refly", "merge", "MC-7", "B9", "D9", "modded-compat", "twin-of-S4.1", "flown"]
 
 [fixture]
 # rewind-b9 injects the B9 rewindable-tree fixture (RewindB9Fixture via
@@ -206,7 +206,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # unflown re-fly writes no supersede row (`refused-unflown-provisional`), so slot 1's
 # effective tip stays open and the reaper keeps the RP by its rule. Still unpinned.
 [expectations.rewind]
-gating        = false
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
@@ -222,6 +222,12 @@ tombstones    = { max = 0 }
 # parsekFrames 0 in each. Offline negative control on `2026-09-23_2038` in known-gate 11.
 # Not re-read: the one nonzero reading among the n=19 above (its log is not among
 # the 5 archived here), so whether it carried a Parsek frame is unknown.
+# Armed 2026-11-23 off the first flight `2026-11-23_2122` (total 0, parsekFrames 0): S4.1's
+# ceilings, the twin rule.
+[expectations.unityExceptions]
+maxTotal = 3
+maxParsekFrames = 0
+
 [runtime]
 # Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
 # TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits

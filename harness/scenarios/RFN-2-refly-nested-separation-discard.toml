@@ -29,7 +29,7 @@ id = "RFN-2-refly-nested-separation-discard"
 tier = "operator"
 description = "Re-Fly nested separation (batch 4 item 2, case b): on cs-career-mun4 a CS Flea Twin Probe drops stand A on the pad (a rewind point) and is committed with its Flea slot stashed; a Re-Fly of that slot drops stand B (a nested session-provisional rewind point) and the scene-exit merge dialog discards the attempt, which purges the nested point and keeps the origin."
 instanceProfile = "stock-tree"
-tags = ["RFN-2", "RFN-1", "career", "rewind", "refly", "nested-rewind-point", "discard-refly", "editor", "timeline-ops", "pending-flight", "reading-run"]
+tags = ["RFN-2", "RFN-1", "career", "rewind", "refly", "nested-rewind-point", "discard-refly", "editor", "timeline-ops", "flown", "reading-run"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"

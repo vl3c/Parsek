@@ -850,7 +850,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 236 lan
 | rewind | 174 |
 | renderComposition | 42 |
 | routes | 29 |
-| unityExceptions | 28 |
+| unityExceptions | 29 |
 | ledger | 25 |
 | ghostLifecycle | 11 |
 | partParity | 10 |
@@ -860,7 +860,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 236 lan
 | gating table | lanes |
 |---|---|
 | recordings.structure | 101 |
-| rewind | 87 |
+| rewind | 88 |
 | routes | 19 |
 | ghostLifecycle | 9 |
 | renderComposition | 7 |

@@ -39,7 +39,7 @@ tier = "operator"
 description = "AUTHORED 2026-11-23, NEVER FLOWN (todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23). SEAT-1's seat board and dismount on seat-pad, committed in flight, Rewound-to-Launch; the stock Mallard on the Runway as the viewer; the new SeatGhostKerbal category samples UT 41-47 across the recorded dismount (44.90) and fails when Jeb's kerbal part is drawn on two ghosts or on none for 10 consecutive frames."
 instanceProfile = "stock-minimal"
 tags = ["SEAT4", "SEAT1", "eva", "seat", "external-command-seat", "ghost-render",
-        "rewind-to-launch", "ingame-batch", "pending-flight"]
+        "rewind-to-launch", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/seat-pad"
@@ -99,9 +99,11 @@ required = [
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "launchfromeditor complete scene=FLIGHT vessel=Mallard pid=[0-9]+ site=Runway situation=PRELAUNCH ",
   # THE SUBJECT (GhostKerbalVisibility.FormatSummary): Jeb drawn once across the handoff.
-  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?SeatGhostKerbal summary scene=FLIGHT frames=[0-9]+ framesWithKerbal=[1-9][0-9]* once=[1-9][0-9]* twice=[0-9]+ missing=[0-9]+ longestTwice=[0-9] longestMissing=[0-9] kerbals=Jebediah Kerman",
-  # INTERIM PIN (never flown): `total=1` literal, the split regexed; expected passed=1.
-  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SeatGhostKerbal scene=FLIGHT",
+  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?SeatGhostKerbal summary scene=FLIGHT frames=[0-9]+ framesWithKerbal=[1-9][0-9]* once=[1-9][0-9]* twice=[0-9]+ missing=[0-9]+ longestTwice=0 longestMissing=[01] kerbals=Jebediah Kerman",
+  # Pinned WHOLE off the first flight `2026-11-23_2114`, whose summary read frames=359
+  # framesWithKerbal=354 once=353 twice=0 missing=1 longestTwice=0 longestMissing=1 (one frame at
+  # the handoff, the pre-registered reading was 0).
+  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=SeatGhostKerbal scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

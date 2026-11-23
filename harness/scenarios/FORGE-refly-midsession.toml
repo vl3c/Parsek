@@ -29,7 +29,7 @@ id = "FORGE-refly-midsession"
 tier = "operator"
 description = "FIXTURE-FORGE: on gloops-airshow + rewind-b9 re-fly rp_b9_root slot 1, fly on 30 s, SaveGame to persistent mid-session -- stamps the refly-midsession-saved fixture RFP-1 boots in a fresh process (harvest_bdock_station.py --target-name refly-midsession-saved --keep-parsek)."
 instanceProfile = "stock-minimal"
-tags = ["FORGE", "fixture", "refly", "rewind", "pending-flight"]
+tags = ["FORGE", "fixture", "refly", "rewind", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gloops-airshow"

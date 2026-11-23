@@ -69,7 +69,7 @@ tier = "operator"
 description = "AUTHORED 2026-11-23, NEVER FLOWN: a retracted SP-L 1x6 solar panel and a rover wheel on a landed rover (pbr-break-rover, 820 m from the runway) broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must log both break edges after their presses and the ghost must map and apply both breaks."
 instanceProfile = "stock-minimal"
 tags = ["PBR-1", "part-events", "deployable-broken", "wheel-damage", "ghost-render",
-        "rewind-to-launch", "reading-run", "pending-flight"]
+        "rewind-to-launch", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/pbr-break-rover"
@@ -165,7 +165,7 @@ forbidden = [
 budgetSeconds = 2400
 
 [retry]
-policy = "once"
+policy = "none"
 
 [expectedFail]
 bugId = ""

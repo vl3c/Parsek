@@ -51,7 +51,7 @@ tier = "operator"
 description = "AUTHORED 2026-11-23, NEVER FLOWN (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
 instanceProfile = "stock-minimal"
 tags = ["EVA17", "eva", "jetpack", "eva-move", "rewind-to-launch", "ghost-render",
-        "ingame-batch", "pending-flight"]
+        "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -152,8 +152,8 @@ required = [
   # THE SUBJECT, ghost side (GhostPlaybackLogic.SynthesizedMotion.cs): the replayed burst
   # plays the plume on Valentina's ghost.
   "MISSIONMARK label=eva17-replay [\\s\\S]*?EVA jetpack plume emitting \\(vessel='Valentina Kerman' deployed=True thrusting=True ragdoll=False\\)",
-  # INTERIM PIN (never flown): `total=3` literal, the split regexed; expected passed=1 skipped=2.
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
+  # Pinned WHOLE off the first flight `2026-11-23_2112` (the pre-registered split).
+  "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=FlightGhostPosition scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

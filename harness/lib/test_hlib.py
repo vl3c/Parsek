@@ -5085,12 +5085,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `total=3` literal with the split regexed (expected passed=1 skipped=2), SEAT-4 pins the
     # new SeatGhostKerbal category `total=1` literal (expected passed=1). Both
     # leave on their first flight.
+    # ALL FOUR LEFT on their first flights, 2026-11-23 (run b4-first): H45 `_2124` 13 / 0, H48
+    # `_2125` 5 / 0, EVA-17 `_2112` 1 / 2 (the lane itself red by finding), SEAT-4 `_2114` 1 / 0.
     INTERIM_PIN_IDS: set = {
-        "EVA-17-orbit-jetpack-hop-rewind",
         "FGV-1-fairing-ghost-visual",
-        "H45-stock-ui-overlay",
-        "H48-ledger-drawdown",
-        "SEAT-4-seat-replay-kerbal-visibility",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -9914,6 +9912,8 @@ class UnityExceptionScanTests(unittest.TestCase):
             "V1-map-dwell-mun-orbit.toml": 0,
             "H23-tracking-station.toml": 6,
             "S4.1-rewind-merge.toml": 3,
+            # MC-7: S4.1's twin on modded-compat, n=1: 0 (`2026-11-23_2122`); S4.1's ceiling.
+            "MC-7-rewind-merge-modded.toml": 3,
             "H5-invariants-corpus.toml": 5,
             # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9) at 4 and RE-PINNED TO 6
             # on 2026-09-15 by OPERATOR DECISION (wave-0910 memo section 7a, register item
@@ -10032,6 +10032,8 @@ class UnityExceptionScanTests(unittest.TestCase):
         # `2026-07-31_1938`, `2026-09-23_2038`); control host `2026-09-23_2038`
         # (total 0). Keeps its maxTotal 3.
         "S4.1-rewind-merge.toml": 0,
+        # MC-7: `2026-11-23_2122` parsekFrames 0 (total 0), the one archived log.
+        "MC-7-rewind-merge-modded.toml": 0,
         # ZF-1: three driver-valid runs 2026-10-03, parsekFrames 0 in each (`_1521` total 0,
         # `_1531` total 0, `_1540` total 2, both stock KnowledgeBase NREs after the quit);
         # control host `_1540`. Arms no maxTotal.
@@ -12592,6 +12594,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
+                       # MC-7: S4.1's modded-compat twin, `rewind` armed 2026-11-23 off its
+                       # reading run `2026-11-23_2122` (supersedeRows 0, tombstones 0).
+                       "MC-7-rewind-merge-modded.toml",
                        # CT-3: `structure` armed 2026-11-22 off its two reading runs
                        # `2026-11-22_1135` / `_1242` (vesselNames: Damaged Kerbin AS-P
                        # Satellite NV5SQ 1 on both, mismatches 0): the rebuilt repair
