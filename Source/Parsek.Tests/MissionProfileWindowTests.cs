@@ -314,5 +314,19 @@ namespace Parsek.Tests
             string seam = Src("TestCommands/ParsekTestCommandAddon.UiState.cs");
             Assert.Contains("GetMissionProfileUI()", seam);
         }
+
+        // catches: the caret drawn in another style than the row text. A horizontal group takes
+        // the smallest vertical margin among its cells, so a caret with other margins made every
+        // caret row about 8 px shorter than a leaf row, and its own font put the triangle above
+        // the text's line (GUI-4 2026-11-23_0127 mun-return capture).
+        [Fact]
+        public void Caret_SharesTheBodyCellStyle_SoRowsAreOneHeightAndTheGlyphSitsOnTheTextLine()
+        {
+            string window = Src("UI/MissionProfileWindowUI.cs");
+            Assert.Matches(@"caretStyle\s*=\s*new GUIStyle\(bodyCellLabel\)", window);
+            Assert.Matches(@"margin\s*=\s*new RectOffset\(0,\s*0,\s*bodyCellLabel\.margin\.top,\s*bodyCellLabel\.margin\.bottom\)", window);
+            Assert.Matches(@"padding\s*=\s*new RectOffset\(0,\s*0,\s*bodyCellLabel\.padding\.top,\s*bodyCellLabel\.padding\.bottom\)", window);
+            Assert.DoesNotMatch(@"caretStyle\s*=\s*new GUIStyle\(GUI\.skin", window);
+        }
     }
 }

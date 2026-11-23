@@ -489,12 +489,15 @@ namespace Parsek
             {
                 normal = { textColor = ParsekUI.StatusColor(ParsekUI.StatusColorKind.Orange) }
             };
-            caretStyle = new GUIStyle(GUI.skin.label)
+            // The caret is drawn in the body cell's own style (font, size, vertical padding and
+            // margins), so its glyph shares the text's line box and baseline, and every row is one
+            // height: a horizontal group takes the smallest vertical margin among its cells, so a
+            // caret with other margins makes caret rows a different height from leaf rows.
+            caretStyle = new GUIStyle(bodyCellLabel)
             {
-                alignment = TextAnchor.MiddleLeft,
-                wordWrap = false,
-                padding = new RectOffset(0, 0, 0, 0),
-                margin = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(0, 0, bodyCellLabel.padding.top, bodyCellLabel.padding.bottom),
+                margin = new RectOffset(0, 0, bodyCellLabel.margin.top, bodyCellLabel.margin.bottom),
+                clipping = TextClipping.Overflow,
             };
         }
 
