@@ -234,20 +234,19 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // Every part name with a hardcoded stock tuning block that ReStock covers.
-            // HasAuthoredEffectsFor(true) is exactly the condition that stands the
-            // tunings down in TryBuildEngineFX.
+            // HasAuthoredEffectsFor(true) is exactly the condition that stands the RAPIER and LES
+            // tunings down in TryBuildEngineFX. The other parts have no tuning: on an install whose
+            // Waterfall pack strips them, the index is the only source of their ReStock plume.
             string[] coveredTunedParts =
             {
-                "microEngine.v2", "radialEngineMini.v2",        // Ant/Spider supplement
-                "microEngine",                                   // v1 Ant: ReStock PatchesLegacy authors fresh EFFECTS{fx-ant-running}
-                "MassiveBooster",                                // Kickback forced plume
-                "omsEngine",                                     // Puff supplement
-                "Size3AdvancedEngine", "Size3EngineCluster",     // Rhino plume + heavy white flame
-                "Size2LFB.v2", "Size2LFB",                       // Twin-Boar white flame
-                "SSME",                                          // Vector blue flame
-                "RAPIER",                                        // RAPIER plume forcing
-                "LaunchEscapeSystem"                             // LES particle-FX skip
+                "microEngine.v2", "radialEngineMini.v2",
+                "microEngine",                 // v1 Ant: ReStock PatchesLegacy authors fresh EFFECTS{fx-ant-running}
+                "MassiveBooster", "omsEngine",
+                "Size3AdvancedEngine", "Size3EngineCluster",
+                "Size2LFB.v2", "Size2LFB",
+                "SSME",
+                "RAPIER",                      // RAPIER plume forcing
+                "LaunchEscapeSystem"           // LES particle-FX skip
             };
             var missing = new List<string>();
             for (int i = 0; i < coveredTunedParts.Length; i++)
