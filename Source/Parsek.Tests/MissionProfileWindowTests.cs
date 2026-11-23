@@ -108,7 +108,7 @@ namespace Parsek.Tests
             var lines = new List<string>();
             ParsekLog.TestSinkForTesting = l => lines.Add(l);
             ParsekLog.VerboseOverrideForTesting = true;
-            var window = new MissionProfileWindowUI(null);
+            var window = new MissionProfileWindowUI(null, null);
             Assert.Equal("None", window.TargetModeForTesting);
             MissionProfile p = GuiMockProfileStates.BuildMunReturn();
             window.OpenWithGalleryProfile("Mun Return", p);

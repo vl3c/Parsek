@@ -53,7 +53,7 @@ namespace Parsek.Tests
 
         internal static Built BuildLikeTheWindow(List<RecordingTree> trees, string treeId,
             Func<string, string> missionOfTree, Mission mission = null,
-            ICollection<string> effective = null, IList<RecordingSupersedeRelation> supersedes = null)
+            ICollection<string> effective = null, IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
         {
             RecordingTree tree = trees.First(t => t.Id == treeId);
             var b = new Built { Tree = tree, Structure = MissionStructureBuilder.Build(tree) };

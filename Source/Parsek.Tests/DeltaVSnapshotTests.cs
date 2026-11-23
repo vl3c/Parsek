@@ -526,7 +526,7 @@ namespace Parsek.Tests
         public void BurnSpent_IsLeftBeforeMinusLeftAfter()
         {
             List<DeltaVSnapshot> list = AscentProfile();
-            Assert.True(DeltaVSnapshotList.TryGetBurnSpent(list, 170.0, 240.0, 1.0, out double spent, out double left));
+            Assert.True(DeltaVSnapshotList.TryGetBurnSpent(list, 170.0, 240.0, 1.0, out double spent, out double left, out _, out _));
             Assert.Equal(600.0, spent, 6);
             Assert.Equal(900.0, left, 6);
         }
@@ -537,7 +537,7 @@ namespace Parsek.Tests
         public void StagingDrop_IsThePreStagingReadMinusTheSettledRead()
         {
             List<DeltaVSnapshot> list = AscentProfile();
-            Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 5.0, out double drop));
+            Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 160.0, 5.0, out double drop, out _, out _));
             Assert.Equal(500.0, drop, 6);
             Assert.True(DeltaVSnapshotList.TryGetStagingDrop(list, 160.0, 160.0, 5.0, out _, out int first, out int last));
             Assert.Equal(2, first);
@@ -555,7 +555,7 @@ namespace Parsek.Tests
                 Ok(100.0, DeltaVTrigger.Start, 3400),
                 Ok(161.25, DeltaVTrigger.Staging, 1500),
             };
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(noPre, 160.0, 5.0, out double d0));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(noPre, 160.0, 160.0, 5.0, out double d0, out _, out _));
             Assert.True(double.IsNaN(d0));
 
             var unknownPost = new List<DeltaVSnapshot>
@@ -564,14 +564,14 @@ namespace Parsek.Tests
                 DeltaVSnapshot.Unknown(164.0, DeltaVTrigger.Staging),
                 Ok(170.0, DeltaVTrigger.Staging, 1400),
             };
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(unknownPost, 160.0, 5.0, out _));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(unknownPost, 160.0, 160.0, 5.0, out _, out _, out _));
 
             var late = new List<DeltaVSnapshot>
             {
                 Ok(159.98, DeltaVTrigger.PreStaging, 2000),
                 Ok(166.0, DeltaVTrigger.Staging, 1500),
             };
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(late, 160.0, 5.0, out _));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(late, 160.0, 160.0, 5.0, out _, out _, out _));
 
             var nextPairFirst = new List<DeltaVSnapshot>
             {
@@ -579,7 +579,7 @@ namespace Parsek.Tests
                 Ok(160.5, DeltaVTrigger.PreStaging, 1990),
                 Ok(161.8, DeltaVTrigger.Staging, 1500),
             };
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(nextPairFirst, 160.0, 5.0, out _));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(nextPairFirst, 160.0, 160.0, 5.0, out _, out _, out _));
 
             // A PreStaging older than the kept-reading bound plus the pairing slack is not this
             // staging's.
@@ -589,7 +589,7 @@ namespace Parsek.Tests
                     DeltaVTrigger.PreStaging, 2000),
                 Ok(161.25, DeltaVTrigger.Staging, 1500),
             };
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(stale, 160.0, 5.0, out _));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(stale, 160.0, 160.0, 5.0, out _, out _, out _));
         }
 
         // catches: a batch of stagings (one Stage separation row) reading only its first pair.
@@ -626,10 +626,10 @@ namespace Parsek.Tests
                 Ok(10, DeltaVTrigger.BurnStart, 3000),
                 DeltaVSnapshot.Unknown(40, DeltaVTrigger.BurnEnd),
             };
-            Assert.False(DeltaVSnapshotList.TryGetBurnSpent(list, 10, 40, 1.0, out double spent, out _));
+            Assert.False(DeltaVSnapshotList.TryGetBurnSpent(list, 10, 40, 1.0, out double spent, out _, out _, out _));
             Assert.True(double.IsNaN(spent));
-            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(list, 20, 5, out _));
-            Assert.False(DeltaVSnapshotList.TryGetBurnSpent(null, 10, 40, 1.0, out _, out _));
+            Assert.False(DeltaVSnapshotList.TryGetStagingDrop(list, 20, 20, 5, out _, out _, out _));
+            Assert.False(DeltaVSnapshotList.TryGetBurnSpent(null, 10, 40, 1.0, out _, out _, out _, out _));
         }
 
         #endregion

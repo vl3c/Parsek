@@ -9,9 +9,9 @@ namespace Parsek
     /// docs/dev/design-mission-profile.md sections 2.2 to 2.5 and 6): what one mission's
     /// flight did as a tree of phases, burns and events, opened from a mission's Profile
     /// button on the Missions tab. Rows come from the pure
-    /// <see cref="MissionProfileBuilder.BuildProfile"/>; this window fills the request from
-    /// live data the way the Mission Log does, draws the rows the builder formatted, and
-    /// keeps the collapse state. Read-only.
+    /// <see cref="MissionProfileBuilder.BuildProfile"/> over the request its handed-in
+    /// request builder fills (<c>StructureListWindowUI.BuildProfileRequest</c>); this window
+    /// draws the rows the builder formatted and keeps the collapse state. Read-only.
     ///
     /// <para>The frame (rect, resize, scaled draw, input lock) is the Log's
     /// (<see cref="LogTableWindowFrame"/>), and the body follows the Log's table: boxed
@@ -82,9 +82,17 @@ namespace Parsek
         private GUIStyle spentCellLabel;
         private GUIStyle caretStyle;
 
-        internal MissionProfileWindowUI(ParsekUI parentUI)
+        private readonly Func<Mission, RecordingTree, MissionProfileRequest> requestBuilder;
+
+        /// <summary><paramref name="requestBuilder"/> fills the builder's request from live
+        /// data (<c>StructureListWindowUI.BuildProfileRequest</c>, beside the Log's resolvers
+        /// it reads). Handed in by <see cref="ParsekWindowSet"/>, so this window names neither
+        /// the Missions tab nor the Log and stays out of the window set's dependency cycle.</summary>
+        internal MissionProfileWindowUI(ParsekUI parentUI,
+            Func<Mission, RecordingTree, MissionProfileRequest> requestBuilder)
         {
             this.parentUI = parentUI;
+            this.requestBuilder = requestBuilder;
             frame = new LogTableWindowFrame(WindowIdKey, InputLockId, LogName, "MissionProfile",
                 MinWindowWidth, MinWindowHeight);
         }
@@ -112,14 +120,13 @@ namespace Parsek
         /// <summary>The window title: <c>"Parsek - Profile: Kerbal X"</c>, the bare prefix
         /// with no name. Pure; the Log's title builder.</summary>
         internal static string BuildWindowTitle(string missionName)
-            => StructureListWindowUI.BuildWindowTitle(ProfileLabels.WindowTitlePrefix, missionName);
+            => LogTableWindowFrame.BuildWindowTitle(ProfileLabels.WindowTitlePrefix, missionName);
 
         /// <summary>First-open rect: the Mission Log's first-open position moved
         /// <see cref="CascadeOffset"/> down and right, at the Profile's own size. Pure.</summary>
         internal static Rect DefaultWindowRect(Rect mainWindowRect)
         {
-            Rect log = StructureListWindowUI.DefaultWindowRect(mainWindowRect, false);
-            return new Rect(log.x + CascadeOffset, log.y + CascadeOffset,
+            return LogTableWindowFrame.DefaultRect(mainWindowRect, CascadeOffset,
                 DefaultWindowWidth, DefaultWindowHeight);
         }
 
@@ -149,7 +156,7 @@ namespace Parsek
             Mission mission = FindMission(missionId);
             changeSignature = CurrentSignature(mission);
             RecordingTree tree = FindTree(treeId);
-            MissionProfile built = MissionProfileBuilder.BuildProfile(BuildRequest(mission, tree));
+            MissionProfile built = MissionProfileBuilder.BuildProfile(requestBuilder(mission, tree));
             SetProfile(built);
         }
 
@@ -162,9 +169,8 @@ namespace Parsek
 
         private static int CurrentSignature(Mission mission)
         {
-            ParsekScenario scenario = ParsekScenario.Instance;
-            int supersedeVersion = !ReferenceEquals(scenario, null) ? scenario.SupersedeStateVersion : 0;
-            return ComputeChangeSignature(RecordingStore.StateVersion, supersedeVersion,
+            return ComputeChangeSignature(RecordingStore.StateVersion,
+                EffectiveState.CurrentSupersedeStateVersion(),
                 mission != null, mission?.Name, mission?.ExcludedIntervalKeys, DisplayNames.Version);
         }
 
@@ -179,7 +185,7 @@ namespace Parsek
         {
             unchecked
             {
-                int h = StructureListWindowUI.ComputeChangeSignature(stateVersion, missionFound,
+                int h = LogTableWindowFrame.ComputeChangeSignature(stateVersion, missionFound,
                     missionName, excludedIntervalKeys, displayNamesVersion);
                 return h * 31 + supersedeVersion;
             }
@@ -220,45 +226,7 @@ namespace Parsek
         internal static bool ShouldCloseForDeletedTree(string targetTreeId, bool treeFound)
             => !string.IsNullOrEmpty(targetTreeId) && !treeFound;
 
-        // ------------------------------------------------------------------ the request
-
-        // Fills the builder's request the way the Mission Log fills its own build: the vessel
-        // names and partner legs from MissionVesselNaming, the part titles and dock partners
-        // through the Log's resolvers, plus the Profile's own inputs (effective ids, supersede
-        // rows, live body facts, career totals).
-        private static MissionProfileRequest BuildRequest(Mission mission, RecordingTree tree)
-        {
-            var request = new MissionProfileRequest
-            {
-                Mission = mission,
-                Tree = tree,
-                BodyFacts = RecordingOptimizer.ResolveBodyFacts,
-                DateFormatter = FormatDate,
-                PartTitleResolver = StructureListWindowUI.ResolvePartTitle,
-                CommittedTrees = RecordingStore.CommittedTrees,
-                TreeMissionName = otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
-            };
-            if (tree == null)
-                return request;
-
-            ParsekScenario scenario = ParsekScenario.Instance;
-            List<RecordingSupersedeRelation> supersedes =
-                !ReferenceEquals(scenario, null) ? scenario.RecordingSupersedes : null;
-            MissionStructure structure = MissionStructureBuilder.Build(tree);
-            var partnerLegIds = new HashSet<string>(StringComparer.Ordinal);
-            request.Structure = structure;
-            request.VesselNames = MissionVesselNaming.Build(tree, structure,
-                MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
-                request.TreeMissionName, out MissionVesselNaming.Tally _, null, partnerLegIds);
-            request.PartnerLegIds = partnerLegIds;
-            request.SupersedeRelations = supersedes;
-            request.EffectiveRecordingIds = EffectiveRecordingIdsOf(tree, supersedes);
-            string id = tree.Id;
-            request.MergePartnerResolver = (bp, viewerId) =>
-                StructureListWindowUI.ResolveMergePartner(id, bp, viewerId);
-            request.Career = SumCareer(EffectiveState.ComputeELS(), request.EffectiveRecordingIds);
-            return request;
-        }
+        // ------------------------------------------------------------------ the request inputs
 
         /// <summary>
         /// The tree's effective recording ids for the Profile (design 5): committed and not
@@ -553,7 +521,7 @@ namespace Parsek
         private void DrawEmptyBodyRow()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(StructureListWindowUI.EmptyNoTargetText, emptyBodyCellLabel);
+            GUILayout.Label(LogTableWindowFrame.EmptyNoTargetText, emptyBodyCellLabel);
             GUILayout.EndHorizontal();
         }
 

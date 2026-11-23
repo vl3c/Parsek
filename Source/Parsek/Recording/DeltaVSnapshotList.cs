@@ -185,17 +185,9 @@ namespace Parsek
         /// is the last Ok snapshot at or before <c>burnStartUT + toleranceSeconds</c> (the
         /// burn-start read lands a few frames after ignition); after is the first Ok snapshot
         /// later than that one and at or after <c>burnEndUT - toleranceSeconds</c>. False
-        /// when either side has no Ok snapshot.
+        /// when either side has no Ok snapshot. <paramref name="before"/> and
+        /// <paramref name="after"/> are the two snapshots read.
         /// </summary>
-        internal static bool TryGetBurnSpent(
-            IList<DeltaVSnapshot> list, double burnStartUT, double burnEndUT, double toleranceSeconds,
-            out double spent, out double left)
-        {
-            return TryGetBurnSpent(list, burnStartUT, burnEndUT, toleranceSeconds,
-                out spent, out left, out DeltaVSnapshot _, out DeltaVSnapshot _);
-        }
-
-        /// <summary>The same, also handing back the two snapshots read.</summary>
         internal static bool TryGetBurnSpent(
             IList<DeltaVSnapshot> list, double burnStartUT, double burnEndUT, double toleranceSeconds,
             out double spent, out double left, out DeltaVSnapshot before, out DeltaVSnapshot after)
@@ -268,13 +260,6 @@ namespace Parsek
                 return false;
             drop = sum;
             return true;
-        }
-
-        /// <summary>One staging at <paramref name="stagingUT"/>: <see cref="TryGetStagingDrop(IList{DeltaVSnapshot}, double, double, double, out double, out int, out int)"/>.</summary>
-        internal static bool TryGetStagingDrop(
-            IList<DeltaVSnapshot> list, double stagingUT, double windowSeconds, out double drop)
-        {
-            return TryGetStagingDrop(list, stagingUT, stagingUT, windowSeconds, out drop, out int _, out int _);
         }
 
         // The Staging read that answers the PreStaging at preIndex: the next Staging snapshot,

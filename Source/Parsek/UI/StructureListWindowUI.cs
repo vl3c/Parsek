@@ -131,7 +131,7 @@ namespace Parsek
         /// <summary>The empty-state line of a mission Log.</summary>
         internal const string EmptyMissionText = "This mission has no recorded flight.";
         /// <summary>The empty-state line before any target was given (the bare seam open).</summary>
-        internal const string EmptyNoTargetText = "Nothing to show.";
+        internal const string EmptyNoTargetText = LogTableWindowFrame.EmptyNoTargetText;
 
         /// <summary>The empty-state line for a target mode. Pure.</summary>
         internal static string EmptyText(TargetMode targetMode)
@@ -161,9 +161,7 @@ namespace Parsek
         /// <summary>A window title from a fixed part and a target name. Pure.</summary>
         internal static string BuildWindowTitle(string prefix, string targetName)
         {
-            return string.IsNullOrEmpty(targetName)
-                ? prefix
-                : prefix + ": " + targetName;
+            return LogTableWindowFrame.BuildWindowTitle(prefix, targetName);
         }
 
         /// <summary>The title the window draws right now, for tests and the census.</summary>
@@ -430,9 +428,8 @@ namespace Parsek
         /// </summary>
         internal static Rect DefaultWindowRect(Rect mainWindowRect, bool routeHistory)
         {
-            float offset = routeHistory ? RouteHistoryCascadeOffset : 0f;
-            return new Rect(mainWindowRect.x + mainWindowRect.width + 10 + offset,
-                mainWindowRect.y + offset, DefaultWindowWidth, DefaultWindowHeight);
+            return LogTableWindowFrame.DefaultRect(mainWindowRect,
+                routeHistory ? RouteHistoryCascadeOffset : 0f, DefaultWindowWidth, DefaultWindowHeight);
         }
 
         /// <summary>
@@ -445,29 +442,8 @@ namespace Parsek
             int stateVersion, bool missionFound, string missionName,
             ICollection<string> excludedIntervalKeys, int displayNamesVersion = 0)
         {
-            unchecked
-            {
-                int h = 17;
-                h = h * 31 + stateVersion;
-                h = h * 31 + displayNamesVersion;
-                h = h * 31 + (missionFound ? 1 : 0);
-                h = h * 31 + (missionName != null ? StringComparer.Ordinal.GetHashCode(missionName) : 0);
-                int setHash = 0;
-                int count = 0;
-                if (excludedIntervalKeys != null)
-                {
-                    foreach (string key in excludedIntervalKeys)
-                    {
-                        // Summed, so the order a HashSet enumerates in does not matter.
-                        int k = key != null ? StringComparer.Ordinal.GetHashCode(key) : 0;
-                        setHash += (k * 0x2F0B3A49) ^ (k >> 7);
-                        count++;
-                    }
-                }
-                h = h * 31 + count;
-                h = h * 31 + setHash;
-                return h;
-            }
+            return LogTableWindowFrame.ComputeChangeSignature(stateVersion, missionFound,
+                missionName, excludedIntervalKeys, displayNamesVersion);
         }
 
         private static Mission FindMission(string id)
@@ -491,6 +467,45 @@ namespace Parsek
             return MissionStructureListBuilder.DescribeMergePartnerFromGraph(
                 DockEventGraphCache.GetOrBuild(), treeId, bp, viewerId,
                 MissionsWindowUI.ResolvePartnerMissionName);
+        }
+
+        /// <summary>
+        /// The Mission Profile's builder request, filled the way the Log fills its own build: the
+        /// vessel names and partner legs from <see cref="MissionVesselNaming"/>, the part titles
+        /// and dock partners through the resolvers above, plus the Profile's own inputs (effective
+        /// ids, supersede rows, live body facts, career totals). Handed to the Profile window by
+        /// <see cref="ParsekWindowSet"/>.
+        /// </summary>
+        internal static MissionProfileRequest BuildProfileRequest(Mission mission, RecordingTree tree)
+        {
+            var request = new MissionProfileRequest
+            {
+                Mission = mission,
+                Tree = tree,
+                BodyFacts = RecordingOptimizer.ResolveBodyFacts,
+                DateFormatter = MissionProfileWindowUI.FormatDate,
+                PartTitleResolver = ResolvePartTitle,
+                CommittedTrees = RecordingStore.CommittedTrees,
+                TreeMissionName = otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
+            };
+            if (tree == null)
+                return request;
+
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = EffectiveState.CurrentSupersedesOrEmpty();
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            var partnerLegIds = new HashSet<string>(StringComparer.Ordinal);
+            request.Structure = structure;
+            request.VesselNames = MissionVesselNaming.Build(tree, structure,
+                MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
+                request.TreeMissionName, out MissionVesselNaming.Tally _, null, partnerLegIds);
+            request.PartnerLegIds = partnerLegIds;
+            request.SupersedeRelations = supersedes;
+            request.EffectiveRecordingIds = MissionProfileWindowUI.EffectiveRecordingIdsOf(tree, supersedes);
+            string id = tree.Id;
+            request.MergePartnerResolver = (bp, viewerId) =>
+                ResolveMergePartner(id, bp, viewerId);
+            request.Career = MissionProfileWindowUI.SumCareer(EffectiveState.ComputeELS(), request.EffectiveRecordingIds);
+            return request;
         }
 
         private static RecordingTree FindTree(string treeId)

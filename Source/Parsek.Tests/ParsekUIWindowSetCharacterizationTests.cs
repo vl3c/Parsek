@@ -430,7 +430,7 @@ namespace Parsek.Tests
                 "logisticsUI = new LogisticsWindowUI(ui);",
                 "structureListUI = new StructureListWindowUI(ui);",
                 "routeHistoryUI = new StructureListWindowUI(ui, routeHistory: true);",
-                "missionProfileUI = new MissionProfileWindowUI(ui);",
+                "missionProfileUI = new MissionProfileWindowUI(ui, StructureListWindowUI.BuildProfileRequest);",
             });
             int news = 0, at = 0;
             while ((at = body.IndexOf("new ", at, StringComparison.Ordinal)) >= 0) { news++; at++; }

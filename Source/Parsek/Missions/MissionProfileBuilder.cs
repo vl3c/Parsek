@@ -32,7 +32,7 @@ namespace Parsek
         /// suppression ignored, section 5). Null: every recording of the tree.</summary>
         public ICollection<string> EffectiveRecordingIds;
         /// <summary>The supersede rows (old -> new) the Re-Fly bridge follows.</summary>
-        public IList<RecordingSupersedeRelation> SupersedeRelations;
+        public IReadOnlyList<RecordingSupersedeRelation> SupersedeRelations;
         /// <summary>Body facts (the live body in game, the stock table headless).</summary>
         public Func<string, RecordingOptimizer.BodyFacts> BodyFacts;
         /// <summary>The first row's date (the Log's formatter; KSPUtil in game).</summary>

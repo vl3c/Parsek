@@ -40,7 +40,7 @@ namespace Parsek
             logisticsUI = new LogisticsWindowUI(ui);
             structureListUI = new StructureListWindowUI(ui);
             routeHistoryUI = new StructureListWindowUI(ui, routeHistory: true);
-            missionProfileUI = new MissionProfileWindowUI(ui);
+            missionProfileUI = new MissionProfileWindowUI(ui, StructureListWindowUI.BuildProfileRequest);
         }
 
         /// <summary>The FLIGHT scene's ParsekUI with its windows.</summary>
