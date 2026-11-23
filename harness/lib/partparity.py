@@ -1179,6 +1179,8 @@ def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[st
     if type(n) is not int or not 0 < n <= FX_MAX_SAMPLES:
         problems.append("fx.samples=%s" % n)
         n = None
+    meta = sidecar.get("fxAtlas") if isinstance(sidecar.get("fxAtlas"), dict) else {}
+    tile = meta.get("tile")
     seen: Dict[Tuple[str, str, str], int] = {}
     for e in entries:
         key = (str(e.get("route")), str(e.get("view")), str(e.get("layer")))
@@ -1187,6 +1189,8 @@ def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[st
         problems.extend(_missing_keys(at, e, FX_VIEW_KEYS))
         if key[0] not in FX_ROUTE_ROW or key[1] not in FX_VIEWS or key[2] not in FX_LAYERS:
             problems.append("%s: not a known route, view and layer" % at)
+        if type(tile) is not int or tile <= 0 or e.get("width") != tile or e.get("height") != tile:
+            problems.append("%s: size %sx%s, tile %s" % (at, e.get("width"), e.get("height"), tile))
         bad_axis = _fx_axis_problem(e.get("view"), e.get("axis"), stochastic)
         if bad_axis is not None:
             problems.append("%s: %s" % (at, bad_axis))

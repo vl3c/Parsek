@@ -2967,6 +2967,7 @@ class FxJudgeTests(unittest.TestCase):
                 ("a float count", lambda f: f["views"][0]["ghost"].update(corePx=1.5)),
                 ("hue bins", lambda f: f["views"][0]["real"].update(hueHistogram=[0.0] * 11)),
                 ("an axis key", lambda f: f["views"][0]["axis"].pop("nozzleDiameterPx")),
+                ("the size", lambda f: f["views"][0].update(width=10 ** 6)),
                 ("no half", lambda f: f["views"][0]["splitHalf"].update(odd=None)),
                 ("half samples", lambda f: f["views"][0]["splitHalf"]["odd"].update(samples=16)),
                 ("half side key", lambda f: f["views"][0]["splitHalf"]["even"]["ghost"].pop("widthPx")),

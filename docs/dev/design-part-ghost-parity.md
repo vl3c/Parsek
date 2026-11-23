@@ -2622,8 +2622,16 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
     cannot write (an alpha that is no sample count, a colour on an uncovered pixel). It runs on
     every control with an FX atlas and on its own seeded 2 % sample of the part cases with one
     (a run's mixed sample could draw only heat cases); the ids are listed as `<caseId>.fx`. The
-    block shape (every key, the split halves' sample counts, each expected entry exactly once)
-    is checked on EVERY captured FX case. Any of it is INVALID(parity-instrument).
+    block shape is checked on EVERY captured FX case, halves included: every key, each
+    expected entry exactly once at the atlas's tile size, a usable axis on every side and far
+    view of a plume or rcs case (without one five measures are undefined, so unjudged), each
+    value null exactly where the C# side defines it null, and every compare value the side
+    blocks determine (all but `coreIou` and `directionDeg`) recomputed from them. So are
+    `fx.family` against the state word, `stateProof.family` and the row family (it decides
+    what is judged), an `ok` rcs case that did not fire exactly the predicted nozzles, an `ok`
+    light case under the plate floor (both also `error`), and an rcs family whose every
+    captured case drew nothing on its real side (no control has an rcs subject). Any of it is
+    INVALID(parity-instrument).
   - Entries a stochastic case must write, else the case is `error` (`fx-no-entries:`) and the
     sweep INVALID: the `event` and `start` routes x 4 views x 2 layers (a control: `event`
     only), and on an rcs part case the route `all` (the `ghost-all` rows, never judged).
@@ -2644,9 +2652,11 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - RCS (R4). Length, width and brightness leave the verdict and land in
     `fx.rcs.reportedOnly` beside `powerRatio`; the flag `rcs-known-difference:*` is the written
     one, else derived from `fx.rcs`. Flags (`fx.flags`, none moves a verdict but the cap):
-    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and
-    `fx-structure-not-measured` (a stochastic case with a null `fx.structure`, so the
-    structural raise did not run).
+    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and three that
+    raise to at least `warn` because a check did not run: `fx-structure-not-measured` (a null
+    `fxMissingOnGhost` or `fxExtraOnGhost`), `fx-nozzle-not-measured` (no `nozzleDiameterPx`
+    on the bottom view) and `fx-no-real-effect` (an empty real side, as the static `JetEngine`
+    draws).
   - Controls. In an FX run every control recorded `ok` is re-judged from its sidecar
     (`judge_fx_control`): evidence = the `event` entries, a measure fails when any entry fails
     it. Stricter than `JudgeFxControl` in two ways: a plume control whose intact side has no
@@ -2656,7 +2666,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - Press gate. The four families count as P6's do (family from the row, `stateProof`, else
     `fx.family`). An rcs press that fired NOTHING is `rcs-input-mismatch`, not a timeout (the
     RCS group books `RCSActivated` at zero input), so that status with an empty `fired` counts
-    too; other fired nozzles than predicted do not.
+    too (other fired nozzles than predicted do not), and so does `plate-not-lit` (a lamp that
+    never lights).
   - Verdicts JSON: each FX case's `fx` block (family, reference, wouldBe, routes, entries,
     unsettled, flags, structure, rcs) and the document's `fx` (cases per family, reference and
     would-be counts, flag counts, thresholds). A sweep with no FX case writes what it wrote
