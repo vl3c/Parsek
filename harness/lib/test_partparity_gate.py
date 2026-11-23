@@ -17,6 +17,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(os.path.dirname(HERE), "tools")
@@ -131,8 +132,12 @@ class MeasureAndBaselineTests(unittest.TestCase):
 
     def test_validate_baseline(self):
         good = {"schema": pp.BASELINE_SCHEMA, "profile": "p", "labels": {
-            "pp1": {"cases": {"a--x--1": {"views": {"side-a": {"colorBlobPx": [1, 2]}}}}}}}
+            "pp1": {"cases": {"a--x--1": {"setup": ["ok"], "measured": True,
+                                          "views": {"side-a": {"colorBlobPx": [1, 2]}}}}}}}
         self.assertEqual([], pp.validate_baseline(good, "p"))
+        lost = json.loads(json.dumps(good))
+        del lost["labels"]["pp1"]["cases"]["a--x--1"]["measured"]
+        self.assertTrue(pp.validate_baseline(lost, "p"), "dropping measured would switch drift off")
         self.assertTrue(pp.validate_baseline(good, "other"))
         bad = json.loads(json.dumps(good))
         bad["labels"]["pp1"]["cases"]["a--x--1"]["views"]["side-a"]["colorBlobPx"] = [3, 2]
@@ -373,11 +378,88 @@ class GateTests(unittest.TestCase):
         g = _gate({"a--x--1": _case("a--x--1", [_view(color=400)])}, None)
         self.assertEqual([pp.GATE_NO_BASELINE], _kinds(g.reds))
 
-    def test_a_setup_fault_never_reds(self):
+    def test_a_fault_on_a_baselined_case_never_passes(self):
         base = {"a--x--1": _case("a--x--1")}
-        g = _gate({"a--x--1": _case("a--x--1", [_view(color=9999)], status="crashed")}, _section([base]))
-        self.assertTrue(g.ok)
-        self.assertEqual([pp.NOTE_SETUP_FAULT], _kinds(g.notes))
+        g = _gate({"a--x--1": _case("a--x--1", status="spawn-timeout")}, _section([base]))
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        # The ghost builder runs inside the prepare guard, so its exception reads crashed.
+        g = _gate({"a--x--1": _case("a--x--1", status="crashed")}, _section([base]))
+        self.assertEqual([pp.GATE_UNACCEPTED_FAIL], _kinds(g.reds))
+        # A fault the baseline itself recorded, and one on a case it never held, are notes.
+        for section in (_section([base, {"a--x--1": _case("a--x--1", status="spawn-timeout")}]),
+                        _section([{"b--x--2": _case("b--x--2")}])):
+            g = _gate({"a--x--1": _case("a--x--1", status="spawn-timeout")}, section,
+                      planned=["a--x--1"] + [c for c in section["cases"] if c != "a--x--1"][:0])
+            self.assertEqual([], [f for f in g.reds if f.kind != pp.GATE_GONE])
+            self.assertEqual([], g.unmeasured)
+            self.assertEqual([pp.NOTE_SETUP_FAULT], _kinds(g.notes))
+
+    def test_a_planned_baselined_case_with_no_sidecar_is_unmeasured(self):
+        base = {"a--x--1": _case("a--x--1"), "b--x--2": _case("b--x--2")}
+        g = _gate({"a--x--1": _case("a--x--1")}, _section([base]), planned=["a--x--1", "b--x--2"])
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+
+    def test_what_the_capture_lost_is_unmeasured_never_a_pass(self):
+        def state(**kw):
+            v = _view("side-a", start={"realOnlyBlobPx": 0, "ghostOnlyBlobPx": 0, "colorBlobPx": 0, "iou": 1.0})
+            doc = _case("a--x--1", [v], state="deployed", structure={"pairs": 1},
+                        proof={"state": "deployed", "action": "Extend", "actionResult": "invoked", "reached": True,
+                               "ghostEvent": "applied", "ghostStart": "applied", "events": [{"type": "x"}]})
+            doc["structureStart"] = {"pairs": 1}
+            doc.update(kw)
+            return doc
+        whole = _case("a--x--1", [_view("side-a"), _view("top")])
+        m = _manifest(["a--x--1"])
+        m["views"] = ["side-a", "top"]
+        self.assertIsNone(pp.unmeasured_reason(whole, m))
+        self.assertIsNone(pp.unmeasured_reason(state(), dict(m, views=["side-a"])))
+        lost = {"view": (_case("a--x--1", [_view("side-a")]), m),
+                "null": (_case("a--x--1", [_view("side-a"), _view("top", color=None)]), m),
+                "throw": (_case("a--x--1", whole["views"], flags=["exception-capture-top"]), m),
+                "error": (_case("a--x--1", whole["views"], flags=["capture-error:top"]), m),
+                "structure": (dict(whole, structure=None), m),
+                "start structure": (state(structureStart=None), dict(m, views=["side-a"])),
+                "start route": (state(views=[_view("side-a")]), dict(m, views=["side-a"]))}
+        for name, (doc, manifest) in lost.items():
+            with self.subTest(name):
+                self.assertIsNotNone(pp.unmeasured_reason(doc, manifest))
+
+    def test_a_hidden_renderer_or_an_unmodelled_state_reds_on_a_passing_noisy_case(self):
+        noisy = [_entry("a--x--1", "*", "*", noisy=True)]
+        base = {"a--x--1": _case("a--x--1")}
+        hidden = {"renderedDiffers": [{"key": "model/A", "field": "rendered", "real": "true", "ghost": "false"}]}
+        drawn = {"renderedDiffers": [{"key": "model/A", "field": "rendered", "real": "false", "ghost": "true"}]}
+        for name, doc, group in (
+                ("hidden", _case("a--x--1", structure=hidden), "hidden"),
+                ("drawn", _case("a--x--1", structure=drawn), "drawn"),
+                ("not built", _case("a--x--1", flags=["ghost-not-built:start"]), "flag:ghost-not-built:start"),
+                ("not modelled", _case("a--x--1", flags=["state-not-modelled:event:not-reached"]), "flag:state-not-modelled:*"),
+                ("not recorded", _case("a--x--1", flags=["state-not-recorded"]), "flag:state-not-recorded")):
+            with self.subTest(name):
+                g = _gate({"a--x--1": doc}, _section([base]), noisy)
+                self.assertEqual([pp.GATE_UNACCEPTED_FAIL], _kinds(g.reds))
+                g = _gate({"a--x--1": doc}, _section([base]), [_entry("a--x--1", "*", group)])
+                self.assertEqual([], g.reds)
+        g = _gate({"a--x--1": _case("a--x--1", structure=hidden)}, _section([base]), [_entry("a--x--1", "*", "drawn")])
+        self.assertEqual(1, len(g.reds), "accepting one direction does not accept the other")
+
+    def test_a_blank_ghost_reds_on_a_noisy_case(self):
+        base = {"a--x--1": _case("a--x--1", [_view(iou=0.6)])}
+        noisy = [_entry("a--x--1", "*", "*", noisy=True)]
+        self.assertEqual([], _gate({"a--x--1": _case("a--x--1", [_view(iou=0.31)])}, _section([base]), noisy).reds)
+        g = _gate({"a--x--1": _case("a--x--1", [_view(iou=0.0)])}, _section([base]), noisy)
+        self.assertEqual([pp.GATE_DRIFT], _kinds(g.reds))
+
+    def test_a_blob_percentage_that_prints_as_its_line_is_a_numeric_reason(self):
+        cv = pp.judge_case(_case("a--x--1", [_view(real=20, pct=0.2003)]))
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertEqual([("shape-blob", True)], [(f.group, f.numeric) for f in pp.fail_reasons(cv)])
+
+    def test_the_profile_is_the_spec_s_else_the_manifest_s_without_a_slot_copy(self):
+        self.assertEqual("stock-minimal", pp.profile_of({"profile": "stock-minimal-2"}, "stock-minimal"))
+        self.assertEqual("stock-minimal", pp.profile_of({"profile": "stock-minimal-2"}, None))
+        self.assertEqual("modded-compat", pp.profile_of({"profile": "modded-compat"}, None))
+        self.assertIsNone(pp.profile_of({"profile": ".."}, None))
 
     def test_a_case_baselined_only_as_a_fault_is_judged_as_new(self):
         base = {"a--x--1": _case("a--x--1", status="spawn-timeout")}
@@ -460,11 +542,12 @@ class EvaluateSweepGateTests(unittest.TestCase):
         self.assertTrue(pp.detail_record(pp.combine([res], True))["sweeps"][0]["gate"]["ok"])
 
     def test_armed_a_failing_case_the_list_accepts_passes_and_one_it_does_not_fails(self):
-        sweep = self._sweep(parts=2, part_ghost_shift=3)
+        # A 2 px shift keeps IoU at the noisy floor (0.5); a larger one reds noisy cases too.
+        sweep = self._sweep(parts=2, part_ghost_shift=2)
         clean = self._sweep(parts=2)
         section = self._section_of(clean)
         ids = sorted(c for c in sweep.sidecars if c not in pp.ALL_CONTROL_IDS)
-        sweep = self._sweep(parts=2, part_ghost_shift=3)
+        sweep = self._sweep(parts=2, part_ghost_shift=2)
         res = self._eval(sweep, True, pp.GateInput("p", section))
         self.assertEqual(pp.STATUS_FAIL, res.status)
         self.assertTrue(any(p.startswith("gate:") for p in res.problems))
@@ -479,6 +562,16 @@ class EvaluateSweepGateTests(unittest.TestCase):
         res = self._eval(sweep, False, pp.GateInput("p", None))
         self.assertEqual(pp.STATUS_REPORT, res.status)
         self.assertFalse(res.gate.ok)
+
+    def test_an_unmeasured_case_is_invalid_and_a_red_outranks_it(self):
+        sweep = self._sweep(parts=2)
+        section = self._section_of(sweep)
+        ids = sorted(c for c in sweep.sidecars if c not in pp.ALL_CONTROL_IDS)
+        sweep.sidecars[ids[0]]["views"][0]["colorBlobPx"] = None
+        res = self._eval(sweep, True, pp.GateInput("p", section))
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        sweep.sidecars[ids[1]]["structure"]["missingOnGhost"] = [{"key": "m", "mesh": "x", "rendered": True}]
+        self.assertEqual(pp.STATUS_FAIL, self._eval(sweep, True, pp.GateInput("p", section)).status)
 
     def test_a_read_error_reds_an_armed_sweep(self):
         sweep = self._sweep(parts=2)
@@ -497,6 +590,12 @@ class BaselineToolTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="pp-tool-")
         self.base_dir = os.path.join(self.tmp, "partparity")
         os.makedirs(self.base_dir)
+        # The fake sweeps carry no controls; the instrument checks have their own cell below.
+        ok = mock.Mock(problems=[])
+        for name in ("check_controls", "check_completeness"):
+            patcher = mock.patch.object(pp, name, return_value=ok)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -563,6 +662,13 @@ class BaselineToolTests(unittest.TestCase):
         self.assertEqual(ppb.EXIT_USAGE, self._run("write", "--label", "pp1", d1, d2)[0])
         d3 = self._sweep_dir("r3", {"a--x--1": _case("a--x--1")}, complete=False)
         self.assertEqual(ppb.EXIT_USAGE, self._run("write", "--label", "pp1", d3)[0])
+
+    def test_write_refuses_a_run_whose_controls_or_completeness_fail(self):
+        d = self._sweep_dir("r1", {"a--x--1": _case("a--x--1")})
+        for name in ("check_controls", "check_completeness"):
+            with mock.patch.object(pp, name, return_value=mock.Mock(problems=["bad"])):
+                self.assertEqual(ppb.EXIT_USAGE, self._run("write", "--label", "pp1", d)[0], name)
+        self.assertEqual(0, self._run("write", "--label", "pp1", d)[0])
 
     def test_run_id_of_both_layouts(self):
         self.assertEqual("2026-11-22_0033_PP-1", ppb.run_id_of(os.path.join("x", "2026-11-22_0033_PP-1_partparity", "pp1")))
@@ -644,13 +750,20 @@ class CommittedFilesTests(unittest.TestCase):
             self.assertTrue(found, "accepted case %s is in no baseline (typo?)" % e.case)
 
     def test_no_committed_entry_hides_a_missing_mesh(self):
-        # A hidden renderer must red on EVERY baselined case, the accepted ones included.
+        # A missing or hidden renderer, a ghost not built and a state not recorded must red on
+        # EVERY baselined case, the accepted ones included.
         entries, _ = self._accepted()
-        fr = pp.FailReason("missing-rendered:model/X", pp.GROUP_STRUCTURE, None, False)
+        for group in (pp.GROUP_STRUCTURE, pp.GROUP_SKIN, pp.GROUP_HIDDEN, "flag:ghost-not-built",
+                      "flag:ghost-not-built:start", "flag:state-not-recorded"):
+            for profile, doc in self._baselines().items():
+                for label, sec in doc["labels"].items():
+                    covered = [c for c in sec["cases"] if any(e.covers(c, profile, None, group) for e in entries)]
+                    self.assertEqual([], covered, "%s %s/%s" % (group, profile, label))
+
+    def test_the_stored_tolerances_are_the_live_ones(self):
         for profile, doc in self._baselines().items():
             for label, sec in doc["labels"].items():
-                hidden = [c for c in sec["cases"] if any(e.covers(c, profile, fr.view, fr.group) for e in entries)]
-                self.assertEqual([], hidden, "%s/%s" % (profile, label))
+                self.assertEqual(pp.drift_tolerances(), sec["tolerances"], "%s/%s" % (profile, label))
 
     def test_every_armed_part_parity_lane_has_a_baseline_section_per_label(self):
         baselines = self._baselines()

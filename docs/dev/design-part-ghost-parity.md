@@ -849,7 +849,7 @@ reference lane. The concrete P8 plan is Appendix E.
   threshold re-pin needs no new baseline. Controls are not baselined (their recorded outcomes are
   the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
   `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
-  (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `flag:<flag>` with an optional
+  (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `hidden`, `drawn`, `flag:<flag>` with an optional
   trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy`) names every known difference; a
   placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
   The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
@@ -861,7 +861,9 @@ reference lane. The concrete P8 plan is Appendix E.
   A numeric fail on a baselined case inside its band's tolerance is a `near-line-fail` note: a
   case that sits near a fail line in every run is judged by the drift rule, so colour noise near
   the 256 px line cannot flake the gate. A non-noisy entry waives only the fail verdict, so an
-  accepted difference that grows still reds. An `error` case never reds. Moves to the better side,
+  accepted difference that grows still reds. Hidden renderers, unbuilt ghosts and `state-not-*` flags red whatever the verdict, and a
+  baselined case that could not be measured makes the armed row INVALID(parity-incomplete)
+  (Appendix F). Moves to the better side,
   new passing cases and entries that matched nothing are notes, written to
   `partparity-verdicts.json` (`gate`) and the summary line (`gate=ok|red reds= drift= ...`).
   Tolerances and their measured basis: Appendix F. The writer and checker is
@@ -917,7 +919,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
 | P3 (DONE 2026-11-22, Appendix C) | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. Flown 2026-11-22: PP-1 `2026-11-22_0033` and PP-2 `2026-11-22_0045` PASS attempt 1 after two reading pairs; 16 ghost defects fixed (PRs #2745, #2749), the detector re-ruled, 4 report-only fails left (todo GHOST-PARITY-RESIDUALS-2026-11-22). | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
-| P5 (DONE 2026-11-23, Appendix F) | Baseline + accepted list; gate armed after a second matching reading run. BUILT: `partparity.gate_sweep` (10), `harness/partparity/baseline-<profile>.json` for all six labels, `accepted.toml` (58 entries), `part_parity_baseline.py`, the viewer's `--pinned` mode (8), the real-vs-real control's noise allowance (4.5). PP-1 to PP-4 armed; PP-5 / PP-6 report-only (canopy airflow). | A deliberately broken ghost (mutation) reds the armed lane. |
+| P5 (DONE 2026-11-23, Appendix F) | Baseline + accepted list; gate armed after a second matching reading run. BUILT: `partparity.gate_sweep` (10), `harness/partparity/baseline-<profile>.json` for all six labels, `accepted.toml` (72 entries), `part_parity_baseline.py`, the viewer's `--pinned` mode (8), the real-vs-real control's noise allowance (4.5). PP-1 to PP-4 armed; PP-5 / PP-6 report-only (canopy airflow). | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. PLANNED 2026-11-22 (Appendix D, rev 2): 12 transformation families, two ghost routes per state case, the jettison node contexts, chutes deployed for real in the air near KSC, the FGV fairing contexts, new report-only lanes PP-3 / PP-4 (orbit) and PP-5 / PP-6 (air). | Chute and deployables covered: every in-scope state case on both installs has a sidecar or a recorded setup fault, the state controls behave, the press gate holds, the owner reads stowed and deployed side by side. |
 | P7 | Animation strips + GIF / APNG (9.2). | Antennas, panels, robotics scrubbed in lock-step. |
 | P8 | Plumes and FX (9.3). PLANNED 2026-11-22 (Appendix E, rev 2): engine plumes and smoke, RCS puffs (the ghost's all-nozzle firing a known difference, owner ruling R4), engine and RCS glow (body atlas), `ModuleAnimateHeat` glow, the light a lamp casts on a plate; stochastic effects compared as accumulated coverage and colour from 8-bit tiles with split-half convergence and broken-plume controls; Waterfall cases reference-only; a Waterfall-free `modded-restock` profile; new report-only lanes PP-7 / PP-8 / PP-9 (orbit), PP-10 and a jet label in PP-5 / PP-6 (air); a later flight-camera reentry reference lane (R1). | Engine plumes compared on stock and on ReStock without Waterfall; reference-only on Waterfall: every in-scope FX case on every install has a sidecar or a recorded setup fault, the FX controls behave, the owner reads real and ghost plumes side by side. |
@@ -2934,27 +2936,45 @@ the current build's clean runs up to 2360 px of colour and 0.37 of IoU on PP-4),
 orbital scanners (spin phase), the LV-1 stacked shroud (z-fight), the KE-1 rods (37 to 522 px), the
 ReStock wheels' free-fall droop (`roverwheel1` colour 16556 to 27694 px), the stock EM-16 row above
 and the owner-accepted colour residuals. A picture regression on one of those cases is NOT caught
-by the gate; a missing or extra mesh, a skin mismatch or a fail-floor state flag on any of them is.
+by the gate; a missing, extra or hidden mesh, a skin mismatch, a state flag or a blank ghost on any of them is.
 
 **A wildcard accepts pictures only.** `measure = "*"` first covered every group, so such an entry
 also waived a missing mesh: with a rendered missing mesh injected into every case of one run per
 lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `shape-blob`,
 `color-blob` and `iou` only, and all 2716 red (`test_no_committed_entry_hides_a_missing_mesh`).
 
-**Accepted list** (`harness/partparity/accepted.toml`, 58 entries, 41 of them `noisy`, each with
-its todo id): 16 under GHOST-PARITY-RESIDUALS-2026-11-22 (the four cosmetic colour residuals and 12
-ReStock wheel cases under the suspension-droop ruling it records), 12 sun trackers
-(PARTPARITY-SUN-TRACKER-RESIDUAL), 9 lit cases stock draws no light on
-(PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK, the `start-pose-not-first-frame` flag only), 5 KE-1
-cases (PARTPARITY-KE1-STRUT-ROLL, new), 5 small state residuals
+**What the review found (all fixed before the PR; no flight, proved over the archived sidecars).**
+
+- A slot copy's sweep names its profile `stock-minimal-2`, so a clean armed run there read
+  `no-baseline`. The spec's `instanceProfile` now decides, else the name without the copy suffix.
+- A setup fault on a baselined case was only a note, and the ghost builder runs inside the guard
+  that records `crashed`: a sweep whose every case crashed read PASS. `crashed` now reds; any other
+  new fault is `unmeasured`, which makes the armed row INVALID(parity-incomplete).
+- A missing view or route, a null measure, an unmeasured structure or a capture that threw was
+  skipped. Each is `unmeasured` now.
+- A ghost renderer that exists but is disabled, a ghost that was not built and a state the ghost did
+  not play were invisible on the noisy cases. `renderedDiffers` (groups `hidden` and `drawn`),
+  `ghost-not-built*` and `state-not-*` red now whatever the verdict, and a noisy case whose IoU falls
+  under half its band's low end reds too.
+
+None of the fifteen armed-lane and chute-lane reading runs carries any of these except the five
+stowed chutes (`drawn`) and the nine lit cases (`state-not-modelled`), which are accepted by name.
+
+**Accepted list** (`harness/partparity/accepted.toml`, 72 entries, 41 of them `noisy`, each with
+its todo id): 18 for the 9 lit cases stock draws no light on
+(PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK, two `flag:` entries each), 16 under
+GHOST-PARITY-RESIDUALS-2026-11-22 (the four cosmetic colour residuals and 12 ReStock wheel cases
+under the suspension-droop ruling it records), 12 sun trackers (PARTPARITY-SUN-TRACKER-RESIDUAL), 5
+KE-1 cases (PARTPARITY-KE1-STRUT-ROLL, new), 5 stowed chutes (`drawn`,
+PARTPARITY-STOWED-CANOPY-RENDERED, new), 5 small state residuals
 (PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22), 4 Waterfall-lit lamps
 (GHOST-WATERFALL-LIGHT-FX-MISSING), 2 scanners (PARTPARITY-SPIN-PHASE, new), 2 LV-1 shrouds
 (PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn today), 1
 RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
-(PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). 23 entries matched no fail and no drift in any clean
-current-build run: owner-ruled residuals that did not recur, and cases listed because their family
-moves (wheels, three sun trackers, KE-1). Every fail of every baseline run is covered (the writer
-refuses otherwise); every warn is listed by cause in todo PARTPARITY-P5-WARN-CENSUS.
+(PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). Some matched nothing in any clean current-build run:
+owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
+three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
+otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
 
 **Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
 PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to

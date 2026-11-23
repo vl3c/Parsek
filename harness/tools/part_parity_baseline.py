@@ -234,7 +234,16 @@ def cmd_write(args) -> int:
             print("part_parity_baseline: %s is not a complete sweep" % d, file=sys.stderr)
             return EXIT_USAGE
         verdicts = _judge(sidecars, manifest)
-        for cid, fr in pp.unaccepted_fails(verdicts, profile, accepted):
+        problems = list(pp.check_controls(manifest, sidecars).problems)
+        # The archive keeps no atlases, so completeness is checked as if they were present.
+        atlases = tuple((s.get("atlas") or {}).get("file") or "" for s in sidecars.values()
+                        if isinstance(s, dict))
+        problems += pp.check_completeness(manifest, sidecars, (), (), atlases).problems
+        if problems:
+            print("part_parity_baseline: %s cannot be pinned: %s" % (d, "; ".join(problems[:5])),
+                  file=sys.stderr)
+            return EXIT_USAGE
+        for cid, fr in pp.unaccepted_fails(verdicts, profile, accepted, sidecars):
             unaccepted.append(accepted_skeleton(cid, profile, fr))
         runs.append((run_id_of(d), manifest, sidecars))
     if profile is None:
@@ -282,6 +291,8 @@ def cmd_check(args) -> int:
              " ".join("%s=%d" % (k, v) for k, v in sorted(counts.items()) if v)))
     for f in gate.reds:
         print("  RED  " + f.text())
+    for f in gate.unmeasured:
+        print("  LOST " + f.text())
     if args.notes:
         for f in gate.notes:
             print("  note " + f.text())
@@ -306,7 +317,7 @@ def cmd_accepted(args) -> int:
     for d in args.dirs:
         manifest, sidecars = read_sweep_dir(d)
         profile = _profile(manifest, args.profile)
-        for cid, fr in pp.unaccepted_fails(_judge(sidecars, manifest), profile, accepted):
+        for cid, fr in pp.unaccepted_fails(_judge(sidecars, manifest), profile, accepted, sidecars):
             block = accepted_skeleton(cid, profile, fr)
             if block not in blocks:
                 blocks.append(block)

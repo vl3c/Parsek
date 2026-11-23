@@ -3,7 +3,7 @@
 # removes a difference removes its entry and re-pins the baseline in the same commit
 # (harness/tools/part_parity_baseline.py). Keys: case (exact case id), profile (optional),
 # view (* | a view | event:<view> | start:<view>), measure (shape-blob | color-blob | iou |
-# structure | skin | flag:<flag>[*] | * for every picture measure), noisy (the measure moves run to run, so the drift
+# structure | skin | hidden | drawn | flag:<flag>[*] | * for every picture measure), noisy (the measure moves run to run, so the drift
 # rule is waived for it too; otherwise only the fail verdict is waived and drift still gates),
 # reason, todo.
 
@@ -334,8 +334,24 @@ todo = "PARTPARITY-KE1-STRUT-ROLL"
 case = "kv1pod--default--lit--ae5b8492"
 profile = "stock-minimal"
 view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv1pod--default--lit--ae5b8492"
+profile = "stock-minimal"
+view = "*"
 measure = "flag:start-pose-not-first-frame"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv2pod--default--lit--8d584199"
+profile = "stock-minimal"
+view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
 [[accepted]]
@@ -350,8 +366,24 @@ todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 case = "kv3pod--default--lit--68dd9c70"
 profile = "stock-minimal"
 view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv3pod--default--lit--68dd9c70"
+profile = "stock-minimal"
+view = "*"
 measure = "flag:start-pose-not-first-frame"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv1pod--green--lit--7216bc60"
+profile = "modded-compat"
+view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
 [[accepted]]
@@ -366,8 +398,24 @@ todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 case = "kv2pod--beige--lit--c0c73f88"
 profile = "modded-compat"
 view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv2pod--beige--lit--c0c73f88"
+profile = "modded-compat"
+view = "*"
 measure = "flag:start-pose-not-first-frame"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "kv3pod--white--lit--ffd9c690"
+profile = "modded-compat"
+view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
 [[accepted]]
@@ -382,6 +430,14 @@ todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 case = "size1to0servicemodule--notunnel--lit--f00e65bd"
 profile = "modded-compat"
 view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "size1to0servicemodule--notunnel--lit--f00e65bd"
+profile = "modded-compat"
+view = "*"
 measure = "flag:start-pose-not-first-frame"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
@@ -390,8 +446,24 @@ todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 case = "restock-service-module-125-625-1--notunnel--lit--0d8c0082"
 profile = "modded-compat"
 view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "restock-service-module-125-625-1--notunnel--lit--0d8c0082"
+profile = "modded-compat"
+view = "*"
 measure = "flag:start-pose-not-first-frame"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
+todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
+
+[[accepted]]
+case = "telescopicladderbay--default--lit--88b847d8"
+profile = "modded-compat"
+view = "*"
+measure = "flag:state-not-modelled:*"
+reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
 [[accepted]]
@@ -491,6 +563,41 @@ view = "*"
 measure = "color-blob"
 reason = "the open-top procedural fairing ghost lacks a thin panel seam line the live panels show (a warn near 140 px; its drift still gates)"
 todo = "GHOST-FAIRING-OPEN-TOP-SEAM"
+
+[[accepted]]
+case = "parachutedrogue--default--d8d09dd5"
+view = "*"
+measure = "drawn"
+reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
+todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
+
+[[accepted]]
+case = "parachutelarge--default--52e3f572"
+view = "*"
+measure = "drawn"
+reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
+todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
+
+[[accepted]]
+case = "parachuteradial--default--dd7e38ae"
+view = "*"
+measure = "drawn"
+reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
+todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
+
+[[accepted]]
+case = "parachutesingle--default--976ec64b"
+view = "*"
+measure = "drawn"
+reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
+todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
+
+[[accepted]]
+case = "radialdrogue--default--c1ee3063"
+view = "*"
+measure = "drawn"
+reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
+todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
 [[accepted]]
 case = "roverbody.v2--white--1425849e"
