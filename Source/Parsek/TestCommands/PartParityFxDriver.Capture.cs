@@ -151,7 +151,7 @@ namespace Parsek.TestCommands
                 return;
             }
             fx.CullingMask = CullingMaskFor(wc);
-            DescribeLayers(wc);
+            ReadStructure(wc);
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: FX set up family={fx.Option.Family} sides=[{SideNames(fx)}] " +
                 $"nozzleDiameterM={fx.NozzleDiameterM.ToString("0.000", Ic)} cullingMask=0x{fx.CullingMask.ToString("X", Ic)} " +
                 $"events={run.Sink.Events.Count.ToString(Ic)} ghostEvent={run.GhostEvent ?? "-"} ghostStart={run.GhostStart ?? "-"}");
@@ -423,7 +423,28 @@ namespace Parsek.TestCommands
             return mask;
         }
 
-        /// <summary>The renderer keys per layer per side, once, for the sidecar and the log.</summary>
+        /// <summary>The rendered FX assets one side lacks (E.4, structure): judged, read once
+        /// beside the prime, before any warm-up. Its inventories are dropped:
+        /// <see cref="DescribeLayers"/> reads the ones the sidecar carries.</summary>
+        private static void ReadStructure(WaveCase wc)
+        {
+            PartParityFxRun fx = wc.Fx;
+            foreach (PartParityFxSide s in fx.Sides) ReadInventory(wc, s);
+            PartParityFxSide real = fx.Side(PartParityFxRules.SideReal);
+            PartParityFxSide ghost = fx.Side(PartParityFxRules.SideGhost);
+            if (real != null && ghost != null && ghost.Ghost != null && real.Ghost == null)
+                CompareInventory(real, ghost, fx.FxMissingOnGhost, fx.FxExtraOnGhost, new List<string>());
+            foreach (PartParityFxSide s in fx.Sides)
+            {
+                s.Inventory.Clear();
+                s.InventoryRendered.Clear();
+            }
+        }
+
+        /// <summary>The renderer keys per layer per side, the inventories and <c>fxDiffers</c>, once
+        /// for the sidecar and the log, all report-only. Read after the warm-up: in the frame the
+        /// ghosts are primed their KSPParticleEmitters have no material yet (so a flame classifies
+        /// as smoke) and their systems have not taken their power's size and speed.</summary>
         private static void DescribeLayers(WaveCase wc)
         {
             var log = new StringBuilder();
@@ -448,8 +469,9 @@ namespace Parsek.TestCommands
             }
             PartParityFxSide real = wc.Fx.Side(PartParityFxRules.SideReal);
             PartParityFxSide ghost = wc.Fx.Side(PartParityFxRules.SideGhost);
-            if (real != null && ghost != null && ghost.Ghost != null && real.Ghost == null) CompareInventory(wc.Fx, real, ghost);
-            ParsekLog.Info(Tag, $"case {wc.CaseId}: fx layers{log} fxMissing=[{PartParityFxStructure.Join(wc.Fx.FxMissingOnGhost)}] " +
+            if (real != null && ghost != null && ghost.Ghost != null && real.Ghost == null)
+                CompareInventory(real, ghost, new List<PartParityFxStructureEntry>(), new List<PartParityFxStructureEntry>(), wc.Fx.FxDiffers);
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: fx layers (after warm-up){log} fxMissing=[{PartParityFxStructure.Join(wc.Fx.FxMissingOnGhost)}] " +
                 $"fxExtra=[{PartParityFxStructure.Join(wc.Fx.FxExtraOnGhost)}] fxDiffers={wc.Fx.FxDiffers.Count.ToString(Ic)}");
         }
 
@@ -505,11 +527,10 @@ namespace Parsek.TestCommands
 
         /// <summary>The FX inventory diff (E.4, structure, deterministic): the real and ghost
         /// <c>FormatEntry</c> lines paired by canonical name and parent.</summary>
-        private static void CompareInventory(PartParityFxRun fx, PartParityFxSide real, PartParityFxSide ghost)
-        {
-            PartParityFxStructure.Diff(real.Inventory, real.InventoryRendered, ghost.Inventory, ghost.InventoryRendered,
-                fx.FxMissingOnGhost, fx.FxExtraOnGhost, fx.FxDiffers);
-        }
+        private static void CompareInventory(PartParityFxSide real, PartParityFxSide ghost,
+            List<PartParityFxStructureEntry> missing, List<PartParityFxStructureEntry> extra, List<string> differs)
+            => PartParityFxStructure.Diff(real.Inventory, real.InventoryRendered, ghost.Inventory, ghost.InventoryRendered,
+                missing, extra, differs);
 
         // =====================================================================================
         // particles (E.3)
@@ -655,7 +676,9 @@ namespace Parsek.TestCommands
                     else anyUnsettled = true;
                 }
             }
-            bool capped = now - fx.LastPrimeRealtime >= PartParityFxRules.PlateauCapSeconds;
+            double longest = 0.0;
+            foreach (PartParityFxSide s in fx.Sides) longest = Math.Max(longest, s.LongestLifetime);
+            bool capped = now - fx.LastPrimeRealtime >= PartParityFxRules.PlateauCapFor(longest);
             if (!anyUnsettled) fx.WarmupDone = true;
             else if (capped)
             {
@@ -666,7 +689,7 @@ namespace Parsek.TestCommands
                     s.PlateauWaitS = now - fx.LastPrimeRealtime;
                     string tag = PartParityFxRules.NotPlateauedTag(s.Name);
                     if (!wc.Flags.Contains(tag)) wc.Flags.Add(tag);
-                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: fx side {s.Name} not plateaued at the cap ({now - s.StartRealtime:0.0}s, signal={s.SignalName})");
+                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: fx side {s.Name} not plateaued at the cap ({now - s.StartRealtime:0.0}s, signal={s.SignalName}, longestLifetime={longest.ToString("0.00", Ic)}s)");
                 }
                 fx.WarmupDone = true;
             }
@@ -723,6 +746,7 @@ namespace Parsek.TestCommands
             PartParitySweepRunner.BeginCaseLog(ctx, wc);
             try
             {
+                PartParitySweepRunner.Guard(ctx, wc, "fx-layers", () => DescribeLayers(wc));
                 if (wc.Fx.Plate)
                 {
                     IEnumerator plate = CapturePlate(ctx, wc);
@@ -744,7 +768,7 @@ namespace Parsek.TestCommands
                 if (wc.Fx.Stochastic && wc.Status == null && wc.Fx.Exhaust != null)
                 {
                     PartParitySweepRunner.Guard(ctx, wc, "fx-framing", () => FinalFraming(wc));
-                    int frames = PartParityFxRules.Samples * PartParityFxRules.Views.Length;
+                    int frames = PartParityFxRules.SampleRounds(wc.Fx.Control) * PartParityFxRules.Views.Length;
                     for (int i = 0; i < frames; i++)
                     {
                         yield return new WaitForEndOfFrame();
@@ -931,7 +955,8 @@ namespace Parsek.TestCommands
         {
             PartParityFxRun fx = wc.Fx;
             PartParityFxSide real = fx.Side(PartParityFxRules.SideReal);
-            // Samples per side: a real-vs-real control's two sides take the alternate samples.
+            // Samples per side: a real-vs-real control's two sides take the alternate samples of
+            // twice as many (SampleRounds).
             if (real != null && real.Sets.TryGetValue(PartParityFxSide.SetKey(PartParityFxRules.ViewFxSideA, PartParityFxRules.LayerFlame),
                     out PartParityFxSampleSet any))
                 fx.SampleCount = any.All.Samples;

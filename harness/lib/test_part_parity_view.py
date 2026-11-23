@@ -991,8 +991,10 @@ def fx_cases():
     rcs["fx"]["inventory"] = {"real": ["a", "a", "b"], "ghost": ["a", "c"], "ghostStart": ["a"],
                               "ghostAll": ["a", "a", "b"]}
     rcs["fx"]["structure"]["lightsDiffer"] = ["x real=1 ghost=2", "x real=1 ghost=2"]
-    loose = plume[6][0]["fx"]["views"][0]
-    loose["splitHalf"]["odd"]["real"]["lengthPx"] = loose["splitHalf"]["even"]["real"]["lengthPx"] * 2
+    for loose in plume[6][0]["fx"]["views"]:
+        half = loose["splitHalf"]
+        if (loose["route"], loose["layer"]) == ("event", "flame") and half["even"]["real"]["lengthPx"]:
+            half["odd"]["real"]["lengthPx"] = half["even"]["real"]["lengthPx"] * 2
     for doc, _m, _t in plume:
         doc["strip"] = {"file": doc["caseId"] + pp.STRIP_SUFFIX, "frames": FX_STRIP_K}
         for c in ("ghostEvent", "ghostStart"):
@@ -1089,6 +1091,9 @@ class FxRowTests(_FxSetMixin, unittest.TestCase):
                          (self.by_id[FX_REF]["fx"]["wouldBe"], self.by_id[FX_REF_OK]["fx"]["wouldBe"]))
         self.assertIn(pp.FLAG_FX_NO_REAL_EFFECT, self.by_id[FX_JET]["fx"]["flags"])
         self.assertIn(pp.CAP_FX_UNSETTLED, self.by_id[FX_LOOSE]["fx"]["flags"])
+        capped = [r for e in self.by_id[FX_LOOSE]["fx"]["entries"] for r in e["reasons"] if r["capped"]]
+        self.assertEqual({("length", "warn")}, {(r["measure"], r["level"]) for r in capped})
+        self.assertIn(pp.REASON_FX_UNSETTLED, self.by_id[FX_LOOSE]["reasons"])
 
     def test_entries_carry_both_halves_and_never_the_hue_histogram(self):
         e = self.by_id[FX_SHORT]["fx"]["entries"][0]

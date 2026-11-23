@@ -2050,6 +2050,8 @@ Out of P8, each an exclusion reason (`PartParityFxRules.ExclusionReasons`, mirro
 - `fx-ablator-char`: `ModuleAblator`'s char (8 / 12 parts), driven by reentry heating (R1).
 - `fx-needs-air` (orbit runs): an air-breathing module; its cases run in the air context (E.2).
 - `fx-throttle-locked`: `burn-low` of a throttle-locked engine (every solid booster).
+- `fx-no-light`: the plate case of a `ModuleLight` part whose prefab has no `Light` component
+  (ReStock's `telescopicLadderBay`, since 2026-11-23); read live, so the config part lists keep it.
 
 P6 does not change. The FX families and the `plate` context live in `PartParityFxRules`, not in
 `PartParityStateRules`: `Families`, `OrbitContexts` (`alone`, `stacked`, `fgv`) and the D.1
@@ -2248,7 +2250,8 @@ has recorded its events, so its particles start from nothing seconds after the r
 the last ghost of a case is primed, the case waits until every side (real, ghost event, ghost
 start) has (a) run for at least the longest particle lifetime among its own systems
 (`ParticleSystem.main.startLifetime` maximum, or `KSPParticleEmitter.maxEnergy`) since its prime,
-and (b) a stable signal over the last 0.5 s (change under 10 %); cap 8 s, then captured and
+and (b) a stable signal over the last 0.5 s (change under 10 %); cap 8 s, or 1 s past the longest
+lifetime when that is later, at most 20 s ("FX instrument fixes" in E.4), then captured and
 tagged `fx-not-plateaued:<side>`. The signal is the live particle count only for a side whose
 systems report their particles; it is the side's `flame` coverage (one 128 px render per 0.25 s)
 for a side with no particle system (every Waterfall side: the real LV-T45 on modded-compat has
@@ -2524,6 +2527,58 @@ verdict; PP-9 (`2026-11-23_1050`) carries it on 18 of 165 cases and moved three 
 (`liquidengine--size1--burn-low`, `liquidengine.v2--trussmount--burn-low`,
 `radialliquidengine1-2--shrouded--burn-full`: only weak smoke halves had capped them).
 
+FX instrument fixes (2026-11-23, todo PARTPARITY-FX-INSTRUMENT-2026-11-23), decided offline on the
+archived F6 sweeps; no fail line and no threshold moved.
+
+- The unsettled cap. The whole-case cap hid 17 fails on PP-7, 67 on PP-9 and 17 judged (53 would-be)
+  on PP-8, and not one of those 154 cases had its only fail in an entry that did not settle: 121
+  failed on the body routes or a missing / extra asset, where no sample is read (PP-9: 54 of 67, the
+  ReStock nozzle glow), the other 33 on entries that had settled. So the cap is per entry. In a case
+  with an unsettled entry a fail stands only if its own entry settled, both sample halves fail on the
+  same side of the same line (`FxFinding.side`), and neither side fails that measure against itself,
+  even against odd samples (`fx_self_failing`); otherwise it counts as `warn` and its finding says
+  `capped`. The smoke of a route is one world-space trail, so smoke unsettled in one view is
+  unsettled in all (PP-9's three boosters whose only fail is the orbit smoke noise stay capped). Body
+  routes, structure and settled cases are judged exactly as before. `REASON_FX_UNSETTLED` is written
+  when only capped fails keep a case from `fail`.
+- Its noise. One thing captured twice (the event ghost against the start ghost at full thrust; the
+  real side, and the ghost, of a reading flight against the full one; PP-8's real side against
+  PP-9's on the parts without Waterfall) must not fail. Cases failing: plumes, 237 pairs: 12 with no
+  cap, 4 under the old cap, 5 under this one; rcs and cross-install, 71 pairs: 24, 8, 11. What is
+  left is the cross-section offset of small RCS puffs and `liquidEngineLV-T91`'s orbit smoke, at
+  fail lines that the old cap let settled cases fail on too.
+- More samples were rejected. A case's 64 sample frames take 5.0 s (PP-7) and 5.3 s (PP-8, PP-9), so
+  32 samples add 442, 694 and 691 s (44 to 52 % of the lane), and two independent captures of the
+  same ghost still disagree past 10 % at 16 against 16 samples on 2.6, 5.3 and 3.7 % of the entries
+  (8 against 8: 2.8, 7.8 and 6.2 %): 4, 16 and 9 cases. Length and width are envelope extents, an
+  extreme of sparse particles, which samples settle slowly.
+- Re-judged: PP-7 (`2026-11-23_1027`) 34 pass / 33 warn / 60 fail / 1 error to 34 / 16 / 77 / 1, PP-9
+  (`_1050`) 28 / 71 / 64 / 2 to 28 / 7 / 128 / 2, PP-8 (`_1232`) 27 / 21 / 20 / 2 to 27 / 7 / 34 / 2,
+  its 95 references from would-be 42 fail / 53 warn to 95 fail. Every move is `warn` to `fail`; no
+  control outcome moved on any archived run.
+- The real-vs-real controls take 32 samples, 16 a side (`SampleRounds`, 5 s more per sweep). They
+  compared 8 against 8 at lines set for sides of 16, and the air one is a coin toss there: the Flea's
+  `fx-far` flame width against itself read 1.264 (`2026-11-23_1014`, ok) and 1.345 (`_1201`, bad,
+  INVALID(parity-controls)), line 1.30, both entries unsettled. Not flown.
+- A skipped entry (weak cores, above) reads `skipped`, not `pass`. It ranks as `pass`; the
+  `fx-weak-core` flag still raises the case.
+- `fx.layers`, the inventories and `fxDiffers` are read when the case is captured, after the
+  warm-up (`DescribeLayers`): in the frame the ghosts are primed their KSPParticleEmitters have no
+  material and no power's size or speed yet. Report-only. `fxMissingOnGhost` / `fxExtraOnGhost`,
+  which are judged, keep their read beside the prime (`ReadStructure`).
+- The plateau cap follows the longest particle lifetime (`PlateauCapFor`: 1 s past it, 8 s at least,
+  20 s at most). Rule (a) of E.2 waits for that lifetime, which a flat 8 s could not meet: 17.5 s on
+  stock's Clydesdale, Pollux and Thoroughbred, 15 s on the Twin-Boar family and the Mammoth, 10 s on
+  ReStock's Pollux and Thoroughbred; 7.5 s left one window. Cost, from the logged waits: 45 s on
+  PP-7 (6 of 23 waves), 4 s on PP-9 (3 of 33), 6 s on PP-8 (7 of 33). The wave bound
+  (`WaveWorstCaseSeconds`) counts the 20 s. The other `fx-not-plateaued` cases (13 to 50 particles,
+  lifetimes of 5 s or less) never hold 10 % for a second: no cap fixes those, and their tag stays.
+- The plate is the light's own footprint (`PlateSizeM`): the smaller of the cone's radius and the
+  range sphere's, not the cone's alone. `stripLight1` (170 degrees, range 15 m stock, 10 m ReStock)
+  goes from an 89 m plate to 38 m and 25 m, so its lit share goes from 1.1 and 0.5 % to 6.0 and
+  6.8 %, over the 2 % floor; ReStock's `domeLight1` from 26.3 to 24.8 m; every other lamp's plate on
+  the three installs is unchanged.
+
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
 (count, speed, direction, length and width percentiles; the two-sided form of the existing
 ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-only in P8: they are
@@ -2542,8 +2597,8 @@ How the instrument proves itself:
 - Convergence per case. Every measure is also computed on each half of the samples (from tiles
   of the same 8-bit rule, numbers only, block shape checked by Python). When the halves disagree
   on presence, or by more than `FxSplitHalfPct` (10 %) on length or width, the case is tagged
-  `fx-unsettled` and capped at `warn`: a case that did not converge never fails, and a sweep where
-  many do says N is too small.
+  `fx-unsettled` and the ENTRY (route, view, layer) is capped at `warn`: a measure that did not
+  converge never fails ("FX instrument fixes" below; until then the whole case was capped).
 - Python recompute (6): the sample of FX cases is recomputed from the FX atlas to exact equality
   of every count, extent, origin, offset and histogram bin count (centroids, ratios and
   distances within 1e-9, as P1's centroids).
@@ -2778,15 +2833,17 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - Entries a stochastic case must write, else the case is `error` (`fx-no-entries:`) and the
     sweep INVALID: the `event` and `start` routes x 4 views x 2 layers (a control: `event`
     only), and on an rcs part case the route `all` (the `ghost-all` rows, never judged).
-    `fx.samples` is one side's sample count (8 for a real-vs-real control that splits 16).
+    `fx.samples` is one side's sample count (16 for a real-vs-real control too, which splits 32
+    since 2026-11-23; 8 before).
   - Verdict. `judge_fx` gives each `event` / `start` entry its E.4 measures at warn and fail,
     the worst per route, reasons `<route>:<view>:<layer>:<measure>=<value>`; a layer one side
     lacks is named by its presence reason alone. A null measure never moves a verdict. The case
     is the worse of its body routes and its FX half; a rendered FX asset in
     `fxMissingOnGhost` / `fxExtraOnGhost` (a key string, or `{key, rendered}` unless `rendered`
     is false) raises it to fail. `fxDiffers` and `lightsDiffer` are counted, report-only.
-  - `fx-unsettled` caps the WHOLE case at `warn` (E.4: a case that did not converge never
-    fails), its body routes included. Only judged entries of plume and rcs cases can unsettle.
+  - `fx-unsettled` capped the WHOLE case at `warn`, its body routes included; since 2026-11-23 it
+    caps its own entry ("FX instrument fixes" in E.4). Only judged entries of plume and rcs cases
+    can unsettle.
   - Reference (E.6). A plume or rcs case with `fx.reference = waterfall` reads the verdict
     `reference` with its `wouldBe` beside it, body routes included, unless it is an `error`; it
     is counted under `counts.reference`, printed as ` reference=<n>` and never gates. Any other
@@ -2949,6 +3006,7 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
 - Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
   `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
   them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
+  (Read after the warm-up since 2026-11-23, "FX instrument fixes" in E.4.)
 
 ### E.8 Lanes and wall time
 

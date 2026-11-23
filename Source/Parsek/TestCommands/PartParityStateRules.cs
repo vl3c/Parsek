@@ -42,6 +42,10 @@ namespace Parsek.TestCommands
 
         /// <summary>The prefab's stack node names (<c>node_stack_&lt;name&gt;</c> without the prefix).</summary>
         internal List<string> StackNodes = new List<string>();
+
+        /// <summary>The prefab's <c>Light</c> components; null when nothing read them (the part
+        /// lists read from configs), which leaves every lamp in.</summary>
+        internal int? LightCount;
     }
 
     /// <summary>What a state case presses and how (design D.2): not part of the case

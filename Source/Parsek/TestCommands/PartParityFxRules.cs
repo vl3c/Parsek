@@ -301,13 +301,17 @@ namespace Parsek.TestCommands
         internal const string ExcludeNeedsAir = "fx-needs-air";
         internal const string ExcludeThrottleLocked = "fx-throttle-locked";
 
-        /// <summary>Every FX exclusion reason. The enumeration writes the last three per
+        /// <summary>A <c>ModuleLight</c> on a part with no <c>Light</c> component: nothing to
+        /// photograph on a plate (ReStock's <c>telescopicLadderBay</c>).</summary>
+        internal const string ExcludeNoLight = "fx-no-light";
+
+        /// <summary>Every FX exclusion reason. The enumeration writes the last four per
         /// module; reentry fire and blackbody glow are out of every part case (R1 covers
         /// them), so no part names them.</summary>
         internal static readonly string[] ExclusionReasons =
         {
             ExcludeReentryCamera, ExcludeBlackbody, ExcludeAblatorChar, ExcludeNeedsAir,
-            ExcludeThrottleLocked,
+            ExcludeThrottleLocked, ExcludeNoLight,
         };
 
         // ----- drive (E.2) -----
@@ -355,6 +359,15 @@ namespace Parsek.TestCommands
         internal const double PlateauWindowSeconds = 0.5;
         internal const double PlateauMaxChange = 0.10;
         internal const double PlateauCapSeconds = 8.0;
+
+        /// <summary>A side whose particles outlive <see cref="PlateauCapSeconds"/> cannot settle
+        /// under it (<see cref="PlateauSettled"/> waits for the longest lifetime), so the cap
+        /// follows that lifetime: this much past it (the window and its ticks), at most
+        /// <see cref="PlateauLifetimeCapSeconds"/>. Measured longest lifetimes: 17.5 s on stock
+        /// booster smoke, 15 s on the Twin-Boar's, 10 s on ReStock's Pollux, 7.5 s or less
+        /// elsewhere.</summary>
+        internal const double PlateauLifetimeMarginSeconds = 1.0;
+        internal const double PlateauLifetimeCapSeconds = 20.0;
 
         /// <summary>The coverage signal of a side with no readable particles: one flame render
         /// of this many pixels per <see cref="PlateauCoveragePeriodSeconds"/>.</summary>
@@ -408,6 +421,9 @@ namespace Parsek.TestCommands
 
         internal const double PlateSpotDistanceM = 3.0;
         internal const double PlatePointDistanceM = 1.0;
+        internal const double PlateFootprintMargin = 1.3;
+        internal const double PlateMinSizeM = 2.0;
+        internal const double PlateFixedSizeM = 3.0;
         internal const double PlateLitMinPct = 0.02;
         internal const int PlateLitMinLum = 8;
 
@@ -526,7 +542,8 @@ namespace Parsek.TestCommands
         /// every <c>as ModuleRCS</c> module, <c>rcs-fire</c>. Heat: every module named
         /// <c>ModuleAnimateHeat</c> (<c>PollAnimateHeat</c>), <c>heat-medium</c> and
         /// <c>heat-hot</c>. A lamp: the first <c>ModuleLight</c> (the recorder's light check),
-        /// <c>lit</c> in the <c>plate</c> context. A <c>ModuleAblator</c> is <c>fx-ablator-char</c>.
+        /// <c>lit</c> in the <c>plate</c> context (<c>fx-no-light</c> when the prefab has no
+        /// <c>Light</c>). A <c>ModuleAblator</c> is <c>fx-ablator-char</c>.
         /// </summary>
         internal static PartParityFxEnumeration Enumerate(PartParityStatePart part, PartParityCaseKey baseKey)
         {
@@ -564,7 +581,13 @@ namespace Parsek.TestCommands
             foreach (PartParityStateModule m in part.Modules)
             {
                 if (m == null || !m.Implements(TypeLight)) continue;
-                cases.Add(Option(FamilyLight, m, StateLit, ContextPlate, false));
+                if (part.LightCount == 0)
+                    r.Exclusions.Add(new PartParityFxExclusion
+                    {
+                        Part = name, Family = FamilyLight, Module = m.Name, ModuleIndex = m.Index,
+                        Reason = ExcludeNoLight, Context = ContextPlate,
+                    });
+                else cases.Add(Option(FamilyLight, m, StateLit, ContextPlate, false));
                 break;
             }
             BuildKeys(cases, baseKey, name, r);
@@ -1005,6 +1028,15 @@ namespace Parsek.TestCommands
             return windowMax - windowMin < PlateauMaxChange * windowMax;
         }
 
+        /// <summary>How long after the last prime a case waits for its plateau: the flat cap, or
+        /// past its longest particle lifetime (over its sides) when that is later.</summary>
+        internal static double PlateauCapFor(double longestLifetimeSeconds)
+        {
+            if (double.IsNaN(longestLifetimeSeconds)) return PlateauCapSeconds;
+            return Math.Min(PlateauLifetimeCapSeconds,
+                Math.Max(PlateauCapSeconds, longestLifetimeSeconds + PlateauLifetimeMarginSeconds));
+        }
+
         /// <summary>The <c>fx-not-plateaued:&lt;side&gt;</c> tag.</summary>
         internal static string NotPlateauedTag(string side) => TagFxNotPlateauedPrefix + (side ?? string.Empty);
 
@@ -1085,6 +1117,14 @@ namespace Parsek.TestCommands
             b = g0;
         }
 
+        /// <summary>How many samples a case takes per view: <see cref="Samples"/>, twice that for
+        /// a real-vs-real control, whose two sides take alternate samples, so each side holds as
+        /// many as a judged side does and the noise floor is read at the judged sample count.</summary>
+        internal static int SampleRounds(string controlId)
+            => string.Equals(controlId, TestCommandPartParitySweep.ControlFxRealVsReal, StringComparison.Ordinal)
+               || string.Equals(controlId, TestCommandPartParitySweep.ControlFxRealVsRealAir, StringComparison.Ordinal)
+                ? 2 * Samples : Samples;
+
         /// <summary>A plate case's floor (E.2): the real side lit at least
         /// <see cref="PlateLitMinPct"/> of the plate.</summary>
         internal static bool PlateLit(double litFraction)
@@ -1093,6 +1133,22 @@ namespace Parsek.TestCommands
         /// <summary>The plate's distance along the light's forward: 3 m for a spot, 1 m for a point light.</summary>
         internal static double PlateDistanceM(string lightType)
             => string.Equals(lightType, LightTypePoint, StringComparison.Ordinal) ? PlatePointDistanceM : PlateSpotDistanceM;
+
+        /// <summary>
+        /// The side of the plate at <paramref name="distanceM"/> in front of the light, metres: a
+        /// spot's footprint with a margin, at least <see cref="PlateMinSizeM"/>, or a fixed plate
+        /// for any other light. The footprint's radius is the smaller of the cone's and the range
+        /// sphere's: a 170 degree spot with a 15 m range has a 34 m cone but lights nothing past
+        /// 14.7 m, and the lit share of a cone-sized plate read under the floor
+        /// (<c>stripLight1</c>).
+        /// </summary>
+        internal static double PlateSizeM(string lightType, double spotAngleDeg, double rangeM, double distanceM)
+        {
+            if (!string.Equals(lightType, LightTypeSpot, StringComparison.Ordinal)) return PlateFixedSizeM;
+            double radius = distanceM * Math.Tan(spotAngleDeg * 0.5 * Math.PI / 180.0);
+            double reach = rangeM > distanceM ? Math.Sqrt(rangeM * rangeM - distanceM * distanceM) : 0.0;
+            return Math.Max(PlateMinSizeM, 2.0 * Math.Min(radius, reach) * PlateFootprintMargin);
+        }
 
         /// <summary>A judged reason's name: <c>&lt;route&gt;:&lt;view&gt;:&lt;layer&gt;:&lt;reason&gt;</c>.</summary>
         internal static string FormatReason(string route, string view, string layer, string reason)
@@ -1104,8 +1160,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The worst-case wall time of one FX wave, the bound a wave is admitted against: the
-        /// spawn cap, the slowest case's press timeout, then for a stochastic wave the plateau
-        /// cap and <see cref="FxCaptureSecondsPerCase"/> per case, for a heat wave the minimum
+        /// spawn cap, the slowest case's press timeout, then for a stochastic wave the longest
+        /// plateau cap and <see cref="FxCaptureSecondsPerCase"/> per case, for a heat wave the minimum
         /// settle and P6's capture, for a plate wave the light settle cap and the plate capture;
         /// then the teardown.
         /// </summary>
@@ -1124,7 +1180,7 @@ namespace Parsek.TestCommands
                     if (b == PartParityFxBucket.Plate) plate = true;
                 }
             double tail;
-            if (stochastic) tail = PlateauCapSeconds + FxCaptureSecondsPerCase * n;
+            if (stochastic) tail = PlateauLifetimeCapSeconds + FxCaptureSecondsPerCase * n;
             else if (plate) tail = PartParityStateRules.LightSettleCapSeconds + PlateCaptureSecondsPerCase * n;
             else tail = PartParitySweepPlan.MinSettleSeconds + PartParitySweepPlan.StateCaptureSecondsPerCase * n;
             return PartParitySweepPlan.SpawnTimeoutSeconds + press + tail + PartParitySweepPlan.StateTeardownSeconds;

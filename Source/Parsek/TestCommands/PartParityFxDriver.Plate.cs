@@ -116,8 +116,7 @@ namespace Parsek.TestCommands
             }
             int layer = PlateLayer(wc, main);
             float dist = (float)PartParityFxRules.PlateDistanceM(main.type.ToString());
-            bool spot = main.type == LightType.Spot;
-            float size = spot ? Mathf.Max(2f, 2f * dist * Mathf.Tan(main.spotAngle * 0.5f * Mathf.Deg2Rad) * 1.3f) : 3f;
+            float size = (float)PartParityFxRules.PlateSizeM(main.type.ToString(), main.spotAngle, main.range, dist);
             BuildPlate(wc, main, layer, dist, size);
             fx.PlateLightType = main.type.ToString();
             fx.PlateRange = main.range;

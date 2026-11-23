@@ -59,7 +59,7 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "plume", "rcs", "heat", "light" }, PartParityFxRules.Families);
             Assert.Equal(new[] { "plume", "rcs", "heat", "plate" }, PartParityFxRules.ArgWords);
             Assert.Equal(new[] { "burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit" }, PartParityFxRules.States);
-            Assert.Equal(new[] { "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked" },
+            Assert.Equal(new[] { "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked", "fx-no-light" },
                 PartParityFxRules.ExclusionReasons);
             Assert.Equal(new[] { "fx-side-a", "fx-side-b", "fx-bottom", "fx-far" }, PartParityFxRules.Views);
             Assert.Equal("light", PartParityFxRules.FamilyForArg("plate"));
@@ -246,7 +246,8 @@ namespace Parsek.Tests
             Assert.Equal(locked, Reasons(r, "fx-throttle-locked"));
             Assert.Equal(needsAir, Reasons(r, "fx-needs-air"));
             Assert.Equal(ablator, Reasons(r, "fx-ablator-char"));
-            Assert.Equal(0, Reasons(r, "fx-reentry-camera") + Reasons(r, "fx-blackbody"));
+            // The config part lists carry no Light count, so no lamp is left out of them.
+            Assert.Equal(0, Reasons(r, "fx-reentry-camera") + Reasons(r, "fx-blackbody") + Reasons(r, "fx-no-light"));
             Assert.Equal(reference, r.Cases.Count(k => k.FxOption.Reference != null));
             Assert.Equal(r.Cases.Count, r.Cases.Select(TestCommandPartParitySweep.CaseId).Distinct().Count());
             Assert.All(r.Cases, k => Assert.True(TestCommandCaptureScreenshot.IsValidLabel(TestCommandPartParitySweep.CaseId(k))));
@@ -272,7 +273,7 @@ namespace Parsek.Tests
             Assert.Equal(5.0, PartParityFxRules.PressTimeoutSeconds(new PartParityFxOption { Family = "light" }));
             // A wave of four jets: 20 spawn + 45 spool + 8 plateau + 4 x 3 capture + 5 teardown.
             var wave = Enumerable.Repeat(jet, 3).Concat(new[] { burn }).ToList();
-            Assert.Equal(20 + 45 + 8 + 12 + 5, PartParityFxRules.WaveWorstCaseSeconds(wave), 9);
+            Assert.Equal(20 + 45 + 20 + 12 + 5, PartParityFxRules.WaveWorstCaseSeconds(wave), 9);
             var plates = Enumerable.Repeat(new PartParityFxOption { Family = "light" }, 2).ToList();
             Assert.Equal(20 + 5 + 5 + 1.0 + 5, PartParityFxRules.WaveWorstCaseSeconds(plates), 9);
             var heats = Enumerable.Repeat(new PartParityFxOption { Family = "heat" }, 4).ToList();
@@ -303,7 +304,7 @@ namespace Parsek.Tests
                 "useEngineResponseTime=True", "engineAccelerationSpeed=0.06", "PROPELLANT.name=IntakeAir")));
             Assert.Equal(0.06, r.Cases[0].FxOption.EngineAccelerationSpeed);
             Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.PressTimeoutSeconds(r.Cases[0].FxOption), 9);
-            Assert.Equal(20 + 1.1 * Math.Log(100.0) / 0.06 + 8 + 6 + 5,
+            Assert.Equal(20 + 1.1 * Math.Log(100.0) / 0.06 + 20 + 6 + 5,
                 PartParityFxRules.WaveWorstCaseSeconds(r.Cases.Select(k => k.FxOption).ToList()), 9);
         }
 
@@ -448,6 +449,24 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(double.NaN, 8.0)]
+        [InlineData(0.0, 8.0)]      // coverage-plateaued: no particle lifetime
+        [InlineData(5.0, 8.0)]      // most ReStock plumes: the flat cap
+        [InlineData(7.5, 8.5)]
+        [InlineData(10.0, 11.0)]    // ReStock's Pollux and Thoroughbred
+        [InlineData(15.0, 16.0)]    // the Twin-Boar family
+        [InlineData(17.5, 18.5)]    // stock's Clydesdale, Pollux, Thoroughbred
+        [InlineData(60.0, 20.0)]
+        public void ThePlateauCap_FollowsTheLongestLifetime(double life, double cap)
+        {
+            Assert.Equal(cap, PartParityFxRules.PlateauCapFor(life), 9);
+            // A steady signal settles before its own cap, up to the hard one.
+            if (life > 0.0 && life < 19.0)
+                Assert.True(PartParityFxRules.PlateauSettled(cap, life, 99, 100));
+            Assert.True(cap <= PartParityFxRules.PlateauLifetimeCapSeconds);
+        }
+
+        [Theory]
         [InlineData("MeshRenderer", "KSP/Bumped Specular", "body")]
         [InlineData("SkinnedMeshRenderer", "KSP/Diffuse", "body")]
         [InlineData("MeshRenderer", "Waterfall/Additive (Dynamic)", "flame")]
@@ -510,6 +529,54 @@ namespace Parsek.Tests
             Assert.False(PartParityFxRules.PlateLit(0.019));
             Assert.Equal(3.0, PartParityFxRules.PlateDistanceM("Spot"));
             Assert.Equal(1.0, PartParityFxRules.PlateDistanceM("Point"));
+            // A cone inside the range: the footprint is the cone's (spotLight1, gearLarge, spotLight3).
+            Assert.Equal(4.32, PartParityFxRules.PlateSizeM("Spot", 58.0, 400.0, 3.0), 2);
+            Assert.Equal(4.50, PartParityFxRules.PlateSizeM("Spot", 60.0, 1200.0, 3.0), 2);
+            Assert.Equal(18.83, PartParityFxRules.PlateSizeM("Spot", 135.0, 15.0, 3.0), 2);
+            // A cone the range cuts: stripLight1 on stock (was 89.15) and on ReStock, domeLight1 on ReStock.
+            Assert.Equal(38.21, PartParityFxRules.PlateSizeM("Spot", 170.0, 15.0, 3.0), 2);
+            Assert.Equal(24.80, PartParityFxRules.PlateSizeM("Spot", 170.0, 10.0, 3.0), 2);
+            Assert.Equal(24.80, PartParityFxRules.PlateSizeM("Spot", 147.0, 10.0, 3.0), 2);
+            // The lit share of stripLight1's 89.15 m plate (1.10 % and 0.53 %) over the new one clears the floor.
+            Assert.True(PartParityFxRules.PlateLit(0.0110 * Math.Pow(89.15 / 38.21, 2)));
+            Assert.True(PartParityFxRules.PlateLit(0.0053 * Math.Pow(89.15 / 24.80, 2)));
+            // A light that does not reach the plate, a point light, a narrow spot: the fixed sizes.
+            Assert.Equal(2.0, PartParityFxRules.PlateSizeM("Spot", 60.0, 2.0, 3.0), 9);
+            Assert.Equal(3.0, PartParityFxRules.PlateSizeM("Point", 30.0, 3.0, 1.0), 9);
+            Assert.Equal(2.0, PartParityFxRules.PlateSizeM("Spot", 20.0, 100.0, 3.0), 9);
+        }
+
+        [Fact]
+        public void ARealVsRealControl_TakesTwiceTheSamples_SoEachSideHoldsAJudgedSidesCount()
+        {
+            Assert.Equal(32, PartParityFxRules.SampleRounds("ctl-fx-real-vs-real"));
+            Assert.Equal(32, PartParityFxRules.SampleRounds("ctl-fx-real-vs-real-air"));
+            foreach (string id in new[] { null, "ctl-empty", "ctl-fx-plume-off", "ctl-fx-plume-short", "ctl-fx-smoke-dropped" })
+                Assert.Equal(PartParityFxRules.Samples, PartParityFxRules.SampleRounds(id));
+            Assert.True(PartParityFxRules.SampleRounds("ctl-fx-real-vs-real") <= PartParityFxRules.MaxSamples);
+        }
+
+        [Fact]
+        public void ALampWithNoLight_IsExcluded()
+        {
+            PartParityStatePart part = Part("telescopicLadderBay", Mod(0, "RetractableLadder"), Mod(1, "ModuleLight"));
+            Assert.Equal(new[] { "lit/plate" }, Words(Enumerate(part)));   // nothing read the prefab
+            part.LightCount = 1;
+            Assert.Equal(new[] { "lit/plate" }, Words(Enumerate(part)));
+            part.LightCount = 0;
+            PartParityFxEnumeration r = Enumerate(part);
+            Assert.Empty(r.Cases);
+            PartParityFxExclusion e = Assert.Single(r.Exclusions);
+            Assert.Equal("fx-no-light", e.Reason);
+            Assert.Equal("light", e.Family);
+            Assert.Equal("ModuleLight", e.Module);
+            Assert.Equal(1, e.ModuleIndex);
+            Assert.True(PartParityFxRules.ExclusionApplies(e, false));
+            Assert.False(PartParityFxRules.ExclusionApplies(e, true));
+            // A part with neither has nothing to leave out.
+            part = Part("fuelTank", Mod(0, "ModuleTestSubject"));
+            part.LightCount = 0;
+            Assert.Empty(Enumerate(part).Exclusions);
             Assert.Equal("event:fx-far:smoke:smoke-missing", PartParityFxRules.FormatReason("event", "fx-far", "smoke", "smoke-missing"));
         }
 

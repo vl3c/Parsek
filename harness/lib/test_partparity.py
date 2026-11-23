@@ -2766,9 +2766,30 @@ class FxJudgeTests(unittest.TestCase):
         c = pp.judge_case(doc)
         self.assertEqual((pp.VERDICT_FAIL, ()), (c.verdict, c.fx.unsettled))
         # A judged layer that did not settle still caps (E.4).
-        doc["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] = 1.0
-        self.assertEqual("flame", doc["fx"]["views"][0]["layer"])
+        for e in doc["fx"]["views"]:
+            if e["layer"] == "flame" and e["route"] == "event":
+                e["splitHalf"]["odd"]["real"]["corePx"] = 0
         self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+
+    def test_a_skipped_entry_says_so(self):
+        c = pp.judge_case(self._faint(300, 2000)[0])
+        smoke = [e for e in c.fx.entries if e.layer == "smoke"]
+        self.assertEqual({pp.VERDICT_SKIPPED}, {e.verdict for e in smoke})
+        self.assertEqual({pp.VERDICT_PASS}, {e.verdict for e in c.fx.entries if e.layer == "flame"})
+        self.assertEqual({"skipped"}, {e["verdict"] for e in c.to_dict()["fx"]["entries"]
+                                       if e["layer"] == "smoke"})
+        # It counts as a pass: the flag raises the case, the routes read pass.
+        self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
+        self.assertNotIn(pp.VERDICT_SKIPPED, pp.VERDICTS)
+        # Two empty pictures agree, and are judged.
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        for real, ghost, skipped in ((FX_DARK, FX_DARK, False), ((smear, smear), FX_DARK, True),
+                                     (FX_DARK, (smear, smear), True)):
+            e = pp.judge_case(_fx_case(real=dict(REAL_FX, smoke=real), event={"smoke": ghost})[0])
+            got = {x.verdict for x in e.fx.entries if x.layer == "smoke" and x.route == "event"}
+            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_PASS}, got)
+        gone = pp.judge_case(_fx_case(event=_broken("off"))[0])
+        self.assertIn(pp.VERDICT_FAIL, {x.verdict for x in gone.fx.entries if x.layer == "flame"})
 
     def test_the_real_vs_real_control_skips_two_weak_cores_and_no_more(self):
         doc = _fx_case(case_id="ctl-fx-real-vs-real", control=True)[0]
@@ -2986,16 +3007,133 @@ class FxJudgeTests(unittest.TestCase):
         doc["fx"]["structure"].pop("fxExtraOnGhost")
         self.assertTrue(pp.fx_block_problems(doc))
 
-    def test_an_unsettled_case_caps_at_warn(self):
+    @staticmethod
+    def _loosen(doc, route="event", layer="flame", views=pp.FX_VIEWS, side="real"):
+        """Unsettles the entries named: their odd half's length is 0.89 of the even one's (the
+        axis view has none: its core goes to 0)."""
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == (route, layer) and e["view"] in views:
+                m = e["splitHalf"]["odd"][side]
+                if m["lengthPx"] is None:
+                    m["corePx"] = 0
+                else:
+                    m["lengthPx"] *= 0.89
+
+    def test_an_unsettled_entry_caps_its_own_fails_at_warn(self):
         doc = _fx_case(event=_broken("off"))[0]
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
-        doc["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] *= 0.89
+        self._loosen(doc)
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, c.verdict)
-        self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+        self.assertEqual(pp.REASON_FX_UNSETTLED, c.reasons[-1])
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertTrue(c.fx.unsettled[0].startswith("event:fx-side-a:flame:real length even="))
-        # It caps a fail, it lowers nothing else.
+        capped = [f for e in c.fx.entries if e.layer == "flame" and e.route == "event" for f in e.findings]
+        self.assertEqual({("presence", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
+        self.assertEqual({True}, {r["capped"] for e in c.to_dict()["fx"]["entries"] for r in e["reasons"]})
+        # One unsettled entry says nothing about the others: the plume is missing in three views.
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc, views=("fx-side-a",))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
+        self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
+        self.assertEqual({"fx-side-a": pp.VERDICT_WARN, "fx-side-b": pp.VERDICT_FAIL,
+                          "fx-bottom": pp.VERDICT_FAIL, "fx-far": pp.VERDICT_FAIL},
+                         {e.view: e.verdict for e in c.fx.entries if (e.route, e.layer) == ("event", "flame")})
+        # The other route's fails are not this one's.
+        doc = _fx_case(event=_broken("off"), start=_broken("off"))[0]
+        self._loosen(doc)
+        self.assertEqual((("event", pp.VERDICT_WARN), ("start", pp.VERDICT_FAIL)), pp.judge_case(doc).fx.routes)
+
+    def test_the_cap_never_holds_what_no_sample_decides(self):
+        lists = {"fxMissingOnGhost": ["fx_a<b"], "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
+        doc = _fx_case(structure=lists)[0]
+        self._loosen(doc)
+        c = pp.judge_case(doc)  # a rendered asset the ghost lacks
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_FAIL), (c.verdict, c.fx.verdict))
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc)
+        doc["views"][0]["colorBlobPx"] = 10 ** 6  # the body route (PP-9's nozzle glow)
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_WARN), (c.verdict, c.fx.verdict))
+        self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
+
+    def test_smoke_unsettled_in_one_view_is_unsettled_in_all(self):
+        # PP-9 `2026-11-23_1050`, solidbooster1-1: real smoke core 0 in every view (stray puffs,
+        # one view's halves 18 and 12 px long), the ghost's smoke there: noise, not smoke-extra.
+        smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
+        doc = _fx_case(real=dict(REAL_FX, smoke=(smear, smear)),
+                       event={"smoke": REAL_FX["smoke"]}, start={"smoke": REAL_FX["smoke"]})[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        for route in ("event", "start"):
+            self._loosen(doc, route, "smoke", ("fx-side-b",))
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertEqual({"smoke-extra"}, {f.reason for e in c.fx.entries for f in e.findings if f.capped})
+        # A flame's views are judged apart (above), and smoke never caps a flame.
+        doc = _fx_case(event=_broken("off"))[0]
+        self._loosen(doc, layer="smoke")
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_beside_an_unsettled_entry_a_fail_stands_only_when_both_halves_show_it(self):
+        def judged(name, spoil):
+            doc = _fx_case(event=_broken(name))[0]
+            self._loosen(doc, layer="smoke")  # the case has an unsettled entry
+            for e in doc["fx"]["views"]:
+                if (e["route"], e["layer"]) == ("event", "flame"):
+                    spoil(e)
+            return pp.judge_case(doc)
+
+        for name, key, agree, other in (
+                ("wide", "widthRatio", 1.0, 0.5), ("shifted-along", "originDeltaPx", 0.0, -30.0),
+                ("shifted-across", "lateralOffsetPx", 0.0, -30.0), ("turned", "directionDeg", 0.0, -60.0)):
+            with self.subTest(name):
+                self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None).verdict)
+                for value in (agree, other):  # one half passes, or fails the other way
+                    c = judged(name, lambda e: e["splitHalf"]["odd"]["compare"].update({key: value}))
+                    self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value))
+                    self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+        # Without an unsettled entry the same halves decide nothing: no settled fail is lowered.
+        doc = _fx_case(event=_broken("wide"))[0]
+        for e in doc["fx"]["views"]:
+            e["splitHalf"]["odd"]["compare"]["widthRatio"] = 1.0
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_beside_an_unsettled_entry_a_measure_noisy_against_itself_is_capped(self):
+        def doc_of(side, dx):
+            doc = _fx_case(event=_broken("offset-section"))[0]
+            self._loosen(doc, layer="smoke")
+            for e in doc["fx"]["views"]:
+                if e["view"] == "fx-bottom" and e["layer"] == "flame":
+                    e["splitHalf"]["odd"][side]["coreCentroid"][0] += dx
+            return doc
+
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc_of("real", 0.0)).verdict)
+        for side in ("real", "ghost"):
+            c = pp.judge_case(doc_of(side, 20.0))
+            self.assertEqual(pp.VERDICT_WARN, c.verdict)
+            e = next(e for e in doc_of(side, 20.0)["fx"]["views"]
+                     if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
+            self.assertEqual({"cross-section"}, set(pp.fx_self_failing(e, False)))
+        # A malformed half proves no noise (fx_block_problems is the finding).
+        e["splitHalf"]["odd"]["ghost"]["hueHistogram"] = "x"
+        self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
+        e["axis"] = {"originPx": [0, 0], "dirPx": None, "nozzleDiameterPx": "x"}
+        self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
+        # Nor does an integer whose square no double holds, and the judge does not raise on it.
+        big = 10 ** 200
+        for spoil in (lambda x: x["axis"].update(dirPx=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["real"].update(coreCentroid=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["ghost"].update(chromaticity=[big, 0])):
+            doc = doc_of("real", 0.0)
+            for x in doc["fx"]["views"]:
+                if x["axis"] is not None:
+                    x["axis"] = dict(x["axis"])
+                spoil(x)
+            self.assertEqual("engine--default--burn-full--0000aaaa", pp.judge_case(doc).case_id)
+
+    def test_an_unsettled_case_lowers_nothing_else(self):
         doc = _fx_case()[0]
         doc["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] *= 0.89
         c = pp.judge_case(doc)
