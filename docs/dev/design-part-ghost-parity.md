@@ -2305,7 +2305,9 @@ F2 as built (2026-11-23, no behaviour change, IL proofs in `<umbrella>/logs/refa
   skinned mesh renderers, the P2 / P6 capture unchanged, effects hidden), `flame` (particle
   renderers with an additive shader, and `Waterfall/` mesh renderers except the
   `Waterfall/Distortion` ones, which refract the frame behind them and emit nothing: 1 or 2 per
-  Waterfall engine, E0 U7), `smoke` (particle renderers with an alpha-blended shader). A renderer
+  Waterfall engine, E0 U7), `smoke` (particle renderers with an alpha-blended shader; a trail with
+  an additive shader, the RAPIER's `fx_smokeTrail_aeroSpike`, is in `flame`, so a smoke core of 0
+  does not mean no trail). A renderer
   that is disabled (`enabled` false) stays in its layer and draws nothing, as stock's vacuum
   smoke does (E0 U8). Each FX layer is rendered alone, so a body difference (judged by
   P2 / P6) never moves an effect measure; the body does not occlude the plume (stated in the
@@ -2379,7 +2381,7 @@ Per route (event, start), FX view and layer:
 | cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.8, 1.25] |
 | colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | a quarter of each |
 | brightness | mean luminance ratio ghost / real over the core's unsaturated pixels, beside each side's saturated share | all | - | outside [0.5, 2.0] |
-| smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256) | all | either | - |
+| smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256); an additive trail is judged in the flame layer | all | either | - |
 | core IoU | of the two cores | all | - | under 0.5 (sorting) |
 
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
@@ -2898,7 +2900,10 @@ Early parity signals, not judged (P8 judges them once built): the ghost's LV-T45
 about half the real one (12140 against 24148 px) and its nozzle shows no throttle glow in the
 strip; the ghost's `JetEngine` draws no flame, which matches stock (the static jet draws none
 either); the ghost's air-mode RAPIER flame is a fifth of the real one on stock (6256 against
-32426 px) and the ghost RAPIER draws a smoke trail stock never draws, in orbit and in the air;
+32426 px), because the real side's trail (`fx_smokeTrail_aeroSpike`) is additive and so counts as
+flame here, while the ghost drew an alpha-blended substitute in the smoke layer (fixed 2026-11-23,
+todo GHOST-RAPIER-AIR-SMOKE-SUBSTITUTE: with its own trail the ghost reads 38237 px against a real
+32550; the smoke core of 0 px on the real RAPIER was that split, not a missing trail);
 ReStock's Hammer matches to 0.3 % (68641 against 68867 px), so a matching pair reads as one.
 `FlameValueMin`: the envelope at max channel 8 is 10 to 20 % larger than at 16 and the core moves
 less; 16 is the starting value.

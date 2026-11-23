@@ -216,9 +216,9 @@ namespace Parsek
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
-        /// <summary>The stock <c>SmokeTrailControl</c> fades of this engine's cloned FX, captured
-        /// before the component is stripped (todo GHOST-SMOKE-IN-VACUUM). Empty for an engine
-        /// whose FX carry none.</summary>
+        /// <summary>The stock <c>SmokeTrailControl</c> and <c>FXFadeByPressure</c> fades of this
+        /// engine's cloned FX, captured before the component is stripped (todo
+        /// GHOST-SMOKE-IN-VACUUM). Empty for an engine whose FX carry none.</summary>
         public List<GhostSmokeTrailFade> smokeTrailFades = new List<GhostSmokeTrailFade>();
     }
 

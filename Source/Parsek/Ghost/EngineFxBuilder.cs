@@ -820,6 +820,67 @@ namespace Parsek
             return new Quaternion(axis.x * invS, axis.y * invS, axis.z * invS, s * 0.5f);
         }
 
+        /// <summary>The RAPIER's own trail (both modes' EFFECTS name it). Its shader is additive,
+        /// unlike <c>fx_smokeTrail_large</c>'s alpha-blended grey smoke.</summary>
+        internal const string RapierTrailPrefabName = "fx_smokeTrail_aeroSpike";
+
+        /// <summary>
+        /// True for the one entry that loads stock's exact builtin asset and follows stock's
+        /// <c>PrefabParticleFX</c> contract: the RAPIER's own trail. The shared lookup has no donor
+        /// part for that name and would substitute <c>fx_smokeTrail_large</c> through
+        /// <c>fxPrefabFallbacks</c>; other parts that name it keep that substitution.
+        /// </summary>
+        internal static bool IsRapierOwnTrail(string partName, string prefabName)
+        {
+            return string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(GhostVisualBuilder.NormalizeFxPrefabName(prefabName),
+                    RapierTrailPrefabName, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Adds the RAPIER's white flame core when the module has neither a model FX nor a white
+        /// flame prefab, anchored on its trail's transform. Changes no existing entry.
+        /// </summary>
+        internal static bool TryAddRapierWhiteFlame(
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries,
+            int modelFxEntryCount,
+            System.Func<string, bool> hasNamedTransform,
+            string thrustVectorTransformName,
+            out string flameTransform)
+        {
+            flameTransform = null;
+            if (modelFxEntryCount > 0)
+                return false;
+
+            string smokeTransform = null;
+            for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
+            {
+                string existing = GhostVisualBuilder.NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                if (existing == null)
+                    continue;
+                if (string.Equals(existing, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (smokeTransform == null &&
+                    existing.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    smokeTransform = prefabFxEntries[i].transformName;
+            }
+
+            flameTransform = smokeTransform ?? "smokePoint";
+            if (!hasNamedTransform(flameTransform))
+            {
+                flameTransform = "thrustTransform";
+                if (!hasNamedTransform(flameTransform) &&
+                    !string.IsNullOrEmpty(thrustVectorTransformName) &&
+                    hasNamedTransform(thrustVectorTransformName))
+                    flameTransform = thrustVectorTransformName;
+            }
+
+            // Quaternion.Euler(-90, 0, 0) as a literal: Euler is native and cannot run headless.
+            prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, Vector3.zero,
+                new Quaternion(-0.70710677f, 0f, 0f, 0.70710677f), true, "fallback"));
+            return true;
+        }
+
         /// <summary>
         /// Instantiates PREFAB_PARTICLE entries from EFFECTS config and parents them to the
         /// ghost's mirrored transform hierarchy. Handles special cases like RAPIER white flame scaling.
@@ -847,8 +908,19 @@ namespace Parsek
                     string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
-                GameObject fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);
-                if (fxPrefab == null && probeBuiltinEffects)
+                bool isRapierOwnTrail = IsRapierOwnTrail(partName, normalizedPrefabName);
+                GameObject fxPrefab = isRapierOwnTrail
+                    ? GhostVisualBuilder.FindBuiltinEffectsPrefab(prefabName)
+                    : GhostVisualBuilder.FindFxPrefab(prefabName);
+                if (isRapierOwnTrail)
+                {
+                    LogHotPathVerbose($"rapier-own-trail-{partName}-{moduleIndex}",
+                        $"'{partName}' midx={moduleIndex}: own trail '{prefabName}' " +
+                        (fxPrefab != null
+                            ? "loaded from builtin Effects (no substitute)"
+                            : "has no builtin Effects asset; no trail is drawn"));
+                }
+                else if (fxPrefab == null && probeBuiltinEffects)
                 {
                     // Waterfall-patched part or ReStock install: the exact prefab's
                     // donors may all be patched away (config packs strip them; ReStock
@@ -957,7 +1029,13 @@ namespace Parsek
                     Vector3 exhaustParentLocal = hasExhaustDir
                         ? Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir
                         : Vector3.zero;
-                    if (TryComputeExhaustAimedPrefabRotation(
+                    if (isRapierOwnTrail)
+                    {
+                        // Stock PrefabParticleFX.OnInitialize: an absent localRotation is identity.
+                        // The parent-up heuristic below depends on the ghost's world attitude.
+                        fxInstance.transform.localRotation = hasLocalRot ? localRot : Quaternion.identity;
+                    }
+                    else if (TryComputeExhaustAimedPrefabRotation(
                         hasLocalRot, restockAuthoredEffects, hasExhaustDir,
                         exhaustParentLocal, out Quaternion exhaustAimedRot))
                     {
@@ -1006,8 +1084,11 @@ namespace Parsek
                             $"ghostInstDist={(int)ghostMountDistance} " +
                             $"srcLossyScale={srcFxTransform.lossyScale.x.ToString("F1", ic)} " +
                             $"ghostParentLossyScale={ghostFxParent.lossyScale.x.ToString("F1", ic)}");
+                        // Stock PrefabParticleFX never scales particle size or life at full power,
+                        // so the RAPIER's own trail takes no boost.
                         GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(
-                            fxInstance, GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
+                            fxInstance,
+                            isRapierOwnTrail ? 1f : GhostVisualBuilder.ResolveEngineFxSizeBoost(partName));
                         GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
                             prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
                             fxInstance.transform, localOffset, localRot, hasLocalRot);
@@ -1586,98 +1667,17 @@ namespace Parsek
                     }
                 }
 
-                // RAPIER can resolve to dark/perpendicular smoke when aeroSpike smoke prefab falls back.
-                // Force a Vector-like visible plume: single large smoke + white flame core.
-                if (isRapierPart && !TuningStandsDown("RAPIER plume forcing"))
+                // RAPIER: a white flame core when no FX of the module draws a flame. The trail the
+                // config names stays as it is (see IsRapierOwnTrail).
+                if (isRapierPart && !TuningStandsDown("RAPIER plume forcing") &&
+                    TryAddRapierWhiteFlame(
+                        prefabFxEntries, modelFxEntries.Count, HasNamedTransform,
+                        engine != null ? engine.thrustVectorTransformName : null,
+                        out string rapierFlameTransform))
                 {
-                    string rapierSmokeTransform = "smokePoint";
-                    Vector3 rapierSmokeOffset = new Vector3(0f, 0f, 1f);
-                    Quaternion rapierSmokeRotation = Quaternion.identity;
-                    bool rapierSmokeHasLocalRotation = false;
-                    bool copiedRapierSmokeAnchor = false;
-
-                    int removedRapierSmoke = 0;
-                    for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
-                    {
-                        string existingPrefab = GhostVisualBuilder.NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (existingPrefab == null ||
-                            existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) < 0)
-                            continue;
-
-                        if (!copiedRapierSmokeAnchor)
-                        {
-                            rapierSmokeTransform = prefabFxEntries[i].transformName;
-                            rapierSmokeOffset = prefabFxEntries[i].localOffset;
-                            rapierSmokeRotation = prefabFxEntries[i].localRotation;
-                            rapierSmokeHasLocalRotation = prefabFxEntries[i].hasLocalRotation;
-                            copiedRapierSmokeAnchor = true;
-                        }
-
-                        prefabFxEntries.RemoveAt(i);
-                        removedRapierSmoke++;
-                    }
-
-                    if (!copiedRapierSmokeAnchor)
-                    {
-                        if (!HasNamedTransform(rapierSmokeTransform))
-                        {
-                            if (HasNamedTransform("thrustTransform"))
-                            {
-                                rapierSmokeTransform = "thrustTransform";
-                                rapierSmokeOffset = engine != null ? engine.fxOffset : Vector3.zero;
-                            }
-                            else if (engine != null &&
-                                !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
-                                HasNamedTransform(engine.thrustVectorTransformName))
-                            {
-                                rapierSmokeTransform = engine.thrustVectorTransformName;
-                                rapierSmokeOffset = engine.fxOffset;
-                            }
-                        }
-                    }
-
-                    prefabFxEntries.Add(("fx_smokeTrail_large", rapierSmokeTransform, rapierSmokeOffset,
-                        rapierSmokeRotation, rapierSmokeHasLocalRotation, "fallback"));
-                    LogHotPathVerbose($"fallback-rapier-smoke-{partName}-{moduleIndex}-{rapierSmokeTransform}",
+                    LogHotPathVerbose($"fallback-rapier-flame-{partName}-{moduleIndex}-{rapierFlameTransform}",
                         $"fallback: '{partName}' midx={moduleIndex} " +
-                        $"replaced {removedRapierSmoke} smoke entries with Vector-style smoke on '{rapierSmokeTransform}' " +
-                        $"offset={rapierSmokeOffset} rot={rapierSmokeRotation.eulerAngles}");
-
-                    bool hasWhiteFlame = false;
-                    for (int i = 0; i < prefabFxEntries.Count; i++)
-                    {
-                        string existingPrefab = GhostVisualBuilder.NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (string.Equals(existingPrefab, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            hasWhiteFlame = true;
-                            break;
-                        }
-                    }
-
-                    if (!hasWhiteFlame && modelFxEntries.Count == 0)
-                    {
-                        // Only add white flame core when no MODEL_MULTI_PARTICLE FX exists.
-                        // With per-module filtering, each mode already has its own model exhaust.
-                        string flameTransform = rapierSmokeTransform;
-                        Vector3 flameOffset = Vector3.zero;
-                        if (!HasNamedTransform(flameTransform))
-                        {
-                            flameTransform = "thrustTransform";
-                            if (!HasNamedTransform(flameTransform) &&
-                                engine != null &&
-                                !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
-                                HasNamedTransform(engine.thrustVectorTransformName))
-                            {
-                                flameTransform = engine.thrustVectorTransformName;
-                            }
-                        }
-
-                        Quaternion flameRotation = Quaternion.Euler(-90f, 0f, 0f);
-                        prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true, "fallback"));
-                        LogHotPathVerbose($"fallback-rapier-flame-{partName}-{moduleIndex}-{flameTransform}",
-                            $"fallback: '{partName}' midx={moduleIndex} " +
-                            $"added Vector-style white flame on '{flameTransform}' offset={flameOffset} rot={flameRotation.eulerAngles}");
-                    }
+                        $"added Vector-style white flame on '{rapierFlameTransform}'");
                 }
 
                 if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0 && waterfallPart)
