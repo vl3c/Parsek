@@ -1286,6 +1286,13 @@ class FxPageDataTests(_FxSetMixin, unittest.TestCase):
         self.assertIn("would be fail", g["trigger"])
         self.assertEqual("engineRef", self.data["groups"][-1]["part"])  # below the passes
 
+    def test_a_weak_core_reads_as_a_chip_and_a_phrase(self):
+        self.assertIn(pp.FLAG_FX_WEAK_CORE, ppv.FX_FLAG_FILTER_KINDS)
+        flag = "fx-weak-core:event:fx-far:smoke:real=39,ghost=79177"
+        self.assertEqual([pp.FLAG_FX_WEAK_CORE], ppv._fx_flag_kinds([flag]))
+        self.assertEqual("event route: weak smoke core in fx-far (real 39 px, ghost 79177 px)",
+                         ppv.reason_phrase("flag:" + flag))
+
     def test_worst_with_reference(self):
         self.assertEqual("reference", ppv.worst(["reference", "reference"]))
         self.assertEqual("pass", ppv.worst(["reference", "pass"]))

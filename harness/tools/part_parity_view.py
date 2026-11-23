@@ -328,6 +328,10 @@ _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], .
      lambda m: "the effect inventories were not compared"),
     (re.compile(r"^flag:%s$" % re.escape(pp.FLAG_FX_NOZZLE_NOT_MEASURED)),
      lambda m: "the nozzle diameter was not measured"),
+    (re.compile(r"^flag:%s:(%s|%s):([^:]+):([^:]+):real=(\d+),ghost=(\d+)$" % (
+        re.escape(pp.FLAG_FX_WEAK_CORE), pp.ROUTE_EVENT, pp.ROUTE_START)),
+     lambda m: "%s route: weak %s core in %s (real %s px, ghost %s px)" % (
+         m.group(1), m.group(3), m.group(2), m.group(4), m.group(5))),
     (re.compile(r"^%s:no-views$" % pp.ROUTE_START),
      lambda m: "start route not measured (a view has no start block)"),
     (re.compile(r"^(%s|%s):(.+)$" % (pp.ROUTE_EVENT, pp.ROUTE_START)),

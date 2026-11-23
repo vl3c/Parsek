@@ -527,12 +527,16 @@ namespace Parsek.Tests
             var stock = Install(new Dictionary<string, PartParityFxSubjectFacts>
                 { ["liquidEngine2.v2"] = F(), ["liquidEngine"] = F(), ["solidBooster.sm.v2"] = F() });
             var modded = Install(new Dictionary<string, PartParityFxSubjectFacts>
-                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["solidBooster.sm.v2"] = F() });
+                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["sepMotor1"] = F(), ["solidBooster.sm.v2"] = F() });
             Assert.Equal("liquidEngine2.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real", false, null, stock).Subject);
             var c = PartParityFxRules.ChooseControlSubject("ctl-fx-plume-off", false, null, modded);
-            Assert.Equal("solidBooster.sm.v2", c.Subject);
+            Assert.Equal("sepMotor1", c.Subject);
             Assert.Null(c.Outcome);
-            Assert.Equal("subject=solidBooster.sm.v2 skipped=liquidEngine2.v2:waterfall,liquidEngine:waterfall", c.Detail);
+            Assert.Equal("subject=sepMotor1 skipped=liquidEngine2.v2:waterfall,liquidEngine:waterfall", c.Detail);
+            // The list in order, every unmeetable subject skipped: the Flea is last.
+            var noSep = Install(new Dictionary<string, PartParityFxSubjectFacts>()
+                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["sepMotor1"] = F(true), ["solidBooster.sm.v2"] = F() });
+            Assert.Equal("solidBooster.sm.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real", false, null, noSep).Subject);
             // The air controls run on the solid booster held in the air.
             Assert.Equal("solidBooster.sm.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real-air", true, null, stock).Subject);
             // No eligible subject: a required control is bad.

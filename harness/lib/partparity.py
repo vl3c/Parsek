@@ -657,11 +657,16 @@ FX_FAMILY_LIGHT = "light"
 # What a stochastic case did not measure, so a check did not run: its FX structure lists (the
 # inventory raise), the bottom view's nozzle diameter (the cross-section offset), and a real
 # side with no effect at all (nothing to compare). Each raises its case to at least ``warn``.
+# So does a layer with a weak core (``fx-weak-core:<route>:<view>:<layer>:real=<n>,ghost=<n>``,
+# ``fx_weak_core_flag``).
 FLAG_FX_STRUCTURE_NOT_MEASURED = "fx-structure-not-measured"
 FLAG_FX_NOZZLE_NOT_MEASURED = "fx-nozzle-not-measured"
 FLAG_FX_NO_REAL_EFFECT = "fx-no-real-effect"
+FLAG_FX_WEAK_CORE = "fx-weak-core"
+# Flag kinds: the part of a flag before its first ``:``.
 FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
-    FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT)
+    FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT,
+    FLAG_FX_WEAK_CORE)
 # The family of each FX state word (PartParityFxRules.Enumerate).
 FX_STATE_FAMILY: Dict[str, str] = {
     "burn-full": "plume", "burn-low": "plume", "rcs-fire": "rcs", "heat-medium": "heat",
@@ -1308,6 +1313,29 @@ def fx_presence_reason(layer: Any, real_core: int, ghost_core: int) -> Optional[
     return None
 
 
+def fx_both_cores_weak(real_core: int, ghost_core: int) -> bool:
+    """PartParityFxMetrics.BothCoresWeak: neither core reaches FX_PRESENCE_MIN_PX, on either
+    layer, so the tile holds no plume to compare and only presence is judged."""
+    return real_core < FX_PRESENCE_MIN_PX and ghost_core < FX_PRESENCE_MIN_PX
+
+
+def fx_weak_core_flag(entry: Dict) -> Optional[str]:
+    """The flag of an entry with a weak core, so none passes silently. Both weak with anything
+    drawn (an envelope pixel on either side): its measures were skipped. One weak and presence
+    does not decide (its core is under the minimum but not 0, or a smoke core is under
+    FX_SMOKE_MIN_PX): every measure is still judged. None otherwise."""
+    real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
+    ghost = entry.get("ghost") if isinstance(entry.get("ghost"), dict) else {}
+    cores = (_fx_count(real, "corePx"), _fx_count(ghost, "corePx"))
+    if fx_both_cores_weak(*cores):
+        if not (_fx_count(real, "envelopePx") or _fx_count(ghost, "envelopePx")):
+            return None
+    elif min(cores) >= FX_PRESENCE_MIN_PX or fx_presence_reason(entry.get("layer"), *cores) is not None:
+        return None
+    return "%s:%s:%s:%s:real=%d,ghost=%d" % (
+        (FLAG_FX_WEAK_CORE, entry.get("route"), entry.get("view"), entry.get("layer")) + cores)
+
+
 def _over(v: float, fail: float, warn: float) -> Optional[str]:
     return VERDICT_FAIL if v > fail else (VERDICT_WARN if v > warn else None)
 
@@ -1321,7 +1349,8 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     FX_MEASURES order. A null measure is not measured and never moves a verdict;
     brightness and core IoU are warn-only; an rcs case leaves out
     FX_RCS_REPORT_ONLY_MEASURES (R4). A layer one side lacks is named by its presence
-    reason alone: the tile has no second plume for the other measures to compare."""
+    reason alone: the tile has no second plume for the other measures to compare. Where both
+    cores are weak nothing but presence is judged (``fx_weak_core_flag`` raises the case)."""
     th = FX_THRESHOLDS
     layer = entry.get("layer")
     real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
@@ -1339,6 +1368,8 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     if presence is not None:
         return [FxFinding("smoke" if layer == FX_LAYER_SMOKE else "presence",
                           VERDICT_FAIL, presence)]
+    if fx_both_cores_weak(_fx_count(real, "corePx"), _fx_count(ghost, "corePx")):
+        return []
     for measure, key in (("origin", "originDeltaPx"), ("lateral", "lateralOffsetPx")):
         if c[key] is not None:
             fail = max(th[measure + "FailMinPx"], th[measure + "FailLengthFraction"] * length)
@@ -1384,7 +1415,12 @@ def fx_failing_measures(entry: Dict, rcs_case: bool = False) -> List[str]:
 
 def fx_split_half_disagreement(entry: Dict) -> Optional[str]:
     """PartParityFxViewResult.SplitHalfDisagreement over the written halves: the real side's,
-    else the ghost's, as ``<side> <measure> even=<v> odd=<v>``; None when both settled."""
+    else the ghost's, as ``<side> <measure> even=<v> odd=<v>``; None when both settled, and
+    where both whole-set cores are weak (stray particles must not cap a case that fails
+    elsewhere)."""
+    whole = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    if fx_both_cores_weak(*(_fx_count(s, "corePx") for s in whole)):
+        return None
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves = [split.get(h) if isinstance(split.get(h), dict) else {} for h in FX_SPLIT_HALF_KEYS]
     for side in ("real", "ghost"):
@@ -1521,6 +1557,10 @@ def fx_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
                 break
         if not fx_real_effect(sidecar):
             out.append(FLAG_FX_NO_REAL_EFFECT)
+        for e in fx_entries(sidecar):
+            weak = fx_weak_core_flag(e) if str(e.get("route")) in FX_JUDGED_ROUTES else None
+            if weak is not None and weak not in out:
+                out.append(weak)
     return tuple(out)
 
 
@@ -1601,8 +1641,8 @@ def judge_fx(sidecar: Dict) -> Optional[FxJudgement]:
             reasons.insert(0, "fx-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
             verdict = VERDICT_ERROR
     flags = fx_flags(sidecar, bool(unsettled))
-    for f in FX_FLAGS_RAISE_TO_WARN:
-        if f in flags:
+    for f in flags:
+        if f.split(":", 1)[0] in FX_FLAGS_RAISE_TO_WARN:
             reasons.append("flag:%s" % f)
             if _RANK[VERDICT_WARN] > _RANK[verdict]:
                 verdict = VERDICT_WARN

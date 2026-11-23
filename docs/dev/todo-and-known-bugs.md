@@ -81,6 +81,90 @@ What: a row the optimizer cut carries the head row's start snapshot, so `GhostPl
 
 Fix (not started): give the wrapper's base recording to the walk.
 
+## PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23: what the first full orbit FX sweeps found, by cluster [FILED 2026-11-23 from PP-7 `2026-11-23_1027` (stock-minimal), PP-9 `2026-11-23_1050` (modded-restock) and PP-8 `2026-11-23_1232` (modded-compat); OPEN as the index of the entries below; report-only lanes, nothing here is ruled on]
+
+Verdicts (report-only; the E.4 thresholds are starting guesses). PP-7, 128 cases: 34 pass / 33 warn / 60 fail / 1 error. PP-9, 165 cases: 28 / 74 / 61 / 2, re-judged under the weak-core rule (design E.4) 28 / 71 / 64 / 2. PP-8, 165 cases: 27 pass / 21 warn / 20 fail / 2 error / 95 reference (would be 42 fail / 53 warn). Every run: controls ok, press ok, complete, recompute 0 mismatches, no `[Parsek][ERROR]`. PP-7 and PP-9 flew one DLL (sha256 prefix 002a3fc9, main plus `ghost-fx-2`), PP-8 a later one (e2a66a0f: main with #2795 and #2797 plus this branch's instrument changes). Evidence: `<umbrella>/logs/flights/p8-f6/` (sweeps, KSP logs, viewer site `viewer/index.html`).
+
+The headline: ReStock's own plumes match. Over the 58 PP-9 full-thrust plumes with a real core of 1000 px or more the ghost's side-view core is 1.00 times the real one (median; 56 within 25 %), width 1.00, far length 1.00. Stock's legacy plumes do not: 42 full-thrust cases, core 0.80, far length 0.82; 30 at 30 % thrust, core 2.26, width 1.41, far length 2.09 (2 of 30 within 25 %).
+
+Clusters, each with its entry:
+
+- Stock legacy plumes are the wrong size at every power (GHOST-PLUME-SIZE-BY-POWER).
+- `fx_exhaustFlame_yellow_tiny_Z` flames point sideways and read as a ball (GHOST-FLAME-Z-DIRECTION).
+- Ghosts draw a legacy flame stock does not, on nine stock parts (GHOST-ENGINE-EXTRA-LEGACY-FLAME).
+- The engine's exhaust `Light` is missing on 34 stock cases (GHOST-ENGINE-EXHAUST-LIGHT-MISSING).
+- Effects ignore the model's 0.8 scale (GHOST-FX-MODEL-SCALE).
+- ReStock nozzles do not glow (GHOST-RESTOCK-NOZZLE-GLOW).
+- A lamp's light cookie is not copied (GHOST-LIGHT-COOKIE).
+- Heat: `heat-hot` fails on colour on 13 of 16 stock parts and 12 of 13 ReStock ones, `heat-medium` passes on all but the JetEngine and (stock) the nuclear engine: the ghost draws the generic emissive where stock plays the part's own clip (PARTPARITY-FX-FIRST-READINGS-2026-11-23, Heat). On the nuclear engine the ghost lights the bell, which stock's clip leaves dark (`nuclearengine--default--heat-medium--6b86bbe4`, bottom 18457 px).
+- RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts.
+- `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum).
+- ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+- Stock `LaunchEscapeSystem` draws no particles (by design, `EngineFxBuilder`); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees.
+- `sepMotor1` (stock) flame origin 34 px late, width 0.76.
+
+The instrument's own findings: PARTPARITY-FX-INSTRUMENT-2026-11-23.
+
+## GHOST-PLUME-SIZE-BY-POWER: a stock engine's ghost plume is thinner and shorter than stock's at full thrust and larger at part thrust [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN (agent ghost-fx-3 is on plume sizes at part power); low (visual only)]
+
+What: on the legacy `fx_exhaustFlame_*` engines the ghost's side-view core at full thrust is 0.80 of the real one (median of 42; LV-T45 53696 / 32862 px, width 0.75, far length 0.82), at 30 % thrust 2.26 times (LV-T45 7348 / 17371, width 1.48, far length 2.21; `liquidEngine2` 4844 / 17775, far length 3.04). Solid boosters: far length 0.55 to 0.57 (`solidBooster.sm.v2`, `solidBooster.v2`) and 0.81 elsewhere. The inventories name numbers that differ: LV-T45 full `fx_exhaustFlame_blue` size 2.63 real, 2.25 ghost; at 30 % 0.90 / 0.68, and the smoke trail's speed 50 real, 15 ghost. KSPParticleEmitter plumes read size 1.00 real against 1.50 (full) or 0.45 (30 %) ghost; ionEngine at 30 % core 0.62, RAPIER closed 0.58. ReStock: burn-full equal, burn-low core 0.93 median but 0.48 (`liquidenginerv-1--basic--burn-low`) to 1.71 (`liquidenginemainsail.v2--mid--burn-low`, width), each with `size=1.00 -> 0.30 speed=5.00 -> 1.50` in its inventory.
+
+Fix (not started here): read stock's `power` curves on each EFFECTS / legacy system (size, speed and emission against the module's throttle) and apply the same; the ghost scales size and speed by its own rule. The PP-7 / PP-9 cases are the acceptance test.
+
+## GHOST-FLAME-Z-DIRECTION: the small `_Z` engine flames point sideways on a ghost and read as a ball at the nozzle [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN; low (visual only)]
+
+What: `smallRadialEngine` and `.v2`, `liquidEngineMini.v2` (Spark) and `LiquidEngineRV-1` draw `fx_exhaustFlame_yellow_tiny_Z`. The inventories differ in the emission direction (and in size, as everywhere): real `dir=(0.0,1.0,0.0)`, ghost `dir=(0.0,0.0,-1.0)` (local to the same parent). In the pictures stock draws a flame 2 to 5 nozzles long and the ghost a round glow at the nozzle: core 12933 / 1565 px (`smallradialengine.v2--orange--burn-full--0fb37a96`, length 0.15), Spark length 0.46, RV-1 0.35. ReStock draws its own plume there and matches.
+
+Fix (not started): read how the ghost parents the prefab. Inferred, not read: the prefab's own rotation (`_Z` prefabs are authored along another axis) is lost there.
+
+## GHOST-ENGINE-EXTRA-LEGACY-FLAME: nine stock engines' ghosts draw a legacy flame stock does not, and two of them miss stock's own [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN; medium (the wrong plume is plainly visible)]
+
+What: a rendered asset the real part does not draw: `fx_exhaustFlame_white` on `Size2LFB`, `Size2LFB.v2` and `Size3EngineCluster` (one per nozzle), `fx_exhaustFlame_yellow_tiny_Z` on `microEngine.v2` and `radialEngineMini.v2`, `fx_exhaustFlame_blue_small` on `omsEngine`, `fx_exhaustFlame_blue` on `SSME`, `fx_exhaustFlame_yellow_medium` on `Size3AdvancedEngine`, `fx_exhaustFlame_yellow` on `MassiveBooster`. Stock's Twin-Boar plume is a thin blue-white needle; the ghost adds a wide yellow cone (side core 5291 / 35060 px, far length 4.11). `Size3AdvancedEngine` and `MassiveBooster` also miss stock's own (`ksX_Exhaust`, `SRB_Large`): at 30 % the `Size3AdvancedEngine` plume core is 30869 real, 5954 ghost.
+
+Evidence: the ghost's `engine-fx start` lines read `supplementSystems=1..4` on exactly these parts (`source=supplement effectsSystems=0` on `Size3AdvancedEngine` and `MassiveBooster`: no EFFECTS system resolved, so the supplement stands alone). `MassiveBooster`'s module names `powerEffectName = running_closed`.
+
+Fix (not started): read when `EngineFxBuilder` adds the supplement. It stands beside EFFECTS that already draw the state; decide it from the effect group the module really plays.
+
+## GHOST-ENGINE-EXHAUST-LIGHT-MISSING: a ghost engine casts no exhaust light [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN; low (visual only)]
+
+What: `lightsDiffer` reads `count real=1 ghost=0` on 28 stock cases, `real=3` on 4 and `real=2` on 2 (34 cases): the legacy engines' `fx_exhaustLight_*` `Light`. ReStock parts carry none, so PP-9 reads 0. Reported only (E.4).
+
+Fix (not started): decide whether a ghost should light its surroundings at all (many ghosts, many lights) before copying it.
+
+## GHOST-FX-MODEL-SCALE: a ghost's engine and RCS effects ignore the model's scale and draw 1.25 times too large [FILED 2026-11-23 from PP-7 `2026-11-23_1027` and PP-9 `2026-11-23_1050`; OPEN; low (visual only)]
+
+What: the real effect system sits under a model scaled 0.8 (0.64 where two nested transforms are), the ghost's under 1.0. Stock: `liquidEngine`, `liquidEngine2`, `RAPIER` (0.80 -> 1.00) and `sepMotor1` (3.53 -> 4.42). ReStock: `RAPIER`, `restock-engine-125-valiant`, `linearRcs`, `RCSBlock.v2` and the `restock-rcs-*` blocks (0.64 or 0.80 -> 1.00). It shows as a larger plume: ReStock RAPIER full core 55234 / 73716 px, width 1.32; `restock-rcs-single-mini-1` length 1.58; Valiant width 1.24.
+
+Fix (not started): read where the ghost takes the effect's scale. Inferred, not read: carry the part model's lossy scale (`MODEL { scale }`, `rescaleFactor`) onto the ghost's effect roots.
+
+## GHOST-RESTOCK-NOZZLE-GLOW: a ReStock engine's nozzle and bell do not glow on its ghost [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; OPEN; low (visual only, modded)]
+
+What: 94 of 102 PP-9 plume cases fail or warn on `color-blob-px` at the bottom view (and about 50 on a side view): the real bell glows orange while it burns, the ghost's stays cold metal (`toroidalaerospike--trussmount--burn-full--fcaf5be7` 123810 px, `liquidenginelv-t91--cap--burn-full--24c349fb` 37868). Stock nozzles now match (`ghost-fx-2`: `FXModuleAnimateThrottle` / `FXModuleAnimateRCS` clips; PP-7 reads 0 to 58 px there), but ReStock drives the glow with `ModuleColorChanger` (`heatColor` / `throttleColor`, 52 modded parts, design E.1), which `GhostVisualBuilder.NozzleGlow` does not read. It is the one thing that keeps most matching ReStock plumes from `pass`.
+
+Fix (not started): drive the same colour curve from the recorded power, like the clips.
+
+## GHOST-LIGHT-COOKIE: a ghost lamp's light is a plain disc where stock's has a pattern [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; OPEN; low (visual only)]
+
+What: the plate pictures of `GrapplingDevice`, `smallClaw` and `restock-claw-625-1` differ (82804, 55775 and 66661 px) though intensity, colour, range and spot angle agree: the real light has ring-shaped falloff and the ghost's is a uniform disc (mean plate luminance 8.6 against 20.7). Inferred, not read: the light's `cookie` texture is not copied (no `cookie` read in `Source/Parsek/Ghost/`). Every other lamp's plate passes.
+
+Fix (not started): copy `Light.cookie` and `cookieSize` with the other values.
+
+## PARTPARITY-FX-INSTRUMENT-2026-11-23: what the FX sweeps found about their own instrument [FILED 2026-11-23 from PP-7, PP-8 and PP-9; OPEN; low (tooling)]
+
+- Plate sized from the spot angle. `stripLight1` (`spotAngle` 170) gets an 89 m plate at 3 m, so the real side lights 1.1 % (stock) or 0.5 % (ReStock) of it, under the 2 % floor: setup fault `plate-not-lit` on every install, though real and ghost agree (0 px). Cap the plate, or the floor should read the light's own footprint.
+- `telescopicLadderBay` on ReStock has no `Light` behind its `ModuleLight` (`real[]` on the settle line), so its plate case is always `plate-not-lit`. Such a part wants an exclusion, as `fx-needs-air` is.
+- Convergence. `fx-unsettled` capped a fail to warn on 70 of 165 cases on PP-9 (67 under the weak-core rule), 70 of 165 on PP-8 (would-be verdicts included) and 17 of 128 on PP-7: ReStock's particles are sparse and large, so 16 samples per view do not settle length and width within 10 %. A fail under the cap reads `warn`; raise `Samples`, or judge the halves of what settles, before arming.
+- `fx.layers` is read before the ghosts' emitters have a material, so KSPParticleEmitter flames are listed under `smoke` there (PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23, Instrument); the measures classify each frame. The inventory's `size` and `speed` (`fxDiffers`) come from the same call, so read them with that in mind.
+- `fx-not-plateaued` on 10 cases of each sweep: long-lived SRB smoke (Clydesdale, Pollux, Thoroughbred) and the Twin-Boar family pass the 8 s cap.
+- Plate cases write no FX entry, so the Waterfall flare and beam renderers the sidecar lists in a lit lamp's `flame` layer (design E.6, `spotlight1` on PP-8) are not measured, only counted.
+- A skipped weak layer (design E.4, weak cores) reads `pass` on its own entry; the case's `fx-weak-core:*` flag is what says it was skipped.
+
+## PARTPARITY-ORBIT-SRB-SMOKE-NOISE: ReStock solid booster smoke in orbit is noise on the real side, so only an air lane can judge it [FILED 2026-11-23 from PP-8 reading flight `2026-11-23_1217`, PP-9 `2026-11-23_1050` and PP-8 `2026-11-23_1232`; OPEN; low (tooling)]
+
+What: in orbit the Krakensbane shear (design E.12 U8) carries a ReStock booster's smoke puffs 130 to 160 m away, and one lands in the near box now and then. The real side against itself (even against odd samples) therefore jumps: `solidBooster.sm.v2` 0 and 754 px, `solidBooster.v2` 53 and 542, `Shrimp` 3976 and 0 (minimum 256), where the ghost's smoke stays at the nozzle (244 to 4164 px). So the `smoke-extra` those boosters read (10 on PP-9) is not a finding about the ghost, and the Flea cannot be the real-vs-real control where its smoke is judged. Stock boosters draw no smoke in vacuum and are unaffected.
+
+Fix (not started): do not judge the `smoke` layer of an orbit case whose real side draws world-space smoke, or exclude it in orbit (`smoke` measured, `reference`); the air lanes (PP-5 / PP-6 second label, PP-10) judge it. Until then read the orbit `smoke-*` reasons of ReStock boosters as noise.
+
 ## PARTPARITY-FX-FIRST-READINGS-2026-11-23: what the first FX sweep (P8 F3 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the P8 F6 reading runs, nothing judged yet]
 
 Run `2026-11-23_0728`, stock-minimal, orbit, one part per label (evidence `<umbrella>/logs/flights/p8-f3/`). The FX thresholds are starting guesses, so these are readings, not verdicts. RAPIER figures are the closed cycle, before #2792 reached the branch DLL: provisional.
@@ -95,6 +179,7 @@ Run `2026-11-23_0728`, stock-minimal, orbit, one part per label (evidence `<umbr
 - ~~Heat.~~ FIXED 2026-11-23, branch `ghost-fx-3`. `noseConeAdapter` heat-hot failed on colour (31733 px on the top view): its model holds the clip, whose top stage is yellow (1, 1, 0), and the ghost drew the generic emissive (1.5, 0.6, 0.15), which `BuildHeatMaterialStates` gives every heat part. A ModuleAnimateHeat part now takes its clip's own colours at 0 / 0.5 / 1 (`BuildClipHeatMaterialStates`, over the nozzle glow's clip sampler, every Animation that holds the clip, as `ModuleAnimationSetter.AnimStartup`); the generic ramp stays for a clip that animates no colour. Flight `2026-11-23_1209`: heat-hot 31733 -> 0 px on every view, heat-medium 0.
 - ~~Heat clip missing.~~ FIXED 2026-11-23, branch `ghost-fx-2`. `standardNoseCone`, `pointyNoseConeA` and `pointyNoseConeB` name `Cone_Heat` and their stock models carry no such clip, so the real part never glows there (`ModuleAnimationSetter.AnimStartup` finds no animation state) and the ghost glowed: `TryBuildHeatInfo` could not tell a missing clip from one that only changes colours, and fell to the generic emissive of `BuildHeatMaterialStates`. Such a part now gets a heat info that draws nothing, and the reentry glow (the ghost's stand-in for stock's blackbody) treats it like any other part. Flight `2026-11-23_1007`: `standardNoseCone` heat-hot 137892 -> 0 px on the top view, heat-medium 137876 -> 0 (at most 2 px on any view); `pointyNoseConeA` 0 on every view of both.
 - Instrument note for the reading runs. The far box ends at the particles' 95th percentile, so a stretched billboard flame's tail is cut at the tile edge on both sides: a ghost flame longer than the real one reads as equal there, and a short one reads shorter than it is.
+- Triage: the full sweeps are PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23 (filed 2026-11-23, P8 F6) and the entries it names; what is still open here is the heat item.
 
 ## PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23: what the first held-jet FX sweep (P8 F7 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the F7 lane reading runs (PP-5 / PP-6 second label, PP-10), nothing judged yet]
 

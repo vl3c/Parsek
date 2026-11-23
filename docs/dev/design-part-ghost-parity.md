@@ -2502,6 +2502,24 @@ Per route (event, start), FX view and layer:
 | smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256); an additive trail is judged in the flame layer | all | either | - |
 | core IoU | of the two cores | all | - | under 0.5 (sorting) |
 
+Weak cores (F6, 2026-11-23). Where neither side's core reaches `PresenceMinPx` (64), on either
+layer, only presence is judged: origin, length and width read the envelope, and the envelope of a
+layer with no core is stray particles. Found by PP-8's first reading flight (`2026-11-23_1112`):
+`ctl-fx-real-vs-real` compared the ReStock Flea's smoke with itself, cores 0 and 0, envelopes 1570
+and 3680 px, and failed origin (-29 px) and length (1.37). One weak core is not enough: there every
+measure stays judged and presence keeps its rule above. Nor do the split halves of such an entry
+tag `fx-unsettled` (its stray particles would cap a fail elsewhere at `warn`). A weak core never
+passes silently: the
+Python flag `fx-weak-core:<route>:<view>:<layer>:real=<n>,ghost=<n>` raises the case to at least
+`warn` on every entry where both cores are weak and anything is drawn (an envelope pixel on either
+side), and on every entry where exactly one is weak and presence does not decide (the weak core is
+1 to 63 px, or a smoke core is under `SmokeMinPx`). `PartParityFxMetrics.BothCoresWeak` is the C#
+half (the control judges read `FailingMeasures`, so they follow the same rule), mirrored by
+`fx_both_cores_weak`. Re-judged offline: PP-7 (`2026-11-23_1027`) carries no such entry and moved no
+verdict; PP-9 (`2026-11-23_1050`) carries it on 18 of 165 cases and moved three from `warn` to `fail`
+(`liquidengine--size1--burn-low`, `liquidengine.v2--trussmount--burn-low`,
+`radialliquidengine1-2--shrouded--burn-full`: only weak smoke halves had capped them).
+
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
 (count, speed, direction, length and width percentiles; the two-sided form of the existing
 ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-only in P8: they are
@@ -2650,7 +2668,7 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   | --- | --- | --- |
   | `ctl-empty` | inside a burning wave, both sides hidden | zero coverage on every layer |
   | `ctl-ghost-absent` | ghost not built | ghost layers zero |
-  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the Flea) | passes every FX measure (the noise floor) |
+  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the separation motor, "F6 as built" in E.8) | passes every FX measure (the noise floor) |
   | `ctl-fx-plume-off` | the same | real vs an event-route ghost built without the polled events: fails presence, while the real core is present and `EngineIgnited` was recorded |
   | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose FX roots are scaled to 0.4 with Hierarchy particle scaling AFTER the visible prime ("F3 as built" in E.2 says why not the particle fields): fails length, passes presence and colour |
   | `ctl-fx-plume-hue` | the same | intact ghost vs a ghost whose rendered `flame` pixels have their channels rotated (r, g, b) -> (b, r, g) in the readback, before accumulation. That leaves max-channel coverage exactly unchanged, so it fails colour and passes presence and length exactly. A material edit cannot do this (E0 U10): every stock flame tint is grey (0.537, 0.779, 1.0 or 0.5 in all channels), so rotating its channels changes nothing, and a (0, max, 0) tint changes coverage (by 46 % on the ion engine, whose colour comes from its particles) |
@@ -2773,11 +2791,11 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - RCS (R4). Length, width and brightness leave the verdict and land in
     `fx.rcs.reportedOnly` beside `powerRatio`; the flag `rcs-known-difference:*` is the written
     one, else derived from `fx.rcs`. Flags (`fx.flags`, none moves a verdict but the cap):
-    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and three that
+    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and four that
     raise to at least `warn` because a check did not run: `fx-structure-not-measured` (a null
     `fxMissingOnGhost` or `fxExtraOnGhost`), `fx-nozzle-not-measured` (no `nozzleDiameterPx`
-    on the bottom view) and `fx-no-real-effect` (an empty real side, as the static `JetEngine`
-    draws).
+    on the bottom view), `fx-no-real-effect` (an empty real side, as the static `JetEngine`
+    draws) and, since F6, `fx-weak-core:*` (E.4, weak cores).
   - Controls. In an FX run every control recorded `ok` is re-judged from its sidecar
     (`judge_fx_control`): evidence = the `event` entries, a measure fails when any entry fails
     it. Stricter than `JudgeFxControl` in two ways: a plume control whose intact side has no
@@ -2794,8 +2812,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
     would-be counts, flag counts, thresholds). A sweep with no FX case writes what it wrote
     before.
   - Open for the first flights: `directionDeg` is noisy on a flat or compact core (2 to 4 px
-    across: the halves' centroids differ by fractions of a pixel), and every measure is judged
-    on cores below the presence minimum too; no guard was added, the reading runs re-pin. Two
+    across: the halves' centroids differ by fractions of a pixel); measures on cores below the
+    presence minimum got their guard in F6 (E.4, weak cores). Two
     orbit controls look unmeetable as E.5 states them: `ctl-fx-smoke-dropped`, because since
     GHOST-SMOKE-IN-VACUUM the intact ghost draws no smoke in vacuum, unless its two ghosts
     leave `lastInterpolatedBodyName` unset (smoke as built); and `ctl-fx-plume-shift`, whose
@@ -2958,6 +2976,32 @@ reading flight, the step count set from its `wall=` (D.8). The ids PP-7 to PP-10
 `origin/main` and every remote branch (checked 2026-11-22). Tier `operator`, report-only,
 `[retry] policy = "none"`, one slot each; modded-restock flies on its own slot (port block 50060),
 so it can fly beside the other two installs.
+
+F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stock`,
+`PP-8-part-parity-fx-modded` and `PP-9-part-parity-fx-restock`, and the hlib wiring cells
+(`PartParityFxLaneShapeTests`). No registry value: like PP-3 / PP-4 they claim D14 only.
+
+- As flown: PP-7 `2026-11-23_1027` (1002 s wall, 906 s of sweep: 451.8 + 404.6 + 49.8 + 0.3), PP-9
+  `2026-11-23_1050` (1338 s, 1243 s: 445.5 + 443.5 + 353.1 + 0.8) and PP-8 `2026-11-23_1232` (1350 s,
+  1254 s: 453.7 + 443.4 + 355.8 + 1.2), each PASS attempt 1 after its `limit=20` reading flight (192,
+  203 and 216 s). About 6.5 s per case plus 80 to 90 s of controls, under the table's 1080 / 1470 s.
+  Every lane needs three steps; the step counts of the table stay as margin, at no cost.
+- Verdicts (report-only): PP-7 34 pass / 33 warn / 60 fail / 1 error of 128; PP-9 28 / 74 / 61 / 2 of
+  165 (28 / 71 / 64 / 2 under the weak-core rule); PP-8 27 / 21 / 20 / 2 and 95 reference (would be 42
+  fail, 53 warn) of 165. Triage: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
+- Two instrument changes the reading flights forced: weak cores (E.4), and the plume controls'
+  subject on modded-compat. The Flea's smoke is noise there against itself: a ReStock booster's
+  world-space puffs are sheared 130 to 160 m away in orbit and land in the near box now and then
+  (E.12 U8). `ctl-fx-real-vs-real` on it read 0 / 0 px smoke cores (`2026-11-23_1112`, failing origin
+  and length) and then 0 / 754 px (`_1217`, failing smoke). Measured over PP-9's own split halves
+  (real even samples against real odd ones): `solidBooster.sm.v2`, `solidBooster.v2` and `Shrimp`
+  jump (519 / 0, 53 / 542 and 3976 / 0 px); `sepMotor1`, both escape towers, `restock-srb-anvil-1`,
+  `restock-srb-castor-1`, `Pollux`, `Mite`, `Clydesdale`, `MassiveBooster`, `solidBooster1-1` and
+  the two separation-motor tanks fail nothing measured there. So `PlumeControlParts`
+  is `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2`, in that order, each
+  unmeetable one skipped; stock-minimal and modded-restock keep the LV-T45. All 11 controls (the
+  point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
+  smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
 
 ### E.9 Work breakdown
 

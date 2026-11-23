@@ -1135,8 +1135,10 @@ namespace Parsek.TestCommands
         // =====================================================================================
 
         /// <summary>The plume controls' preference (stock-minimal and modded-restock: the LV-T45;
-        /// modded-compat, where the liquids carry Waterfall: the Flea).</summary>
-        internal static readonly string[] PlumeControlParts = { "liquidEngine2.v2", "liquidEngine", "solidBooster.sm.v2" };
+        /// modded-compat, where the liquids carry Waterfall: the separation motor, which draws no
+        /// smoke). A solid booster last: in orbit a ReStock booster's smoke is noise against itself
+        /// (the Krakensbane shear), so it cannot prove the noise floor.</summary>
+        internal static readonly string[] PlumeControlParts = { "liquidEngine2.v2", "liquidEngine", "sepMotor1", "solidBooster.sm.v2" };
 
         /// <summary>The smoke control's and every air control's subject.</summary>
         internal static readonly string[] SmokeControlParts = { "solidBooster.sm.v2" };
