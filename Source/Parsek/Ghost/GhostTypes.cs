@@ -561,6 +561,9 @@ namespace Parsek
         public List<HeatMaterialState> materialStates;
         // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
         public List<NozzleGlowInfo> nozzleGlows;
+        // Created for throttle-driven colour changers alone: no heat visual of its own, so the part
+        // keeps the reentry glow (which leaves a colour changer's property to it).
+        public bool throttleGlowsOnly;
         // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
         // heat event draws nothing here and the part counts as any other for the reentry glow.
         public bool heatClipMissing;

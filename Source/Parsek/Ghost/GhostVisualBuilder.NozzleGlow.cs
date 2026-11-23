@@ -319,6 +319,7 @@ namespace Parsek
                 partPersistentId = persistentId,
                 moduleName = nameof(FXModuleThrottleEffects),
                 animationName = curve.moduleId,
+                isColorChanger = true,
                 moduleKeys = new ulong[driver.moduleIndices.Length],
                 modulePowers = new float[driver.moduleIndices.Length],
                 powerScale = 1f,
@@ -377,7 +378,12 @@ namespace Parsek
 
         private static void AddNozzleGlow(ref HeatGhostInfo heatInfo, NozzleGlowInfo glow, uint persistentId)
         {
-            if (heatInfo == null) heatInfo = new HeatGhostInfo { partPersistentId = persistentId };
+            if (heatInfo == null)
+                heatInfo = new HeatGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    throttleGlowsOnly = glow.isColorChanger,
+                };
             if (heatInfo.nozzleGlows == null) heatInfo.nozzleGlows = new List<NozzleGlowInfo>();
             heatInfo.nozzleGlows.Add(glow);
         }

@@ -292,7 +292,7 @@ namespace Parsek
             return string.IsNullOrEmpty(id) ? "colorChanger" : id;
         }
 
-        private static Color[] SampleColorChangerCurves(ConfigNode moduleNode)
+        internal static Color[] SampleColorChangerCurves(ConfigNode moduleNode)
         {
             var samples = new Color[NozzleGlowSampleCount];
             for (int n = 0; n < samples.Length; n++)

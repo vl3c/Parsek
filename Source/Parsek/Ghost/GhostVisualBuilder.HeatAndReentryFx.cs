@@ -777,12 +777,18 @@ namespace Parsek
         /// </summary>
         /// <summary>
         /// Pure: whether the reentry glow leaves the part alone. It does for every heat-managed
-        /// part, but not for one whose heat clip is missing: nothing drives that part's materials,
-        /// and stock lights it through its blackbody like any other.
+        /// part, but not for one whose heat clip is missing or whose only glow is a colour changer:
+        /// nothing else drives that part's materials (a colour changer's own are protected
+        /// material by material), and stock lights it through its blackbody like any other.
         /// </summary>
         internal static bool HeatInfoOwnsPartMaterials(HeatGhostInfo info)
-            => info != null && (!info.heatClipMissing
-                || (info.nozzleGlows != null && info.nozzleGlows.Count > 0));
+        {
+            if (info == null) return false;
+            if (!info.heatClipMissing && !info.throttleGlowsOnly) return true;
+            for (int i = 0; info.nozzleGlows != null && i < info.nozzleGlows.Count; i++)
+                if (!info.nozzleGlows[i].isColorChanger) return true;
+            return false;
+        }
 
         private static int CollectReentryGlowMaterials(
             GameObject ghostRoot,

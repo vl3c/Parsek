@@ -464,6 +464,67 @@ namespace Parsek.Tests
             => Assert.Equal((ColorChangerPattern)expected, GhostVisualBuilder.ClassifyColorChangerPattern(
                 toggleInFlight, property, useRate, ablatorDriven, throttleDriven: true));
 
+        // The curves the glow plays: ReStock's heatColor ramps all four channels, so its emission
+        // goes with the square of the level.
+        [Fact]
+        public void ColorChanger_TheGlowPlaysTheModulesOwnCurves()
+        {
+            var node = new ConfigNode("MODULE");
+            foreach (string curve in new[] { "redCurve", "greenCurve", "blueCurve", "alphaCurve" })
+            {
+                ConfigNode c = node.AddNode(curve);
+                c.AddValue("key", curve == "blueCurve" ? "0 1" : "0 0 1 1");
+                c.AddValue("key", "1 1 1 1");
+            }
+            Color[] samples = GhostVisualBuilder.SampleColorChangerCurves(node);
+            Assert.Equal(GhostVisualBuilder.NozzleGlowSampleCount, samples.Length);
+            for (int n = 0; n < samples.Length; n++)
+                Assert.Equal(GhostVisualBuilder.EvaluateColorChangerColor(node, n / (float)(samples.Length - 1)), samples[n]);
+            Assert.Equal((double)0.3f, GhostPlaybackLogic.ResolveNozzleGlowColor(samples, 0.3f).r, 3);
+            Assert.Equal((double)0.3f, GhostPlaybackLogic.ResolveNozzleGlowColor(samples, 0.3f).a, 3);
+        }
+
+        // The prefab's modules and materials are Unity objects, so the path from the part to a
+        // written glow is pinned by text.
+        [Fact]
+        public void Wiring_TheBuilderTurnsNamedColourChangersIntoGlows()
+        {
+            string build = Source("GhostVisualBuilder.cs");
+            int collect = build.IndexOf("throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);", StringComparison.Ordinal);
+            int named = build.IndexOf("ThrottleDrivenModuleIds(throttleGlowDrivers));", StringComparison.Ordinal);
+            int glows = build.IndexOf("colorChangerInfos, throttleGlowDrivers, persistentId, partName);", StringComparison.Ordinal);
+            Assert.True(collect > 0 && named > collect && glows > named);
+            string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
+            Assert.Contains("int throttleGlows = BuildThrottleGlows(", nozzle);
+            Assert.Contains("ColorChangerWritesOnlyWhileRamping());", nozzle);
+            Assert.Contains("patches.Owners.Contains(KspCommunityFixesHarmonyId)", nozzle);
+            Assert.Contains("typeof(ModuleColorChanger), \"Update\"", nozzle);
+            Assert.Contains("samples = info.throttleGlow.samples,", nozzle);
+            string changers = Source("GhostVisualBuilder.ColorChangers.cs");
+            Assert.Contains("bool throttleDriven = driven != null && driven.Remove(moduleId);", changers);
+            Assert.Contains("samples = SampleColorChangerCurves(node),", changers);
+            Assert.Contains("throttleGlow = plan.throttleGlow,", changers);
+            // KSPCommunityFixes.dll: new Harmony("KSPCommunityFixes").
+            Assert.Equal("KSPCommunityFixes", GhostVisualBuilder.KspCommunityFixesHarmonyId);
+        }
+
+        // A colour changer's glow alone leaves the part to the reentry glow it had before.
+        [Fact]
+        public void ReentryGlow_KeepsAPartWhoseOnlyGlowIsAColourChanger()
+        {
+            NozzleGlowInfo throttle = Ramp(0.025f, true);
+            Assert.True(throttle.isColorChanger);
+            var only = new HeatGhostInfo { throttleGlowsOnly = true, nozzleGlows = new List<NozzleGlowInfo> { throttle } };
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(only));
+            only.nozzleGlows.Add(Glow(false, BellRate, 1f, 0));
+            Assert.True(GhostVisualBuilder.HeatInfoOwnsPartMaterials(only));
+            var missing = new HeatGhostInfo { heatClipMissing = true, nozzleGlows = new List<NozzleGlowInfo> { throttle } };
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(missing));
+            Assert.True(GhostVisualBuilder.HeatInfoOwnsPartMaterials(
+                new HeatGhostInfo { nozzleGlows = new List<NozzleGlowInfo> { throttle } }));
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(null));
+        }
+
         [Fact]
         public void ColorChanger_ModuleIdIsTheConfigsOrStocksDefault()
         {

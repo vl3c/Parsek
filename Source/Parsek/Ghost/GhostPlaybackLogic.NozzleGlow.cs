@@ -41,6 +41,8 @@ namespace Parsek
         public float basePower;
         public List<NozzleGlowColor> colors = new List<NozzleGlowColor>();
 
+        // The glow is a throttle-driven ModuleColorChanger, not a clip.
+        public bool isColorChanger;
         // A useRate ModuleColorChanger: SetScalar turns the level into a switch (animState, on from
         // 0.5) and the module's own Update, which runs after the setter's, shows a ramp toward that
         // end at rampRate per second. With settledShowsScalar (KSPCommunityFixes) the module writes
