@@ -299,7 +299,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called from PhysicsFramePatch.Postfix for each non-active loaded vessel.
+        /// Called from PhysicsFramePatch.Postfix for each non-active loaded vessel, and for the
+        /// active one while the post-switch watch waits to promote it.
         /// Handles loaded/physics mode recording for background vessels.
         /// </summary>
         public void OnBackgroundPhysicsFrame(Vessel bgVessel)

@@ -23,12 +23,28 @@ namespace Parsek.Patches
         /// <summary>
         /// Set by ParsekFlight when a recording tree is active.
         /// Null when no tree is active. Enables background physics recording
-        /// for non-active vessels in the tree.
+        /// for the tree members no active recorder records: the non-active ones, and
+        /// the active one while the post-switch watch waits to promote it.
         /// </summary>
         internal static BackgroundRecorder BackgroundRecorderInstance;
         private static BackgroundRecorder lastObservedBackgroundRecorder;
 
         private static readonly Stopwatch recordingStopwatch = new Stopwatch();
+
+        /// <summary>
+        /// Whether the ACTIVE vessel's physics frame also goes to the background recorder: the
+        /// player switched to it and the post-switch watch still waits for a modification. A
+        /// member of the live tree stays a background recording until that trigger promotes it,
+        /// and nothing else samples it meanwhile; an outsider is in no BackgroundMap, so
+        /// <see cref="BackgroundRecorder.OnBackgroundPhysicsFrame"/> returns for it and it stays
+        /// unrecorded. An attached active recorder owns the vessel.
+        /// </summary>
+        internal static bool ShouldSampleActiveVesselInBackground(
+            bool activeRecorderAttached,
+            bool postSwitchWatchArmedForVessel)
+        {
+            return !activeRecorderAttached && postSwitchWatchArmedForVessel;
+        }
 
         static void Postfix(VesselPrecalculate __instance)
         {
@@ -95,6 +111,19 @@ namespace Parsek.Patches
 
                 if (hasPostSwitchAutoRecordWatch)
                 {
+                    // Before the watch: the frame whose change promotes the vessel is still the
+                    // background recorder's, and promotion seeds no events for it.
+                    if (BackgroundRecorderInstance != null
+                        && ShouldSampleActiveVesselInBackground(
+                            ActiveRecorder != null,
+                            flight.IsPostSwitchAutoRecordArmedForPid(v.persistentId)))
+                    {
+                        ParsekLog.VerboseRateLimited("PhysicsPatch", "watched-active-background-sample",
+                            $"Background recorder keeps the watched active vessel until promotion: pid={v.persistentId}",
+                            30.0);
+                        BackgroundRecorderInstance.OnBackgroundPhysicsFrame(v);
+                    }
+
                     flight.OnPostSwitchAutoRecordPhysicsFrame(v);
                 }
             }
