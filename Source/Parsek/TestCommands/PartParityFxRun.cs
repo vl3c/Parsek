@@ -92,6 +92,9 @@ namespace Parsek.TestCommands
 
         internal PartParityFxHold Hold;
 
+        /// <summary>Where an air case is held; null in orbit.</summary>
+        internal PartParityHeldSlot HeldSlot;
+
         // ----- the drive (fx.drive, fx.engineMode, fx.rcs) -----
         internal ModuleEngines Engine;
         internal ModuleRCS Rcs;

@@ -138,12 +138,16 @@ namespace Parsek.InGameTests
         internal static uint SpawnInAir(
             ConfigNode vesselNode, CelestialBody body, double lat, double lon, double altitudeAsl,
             double descentMps, string label, string logTag)
+            => SpawnInAir(vesselNode, body, lat, lon, altitudeAsl, descentMps, label, logTag, null);
+
+        /// <summary>As above, spawned with a world rotation instead of upright (null: upright).</summary>
+        internal static uint SpawnInAir(
+            ConfigNode vesselNode, CelestialBody body, double lat, double lon, double altitudeAsl,
+            double descentMps, string label, string logTag, Quaternion? worldRotation)
         {
             Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, altitudeAsl);
             Vector3d up = (worldPos - body.position).normalized;
-            Vector3d northPos = body.GetWorldSurfacePosition(lat + 0.001, lon, altitudeAsl);
-            Vector3d north = Vector3d.Exclude(up, northPos - worldPos).normalized;
-            Quaternion worldRot = Quaternion.LookRotation((Vector3)north, (Vector3)up);
+            Quaternion worldRot = worldRotation ?? UprightRotation(body, lat, lon, altitudeAsl, out _);
             Quaternion srfRel = Quaternion.Inverse(body.bodyTransform.rotation) * worldRot;
             Vector3d surfaceVel = -up * descentMps;
             Vector3d orbitalVel = surfaceVel + body.getRFrmVel(worldPos);
@@ -154,6 +158,19 @@ namespace Parsek.InGameTests
                 $"lon={lon.ToString("0.00000", IC)} alt={altitudeAsl.ToString("0", IC)}m descent={descentMps.ToString("0.0", IC)}m/s " +
                 $"orbitalSpeed={orbitalVel.magnitude.ToString("0.0", IC)}m/s body={body.name}");
             return pid;
+        }
+
+        /// <summary>The upright world rotation over a point of the body (+Y along the local up,
+        /// +Z north) and that up.</summary>
+        internal static Quaternion UprightRotation(
+            CelestialBody body, double lat, double lon, double altitudeAsl, out Vector3 up)
+        {
+            Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, altitudeAsl);
+            Vector3d upD = (worldPos - body.position).normalized;
+            Vector3d northPos = body.GetWorldSurfacePosition(lat + 0.001, lon, altitudeAsl);
+            Vector3d north = Vector3d.Exclude(upD, northPos - worldPos).normalized;
+            up = upD;
+            return Quaternion.LookRotation((Vector3)north, (Vector3)upD);
         }
 
         /// <summary>

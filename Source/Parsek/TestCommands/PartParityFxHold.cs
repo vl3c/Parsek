@@ -5,11 +5,25 @@ using UnityEngine;
 
 namespace Parsek.TestCommands
 {
+    /// <summary>The place an air FX case is held at (design E.2, "F7 as built"): a point of the
+    /// body's surface frame and the rotation in it, fixed at the spawn.</summary>
+    internal sealed class PartParityHeldSlot
+    {
+        internal CelestialBody Body;
+        internal double Latitude;
+        internal double Longitude;
+        internal double AltitudeM;
+
+        /// <summary><c>Inverse(body.bodyTransform.rotation) * worldRotation</c>.</summary>
+        internal Quaternion SurfaceRelativeRotation;
+    }
+
     /// <summary>
     /// The test stand of one FX case (design-part-ghost-parity.md E.2, the E0 hold): after every
     /// physics step (a <c>WaitForFixedUpdate</c> loop, which resumes after the simulation) the
     /// case vessel's root position, rotation, velocity and angular velocity are written back to
-    /// its pose relative to the host, so neither thrust nor torque moves it, its internal and
+    /// its pose (in orbit relative to the host; in the air a place of the surface frame, so the
+    /// sway of a host standing on its gear never reaches a case 1.6 km away), so neither thrust nor torque moves it, its internal and
     /// skin temperatures are written back to their spawn values (or to a heat case's target) and
     /// its blackbody glow is suppressed. The drift at RENDER time (read in <c>LateUpdate</c>, after
     /// the write) is the gate; the displacement one step makes before the write
@@ -24,6 +38,7 @@ namespace Parsek.TestCommands
         private Vessel host;
         private Vector3 offsetLocal;
         private Quaternion rotationLocal;
+        private PartParityHeldSlot slot;
         private bool armed;
 
         /// <summary>The spawn temperatures written back every step (K).</summary>
@@ -49,6 +64,15 @@ namespace Parsek.TestCommands
             var go = new GameObject("PartParityFxHold");
             var h = go.AddComponent<PartParityFxHold>();
             h.Arm(real, host);
+            return h;
+        }
+
+        /// <summary>Holds an air case at its slot; the first physics step snaps it there (it fell
+        /// for a moment between its spawn and here).</summary>
+        internal static PartParityFxHold AttachAtSlot(Vessel real, Vessel host, PartParityHeldSlot heldSlot)
+        {
+            PartParityFxHold h = Attach(real, host);
+            h.slot = heldSlot;
             return h;
         }
 
@@ -90,26 +114,42 @@ namespace Parsek.TestCommands
             }
         }
 
-        private bool TargetPose(out Vector3 position, out Quaternion rotation, out Rigidbody hostBody, out Rigidbody realBody)
+        private bool TargetPose(out Vector3 position, out Quaternion rotation, out Vector3 velocity, out Vector3 angularVelocity)
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            hostBody = null;
-            realBody = null;
+            velocity = Vector3.zero;
+            angularVelocity = Vector3.zero;
             if (!armed || real == null || host == null || real.rootPart == null || host.rootPart == null) return false;
-            hostBody = host.rootPart.Rigidbody;
-            realBody = real.rootPart.Rigidbody;
+            if (slot != null)
+            {
+                // Doubles up to the last step: the body's centre is 600 km away, where a float
+                // transform position is good to 6 cm.
+                position = slot.Body.GetWorldSurfacePosition(slot.Latitude, slot.Longitude, slot.AltitudeM);
+                rotation = slot.Body.bodyTransform.rotation * slot.SurfaceRelativeRotation;
+                // The pad host keeps the body in inverse rotation, so the physics frame is the
+                // surface frame (less Krakensbane's) and rest on it is rest here.
+                velocity = -(Vector3)Krakensbane.GetFrameVelocity();
+                return true;
+            }
+            Rigidbody hostBody = host.rootPart.Rigidbody;
             Vector3 hp = hostBody != null ? hostBody.position : host.rootPart.transform.position;
             Quaternion hq = hostBody != null ? hostBody.rotation : host.rootPart.transform.rotation;
             position = hp + hq * offsetLocal;
             rotation = hq * rotationLocal;
+            if (hostBody != null)
+            {
+                velocity = hostBody.GetPointVelocity(position);
+                angularVelocity = hostBody.angularVelocity;
+            }
             return true;
         }
 
         private void WriteBack()
         {
-            if (!TargetPose(out Vector3 target, out Quaternion targetRot, out Rigidbody hr, out Rigidbody rr)) return;
+            if (!TargetPose(out Vector3 target, out Quaternion targetRot, out Vector3 velocity, out Vector3 angularVelocity)) return;
             Part p = real.rootPart;
+            Rigidbody rr = p.Rigidbody;
             Vector3 current = rr != null ? rr.position : p.transform.position;
             double step = (current - target).magnitude;
             Steps++;
@@ -118,8 +158,8 @@ namespace Parsek.TestCommands
             {
                 rr.position = target;
                 rr.rotation = targetRot;
-                rr.velocity = hr != null ? hr.GetPointVelocity(target) : Vector3.zero;
-                rr.angularVelocity = hr != null ? hr.angularVelocity : Vector3.zero;
+                rr.velocity = velocity;
+                rr.angularVelocity = angularVelocity;
             }
             p.transform.SetPositionAndRotation(target, targetRot);
             if (!double.IsNaN(spawnTemperature))
@@ -147,7 +187,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The per-case <c>hold drift</c> line's body.</summary>
         internal string Describe()
-            => $"maxDriftM={MaxRenderDriftM.ToString("0.00000", Ic)} maxDriftDeg={MaxRenderDriftDeg.ToString("0.000", Ic)} " +
+            => $"frame={(slot != null ? "surface" : "host")} maxDriftM={MaxRenderDriftM.ToString("0.00000", Ic)} maxDriftDeg={MaxRenderDriftDeg.ToString("0.000", Ic)} " +
                $"stepM={MaxStepM.ToString("0.0000", Ic)} steps={Steps.ToString(Ic)} " +
                $"heatTargetK={(HeatTargetK.HasValue ? HeatTargetK.Value.ToString("0.0", Ic) : "none")} skin={(HeatUsesSkin ? "true" : "false")}";
     }
