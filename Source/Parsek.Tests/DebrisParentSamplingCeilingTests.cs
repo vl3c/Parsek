@@ -30,7 +30,7 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.FarInterval; // 2.0 s
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.MidInterval, resolved);
         }
@@ -46,7 +46,7 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.FarInterval, resolved);
         }
@@ -62,7 +62,7 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.FarInterval, resolved);
         }
@@ -78,7 +78,7 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.FarInterval, resolved);
         }
@@ -87,7 +87,7 @@ namespace Parsek.Tests
         public void Cap_NoOp_WhenTreeRecNull()
         {
             double tierInterval = ProximityRateSelector.FarInterval;
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, null);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, null, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.FarInterval, resolved);
         }
@@ -103,7 +103,7 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.DockingInterval; // 0.2 s
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.DockingInterval, resolved);
         }
@@ -119,13 +119,13 @@ namespace Parsek.Tests
             };
 
             double tierInterval = ProximityRateSelector.MidInterval; // 0.5 s
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec, beyondRange: false);
 
             Assert.Equal(ProximityRateSelector.MidInterval, resolved);
         }
 
         [Fact]
-        public void Cap_PreservesOutOfRangeShortCircuit()
+        public void Cap_BeyondRange_DebrisTakesTheOneHertzFloor()
         {
             var rec = new Recording
             {
@@ -134,47 +134,70 @@ namespace Parsek.Tests
                 ParentAnchorRecordingId = "parent-far"
             };
 
-            double tierInterval = ProximityRateSelector.OutOfRangeInterval; // double.MaxValue
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(tierInterval, rec);
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(
+                ProximityRateSelector.GetSampleInterval(2304.0), rec, beyondRange: true);
 
-            // Critical invariant: OutOfRange must NOT be capped to a finite value.
-            // The OnBackgroundPhysicsFrame skip gate decides whether the active
-            // parent-proximity tier is allowed to bypass the focused-vessel
-            // out-of-range sentinel.
-            Assert.Equal(ProximityRateSelector.OutOfRangeInterval, resolved);
+            Assert.Equal(1.0, resolved);
         }
 
         [Fact]
-        public void SkipGate_OutOfFocusedRangeWithoutDebrisTier_ReturnsTrue()
+        public void Cap_BeyondRange_ControlledChildKeepsTheFarFloor()
         {
-            Assert.True(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
-                ProximityRateSelector.OutOfRangeInterval,
-                highFidelityActive: false,
-                debrisTier: ProximitySamplingTier.None));
+            var rec = new Recording
+            {
+                RecordingId = "child-far",
+                IsDebris = false,
+                ParentAnchorRecordingId = "parent-far"
+            };
+
+            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(
+                ProximityRateSelector.GetSampleInterval(2304.0), rec, beyondRange: true);
+
+            Assert.Equal(ProximityRateSelector.FarInterval, resolved);
         }
 
-        [Theory]
-        [InlineData((int)ProximitySamplingTier.Full)]
-        [InlineData((int)ProximitySamplingTier.Half)]
-        public void SkipGate_OutOfFocusedRangeWithParentDebrisTier_ReturnsFalse(int tier)
+        // ===== Resting past the sampling range =====
+
+        private static bool Rests(
+            bool beyondRange = true,
+            bool highFidelity = false,
+            ProximitySamplingTier tier = ProximitySamplingTier.None,
+            bool landed = true,
+            double speed = 0.0,
+            double lastUT = 100.0,
+            double velocityChange = 0.0)
         {
-            Assert.False(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
-                ProximityRateSelector.OutOfRangeInterval,
-                highFidelityActive: false,
-                debrisTier: (ProximitySamplingTier)tier));
+            return BackgroundRecorder.ShouldRestSamplingBeyondRange(
+                beyondRange, highFidelity, tier, landed, speed, lastUT, velocityChange);
         }
 
         [Fact]
-        public void SkipGate_HighFidelityActive_ReturnsFalse()
+        public void Rest_ParkedBeyondRangeWithARestSample_IsSilent()
         {
-            Assert.False(BackgroundRecorder.ShouldSkipTrajectorySamplingForProximity(
-                ProximityRateSelector.OutOfRangeInterval,
-                highFidelityActive: true,
-                debrisTier: ProximitySamplingTier.None));
+            Assert.True(Rests());
         }
 
         [Fact]
-        public void Cap_PreservesPositiveInfinityAsOutOfRangeEquivalent()
+        public void Rest_EveryOtherVessel_IsSampled()
+        {
+            // In range, a window that overrides the range, or a piece near its own parent.
+            Assert.False(Rests(beyondRange: false));
+            Assert.False(Rests(highFidelity: true));
+            Assert.False(Rests(tier: ProximitySamplingTier.Full));
+            Assert.False(Rests(tier: ProximitySamplingTier.Half));
+            // Flying, however slowly (a canopy, the top of an arc).
+            Assert.False(Rests(landed: false));
+            // Still moving, or its last sample was taken moving: one more sample at rest.
+            Assert.False(Rests(speed: BackgroundRecorder.BeyondRangeRestSpeed));
+            Assert.False(Rests(velocityChange: BackgroundRecorder.BeyondRangeRestSpeed));
+            // No sample yet, unreadable speed.
+            Assert.False(Rests(lastUT: -1.0));
+            Assert.False(Rests(speed: double.NaN));
+            Assert.False(Rests(velocityChange: double.NaN));
+        }
+
+        [Fact]
+        public void Cap_PreservesUnsetSentinel()
         {
             var rec = new Recording
             {
@@ -183,12 +206,14 @@ namespace Parsek.Tests
                 ParentAnchorRecordingId = "parent-inf"
             };
 
-            // Freezes the contract that any sentinel >= OutOfRangeInterval (including
-            // double.PositiveInfinity if a future tier path produces it) short-circuits
-            // the cap rather than collapsing to MidInterval.
-            double resolved = BackgroundRecorder.ResolveDebrisAwareSampleInterval(double.PositiveInfinity, rec);
-
-            Assert.Equal(double.PositiveInfinity, resolved);
+            Assert.Equal(
+                ProximityRateSelector.UnsetInterval,
+                BackgroundRecorder.ResolveDebrisAwareSampleInterval(
+                    ProximityRateSelector.UnsetInterval, rec, beyondRange: true));
+            Assert.Equal(
+                double.PositiveInfinity,
+                BackgroundRecorder.ResolveDebrisAwareSampleInterval(
+                    double.PositiveInfinity, rec, beyondRange: false));
         }
 
         // ===== Gate predicate truth table =====
@@ -333,7 +358,7 @@ namespace Parsek.Tests
             // Mid-tier proximity (e.g. 800 m from focus) returns 0.5 s; cap is a no-op
             // here on the min path. The whole point of this test is the MAX path.
             double cappedMin = BackgroundRecorder.ResolveDebrisAwareSampleInterval(
-                ProximityRateSelector.MidInterval, rec);
+                ProximityRateSelector.MidInterval, rec, beyondRange: false);
             float cappedMax = BackgroundRecorder.ResolveDebrisAwareMaxSampleInterval(maxBeforeCap, rec);
 
             Assert.Equal(0.5, cappedMin);

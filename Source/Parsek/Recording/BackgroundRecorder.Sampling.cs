@@ -361,13 +361,19 @@ namespace Parsek
 
         internal static float ResolveBackgroundAttitudeMinSampleInterval(
             bool highFidelityActive,
+            bool beyondRange,
             float effectiveMotionMinSampleInterval,
             float foregroundMinSampleInterval)
         {
             // highFidelityActive is already folded into
             // effectiveMotionMinSampleInterval by the caller; attitude uses the
             // more aggressive of motion cadence and foreground attitude floor.
-            _ = highFidelityActive;
+            //
+            // Past the sampling range there is no such floor: a tumbling stage turns past the
+            // attitude threshold every frame, and the foreground floor would sample it at the
+            // close-range rate all the way down.
+            if (beyondRange && !highFidelityActive)
+                return effectiveMotionMinSampleInterval;
             // The two-arg helper currently returns the configured foreground
             // minimum unchanged; keep the call here so this background path stays
             // aligned if foreground cadence policy grows another override.
@@ -488,6 +494,7 @@ namespace Parsek
             SegmentEnvironment nextEnv,
             bool willHavePlayableOnRailsPayload,
             TrajectoryPoint boundaryPoint,
+            TrajectoryPoint? closingFrame,
             double ut)
         {
             SegmentEnvironment previousEnv = loadedState.trackSectionActive
@@ -507,6 +514,10 @@ namespace Parsek
                 ClearBackgroundCurrentAnchor(loadedState);
             }
 
+            // A no-payload boundary section below carries its own frame at this UT and playback
+            // bridges into it, so only a section the conic follows needs the closing frame.
+            bool closingFrameTaken = !persistNoPayloadBoundarySection
+                && AppendSectionClosingFrame(loadedState, flushRec, closingFrame);
             CloseBackgroundTrackSection(loadedState, ut);
 
             if (persistNoPayloadBoundarySection)
@@ -534,12 +545,119 @@ namespace Parsek
             FlushTrackSectionsToRecording(loadedState, flushRec);
             flushRec.ExplicitEndUT = ut;
 
-            if (!persistNoPayloadBoundarySection)
+            if (!persistNoPayloadBoundarySection && !closingFrameTaken)
                 AppendBoundaryPointToRecording(flushRec, boundaryPoint, loadedState.vesselPid);
 
             DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
                 flushRec,
                 $"FlushLoadedStateForOnRailsTransition pid={loadedState.vesselPid}");
+        }
+
+        /// <summary>
+        /// Pure: why a section takes no closing frame, or null when it does. A frame at the close
+        /// UT is taken for an open Absolute section of a loaded, unpacked vessel (the rule of
+        /// <see cref="FlightRecorder.DecideFinalPhysicsSample"/>) whose last frame is older than
+        /// the close: playback holds the last frame to the section end, so without one the ghost
+        /// hangs for up to a sample interval and then jumps onto whatever follows (the on-rails
+        /// conic, the predicted tail, the impact). A Relative section keeps its own coverage rule
+        /// (a parent-anchored one must not outlive its persisted frames) and a vessel parked on
+        /// the surface has nothing to close.
+        /// </summary>
+        internal static string DecideSectionClosingFrame(
+            bool hasVessel,
+            bool loaded,
+            bool packed,
+            bool sectionActive,
+            ReferenceFrame referenceFrame,
+            SegmentEnvironment environment,
+            int frameCount,
+            double lastFrameUT,
+            double closeUT)
+        {
+            string poseReason = FlightRecorder.DecideFinalPhysicsSample(
+                hasVessel, destroyed: false, loaded: loaded, packed: packed,
+                lastSampleUT: lastFrameUT, stopUT: closeUT);
+            if (poseReason != null) return poseReason;
+            if (!sectionActive) return "no-open-section";
+            if (referenceFrame != ReferenceFrame.Absolute) return "section-not-absolute";
+            if (environment == SegmentEnvironment.SurfaceStationary) return "surface-stationary";
+            if (frameCount <= 0) return "section-has-no-frames";
+            return null;
+        }
+
+        /// <summary>
+        /// Samples the closing frame of the state's open section from the live vessel at
+        /// <paramref name="closeUT"/>, in the same pose contract as the section's own frames, or
+        /// null (logged) when <see cref="DecideSectionClosingFrame"/> refuses one.
+        /// </summary>
+        private TrajectoryPoint? BuildSectionClosingFrame(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel v,
+            double closeUT,
+            string context)
+        {
+            if (state == null || treeRec == null)
+                return null;
+
+            List<TrajectoryPoint> frames = state.currentTrackSection.frames;
+            int frameCount = state.trackSectionActive && frames != null ? frames.Count : 0;
+            string skipReason = DecideSectionClosingFrame(
+                hasVessel: v != null,
+                loaded: v != null && v.loaded,
+                packed: v != null && v.packed,
+                sectionActive: state.trackSectionActive,
+                referenceFrame: state.currentTrackSection.referenceFrame,
+                environment: state.currentTrackSection.environment,
+                frameCount: frameCount,
+                lastFrameUT: frameCount > 0 ? frames[frameCount - 1].ut : double.NaN,
+                closeUT: closeUT);
+            if (skipReason == null
+                && !string.Equals(
+                    v.mainBody?.name, frames[frameCount - 1].bodyName, StringComparison.Ordinal))
+            {
+                skipReason = "body-changed";
+            }
+            if (skipReason != null)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"Section closing frame skipped: context={context} pid={state.vesselPid} " +
+                    $"rec={treeRec.RecordingId ?? "(null)"} reason={skipReason}");
+                return null;
+            }
+
+            TrajectoryPoint point = CreateAbsoluteTrajectoryPointFromVessel(
+                v,
+                closeUT,
+                preferRootPartSurfacePose: ShouldPreferRootPartSurfacePoseForBackgroundSample(treeRec));
+            ApplySurfaceClearanceToPoint(state, v, ref point);
+            ParsekLog.Verbose("BgRecorder",
+                $"Section closing frame taken: context={context} pid={state.vesselPid} " +
+                $"rec={treeRec.RecordingId ?? "(null)"} " +
+                $"UT={closeUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"gapFromLastFrame={(closeUT - frames[frameCount - 1].ut).ToString("F3", CultureInfo.InvariantCulture)}s " +
+                $"alt={point.altitude.ToString("F0", CultureInfo.InvariantCulture)}");
+            return point;
+        }
+
+        /// <summary>
+        /// Appends a closing frame (<see cref="BuildSectionClosingFrame"/>) to the open section
+        /// and the flat list in lockstep, as an ordinary sample does. False when there is none,
+        /// or when the flat list already ends later (#419).
+        /// </summary>
+        private static bool AppendSectionClosingFrame(
+            BackgroundVesselState state,
+            Recording treeRec,
+            TrajectoryPoint? closingFrame)
+        {
+            if (!closingFrame.HasValue || !ApplyTrajectoryPointToRecording(treeRec, closingFrame.Value))
+                return false;
+
+            AddFrameToActiveTrackSection(state, closingFrame.Value);
+            state.lastRecordedUT = closingFrame.Value.ut;
+            state.lastRecordedVelocity = closingFrame.Value.velocity;
+            treeRec.ExplicitEndUT = closingFrame.Value.ut;
+            return true;
         }
 
         private void SampleBoundaryPoint(Vessel v, Recording treeRec, double ut)
@@ -570,7 +688,7 @@ namespace Parsek
         /// </summary>
         private static string FormatInterval(double interval)
         {
-            if (interval >= ProximityRateSelector.OutOfRangeInterval || double.IsInfinity(interval))
+            if (interval >= ProximityRateSelector.UnsetInterval || double.IsInfinity(interval))
                 return "none";
             return interval.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s";
         }
@@ -761,28 +879,51 @@ namespace Parsek
         // during high-velocity breakup falls into the FarRange tier (2.0 s gap),
         // producing visibly choppy trajectory rendering.
         //
-        // Out-of-range tier is preserved as-is; the later proximity skip is
-        // bypassed only when the parent-proximity debris tier is active. Legacy
-        // v11 debris (no
-        // ParentAnchorRecordingId) and non-debris BG vessels keep the unaltered
-        // tier table.
+        // Past the sampling range (ProximityRateSelector.IsBeyondRange) the cap is the coarser
+        // BeyondRangeDebrisInterval: the piece keeps its arc at about 1 Hz until it unloads or
+        // its time limit ends it. The unset sentinel is never capped. Legacy v11 debris (no
+        // ParentAnchorRecordingId) and non-debris BG vessels keep the unaltered tier table.
         internal static double ResolveDebrisAwareSampleInterval(
             double tierInterval,
-            Recording treeRec)
+            Recording treeRec,
+            bool beyondRange)
         {
             if (!IsDebrisAwareSampleCapEligible(treeRec)) return tierInterval;
-            if (tierInterval >= ProximityRateSelector.OutOfRangeInterval) return tierInterval;
-            return Math.Min(tierInterval, ProximityRateSelector.MidInterval);
+            if (tierInterval >= ProximityRateSelector.UnsetInterval) return tierInterval;
+            return Math.Min(
+                tierInterval,
+                beyondRange
+                    ? ProximityRateSelector.BeyondRangeDebrisInterval
+                    : ProximityRateSelector.MidInterval);
         }
 
-        internal static bool ShouldSkipTrajectorySamplingForProximity(
-            double proximityInterval,
+        // Below this surface speed (m/s) a landed / splashed vessel is parked, and below this
+        // velocity change its last sample was taken parked too.
+        internal const double BeyondRangeRestSpeed = 0.3;
+
+        /// <summary>
+        /// Pure: past the sampling range, a vessel parked on the surface whose last sample was
+        /// also taken at rest is not sampled again (stock packs a surface vessel at 350 m, so
+        /// this is an install with extended physics ranges). A moving vessel is always sampled,
+        /// and so is any vessel with no sample yet, inside a high-fidelity window or in a debris
+        /// tier.
+        /// </summary>
+        internal static bool ShouldRestSamplingBeyondRange(
+            bool beyondRange,
             bool highFidelityActive,
-            ProximitySamplingTier debrisTier)
+            ProximitySamplingTier debrisTier,
+            bool landedOrSplashed,
+            double surfaceSpeed,
+            double lastRecordedUT,
+            double velocityChangeFromLastSample)
         {
-            return proximityInterval >= ProximityRateSelector.OutOfRangeInterval
+            return beyondRange
                 && !highFidelityActive
-                && debrisTier == ProximitySamplingTier.None;
+                && debrisTier == ProximitySamplingTier.None
+                && landedOrSplashed
+                && lastRecordedUT >= 0.0
+                && surfaceSpeed < BeyondRangeRestSpeed
+                && velocityChangeFromLastSample < BeyondRangeRestSpeed;
         }
 
         // Companion to ResolveDebrisAwareSampleInterval that bounds the adaptive
