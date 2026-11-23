@@ -262,7 +262,7 @@ steps = [
   # resolver as the Structure target above. 1000 x 520 is above the window's 480 x 160 floor
   # and readable at the census frame.
   { cmd = "UiAction", args = { op = "target", window = "profile", mission = "Kerbal X #2" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "1000" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-profile-mission-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-profile-mission-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "profile" }, expect = "OK" },
@@ -307,7 +307,7 @@ steps = [
   # The Mission Profile in Basic: its button shows in both modes, so Basic can have it on
   # screen and the picture is one a Basic player gets.
   { cmd = "UiAction", args = { op = "target", window = "profile", mission = "Kerbal X #2" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "520" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "profile", x = "270", y = "8", w = "1000", h = "1000" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-profile-mission-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-profile-mission-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "profile" }, expect = "OK" },
@@ -329,7 +329,7 @@ steps = [
 
   # --- THE MISSION PROFILE GALLERY (never flown; see the header), LAST of all ---
   # In Advanced (the pass above left the install there). `op=mock` opens the window at the
-  # state's own 960 x 420 rect, captures a baseline, installs the synthetic model and
+  # state's own 960 x 960 rect, captures a baseline, installs the synthetic model and
   # answers only after a drawn frame carried every witness string; the clear puts the
   # window back. Labels per `TestCommandUiMock.DeriveLabel` (gallery design 7.6).
   { cmd = "UiAction", args = { op = "mock", window = "profile", mockState = "profile.mission.mun-return" }, expect = "OK" },

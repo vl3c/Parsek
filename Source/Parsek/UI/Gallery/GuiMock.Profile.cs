@@ -29,15 +29,16 @@ namespace Parsek.UI.Gallery
     /// (<c>scripts/grep-audit-gui-mock-writeset.ps1</c>) fails the build on any store or
     /// writer reference.</para>
     ///
-    /// <para>The request carries no date formatter, so the first row's Time cell is the
-    /// builder's own headless fallback rather than a calendar rendering.</para>
+    /// <para>The request carries the window's own date formatter
+    /// (<c>MissionProfileWindowUI.FormatDate</c>), so the first row's Time cell is the calendar
+    /// string the game prints; the headless suite gets the invariant UT number.</para>
     /// </summary>
     internal static class GuiMockProfileStates
     {
-        // The window's first-open size, which shows a Mun return's rows with a scrollbar
-        // for the tail only.
+        // Tall enough that a Mun return's whole tree reads in one capture (the window's
+        // first-open size is 960 x 640; the census photographs the full profile).
         private const int RectW = 960;
-        private const int RectH = 420;
+        private const int RectH = 960;
 
         internal const string MunReturnStateId = "profile.mission.mun-return";
         internal const string EmptyStateId = "profile.mission.empty";

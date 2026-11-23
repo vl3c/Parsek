@@ -1217,7 +1217,7 @@ opened by a mission's `Profile` button (`ParsekUI.OpenProfileWindowForMission` -
 `OpenForMission`); reopening it from another mission retargets it. Its frame is the Log's
 (`LogTableWindowFrame`: rect seed, resize, scaled draw, position log `MissionProfile`, input lock
 `Parsek_MissionProfileWindow`); it first opens 80 px right of and below where the Mission Log
-first opens, 960 x 420, floor 480 x 160. Read-only, no complexity gate (both modes), drawn by
+first opens, 960 x 640, floor 480 x 160. Read-only, no complexity gate (both modes), drawn by
 `ParsekUI.DrawStructureWindowIfOpen` after the two Log instances, released in `ParsekUI.Cleanup`,
 not in the Basic close set. Design: `docs/dev/design-mission-profile.md` sections 2 and 10.2.
 
