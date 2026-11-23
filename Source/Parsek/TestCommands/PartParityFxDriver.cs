@@ -112,8 +112,21 @@ namespace Parsek.TestCommands
             facts.Present = true;
             foreach (PartModule m in e.Info.partPrefab.Modules)
                 if (m != null && m.moduleName == PartParityFxRules.ModuleWaterfallFx) facts.HasWaterfall = true;
-            foreach (Light l in e.Info.partPrefab.GetComponentsInChildren<Light>(true))
-                facts.LightTypes.Add(l.type.ToString());
+            // A light counts only when the part has a lit plate case to photograph: a cockpit's
+            // interior light is a Light component no ModuleLight turns on.
+            bool lamp = false;
+            foreach (PartParityCaseKey k in PartParityFxRules.Enumerate(PartParityStateDriver.BuildStatePart(e.Info),
+                         PartParityCaseRules.DefaultCaseKey(e)).Cases)
+                if (k.FxOption.Family == PartParityFxRules.FamilyLight) lamp = true;
+            if (lamp)
+                foreach (Light l in e.Info.partPrefab.GetComponentsInChildren<Light>(true))
+                    facts.LightTypes.Add(l.type.ToString());
+            ModuleAnimateHeat heat = e.Info.partPrefab.FindModuleImplementing<ModuleAnimateHeat>();
+            if (heat != null && !string.IsNullOrEmpty(heat.animName))
+            {
+                Animation[] anims = e.Info.partPrefab.FindModelAnimators(heat.animName);
+                facts.HasHeatClip = anims != null && anims.Length > 0;
+            }
             return facts;
         }
 
@@ -651,7 +664,14 @@ namespace Parsek.TestCommands
             uint pid = wc.Real.rootPart.persistentId;
             float now = Time.realtimeSinceStartup;
             if (wc.Ghost != null) { PrimeVisible(wc, wc.Ghost); run.GhostEvent = GhostOutcome(wc, wc.Ghost.State, pid); }
-            if (run.StartGhost != null) { PrimeVisible(wc, run.StartGhost); run.GhostStart = GhostOutcome(wc, run.StartGhost.State, pid); }
+            if (run.StartGhost != null)
+            {
+                PrimeVisible(wc, run.StartGhost);
+                run.GhostStart = GhostOutcome(wc, run.StartGhost.State, pid);
+                // P6 read it under the hidden prime, which stops every FX system: the frame a
+                // player sees first is this one.
+                run.StartFirstFrameAtTarget = run.GhostStart == PartParityStateRules.GhostApplied;
+            }
             if (fx.BrokenGhost != null) { PrimeVisible(wc, fx.BrokenGhost); ParsekLog.Verbose(Tag, $"case {wc.CaseId}: broken ghost primed"); }
             fx.LastPrimeRealtime = now;
         }
@@ -714,12 +734,42 @@ namespace Parsek.TestCommands
             return false;
         }
 
+        /// <summary>The stock nozzle a ghost's system belongs to, by position in part space: the
+        /// nozzle transform within <see cref="NozzlePositionToleranceM"/> and nearest; -1 for none.
+        /// The ghost's own part transform carries the system into part space (the ghost need not
+        /// stand on the real part when this runs).</summary>
+        private static int NozzleAt(WaveCase wc, Transform ghostRoot, ParticleSystem ps)
+        {
+            PartParityFxRun fx = wc.Fx;
+            if (fx.Rcs == null || fx.Rcs.thrusterTransforms == null) return -1;
+            Transform partT = wc.Real.rootPart.transform;
+            Transform ghostPart = PartParityStateDriver.FindChildNamed(ghostRoot,
+                PartParityStructure.GhostPartSegmentPrefix + wc.Real.rootPart.persistentId.ToString(Ic));
+            if (ghostPart == null) return -1;
+            Vector3 p = ghostPart.InverseTransformPoint(ps.transform.position);
+            int best = -1;
+            float bestDistance = NozzlePositionToleranceM;
+            for (int i = 0; i < fx.Rcs.thrusterTransforms.Count; i++)
+            {
+                Transform t = fx.Rcs.thrusterTransforms[i];
+                if (t == null) continue;
+                float d = (partT.InverseTransformPoint(t.position) - p).magnitude;
+                if (d < bestDistance) { bestDistance = d; best = i; }
+            }
+            if (best < 0)
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: no nozzle within {NozzlePositionToleranceM.ToString("0.00", Ic)}m of ghost system {ps.name} at ({p.x.ToString("0.000", Ic)},{p.y.ToString("0.000", Ic)},{p.z.ToString("0.000", Ic)}) part space");
+            return best;
+        }
+
+        /// <summary>How close (metres) a ghost's FX system must sit to a nozzle to be it.</summary>
+        internal const float NozzlePositionToleranceM = 0.1f;
+
         /// <summary>The renderers of one ghost's nozzles stock did not fire (hidden on the judged
         /// rcs sides, shown on <c>ghost-all</c>).</summary>
         private static void ExcludeUnfiredNozzles(WaveCase wc, PartParityFxSide side)
         {
             PartParityFxRun fx = wc.Fx;
-            if (side.Ghost == null || side.Ghost.State?.rcsInfos == null) return;
+            if (side.Ghost == null || side.Ghost.State?.rcsInfos == null || side.Ghost.Build?.root == null) return;
             var fired = new HashSet<int>(fx.RcsFired);
             int hidden = 0, unmapped = 0, misnamed = 0;
             foreach (RcsGhostInfo info in side.Ghost.State.rcsInfos.Values)
@@ -730,17 +780,51 @@ namespace Parsek.TestCommands
                     ParticleSystem ps = info.particleSystems[i];
                     if (ps == null) continue;
                     if (!info.TryGetParticleThruster(i, out RcsParticleThruster thruster)) { unmapped++; continue; }
-                    if (fx.Rcs == null || !string.Equals(thruster.transformName, fx.Rcs.thrusterTransformName, StringComparison.Ordinal)) misnamed++;
-                    if (fired.Contains(thruster.thrusterIndex)) continue;
+                    // The index F2 recorded is stock's nozzle index only when the EFFECTS transform
+                    // is the module's thruster transform; on RCSBlock.v2 they differ (RCSjet, RCSthruster),
+                    // so the nozzle whose transform sits at the system's own position is the one.
+                    bool named = fx.Rcs != null && string.Equals(thruster.transformName, fx.Rcs.thrusterTransformName, StringComparison.Ordinal);
+                    int nozzle = named ? thruster.thrusterIndex : NozzleAt(wc, side.Ghost.Build.root.transform, ps);
+                    if (nozzle < 0) { misnamed++; continue; }
+                    if (fired.Contains(nozzle)) continue;
                     hidden++;
                     foreach (ParticleSystemRenderer r in ps.GetComponentsInChildren<ParticleSystemRenderer>(true)) side.Excluded.Add(r);
                 }
             }
             if (misnamed > 0 || unmapped > 0)
-                Fault(wc, TestCommandPartParitySweep.SetupRcsInputMismatch, "ghost FX transforms are not stock's nozzles: module thrusterTransformName=" +
-                    (fx.Rcs != null ? fx.Rcs.thrusterTransformName : "-") + " misnamed=" + misnamed.ToString(Ic) + " unmapped=" + unmapped.ToString(Ic));
+                Fault(wc, TestCommandPartParitySweep.SetupRcsInputMismatch, "ghost FX systems have no stock nozzle: module thrusterTransformName=" +
+                    (fx.Rcs != null ? fx.Rcs.thrusterTransformName : "-") + " withoutNozzle=" + misnamed.ToString(Ic) + " unmapped=" + unmapped.ToString(Ic));
             fx.RcsGhostHidden = Math.Max(fx.RcsGhostHidden, hidden);
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: side {side.Name} nozzles hidden={hidden.ToString(Ic)} unmapped={unmapped.ToString(Ic)} fired=[{JoinInts(fx.RcsFired)}]");
+        }
+
+        /// <summary>One line on a heat case's real part at the capture: the module's scalar, each
+        /// Animation's clip and time, and each renderer's emissive colour (the glow is read off the
+        /// animation, so a frozen Animation would photograph a cold part).</summary>
+        private static void LogHeat(WaveCase wc)
+        {
+            PartParityFxRun fx = wc.Fx;
+            if (fx.Heat == null) return;
+            var sb = new System.Text.StringBuilder();
+            if (fx.Heat is ModuleAnimateHeat h)
+                sb.Append("scalar=").Append(h.GetScalar.ToString("0.000", Ic)).Append(" animState=").Append(h.animState.ToString("0.000", Ic))
+                    .Append(" animName=").Append(h.animName).Append(" states=").Append(h.stateCount.ToString(Ic)).Append(" temp=")
+                    .Append(wc.Real.rootPart.temperature.ToString("0.0", Ic)).Append(" skin=").Append(wc.Real.rootPart.skinTemperature.ToString("0.0", Ic));
+            foreach (Animation an in wc.Real.rootPart.GetComponentsInChildren<Animation>(true))
+            {
+                sb.Append(" anim[").Append(an.name).Append(" enabled=").Append(an.enabled).Append(" cull=").Append(an.cullingType)
+                    .Append(" playing=").Append(an.isPlaying);
+                foreach (AnimationState st in an) sb.Append(" ").Append(st.name).Append("@").Append(st.normalizedTime.ToString("0.000", Ic)).Append("/w").Append(st.weight.ToString("0.00", Ic)).Append("/on").Append(st.enabled);
+                sb.Append("]");
+            }
+            foreach (Renderer r in wc.Real.rootPart.GetComponentsInChildren<Renderer>(true))
+            {
+                Material m = r.sharedMaterial;
+                if (m == null || !m.HasProperty("_EmissiveColor")) continue;
+                Color c = m.GetColor("_EmissiveColor");
+                sb.Append(" emissive[").Append(r.name).Append(" vis=").Append(r.isVisible).Append(" ").Append(c.r.ToString("0.00", Ic)).Append(",").Append(c.g.ToString("0.00", Ic)).Append(",").Append(c.b.ToString("0.00", Ic)).Append("]");
+            }
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: heat real state {sb}");
         }
 
         // =====================================================================================

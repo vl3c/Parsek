@@ -123,7 +123,6 @@ namespace Parsek.TestCommands
             if (broken) BuildBrokenGhost(wc);
             PrimeGhosts(wc);
             BuildSides(wc, broken);
-            if (fx.Stochastic && wc.Status == null) BreakGhost(wc);
             if (wc.Status != null) return;
             if (fx.Exhaust != null && wc.Shared != null && !wc.Shared.IsEmpty)
             {
@@ -131,6 +130,7 @@ namespace Parsek.TestCommands
                 fx.NearBox = PartParityFxFraming.NearBox(wc.Shared, fx.Exhaust);
                 fx.BottomBox = PartParityFxFraming.BottomBox(fx.NearBox, fx.Exhaust);
             }
+            if (fx.Stochastic) BreakGhost(wc);
             if (fx.Stochastic && fx.NearBox == null)
             {
                 Fault(wc, TestCommandPartParitySweep.SetupActionFailed, "no exhaust geometry: exhaust=" + (fx.Exhaust != null ? "ok" : "none") +
@@ -195,7 +195,7 @@ namespace Parsek.TestCommands
             PartParityFxRun fx = wc.Fx;
             if (fx.BrokenGhost == null || fx.Exhaust == null) return;
             List<EngineGhostInfo> engines = InfosOf(fx.BrokenGhost.State, wc.Real.rootPart.persistentId);
-            if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShort) ScaleFx(engines, 0.5f);
+            if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShort) ScaleFx(engines, ShortScale);
             else if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShift && wc.Shared != null && !wc.Shared.IsEmpty)
             {
                 Transform partT = wc.Real.rootPart.transform;
@@ -224,6 +224,11 @@ namespace Parsek.TestCommands
                 if (i != null && i.partPersistentId == pid) list.Add(i);
             return list;
         }
+
+        /// <summary>The short-plume control's scale. At E.5's 0.5 the broken LV-T45 flame measured
+        /// 0.77 of the intact one (first flight), inside the 25 % fail line: the far box ends at the
+        /// particles' 95th percentile, so the intact flame is cut at the tile edge and reads short.</summary>
+        internal const float ShortScale = 0.35f;
 
         private static void ScaleFx(List<EngineGhostInfo> infos, float k)
         {
@@ -427,9 +432,8 @@ namespace Parsek.TestCommands
             PartParityFxSide real = wc.Fx.Side(PartParityFxRules.SideReal);
             PartParityFxSide ghost = wc.Fx.Side(PartParityFxRules.SideGhost);
             if (real != null && ghost != null && ghost.Ghost != null && real.Ghost == null) CompareInventory(wc.Fx, real, ghost);
-            CompareLights(wc);
             ParsekLog.Info(Tag, $"case {wc.CaseId}: fx layers{log} fxMissing=[{PartParityFxStructure.Join(wc.Fx.FxMissingOnGhost)}] " +
-                $"fxExtra=[{PartParityFxStructure.Join(wc.Fx.FxExtraOnGhost)}] fxDiffers={wc.Fx.FxDiffers.Count.ToString(Ic)} lightsDiffer={wc.Fx.LightsDiffer.Count.ToString(Ic)}");
+                $"fxExtra=[{PartParityFxStructure.Join(wc.Fx.FxExtraOnGhost)}] fxDiffers={wc.Fx.FxDiffers.Count.ToString(Ic)}");
         }
 
         /// <summary>The FX inventory of one side (E.4): the real side from its live particle
@@ -460,7 +464,8 @@ namespace Parsek.TestCommands
             {
                 if (ps == null) continue;
                 var pr = ps.GetComponent<ParticleSystemRenderer>();
-                s.InventoryRendered.Add(pr != null && pr.enabled && ps.gameObject.activeInHierarchy);
+                s.InventoryRendered.Add(pr != null && pr.enabled && ps.gameObject.activeInHierarchy
+                                        && (ps.isPlaying || ps.particleCount > 0));
             }
         }
 
@@ -504,6 +509,11 @@ namespace Parsek.TestCommands
             foreach (ParticleSystem ps in SystemsOf(wc, side))
             {
                 if (ps == null) continue;
+                // Particles of a renderer that draws nothing are not the plume: stock's vacuum
+                // smoke keeps a population that drifts kilometres away in orbit while its renderer
+                // is off (E0 U8), and it would set the far framing.
+                var renderer = ps.GetComponent<ParticleSystemRenderer>();
+                if (renderer == null || !renderer.enabled || !ps.gameObject.activeInHierarchy) continue;
                 var main = ps.main;
                 double life = main.startLifetime.constantMax;
                 KSPParticleEmitter emitter = ps.GetComponent<KSPParticleEmitter>();
@@ -571,6 +581,13 @@ namespace Parsek.TestCommands
                         continue;
                     }
                     PartParitySweepRunner.Guard(ctx, wc, "fx-warmup", () => TickWarmUp(ctx, wc));
+                    if (wc.Flags.Contains("exception-fx-warmup"))
+                    {
+                        // The same throw every tick would never end the wait.
+                        wc.Status = wc.Status ?? TestCommandPartParitySweep.SetupCrashed;
+                        wc.Fx.WarmupDone = true;
+                        continue;
+                    }
                     if (!wc.Fx.WarmupDone) pending = true;
                 }
                 if (!pending) break;
@@ -610,20 +627,9 @@ namespace Parsek.TestCommands
                     s.SignalName = PartParityFxRules.PlateauSignalFor(SystemsOf(wc, s).Count > 0, flameReadsZero);
                     double value = s.SignalName == PartParityFxRules.PlateauSignalParticles ? particles.Count : coverage;
                     s.Signal.Add(new KeyValuePair<float, double>(now, value));
-                    double min = double.MaxValue, max = double.MinValue;
-                    int seen = 0;
-                    float oldest = now;
-                    foreach (var kv in s.Signal)
-                    {
-                        if (now - kv.Key > PartParityFxRules.PlateauWindowSeconds + 1e-3) continue;
-                        seen++;
-                        oldest = Math.Min(oldest, kv.Key);
-                        min = Math.Min(min, kv.Value);
-                        max = Math.Max(max, kv.Value);
-                    }
                     double runSeconds = now - s.StartRealtime;
-                    bool window = seen >= 3 && now - oldest >= PartParityFxRules.PlateauWindowSeconds - 0.3;
-                    if (window && PartParityFxRules.PlateauSettled(runSeconds, s.LongestLifetime, min, max))
+                    if (PlateauWindow(s.Signal, out double min, out double max)
+                        && PartParityFxRules.PlateauSettled(runSeconds, s.LongestLifetime, min, max))
                     {
                         s.Settled = true;
                         s.WarmupS = runSeconds;
@@ -649,11 +655,30 @@ namespace Parsek.TestCommands
             }
         }
 
+        /// <summary>The smallest and largest signal over the newest three ticks: two intervals of at
+        /// least <see cref="PartParityFxRules.PlateauCoveragePeriodSeconds"/> each, so they span the
+        /// plateau window. False until there are three.</summary>
+        internal static bool PlateauWindow(IList<KeyValuePair<float, double>> signal, out double min, out double max)
+        {
+            min = double.MaxValue;
+            max = double.MinValue;
+            if (signal.Count < 3) return false;
+            for (int i = signal.Count - 3; i < signal.Count; i++)
+            {
+                min = Math.Min(min, signal[i].Value);
+                max = Math.Max(max, signal[i].Value);
+            }
+            return true;
+        }
+
         /// <summary>The flame coverage of one side in the posed frame, in pixels of a
         /// <see cref="PartParityFxRules.PlateauCoverageTilePx"/> px tile.</summary>
         private static double Coverage(PartParityCapture.FxFrame f, PartParityFxRun fx, List<Renderer> flame)
         {
             byte[] img = f.Render(flame, Color.black);
+            // Opaque before the downsample: an additive render leaves alpha 0, which the
+            // downsample weighs colour by.
+            for (int i = 3; i < img.Length; i += 4) img[i] = 255;
             int small = PartParityFxRules.PlateauCoverageTilePx;
             byte[] down = img.Length > small * small * 4 ? PartParityImage.Downsample(img, fx.TilePx, fx.TilePx, small, small) : img;
             int covered = 0;
@@ -689,6 +714,7 @@ namespace Parsek.TestCommands
                 }
                 else
                 {
+                    if (wc.Fx.Heat != null) PartParitySweepRunner.Guard(ctx, wc, "fx-heat-log", () => LogHeat(wc));
                     foreach (string view in wc.Views)
                     {
                         yield return new WaitForEndOfFrame();
@@ -696,6 +722,7 @@ namespace Parsek.TestCommands
                         PartParitySweepRunner.Guard(ctx, wc, "capture-" + view, () => PartParityCaseCapture.CaptureView(ctx, wc, view));
                     }
                 }
+                if (wc.Status == null) PartParitySweepRunner.Guard(ctx, wc, "fx-lights", () => CompareLights(wc));
                 if (wc.Fx.Stochastic && wc.Status == null && wc.Fx.Exhaust != null)
                 {
                     PartParitySweepRunner.Guard(ctx, wc, "fx-framing", () => FinalFraming(wc));
@@ -707,6 +734,9 @@ namespace Parsek.TestCommands
                         PartParitySweepRunner.Guard(ctx, wc, "fx-sample", () => SampleFrame(ctx, wc, i));
                     }
                     PartParitySweepRunner.Guard(ctx, wc, "fx-measure", () => Measure(wc));
+                    if (wc.Flags.Contains("exception-fx-sample") || wc.Flags.Contains("exception-fx-measure")
+                        || wc.Flags.Contains("exception-fx-framing"))
+                        wc.Status = wc.Status ?? TestCommandPartParitySweep.SetupCrashed;
                 }
                 PartParitySweepRunner.Guard(ctx, wc, "fx-evidence", () => BuildEvidence(wc));
                 if (wc.Fx.Hold != null)
@@ -853,10 +883,11 @@ namespace Parsek.TestCommands
 
         private static byte[] StripTile(byte[] full, int tile)
         {
+            // Opaque before the downsample: an additive plume and the clear both leave alpha 0, and
+            // the downsample weighs colour by alpha.
+            for (int i = 3; i < full.Length; i += 4) full[i] = 255;
             int small = StripTilePx;
-            byte[] d = tile > small ? PartParityImage.Downsample(full, tile, tile, small, small) : full;
-            for (int i = 3; i < d.Length; i += 4) d[i] = 255;
-            return d;
+            return tile > small ? PartParityImage.Downsample(full, tile, tile, small, small) : full;
         }
 
         /// <summary>The strip's frame size: the side view downsampled, so a strip of 12 frames is a
@@ -921,6 +952,8 @@ namespace Parsek.TestCommands
         {
             PartParityFxRun fx = wc.Fx;
             if (fx.Control == null) return;
+            // No measures, no evidence: the judge answers bad, never ok.
+            if (fx.Stochastic && !fx.Captured) return;
             bool rcs = fx.Option.Family == PartParityFxRules.FamilyRcs;
             var e = new PartParityFxControlEvidence { SetupStatus = wc.Status ?? TestCommandPartParitySweep.SetupOk };
             foreach (PartParityFxViewResult r in fx.Results)

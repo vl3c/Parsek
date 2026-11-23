@@ -131,6 +131,9 @@ namespace Parsek.TestCommands
 
         /// <summary>The <c>UnityEngine.LightType</c> names of the prefab's <c>Light</c> components.</summary>
         internal List<string> LightTypes = new List<string>();
+
+        /// <summary>The prefab's model carries the <c>ModuleAnimateHeat</c> clip the module names.</summary>
+        internal bool HasHeatClip;
     }
 
     /// <summary>The subject an FX control runs on, or why it has none.</summary>
@@ -1101,7 +1104,11 @@ namespace Parsek.TestCommands
         /// <summary>The smoke control's and every air control's subject.</summary>
         internal static readonly string[] SmokeControlParts = { "solidBooster.sm.v2" };
 
-        internal static readonly string[] HeatControlParts = { "standardNoseCone", "pointyNoseConeA" };
+        /// <summary>The heat control's preference. Stock's two nose cones name a clip
+        /// (<c>Cone_Heat</c>) their models do not carry, so the real part never glows there
+        /// (F3 flight); a candidate with no clip is skipped.</summary>
+        internal static readonly string[] HeatControlParts =
+            { "standardNoseCone", "pointyNoseConeA", "noseConeAdapter", "avionicsNoseCone" };
 
         /// <summary>The spot-light plate control's preference: the lamps first, then the parts
         /// whose light is a spot too (E0 U9: every light part checked is a spot light).</summary>
@@ -1161,7 +1168,7 @@ namespace Parsek.TestCommands
             var notes = new List<string>();
             foreach (string part in candidates)
             {
-                string why = SubjectRefusal(facts?.Invoke(part), light);
+                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun);
                 if (why == null)
                 {
                     choice.Subject = part;
@@ -1180,11 +1187,12 @@ namespace Parsek.TestCommands
             return choice;
         }
 
-        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType)
+        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip)
         {
             if (f == null || !f.Present) return "absent";
             if (f.HasWaterfall) return "waterfall";
             if (lightType != null && (f.LightTypes == null || !f.LightTypes.Contains(lightType))) return "no-" + lightType.ToLowerInvariant() + "-light";
+            if (needsHeatClip && !f.HasHeatClip) return "no-heat-clip";
             return null;
         }
 
@@ -1200,7 +1208,7 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostAbsent: return plume + " burning, ghost not built";
                 case TestCommandPartParitySweep.ControlFxRealVsReal: return plume + " burning, real against itself in alternate samples";
                 case TestCommandPartParitySweep.ControlFxPlumeOff: return plume + ", event-route ghost built without the polled events";
-                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost with particle speed, lifetime and energy scaled 0.5";
+                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost with particle speed, lifetime and energy scaled 0.35";
                 case TestCommandPartParitySweep.ControlFxPlumeHue: return plume + ", intact ghost vs a ghost whose rendered flame channels are rotated (r,g,b)->(b,r,g)";
                 case TestCommandPartParitySweep.ControlFxPlumeShift: return plume + ", intact ghost vs a ghost whose FX roots are moved 10 % across and along the axis";
                 case TestCommandPartParitySweep.ControlFxSmokeDropped: return SmokeControlParts[0] + ", intact ghost vs a ghost with its smoke renderers hidden";

@@ -198,6 +198,28 @@ namespace Parsek.Tests
             Assert.Null(PartParityStateWave.CrashedFxStateProof(null));
         }
 
+        // ----- the plateau window -----
+
+        [Fact]
+        public void ThePlateauWindow_IsTheNewestThreeTicks()
+        {
+            var signal = new List<KeyValuePair<float, double>>
+            {
+                new KeyValuePair<float, double>(0f, 900.0), new KeyValuePair<float, double>(0.27f, 100.0),
+            };
+            Assert.False(PartParityFxDriver.PlateauWindow(signal, out _, out _));
+            signal.Add(new KeyValuePair<float, double>(0.55f, 102.0));
+            Assert.True(PartParityFxDriver.PlateauWindow(signal, out double min, out double max));
+            Assert.Equal(100.0, min);
+            Assert.Equal(900.0, max);
+            // The early spike leaves the window as ticks pass; the settled check is the rule's.
+            signal.Add(new KeyValuePair<float, double>(0.82f, 101.0));
+            Assert.True(PartParityFxDriver.PlateauWindow(signal, out min, out max));
+            Assert.Equal(100.0, min);
+            Assert.Equal(102.0, max);
+            Assert.True(PartParityFxRules.PlateauSettled(8.0, 7.5, min, max));
+        }
+
         // ----- accumulators -----
 
         [Fact]

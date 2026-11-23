@@ -91,6 +91,7 @@ namespace Parsek.TestCommands
                 previous = now;
             }
             bool stable = Time.realtimeSinceStartup - lastChange >= PlateStableSeconds;
+            CompareLights(wc);
             ParsekLog.Info(Tag, $"case {wc.CaseId}: plate light settle waited={(Time.realtimeSinceStartup - start).ToString("0.00", Ic)}s stable={(stable ? "true" : "false")} " +
                 $"signal {first.ToString("0.000", Ic)} -> {previous.ToString("0.000", Ic)} intensity0={firstIntensity.ToString("0.000", Ic)} real[{LightsLine(real)}]");
             GameObject eventRoot = wc.Ghost != null ? wc.Ghost.Build.root : null;
@@ -263,6 +264,7 @@ namespace Parsek.TestCommands
         private static void CompareLights(WaveCase wc)
         {
             PartParityFxRun fx = wc.Fx;
+            fx.LightsDiffer.Clear();
             if (wc.Ghost == null || wc.Ghost.Build?.root == null || wc.Real?.rootPart == null) return;
             List<Light> real = LightsOf(wc, null), ghost = LightsOf(wc, wc.Ghost.Build.root);
             if (real.Count == 0 && ghost.Count == 0) return;

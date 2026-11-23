@@ -1405,7 +1405,7 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static Transform FindChildNamed(Transform root, string name)
+        internal static Transform FindChildNamed(Transform root, string name)
         {
             foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
                 if (t.name == name) return t;
