@@ -70,6 +70,8 @@ Not released yet.
 
 ### Fixed
 
+- **A dropped stage's fall no longer slows a looped mission.** The loop keeps its period and the
+  fall plays to its impact beside the next launches. (LOOP-TIMING-READ-THE-PREDICTED-FALL)
 - **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a
   minute and then jump kilometres down. (DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE)
 - **A craft the game unloads far away keeps its parts.** A stage left flying, or a pod landed over

@@ -1,0 +1,182 @@
+schema = 1
+id = "LF-3-predicted-fall-outlasts-loop-period"
+tier = "operator"
+# =====================================================================================
+# LF-3: A LOOPED MISSION WHOSE DROPPED STAGE FALLS FOR LONGER THAN THE LOOP PERIOD. THE
+# TIMING READS THE RECORDED SPAN, THE FALL IS DRAWN TO ITS IMPACT.
+# AUTHORED 2026-11-24, NEVER FLOWN (tag `pending-flight`).
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling 2026-11-24: "A dropped stage's predicted fall plays in
+# mission loops but does not count toward loop timing"; todo
+# LOOP-TIMING-READ-THE-PREDICTED-FALL; design `docs/parsek-missions-design.md`). GS-12
+# carries the ruling on a 192 s fall that ends 226 km away, where the distance LOD hides
+# the mesh, so it can gate the timing but not the impact. Here both falls end beside the
+# pad, so the impact explosion is in view and countable:
+#   1. the unit's span, cadence and overlap verdict are the RECORDED part's (~10 s), with a
+#      ~121 s fall on both members (the pre-ruling unit read span ~121 s, so a 15 s period
+#      was an overlapping mission at 15 s and a 5 s one was raised to ~6.1 s by span/20);
+#   2. the falls play past the period to their impacts, one explosion per copy, while the
+#      launches go on every 15 s;
+#   3. at a 5 s period one copy of the fall would need 25 copies: the cadence is NOT raised
+#      past the launches' 5 s, and the copies past the 20-copy cap end quietly.
+#
+# THE HOST. ASR-8's `gs1-armed-chute-drop` (SANDBOX, save UT 25.34): the GS1 Auto-Chute
+# Booster at rest 62 km straight above the pad. Dropped there it falls drag-free and
+# lands on the pad area 116 s after Parsek stops watching (ASR-8 measured on
+# `2026-11-22_1154` and `2026-11-23_2046`: both halves Destroyed, endUT 147.9-148.0, end
+# altitude 34 m, one predicted segment each). No chute is armed here, so nothing opens.
+#
+# THE FLIGHT (seam only).
+#   record   StartRecording at ~26.5, decouple (the probe-cored booster is a CONTROLLED
+#            child, so it is a loop member), WarpToUT 36 at 1x, ExitToSpaceCenter: the
+#            commit finalizes BOTH halves with a predicted fall. The recorded span is ~9.5 s.
+#   pad      a stock Jumping Flea on the pad as the viewpoint, WarpToUT 165 at 10x: past
+#            both impacts, so stock has deleted the two real halves (unloaded below the
+#            1 kPa line) and no real vessel suppresses their ghosts, and the first run is
+#            over before the loop starts.
+#   stage A  MissionConfig sec / 15: period above the recorded span, WarpToUT 345 at 10x
+#            (one fall plus four launches: cycles 0..3 of each half reach the ground).
+#   stage B  MissionConfig sec / 5: below the recorded span, so the launches overlap, and
+#            25 copies of the fall against the cap of 20. WarpToUT 470 at 10x passes the
+#            21st launch, when the first copy is retired.
+# THE WARP IS 10x, NEVER HIGHER: past 50x the flight engine hides every copy.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `PhaseLock APPLIED` with a P other than 5: the periodicity solve read a constraint
+#     GS-12's pad launch does not have; the cadences quantize to it (calibration).
+#   - no MeshSpawned for a half in stage A: read `externalVesselSuppressed` on the frame
+#     lines; a real half stock kept (its on-rails orbit stayed above the 1 kPa line) holds
+#     its ghost back. Product only if the craft is gone from the save.
+#   - an explosion missing: read the cycle's `Ghost EXITED range` line and the zone lines;
+#     the ghost must be inside 50 km of the pad at the impact (it lands on the pad area).
+#   - `first run` handover lines: none expected (both falls end at ~148, before the arm).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) ASR-8's flight with
+# the chute presses dropped; its verdicts end at the Space Center, so the loop half cannot
+# ride in it without turning a daily 77 s lane into this one, and the two endings it gates
+# are already pinned there; (2) explicit-UT WarpToUT waits only; (3) the dwells are one fall
+# plus four launches, and 21 launches at 5 s; (4) n/a; (5) n/a; (6) deterministic seam
+# steps, a refused verb fails the run, retry `once` while it is unflown; (7) recordings
+# 2..3 (two vessels, one optimizer cut of slack), tightened after the first flight;
+# (8) operator until flown; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "Owner ruling 2026-11-24: on gs1-armed-chute-drop a probe-cored booster is dropped 62 km above the pad and committed while both halves fall; the mission is looped at 15 s (the recorded span is ~10 s, the fall ~121 s: cadence 15, every copy falls to its explosion beside the pad) and at 5 s (the cadence stays 5 s and the copies past the 20-copy cap end quietly)."
+instanceProfile = "stock-minimal"
+tags = ["LF", "LF-3", "loop-playback", "predicted-tail", "controlled-child", "self-overlap",
+        "kerbin", "sandbox", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-armed-chute-drop"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+
+  # ---- the drop, committed with both halves in the air (ASR-8's shape, chutes stowed) ----
+  { cmd = "StartRecording",                                                             expect = "OK" },
+  { cmd = "PartAction",        args = { button = "decouple", part = "Decoupler.1", partPid = "1500054019" }, expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "36", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "committed" }, label = "c0",             expect = "OK" },
+
+  # ---- the viewpoint on the pad, past both impacts ----
+  { cmd = "GoToEditor",        args = { facility = "VAB", craft = "Jumping Flea" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "flea",       expect = "OK", budget = 180 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "165", maxRate = "10" },                   expect = "OK", budget = 180 },
+
+  # ---- stage A: the period above the recorded span, the fall far above the period ----
+  { cmd = "MissionMark",       args = { label = "lf3-stage-a" },                        expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "${c0.rec0tree}", loop = "true", unit = "sec", intervalSeconds = "15" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "345", maxRate = "10" },                   expect = "OK", budget = 240 },
+
+  # ---- stage B: the copy cap ----
+  { cmd = "MissionMark",       args = { label = "lf3-stage-b" },                        expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "${c0.rec0tree}", loop = "true", unit = "sec", intervalSeconds = "5" },  expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "470", maxRate = "10" },                   expect = "OK", budget = 240 },
+  { cmd = "MissionMark",       args = { label = "lf3-end" },                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child"]
+# `basic-playback` <- the MeshSpawned tokens of both halves; `self-overlap` <- stage B's
+# `overlapCadence=5 overlaps=yes` and the engine's per-copy lines.
+D6  = ["basic-playback", "self-overlap"]
+D11 = ["whole-mission-loop"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+# INTERIM pins: every number that rides the recorded span (~9.5 s) or the fall (~121 s) is a
+# class; the ones that do not (15, 5, the member count, the verdicts) are exact.
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  # STAGE A, the timing: the recorded span (a one- or two-digit number of seconds), never
+  # the ~121 s drawn one, and the launches do not overlap while the falls do.
+  "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=15 [^\\r\\n]*unitBuilt=True [^\\r\\n]*spanSeconds=(?:[5-9]|1[0-4])(?:\\.[0-9]+)? [^\\r\\n]*unit=sec overlapCadenceSeconds=15 [^\\r\\n]*renderSpanSeconds=1[12][0-9](?:\\.[0-9]+)?",
+  "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=15 overlapCadence=15 overlaps=no [^\\r\\n]*renderSpanEnd=14[78][0-9.]* fallMembers=2 fallOverlaps=yes",
+  # The engine half: one copy per 15 s launch, the cadence never raised.
+  "Loop cadence #[0-9]+ \"GS1 Auto-Chute Booster Probe\": requested=15\\.00s duration=1[12][0-9]\\.[0-9]+s cap=20 effective=15\\.00s \\(cycles=[89]\\) no adjustment",
+  "Loop cadence #[0-9]+ \"GS1 Auto-Chute Booster\": requested=15\\.00s duration=1[12][0-9]\\.[0-9]+s cap=20 effective=15\\.00s \\(cycles=[89]\\) no adjustment",
+  "Mission fall unit owner=[0-9]+ member #[0-9]+ launchCadence=15\\.00 ",
+  # Drawn to the impact: at least two explosions of each half in stage A (cycles 0..3 reach
+  # the ground), each on the copy's own expiry.
+  "MISSIONMARK label=lf3-stage-a(?:(?!MISSIONMARK label=lf3-stage-b)[\\s\\S])*?Stock FXMonger\\.Explode for ghost #[0-9]+ \"GS1 Auto-Chute Booster Probe\" at(?:(?!MISSIONMARK label=lf3-stage-b)[\\s\\S])*?Stock FXMonger\\.Explode for ghost #[0-9]+ \"GS1 Auto-Chute Booster Probe\" at",
+  "MISSIONMARK label=lf3-stage-a(?:(?!MISSIONMARK label=lf3-stage-b)[\\s\\S])*?Stock FXMonger\\.Explode for ghost #[0-9]+ \"GS1 Auto-Chute Booster\" at(?:(?!MISSIONMARK label=lf3-stage-b)[\\s\\S])*?Stock FXMonger\\.Explode for ghost #[0-9]+ \"GS1 Auto-Chute Booster\" at",
+  "phase=MeshDestroyed [^\\r\\n]*vessel=GS1 Auto-Chute Booster Probe reason=overlap expired",
+  # STAGE B: the launches overlap at 5 s, the fall keeps 5 s, its oldest copies end quietly.
+  "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=1?[05] overlapCadence=5 overlaps=yes [^\\r\\n]*fallMembers=2 fallOverlaps=yes",
+  "Loop cadence #[0-9]+ \"GS1 Auto-Chute Booster Probe\": requested=5\\.00s duration=1[12][0-9]\\.[0-9]+s cap=20 effective=5\\.00s \\(cycles=2[45]\\) no adjustment",
+  "MISSIONMARK label=lf3-stage-b[\\s\\S]*?Fall copy ended quietly at the copy cap: #[0-9]+ \"GS1 Auto-Chute Booster Probe\" cycle=[0-9]+ cap=20",
+  "phase=MeshDestroyed [^\\r\\n]*vessel=GS1 Auto-Chute Booster Probe reason=fall copy cap",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A raised cadence: the pre-ruling cap, in the unit or in the engine.
+  "Loop cadence #[0-9]+ \"GS1 Auto-Chute Booster[^\"]*\": [^\\r\\n]*auto-adjusted",
+  # The falls end before the loop is armed, so no first run is handed over.
+  "Loop first-run handover: [^\\r\\n]*GS1 Auto-Chute Booster",
+]
+
+# REPORT-ONLY (gating absent): nothing spawns, and no Re-Fly machinery runs.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Destroyed = { min = 2 } }
+spawnedVessels = { max = 0 }
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# The steps' own budgets: LoadGame 660 + SetSetting x7 840 + StartRecording 120 + PartAction
+# 120 + RecordingState 120 + WarpToUT x4 1560 + ExitToSpaceCenter 240 + ListHandles 120 +
+# GoToEditor 240 + LaunchFromEditor 360 + MissionMark x3 360 + MissionConfig x2 240 +
+# FlushAndQuit 120 = 5100. Expected wall ~150 s.
+budgetSeconds = 5200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

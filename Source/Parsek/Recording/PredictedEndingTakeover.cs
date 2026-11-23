@@ -111,6 +111,83 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Where the RECORDED part of <paramref name="rec"/> ends: its last UT that is not Parsek's
+        /// prediction. Loop and supply-route timing reads this end, playback reads
+        /// <see cref="Recording.EndUT"/> (owner ruling 2026-11-24: a dropped stage's predicted fall plays
+        /// in mission loops but does not count toward loop timing). Read from its data in this order:
+        /// <list type="bullet">
+        /// <item>no predicted tail: <see cref="Recording.EndUT"/> unchanged (an explicit end a close or
+        /// a commit stamped past the last sample is recorded time: a packed lander records no
+        /// samples);</item>
+        /// <item>a predicted tail: the last real sample, section or non-predicted orbit segment
+        /// (<see cref="RecordingFinalizationCacheApplier.TryGetLastAuthoredUT"/>), never past
+        /// <see cref="Recording.EndUT"/>;</item>
+        /// <item>predicted data only (a piece cut out of a tail): NaN, the recording holds no recorded
+        /// time.</item>
+        /// </list>
+        /// The tail shapes are one rule: a fall to impact, an escape followed to its final orbit (the
+        /// settle span included), a ground-scan or horizon cap and a predicted coast that stays in
+        /// orbit are predicted orbit segments; a chute descent is a predicted track section; a
+        /// predicted crash UT kept with no segment is a predicted Destroyed ending past the last
+        /// sample.
+        /// </summary>
+        internal static double ResolveRecordedEndUT(Recording rec)
+        {
+            if (rec == null)
+                return double.NaN;
+            double endUT = rec.EndUT;
+            // Most recordings carry no prediction at all: answered without walking their samples.
+            if (!HasPredictedData(rec))
+                return endUT;
+            bool hasRecorded = RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(rec, out double lastRecordedUT)
+                && IsFinite(lastRecordedUT);
+            if (!HasPredictedTailPast(rec, hasRecorded ? lastRecordedUT : double.NegativeInfinity))
+                return endUT;
+            if (!hasRecorded)
+                return double.NaN;
+            return lastRecordedUT < endUT ? lastRecordedUT : endUT;
+        }
+
+        private static bool HasPredictedData(Recording rec)
+        {
+            return rec.TerminalPredicted || HasPredictedPayloadPast(rec, double.NegativeInfinity);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> carries a predicted tail past
+        /// <paramref name="lastRecordedUT"/>: a predicted orbit segment or predicted descent section
+        /// ending after it, or a predicted Destroyed ending stamped past it. A breakup remnant KSP
+        /// keeps carries the predicted flag for its crew only and forecasts nothing. Pure.
+        /// </summary>
+        internal static bool HasPredictedTailPast(Recording rec, double lastRecordedUT)
+        {
+            if (rec == null)
+                return false;
+            if (HasPredictedPayloadPast(rec, lastRecordedUT + UtEpsilon))
+                return true;
+            return rec.TerminalPredicted
+                && rec.TerminalStateValue == TerminalState.Destroyed
+                && !IsSurvivingBreakupRemnant(rec)
+                && !double.IsNegativeInfinity(lastRecordedUT)
+                && rec.ExplicitEndUT > lastRecordedUT
+                    + PredictedTerminalUTToleranceSeconds;
+        }
+
+        private static bool HasPredictedPayloadPast(Recording rec, double ut)
+        {
+            if (rec.OrbitSegments != null)
+                for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
+                    if (rec.OrbitSegments[i].isPredicted && rec.OrbitSegments[i].endUT > ut)
+                        return true;
+            if (rec.TrackSections != null)
+                for (int i = rec.TrackSections.Count - 1; i >= 0; i--)
+                    if (RecordingFinalizationCacheApplier.IsPredictedSection(rec.TrackSections[i])
+                        && rec.TrackSections[i].endUT > ut)
+                        return true;
+            return false;
+        }
+
+        /// <summary>
         /// Pure: a Destroyed ending sealed over a breakup remnant KSP keeps
         /// (<see cref="Recording.TerminalRemnantSurvives"/>). It carries the predicted flag only
         /// so the remnant's crew are decided per part (owner ruling Q6b); it forecasts no crash,

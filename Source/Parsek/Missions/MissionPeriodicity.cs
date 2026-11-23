@@ -3075,6 +3075,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The UT of launch <paramref name="cycleIndex"/> (the index
+        /// <see cref="TryResolveActiveLaunch"/> returns). False past the launches resolved so far;
+        /// every launch at or before a UT already resolved is cached.
+        /// </summary>
+        internal bool TryGetLaunchUT(long cycleIndex, out double launchUT)
+        {
+            launchUT = double.NaN;
+            if (cycleIndex < 0 || cycleIndex >= launches.Count)
+                return false;
+            launchUT = launches[(int)cycleIndex];
+            return !double.IsNaN(launchUT);
+        }
+
+        /// <summary>
         /// The next scheduled relaunch strictly after <paramref name="currentUT"/> (the first launch
         /// when parked before it). Returns NaN if no future launch can be resolved because the
         /// safety cap was reached (so the UI shows "not aligned" rather than a past target / a

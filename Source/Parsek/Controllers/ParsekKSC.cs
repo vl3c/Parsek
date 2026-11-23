@@ -1053,6 +1053,9 @@ namespace Parsek
 
                 double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
                     unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
+                bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
+                if (memberHasFall)
+                    RetireFirstRunFallKsc(i, rec, unit, currentUT);
                 ParsekLog.VerboseRateLimited(
                     "KSCGhost", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
                     "Mission self-overlap unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
@@ -1065,7 +1068,8 @@ namespace Parsek
 
                 UpdateOverlapKsc(
                     i, rec, currentUT, unit.OverlapCadenceSeconds, memberDuration,
-                    memberStartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx);
+                    memberStartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx,
+                    keepCadence: memberHasFall);
                 return;
             }
 
@@ -1085,6 +1089,11 @@ namespace Parsek
             // the unit-wide transition and logs it once (rate-limited per unit owner).
             LogUnitTransitionKscIfChanged(
                 unit, unitKey, committed, spanLoopUT, unitCycle, currentUT, isInInterCycleTail);
+
+            // A predicted fall past the recorded span plays on through the wait between cycles; the
+            // Space Center draws one copy, so the next relaunch cuts it.
+            GhostPlaybackLogic.TryExtendRenderIntoFall(
+                unit, i, currentUT, memberStartUT, memberEndUT, unitCycle, ref decision, ref spanLoopUT);
 
             // Not in THIS member's window, in the inter-cycle tail-wait, or the span clock could not
             // resolve: tear down THIS member's ghost for the frame, directly.
@@ -1158,6 +1167,25 @@ namespace Parsek
             // per-cycle ghost rebuild on loopCycleIndex change (clean per-cycle visual).
             UpdateSingleGhostKsc(i, rec, currentUT, spanLoopUT, unitCycle,
                 inRange: true, inPauseWindow: false, warpRate, suppressGhosts, suppressVisualFx);
+        }
+
+        /// <summary>
+        /// Ends the first run's ordinary KSC ghost still falling when its self-overlapping unit goes
+        /// live: the overlap path would otherwise replay it as a copy of a cycle the loop never has.
+        /// </summary>
+        void RetireFirstRunFallKsc(int i, Recording rec, GhostPlaybackLogic.LoopUnit unit, double currentUT)
+        {
+            if (!kscGhosts.TryGetValue(i, out var state) || state == null || state.loopCycleIndex >= 0)
+                return;
+            ParsekLog.Info("KSCGhost",
+                "Loop first-run handover: #" + i.ToString(CultureInfo.InvariantCulture)
+                + " \"" + (rec.VesselName ?? "?") + "\" UT="
+                + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " anchor=" + unit.PhaseAnchorUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " - the first run's fall ends at the first relaunch (one copy here)");
+            DestroyKscGhost(state, i);
+            kscGhosts.Remove(i);
+            loggedGhostSpawn.Remove(i);
         }
 
         /// <summary>
@@ -1266,7 +1294,7 @@ namespace Parsek
         void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
-            float warpRate, bool suppressGhosts, bool suppressVisualFx)
+            float warpRate, bool suppressGhosts, bool suppressVisualFx, bool keepCadence = false)
         {
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
@@ -1282,9 +1310,10 @@ namespace Parsek
             // #443: effective cadence doubles the user period until
             // ceil(duration/cadence) <= MaxOverlapGhostsPerRecording, so the
             // per-recording cap is never exceeded and no cycle is silently
-            // culled mid-trajectory.
-            double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            // culled mid-trajectory. A loop unit's fall keeps the launches' own cadence
+            // (keepCadence); its copies past the cap end quietly below.
+            double effectiveCadence = GhostPlaybackLogic.ResolveOverlapCadence(
+                intervalSeconds, duration, keepCadence);
             LogKscCadenceIfChanged(recIdx, rec, intervalSeconds, effectiveCadence, duration);
 
             double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
@@ -1407,6 +1436,15 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
+                if (keepCadence && cycle < GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle))
+                {
+                    ParsekLog.VerboseRateLimited("KSCGhost",
+                        "fall-copy-cap-" + recIdx.ToString(CultureInfo.InvariantCulture),
+                        $"Ghost #{recIdx} fall copy cycle={cycle} ended quietly at the copy cap");
+                    DestroyKscGhost(ovState, recIdx);
+                    overlaps.RemoveAt(j);
+                    continue;
+                }
                 double phase = currentUT - (scheduleStartUT + cycle * cycleDuration);
 
                 if (phase > duration)

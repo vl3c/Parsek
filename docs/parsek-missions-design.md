@@ -62,7 +62,7 @@ while they are hidden), the summary, `Delete` and the `Loop ... every ...` row. 
 checkbox (Advanced); unchecking the pod (D) drops its stretch from the loop selection and greys
 its row.
 
-Turn Loop on with a period >= the span: one shared span clock sweeps `[earliest included start, latest included end]` and wraps as a unit. Each leg renders only while the clock is inside its own recorded window, so the multi-leg, multi-branch mission plays back exactly like the original flight, then restarts. Debris rides along.
+Turn Loop on with a period >= the span: one shared span clock sweeps `[earliest included start, latest included RECORDED end]` (a predicted fall is drawn past it but not timed, Section 7.2) and wraps as a unit. Each leg renders only while the clock is inside its own recorded window, so the multi-leg, multi-branch mission plays back exactly like the original flight, then restarts. Debris rides along.
 
 ---
 
@@ -141,7 +141,7 @@ A single spine is one path. A selection may follow several forks at once, making
                  OverlapCadenceSeconds (true launch-to-launch)
                  |     |     |     |        <- flight scene self-overlaps when this < span
 launch instances v     v     v     v
-                 [=====mission span=====]   <- one instance sweeps the whole span
+                 [=====mission span=====]   <- one instance sweeps the whole span (recorded part)
                  ^
                  PhaseAnchorUT (clamped to >= spanEnd: first-play floor)
                  |
@@ -246,7 +246,8 @@ LoopUnit (internal readonly struct)
   OwnerIndex: int            - earliest-start member (camera / debris-parent representative)
   MemberIndices: int[]       - positional indices into RecordingStore.CommittedRecordings
   MemberWindow               - per-member trimmed [StartUT, EndUT]
-  SpanStartUT / SpanEndUT    - [min trimmed start, max trimmed end]
+  SpanStartUT / SpanEndUT    - [min trimmed start, max trimmed RECORDED end]: the timing span
+  RenderSpanEndUT            - max trimmed DRAWN end (predicted tails included; >= SpanEndUT)
   PhaseAnchorUT              - cycle-0 reference (clamped to >= SpanEndUT: first-play floor)
   CadenceSeconds             - span-clock cadence (>= span)
   OverlapCadenceSeconds      - true launch cadence (Auto = global auto-loop interval)
@@ -289,12 +290,23 @@ A default Mission (everything included) is auto-created when a tree is first com
 
 ### 7.2 Looping a Mission (the span clock)
 
-When Loop is on, ALL included legs replay together over the span `[earliest included start, latest included end]`, relaunching on the cadence:
+When Loop is on, ALL included legs replay together over the span `[earliest included start, latest included recorded end]`, relaunching on the cadence:
 
 - Period >= span (or Auto resolves to >= span): ONE shared span clock sweeps the whole span and wraps as a unit. Each leg renders only while the clock is inside its own recorded window. A multi-leg, multi-branch mission plays back exactly like the original flight.
 - Period < span: the mission OVERLAPS ITSELF, relaunching every `OverlapCadenceSeconds` so multiple staggered instances play concurrently (flight scene only; capped by `MaxOverlapMissionInstances`).
 
 Debris rides along its parent leg via `ShouldSourceDebrisFromUnitSpan` (`GhostPlaybackEngine.cs:1765`). The mechanism reduces each member to a per-recording overlap loop over the EXISTING `UpdateOverlapPlayback` machinery, so the engine needed no new playback path: `UpdateUnitMemberPlayback` (`GhostPlaybackEngine.cs:2119`) routes a member through the overlap path when the unit overlaps and the single span-clock instance otherwise.
+
+**Timing reads the recorded span, drawing keeps the predicted fall** (owner ruling 2026-11-24, R4c in `docs/dev/todo-and-known-bugs.md`: "A dropped stage's predicted fall plays in mission loops but does not count toward loop timing."). A stage the player stopped watching carries a predicted tail (a fall of minutes, days or the 50-year horizon, an escape to its final orbit, a chute descent). The span end is the latest RECORDED member end (`PredictedEndingTakeover.ResolveRecordedEndUT`, window-clipped), so a tail changes no cadence, overlap cap, Auto period, first-play floor, phase snap, KSC / Tracking Station clock, supply-route clock or route origin span. The member's own window keeps the tail:
+
+| | no tail past the span | falling member, unit does not overlap itself | falling member, self-overlapping unit |
+| --- | --- | --- | --- |
+| Timing (all scenes, routes) | recorded span | recorded span | recorded span |
+| Flight (mesh and map) | span clock | one copy per launch, each to its own end; a non-uniform unit (schedule, cuts, holds, descent trigger) plays the fall through the wait and keeps older cycles' falls beside it; launch-aligned re-aim units draw one copy | one copy per launch, as every member, each to its own end |
+| Space Center | span clock | one copy, through the wait, cut at the next relaunch | one copy per launch |
+| Tracking Station | span clock | one copy, through the wait, cut at the next relaunch | one copy per launch |
+
+At most `MaxOverlapGhostsPerRecording` (20) copies of one recording are drawn; a fall's older copies end quietly and the cadence is never raised for a tail. Debris is not a member: its predicted tail past the span plays to its impact in flight and is not drawn in loops elsewhere. The first run's fall still in the air at the anchor keeps playing in flight on the real clock; spawns at a recording's end and the non-loop tail are unchanged. The unit line's `overlaps=` still means launch copies overlap launch copies; a fall overlapping the next launch is `fallOverlaps=yes`.
 
 ### 7.3 The build pipeline
 
@@ -303,7 +315,7 @@ The host pushes a fresh `LoopUnitSet` once per frame: `MissionLoopUnitBuilder.Bu
 1. Resolve the tree by `TreeId`.
 2. Build read models: `MissionStructureBuilder.Build` -> `MissionThroughLineBuilder.Build` -> `MissionCompositionBuilder.Build`.
 3. Compute trimmed member windows: `ComputeTrimmedMemberWindows` (`:650`) calls `MissionIntervalSelection.ComputeRenderWindows(compRoots, excludedIntervalKeys)` (`MissionIntervalSelection.cs:35`) for per-vessel `[StartUT, EndUT]`, intersects each member's recorded window, drops members entirely outside. This is the single source of truth shared by the span clock, the periodicity extractor, and the UI.
-4. Sort members by trimmed start; span = `[min start, max end]`.
+4. Sort members by trimmed start; timing span = `[min start, max recorded end]` (`ComputeTimingSpanEndUT`), drawn span end = `max end`.
 5. Derive the two cadences (Section 4.2).
 6. Owner = earliest-start member.
 7. Phase anchor: `LoopAnchorUT` (NaN -> spanStart), then the FIRST-PLAY FLOOR clamps it to `>= spanEndUT` so a looped mission never relaunches before its first real play completes.
@@ -410,7 +422,7 @@ flags).
 5. **A genuinely new branch (e.g. a re-fly supersede split).** Under the excluded-id model it defaults to INCLUDED. Accepted for v1 (Open Question 17.1).
 6. **Two looping Missions on the same tree.** Forbidden by `SetLoopEnabled` (clears same-tree siblings) and re-enforced by `NormalizeOneLoopPerTree` on load (keeps the first per tree, warns on clearing extras); a defensive first-claimant guard in the builder covers a hand-edited save.
 7. **Period < span.** Self-overlap in flight; one span instance in KSC / TS.
-8. **Loop enabled mid-flight, before the span completes once.** The first-play floor clamps the anchor to `>= spanEndUT`, so the first relaunch waits for the first real play to finish.
+8. **Loop enabled mid-flight, before the span completes once.** The first-play floor clamps the anchor to `>= spanEndUT` (the recorded end), so the first relaunch waits for the first real play to finish; a predicted fall still in the air is not waited for and keeps playing in flight.
 9. **Phase-lock config that is over-constrained.** The best-fit window's residual exceeds tolerance; reported amber, still launched on cadence (fail closed to faithful).
 10. **Cross-parent rendezvous / dock (`UnsupportedRendezvous`).** Not re-aimed; stays on the faithful path.
 11. **2+-moon destination.** A 2+-moon RESONANT destination (Jool's inner three) is now SUPPORTED: it engages `ArrivalHoldPlanner.ComputeMultiMoonConfigHold` on the joint configuration period (M-MIS-6, Section 14.4). An incommensurate moon pack (Bop / Pol) finds no aligned window and ambers to the faithful replay. The retired 2+-moon reject was `DestinationConstraintExtractor`'s `MaxConstrainedMoons` gate, NOT `ReaimClassifier` (which only guards the heliocentric single-hop shape: the target must be a direct Sun child - Jool passes). A deep / multi-hop chain (target reached via another moon, or a second heliocentric leg) is still declined by `ReaimClassifier` and stays faithful (deferred, M-MIS-7).

@@ -105,6 +105,7 @@ namespace Parsek
             memberEndUT = unit.MemberEndUT(recordingIndex, memberEndUT);
 
             double span = unit.SpanEndUT - unit.SpanStartUT;
+            bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
 
             // Self-overlap: the mission relaunches every OverlapCadenceSeconds, so watch must pin the
             // NEWEST instance of this member (the primary ghost UpdateOverlapPlayback keeps pointed at
@@ -112,20 +113,25 @@ namespace Parsek
             // per-recording overlap math the engine renders the member with: scheduleStartUT =
             // PhaseAnchorUT + (memberStart - spanStart), playbackStartUT = memberStart, duration =
             // memberEnd - memberStart, intervalSeconds = the mission overlap cadence. See
-            // UpdateUnitMemberPlayback for the matching render-side reduction.
-            if (span > 0 && unit.OverlapCadenceSeconds < span)
+            // UpdateUnitMemberPlayback for the matching render-side reduction. A member whose fall is
+            // drawn as one copy per launch takes the same reduction on the unit's launch cadence.
+            if (span > 0 && (unit.OverlapCadenceSeconds < span
+                    || GhostPlaybackLogic.MemberFallUsesOverlapSchedule(unit, memberEndUT)))
             {
                 double memberScheduleStartUT = unit.PhaseAnchorUT + (memberStartUT - unit.SpanStartUT);
                 double memberDuration = memberEndUT - memberStartUT;
                 if (memberDuration > 0
                     && GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
                         currentUT,
-                        unit.OverlapCadenceSeconds,
+                        unit.OverlapCadenceSeconds < span
+                            ? unit.OverlapCadenceSeconds
+                            : GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit),
                         memberDuration,
                         memberStartUT,
                         memberScheduleStartUT,
                         out double overlapMemberUT,
-                        out _))
+                        out _,
+                        memberHasFall))
                 {
                     loopUT = overlapMemberUT;
                     return true;
@@ -148,8 +154,8 @@ namespace Parsek
                     unit.SpanEndUT,
                     unit.CadenceSeconds,
                     out double spanLoopUT,
-                    out _,
-                    out _,
+                    out long unitCycle,
+                    out bool inInterCycleTail,
                     unit.RelaunchSchedule,
                     unit.LoiterCuts,
                     unit.ArrivalHoldSeconds,
@@ -166,6 +172,13 @@ namespace Parsek
             }
 
             loopUT = spanLoopUT;
+            if (memberHasFall && inInterCycleTail)
+            {
+                var decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail;
+                GhostPlaybackLogic.TryExtendRenderIntoFall(
+                    unit, recordingIndex, currentUT, memberStartUT, memberEndUT, unitCycle,
+                    ref decision, ref loopUT);
+            }
             return true;
         }
 
@@ -298,6 +311,23 @@ namespace Parsek
             // recorded time, and a seam is a recorded-time fact.
             if (!isInInterCycleTail)
                 TryEmitSeamMarker(i, traj, f, unit, spanLoopUT, unitCycle);
+
+            // (2c) A member whose predicted fall outlasts the recorded span: one copy per launch on the
+            // unit's cadence (uniform units), or the fall of each cycle beside the span-clock primary.
+            bool keepFallCopies = false;
+            if (GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT))
+            {
+                if (GhostPlaybackLogic.UnitHasUniformCycles(unit))
+                {
+                    UpdateUnitMemberFallSchedule(
+                        i, traj, f, ctx, unit, unitKey, memberStartUT, memberEndUT,
+                        suppressGhosts, suppressVisualFx, ref state, ref ghostActive);
+                    return;
+                }
+                keepFallCopies = UpdateNonUniformFall(
+                    i, traj, f, ctx, unit, unitCycle, memberStartUT, memberEndUT,
+                    suppressGhosts, suppressVisualFx, ref decision, ref spanLoopUT, ref state, ref ghostActive);
+            }
 
             // DESCENT TRIGGER (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the FLIGHT
             // engine must render a descent-set member EXACTLY like the map/TS resolver
@@ -441,7 +471,7 @@ namespace Parsek
             // overlapGhosts[i] this frame, do NOT tear it down (it would thrash every frame across the borrow
             // window); UpdateBoundaryOverlapSecondary below owns that storage. The secondary path NEVER calls
             // UpdateOverlapPlayback / the expiry block, so it never confuses the self-overlap machinery.
-            if (!boundarySecondaryLive && overlapGhosts.ContainsKey(i))
+            if (!boundarySecondaryLive && !keepFallCopies && overlapGhosts.ContainsKey(i))
             {
                 DestroyAllOverlapGhosts(i);
                 overlapGhosts.Remove(i);
@@ -513,7 +543,7 @@ namespace Parsek
                     i, traj, f, syncCtx, suppressGhosts, suppressVisualFx,
                     boundarySecondaryLoopUT, boundarySecondaryCycle);
             }
-            else if (overlapGhosts.ContainsKey(i))
+            else if (!keepFallCopies && overlapGhosts.ContainsKey(i))
             {
                 // No live secondary this frame but a stale boundary-overlap ghost lingers (e.g. the borrow window
                 // just ended, or warp suppression hid the primary above and returned early on a prior frame): tear
@@ -540,6 +570,9 @@ namespace Parsek
             // ghost. UpdateOverlapPlayback would demote it as an overlap copy of a cycle the
             // loop schedule never has (-1) and replay it beside the new cycle-0 primary, so it
             // is retired here. (The span-clock branch retires it at its cycle-change rebuild.)
+            bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
+            if (memberHasFall)
+                TryKeepFirstRunFall(i, traj, ctx, unit.PhaseAnchorUT, ref state, ref ghostActive);
             if (ShouldRetireOrdinaryStateAtUnitHandover(state))
             {
                 ParsekLog.Info("Engine",
@@ -578,7 +611,7 @@ namespace Parsek
                 if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
                         ctx.currentUT, unit.OverlapCadenceSeconds, memberDuration,
                         memberPlaybackStartUT, memberScheduleStartUT,
-                        out double newestOverlapUT, out _)
+                        out double newestOverlapUT, out _, memberHasFall)
                     || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                         ctx.warpRate, traj, newestOverlapUT))
                 {
@@ -658,7 +691,8 @@ namespace Parsek
                 i, traj, f, ctx, state,
                 unit.OverlapCadenceSeconds, memberDuration,
                 memberPlaybackStartUT, memberScheduleStartUT,
-                suppressVisualFx, suppressOverlapGhosts);
+                suppressVisualFx, suppressOverlapGhosts,
+                keepCadence: memberHasFall);
         }
 
         /// <summary>

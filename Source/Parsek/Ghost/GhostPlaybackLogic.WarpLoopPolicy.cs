@@ -326,7 +326,8 @@ namespace Parsek
             double playbackStartUT,
             double scheduleStartUT,
             out double playbackUT,
-            out long cycleIndex)
+            out long cycleIndex,
+            bool keepCadence = false)
         {
             playbackUT = playbackStartUT;
             cycleIndex = 0;
@@ -334,8 +335,7 @@ namespace Parsek
             if (currentUT < scheduleStartUT)
                 return false;
 
-            double effectiveCadence = ComputeEffectiveLaunchCadence(
-                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            double effectiveCadence = ResolveOverlapCadence(intervalSeconds, duration, keepCadence);
             double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
 
             long firstCycle;
@@ -501,6 +501,23 @@ namespace Parsek
                 cadenceFloor = NextUp(cadenceFloor);
 
             return Math.Max(period, cadenceFloor);
+        }
+
+        /// <summary>
+        /// The launch cadence of one recording's overlapping copies:
+        /// <see cref="ComputeEffectiveLaunchCadence"/> at the per-recording cap, or, with
+        /// <paramref name="keepCadence"/> (a loop unit's fall, owner ruling 2026-11-24), the asked-for
+        /// cadence itself: a predicted tail never raises it and never desyncs the copies from the
+        /// launches, so the copies past the cap end quietly instead
+        /// (<see cref="OldestDrawnFallCycle"/>). Pure.
+        /// </summary>
+        internal static double ResolveOverlapCadence(
+            double intervalSeconds, double duration, bool keepCadence)
+        {
+            return keepCadence
+                ? Math.Max(intervalSeconds, LoopTiming.MinCycleDuration)
+                : ComputeEffectiveLaunchCadence(
+                    intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
         }
 
         private static double NextUp(double value)

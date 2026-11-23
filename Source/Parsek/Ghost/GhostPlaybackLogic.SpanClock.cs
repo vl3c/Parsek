@@ -181,7 +181,8 @@ namespace Parsek
                 double arrivalJointSecondaryToleranceSeconds = double.NaN,
                 int arrivalJointMaxWholeHoldPeriods = 0,
                 string transferMemberRecordingId = null,
-                IReadOnlyList<LoopSeamMarker> seamMarkers = null)
+                IReadOnlyList<LoopSeamMarker> seamMarkers = null,
+                double renderSpanEndUT = double.NaN)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -216,6 +217,7 @@ namespace Parsek
                 ArrivalJointMaxWholeHoldPeriods = arrivalJointMaxWholeHoldPeriods;
                 TransferMemberRecordingId = transferMemberRecordingId;
                 SeamMarkers = seamMarkers;
+                RenderSpanEndUT = renderSpanEndUT > spanEndUT ? renderSpanEndUT : spanEndUT;
             }
 
             /// <summary>
@@ -241,8 +243,22 @@ namespace Parsek
             /// <summary>Min member StartUT.</summary>
             internal double SpanStartUT { get; }
 
-            /// <summary>Max member EndUT (a ride-along debris tail can extend it).</summary>
+            /// <summary>
+            /// The TIMING span's end: the latest RECORDED member end
+            /// (<see cref="PredictedEndingTakeover.ResolveRecordedEndUT"/>, window-clipped). A predicted tail is left out, so no
+            /// clock, cadence, first-play floor or route delivery moves with it (owner ruling
+            /// 2026-11-24); the member's own window (<see cref="MemberEndUT"/>) still holds the tail.
+            /// </summary>
             internal double SpanEndUT { get; }
+
+            /// <summary>
+            /// The latest DRAWN member end, predicted tails included: never before
+            /// <see cref="SpanEndUT"/>, and equal to it on a unit with no tail past the span.
+            /// </summary>
+            internal double RenderSpanEndUT { get; }
+
+            /// <summary>True when some member is drawn past the timing span (a predicted fall).</summary>
+            internal bool HasLoopFalls => RenderSpanEndUT > SpanEndUT + LoopTiming.BoundaryEpsilon;
 
             /// <summary>
             /// Span-clock cadence: the Mission's loop period raised to at least the span so a SINGLE
@@ -598,22 +614,41 @@ namespace Parsek
             private readonly Dictionary<int, LoopUnit> unitsByOwner;
             private readonly Dictionary<int, int> ownerByIndex;
             private readonly IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource;
+            private readonly bool drawsFallCopies;
 
             internal LoopUnitSet(
                 Dictionary<int, LoopUnit> unitsByOwner,
                 Dictionary<int, int> ownerByIndex)
-                : this(unitsByOwner, ownerByIndex, null)
+                : this(unitsByOwner, ownerByIndex, null, false)
             {
             }
 
             private LoopUnitSet(
                 Dictionary<int, LoopUnit> unitsByOwner,
                 Dictionary<int, int> ownerByIndex,
-                IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource)
+                IReadOnlyList<IPlaybackTrajectory> standaloneLoopSource,
+                bool drawsFallCopies)
             {
                 this.unitsByOwner = unitsByOwner ?? new Dictionary<int, LoopUnit>();
                 this.ownerByIndex = ownerByIndex ?? new Dictionary<int, int>();
                 this.standaloneLoopSource = standaloneLoopSource;
+                this.drawsFallCopies = drawsFallCopies;
+            }
+
+            /// <summary>
+            /// True in the flight scene's set: a member whose fall outlasts the span is drawn there as
+            /// one copy per launch (<see cref="MemberFallUsesOverlapSchedule"/>), map included. KSC and
+            /// the Tracking Station draw one copy and leave it false.
+            /// </summary>
+            internal bool DrawsFallCopies => drawsFallCopies;
+
+            /// <summary>This set with <see cref="DrawsFallCopies"/> on; this instance when it already
+            /// is, or holds no unit.</summary>
+            internal LoopUnitSet WithFallCopies()
+            {
+                return drawsFallCopies || unitsByOwner.Count == 0
+                    ? this
+                    : new LoopUnitSet(unitsByOwner, ownerByIndex, standaloneLoopSource, true);
             }
 
             /// <summary>
@@ -643,7 +678,7 @@ namespace Parsek
                 if (standaloneView != null && ReferenceEquals(committed, standaloneViewSource))
                     return standaloneView;
                 standaloneViewSource = committed;
-                standaloneView = new LoopUnitSet(unitsByOwner, ownerByIndex, committed);
+                standaloneView = new LoopUnitSet(unitsByOwner, ownerByIndex, committed, drawsFallCopies);
                 return standaloneView;
             }
 
@@ -737,7 +772,7 @@ namespace Parsek
                 }
 
                 liveViewPendingOwners = pendingOwners;
-                liveView = new LoopUnitSet(liveUnits, liveOwnerByIndex, standaloneLoopSource);
+                liveView = new LoopUnitSet(liveUnits, liveOwnerByIndex, standaloneLoopSource, drawsFallCopies);
                 return liveView;
             }
 
@@ -2389,6 +2424,11 @@ namespace Parsek
                 unit.ArrivalJointSecondaryPeriodSeconds,
                 unit.ArrivalJointSecondaryToleranceSeconds,
                 unit.ArrivalJointMaxWholeHoldPeriods);
+
+            // A fall past the timing span is drawn through the wait between cycles and cut at the next
+            // relaunch (one copy on this seam). Inert on a unit with no fall.
+            TryExtendRenderIntoFall(
+                unit, i, liveUT, memberStartUT, memberEndUT, unitCycle, ref decision, ref loopUT);
 
             // Descent trigger (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the post-parking
             // body-fixed approach clip (deorbit->reentry->landing for a surface mission, OR the rendezvous/docking

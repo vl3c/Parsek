@@ -2554,6 +2554,50 @@ namespace Parsek.Tests.Logistics
                 l.Contains("derivedStart=700"));
         }
 
+        // catches (owner ruling 2026-11-24): a stage dropped before the origin undock, or in transit,
+        // whose predicted fall lasts minutes or the 50-year horizon refusing a shuttle route, or
+        // moving its span or dispatch interval.
+        [Theory]
+        [InlineData(700.0, 900.0, 2200.0, "root")]
+        [InlineData(700.0, 900.0, 460080000.0, "root")]
+        [InlineData(1700.0, 1800.0, 3400.0, "transit")]
+        [InlineData(1700.0, 1800.0, 460080000.0, "transit")]
+        public void Build_MidTreeOrigin_DroppedStageWithALongFall_IsNotRefused(
+            double dropUT, double recordedEndUT, double tailEndUT, string parent)
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            Recording stage = MidTreeLeg("stage", 7, "C3", 0, dropUT, recordedEndUT);
+            stage.Points.Add(new TrajectoryPoint { ut = dropUT, bodyName = "Mun" });
+            stage.Points.Add(new TrajectoryPoint { ut = recordedEndUT, bodyName = "Mun" });
+            stage.OrbitSegments.Add(new OrbitSegment
+                { startUT = recordedEndUT, endUT = tailEndUT, isPredicted = true, bodyName = "Mun" });
+            stage.TerminalStateValue = TerminalState.Destroyed;
+            stage.TerminalPredicted = true;
+            stage.ExplicitEndUT = tailEndUT;
+            tree.AddOrReplaceRecording(stage);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "stage-bp",
+                Type = BranchPointType.JointBreak,
+                UT = dropUT,
+                SplitCause = "DECOUPLE",
+                ParentRecordingIds = new List<string> { parent },
+                ChildRecordingIds = new List<string> { "stage" }
+            });
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.RejectReason);
+            Assert.Equal(1000.0, outcome.Route.TransitDuration);
+            Assert.Equal(1000.0, outcome.Route.DispatchInterval);
+            Assert.Equal(MidTreeOriginUndockUT, outcome.Route.RecordedOriginUndockUT);
+        }
+
         // catches (MINE-4 flight 2026-11-07_0942): the origin-undock offshoot
         // starting a frame after the window's undock UT (its first background
         // sample) must not reject the route as origin-span-mismatch.
