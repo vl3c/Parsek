@@ -2099,7 +2099,7 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
@@ -2303,9 +2303,8 @@ press and the poll, the capture, the plate), `PartParityFxRun` (one case's state
 `PartParityFxHold` (the test stand), and the pure `PartParityFxFraming`, `PartParityFxControls`
 (evidence flag, judge) and `PartParityFxStructure` (inventory diff). An FX case is a P6 wave case
 with `WaveCase.Fx` laid over `WaveCase.State`: `TryPress` / `TryStep` hook P6's press and step, its
-ghosts are P6's three routes, and an `fx:<bucket>` wave kind admits up to 4 of them. `FxRunsBuilt`
-is true; an `fx=` run with `contexts=air` is still refused `fx-runs-not-built` until F7
-(`FxAirSpawnBuilt`, mirrored as hlib `PARTPARITY_FX_AIR_SPAWN_BUILT`). Decisions:
+ghosts are P6's three routes, and an `fx:<bucket>` wave kind admits up to 4 of them. The
+air run waited for F7 ("F7 as built" below). Decisions:
 
 - Prime. `PrimeVisible` sets `lastInterpolatedBodyName` / `lastInterpolatedAltitude` from the held
   vessel, then E.2 step 3. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
@@ -2362,6 +2361,28 @@ time at most 0.00003 m. Per-side warm-up lines are logged for every plume and rc
 engine cases, 3 to 20 s elsewhere. U9 re-measured after the light settle: the intensity and colour
 gap is real (todo GHOST-LAMP-LIGHT-INTENSITY). The first readings of the ghosts are todo
 PARTPARITY-FX-FIRST-READINGS-2026-11-23.
+
+F7 as built, C# half (2026-11-23). An `fx=` run with `contexts=air` is an ordinary air run: its
+reset and run steps are admitted by `host-not-at-pad`, and its FX waves keep F3's flow. The
+`fx-runs-not-built` refusal, its token and its mirrors are gone. Any label works, so the second
+label of PP-5 / PP-6 needs spec steps only (F7's lane half, after F6). Decisions:
+
+- Spawn. `PartParityAirContext.SpawnHeld`: the chutes' band slots (up to 4, 40 m apart), 1600 m
+  above sea level, at rest (0 m/s, `HeldDescentMps`) and not falling at 10 m/s, the exhaust axis
+  straight down, so no plume points along the band.
+- Hold. `HoldReadyCases` attaches the hold on each frame of the spawn wait, so a case never falls
+  while the wave's others load; the first physics step snaps it to its slot. The air hold is a
+  place of the SURFACE frame (`PartParityHeldSlot`: latitude, longitude, altitude and the
+  surface-relative rotation, read through `GetWorldSurfacePosition` in doubles), not a pose
+  relative to the host: a host on its gear sways, and 1.6 km away a 0.01 deg turn is 0.28 m.
+- Air controls. Their subject, the Flea, breathes no air, so its only plume key is an orbit one
+  and F3's `ControlKey` found none in an air run. `PartParityFxRules.ControlPlumeKey` takes that
+  key into the air context.
+- Spool timeout. `SpoolPressTimeoutSeconds`: 45 s, or 1.1 times the time stock's own spool needs to
+  come within 0.01 of the request when that is longer, capped at 120 s. Stock closes on the request
+  at `engineAccelerationSpeed` (decompiled `ModuleEngines.UpdateThrottle`): 0.12 /s is 38 s, but the
+  Goliath's 0.06 /s is 77 s full and 57 s low, so 45 s would always end its two cases
+  `state-timeout`. Every orbit engine keeps the 45 s floor.
 
 ### E.3 Capture changes
 
@@ -2647,8 +2668,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   - `fx=` names no `states=` and at most `contexts=air` beside it, else `fx-arg-invalid`
     (`FxCombinationValid`: a P6 state word or an orbit context would be silently ignored).
   - Until F3, a well-formed FX run was REJECTED `fx-runs-not-built` (`FxRunsBuilt`, hlib
-    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 flipped both, and the refusal covers only an
-    `fx=` run with `contexts=air`, until F7.
+    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 built the orbit run and F7 the air one, and
+    F7 removed the refusal, its token and its mirrors.
   - `settings.fx` is written by an FX run only, so every PP-1 to PP-6 manifest keeps its
     settings byte for byte; `partparity.control_set` reads a missing `fx` as `none`.
   - The orbit FX run plans the `alone` and `plate` cases, the air FX run the `air` plume cases
