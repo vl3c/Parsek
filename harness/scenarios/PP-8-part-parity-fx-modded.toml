@@ -12,9 +12,10 @@ tier = "operator"
 # MOSTLY REFERENCE (design E.6, owner ruling 2026-11-21: no Waterfall on ghosts). Every
 # Waterfall-patched engine and RCS part draws Waterfall meshes on the real side and the
 # recovered particles on the ghost, so its case is captured, measured and shown with its
-# would-be verdict, but reads `reference`: never `fail`, never gated, counted apart. The
-# solid boosters, the heat cases and the plate pictures stay judged. The same parts without
-# Waterfall are judged by PP-9 on modded-restock.
+# would-be verdict, but reads `reference`: never `fail`, never gated, counted apart. Parts
+# with no Waterfall module (the solid boosters, six ReStock mini RCS blocks,
+# `smallRadialEngine`), the heat cases and the plate pictures stay judged. The same parts
+# without Waterfall are judged by PP-9 on modded-restock.
 #
 # WHAT THE LANE FLIES. PP-7's host and setup on `eva2-lko-crewed` (auto-record off, verbose
 # logging, WarpToUT 1900), `op=reset`, FIVE time-boxed `op=run fx=all` steps and quit.

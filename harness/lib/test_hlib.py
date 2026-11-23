@@ -19699,11 +19699,15 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
                                      (a["label"], a["op"], a.get("fx"), a.get("controls"),
                                       a.get("maxSeconds")))
                     # The whole install: no limit, filter, source, shard, state, context or skin arg.
-                    for key in ("limit", "filter", "source", "shard", "states", "contexts", "skins"):
-                        self.assertNotIn(key, a)
+                    self.assertEqual({"label", "op", "fx", "controls", "maxSeconds"}, set(a))
+                    self.assertEqual("OK", step["expect"])
                     self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
                     # The run's control set is the orbit FX set (E.5), never the air one.
                     self.assertEqual(partparity.CONTROL_IDS_FX_ORBIT, partparity.control_set({"fx": a["fx"]}))
+                # PP-3's setup ahead of the sweep: no auto-record, verbose lines, the sunlit window.
+                pre = spec["driver"]["steps"][:spec["driver"]["steps"].index(sweeps[0])]
+                self.assertEqual(load_spec("PP-3-part-parity-states-stock.toml")["driver"]["steps"][:len(pre)], pre)
+                self.assertEqual("WarpToUT", pre[-1]["cmd"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
                 self.assertFalse(partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
@@ -19725,7 +19729,10 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
     def test_each_lane_pins_its_own_step_line_and_the_fx_counts_line(self):
         for name, (label, _profile, _runs) in self.LANES.items():
             with self.subTest(lane=name):
-                required = load_spec(name)["expectations"]["logContracts"]["required"]
+                contracts = load_spec(name)["expectations"]["logContracts"]
+                required = contracts["required"]
+                self.assertEqual(["\\[Parsek\\]\\[ERROR\\]"], contracts["forbidden"])
+                self.assertEqual(1, sum("partparitysweep complete label=%s " % label in p for p in required))
                 pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
                 self.assertEqual(1, len(pins), required)
                 line = ("[Parsek][INFO][PartParity] PartParity step label=%s op=run ok=true "
