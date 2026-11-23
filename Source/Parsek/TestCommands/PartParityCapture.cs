@@ -304,6 +304,120 @@ namespace Parsek.TestCommands
             return PartParityMetrics.ComposeMatte(overBlack, overWhite, out matte);
         }
 
+        // =====================================================================================
+        // the FX frames (design-part-ghost-parity.md E.3): layered renders outside CaptureView
+        // =====================================================================================
+
+        /// <summary>
+        /// One FX frame: every renderer of <paramref name="all"/> off, every scene light off
+        /// except the kept ones, the camera posed per render, each render showing only the
+        /// listed renderers. Everything is restored by <see cref="Dispose"/>, so the frame lives
+        /// inside one synchronous capture call. Not re-entrant: one frame at a time.
+        /// </summary>
+        internal FxFrame BeginFxFrame(IList<Renderer> all, int cullingMask, bool rigLights)
+            => new FxFrame(this, all, cullingMask, rigLights);
+
+        internal sealed class FxFrame : IDisposable
+        {
+            private readonly PartParityCapture owner;
+            private readonly Dictionary<Renderer, bool> saved = new Dictionary<Renderer, bool>();
+            private readonly Light[] sceneLights;
+            private readonly bool[] lightWasEnabled;
+            private readonly Color ambientBefore;
+            private readonly UnityEngine.Rendering.AmbientMode ambientModeBefore;
+            private readonly int pixelLightsBefore;
+            private readonly RenderTexture activeBefore;
+            private readonly bool rigLights;
+            private GameObject keyGo, fillGo;
+            private HashSet<Light> lit = new HashSet<Light>();
+
+            internal FxFrame(PartParityCapture owner, IList<Renderer> all, int cullingMask, bool rigLights)
+            {
+                this.owner = owner;
+                this.rigLights = rigLights;
+                ambientBefore = RenderSettings.ambientLight;
+                ambientModeBefore = RenderSettings.ambientMode;
+                pixelLightsBefore = QualitySettings.pixelLightCount;
+                activeBefore = RenderTexture.active;
+                foreach (Renderer r in all)
+                    if (r != null && !saved.ContainsKey(r)) saved[r] = r.forceRenderingOff;
+                sceneLights = UnityEngine.Object.FindObjectsOfType<Light>();
+                lightWasEnabled = new bool[sceneLights.Length];
+                for (int i = 0; i < sceneLights.Length; i++)
+                {
+                    lightWasEnabled[i] = sceneLights[i].enabled;
+                    sceneLights[i].enabled = false;
+                }
+                RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+                RenderSettings.ambientLight = rigLights ? new Color(0.25f, 0.25f, 0.25f, 1f) : Color.black;
+                QualitySettings.pixelLightCount = 8;
+                owner.cam.cullingMask = cullingMask;
+                owner.cam.targetTexture = owner.msaa;
+            }
+
+            /// <summary>Keeps these lights on (their own enabled state) until the frame ends.
+            /// A light that was already off when the frame began stays off.</summary>
+            internal void KeepLights(IEnumerable<Light> on)
+            {
+                lit = new HashSet<Light>(on);
+                for (int i = 0; i < sceneLights.Length; i++)
+                    if (sceneLights[i] != null)
+                        sceneLights[i].enabled = lit.Contains(sceneLights[i]) && lightWasEnabled[i];
+            }
+
+            /// <summary>The ortho camera's pose for the next renders; the rig key and fill lights
+            /// (when the frame has them) stand on it.</summary>
+            internal void Pose(Vector3 position, Quaternion rotation, double orthoSize, double near, double far)
+            {
+                Camera cam = owner.cam;
+                cam.transform.SetPositionAndRotation(position, rotation);
+                cam.orthographic = true;
+                cam.orthographicSize = (float)orthoSize;
+                cam.nearClipPlane = (float)Math.Max(0.01, near);
+                cam.farClipPlane = (float)Math.Max(cam.nearClipPlane + 0.01, far);
+                if (!rigLights) return;
+                Vector3 up = rotation * Vector3.up;
+                if (keyGo != null) UnityEngine.Object.DestroyImmediate(keyGo);
+                if (fillGo != null) UnityEngine.Object.DestroyImmediate(fillGo);
+                keyGo = MakeLight("PartParityFxKey", 1.0f, rotation * new Vector3(0.5f, -0.6f, 1f).normalized, up);
+                fillGo = MakeLight("PartParityFxFill", 0.45f, rotation * new Vector3(-0.6f, 0.3f, 1f).normalized, up);
+            }
+
+            internal Vector3 ToCamera(Vector3 world) => owner.cam.transform.InverseTransformPoint(world);
+
+            /// <summary>One render of exactly <paramref name="show"/> (at each renderer's own
+            /// <c>forceRenderingOff</c> state when the frame began) over <paramref name="clear"/>,
+            /// as RGBA8 top-down.</summary>
+            internal byte[] Render(IList<Renderer> show, Color clear)
+            {
+                foreach (var kv in saved) if (kv.Key != null) kv.Key.forceRenderingOff = true;
+                if (show != null)
+                    foreach (Renderer r in show)
+                    {
+                        if (r == null) continue;
+                        if (saved.TryGetValue(r, out bool was)) r.forceRenderingOff = was;
+                        else r.forceRenderingOff = false;
+                    }
+                return owner.RenderOnce(clear);
+            }
+
+            public void Dispose()
+            {
+                foreach (var kv in saved) if (kv.Key != null) kv.Key.forceRenderingOff = kv.Value;
+                if (keyGo != null) UnityEngine.Object.DestroyImmediate(keyGo);
+                if (fillGo != null) UnityEngine.Object.DestroyImmediate(fillGo);
+                keyGo = null;
+                fillGo = null;
+                for (int i = 0; i < sceneLights.Length; i++)
+                    if (sceneLights[i] != null) sceneLights[i].enabled = lightWasEnabled[i];
+                RenderSettings.ambientMode = ambientModeBefore;
+                RenderSettings.ambientLight = ambientBefore;
+                QualitySettings.pixelLightCount = pixelLightsBefore;
+                if (owner.cam != null) owner.cam.targetTexture = null;
+                RenderTexture.active = activeBefore;
+            }
+        }
+
         private byte[] RenderOnce(Color clear)
         {
             Color bg = clear;

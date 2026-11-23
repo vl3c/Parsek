@@ -395,12 +395,17 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
-        /// <summary>REJECTED: a well-formed <c>fx=</c> run while the live FX engine is not built
-        /// (design E.9: F3 lifts it); the grammar alone is <see cref="TryParseGrammar"/>.</summary>
+        /// <summary>REJECTED: a well-formed <c>fx=</c> run with <c>contexts=air</c> while the held
+        /// air spawn of the FX run is not built (design E.9: F7 lifts it); the grammar alone is
+        /// <see cref="TryParseGrammar"/>.</summary>
         internal const string FxRunsNotBuiltReason = "fx-runs-not-built";
 
-        /// <summary>False until the live FX engine (design E.9 piece F3) lands.</summary>
-        internal const bool FxRunsBuilt = false;
+        /// <summary>The live FX engine of the orbit run (design E.9 piece F3).</summary>
+        internal const bool FxRunsBuilt = true;
+
+        /// <summary>False until the held air spawn of an FX run (design E.9 piece F7) lands; an
+        /// orbit FX run does not read it.</summary>
+        internal const bool FxAirSpawnBuilt = false;
 
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
@@ -463,9 +468,9 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
-        /// admission (<c>host-not-at-pad</c>). An <c>fx=</c> run is refused
-        /// <c>fx-runs-not-built</c> (detail <c>fx=..</c>) while <see cref="FxRunsBuilt"/> is
-        /// false. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// admission (<c>host-not-at-pad</c>). An <c>fx=</c> run with <c>contexts=air</c> is
+        /// refused <c>fx-runs-not-built</c> (detail <c>fx=..</c>) while
+        /// <see cref="FxAirSpawnBuilt"/> is false. On a refusal <paramref name="rejectReason"/> is the reason token and
         /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
@@ -473,7 +478,7 @@ namespace Parsek.TestCommands
             out string rejectReason, out string rejectDetail)
         {
             if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
-            if (!FxRunsBuilt && IsFxRun(parsed))
+            if (IsFxRun(parsed) && (!FxRunsBuilt || (IsAirRun(parsed) && !FxAirSpawnBuilt)))
             {
                 rejectReason = FxRunsNotBuiltReason;
                 rejectDetail = "fx=" + FormatFx(parsed);

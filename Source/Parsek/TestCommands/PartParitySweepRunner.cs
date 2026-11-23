@@ -272,7 +272,7 @@ namespace Parsek.TestCommands
                 if (!ctx.Known.ContainsKey(p.CaseId)) n++;
             if (ctx.Args.Controls)
                 foreach (string id in ctx.ControlSet)
-                    if (!ctx.Known.ContainsKey(id)) n++;
+                    if (!ctx.Known.ContainsKey(id) && !ctx.NotApplicableControls.Contains(id)) n++;
             return n;
         }
 
@@ -338,11 +338,16 @@ namespace Parsek.TestCommands
             // stowed run reads exactly the stowed keys, in today's order.
             List<PartParityCaseKey> stateKeys = null;
             if (TestCommandPartParitySweep.IsStateRun(ctx.Args)) stateKeys = EnumerateStates(ctx);
-            ctx.Planned = TestCommandPartParitySweep.PlanCases(keys, stateKeys, ctx.Args);
+            // An FX run (design Appendix E.5) plans ONLY its FX keys.
+            List<PartParityCaseKey> fxKeys = TestCommandPartParitySweep.IsFxRun(ctx.Args) ? EnumerateFx(ctx) : null;
+            ctx.Planned = TestCommandPartParitySweep.PlanCases(keys, stateKeys, ctx.Args, fxKeys);
             LogSkinCounts(ctx, keys);
             if (stateKeys != null)
                 ParsekLog.Info(Tag, PartParityStateRules.FormatCounts(TestCommandPartParitySweep.FormatStates(ctx.Args),
                     TestCommandPartParitySweep.FormatContexts(ctx.Args), stateKeys, ctx.Planned.Count, ctx.StateExclusions));
+            if (fxKeys != null)
+                ParsekLog.Info(Tag, PartParityFxRules.FormatCounts(TestCommandPartParitySweep.FormatFx(ctx.Args),
+                    TestCommandPartParitySweep.FormatContexts(ctx.Args), fxKeys, ctx.Planned.Count, ctx.FxExclusions));
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
                 foreach (string id in ctx.ControlSet) LoadKnownSidecar(ctx, id);
@@ -350,6 +355,8 @@ namespace Parsek.TestCommands
             foreach (var k in keys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
             if (stateKeys != null)
                 foreach (var k in stateKeys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
+            if (fxKeys != null)
+                foreach (var k in fxKeys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
             ResolveStaleInflight(ctx, keysById);
             ParsekLog.Info(Tag, $"step start: label={ctx.Args.Label} op=run parts={ctx.Entries.Count.ToString(Ic)} " +
                 $"excluded={ctx.Exclusions.Count.ToString(Ic)} planned={ctx.Planned.Count.ToString(Ic)} " +
@@ -372,6 +379,16 @@ namespace Parsek.TestCommands
                 all.AddRange(PartParityStateRules.Enumerate(sp, PartParityCaseRules.DefaultCaseKey(e)));
             }
             ctx.StateExclusions.AddRange(all.Exclusions);
+            return all.Cases;
+        }
+
+        /// <summary>Every FX case the install offers with the run's exclusions (design E.1).</summary>
+        private static List<PartParityCaseKey> EnumerateFx(StepContext ctx)
+        {
+            bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
+            PartParityFxEnumeration all = PartParityFxDriver.Enumerate(ctx);
+            foreach (PartParityFxExclusion e in all.Exclusions)
+                if (PartParityFxRules.ExclusionApplies(e, air)) ctx.FxExclusions.Add(e);
             return all.Cases;
         }
 
@@ -419,7 +436,9 @@ namespace Parsek.TestCommands
                             ? "a previous process died while this case ran alone (isolation rerun, stale inflight.txt)"
                             : "a previous process died while this case was in flight (stale inflight.txt)");
                     // A crashed state case still names its family and state (design D.2).
-                    crashedSidecar.StateProof = PartParityStateWave.CrashedStateProof(k.StateOption, k.State);
+                    crashedSidecar.StateProof = k.FxOption != null
+                        ? PartParityStateWave.CrashedFxStateProof(k.FxOption, k.State)
+                        : PartParityStateWave.CrashedStateProof(k.StateOption, k.State);
                     if (crashedSidecar.StateProof != null) crashedSidecar.StowedCaseId = PartParityStateWave.StowedCaseId(k);
                     WriteSidecar(ctx, crashedSidecar);
                     ParsekLog.Warn(Tag, $"case {d.CrashedCaseId}: setup fault crashed (recorded from the stale inflight.txt, " +
@@ -508,7 +527,7 @@ namespace Parsek.TestCommands
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
                 List<int> picked = PickWave(queue, cursor, air, out string kind, out double trackerCap);
                 if (!PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, trackerCap,
-                        FamiliesOf(queue, picked), ctx.WavesDone == 0))
+                        FamiliesOf(queue, picked), ctx.WavesDone == 0, FxOptionsOf(queue, picked)))
                 {
                     ParsekLog.Info(Tag, $"time box: elapsed={elapsed.ToString("0.0", Ic)}s lastWave={lastWave.ToString("0.0", Ic)}s " +
                         $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} kind={kind}; {(queue.Count - cursor).ToString(Ic)} case(s) left for the next step");
@@ -517,9 +536,11 @@ namespace Parsek.TestCommands
                 queue = PartParityStateWave.BringToCursor(queue, cursor, picked);
                 List<WaveCase> wave = TakeWave(queue, ref cursor, kind, picked.Count, air);
                 float waveStart = Time.realtimeSinceStartup;
-                // The one dispatch hook of the air context (design D.4): every wave of an air
+                // An FX wave (design E.2) runs its own flow: a hold, a press, the warm-up, the
+                // layered capture. The one dispatch hook of the air context (design D.4): every wave of an air
                 // run, its stowed controls included, spawns over the showcase band.
                 IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);
+                if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);
                 try { while (w.MoveNext()) yield return w.Current; }
                 finally { DisposeNested(w); }
                 lastWave = Time.realtimeSinceStartup - waveStart;
@@ -545,7 +566,10 @@ namespace Parsek.TestCommands
             if (ctx.Args.Controls)
             {
                 foreach (string id in ctx.ControlSet)
+                {
+                    if (!ResolveApplicable(ctx, id)) continue;
                     ResumeOrQueue(ctx, id, () => BuildControlCase(ctx, id), solo, normal);
+                }
             }
             foreach (var p in ctx.Planned)
                 ResumeOrQueue(ctx, p.CaseId, () => BuildPartCase(ctx, p), solo, normal);
@@ -554,6 +578,17 @@ namespace Parsek.TestCommands
                     $"({string.Join(",", solo.ConvertAll(c => c.CaseId).ToArray())})");
             solo.AddRange(normal);
             return solo;
+        }
+
+        /// <summary>True when the control has a subject (or is not an FX control); an optional one
+        /// with none is recorded <c>n/a</c> and never queued (design E.5).</summary>
+        private static bool ResolveApplicable(StepContext ctx, string id)
+        {
+            if (!TestCommandPartParitySweep.IsFxRun(ctx.Args)) return true;
+            PartParityFxSubjectChoice choice = PartParityFxDriver.ChooseSubject(ctx, id, TestCommandPartParitySweep.IsAirRun(ctx.Args));
+            if (choice.Outcome != TestCommandPartParitySweep.ControlsNotApplicable) return true;
+            ctx.NotApplicableControls.Add(id);
+            return false;
         }
 
         private static void ResumeOrQueue(StepContext ctx, string caseId, Func<WaveCase> build,
@@ -589,6 +624,7 @@ namespace Parsek.TestCommands
                 RealVariant = PartParitySkinRules.RealVariant(p.Key.SkinOption, e?.BaseVariant), Views = ctx.Args.Views,
             };
             if (p.Key.StateOption != null) wc.State = PartParityStateDriver.NewRun(p.Key, e, dropEvents: false);
+            else if (p.Key.FxOption != null && e != null) PartParityFxDriver.Attach(wc, p.Key, e, control: null, dropEvents: false);
             return wc;
         }
 
@@ -599,14 +635,23 @@ namespace Parsek.TestCommands
         {
             var kinds = queue.ConvertAll(c => PartParityStateWave.WaveKind(c.Key));
             var solo = queue.ConvertAll(c => c.Solo);
-            List<int> picked = PartParityStateWave.PickWave(kinds, solo, cursor,
-                PartParitySweepPlan.MaxWaveCases, air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases);
+            int maxState = PartParityStateWave.IsFxKind(kinds[cursor]) ? PartParityFxRules.MaxFxWaveCases
+                : air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases;
+            List<int> picked = PartParityStateWave.PickWave(kinds, solo, cursor, PartParitySweepPlan.MaxWaveCases, maxState);
             kind = kinds[cursor];
             trackerCap = 0.0;
             foreach (int i in picked)
                 if (queue[i].State != null && queue[i].State.SunTracker)
                     trackerCap = Math.Max(trackerCap, queue[i].State.TrackerCapSeconds);
             return picked;
+        }
+
+        private static List<PartParityFxOption> FxOptionsOf(List<WaveCase> queue, List<int> picked)
+        {
+            var options = new List<PartParityFxOption>();
+            foreach (int i in picked)
+                if (queue[i].Key?.FxOption != null) options.Add(queue[i].Key.FxOption);
+            return options;
         }
 
         private static List<string> FamiliesOf(List<WaveCase> queue, List<int> picked)
@@ -873,7 +918,10 @@ namespace Parsek.TestCommands
         internal static void DestroyCase(WaveCase wc)
         {
             if (wc == null) return;
-            // The jettison debris and the start-route / stowed ghosts first (design D.3 step 6).
+            // The FX case's hold, RCS input, plate and broken ghost first, then the jettison
+            // debris and the start-route / stowed ghosts (design D.3 step 6).
+            try { PartParityFxDriver.Release(wc); }
+            catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: FX release threw {ex.GetType().Name}: {ex.Message}"); }
             try { PartParityStateDriver.DestroyStateParts(wc); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: state parts destroy threw {ex.GetType().Name}: {ex.Message}"); }
             if (wc.PlantedCube != null)
@@ -970,19 +1018,22 @@ namespace Parsek.TestCommands
             PartParityCaseSidecar sidecar = PartParityCaseCapture.BuildSidecar(ctx, wc);
             if (wc.RealTiles.Count > 0)
                 PartParityCaseCapture.WritePictures(ctx, wc, sidecar);
+            if (wc.Fx != null) PartParityFxDriver.WritePictures(ctx, wc, sidecar);
             WriteSidecar(ctx, sidecar);
             ClearIsolated(ctx, wc.CaseId);
-            if (wc.ControlId != null) JudgeAndLogControl(sidecar, wc.State != null);
+            if (wc.ControlId != null) JudgeAndLogControl(sidecar, wc.State != null, wc.Fx != null);
             string status = sidecar.Setup?.Status ?? TestCommandPartParitySweep.SetupOk;
             if (TestCommandPartParitySweep.IsSetupFault(status))
                 ParsekLog.Warn(Tag, $"case {wc.CaseId}: setup fault {status} detail={sidecar.Setup?.Detail ?? "<none>"}");
             ParsekLog.Verbose(Tag, PartParityCaseCapture.DescribeCase(wc, sidecar));
         }
 
-        private static void JudgeAndLogControl(PartParityCaseSidecar s, bool stateControl)
+        private static void JudgeAndLogControl(PartParityCaseSidecar s, bool stateControl, bool fxControl)
         {
             string detail;
-            string outcome = stateControl
+            string outcome = fxControl
+                ? PartParityFxControls.Judge(s.CaseId, s, out detail)
+                : stateControl
                 ? PartParitySweepPlan.JudgeStateControl(s.StateProof?.Reached == true, s.StateProof?.Events?.Count ?? 0,
                     s.Views, s.Setup?.Status, out detail)
                 : PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Structure, out detail);
@@ -1021,6 +1072,7 @@ namespace Parsek.TestCommands
                 CaseId = id, Index = -1, ControlId = id,
                 Views = new List<string>(TestCommandPartParitySweep.RequiredViews),
             };
+            if (TestCommandPartParitySweep.IsFxRun(ctx.Args)) return BuildFxControlCase(ctx, id, wc);
             if (id == TestCommandPartParitySweep.ControlStateEventsDropped
                 || id == TestCommandPartParitySweep.ControlStateEventsDroppedAir)
                 return BuildStateControlCase(ctx, id, wc);
@@ -1063,6 +1115,31 @@ namespace Parsek.TestCommands
                 break;
             }
             if (wc.State == null) wc.Detail = "control subject has no " + state + " case: " + part;
+            return wc;
+        }
+
+        /// <summary>An FX control (design E.5): the subject part of its preference list and the
+        /// FX key it stands for (the subject's burn-full plume, heat-hot, or lit lamp).</summary>
+        private static WaveCase BuildFxControlCase(StepContext ctx, string id, WaveCase wc)
+        {
+            bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
+            PartParityFxSubjectChoice choice = PartParityFxDriver.ChooseSubject(ctx, id, air);
+            wc.Key = new PartParityCaseKey { Part = choice.Subject ?? "<none>" };
+            if (choice.Subject == null || !ctx.EntriesByName.TryGetValue(choice.Subject, out PartParityPartEntry e))
+            {
+                wc.Detail = "control subject: " + (choice.Detail ?? "not loaded");
+                return wc;
+            }
+            wc.Entry = e;
+            wc.RealVariant = e.BaseVariant;
+            PartParityCaseKey key = PartParityFxDriver.ControlKey(ctx, id, e, air);
+            if (key == null)
+            {
+                wc.Detail = "control subject has no FX case: " + choice.Subject;
+                return wc;
+            }
+            wc.Key = key;
+            PartParityFxDriver.Attach(wc, key, e, id, dropEvents: PartParityFxDriver.DropsEvents(id));
             return wc;
         }
 
@@ -1127,18 +1204,26 @@ namespace Parsek.TestCommands
             var list = new List<PartParityControlRecord>();
             if (!ctx.Args.Controls) return list;
             bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
+            bool fxRun = TestCommandPartParitySweep.IsFxRun(ctx.Args);
             foreach (string id in ctx.ControlSet)
             {
                 var rec = new PartParityControlRecord
                 {
-                    Id = id, Subject = PartParitySweepPlan.ControlSubject(id, air),
-                    Required = PartParitySweepPlan.ControlRequired(id),
+                    Id = id, Subject = PartParitySweepPlan.ControlSubject(id, air, fxRun),
+                    Required = fxRun ? PartParityFxRules.ControlRequiredWords(id) : PartParitySweepPlan.ControlRequired(id),
                     Outcome = TestCommandPartParitySweep.ControlsPending,
                 };
-                if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
+                if (ctx.NotApplicableControls.Contains(id))
+                {
+                    rec.Outcome = TestCommandPartParitySweep.ControlsNotApplicable;
+                    rec.Detail = "no eligible subject on this install";
+                }
+                else if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
                 {
                     string detail;
-                    if (id == TestCommandPartParitySweep.ControlStateEventsDropped
+                    if (fxRun)
+                        rec.Outcome = PartParityFxControls.Judge(id, s, out detail);
+                    else if (id == TestCommandPartParitySweep.ControlStateEventsDropped
                         || id == TestCommandPartParitySweep.ControlStateEventsDroppedAir)
                         rec.Outcome = PartParitySweepPlan.JudgeStateControl(s.StateProof?.Reached == true,
                             s.StateProof?.Events?.Count ?? 0, s.Views, s.Setup?.Status, out detail);
@@ -1161,7 +1246,7 @@ namespace Parsek.TestCommands
         private static bool AllControlsRan(StepContext ctx)
         {
             foreach (string id in ctx.ControlSet)
-                if (!ctx.Known.ContainsKey(id)) return false;
+                if (!ctx.Known.ContainsKey(id) && !ctx.NotApplicableControls.Contains(id)) return false;
             return true;
         }
 
@@ -1212,6 +1297,9 @@ namespace Parsek.TestCommands
             /// <summary>A state or context case's live state (design D.3 to D.5); null for a
             /// stowed case, whose path is unchanged.</summary>
             internal PartParityStateRun State;
+
+            /// <summary>An FX case's live FX run (design Appendix E); null for every other case.</summary>
+            internal PartParityFxRun Fx;
             /// <summary>A state case's start-route and stowed-reference tiles (atlas rows 3
             /// and 4); empty for a stowed or a context case.</summary>
             internal List<byte[]> GhostStartTiles = new List<byte[]>();
@@ -1282,6 +1370,21 @@ namespace Parsek.TestCommands
             /// the stowed ones; empty for a stowed run.</summary>
             internal readonly List<PartParityStateExclusion> StateExclusions = new List<PartParityStateExclusion>();
 
+            /// <summary>The run's FX exclusions (design E.1); empty outside an FX run.</summary>
+            internal readonly List<PartParityFxExclusion> FxExclusions = new List<PartParityFxExclusion>();
+
+            /// <summary>The FX controls with no subject on this install (<c>n/a</c>): never queued.</summary>
+            internal readonly HashSet<string> NotApplicableControls = new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>The FX control subjects chosen this step (design E.5), one log line
+            /// each.</summary>
+            internal readonly Dictionary<string, PartParityFxSubjectChoice> FxSubjects =
+                new Dictionary<string, PartParityFxSubjectChoice>(StringComparer.Ordinal);
+
+            /// <summary><c>CheatOptions.InfinitePropellant</c> before the step's first plume or rcs
+            /// case (design E.2), restored in <see cref="Cleanup"/>; null while never changed.</summary>
+            internal bool? FxCheatBefore;
+
             /// <summary>The run's control set (design D.2), a function of the args.</summary>
             internal string[] ControlSet;
             internal List<PartParityPlannedCase> Planned = new List<PartParityPlannedCase>();
@@ -1346,6 +1449,13 @@ namespace Parsek.TestCommands
             {
                 bool observerRestored = false, captureReleased = false;
                 int casesDestroyed = 0, faults = 0;
+                if (FxCheatBefore.HasValue)
+                {
+                    bool before = FxCheatBefore.Value;
+                    FxCheatBefore = null;
+                    CheatOptions.InfinitePropellant = before;
+                    ParsekLog.Info(Tag, $"cheat InfinitePropellant restored -> {CheatOptions.InfinitePropellant}");
+                }
                 if (ObserverInstalled)
                 {
                     ParsekLog.TestObserverForTesting = PriorObserver;

@@ -103,6 +103,66 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(Value(step, "setupFaults") == "0",
                     StateAcceptanceParts[i] + " has a state setup fault (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
             }
+            IEnumerator fx = RunFxSteps();
+            try { while (fx.MoveNext()) yield return fx.Current; }
+            finally { PartParitySweepRunner.DisposeNested(fx); }
+        }
+
+        /// <summary>The FX filter's acceptance parts (design E.9 F3): one of every FX family the
+        /// orbit run plans; the RAPIER runs its closed cycle (its air mode is the air run's) and a
+        /// point-light part is absent on both installs (E0 U9).</summary>
+        internal static readonly string[] FxAcceptanceParts =
+        {
+            "liquidEngine2.v2", "solidBooster.sm.v2", "ionEngine", "RAPIER", "RCSBlock.v2",
+            "vernierEngine", "standardNoseCone", "spotLight1",
+        };
+
+        /// <summary>The label prefix of the FX steps; each part runs under its own label.</summary>
+        internal const string FxLabelPrefix = "ingame-fx-";
+
+        /// <summary>One FX step's args: every <c>fx=</c> word on one part, the controls on the
+        /// first label only.</summary>
+        internal static PartParitySweepArgs FxArgs(string label, PartParitySweepOp op, string filter = null)
+        {
+            return new PartParitySweepArgs
+            {
+                Label = label,
+                Op = op,
+                Filter = filter ?? TestCommandPartParitySweep.DefaultFilter,
+                Fx = new List<string>(PartParityFxRules.ArgWords),
+                FxAll = true,
+                Controls = label == FxLabelPrefix + "1",
+                MaxSeconds = TestCommandPartParitySweep.MaxMaxSeconds,
+            };
+        }
+
+        /// <summary>The FX half of the state acceptance cell (the plan's <c>fx=</c> filter, no new
+        /// test): the acceptance parts through every FX family they have.</summary>
+        private static IEnumerator RunFxSteps()
+        {
+            for (int i = 0; i < FxAcceptanceParts.Length; i++)
+            {
+                string label = FxLabelPrefix + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                PartParitySweepStepResult reset = null;
+                IEnumerator r = PartParitySweepRunner.RunStep(FxArgs(label, PartParitySweepOp.Reset), res => reset = res);
+                try { while (r.MoveNext()) yield return r.Current; }
+                finally { PartParitySweepRunner.DisposeNested(r); }
+                InGameAssert.IsTrue(reset != null && reset.Ok, "fx reset failed for " + label + ": " + Describe(reset));
+
+                PartParitySweepStepResult step = null;
+                IEnumerator run = PartParitySweepRunner.RunStep(FxArgs(label, PartParitySweepOp.Run, FxAcceptanceParts[i]), x => step = x);
+                try { while (run.MoveNext()) yield return run.Current; }
+                finally { PartParitySweepRunner.DisposeNested(run); }
+                InGameAssert.IsTrue(step != null && step.Ok, "fx run failed for " + label + ": " + Describe(step));
+                string payload = TestCommandPartParitySweep.FormatPayload(step.Payload);
+                ParsekLog.Info(PartParitySweepRunner.Tag, "ingame fx sweep " + FxAcceptanceParts[i] + ": " + payload);
+                InGameAssert.IsTrue(Value(step, "done") == "true", "the fx step did not finish inside its time box: " + payload);
+                InGameAssert.IsTrue(Value(step, "setupFaults") == "0",
+                    FxAcceptanceParts[i] + " has an fx setup fault (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+                if (label == FxLabelPrefix + "1")
+                    InGameAssert.IsTrue(Value(step, "controls") == TestCommandPartParitySweep.ControlsOk,
+                        "fx controls did not behave (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+            }
         }
 
         /// <summary>One state step's args: every state at the orbit contexts, the controls on
