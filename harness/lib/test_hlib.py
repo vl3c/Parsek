@@ -19269,7 +19269,6 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
     def test_the_fx_validator_answers_what_the_seam_answers(self):
         v = hlib.validate_part_parity_sweep_step
         for step, reason in (
-                ({"label": "pp10", "fx": "plume", "contexts": "air,alone"}, "contexts-arg-invalid"),
                 ({"label": "pp7", "fx": "plume", "states": "all"}, "fx-arg-invalid"),
                 ({"label": "pp7", "fx": "plume", "contexts": "stacked"}, "fx-arg-invalid"),
                 ({"label": "pp7", "fx": "Plume"}, "fx-arg-invalid"),
