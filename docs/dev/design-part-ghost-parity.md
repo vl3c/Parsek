@@ -2957,7 +2957,7 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
   `ghost-not-built*` and `state-not-*` red now whatever the verdict, and a noisy case whose IoU falls
   under half its band's low end reds too.
 
-None of the fifteen armed-lane and chute-lane reading runs carries any of these except the five
+None of the seventeen clean runs of the six lanes carries any of these except the five
 stowed chutes (`drawn`) and the nine lit cases (`state-not-modelled`), which are accepted by name.
 
 **Accepted list** (`harness/partparity/accepted.toml`, 72 entries, 41 of them `noisy`, each with
