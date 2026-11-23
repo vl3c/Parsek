@@ -205,7 +205,10 @@ class AcceptedListTests(unittest.TestCase):
         routed = _entry("a--x--1", "start:side-a", "color-blob")
         self.assertFalse(routed.covers("a--x--1", "p", "event:side-a", "color-blob"))
         self.assertTrue(routed.covers("a--x--1", "p", "start:side-a", "color-blob"))
-        self.assertTrue(_entry("a--x--1").covers("a--x--1", "p", None, "structure"))
+        for group in pp.PICTURE_GROUPS:
+            self.assertTrue(_entry("a--x--1").covers("a--x--1", "p", "side-a", group))
+        for group in ("structure", "skin", "flag:start-pose-not-first-frame", pp.GROUP_ANY):
+            self.assertFalse(_entry("a--x--1").covers("a--x--1", "p", None, group), group)
         flag = _entry("a--x--1", measure="flag:state-not-modelled:*")
         self.assertTrue(flag.covers("a--x--1", "p", None, "flag:state-not-modelled:event:no-info"))
         self.assertFalse(flag.covers("a--x--1", "p", None, "flag:start-pose-not-first-frame"))
@@ -333,6 +336,19 @@ class GateTests(unittest.TestCase):
         self.assertTrue(g.ok)
         self.assertEqual([pp.NOTE_ACCEPTED_FAIL], _kinds(g.notes))
         self.assertEqual(1, len(g.accepted))
+
+    def test_a_noisy_wildcard_never_hides_a_missing_mesh_a_skin_mismatch_or_an_unexplained_fail(self):
+        accepted = [_entry("a--x--1", "*", "*", noisy=True)]
+        base = {"a--x--1": _case("a--x--1", [_view(color=500)])}
+        mesh = {"missingOnGhost": [{"key": "model/Bell", "mesh": "bell", "rendered": True}]}
+        skin = {"module": "ModulePartVariants", "requested": "A", "real": "A", "ghost": "B"}
+        for name, doc in (("mesh", _case("a--x--1", [_view(color=900)], structure=mesh)),
+                          ("skin", _case("a--x--1", [_view(color=900)], skin=skin))):
+            with self.subTest(name):
+                g = _gate({"a--x--1": doc}, _section([base]), accepted)
+                self.assertEqual([pp.GATE_UNACCEPTED_FAIL], _kinds(g.reds))
+        cv = pp.CaseVerdict("a--x--1", "a", None, None, pp.VERDICT_FAIL, ("mystery",), None, 0, None, 0, "ok")
+        self.assertEqual(1, len(pp.unaccepted_fails([cv], "p", accepted)))
 
     def test_an_accepted_fail_still_gates_its_drift_unless_noisy(self):
         base = {"a--x--1": _case("a--x--1", [_view(color=500)])}
@@ -626,6 +642,15 @@ class CommittedFilesTests(unittest.TestCase):
             found = any(e.case in (sec.get("cases") or {})
                         for p in profiles for sec in ((baselines.get(p) or {}).get("labels") or {}).values())
             self.assertTrue(found, "accepted case %s is in no baseline (typo?)" % e.case)
+
+    def test_no_committed_entry_hides_a_missing_mesh(self):
+        # A hidden renderer must red on EVERY baselined case, the accepted ones included.
+        entries, _ = self._accepted()
+        fr = pp.FailReason("missing-rendered:model/X", pp.GROUP_STRUCTURE, None, False)
+        for profile, doc in self._baselines().items():
+            for label, sec in doc["labels"].items():
+                hidden = [c for c in sec["cases"] if any(e.covers(c, profile, fr.view, fr.group) for e in entries)]
+                self.assertEqual([], hidden, "%s/%s" % (profile, label))
 
     def test_every_armed_part_parity_lane_has_a_baseline_section_per_label(self):
         baselines = self._baselines()

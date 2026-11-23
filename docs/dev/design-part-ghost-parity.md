@@ -850,7 +850,7 @@ reference lane. The concrete P8 plan is Appendix E.
   the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
   `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
   (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `flag:<flag>` with an optional
-  trailing `*`, or `*`), `reason`, `todo`, optional `noisy`) names every known difference; a
+  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy`) names every known difference; a
   placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
   The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
   `PARSEK-FAIL(part-parity)` on: a measure that left its band past its tolerance on the WORSE side
@@ -2755,64 +2755,88 @@ reading run below flew main's code of 2026-11-22 (`4823e3440`) or, after the bra
 `origin/main`, the merged code (P8 F1's FX contract and the ghost FX fixes), on both installs,
 provisioned from this worktree's Debug DLL and checked against each manifest's `dllHash`. The
 real-vs-real control's noise allowance (4.5, todo PARTPARITY-REAL-VS-REAL-ONE-PIXEL) is in every
-one of them. `c0afedca` and `206033bd` differ by one C# comment (same IL); `36eabc6d` is the
-merged build. PP-4 `2026-11-22_2302` flew on a sibling session's DLL (`218c795f`: the driver
-re-checked the deployed DLL before the lock wait, not after it) and was discarded.
+one of them. `c0afedca` and `206033bd` are the same source but for one C# comment (the IL was not
+compared); `36eabc6d` is the merged build. PP-4 `2026-11-22_2302` flew on a sibling session's DLL (`218c795f`: the driver
+re-checked the deployed DLL before the lock wait, not after it); it is in no baseline, and reads
+`gate=ok` against them.
 
 | Lane | Label | Reading runs (DLL prefix) | Cases | pass / warn / fail |
 | --- | --- | --- | --- | --- |
-| PP-1 | `pp1` | `2026-11-22_2159` (c0afedca), `_2317` (206033bd) | 792 | 775 / 14 / 3, 775 / 15 / 2 |
-| PP-2 | `pp2` | `2026-11-22_2236`, `_2343` (206033bd) | 1510 | 1462 / 46 / 2, 1461 / 48 / 1 |
-| PP-3 | `pp3` | `2026-11-22_2220`, `_2328` (206033bd) | 174 | 144 / 17 / 13, 146 / 15 / 13 |
-| PP-4 | `pp4` | `2026-11-22_2359` (206033bd), `2026-11-23_0016` (36eabc6d) | 240 | 196 / 26 / 18, 199 / 24 / 17 |
+| PP-1 | `pp1` | `2026-11-22_2159` (c0afedca), `_2317` (206033bd); merged check `2026-11-23_0035` (36eabc6d) | 792 | 775 / 14 / 3, 775 / 15 / 2; 775 / 15 / 2 |
+| PP-2 | `pp2` | `2026-11-22_2236`, `_2343` (206033bd); merged check `2026-11-23_0058` (36eabc6d) | 1510 | 1462 / 46 / 2, 1461 / 48 / 1; 1461 / 48 / 1 |
+| PP-3 | `pp3` | `2026-11-22_2220`, `_2328` (206033bd); merged check `2026-11-23_0046` (36eabc6d) | 174 | 144 / 17 / 13, 146 / 15 / 13; 146 / 18 / 10 |
+| PP-4 | `pp4` | `2026-11-22_2359` (206033bd), `2026-11-23_0016` (36eabc6d); merged check `2026-11-23_0115` (36eabc6d) | 240 | 196 / 26 / 18, 199 / 24 / 17; 198 / 26 / 16 |
 | PP-5 | `pp5` | `2026-11-22_2157` (c0afedca), `_2315` (206033bd) | 10 | 0 / 10 / 0 both |
 | PP-6 | `pp6` | `2026-11-22_2234`, `_2341` (206033bd) | 10 | 0 / 10 / 0 both |
 
-All twelve runs PASS attempt 1, controls ok, complete, recompute 0 mismatches.
+All runs PASS attempt 1, controls ok, complete, recompute 0 mismatches. The merged check runs flew
+armed (`gating = true`) on the specs and read `gate=ok`, reds 0, drift 0, unaccepted 0, gone 0:
+PP-1 (accepted 3), PP-3 (accepted 69, improved 25), PP-2 (accepted 1) and PP-4 (accepted 66,
+improved 22), against baselines holding none of those check runs. The committed baselines are
+pinned over all three runs of each armed lane (two pre-merge reading runs and the merged check).
 
 **Tolerances.** A blob measure drifts when it exceeds `hi + max(abs, 0.5 x hi)` of its band,
 with `abs` 48 px for the shape blobs and 192 px for the colour blob; an IoU drifts below
-`lo - 0.01`. Measured run-to-run movement of every measure NOT covered by a `noisy` entry,
-between the two reading runs of a lane (`part_parity_baseline.py spread --skip-noisy`; the
-largest mover in brackets):
+`lo - 0.01`. The numbers were picked before the flights and then checked against them, not fitted.
+Run-to-run movement of every measure no `noisy` entry covers, between the first two runs of a lane
+(`part_parity_baseline.py spread --skip-noisy`, largest mover in brackets):
 
 | Lane | shape blob (real-only / ghost-only) | colour blob | IoU |
 | --- | --- | --- | --- |
-| PP-1 | 7 / 9 px (`gearfree` side-b) | 94 px (`foldingradsmall` stowed top) | 0.0011 |
+| PP-1 | 7 / 9 px (`gearfree` side-b) | 94 px (`foldingradsmall` top) | 0.0011 |
 | PP-2 | 3 / 6 px (`gearfixed`, `gearfree`) | 120 px (`restock-fueltank-sphere-375-1--blackandwhite`) | 0.0011 |
-| PP-3 | 2 / 3 px (`smallgearbay`, `landingleg1`) | 163 px (`liquidenginelv-tx87--tankbutt--stowed--stacked`, 163 -> 0) | 0.0053 (`grapplingdevice--basic--deployed`) |
-| PP-4 | 6 / 3 px (`groundlight1` lit) | 134 px (`liquidengine3.v2--size1--stowed--stacked`, 0 -> 134) | 0.0081 (`mediumdishantenna--default--deployed`) |
+| PP-3 | 2 / 3 px (`smallgearbay`, `landingleg1`) | 163 px (`liquidenginelv-tx87--tankbutt--stowed--stacked`) | 0.0053 |
+| PP-4 | 6 / 3 px (`groundlight1` lit) | 134 px (`liquidengine3.v2--size1--stowed--stacked`) | 0.0081 |
 
-So the absolute parts hold every observed shape move 5x over and every colour move 1.2x over (the
-colour moves are seam and edge-shading lines that come and go); the relative part covers the
-large blobs, which move by a fraction of themselves. Cross-checked both ways per lane: each run
-judged against a baseline written from the OTHER run alone reads `gate=ok` on all four armed
-lanes. What does move run to run, and is therefore covered by `noisy` entries rather than by a
-wider tolerance: the twelve sun trackers (the sun's direction changes per run; colour blobs move
-up to 7516 px and IoU 0.20 on PP-3 `2026-11-22_2043` / `_2056`), the running orbital scanners
-(spin phase), the LV-1 stacked shroud (z-fight, 0 to 9165 px), the KE-1 rods (37 to 522 px),
-the ReStock wheels' free-fall droop (colour 16556 to 27694 px), and the four owner-accepted
-colour residuals, three of which cross the 256 px line run to run.
+Margins: shape 5x, IoU 1.2x, colour 1.2x. The colour movers are one-pixel rows and seam lines that
+come and go, so a rare one can still red a clean run, and three runs cannot rule that out. One did:
+the mutation flight's only red not caused by the mutation was `rotor.01--gray`, a 312 px row seen
+in 2 of 9 archived PP-1 runs and in none of the three baseline runs (todo
+PARTPARITY-ROTOR01-GRAY-EDGE-LINE, accepted on stock). The global colour tolerance was not widened
+for it. Evidence that the rest holds, and its limits: each armed lane's three clean runs read
+`gate=ok` leave-one-out (two pinned, the third judged) and against the committed baseline, but the
+accepted list was written partly from those same runs (the ReStock wheels, the RoveMate seam, the
+scanners), so only `2026-11-22_2302` is fully out of sample. Runs of older builds (before
+`4823e3440`) red on cases whose ghosts or capture changed since; they were not triaged case by case.
 
-**Accepted list** (`harness/partparity/accepted.toml`, 58 entries, each with its todo id): 12
-sun trackers (PARTPARITY-SUN-TRACKER-RESIDUAL), 16 under GHOST-PARITY-RESIDUALS-2026-11-22 (the
-four cosmetic colour residuals and 12 ReStock wheel cases under the suspension-droop ruling it
-records), 9 lit cases stock draws no light on (PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK, the
-`start-pose-not-first-frame` flag only), 5 Waterfall-lit lamps (GHOST-WATERFALL-LIGHT-FX-MISSING),
-5 KE-1 cases (PARTPARITY-KE1-STRUT-ROLL, new), 5 small state residuals
-(PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22), 2 scanners (PARTPARITY-SPIN-PHASE, new), 2 LV-1
-shrouds (PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn
-whose fail would be waived, its drift still gated), 1 RoveMate seam
-(PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new). 45 are `noisy`. Every fail of every reading run is
-covered (the writer refuses otherwise); every warn is listed by cause in todo
-PARTPARITY-P5-WARN-CENSUS.
+What moves run to run by its nature is covered by `noisy` entries, which waive the picture drift
+of that case and nothing else: the twelve sun trackers (the sun's direction changes per run; over
+the current build's clean runs up to 2360 px of colour and 0.37 of IoU on PP-4), the running
+orbital scanners (spin phase), the LV-1 stacked shroud (z-fight), the KE-1 rods (37 to 522 px), the
+ReStock wheels' free-fall droop (`roverwheel1` colour 16556 to 27694 px), the stock EM-16 row above
+and the owner-accepted colour residuals. A picture regression on one of those cases is NOT caught
+by the gate; a missing or extra mesh, a skin mismatch or a fail-floor state flag on any of them is.
+
+**A wildcard accepts pictures only.** `measure = "*"` first covered every group, so such an entry
+also waived a missing mesh: with a rendered missing mesh injected into every case of one run per
+lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `shape-blob`,
+`color-blob` and `iou` only, and all 2716 red (`test_no_committed_entry_hides_a_missing_mesh`).
+
+**Accepted list** (`harness/partparity/accepted.toml`, 58 entries, 41 of them `noisy`, each with
+its todo id): 16 under GHOST-PARITY-RESIDUALS-2026-11-22 (the four cosmetic colour residuals and 12
+ReStock wheel cases under the suspension-droop ruling it records), 12 sun trackers
+(PARTPARITY-SUN-TRACKER-RESIDUAL), 9 lit cases stock draws no light on
+(PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK, the `start-pose-not-first-frame` flag only), 5 KE-1
+cases (PARTPARITY-KE1-STRUT-ROLL, new), 5 small state residuals
+(PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22), 4 Waterfall-lit lamps
+(GHOST-WATERFALL-LIGHT-FX-MISSING), 2 scanners (PARTPARITY-SPIN-PHASE, new), 2 LV-1 shrouds
+(PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn today), 1
+RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
+(PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). 23 entries matched no fail and no drift in any clean
+current-build run: owner-ruled residuals that did not recur, and cases listed because their family
+moves (wheels, three sun trackers, KE-1). Every fail of every baseline run is covered (the writer
+refuses otherwise); every warn is listed by cause in todo PARTPARITY-P5-WARN-CENSUS.
 
 **Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
 PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to
-run (PP-5: colour blob up to 5012 px, IoU up to 0.26; PP-6: 6768 px, 0.21) and no band holds; the
+run (PP-5: colour blob moves up to 5012 px, IoU 0.26; PP-6: 6768 px, 0.21) and no band holds; the
 canopy cap of D.4 keeps them at warn, which only the viewer can judge. Their baselines are
 committed for `--pinned` reading.
 
-CHECKRUNS
-
-MUTATION
+**Mutation proof.** A local, uncommitted line in `GhostVisualBuilder.AddPartVisuals` skipped renderer 0
+of every `radialDecoupler*` ghost (DLL prefix 3f6af586, both installs). Armed PP-1
+`2026-11-23_0607`: PARSEK-FAIL(part-parity), attempt 1, controls ok, 28 reds: 27 on
+`radialdecoupler`, `radialdecoupler1-2` and `radialdecoupler2` (3 `missing-rendered`, 24 drift) and
+the `rotor.01--gray` row above. Re-judged with the final rules and list: 27 reds, those three cases
+only. The line was reverted (empty diff against HEAD) and the DLL rebuilt; the mutated DLL stayed on
+both installs until the next session re-provisioned them.

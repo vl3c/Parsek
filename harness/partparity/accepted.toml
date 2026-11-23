@@ -3,7 +3,7 @@
 # removes a difference removes its entry and re-pins the baseline in the same commit
 # (harness/tools/part_parity_baseline.py). Keys: case (exact case id), profile (optional),
 # view (* | a view | event:<view> | start:<view>), measure (shape-blob | color-blob | iou |
-# structure | skin | flag:<flag>[*] | *), noisy (the measure moves run to run, so the drift
+# structure | skin | flag:<flag>[*] | * for every picture measure), noisy (the measure moves run to run, so the drift
 # rule is waived for it too; otherwise only the fail verdict is waived and drift still gates),
 # reason, todo.
 
@@ -419,14 +419,6 @@ reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not 
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
 
 [[accepted]]
-case = "spotlight2--dark--lit--b21217c2"
-profile = "modded-compat"
-view = "*"
-measure = "*"
-reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
-todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
-
-[[accepted]]
 case = "spotlight2.v2--dark--lit--daf1e66a"
 profile = "modded-compat"
 view = "*"
@@ -441,6 +433,15 @@ view = "*"
 measure = "*"
 reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
+
+[[accepted]]
+case = "rotor.01--gray--d4b107c3"
+profile = "stock-minimal"
+view = "*"
+measure = "color-blob"
+noisy = true
+reason = "one row of edge-shading pixels (312 px on one side view) flips in some runs; IoU 1, nothing else differs (the modded entry above is the owner ruling, this one is not)"
+todo = "PARTPARITY-ROTOR01-GRAY-EDGE-LINE"
 
 [[accepted]]
 case = "grapplingdevice--basic--deployed--0b9f7e7b"

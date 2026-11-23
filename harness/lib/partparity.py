@@ -2019,6 +2019,9 @@ MEASURE_GROUP: Dict[str, str] = {"realOnlyBlobPx": GROUP_SHAPE, "ghostOnlyBlobPx
                                  "colorBlobPx": GROUP_COLOR, "iou": GROUP_IOU}
 ACCEPT_GROUPS: Tuple[str, ...] = (GROUP_SHAPE, GROUP_COLOR, GROUP_IOU, GROUP_STRUCTURE,
                                   GROUP_SKIN, GROUP_ANY)
+# What ``measure = "*"`` covers. Never structure, skin or flag:*, and never the gate's own
+# unexplained-fail group: those need an entry that names them.
+PICTURE_GROUPS: Tuple[str, ...] = (GROUP_SHAPE, GROUP_COLOR, GROUP_IOU)
 VIEW_ANY = "*"
 IOU_DIGITS = 4
 # TestCommandPartParitySweep.KnownViews (an accepted entry names one of them).
@@ -2184,7 +2187,8 @@ def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
 class AcceptedEntry:
     """One known difference: ``case`` (exact case id), ``view`` (``*``, a view, or a
     route-qualified ``event:<view>`` / ``start:<view>``), ``measure`` (a group of
-    ACCEPT_GROUPS, or ``flag:<flag>`` with an optional trailing ``*`` for a prefix),
+    ACCEPT_GROUPS, or ``flag:<flag>`` with an optional trailing ``*`` for a prefix; ``*`` is
+    every PICTURE measure and nothing else),
     ``reason`` and ``todo`` (the ruling or open todo that owns it), ``profile`` (None:
     every profile) and ``noisy`` (the measure moves run to run, so the drift rule is
     waived for it too; otherwise only its fail verdict is waived and drift still gates)."""
@@ -2207,7 +2211,9 @@ class AcceptedEntry:
             if self.view != vk and not (":" not in self.view and vk.split(":")[-1] == self.view):
                 return False
         if self.measure == GROUP_ANY:
-            return True
+            # Pictures only: a wildcard that also waived a missing mesh, a skin mismatch or a
+            # state flag would let a hidden renderer through on every noisy case.
+            return group in PICTURE_GROUPS
         if self.measure.endswith("*") and self.measure.startswith(GROUP_FLAG_PREFIX):
             return group.startswith(self.measure[:-1])
         return self.measure == group
