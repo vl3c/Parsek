@@ -799,7 +799,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake
+    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake|
+    #     breakpanel|breakwheel (stock's breakPanels() / DamageWheel(), the physics path's break;
+    #     refusals deployable-not-found / wheel-not-found)
     #     [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
     #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
@@ -4142,7 +4144,7 @@ PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
     "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
-    "servomin", "rotoron", "rotoroff", "rotorbrake",
+    "servomin", "rotoron", "rotoroff", "rotorbrake", "breakpanel", "breakwheel",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -4171,7 +4173,8 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-radiator-not-found", "partaction-engine-not-found",
     "partaction-parachute-not-found", "partaction-resource-not-found",
     "partaction-transfer-nothing-moved", "partaction-servo-not-found",
-    "partaction-rotor-not-found",
+    "partaction-rotor-not-found", "partaction-deployable-not-found",
+    "partaction-wheel-not-found",
 )
 
 
@@ -13224,6 +13227,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-servo-not-found": "driver-arg",
     # The rotor buttons on a part carrying no Breaking Ground rotor: the same spec typo.
     "partaction-rotor-not-found": "driver-arg",
+    # breakpanel / breakwheel on a named part carrying no ModuleDeployablePart /
+    # ModuleWheelDamage: a spec fault, like the other typed-module refusals.
+    "partaction-deployable-not-found": "driver-arg",
+    "partaction-wheel-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-target-arg-invalid": "driver-arg",
