@@ -3003,6 +3003,13 @@ F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stoc
   point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
   smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
 
+F7 lanes as authored (2026-11-23, not flown, tags `pending-flight`): the second labels `pp5fx` /
+`pp6fx` of PP-5 / PP-6 after their chute step (reset and runs carry `contexts=air fx=all`) and
+`PP-10-part-parity-fx-air-restock`, wiring cells `PartParityAirFxLaneShapeTests`. Two steps and not
+the table's one: F7's acceptance sweep took 336 s on stock (the Goliath's 77 s spool sets its wave),
+so 480 s is under D.8's 50 % margin. `budgetSeconds` 2400 for PP-5 / PP-6 and 1800 for PP-10 (the
+step budgets sum to 2160 and 1500). No registry value, as the orbit lanes.
+
 ### E.9 Work breakdown
 
 Rule (D.10): two pieces in flight never touch one file, each is green on its own, and every C#

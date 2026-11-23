@@ -181,7 +181,7 @@ Run `2026-11-23_0728`, stock-minimal, orbit, one part per label (evidence `<umbr
 - Instrument note for the reading runs. The far box ends at the particles' 95th percentile, so a stretched billboard flame's tail is cut at the tile edge on both sides: a ghost flame longer than the real one reads as equal there, and a short one reads shorter than it is.
 - Triage: the full sweeps are PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23 (filed 2026-11-23, P8 F6) and the entries it names; what is still open here is the heat item.
 
-## PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23: what the first held-jet FX sweep (P8 F7 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the F7 lane reading runs (PP-5 / PP-6 second label, PP-10), nothing judged yet]
+## PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23: what the first held-jet FX sweep (P8 F7 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the F7 lane reading runs (PP-5 / PP-6 second label, PP-10: authored 2026-11-23, branch `fx-air-lanes`, not flown), nothing judged yet]
 
 Run `2026-11-23_1014_PPS-10a-fx-f7-air-stock`, stock-minimal, 14 jet cases held at 1600 m (10 fail, 4 warn, report-only; flown without #2795, so the body glow lines are from before its nozzle glow; evidence `<umbrella>/logs/flights/p8-f7/`). Core px are real / event-route ghost.
 
