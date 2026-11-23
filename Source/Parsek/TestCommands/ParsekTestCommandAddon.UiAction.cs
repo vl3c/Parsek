@@ -200,12 +200,6 @@ namespace Parsek.TestCommands
             internal int SelectChanged;
             internal string SelectMissionId;
 
-            // clone (op=clone)
-            internal string CloneSourceId;
-            internal string CloneSourceTreeId;
-            internal string CloneCopyId;
-            internal int CloneCountBefore;
-
             // edit (op=edit)
             internal string EditField;
             internal string EditRowKey;
@@ -442,9 +436,6 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Select:
                     UiActionSelectOp(cmd, ui, spec);
-                    return;
-                case UiActionOp.Clone:
-                    UiActionCloneOp(cmd, spec);
                     return;
                 case UiActionOp.Edit:
                     UiActionEditOp(cmd, ui, spec);
@@ -836,9 +827,6 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Select:
                     CompleteUiActionSelect(ctx, pending);
-                    return;
-                case UiActionOp.Clone:
-                    CompleteUiActionClone(ctx, pending);
                     return;
                 case UiActionOp.Edit:
                     CompleteUiActionEdit(ctx, pending);

@@ -97,8 +97,8 @@ namespace Parsek.TestCommands
 
         /// <summary><c>op=select window=missions key=vessel:|link:|leg: include=</c>: drive
         /// the Missions tab's per-vessel include affordance, its per-interval (leg) include
-        /// and its cross-tree partner-journey include. With <c>clone</c>, one of the two ops
-        /// in the family that write MISSION state rather than view state.</summary>
+        /// and its cross-tree partner-journey include. The one op in the family that writes
+        /// MISSION state rather than view state.</summary>
         Select = 19,
 
         /// <summary><c>op=edit window= field= [key=] [draft=] [commit=]</c>: put one of the
@@ -123,13 +123,6 @@ namespace Parsek.TestCommands
         /// read-back is DRAW-PRODUCED (see
         /// <see cref="TestCommandUiMock.NotAppliedReason"/>).</summary>
         Mock = 21,
-
-        /// <summary><c>op=clone window=missions [mission=&lt;id&gt;]</c>: the Missions tab's
-        /// Clone button body verbatim (<c>MissionStore.Clone</c>): a new Mission over the same
-        /// tree carrying the source's include set and loop configuration, inserted after its
-        /// source. Writes MISSION state that persists with the save, like <c>select</c>. The
-        /// pure half is <see cref="TestCommandUiClone"/>.</summary>
-        Clone = 22,
 
         /// <summary><c>op=warp window=spawncontrol</c>: press the Real Spawn Control
         /// table's FIRST row "Warp" button (spawn or departure warp) through the
@@ -292,7 +285,6 @@ namespace Parsek.TestCommands
         internal const string SelectOpToken = "select";
         internal const string EditOpToken = "edit";
         internal const string MockOpToken = "mock";
-        internal const string CloneOpToken = "clone";
         internal const string WarpOpToken = "warp";
 
         /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
@@ -727,7 +719,7 @@ namespace Parsek.TestCommands
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
             PickerOpToken, DialogOpToken, PlaybackOpToken, RaiseOpToken,
             DismissOpToken, RunOpToken, StateOpToken, SortOpToken, SelectOpToken,
-            EditOpToken, MockOpToken, CloneOpToken, WarpOpToken,
+            EditOpToken, MockOpToken, WarpOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -771,7 +763,6 @@ namespace Parsek.TestCommands
                 case SelectOpToken: op = UiActionOp.Select; break;
                 case EditOpToken: op = UiActionOp.Edit; break;
                 case MockOpToken: op = UiActionOp.Mock; break;
-                case CloneOpToken: op = UiActionOp.Clone; break;
                 case WarpOpToken: op = UiActionOp.Warp; break;
                 default:
                     rejectReason = OpArgInvalidReason;
@@ -807,7 +798,6 @@ namespace Parsek.TestCommands
                 case UiActionOp.Select: return SelectOpToken;
                 case UiActionOp.Edit: return EditOpToken;
                 case UiActionOp.Mock: return MockOpToken;
-                case UiActionOp.Clone: return CloneOpToken;
                 case UiActionOp.Warp: return WarpOpToken;
                 default: return string.Empty;
             }
@@ -842,7 +832,7 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Target || op == UiActionOp.Picker
                || op == UiActionOp.Run || op == UiActionOp.State
                || op == UiActionOp.Sort || op == UiActionOp.Select
-               || op == UiActionOp.Edit || op == UiActionOp.Clone
+               || op == UiActionOp.Edit
                || op == UiActionOp.Warp;
 
         // ----- the two-phase ops -----
@@ -943,8 +933,7 @@ namespace Parsek.TestCommands
                || op == UiActionOp.Raise || op == UiActionOp.Dismiss
                || op == UiActionOp.Run || op == UiActionOp.State
                || op == UiActionOp.Sort || op == UiActionOp.Select
-               || op == UiActionOp.Edit || op == UiActionOp.Mock
-               || op == UiActionOp.Clone;
+               || op == UiActionOp.Edit || op == UiActionOp.Mock;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the

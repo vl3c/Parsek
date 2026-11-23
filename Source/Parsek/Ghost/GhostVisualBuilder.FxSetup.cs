@@ -636,6 +636,15 @@ namespace Parsek
         }
 
         internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
+            => StripKspFxControllers(fxClone, kspEmitterSink, null);
+
+        /// <summary>
+        /// As above; an engine build also passes <paramref name="smokeFadeSink"/>, which receives
+        /// each stripped <c>SmokeTrailControl</c>'s fade (its own serialized values and the renderer
+        /// it drives) so the ghost can apply stock's air-density rule itself.
+        /// </summary>
+        internal static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink,
+            List<GhostSmokeTrailFade> smokeFadeSink)
         {
             if (fxClone == null) return;
 
@@ -661,9 +670,11 @@ namespace Parsek
                         }
                         break;
                     case "SmokeTrailControl":
-                        // Stripped — tested keeping alive (audit #113) but it makes smoke
-                        // invisible on ghosts. SmokeTrailControl sets material alpha to 0
-                        // without valid vessel context.
+                        // Stripped: stock's Update reads FlightGlobals.ship_dns, the ACTIVE
+                        // vessel's air density, not the ghost's, so a live copy fades the ghost's
+                        // smoke by the wrong vessel (audit #113 saw alpha 0). Its fade is captured
+                        // first and re-driven from the ghost's own altitude.
+                        CaptureSmokeTrailFade(behaviours[i] as SmokeTrailControl, smokeFadeSink);
                         Object.Destroy(behaviours[i]);
                         break;
                     case "ModelMultiParticlePersistFX":
@@ -678,6 +689,35 @@ namespace Parsek
                         break;
                 }
             }
+        }
+
+        private static void CaptureSmokeTrailFade(SmokeTrailControl control, List<GhostSmokeTrailFade> sink)
+        {
+            if (control == null || sink == null) return;
+            Renderer renderer = control.GetComponent<Renderer>();
+            if (renderer == null)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", "smoke-fade-no-renderer",
+                    $"SmokeTrailControl on '{control.gameObject.name}' has no Renderer; " +
+                    "its smoke is not faded on the ghost", 60.0);
+                return;
+            }
+            sink.Add(new GhostSmokeTrailFade
+            {
+                renderer = renderer,
+                maxAlpha = control.maxAlpha,
+                fadeStartDns = control.fadeStartDns,
+                fadeEndDns = control.fadeEndDns,
+                shaderColorName = control.shaderColorName,
+                fadedColor = control.fadedColor,
+                fadeToColor = control.fadeToColor
+            });
+            ParsekLog.VerboseRateLimited("GhostVisual", $"smoke-fade-capture-{control.gameObject.name}",
+                $"Smoke trail fade captured: fx='{control.gameObject.name}' " +
+                $"fadeStartDns={control.fadeStartDns.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"fadeEndDns={control.fadeEndDns.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"maxAlpha={control.maxAlpha.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"fadeToColor={control.fadeToColor}", 60.0);
         }
 
         /// <summary>

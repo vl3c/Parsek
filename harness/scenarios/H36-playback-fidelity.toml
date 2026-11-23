@@ -44,7 +44,7 @@ tier = "nightly"
 # few parts matching a cheap module predicate, capped so a modded install cannot make
 # the batch walk thousands of prefabs), so the batch does not depend on which craft the
 # save is flying, and a cell that cannot self-set-up Skips naming the context it needed.
-description = "Run the in-game PlaybackFidelity category unattended: throttle-scaled engine and RCS plumes including the suppress/restore path that bypasses SetRcsEmission, deployable interpolation and its loop-cycle re-stow, gimbal deflection with clamp and decay, wheel-steering park, and sun-tracking gated on full deployment."
+description = "Run the in-game PlaybackFidelity category unattended: throttle-scaled engine and RCS plumes including the RCS suppress/restore path, deployable interpolation and its loop-cycle re-stow, gimbal deflection with clamp and decay, wheel-steering park, and sun-tracking gated on full deployment."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "playback-fidelity", "H36"]
 

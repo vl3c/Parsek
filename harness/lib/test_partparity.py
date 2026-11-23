@@ -1062,6 +1062,238 @@ class PartParitySourceSyncTests(unittest.TestCase):
         host = self._string_consts(self._source("PartParityHostIntegrity.cs"))
         self.assertEqual(pp.HOST_MODE_AIR, host["ModeAir"])
 
+    # ----- P8 F1: the FX contract (design Appendix E) -----
+
+    def _fx_consts(self):
+        """The string consts of PartParityFxRules.cs, a ``= PartParityStateRules.X`` alias
+        resolved through that file, plus the sweep's and the state rules' own (by name)."""
+        fx_text = self._source("PartParityFxRules.cs")
+        rules = self._string_consts(self._source("PartParityStateRules.cs"))
+        sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
+        consts = self._string_consts(fx_text)
+        for name, ref in re.findall(
+                r"internal const string (\w+) = PartParityStateRules\.(\w+);", fx_text):
+            consts[name] = rules[ref]
+        return fx_text, consts, rules, sweep
+
+    @staticmethod
+    def _qualified_array(text, name, own, others):
+        """The members of one array initializer of const identifiers, each either the file's
+        own (``X``) or another type's (``Type.X``, looked up in ``others[Type]``)."""
+        m = re.search(r"\b%s\s*=\s*\{(.*?)\};" % re.escape(name), text, flags=re.S)
+        if m is None:
+            raise AssertionError("array %s not found" % name)
+        out = []
+        for owner, ident in re.findall(r"(?:\b(\w+)\.)?\b([A-Za-z_]\w*)\b", m.group(1)):
+            if owner:
+                out.append(others[owner][ident])
+            elif ident not in others:
+                out.append(own[ident])
+        return out
+
+    @staticmethod
+    def _num_const(text, name):
+        m = re.search(r"internal const (?:int|double) %s = ([0-9.]+);" % re.escape(name), text)
+        if m is None:
+            raise AssertionError("numeric const %s not found" % name)
+        return float(m.group(1))
+
+    def test_the_fx_rules_tables(self):
+        text, consts, rules, sweep = self._fx_consts()
+        others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
+        for cs, mirror in (("Families", pp.FX_FAMILIES),
+                           ("StochasticFamilies", pp.FX_STOCHASTIC_FAMILIES),
+                           ("ArgWords", pp.FX_ARG_WORDS), ("States", pp.FX_STATES),
+                           ("OrbitContexts", pp.FX_ORBIT_CONTEXTS),
+                           ("ExclusionReasons", pp.FX_EXCLUSION_REASONS),
+                           ("Views", pp.FX_VIEWS), ("RendererLayers", pp.FX_RENDERER_LAYERS),
+                           ("FxLayers", pp.FX_LAYERS), ("Sides", pp.FX_SIDES),
+                           ("Measures", pp.FX_MEASURES),
+                           ("RcsReportOnlyMeasures", pp.FX_RCS_REPORT_ONLY_MEASURES)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._qualified_array(text, cs, consts, others))
+        for name, mirror in (("ArgAllToken", pp.FX_ARG_ALL), ("ContextPlate", pp.CONTEXT_PLATE),
+                             ("ReferenceWaterfall", pp.REFERENCE_WATERFALL),
+                             ("PlateauSignalParticles", pp.PLATEAU_SIGNAL_PARTICLES),
+                             ("PlateauSignalCoverage", pp.PLATEAU_SIGNAL_COVERAGE),
+                             ("ReasonFxMissing", pp.FX_REASON_FX_MISSING),
+                             ("ReasonFxExtra", pp.FX_REASON_FX_EXTRA),
+                             ("ReasonSmokeMissing", pp.FX_REASON_SMOKE_MISSING),
+                             ("ReasonSmokeExtra", pp.FX_REASON_SMOKE_EXTRA),
+                             ("TagFxNotPlateauedPrefix", pp.TAG_FX_NOT_PLATEAUED_PREFIX),
+                             ("CapFxUnsettled", pp.CAP_FX_UNSETTLED),
+                             ("FlagFxFramingClamped", pp.FLAG_FX_FRAMING_CLAMPED),
+                             ("FlagRcsKnownDifferencePrefix", pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+        # FamilyForArg's switch, case by case: plate selects the lamps.
+        body = text[text.index("internal static string FamilyForArg("):]
+        body = body[:body.index("default: return null;")]
+        pairs = re.findall(r"case (\w+): return (\w+);", body)
+        self.assertEqual(len(pp.FX_ARG_WORDS), len(pairs))
+        for arg, family in pairs:
+            with self.subTest(arg=arg):
+                self.assertEqual(consts[family], pp.fx_family_for_arg(consts[arg]))
+        self.assertIsNone(pp.fx_family_for_arg("light"))
+
+    def test_the_fx_measure_constants(self):
+        text = self._source("PartParityFxRules.cs")
+        for name, mirror in (("Samples", pp.FX_SAMPLES), ("MaxSamples", pp.FX_MAX_SAMPLES),
+                             ("CoreFraction", pp.FX_CORE_FRACTION),
+                             ("AlphaCovered", pp.FX_ALPHA_COVERED),
+                             ("FlameValueMin", pp.FX_FLAME_VALUE_MIN),
+                             ("SaturatedValue", pp.FX_SATURATED_VALUE),
+                             ("HueBins", pp.FX_HUE_BINS),
+                             ("PresenceMinPx", pp.FX_PRESENCE_MIN_PX),
+                             ("SmokeMinPx", pp.FX_SMOKE_MIN_PX),
+                             ("SplitHalfPct", pp.FX_SPLIT_HALF_PCT),
+                             ("PlateLitMinPct", pp.PLATE_LIT_MIN_PCT),
+                             ("PlateLitMinLum", pp.PLATE_LIT_MIN_LUM),
+                             ("StripFrames", pp.FX_STRIP_FRAMES)):
+            with self.subTest(const=name):
+                self.assertEqual(float(mirror), self._num_const(text, name))
+        self.assertEqual(pp.FX_LUMINANCE_WEIGHTS,
+                         tuple(self._num_const(text, n) for n in ("LuminanceR", "LuminanceG", "LuminanceB")))
+        for key, value in pp.FX_THRESHOLDS.items():
+            with self.subTest(threshold=key):
+                self.assertEqual(value, self._num_const(text, key[0].upper() + key[1:]))
+        # Every threshold const of the rules has its mirror (none added on one side only).
+        cs_thresholds = re.findall(
+            r"internal const double ((?:Origin|Lateral|Offset|Length|Width|Direction|CrossSection|"
+            r"Chroma|HueL1|Colour|Brightness|CoreIou)\w*) =", text)
+        self.assertEqual(sorted(k[0].upper() + k[1:] for k in pp.FX_THRESHOLDS), sorted(cs_thresholds))
+        # The 8-bit tile rule the recompute transcribes, by its code shape.
+        self.assertIn("n <= 0 || k <= 0 ? 0 : (510 * k + n) / (2 * n);", text)
+        self.assertIn("n <= 0 || alpha <= 0 ? 0 : (2 * alpha * n + 255) / 510;", text)
+        self.assertIn("k <= 0 ? 0 : (int)((2 * sum + k) / (2L * k));", text)
+        self.assertIn("internal static bool IsCore(int k, int n) => n > 0 && k > 0 && 2 * k >= n;", text)
+        self.assertIn("? Math.Max(r, Math.Max(g, b)) >= FlameValueMin", text)
+        self.assertIn(": a >= AlphaCovered;", text)
+        self.assertIn("r >= SaturatedValue || g >= SaturatedValue || b >= SaturatedValue;", text)
+        self.assertIn("LuminanceR * r + LuminanceG * g + LuminanceB * b;", text)
+        for n in (1, 3, 16, 255):
+            for k in range(n + 1):
+                self.assertEqual(k, pp.fx_covered_samples(pp.fx_tile_alpha(k, n), n))
+
+    def test_the_fx_sweep_contract(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS_FX_ORBIT), self._ident_array(text, "FxOrbitControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_FX_AIR), self._ident_array(text, "FxAirControlIds", consts))
+        self.assertEqual(list(pp.OPTIONAL_CONTROL_IDS), self._ident_array(text, "OptionalControlIds", consts))
+        self.assertEqual((pp.SETUP_PLATE_NOT_LIT, pp.SETUP_RCS_INPUT_MISMATCH),
+                         (consts["SetupPlateNotLit"], consts["SetupRcsInputMismatch"]))
+        self.assertEqual(pp.CONTROLS_NOT_APPLICABLE, consts["ControlsNotApplicable"])
+        self.assertEqual(pp.SETTING_FX, consts["SettingFx"])
+        self.assertEqual(pp.FX_ATLAS_SUFFIX, consts["FxAtlasSuffix"])
+        self.assertEqual(pp.STRIP_SUFFIX, consts["StripSuffix"])
+        # ControlSetFor reads fx= first; IsFxRun is fx= present; StateSettings adds fx only
+        # for an FX run (so a P6 run's settings are what they were). control_set mirrors it.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        fx_line = "if (IsFxRun(args)) return (string[])(IsAirRun(args) ? FxAirControlIds : FxOrbitControlIds).Clone();"
+        self.assertIn(fx_line, body)
+        self.assertLess(body.index(fx_line), body.index("if (!IsStateRun(args))"))
+        self.assertIn("internal static bool IsFxRun(PartParitySweepArgs args) => args?.Fx != null;", text)
+        self.assertIn("if (IsFxRun(args)) settings.Add(new KeyValuePair<string, string>(SettingFx, FormatFx(args)));",
+                      text)
+        self.assertIn("if (o == ControlsOk || o == ControlsNotApplicable) ok++;", text)
+        self.assertEqual(pp.CONTROL_IDS_FX_ORBIT, pp.control_set({"fx": "all"}))
+        self.assertEqual(pp.CONTROL_IDS_FX_AIR, pp.control_set({"fx": "plume", "contexts": "air"}))
+
+    def test_the_fx_json_tables(self):
+        text = self._source("PartParityJson.cs")
+        for cs, mirror in (("FxKeys", pp.FX_KEYS), ("FxDriveKeys", pp.FX_DRIVE_KEYS),
+                           ("FxSideKeys", pp.FX_SIDE_KEYS), ("FxPlateauKeys", pp.FX_PLATEAU_KEYS),
+                           ("FxHoldKeys", pp.FX_HOLD_KEYS), ("FxRcsKeys", pp.FX_RCS_KEYS),
+                           ("FxFramingKeys", pp.FX_FRAMING_KEYS), ("FxLayerKeys", pp.FX_LAYER_KEYS),
+                           ("FxViewKeys", pp.FX_VIEW_KEYS), ("FxAxisKeys", pp.FX_AXIS_KEYS),
+                           ("FxSideMeasureKeys", pp.FX_SIDE_MEASURE_KEYS),
+                           ("FxCompareKeys", pp.FX_COMPARE_KEYS),
+                           ("FxSplitHalfKeys", pp.FX_SPLIT_HALF_KEYS),
+                           ("FxHalfKeys", pp.FX_HALF_KEYS), ("FxParticleKeys", pp.FX_PARTICLE_KEYS),
+                           ("FxStructureKeys", pp.FX_STRUCTURE_KEYS),
+                           ("FxPlateKeys", pp.FX_PLATE_KEYS), ("FxAtlasKeys", pp.FX_ATLAS_KEYS),
+                           ("FxStripKeys", pp.FX_STRIP_KEYS),
+                           ("FxAtlasRows", pp.FX_ATLAS_ROWS), ("RcsFxAtlasRows", pp.FX_ATLAS_ROWS_RCS),
+                           ("StripRows", pp.STRIP_ROWS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        self.assertIn("isRcsCase ? RcsFxAtlasRows : FxAtlasRows", text)
+        self.assertEqual(pp.FX_ATLAS_ROWS_RCS, pp.fx_atlas_rows_for(True))
+        # The writer emits the three FX blocks through their own key tables.
+        for key, table in (("fx", "FxKeys"), ("fxAtlas", "FxAtlasKeys"), ("strip", "FxStripKeys")):
+            self.assertRegex(text, r'M\("%s", KeyedBlock\(%s, c\.\w+\)\)' % (key, table))
+
+    def test_the_fx_words_live_only_in_the_fx_rules(self):
+        # P6 does not change (design E.1): no FX family, word, context or reason in the state
+        # rules, and P6's tables are what PP-3 to PP-6 plan today.
+        rules = self._source("PartParityStateRules.cs")
+        for word in ("plume", "plate", "rcs-fire", "burn-full", "burn-low", "heat-medium",
+                     "heat-hot") + pp.FX_EXCLUSION_REASONS:
+            with self.subTest(word=word):
+                self.assertNotIn('"%s"' % word, rules)
+        self.assertEqual(("alone", "stacked", "fgv"), pp.ORBIT_CONTEXTS)
+        self.assertEqual(("alone", "stacked", "air", "fgv"), pp.KNOWN_CONTEXTS)
+        self.assertEqual(12, len(pp.FAMILIES))
+        self.assertIn("p8-heat", pp.STATE_EXCLUSION_REASONS)
+        self.assertIn("p8-fx", pp.STATE_EXCLUSION_REASONS)
+        self.assertTrue(set(pp.FX_FAMILIES) - {"light"} <= set(pp.FX_FAMILIES) - set(pp.FAMILIES))
+
+    def test_with_fx_none_the_p6_lanes_keep_their_control_sets(self):
+        # The run-step settings PP-1 to PP-6 write (harness/scenarios/PP-*.toml), with no fx
+        # key (a P6 build) and with fx=none: the same control set either way.
+        lanes = ((("none", "none"), pp.CONTROL_IDS), (("all", "none"), pp.CONTROL_IDS_ORBIT_STATE),
+                 (("all", "air"), pp.CONTROL_IDS_AIR))
+        for (states, contexts), want in lanes:
+            for extra in ({}, {"fx": "none"}):
+                settings = dict({"states": states, "contexts": contexts}, **extra)
+                with self.subTest(settings=settings):
+                    self.assertEqual(want, pp.control_set(settings))
+                    self.assertFalse(pp.is_fx_run(settings))
+        self.assertEqual(8, len(pp.CONTROL_IDS))
+        self.assertEqual(pp.CONTROL_IDS + ("ctl-state-events-dropped",), pp.CONTROL_IDS_ORBIT_STATE)
+
+
+class PartParityFxReaderTests(unittest.TestCase):
+    """The P8 F1 readers (design E.5): an FX manifest's control set, the FX atlas rows, the
+    new setup statuses, the 8-bit tile helpers."""
+
+    def test_control_set_reads_fx(self):
+        self.assertEqual(pp.CONTROL_IDS_FX_ORBIT, pp.control_set({"fx": "plume,rcs"}))
+        self.assertEqual(pp.CONTROL_IDS_FX_AIR, pp.control_set({"fx": "all", "contexts": "air"}))
+        self.assertEqual(pp.CONTROL_IDS, pp.control_set({"fx": "none"}))
+        self.assertEqual(11, len(pp.CONTROL_IDS_FX_ORBIT))
+        self.assertTrue(set(pp.CONTROL_IDS_FX_ORBIT) | set(pp.CONTROL_IDS_FX_AIR) <= set(pp.ALL_CONTROL_IDS))
+        self.assertTrue(set(pp.OPTIONAL_CONTROL_IDS) <= set(pp.CONTROL_IDS_FX_ORBIT))
+
+    def test_a_written_fx_control_set_is_cross_checked(self):
+        ok = {"settings": {"fx": "all", "controlSet": ",".join(pp.CONTROL_IDS_FX_ORBIT)}}
+        self.assertIsNone(pp.control_set_disagreement(ok))
+        stale = {"settings": {"fx": "all", "controlSet": ",".join(pp.CONTROL_IDS)}}
+        self.assertIn("recomputed=ctl-empty,ctl-ghost-absent,ctl-fx-real-vs-real", pp.control_set_disagreement(stale))
+
+    def test_the_new_setup_statuses_are_faults(self):
+        for status in (pp.SETUP_PLATE_NOT_LIT, pp.SETUP_RCS_INPUT_MISMATCH):
+            self.assertIn(status, pp.SETUP_STATUSES)
+            self.assertTrue(pp.is_setup_fault(status))
+
+    def test_the_tile_helpers(self):
+        self.assertEqual(16, pp.fx_tile_alpha(1, 16))
+        self.assertEqual(255, pp.fx_tile_alpha(16, 16))
+        self.assertEqual(4, pp.fx_tile_channel(7, 2))
+        self.assertEqual(3, pp.fx_tile_channel(5, 2))
+        self.assertTrue(pp.fx_is_core(8, 16))
+        self.assertFalse(pp.fx_is_core(7, 16))
+        self.assertTrue(pp.fx_sample_covered("flame", 0, 16, 0, 0))
+        self.assertFalse(pp.fx_sample_covered("smoke", 255, 255, 255, 127))
+        self.assertTrue(pp.fx_is_saturated(0, 255, 0))
+        self.assertAlmostEqual(255.0, pp.fx_luminance(255, 255, 255), places=9)
+        self.assertEqual("event:fx-far:smoke:smoke-missing",
+                         pp.fx_reason("event", "fx-far", "smoke", "smoke-missing"))
+        self.assertEqual(("real-flame", "ghost-flame", "ghost-start-flame", "real-smoke",
+                          "ghost-smoke", "ghost-start-smoke"), pp.fx_atlas_rows_for(False))
+
 
 class PartParityStateReaderTests(unittest.TestCase):
     """The P6 readers (design D.2): the control set a manifest's settings recompute to, the

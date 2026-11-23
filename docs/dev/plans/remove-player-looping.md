@@ -118,3 +118,119 @@ Each PR keeps xUnit and the harness Python suites green and updates CHANGELOG / 
 1. ~~Ratify section 5 (key deletion without a generation bump, and the CLAUDE.md wording).~~ RATIFIED 2026-10-05; the CLAUDE.md wording landed with PR #2022 (the `isGhostOnly` key).
 2. Confirm section 6 (automation-only store-mission looping keeps the 60 lanes) versus retiring lanes that have no route shape.
 3. Whether the Missions tab should show a route-bound mission's next dispatch (read-only) now that the player countdown is gone, or leave that to the Logistics window, which already shows the route's loop-unit countdown.
+
+## 10. Addendum 2026-11-22: loop UI review and the Gloops fork question
+
+Recorded from an owner discussion on 2026-11-22 (Mission Profile session), with two read-only
+second opinions (Fable). Nothing below changes the hold on PRs 2-4; section 10.5 lists what was
+decided.
+
+### 10.1 Facts re-checked against the code (2026-11-22)
+
+- Manual looping has no career effect (design-ui-basic-advanced.md 4.5): no ledger row, contract,
+  route delivery or CommNet relay reads a manual loop (ghost CommNet counts a ghost on its real run
+  only). Supply routes reuse the mission loop engine with code-built exclude lists
+  (`Logistics/RouteBuilder.cs`, `RouteBackingMission`).
+- Two player loop UIs, both Advanced-only:
+  - Missions tab: Loop toggle + "every <period>", Warp to..., Clone, Delete, and the include
+    checkboxes (vessel, interval, chapter, partner journey). The checkboxes only drop whole vessels
+    and trim each vessel's start / end: its window is [min start, max end] of its included
+    intervals (`Missions/MissionIntervalSelection.cs`); a middle interval cannot be cut out. All
+    included members ride ONE span clock (span = min trimmed start .. max trimmed end,
+    `Missions/MissionLoopUnitBuilder.cs`), so docks and separations stay in step. Flight overlaps
+    instances when the period is shorter than the span, capped at 20
+    (`ParsekConfig.MaxOverlapMissionInstances`); KSC and the Tracking Station never overlap.
+    Scheduling knows launch windows, pad rotation, phase lock to a station and transfer re-aim.
+  - Recordings tab: a per-row Loop Ghost checkbox (auto-trims dull ends,
+    `GhostPlaybackLogic.ComputeAutoLoopRange`) and Period cell; group / header checkboxes bulk-set
+    each member's own flag, so each member loops on its OWN clock (no shared clock, no window
+    scheduling, no re-aim). This per-recording path serves only that toggle; routes never run it.
+- The include set is read beyond the loop: the Mission Log drops excluded rows, Watch picks its
+  target from the trimmed windows, and the Mission Profile (design-mission-profile.md) clips by it.
+  `UiComplexityMode.cs` and design-ui-basic-advanced.md 4.5 still say only the loop reads it (stale).
+- 88 harness specs drive loops through the seam (`MissionConfig loop=true`, `StartLoopPlayback`);
+  none depends on the player UI to arm a loop.
+
+### 10.2 Why the owner keeps the loop UI today
+
+Gloops does not exist yet, and looping is his visual verification instrument: liftoff, a landing
+near a base, approach and docking to a station, and map-view trajectories of transfers between
+bodies (the last needs the mission clock and re-aim, which the Recordings-tab loop lacks). He uses
+it partly because he does not fully trust the automated render tests. The "busy sky" spectacle is
+meant for Gloops.
+
+### 10.3 Options weighed for the Parsek loop UI
+
+1. Keep both UIs as they are.
+2. Missions tab keeps Loop + every + Warp to... + the checkboxes; drop Clone / Delete.
+3. Remove all manual loop UI; the engine stays for routes, the seam and later Gloops.
+4. Keep only the Recordings-tab loop as the one simple UI. Rejected: it keeps the per-recording
+   engine path routes never use (sized at about 2.5-3k production lines in section 2), cannot show
+   transfers, and does not keep two vessels of a dock in step.
+
+Second opinion (Fable): the end state is option 3 plus an attended harness "watch lane" (10.5),
+in two steps: build the watch lane first, use it for a while, then cut the UI. A per-phase replay
+button on the read-only Profile was rejected (new player UI); moving loop authoring into
+Settings > Diagnostics only relocates the same code.
+
+### 10.4 The Gloops fork question
+
+Owner idea: branch from main, delete everything not related to ghost loops to see what Gloops is at
+its core, then install that beside Parsek and check looping and rendering there. Both opinions
+(Claude, Fable) agreed:
+
+- A fork cannot verify Parsek's rendering. (a) Scope: this plan's companion leaves map presence
+  out of Gloops (gloops-recorder-design.md section 2: no tracking-station entries, orbit lines, map
+  markers or CommNet) and its positioner has no anchors, chains or re-aim, which is exactly what
+  docking and transfers exercise. (b) Drift: from the fork commit on, a green Gloops says nothing
+  about Parsek's positioner, GhostMapPresence, MapRender or Display, the files that change most.
+  (c) Data: rulings 6 and 7 keep Gloops off Parsek's recordings. A Gloops that checks Parsek would
+  have to read Parsek's recordings and share its source, reversing rulings 7 and 10.
+- Prototype by deletion turns into stubbing: the IL graph has one strongly connected knot of 432
+  types (docs/dev/arch/README.md) and 163 Harmony patch attributes. Knots in the order deletion
+  meets them: the only `IGhostPositioner` lives in Controllers (`ParsekFlightGhostPositioner`);
+  `GhostVisualBuilder` -> `VesselSpawner`; the engine's reads of `RecordingStore`; SpanClock ->
+  Reaim / Missions; the always-tree `FlightRecorder`; persistence through `ParsekScenario` and
+  `TrajectorySidecarBinary`. Estimate (unmeasured): 1-2 weeks of agent work for a build-green DLL
+  that loops one fixture, with no tests (every arch gate and source-sync cell reds on deletion).
+- Cheaper first step: measure the dependency closure from `GhostPlaybackEngine`,
+  `GhostVisualBuilder` and the pure recorder pieces over `scripts/arch/types.json` (a small script,
+  about a day), reported per module with line counts and the edges leaving Ghost / Trajectory. That
+  shows the same boundary for about 1% of the cost and refreshes gloops-recorder-design.md
+  section 10 (measured 2026-10-05).
+- Side by side with Parsek, a Parsek-derived DLL must rename, on the Gloops side: assembly and
+  namespace, Harmony id (`com.parsek.mod`), toolbar id, GameData folder, save subfolder, log prefix,
+  command-seam files and env vars; carry no ScenarioModule and no CustomParameterNode; patch no
+  method Parsek patches; and create no ProtoVessels (each mod would read the other's `Ghost: `
+  vessels as real, `GhostMapPresence.ghostMapVesselPids` being per assembly). With that set Parsek
+  needs no change.
+- If a spike is ever run: branch `spike/gloops-core-by-deletion` from `origin/main`, timeboxed,
+  never merged; "it works" = loops one fixture take at KSC and in flight beside an unchanged Parsek,
+  a Parsek flight in the same session unaffected, Parsek's daily tier green with it installed.
+
+### 10.5 Decided 2026-11-22
+
+1. Remove Clone and Delete from the Advanced Missions tab (the least useful for verification and
+   debugging). The store API and the `UiAction op=clone` seam op are re-checked by that task; saves
+   with existing clones must still load. DONE 2026-11-22 (branch `mission-clone-removal`): both
+   buttons, the store API (`MissionStore.Clone` / `Delete` / `CanDelete`; `Mission.Clone` stays for transient in-game probes) and
+   `UiAction op=clone` are deleted; owner answer to the legacy-clone question (10.6): remove Delete
+   entirely and drop clones from the list on load (`MissionStore.DropLegacyClones`, run by
+   `MissionStore.Load`). Lanes MS-1 (leg-trim half kept) and GUI-4 lost their clone steps; both
+   re-flown green 2026-11-22.
+2. Build the harness watch-lane extension so the owner can ask an agent "take this mission, make a
+   test out of it, I want to verify it visually": an attended hold mode, a map / camera preamble, a
+   tree handle that works on any save, and the authoring path from a mission to a lane.
+3. The rest of the loop UI stays until the watch lanes cover the four scenes (liftoff, landing near
+   a base, docking, a transfer); PRs 2-4 stay on hold.
+4. Gloops: no fork now. When it is picked up, measure the closure first (10.4), and first answer
+   whether the goal is a Gloops product or a rendering bench for Parsek (they need different work).
+
+### 10.6 Open owner questions
+
+- Is "exclude part of a mission" a mission feature (Log / Watch / Profile trimming) or only loop
+  authoring? It decides whether the include checkboxes can ever go.
+- Is a harness watch lane enough, or is looping a just-flown flight by eye in the dev session needed?
+- When player loops are removed: one ScreenMessage on load, or silence? (Legacy clones: answered
+  2026-11-22, dropped on load, see 10.5 item 1.)
+- Does lifting the hold, when it comes, cover PR 3 (the per-recording engine path) or the UI only?

@@ -216,6 +216,34 @@ namespace Parsek
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
+        /// <summary>The stock <c>SmokeTrailControl</c> fades of this engine's cloned FX, captured
+        /// before the component is stripped (todo GHOST-SMOKE-IN-VACUUM). Empty for an engine
+        /// whose FX carry none.</summary>
+        public List<GhostSmokeTrailFade> smokeTrailFades = new List<GhostSmokeTrailFade>();
+    }
+
+    /// <summary>
+    /// One stock <c>SmokeTrailControl</c> transcribed onto a ghost renderer. Stock fades a smoke
+    /// trail by air density every frame (decompiled <c>SmokeTrailControl.Update</c>, KSP 1.12.5):
+    /// <c>airDensity = InverseLerp(fadeEndDns, fadeStartDns, ship_dns)</c>; above 0.001 it tints
+    /// the material and enables the renderer, otherwise it disables the renderer, which is why no
+    /// smoke draws in vacuum. The ghost keeps the component's own serialized values and drives the
+    /// same rule from its playback altitude (<see cref="GhostPlaybackLogic.UpdateEngineSmokeTrailFades"/>).
+    /// </summary>
+    internal sealed class GhostSmokeTrailFade
+    {
+        public Renderer renderer;
+        public float maxAlpha;
+        public float fadeStartDns;
+        public float fadeEndDns;
+        public string shaderColorName;
+        public Color fadedColor;
+        public bool fadeToColor;
+        /// <summary>The renderer's own material instance, made on the first tint write.</summary>
+        public Material material;
+        /// <summary>The quantized fade level last written (<see cref="GhostPlaybackLogic.QuantizeSmokeTrailAirDensity"/>):
+        /// -1 never written, 0 hidden, 1..N drawn.</summary>
+        public int appliedLevel = -1;
     }
 
     internal struct DeployableTransformState
@@ -568,6 +596,43 @@ namespace Parsek
         public float emissionScale = 1f;
         public float speedScale = 1f;
         public float currentPower;
+        /// <summary>
+        /// Read-only record, index-parallel to <see cref="particleSystems"/> as built: the FX
+        /// transform each system was built under. Nothing in the build or playback reads it
+        /// (the part parity FX sweep hides the systems of the nozzles stock did not fire).
+        /// Teardown clears <see cref="particleSystems"/> but not this list, so read it only
+        /// through <see cref="TryGetParticleThruster"/>.
+        /// </summary>
+        public List<RcsParticleThruster> particleThrusters = new List<RcsParticleThruster>();
+
+        /// <summary>
+        /// The FX transform particle system <paramref name="particleIndex"/> was built under;
+        /// false when the index is out of range or the two lists no longer line up (teardown).
+        /// </summary>
+        internal bool TryGetParticleThruster(int particleIndex, out RcsParticleThruster thruster)
+        {
+            thruster = default(RcsParticleThruster);
+            if (particleSystems == null || particleThrusters == null) return false;
+            if (particleThrusters.Count != particleSystems.Count) return false;
+            if (particleIndex < 0 || particleIndex >= particleThrusters.Count) return false;
+            thruster = particleThrusters[particleIndex];
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Where one ghost RCS particle system came from: the EFFECTS model node's transform name
+    /// and the transform's position among every transform of that name under the part prefab,
+    /// in depth-first pre-order and before the variant filter. Stock builds
+    /// <c>ModuleRCS.thrusterTransforms</c> with the same walk (<c>Part.FindHeirarchyTransforms</c>
+    /// from the part's <c>model</c> child), so when the FX transform name is the module's
+    /// <c>thrusterTransformName</c> and every match sits under <c>model</c>, the index is stock's
+    /// thruster index i (the one <c>thrustForces[i]</c> is read for).
+    /// </summary>
+    internal struct RcsParticleThruster
+    {
+        public string transformName;
+        public int thrusterIndex;
     }
 
     internal enum GhostAudioPriorityClass

@@ -83,6 +83,7 @@ CASE_KEYS: Tuple[str, ...] = (
     "tags", "skin", "state", "context", "measure", "atlas", "framing", "ghostRootOffsetM",
     "layers", "flags", "views", "structure", "setup", "log",
     "stateProof", "structureStart", "stowedCaseId",
+    "fx", "fxAtlas", "strip",
 )
 SKIN_KEYS: Tuple[str, ...] = ("module", "moduleId", "requested", "real", "snapshot", "ghost")
 ATLAS_KEYS: Tuple[str, ...] = ("file", "thumb", "tile", "rows", "cols")
@@ -159,10 +160,14 @@ SETUP_CRASHED = "crashed"
 SETUP_DEPTH_MASK_UNREPAIRED = "depth-mask-unrepaired"
 SETUP_ACTION_FAILED = "action-failed"
 SETUP_STATE_TIMEOUT = "state-timeout"
+# P8 (design Appendix E.5): a plate case whose real side lit too little of the plate, and an
+# rcs case whose fired nozzles differ from the prediction. Both are setup faults (``error``).
+SETUP_PLATE_NOT_LIT = "plate-not-lit"
+SETUP_RCS_INPUT_MISMATCH = "rcs-input-mismatch"
 SETUP_STATUSES: Tuple[str, ...] = (
     SETUP_OK, SETUP_SKIN_NOT_APPLIED, SETUP_SPAWN_TIMEOUT, SETUP_STILL_ANIMATING,
     SETUP_DIED_SETTLING, SETUP_CRASHED, SETUP_DEPTH_MASK_UNREPAIRED, SETUP_ACTION_FAILED,
-    SETUP_STATE_TIMEOUT,
+    SETUP_STATE_TIMEOUT, SETUP_PLATE_NOT_LIT, SETUP_RCS_INPUT_MISMATCH,
 )
 # The stowed run's eight controls (ControlIds): a run without states= / contexts=.
 CONTROL_IDS: Tuple[str, ...] = (
@@ -176,7 +181,22 @@ CONTROL_IDS_ORBIT_STATE: Tuple[str, ...] = CONTROL_IDS + (CONTROL_STATE_EVENTS_D
 CONTROL_IDS_AIR: Tuple[str, ...] = (
     "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", CONTROL_STATE_EVENTS_DROPPED_AIR,
 )
-ALL_CONTROL_IDS: Tuple[str, ...] = CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
+# The FX run's controls (FxOrbitControlIds / FxAirControlIds, design E.5).
+CONTROL_IDS_FX_ORBIT: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", "ctl-fx-real-vs-real", "ctl-fx-plume-off",
+    "ctl-fx-plume-short", "ctl-fx-plume-hue", "ctl-fx-plume-shift", "ctl-fx-smoke-dropped",
+    "ctl-heat-events-dropped", "ctl-plate-light-off", "ctl-plate-light-off-point",
+)
+CONTROL_IDS_FX_AIR: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", "ctl-fx-real-vs-real-air", "ctl-fx-plume-off-air",
+)
+# OptionalControlIds: no subject on the install records ``n/a`` (ControlsNotApplicable),
+# never ``bad``.
+OPTIONAL_CONTROL_IDS: Tuple[str, ...] = ("ctl-plate-light-off-point",)
+ALL_CONTROL_IDS: Tuple[str, ...] = (
+    CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
+    + CONTROL_IDS_FX_ORBIT[2:] + CONTROL_IDS_FX_AIR[2:]
+)
 
 # The states= / contexts= selection (TestCommandPartParitySweep, PartParityStateRules) and
 # the manifest settings a run records it under.
@@ -185,6 +205,8 @@ STATES_ALL = "all"
 SETTING_STATES = "states"
 SETTING_CONTEXTS = "contexts"
 SETTING_CONTROL_SET = "controlSet"
+# TestCommandPartParitySweep.SettingFx: written by an FX run only; absent reads ``none``.
+SETTING_FX = "fx"
 STATE_STOWED = "stowed"
 KNOWN_STATES: Tuple[str, ...] = (
     "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
@@ -230,11 +252,20 @@ def is_air_run(settings: Optional[Dict]) -> bool:
     return CONTEXT_AIR in _setting(settings, SETTING_CONTEXTS).split(",")
 
 
+def is_fx_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsFxRun over a manifest's ``settings``: ``fx`` other than
+    ``none`` (a manifest written before P8 has no ``fx`` and reads ``none``)."""
+    return _setting(settings, SETTING_FX) != ARG_NONE
+
+
 def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
     """TestCommandPartParitySweep.ControlSetFor, recomputed from a manifest's ``settings``
-    (design D.2): no ``states`` / ``contexts`` (absent or ``none``, as every manifest written
-    before P6 reads) is the stowed eight; an air run its four; any other state run the eight
-    plus ``ctl-state-events-dropped``."""
+    (design D.2, E.5): an FX run its FX set (the air one for ``contexts=air``); no
+    ``states`` / ``contexts`` (absent or ``none``, as every manifest written before P6 reads)
+    is the stowed eight; an air run its four; any other state run the eight plus
+    ``ctl-state-events-dropped``."""
+    if is_fx_run(settings):
+        return CONTROL_IDS_FX_AIR if is_air_run(settings) else CONTROL_IDS_FX_ORBIT
     if (_setting(settings, SETTING_STATES) == ARG_NONE
             and _setting(settings, SETTING_CONTEXTS) == ARG_NONE):
         return CONTROL_IDS
@@ -280,6 +311,7 @@ CONTROLS_OK = "ok"
 CONTROLS_BAD = "bad"
 CONTROLS_PENDING = "pending"
 CONTROLS_OFF = "off"
+CONTROLS_NOT_APPLICABLE = "n/a"
 # PartParityJson.StowedAtlasRows / StateAtlasRows (AtlasRowsFor).
 ATLAS_ROWS: Tuple[str, ...] = ("real", "ghost")
 ATLAS_ROWS_STATE: Tuple[str, ...] = ("real", "ghost", "ghost-start", "ghost-stowed")
@@ -297,6 +329,179 @@ def is_setup_fault(status: Optional[str]) -> bool:
     """TestCommandPartParitySweep.IsSetupFault: anything but ``ok`` and
     ``still-animating`` (a still-animating case is captured and measured anyway)."""
     return status not in (SETUP_OK, SETUP_STILL_ANIMATING)
+
+
+# ---------------------------------------------------------------------------
+# The P8 FX contract (design Appendix E, piece F1), mirrored from PartParityFxRules.cs,
+# PartParityJson.cs and TestCommandPartParitySweep.cs (PartParitySourceSyncTests'
+# test_the_fx_* cells). Every constant the FX measures (F1b) and the FX judge (F4) read
+# lives here, so neither adds a mirrored literal.
+# ---------------------------------------------------------------------------
+
+# Families (E.1 order), the fx= words (``plate`` selects the lamps) and the state words.
+FX_FAMILIES: Tuple[str, ...] = ("plume", "rcs", "heat", "light")
+FX_STOCHASTIC_FAMILIES: Tuple[str, ...] = ("plume", "rcs")
+FX_ARG_WORDS: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+FX_ARG_ALL = "all"
+FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit")
+CONTEXT_PLATE = "plate"
+FX_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_PLATE)
+FX_EXCLUSION_REASONS: Tuple[str, ...] = (
+    "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked",
+)
+# fx.reference of a case judged reference-only (E.6).
+REFERENCE_WATERFALL = "waterfall"
+
+
+def fx_family_for_arg(word: Optional[str]) -> Optional[str]:
+    """PartParityFxRules.FamilyForArg: ``plate`` selects the ``light`` family."""
+    return {"plume": "plume", "rcs": "rcs", "heat": "heat", "plate": "light"}.get(word or "")
+
+
+# Views, layers and sides (E.3); the FX atlas's rows and columns (E.5).
+FX_VIEWS: Tuple[str, ...] = ("fx-side-a", "fx-side-b", "fx-bottom", "fx-far")
+FX_RENDERER_LAYERS: Tuple[str, ...] = ("body", "flame", "smoke")
+FX_LAYERS: Tuple[str, ...] = ("flame", "smoke")
+FX_SIDES: Tuple[str, ...] = ("real", "ghost", "ghostStart", "ghostAll")
+FX_ATLAS_ROWS: Tuple[str, ...] = (
+    "real-flame", "ghost-flame", "ghost-start-flame", "real-smoke", "ghost-smoke", "ghost-start-smoke",
+)
+FX_ATLAS_ROWS_RCS: Tuple[str, ...] = FX_ATLAS_ROWS + ("ghost-all-flame", "ghost-all-smoke")
+STRIP_ROWS: Tuple[str, ...] = ("real", "ghost")
+FX_ATLAS_SUFFIX = ".fx.png"
+STRIP_SUFFIX = ".strip.png"
+FX_STRIP_FRAMES = 12
+
+
+def fx_atlas_rows_for(rcs_case: bool) -> Tuple[str, ...]:
+    """PartParityJson.FxAtlasRowsFor: eight rows for an rcs case, six otherwise."""
+    return FX_ATLAS_ROWS_RCS if rcs_case else FX_ATLAS_ROWS
+
+
+# The FX key tables of PartParityJson.cs (every key always written, null when not measured).
+FX_KEYS: Tuple[str, ...] = (
+    "family", "module", "moduleIndex", "engineMode", "throttle", "drive", "warmupS", "plateau",
+    "hold", "rcs", "samples", "framing", "layers", "cullingMask", "views", "particles",
+    "structure", "inventory", "plate", "reference",
+)
+FX_DRIVE_KEYS: Tuple[str, ...] = ("ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat")
+FX_SIDE_KEYS: Tuple[str, ...] = FX_SIDES
+FX_PLATEAU_KEYS: Tuple[str, ...] = ("signal", "settled", "waitS")
+FX_HOLD_KEYS: Tuple[str, ...] = ("maxDriftM", "stepM", "steps")
+FX_RCS_KEYS: Tuple[str, ...] = ("input", "predicted", "fired", "nozzles", "ghostHidden", "powerRatio")
+FX_FRAMING_KEYS: Tuple[str, ...] = ("near", "far", "clamped")
+FX_LAYER_KEYS: Tuple[str, ...] = FX_RENDERER_LAYERS
+FX_VIEW_KEYS: Tuple[str, ...] = (
+    "view", "route", "layer", "width", "height", "axis", "real", "ghost", "compare", "splitHalf",
+)
+FX_AXIS_KEYS: Tuple[str, ...] = ("originPx", "dirPx", "nozzleDiameterPx")
+FX_SIDE_MEASURE_KEYS: Tuple[str, ...] = (
+    "corePx", "envelopePx", "saturatedPx", "originPx", "lengthPx", "widthPx", "coreCentroid",
+    "meanColor", "chromaticity", "luminance", "hueHistogram",
+)
+FX_COMPARE_KEYS: Tuple[str, ...] = (
+    "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
+    "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1", "brightnessRatio",
+    "coreIou",
+)
+FX_SPLIT_HALF_KEYS: Tuple[str, ...] = ("even", "odd")
+FX_HALF_KEYS: Tuple[str, ...] = ("samples", "real", "ghost", "compare")
+FX_PARTICLE_KEYS: Tuple[str, ...] = ("count", "speed", "direction", "size", "alongP95", "acrossP95")
+FX_STRUCTURE_KEYS: Tuple[str, ...] = ("fxMissingOnGhost", "fxExtraOnGhost", "fxDiffers", "lightsDiffer")
+FX_PLATE_KEYS: Tuple[str, ...] = ("litPct", "lightType", "range", "spotAngle", "cullingMask")
+FX_ATLAS_KEYS: Tuple[str, ...] = ("file", "rows", "cols", "tile")
+FX_STRIP_KEYS: Tuple[str, ...] = ("file", "frames")
+
+# The plateau signal vocabulary (E.2, E0 U5).
+PLATEAU_SIGNAL_PARTICLES = "particles"
+PLATEAU_SIGNAL_COVERAGE = "coverage"
+
+# The measures (E.4), their reason tokens and the tags, flags and caps an FX case writes.
+FX_MEASURES: Tuple[str, ...] = (
+    "presence", "origin", "lateral", "length", "width", "direction", "cross-section", "colour",
+    "brightness", "smoke", "core-iou",
+)
+FX_RCS_REPORT_ONLY_MEASURES: Tuple[str, ...] = ("length", "width", "brightness")
+FX_REASON_FX_MISSING = "fx-missing"
+FX_REASON_FX_EXTRA = "fx-extra"
+FX_REASON_SMOKE_MISSING = "smoke-missing"
+FX_REASON_SMOKE_EXTRA = "smoke-extra"
+TAG_FX_NOT_PLATEAUED_PREFIX = "fx-not-plateaued:"
+CAP_FX_UNSETTLED = "fx-unsettled"
+FLAG_FX_FRAMING_CLAMPED = "fx-framing-clamped"
+FLAG_RCS_KNOWN_DIFFERENCE_PREFIX = "rcs-known-difference:"
+
+# The 8-bit tile rule and the measure constants (E.4), every one PartParityFxRules'.
+FX_SAMPLES = 16
+FX_MAX_SAMPLES = 255
+FX_CORE_FRACTION = 0.5
+FX_ALPHA_COVERED = 128
+FX_FLAME_VALUE_MIN = 16
+FX_SATURATED_VALUE = 255
+FX_HUE_BINS = 12
+FX_LUMINANCE_WEIGHTS: Tuple[float, float, float] = (0.2126, 0.7152, 0.0722)
+FX_PRESENCE_MIN_PX = 64
+FX_SMOKE_MIN_PX = 256
+FX_SPLIT_HALF_PCT = 0.10
+PLATE_LIT_MIN_PCT = 0.02
+PLATE_LIT_MIN_LUM = 8
+
+# The threshold defaults (starting guesses, re-pinned from the reading runs and the controls).
+FX_THRESHOLDS: Dict[str, float] = {
+    "originFailMinPx": 4.0, "originFailLengthFraction": 0.10,
+    "lateralFailMinPx": 4.0, "lateralFailLengthFraction": 0.05, "offsetWarnFraction": 0.5,
+    "lengthFailFraction": 0.25, "lengthWarnFraction": 0.125,
+    "widthFailFraction": 0.30, "widthWarnFraction": 0.15,
+    "directionFailDeg": 10.0, "directionWarnDeg": 5.0,
+    "crossSectionAreaFailMin": 0.6, "crossSectionAreaFailMax": 1.6,
+    "crossSectionAreaWarnMin": 0.8, "crossSectionAreaWarnMax": 1.25,
+    "crossSectionOffsetFail": 0.1,
+    "chromaFail": 0.06, "hueL1Fail": 0.5, "colourWarnFraction": 0.25,
+    "brightnessWarnMin": 0.5, "brightnessWarnMax": 2.0, "coreIouWarnMin": 0.5,
+}
+
+
+def fx_tile_alpha(k: int, n: int) -> int:
+    """PartParityFxRules.TileAlpha: ``floor(255 k / n + 0.5)``, in integers."""
+    return 0 if n <= 0 or k <= 0 else (510 * k + n) // (2 * n)
+
+
+def fx_covered_samples(alpha: int, n: int) -> int:
+    """PartParityFxRules.CoveredSamples: ``round(alpha n / 255)``, exact for n up to 255."""
+    return 0 if n <= 0 or alpha <= 0 else (2 * alpha * n + 255) // 510
+
+
+def fx_tile_channel(total: int, k: int) -> int:
+    """PartParityFxRules.TileChannel: the covered samples' mean, ``floor(sum / k + 0.5)``."""
+    return 0 if k <= 0 else (2 * total + k) // (2 * k)
+
+
+def fx_is_core(k: int, n: int) -> bool:
+    """PartParityFxRules.IsCore: covered in at least half the samples."""
+    return n > 0 and k > 0 and 2 * k >= n
+
+
+def fx_sample_covered(layer: str, r: int, g: int, b: int, a: int) -> bool:
+    """PartParityFxRules.SampleCovered: a flame sample by its max channel, a smoke one by alpha."""
+    if layer == "flame":
+        return max(r, g, b) >= FX_FLAME_VALUE_MIN
+    return a >= FX_ALPHA_COVERED
+
+
+def fx_is_saturated(r: int, g: int, b: int) -> bool:
+    """PartParityFxRules.IsSaturated: a clipped channel (colour and brightness skip the pixel)."""
+    return r >= FX_SATURATED_VALUE or g >= FX_SATURATED_VALUE or b >= FX_SATURATED_VALUE
+
+
+def fx_luminance(r: int, g: int, b: int) -> float:
+    """PartParityFxRules.Luminance: Rec. 709 over the 8-bit colour."""
+    wr, wg, wb = FX_LUMINANCE_WEIGHTS
+    return wr * r + wg * g + wb * b
+
+
+def fx_reason(route: str, view: str, layer: str, reason: str) -> str:
+    """PartParityFxRules.FormatReason: ``<route>:<view>:<layer>:<reason>``."""
+    return "%s:%s:%s:%s" % (route or "", view or "", layer or "", reason or "")
 
 
 # ---------------------------------------------------------------------------

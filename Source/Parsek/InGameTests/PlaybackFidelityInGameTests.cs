@@ -13,9 +13,8 @@ namespace Parsek.InGameTests
     ///     has been instantiated, size-boosted and velocity-floored. Headless cells pin the ratio
     ///     ARITHMETIC; only a live scene proves a captured baseline exists at all and that the write
     ///     lands on the emitter. The suppress/restore cell additionally covers
-    ///     <c>RestoreAllRcsEmissions</c>, the ONE production path that re-enables emitters without
-    ///     going through <c>SetRcsEmission</c> — the whole reason the mechanism had to be persistent
-    ///     fields rather than a per-event computation.
+    ///     <c>RestoreAllRcsEmissions</c>, which re-lights a firing module from its recorded power
+    ///     after an FX suppression; the scaled magnitude must come back exactly as the event wrote it.
     ///   * S2's interpolation writes <c>Transform.localPosition/localRotation/localScale</c> between
     ///     two sampled animation poses. Headless can prove the PROGRESS; only a scene proves the
     ///     pose is strictly between the endpoints, and that a BASELINE application still snaps.
@@ -167,14 +166,14 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// The suppress/restore round trip. <c>RestoreAllRcsEmissions</c> re-enables emitters
-        /// DIRECTLY rather than going back through <c>SetRcsEmission</c>, which is exactly why S1
-        /// mutates persistent emitter fields instead of computing magnitude per event: if the scale
-        /// lived in the event path, every high-warp suppression would restore a full-magnitude plume
-        /// on a quarter-throttle thruster. This cell is that path's only proof.
+        /// The suppress/restore round trip. <c>RestoreAllRcsEmissions</c> re-lights a firing module
+        /// through <c>SetRcsEmission</c> at its recorded power, so the plume that comes back must
+        /// carry the same scaled magnitude the event wrote, never the full-power baseline: a
+        /// high-warp suppression must not restore a full-magnitude plume on a quarter-throttle
+        /// thruster. This cell is that path's only proof.
         /// </summary>
         [InGameTest(Category = "PlaybackFidelity", Scene = GameScenes.FLIGHT,
-            Description = "RCS plume magnitude survives the suppress/restore round trip that bypasses SetRcsEmission")]
+            Description = "RCS plume magnitude survives the suppress/restore round trip")]
         public void RcsPlumeMagnitudeSurvivesSuppressAndRestore()
         {
             GhostBuildResult build = null;
@@ -272,9 +271,8 @@ namespace Parsek.InGameTests
                 // ...and only now does the round trip mean "the SCALED value survived", not "the
                 // baseline survived".
                 InGameAssert.ApproxEqual(scaledSpeed, afterSpeed, scaledSpeed * 0.001f + 0.0001f,
-                    "S1 SUPPRESS/RESTORE: RestoreAllRcsEmissions re-enables emitters without calling " +
-                    "SetRcsEmission, so the scaled magnitude must still be sitting in the persistent " +
-                    "fields. '" + usedPart + "' came back at " + afterSpeed + " instead of " +
+                    "S1 SUPPRESS/RESTORE: RestoreAllRcsEmissions re-lights the module at its recorded " +
+                    "power, so the scaled magnitude must come back unchanged. '" + usedPart + "' came back at " + afterSpeed + " instead of " +
                     scaledSpeed + ".");
                 InGameAssert.ApproxEqual(scaledEmission, afterEmission,
                     scaledEmission * 0.001f + 0.0001f,

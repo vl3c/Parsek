@@ -158,7 +158,8 @@ namespace Parsek
                         j == row.Intervals.Count - 1 && row.Children.Count == 0,
                         true, selfExcluded, selfExcluded, false, false,
                         ctx, j > 0 ? row.Intervals[j - 1] : null,
-                        MissionVesselRowBuilder.IntervalDetailLabel(row, j, ctx.VesselNames));
+                        MissionVesselRowBuilder.IntervalDetailLabel(row, j, ctx.VesselNames),
+                        IntervalRowDrawsReFly(row, interval));
                     rows++;
                 }
             }
@@ -219,11 +220,11 @@ namespace Parsek
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
             bool hasChildren, bool collapsed,
-            RowDeriveContext ctx, MissionCompositionNode parent, string labelOverride = null)
+            RowDeriveContext ctx, MissionCompositionNode parent, string labelOverride = null,
+            bool drawReFly = false)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
-            // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
-            // shorter than a recordings row).
+            // too tightly (label-only cells alone measure shorter than a recordings row).
             GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
 
             // Blank enable slot (no per-row enable in missions) so the first column totals the
@@ -309,23 +310,40 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
             }
 
-            // Restore the normal colour before the actionable Re-Fly cell + the trailing Archive
-            // cell, so an excluded (greyed) interval's Fly / Seal buttons are not dimmed (the
-            // recording's re-fly state is independent of whether the interval is looped).
             GUI.color = prevColor;
 
-            // Interact (per-vessel Fly / Seal for unfinished-flight recordings). Only real
-            // (non-atom) rows map to a recording; resolve node.HeadLegId to its committed recording
-            // and reuse the recordings tab's Re-Fly cell (it shows Fly / Seal only when the
-            // recording is an unfinished flight, otherwise a blank cell). Atoms + unresolved rows
-            // get a blank Interact cell so the column stays aligned.
-            if (!node.IsAtom
+            // Interact: the Re-Fly cell only where the caller asks for it (IntervalRowDrawsReFly),
+            // else the blank cell, so the column stays aligned. A partner-journey row never draws
+            // one (it would Re-Fly another mission's recording from this mission; that mission's
+            // Go to is one click away), and an interval row draws one only when it is not a
+            // repeat of its vessel row's own button (owner decision 2026-11-22).
+            if (drawReFly && !node.IsAtom
                 && TryResolveCommittedRecording(node.HeadLegId, out int reFlyIdx, out Recording reFlyRec))
                 DrawInteractReFly(reFlyRec, reFlyIdx);
             else
                 DrawInteractBlank();
 
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Whether an interval detail row under <paramref name="row"/> draws its own Re-Fly cell.
+        /// Only an interval whose key is a bare recording id can resolve a recording (a later
+        /// interval's key is <c>&lt;head&gt;/segN</c> or <c>&lt;key&gt;@dockM</c>), and on an
+        /// ordinary row that id IS the vessel row's Interact target, so its Fly / Seal would
+        /// repeat the button one line up: those draw blank. A row stitched across an own-side
+        /// undock ends on its own post-undock head while its launch interval keeps the launch
+        /// head, a different recording no other row of the mission offers (Kerbal X #4 and
+        /// Duna Supply 1 on <c>interbody-route-recorded</c>), so that interval keeps its cell.
+        /// Pure.
+        /// </summary>
+        internal static bool IntervalRowDrawsReFly(MissionVesselRow row, MissionCompositionNode interval)
+        {
+            if (row == null || interval == null || interval.IsAtom
+                || string.IsNullOrEmpty(interval.HeadLegId))
+                return false;
+            string rowTarget = row.InteractHeadId ?? row.OwnerHeadId;
+            return !string.Equals(interval.HeadLegId, rowTarget, System.StringComparison.Ordinal);
         }
 
         // ---- chapter grouping (design-dock-event-graph.md 7.2) ----

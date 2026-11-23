@@ -21,6 +21,8 @@ Not released yet.
 
 ### Changed
 
+- **Missions: Clone and Delete are gone.** Each flight keeps one mission (an old copy is dropped
+  on load), and interval rows no longer repeat their vessel's Fly / Seal.
 - **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching keeps
   falling and explodes where it hits ground or sea, not in mid-air. (ABANDONED-STAGE-D1)
 - **Stages left under open parachutes come down and land.** The replay shows the stage under its
@@ -62,6 +64,10 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the
+  puffs at once, not at its next RCS change. (GHOST-RCS-DARK-AFTER-FX-SUPPRESSION)
+- **Ghost engines leave no smoke trail in space.** Their smoke thins out high up and is gone in
+  vacuum, as on the real engine. (GHOST-SMOKE-IN-VACUUM)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
   ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
 - **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above

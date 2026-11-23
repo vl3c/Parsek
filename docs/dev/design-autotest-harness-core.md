@@ -77,8 +77,9 @@ delivers the plan's daily cadence.
   seam commands each with the seam verdict the run REQUIRES to proceed, optionally
   plus an M-A3 autorun-batch env configuration. The `autopilot` driver kind is
   RESERVED for M-B1 and rejected by v1 spec validation.
-- **Automation instance**: a provisioned KSP directory (M-A6), one of two
-  profiles (`stock-minimal`, `modded-compat`), carrying a
+- **Automation instance**: a provisioned KSP directory (M-A6), one of the
+  profiles in `hlib.INSTANCE_PROFILES` (`stock-minimal`, `modded-compat`,
+  `stock-tree`, `modded-restock`), carrying a
   `provision-manifest.json` the harness admits against.
 - **Admission**: the pre-launch gate that compares the instance's provision
   manifest against the pins the harness expects (reusing the M-A6 pure
@@ -464,7 +465,7 @@ own `[expectations.logContracts]` does not declare (such a signature could never
 match, so the quarantine would silently stop absorbing its defect).
 
 Spec-validation rules (pure, `hlib.validate_spec`): `id` unique + filename-safe;
-`tier` in the enum; `instanceProfile` in `{stock-minimal, modded-compat}`;
+`tier` in the enum; `instanceProfile` in `hlib.INSTANCE_PROFILES`;
 `fixture.injectedRecordings` in `{none, all-synthetic}` (v1 value set; any other
 value rejected, per S4); `driver.kind == "seam"` (autopilot rejected); the FIRST
 step is a `LoadGame` (the boot handshake owner) whose `save` arg is exactly
@@ -1170,8 +1171,8 @@ its runner died. The same boundary refreshes the held slot locks; one no longer
 ours stops the selection `INVALID(slot-locked)`.
 
 **kRPC ports, stamped.** Ports are derived, never parsed: profile base
-(stock-minimal 50000, stock-tree 50020, modded-compat 50040) + `2*(k-1)` for
-RPC, + 1 for the stream. Before EVERY launch, serial or slot, run.py writes the
+(stock-minimal 50000, stock-tree 50020, modded-compat 50040, modded-restock
+50060) + `2*(k-1)` for RPC, + 1 for the stream. Before EVERY launch, serial or slot, run.py writes the
 golden kRPC settings with the instance's slot ports (`provlib.stamp_krpc_settings`,
 the bytes provisioning stamps; written only when they differ) and passes the
 same ports to the mission. It then refuses `INVALID(port-busy)` when either

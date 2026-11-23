@@ -107,7 +107,10 @@ namespace Parsek.Tests
             "  \"log\": [\"[Parsek][INFO][GhostVisual] built\"],\n" +
             "  \"stateProof\": null,\n" +
             "  \"structureStart\": null,\n" +
-            "  \"stowedCaseId\": null\n" +
+            "  \"stowedCaseId\": null,\n" +
+            "  \"fx\": null,\n" +
+            "  \"fxAtlas\": null,\n" +
+            "  \"strip\": null\n" +
             "}\n";
 
         [Fact]
