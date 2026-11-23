@@ -50,7 +50,7 @@ tier = "operator"
 #   - `readvesselresources ... match=false`: the unloaded write and the proto read disagree.
 #   - no `warp jump=` in phase C: the Tracking Station ladder never reached 10000x (driver).
 #
-# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), never flown. Todo
+# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), flown the same day. Todo
 # TEST-GAPS-BATCH4-CAREER. Operator by the calibration discipline until its first green flight.
 # =====================================================================================
 description = "IR-6's Tracking Station half: on rover-route-recorded (Tracking Station intro marked done, endpoint set so two deliveries fit) the rover route is created and activated in flight, the save is reloaded straight into the Tracking Station, and real warp runs there: 10x past one crossing (one unloaded delivery, tank 297.6), 10x past the next (tank 395.2), then 100000x across hundreds of periods (every fire BLOCKED DestinationFull, frames collapse into `warp jump=` fires). Gates the route ticking in the Tracking Station, one delivery per crossed cycle at moderate warp, the collapse rule at high warp, and the tank conserved at 395.2."

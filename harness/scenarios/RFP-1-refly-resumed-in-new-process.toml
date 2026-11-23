@@ -2,7 +2,7 @@ schema = 1
 id = "RFP-1-refly-resumed-in-new-process"
 # =====================================================================================
 # RFP-1: A RE-FLY SAVED MID-SESSION, RESUMED IN A NEW GAME PROCESS, THEN MERGED. Test-gap
-# list 2026-11-18, batch 4, item 4. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+# list 2026-11-18, batch 4, item 4. AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`).
 #
 # HOST `refly-midsession-saved`, harvested from FORGE-refly-midsession's first flight
 # (run `2026-11-23_2058`, PASS attempt 1; that spec's header carries the recipe).
@@ -30,7 +30,7 @@ tier = "nightly"
 description = "Re-Fly resumed in a new process (batch 4 item 4): boot the refly-midsession-saved fixture (a save written mid Re-Fly of rp_b9_root slot 1 by FORGE-refly-midsession) in a fresh KSP process; the Cold boot load restores the marker, the sweep keeps it valid, the recorder goes live on the provisional, the point and its file are there, and the attempt merges."
 instanceProfile = "stock-minimal"
 tags = ["RFP-1", "refly", "rewind", "save-file-load", "merge", "timeline-ops",
-        "pending-flight", "reading-run"]
+        "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/refly-midsession-saved"

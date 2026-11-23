@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 164 |
 | seam-only lanes | 538 |
-| LIVE-PROVEN date in status row | 563 |
-| no LIVE-PROVEN date | 139 |
+| LIVE-PROVEN date in status row | 582 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -51,7 +51,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CLK | 1 | - | 1 | - | - | - | 1 |
 | CN | 6 | - | 4 | 2 | - | - | 6 |
 | COM | 1 | - | 1 | - | - | 1 | 1 |
-| CPR | 1 | - | - | 1 | - | - | - |
+| CPR | 1 | - | - | 1 | - | - | 1 |
 | CS | 13 | - | - | 13 | - | 8 | 13 |
 | CT | 3 | - | - | 3 | - | - | 3 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
@@ -63,17 +63,17 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
 | FLY | 5 | - | 5 | - | - | - | 5 |
-| FORGE | 10 | - | - | 10 | - | 9 | 4 |
+| FORGE | 10 | - | - | 10 | - | 9 | 5 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
-| GM | 1 | - | - | 1 | - | - | - |
+| GM | 1 | - | - | 1 | - | - | 1 |
 | GPOS | 2 | - | - | 2 | - | 2 | 2 |
 | GS | 11 | - | 4 | 7 | - | 10 | 7 |
 | GUI | 28 | - | - | 28 | - | - | 4 |
 | H | 75 | 5 | 69 | 1 | - | - | 60 |
 | HC | 2 | - | 2 | - | - | 1 | 2 |
 | HV | 2 | - | 2 | - | - | - | 2 |
-| IR | 8 | - | 7 | 1 | - | - | 7 |
+| IR | 8 | - | 7 | 1 | - | - | 8 |
 | KB | 5 | 1 | 4 | - | - | - | 5 |
 | KD | 1 | - | - | 1 | - | 1 | 1 |
 | KSS | 2 | - | - | 2 | - | 1 | 2 |
@@ -86,7 +86,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | LT | 5 | - | 5 | - | - | - | 4 |
 | LX | 2 | - | - | 2 | - | - | 2 |
 | M | 3 | 2 | 1 | - | - | 1 | 3 |
-| MC | 7 | - | 3 | 4 | - | 1 | 4 |
+| MC | 7 | - | 3 | 4 | - | 1 | 6 |
 | MINE | 14 | - | 14 | - | - | - | 14 |
 | MS | 1 | - | 1 | - | - | - | 1 |
 | OC | 1 | - | 1 | - | - | - | 1 |
@@ -94,13 +94,13 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | PAD | 1 | - | 1 | - | - | - | 1 |
 | PADG | 1 | - | 1 | - | - | - | 1 |
 | PADX | 3 | - | - | 3 | - | - | 3 |
-| PBR | 1 | - | - | 1 | - | - | - |
+| PBR | 1 | - | - | 1 | - | - | 1 |
 | PP | 10 | - | - | 10 | - | - | 9 |
 | PPB | 3 | - | - | 3 | - | - | 3 |
 | PWR | 3 | - | 3 | - | - | 3 | 3 |
 | QL | 23 | - | 23 | - | - | 10 | 23 |
 | QR | 1 | - | 1 | - | - | - | 1 |
-| QTM | 1 | - | 1 | - | - | - | - |
+| QTM | 1 | - | 1 | - | - | - | 1 |
 | QWS | 1 | - | 1 | - | - | - | 1 |
 | R | 3 | - | 2 | 1 | - | 1 | 3 |
 | RB | 5 | - | 2 | 3 | - | 5 | 3 |
@@ -108,10 +108,10 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RCN | 1 | - | 1 | - | - | - | 1 |
 | REV | 1 | - | - | 1 | - | - | 1 |
 | RF | 32 | - | 2 | 30 | - | 15 | 30 |
-| RFK | 2 | - | - | 2 | - | - | - |
-| RFN | 2 | - | - | 2 | - | - | - |
-| RFP | 1 | - | 1 | - | - | - | - |
-| RFQ | 2 | - | 2 | - | - | - | - |
+| RFK | 2 | - | - | 2 | - | - | 2 |
+| RFN | 2 | - | - | 2 | - | - | 2 |
+| RFP | 1 | - | 1 | - | - | - | 1 |
+| RFQ | 2 | - | 2 | - | - | - | 2 |
 | RH | 1 | - | - | 1 | - | - | - |
 | RL | 1 | - | 1 | - | - | - | 1 |
 | RR | 1 | - | 1 | - | - | - | 1 |
@@ -127,7 +127,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SCI | 1 | - | - | 1 | - | 1 | 1 |
 | SD | 1 | - | - | 1 | - | 1 | 1 |
 | SE | 1 | - | 1 | - | - | - | 1 |
-| SEAT | 4 | - | 3 | 1 | - | - | 3 |
+| SEAT | 4 | - | 3 | 1 | - | - | 4 |
 | SH | 1 | - | - | 1 | - | - | 1 |
 | SLM | 3 | - | - | 3 | - | - | 3 |
 | SN | 1 | - | 1 | - | - | - | 1 |
@@ -135,12 +135,12 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SPW | 11 | - | - | 11 | - | - | 11 |
 | SRV | 3 | - | - | 3 | - | - | 3 |
 | SS | 1 | - | 1 | - | - | - | - |
-| SSC | 1 | - | - | 1 | - | - | - |
+| SSC | 1 | - | - | 1 | - | - | 1 |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
 | SUB | 3 | - | - | 3 | - | 3 | 3 |
 | SURV | 2 | - | 2 | - | - | - | 2 |
-| SWC | 2 | - | - | 2 | - | - | - |
+| SWC | 2 | - | - | 2 | - | - | 2 |
 | SWS | 1 | - | - | 1 | - | - | 1 |
 | TL | 1 | - | 1 | - | - | - | 1 |
 | TOUR | 1 | - | 1 | - | - | - | 1 |
@@ -356,8 +356,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 449 | 133 | 366 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +95 |
-| Mun | 72 | 15 | 58 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +15 |
+| Kerbin | 449 | 133 | 378 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +95 |
+| Mun | 72 | 15 | 62 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +15 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
@@ -373,7 +373,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 11 | - | 7 | TP 6, V 4, ASR 1 |
-| (none derived) | 166 | 6 | 134 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 7, VN 6, L 5, CN 4 +27 |
+| (none derived) | 166 | 6 | 141 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 7, VN 6, L 5, CN 4 +27 |
 
 ## Lanes per timeline operation
 
@@ -648,7 +648,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SealSlot | 43 | RVR 15, IR 7, H 5, GUI 3, RF 3, MINE 2, AST 1, QL 1, RB 1, RCN 1 +4 |
 | ExportRenderManifest | 42 | V 39, B 1, FAR 1, H 1 |
 | RouteCommand | 40 | RVR 15, IR 8, H 5, GUI 4, MINE 2, AST 1, RCN 1, RS 1, RSF 1, SSC 1 +1 |
-| KscMarkerRecover | 30 | RW 16, RSQ 4, CT 2, WTT 2, CI 1, CPR 1, EVA 1, RS 1, SSC 1, STR 1 |
+| KscMarkerRecover | 29 | RW 16, RSQ 4, CT 2, WTT 2, CI 1, CPR 1, EVA 1, RS 1, STR 1 |
 | DumpGuiTree | 27 | GUI 26, RSC 1 |
 | ReadVesselResources | 24 | MINE 13, IR 5, LAB 3, AST 1, RC 1, RCN 1 |
 | EnterWatchMode | 20 | V 11, AP 1, FAR 1, GUI 1, LX 1, MC 1, MINE 1, RF 1, W 1, WDK 1 |
@@ -1073,7 +1073,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| CPR-1-contract-parameter-paid-once-after-rewind | operator | cs-career-new | seam | Kerbin | rewind-to-launch, save, warp, scene-change | LedgerGroundTruth | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| CPR-1-contract-parameter-paid-once-after-rewind | operator | cs-career-new | seam | Kerbin | rewind-to-launch, save, warp, scene-change | LedgerGroundTruth | LIVE-PROVEN 2026-11-23 |
 
 ### CS (13)
 
@@ -1130,7 +1130,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | EVA-14-foreign-board-claim-rewind | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-10-25 |
 | EVA-15-orbiting-eva-deferred-spawn | nightly | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-10-24 |
 | EVA-16-construction-drop-foreign-part | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-01 |
-| EVA-17-orbit-jetpack-hop-rewind | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | FlightGhostPosition | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| EVA-17-orbit-jetpack-hop-rewind | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | FlightGhostPosition | RED BY FINDING 2026-11-23: 2026-11-23_211... |
 | EVA-2-orbital-board | daily | eva2-lko-crewed | seam | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
 | EVA-3-multi-kerbal | nightly | eva3-pad-3crew | seam | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
 | EVA-4-atmo-chute | nightly | b1-pad-craft | eva4_atmo_chute | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
@@ -1199,7 +1199,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | FORGE-gs2-orbital-stack | operator | bdock-forge-base | forge_lko | Kerbin | save | - | FIXTURE-FORGE, not a coverage flight. The... |
 | FORGE-logi-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | forge mechanism |
 | FORGE-psub-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | LIVE-PROVEN 2026-11-18 |
-| FORGE-refly-midsession | operator | gloops-airshow +inj rewind-b9 | seam | - | re-fly, save, time-jump | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| FORGE-refly-midsession | operator | gloops-airshow +inj rewind-b9 | seam | - | re-fly, save, time-jump | - | LIVE-PROVEN 2026-11-23 |
 
 ### FXR (1)
 
@@ -1218,7 +1218,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| GM-1-scenario-saves-inert | operator | gm-scenario-modes | seam | - | reload, save | - | AUTHORED 2026-11-23, NEVER FLOWN; stock-m... |
+| GM-1-scenario-saves-inert | operator | gm-scenario-modes | seam | - | reload, save | - | LIVE-PROVEN 2026-11-23 |
 
 ### GPOS (2)
 
@@ -1381,7 +1381,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | IR-3-route-refly-discard-merge | nightly | rover-route-recorded | seam | - | re-fly, revert, reload, save, warp +1 | - | LIVE-PROVEN 2026-10-31 |
 | IR-5-mun-route-dispatch-delivery | nightly | interbody-route-recorded | seam | Mun | save, warp | - | LIVE-PROVEN 2026-10-16 |
 | IR-6-route-warp-across-cycles | nightly | rover-route-recorded | seam | - | reload, save, warp, scene-change | - | LIVE-PROVEN 2026-11-01 |
-| IR-6T-route-warp-in-tracking-station | operator | rover-route-recorded | seam | - | reload, save, warp, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| IR-6T-route-warp-in-tracking-station | operator | rover-route-recorded | seam | - | reload, save, warp, scene-change | - | LIVE-PROVEN 2026-11-23 |
 
 ### KB (5)
 
@@ -1515,8 +1515,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | MC-3-better-time-warp | nightly | mun-park-kerbalx | seam | Mun | - | - | PROMOTED 2026-09-15 by operator decision;... |
 | MC-4-making-history-desert | operator | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-25 |
 | MC-5-persistent-rotation | operator | mun-park-kerbalx | seam | Mun | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
-| MC-6-route-rewind-timeline-modded | operator | gloops-airshow | seam | - | - | RouteRewindTimeline | AUTHORED 2026-11-23, NEVER FLOWN; modded-... |
-| MC-7-rewind-merge-modded | operator | gloops-airshow +inj rewind-b9 | seam | - | re-fly, time-jump | - | AUTHORED 2026-11-23, NEVER FLOWN; modded-... |
+| MC-6-route-rewind-timeline-modded | operator | gloops-airshow | seam | - | - | RouteRewindTimeline | LIVE-PROVEN 2026-11-23 |
+| MC-7-rewind-merge-modded | operator | gloops-airshow +inj rewind-b9 | seam | - | re-fly, time-jump | - | LIVE-PROVEN 2026-11-23 |
 
 ### MINE (14)
 
@@ -1579,7 +1579,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| PBR-1-panel-wheel-break-ghost | operator | pbr-break-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | - | AUTHORED 2026-11-23, NEVER FLOWN; stock-m... |
+| PBR-1-panel-wheel-break-ghost | operator | pbr-break-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-23 |
 
 ### PP (10)
 
@@ -1650,7 +1650,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| QTM-1-quit-to-main-menu-commits-flight | nightly | eva2-lko-crewed | seam | Kerbin | reload, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| QTM-1-quit-to-main-menu-commits-flight | nightly | eva2-lko-crewed | seam | Kerbin | reload, scene-change | - | LIVE-PROVEN 2026-11-23 |
 
 ### QWS (1)
 
@@ -1737,28 +1737,28 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RFK-1-ksc-purchases-before-refly-merge | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | LedgerGroundTruth | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
-| RFK-2-ksc-purchases-before-refly-discard | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | LedgerGroundTruth | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| RFK-1-ksc-purchases-before-refly-merge | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | LedgerGroundTruth | LIVE-PROVEN 2026-11-23 |
+| RFK-2-ksc-purchases-before-refly-discard | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | LedgerGroundTruth | LIVE-PROVEN 2026-11-23 |
 
 ### RFN (2)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RFN-1-refly-nested-separation-merge-f9 | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
-| RFN-2-refly-nested-separation-discard | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, warp, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| RFN-1-refly-nested-separation-merge-f9 | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, reload, save, warp, scene-change | - | LIVE-PROVEN 2026-11-23 |
+| RFN-2-refly-nested-separation-discard | operator | cs-career-mun4 | seam | Kerbin, Mun | re-fly, warp, scene-change | - | LIVE-PROVEN 2026-11-23 |
 
 ### RFP (1)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RFP-1-refly-resumed-in-new-process | nightly | refly-midsession-saved | seam | Kerbin | - | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| RFP-1-refly-resumed-in-new-process | nightly | refly-midsession-saved | seam | Kerbin | - | - | LIVE-PROVEN 2026-11-23 |
 
 ### RFQ (2)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RFQ-1-refly-quit-without-saving-keeps-dialog | nightly | gloops-airshow +inj rewind-b9 | seam | Kerbin | re-fly, time-jump, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
-| RFQ-2-refly-quit-to-main-menu-merge | nightly | gloops-airshow +inj rewind-b9 | seam | - | re-fly, reload, time-jump, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| RFQ-1-refly-quit-without-saving-keeps-dialog | nightly | gloops-airshow +inj rewind-b9 | seam | Kerbin | re-fly, time-jump, scene-change | - | LIVE-PROVEN 2026-11-23 |
+| RFQ-2-refly-quit-to-main-menu-merge | nightly | gloops-airshow +inj rewind-b9 | seam | - | re-fly, reload, time-jump, scene-change | - | LIVE-PROVEN 2026-11-23 |
 
 ### RH (1)
 
@@ -1923,7 +1923,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | SEAT-1-seat-dismount-eva | nightly | seat-pad | seam | Kerbin | save, warp, scene-change | - | LIVE-PROVEN 2026-10-24 |
 | SEAT-2-seat-occupant-survives-spawn | nightly | seat-rover-pad | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | LIVE-PROVEN 2026-10-25 |
 | SEAT-3-foreign-seat-claim-rewind | nightly | seat-rover-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-10-25 |
-| SEAT-4-seat-replay-kerbal-visibility | operator | seat-pad | seam | Kerbin | rewind-to-launch, warp, scene-change | SeatGhostKerbal | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| SEAT-4-seat-replay-kerbal-visibility | operator | seat-pad | seam | Kerbin | rewind-to-launch, warp, scene-change | SeatGhostKerbal | LIVE-PROVEN 2026-11-23 |
 
 ### SH (1)
 
@@ -1987,7 +1987,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SSC-1-sealed-split-chain-route-gate | operator | rover-route-recorded | seam | - | save, warp, scene-change | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| SSC-1-sealed-split-chain-route-gate | operator | rover-route-recorded | seam | - | save, warp, scene-change | - | LIVE-PROVEN 2026-11-23 |
 
 ### ST (4)
 
@@ -2026,8 +2026,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SWC-1-map-switch-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
-| SWC-2-cycle-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| SWC-1-map-switch-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | LIVE-PROVEN 2026-11-23 |
+| SWC-2-cycle-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | LIVE-PROVEN 2026-11-23 |
 
 ### SWS (1)
 
@@ -2182,7 +2182,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| WDK-1-watch-across-bdock-dock-undock | operator | bdock-recorded | seam | Kerbin | warp, time-jump | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| WDK-1-watch-across-bdock-dock-undock | operator | bdock-recorded | seam | Kerbin | warp, time-jump | - | RED ON A LANE SHAPE 2026-11-23: 2026-11-2... |
 
 ### WF (1)
 

@@ -2,7 +2,7 @@ schema = 1
 id = "MC-6-route-rewind-timeline-modded"
 # =====================================================================================
 # MC-6: H6's route x rewind batch on the modded-compat install (todo
-# TEST-GAPS-B4-MODDED-TWINS; test-gap list batch 4, AUTHORED 2026-11-23, NEVER FLOWN).
+# TEST-GAPS-B4-MODDED-TWINS; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
 #
 # WHY. Every supply-route and Re-Fly lane flies stock-minimal / stock-tree; the modded-compat
 # install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation,
@@ -20,7 +20,7 @@ id = "MC-6-route-rewind-timeline-modded"
 # FAST-LANE CHECKLIST: H6's shape (one load, one batch, no flight); retry `once`; operator
 # until measured (the modded install is not in the nightly instance set).
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN: H6's RouteRewindTimeline in-game category run unchanged on the modded-compat install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation) on gloops-airshow; the route-rewind lifecycle rows, dormant materialize, kept-route reconcile and auto-pause / resume nets must hold with the mods loaded."
+description = "AUTHORED AND FLOWN 2026-11-23: H6's RouteRewindTimeline in-game category run unchanged on the modded-compat install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation) on gloops-airshow; the route-rewind lifecycle rows, dormant materialize, kept-route reconcile and auto-pause / resume nets must hold with the mods loaded."
 instanceProfile = "modded-compat"
 tags = ["route", "rewind", "logistics", "route-x-rewind", "timeline-events", "MC-6", "modded-compat", "twin-of-H6", "flown"]
 

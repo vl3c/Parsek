@@ -43,9 +43,9 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 #   Takes the flight camera (watch mode) but no mouse: keep it off a shared desktop focus.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: loop playback of tree 2 (Kerbal X #2), a jump to UT 90720, watch mode entered on the tree, then a 1x warp across the replayed dock (about 90840.3) and undock (about 90841.6). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity line and the undock decision line."
+description = "AUTHORED AND FLOWN 2026-11-23 (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: loop playback of tree 2 (Kerbal X #2), a jump to UT 90720, watch mode entered on the tree, then a 1x warp across the replayed dock (about 90840.3) and undock (about 90841.6). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity line and the undock decision line."
 instanceProfile = "stock-minimal"
-tags = ["WDK1", "watch", "docking", "loop-playback", "flight-view", "pending-flight"]
+tags = ["WDK1", "watch", "docking", "loop-playback", "flight-view", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/bdock-recorded"

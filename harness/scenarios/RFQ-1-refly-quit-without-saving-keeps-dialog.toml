@@ -3,7 +3,7 @@ id = "RFQ-1-refly-quit-without-saving-keeps-dialog"
 # =====================================================================================
 # RFQ-1: STOCK "QUIT WITHOUT SAVING" OUT OF A LIVE RE-FLY. Test-gap list 2026-11-18,
 # Medium "Quit to main menu, or Quit without saving, during a Re-Fly", half (a). Batch 4,
-# AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+# AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`). Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
 #
 # In gameplay terms: the player re-flies the crashed booster of the B9 split, opens the Esc
 # menu and presses "Quit without saving". QWS-1 proves that button drops a plain live flight

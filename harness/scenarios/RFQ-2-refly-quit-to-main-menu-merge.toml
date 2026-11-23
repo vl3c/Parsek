@@ -4,7 +4,7 @@ id = "RFQ-2-refly-quit-to-main-menu-merge"
 # RFQ-2: STOCK "QUIT TO MAIN MENU" OUT OF A LIVE RE-FLY, THEN THE SAVE LOADED BACK FROM THE
 # MAIN MENU. Test-gap list 2026-11-18, Medium "Quit to main menu, or Quit without saving,
 # during a Re-Fly", half (b), the Re-Fly variant (the live-recording variant is QTM-1). Batch
-# 4, AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+# 4, AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`). Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
 #
 # In gameplay terms: the player re-flies the crashed booster of the B9 split, opens the Esc
 # menu and presses "Quit to Main Menu". Leaving flight under auto-merge commits a plain live

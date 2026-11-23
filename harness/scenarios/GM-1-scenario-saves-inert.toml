@@ -2,7 +2,7 @@ schema = 1
 id = "GM-1-scenario-saves-inert"
 # =====================================================================================
 # GM-1: PARSEK STAYS INERT IN A STOCK SCENARIO SAVE AND A STOCK TRAINING SAVE (todo
-# TEST-GAPS-B4-INERT-GAME-MODES; test-gap list batch 4, AUTHORED 2026-11-23, NEVER FLOWN).
+# TEST-GAPS-B4-INERT-GAME-MODES; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
 #
 # WHY. ParsekGameModeGate (owner ruling S9) holds Parsek inert in every game mode but
 # SANDBOX, CAREER and SCIENCE_SANDBOX: no recording, ghosts, map presence, rewind, ledger
@@ -46,9 +46,9 @@ id = "GM-1-scenario-saves-inert"
 # FAST-LANE CHECKLIST: no warps, no burns; three loads and two saves. retry `once` for a new
 # fixture. operator until measured; daily candidate after its first green flight (cheap).
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN: a stock training save (SCENARIO_NON_RESUMABLE, no Parsek node) and a stock scenario save (SCENARIO, carrying a Parsek node) loaded into FLIGHT; Parsek must log the inert game mode for each, refuse to record, run no ParsekScenario load or save logic and no backup, and write the scenario save's Parsek node back verbatim across a save and a reload."
+description = "AUTHORED AND FLOWN 2026-11-23: a stock training save (SCENARIO_NON_RESUMABLE, no Parsek node) and a stock scenario save (SCENARIO, carrying a Parsek node) loaded into FLIGHT; Parsek must log the inert game mode for each, refuse to record, run no ParsekScenario load or save logic and no backup, and write the scenario save's Parsek node back verbatim across a save and a reload."
 instanceProfile = "stock-minimal"
-tags = ["GM-1", "game-mode-gate", "inert", "scenario-save", "training-save", "pending-flight"]
+tags = ["GM-1", "game-mode-gate", "inert", "scenario-save", "training-save", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gm-scenario-modes"
@@ -115,7 +115,7 @@ forbidden = [
 budgetSeconds = 1200
 
 [retry]
-policy = "once"
+policy = "none"
 
 [expectedFail]
 bugId = ""

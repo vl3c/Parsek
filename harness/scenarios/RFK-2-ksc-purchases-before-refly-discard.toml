@@ -5,7 +5,7 @@ id = "RFK-2-ksc-purchases-before-refly-discard"
 # RE-FLY. Test-gap list 2026-11-18, batch 4, item 3; RFK-1 is the merge twin, and its header
 # (rule, plan, dropped part purchase) holds here with Discard in place of Merge. A Discard
 # removes the attempt's own rows (design 2.12 Rule 3) and must leave every Space Center row
-# alone. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+# alone. AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`).
 #
 # In gameplay terms: the player drops a probe stand on the pad (a rewind point) and commits
 # the flight, goes to the Space Center, upgrades the runway, repairs a building they knocked
@@ -55,7 +55,7 @@ description = "Re-Fly after Space Center purchases (batch 4 item 3, discard): on
 instanceProfile = "stock-tree"
 tags = ["RFK-2", "RFK-1", "career", "ledger", "rewind", "refly", "facility-upgrade", "facility-repair",
         "demolish", "dismissal", "discard-refly", "editor", "ground-truth", "ingame-batch",
-        "timeline-ops", "pending-flight", "reading-run"]
+        "timeline-ops", "flown", "reading-run"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"

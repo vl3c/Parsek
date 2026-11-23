@@ -5,7 +5,7 @@ id = "RFN-1-refly-nested-separation-merge-f9"
 # BEFORE THAT SEPARATION DROPS IT, A REPEATED SEPARATION AUTHORS A FRESH ONE, AND THE MERGE
 # PROMOTES IT. Test-gap list 2026-11-18, batch 4, item 2 ("a separation inside a Re-Fly"),
 # cases (a) merge and (c) F9 to before the staging; case (b) discard is RFN-2. RF-14's header
-# names this shape as not driven. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+# names this shape as not driven. AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`).
 #
 # In gameplay terms: the player launches a craft with two probe stands, drops one on the pad
 # (a rewind point), commits, re-flies the remaining craft, presses F5, drops the second stand
@@ -51,7 +51,7 @@ tier = "operator"
 description = "Re-Fly nested separation (batch 4 item 2, cases a and c): on cs-career-mun4 a CS Flea Twin Probe drops stand A on the pad (a rewind point) and is committed with its Flea slot stashed; a Re-Fly of that slot takes an F5, drops stand B (a nested session-provisional rewind point), F9s back to the F5 (the nested point is gone), drops stand B again (a fresh nested point) and merges, which promotes the nested point (TagRpsForReap fromSession=1)."
 instanceProfile = "stock-tree"
 tags = ["RFN-1", "career", "rewind", "refly", "nested-rewind-point", "quickload",
-        "save-file-load", "merge", "editor", "timeline-ops", "pending-flight", "reading-run"]
+        "save-file-load", "merge", "editor", "timeline-ops", "flown", "reading-run"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"
