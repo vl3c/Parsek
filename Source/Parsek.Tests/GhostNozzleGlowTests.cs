@@ -437,6 +437,175 @@ namespace Parsek.Tests
             Assert.Equal((double)0.5f, g.initialRamp, 3);
         }
 
+        // A 40 s ramp whose engine the split's parent recorded; startsAt is the recording's start
+        // and the UT its snapshot was taken at.
+        private NozzleGlowInfo AtSplit(
+            Recording child, bool running, Func<Recording, Recording> predecessorOf,
+            Func<Recording, Recording> splitParentOf, double snapshotUT = double.NaN)
+        {
+            NozzleGlowInfo g = Ramp(0.025f, true, initialState: running ? 1f : 0f, animState: running);
+            g.initialUT = double.IsNaN(snapshotUT) ? child.StartUT : snapshotUT;
+            GhostPlaybackLogic.BindNozzleGlows(StateOf(g), child, predecessorOf, splitParentOf);
+            return g;
+        }
+
+        private static GhostPlaybackState StateOf(params NozzleGlowInfo[] glows)
+            => new GhostPlaybackState
+            {
+                heatInfos = new Dictionary<uint, HeatGhostInfo>
+                {
+                    [Pid] = new HeatGhostInfo { partPersistentId = Pid, nozzleGlows = new List<NozzleGlowInfo>(glows) },
+                },
+            };
+
+        // The ordinary staging: a booster that burned 20 s is dropped with its engine off. The
+        // snapshot's switch is off (cold), the real bell is half hot and cools.
+        [Fact]
+        public void Split_ADroppedStageStartsAsWarmAsItsBurnLeftIt()
+        {
+            Recording parent = Row(100.0, 500.0,
+                Evt(PartEventType.EngineShutdown, 100.0), Evt(PartEventType.EngineIgnited, 100.0, 1f),
+                Evt(PartEventType.EngineShutdown, 120.0), Evt(PartEventType.EngineIgnited, 300.0, 1f));
+            Recording child = Row(124.0, 200.0, Evt(PartEventType.EngineShutdown, 124.0));
+            NozzleGlowInfo g = AtSplit(child, false, r => null, r => r == child ? parent : null);
+            Assert.Equal((double)0.4f, g.initialRamp, 3);
+            Assert.Equal((double)0.4f, g.writtenLevel, 3);
+            GhostPlaybackState state = StateOf(g);
+            GhostPlaybackLogic.BindNozzleGlows(state, child, r => null, r => r == child ? parent : null);
+            Apply(state, child.PartEvents[0]);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
+            Assert.Equal((double)0.25f, g.writtenLevel, 3);
+            Assert.Contains(logLines, l => l.Contains("[GhostFx]") && l.Contains("Nozzle glow at a split")
+                && l.Contains("rows=1 ramps=1/1") && l.Contains("headUT=100.0 splitUT=124.0"));
+        }
+
+        // The reported case: a split in the middle of a burn. The snapshot's switch is on (hot end).
+        [Fact]
+        public void Split_ARunningEngineStartsWhereItsRampStood()
+        {
+            Recording parent = Row(100.0, 500.0,
+                Evt(PartEventType.EngineShutdown, 100.0), Evt(PartEventType.EngineIgnited, 110.0, 1f));
+            Recording child = Row(120.0, 200.0, Evt(PartEventType.EngineIgnited, 120.0, 1f));
+            NozzleGlowInfo g = AtSplit(child, true, r => null, r => r == child ? parent : null);
+            Assert.Equal((double)0.25f, g.initialRamp, 3);
+            // The setter's level is persisted as it stood; only the ramp is not.
+            Assert.Equal(1f, g.initialLevel);
+            // The level counts from the snapshot, taken a little after the split.
+            g = AtSplit(child, true, r => null, r => r == child ? parent : null, snapshotUT: 121.0);
+            Assert.Equal((double)0.275f, g.initialRamp, 3);
+        }
+
+        // The parent is a row the optimizer cut, and it was itself dropped: the line goes back
+        // through the cut and the earlier split to the launch.
+        [Fact]
+        public void Split_TheLineGoesBackThroughCutsAndEarlierSplits()
+        {
+            Recording launch = Row(100.0, 110.0,
+                Evt(PartEventType.EngineShutdown, 100.0), Evt(PartEventType.EngineIgnited, 102.0, 1f));
+            Recording head = Row(110.0, 114.0);
+            Recording cut = Row(114.0, 300.0);
+            Recording child = Row(118.0, 200.0);
+            Func<Recording, Recording> before = r => r == cut ? head : null;
+            Func<Recording, Recording> splitOf = r => r == child ? cut : r == head ? launch : null;
+            Assert.Equal(new[] { launch, head, cut }, GhostPlaybackLogic.CollectNozzleGlowSplitLine(child, before, splitOf));
+            Assert.Equal((double)0.4f, AtSplit(child, true, before, splitOf).initialRamp, 3);
+
+            // A cut of the child: its snapshot is the child's, so the split settles the child first.
+            Recording tail = Row(138.0, 200.0);
+            NozzleGlowInfo g = Ramp(0.025f, true, initialState: 1f, animState: true);
+            g.initialUT = 118.0;
+            child.PartEvents.Add(Evt(PartEventType.EngineIgnited, 118.0, 1f));
+            GhostPlaybackLogic.BindNozzleGlows(StateOf(g), tail, r => r == tail ? child : before(r), splitOf);
+            Assert.Equal((double)0.9f, g.initialRamp, 3);
+        }
+
+        // What the events do not tell keeps the snapshot's end, as stock's own load does.
+        [Fact]
+        public void Split_WithoutTheEventsTheSnapshotsSwitchStands()
+        {
+            Recording child = Row(120.0, 200.0);
+            Recording empty = Row(100.0, 500.0);
+            Recording other = Row(100.0, 500.0, Evt(PartEventType.EngineIgnited, 110.0, 1f, pid: Pid + 1));
+            Recording later = Row(100.0, 500.0, Evt(PartEventType.EngineIgnited, 130.0, 1f));
+            foreach (Recording parent in new[] { null, empty, other, later })
+            {
+                Assert.Equal(1f, AtSplit(child, true, r => null, r => r == child ? parent : null).initialRamp);
+                Assert.Equal(0f, AtSplit(child, false, r => null, r => r == child ? parent : null).initialRamp);
+            }
+            // No split at all, and the same without a lookup.
+            Assert.Equal(1f, AtSplit(child, true, r => null, r => null).initialRamp);
+            Assert.Equal(1f, AtSplit(child, true, r => null, null).initialRamp);
+        }
+
+        // The line's first row begins with the engine running: its snapshot starts at the hot end.
+        // An engine lit later than the seeds was cold.
+        [Theory]
+        [InlineData(99.98, 0.75f)]
+        [InlineData(100.18, 0.75f)]
+        [InlineData(102.0, 0f)]
+        public void Split_AnEngineSeededRunningStartsHotInTheLinesFirstRow(double litUT, float expected)
+        {
+            Recording child = Row(120.0, 200.0);
+            Recording head = Row(100.0, 500.0,
+                Evt(PartEventType.EngineIgnited, litUT, 1f), Evt(PartEventType.EngineShutdown, 110.0));
+            Assert.Equal((double)expected, AtSplit(child, false, r => null, r => r == child ? head : null).initialRamp, 3);
+        }
+
+        // A clip's level is persisted whole, so a split changes nothing for it.
+        [Fact]
+        public void Split_AClipKeepsItsPersistedLevel()
+        {
+            NozzleGlowInfo clip = Glow(false, BellRate, 1f, 0);
+            clip.initialLevel = 0.3f;
+            clip.initialUT = 124.0;
+            NozzleGlowInfo ramp = Ramp(0.025f, true);
+            ramp.initialUT = 124.0;
+            Recording parent = Row(100.0, 500.0,
+                Evt(PartEventType.EngineIgnited, 100.0, 1f), Evt(PartEventType.EngineShutdown, 120.0));
+            Recording child = Row(124.0, 200.0);
+            GhostPlaybackLogic.BindNozzleGlows(StateOf(clip, ramp), child, r => null, r => r == child ? parent : null);
+            Assert.Equal(0.3f, clip.initialLevel);
+            Assert.Equal(0.3f, clip.startLevel);
+            Assert.Equal(124.0, clip.startUT);
+            Assert.Equal((double)0.9f, ramp.initialRamp, 3);
+        }
+
+        [Theory]
+        [InlineData(BranchPointType.Undock, null, 1, true)]
+        [InlineData(BranchPointType.EVA, null, 1, true)]
+        [InlineData(BranchPointType.JointBreak, null, 1, true)]
+        [InlineData(BranchPointType.Breakup, "", 1, true)]
+        // Two parents, or a start no split made.
+        [InlineData(BranchPointType.JointBreak, null, 2, false)]
+        [InlineData(BranchPointType.Dock, null, 1, false)]
+        [InlineData(BranchPointType.Board, null, 1, false)]
+        [InlineData(BranchPointType.Launch, null, 1, false)]
+        [InlineData(BranchPointType.VesselSwitchContinuation, null, 1, false)]
+        // A Re-Fly attempt's vessel was loaded from the rewind point.
+        [InlineData(BranchPointType.JointBreak, "sess", 1, false)]
+        public void Split_OnlyAVesselThatCameOutOfOneIsNotReloaded(
+            BranchPointType type, string session, int parents, bool expected)
+        {
+            var parent = new Recording { RecordingId = "p0" };
+            var child = new Recording { RecordingId = "c", ParentBranchPointId = "bp", CreatingSessionId = session };
+            var bp = new BranchPoint { Id = "bp", Type = type };
+            var tree = new RecordingTree { Id = "t" };
+            for (int i = 0; i < parents; i++) bp.ParentRecordingIds.Add("p" + i);
+            tree.BranchPoints.Add(bp);
+            tree.Recordings["p0"] = parent;
+            tree.Recordings["c"] = child;
+            Assert.Same(expected ? parent : null, GhostPlaybackLogic.ResolveNozzleGlowSplitParent(child, tree));
+            Assert.Null(GhostPlaybackLogic.ResolveNozzleGlowSplitParent(child, null));
+            Assert.Null(GhostPlaybackLogic.ResolveNozzleGlowSplitParent(null, tree));
+            Assert.Null(GhostPlaybackLogic.ResolveNozzleGlowSplitParent(parent, tree));
+        }
+
+        [Fact]
+        public void Wiring_AGhostSpawnLooksForTheSplit()
+            => Assert.Contains(
+                "BindNozzleGlows(state, traj, RecordingChainQueries.GetChainPredecessor, GetNozzleGlowSplitParent);",
+                Source("GhostPlaybackLogic.NozzleGlow.cs"));
+
         [Fact]
         public void Driver_NamesAreSplitAndTrimmed_AndTheFirstOneThatNamesTheModuleWins()
         {
