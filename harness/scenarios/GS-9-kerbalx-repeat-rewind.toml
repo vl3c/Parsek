@@ -189,7 +189,7 @@ id = "GS-9-kerbalx-repeat-rewind"
 # 140.84). It red on the quit teardown alone: the core's cycle-2 ghost logged
 # `reason=engine teardown` after `flushandquit: Application.Quit`, so destroyLines read 16,
 # Probe 2, and the live-at-quit token and the cycle-2 census missed. All four now accept that
-# one line or its absence, and `_1133` evaluates clean offline; NOT RE-FLOWN on these pins.
+# one line or its absence, and `_1133` evaluates clean offline; RE-FLOWN PASS `2026-11-23_2007`.
 # =====================================================================================
 tier = "nightly"
 description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts (re-pinned 8 / 16 / 15-or-16 on 2026-11-23: the dropped core's predicted fall outlives both cycles, so its last ghost is live at quit and the quit teardown may log one more destroy). LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."
@@ -342,7 +342,10 @@ count = { min = 8, max = 8 }
 #     last track section (GhostPlaybackEngine.LogParentAnchoredPredictedTailDrawn);
 #   - exactly six `Stock FXMonger.Explode for ghost #<i> "Kerbal X Debris" at` lines per
 #     cycle, bracketed like GROUP 7: each booster explodes at its predicted impact;
-#   - forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
+#   - forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending;
+#   - forbidden, flown clean `2026-11-23_2007` (todo DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE): a frame that moves
+#     a ghost 100 m or more where its own speed predicts under 10 m, the GS-8 gate. `_1133`
+#     carries exactly 24 (two per booster per cycle) and `_0850` 12, all of them that defect.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -404,7 +407,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
 # prints it.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "Rewind save file missing",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint",
+             "phase=AfterUpdate [^\\r\\n]*reason=large-delta [^\\r\\n]* dM=[0-9]{3,}\\.[0-9]+ expectedDM=[0-9]\\.[0-9]+ "]
 
 # ARMED 2026-09-10 off the reading run `2026-09-10_1944`, which measured spawned=8
 # (distinct recIds - both replays are of the SAME committed recordings), spawnLines=16

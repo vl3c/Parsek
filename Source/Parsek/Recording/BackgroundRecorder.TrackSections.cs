@@ -494,11 +494,10 @@ namespace Parsek
 
         /// <summary>
         /// An event-driven frame (a structural snapshot at a joint break, a boundary point)
-        /// can be committed while the vessel is still out of range, and the section can close
-        /// in the same event chain (debris that hits the ground and is destroyed) before any
-        /// in-range tick ends the silence. A window still open at a commit means every tick
-        /// since it opened was skipped for range, so it ends at that frame; a seed carrying a
-        /// UT not after the silence start leaves it open.
+        /// can be committed while the vessel still rests past the sampling range, and the
+        /// section can close in the same event chain before any sampled tick ends the silence.
+        /// A window still open at a commit means every tick since it opened was skipped, so it
+        /// ends at that frame; a seed carrying a UT not after the silence start leaves it open.
         /// </summary>
         private static void CloseProximitySilenceAtCommittedFrame(BackgroundVesselState state)
         {
@@ -513,8 +512,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Opens a sampling silence at the first tick the vessel is skipped for being out of
-        /// proximity range (later skipped ticks extend the same silence).
+        /// Opens a sampling silence at the first tick the vessel is skipped for resting past the
+        /// sampling range (later skipped ticks extend the same silence).
         /// </summary>
         private static void NoteProximitySilenceTick(BackgroundVesselState state, double ut)
         {
@@ -528,10 +527,10 @@ namespace Parsek
 
         /// <summary>
         /// Closes an open proximity silence at the first tick the vessel is no longer
-        /// skipped for range (or at a frame committed while still out of range, see
+        /// skipped (or at a frame committed while it still rests there, see
         /// <see cref="CloseProximitySilenceAtCommittedFrame"/>), so the section-close gap check
-        /// excuses exactly the out-of-range time: an in-range stall after the return stays
-        /// outside the window and still WARNs.
+        /// excuses exactly the resting time: a stall after the return stays outside the window
+        /// and still WARNs.
         /// </summary>
         private static void CloseProximitySilence(BackgroundVesselState state, double endUT)
         {
