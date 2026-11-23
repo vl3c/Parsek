@@ -575,7 +575,7 @@ namespace Parsek
                 GUILayout.Space(Mathf.Max(0, row.Depth) * IndentPerDepth);
                 DrawCaretSlot(row);
                 GUILayout.Label(new GUIContent(row.Element ?? "", hover), ElementStyleFor(row, cellStyle),
-                    GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
+                    GUILayout.MinWidth(0f));
                 GUILayout.EndHorizontal();
                 GUILayout.Label(new GUIContent(row.Location ?? "", hover), cellStyle, GUILayout.Width(ColW_Location));
                 GUILayout.Label(new GUIContent(row.Duration ?? "", hover), cellStyle, GUILayout.Width(ColW_Duration));

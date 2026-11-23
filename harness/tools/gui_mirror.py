@@ -127,20 +127,17 @@ LAYOUT_EPOCHS = {
     # PR #1867: section order, pressed equal-width option rows, reworded labels.
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
-    # PLACEHOLDER - NOT A MEASURED INSTANT. THE SUPERVISOR REPLACES `utc` WITH THE
-    # `startedUtc` OF THE FIRST CENSUS RUN ON THE NEW LAYOUT AND `pr` WITH THE P1b PR
-    # NUMBER, IN THE SAME PR, BEFORE IT MERGES.
-    # Mission Profile P1b: the mission bar gains a Profile button above Log in both
-    # modes, and the Advanced loop grid is re-sized to 72 / 150 / 72 px columns, so
-    # every earlier Missions capture is the old layout. Previous epoch: PR #1984
+    # Mission Profile P1b (`pr` is filled when its PR opens): the mission bar gains a
+    # Profile button above Log in both modes, and after PR #2781 the Advanced loop grid is
+    # two columns (B 150 px Warp to... over the loop row, C 72 px Profile over Log), so
+    # every earlier Missions capture is the old layout. First run on it:
+    # GUI-4-census-missions-docked 2026-11-23_0012. Previous epoch: PR #1984
     # (GUI-1-census-ksc 2026-10-03_1704, 2026-10-03T17:05:18Z).
-    "missions": {"utc": "2026-11-23T00:00:00Z", "pr": 0},
-    # PLACEHOLDER - NOT A MEASURED INSTANT. THE SUPERVISOR REPLACES `utc` WITH THE
-    # `startedUtc` OF THE FIRST CENSUS RUN ON THE NEW LAYOUT AND `pr` WITH THE P1b PR
-    # NUMBER, IN THE SAME PR, BEFORE IT MERGES.
-    # Mission Profile P1b: the window is new, so no capture predates it; the epoch is
-    # its first layout.
-    "profile": {"utc": "2026-11-23T00:00:00Z", "pr": 0},
+    "missions": {"utc": "2026-11-23T00:12:36Z", "pr": 0},
+    # Mission Profile P1b: the window is new; its current layout (the Element cell no
+    # longer widens past its heading) was first captured by GUI-4-census-missions-docked
+    # 2026-11-23_0029.
+    "profile": {"utc": "2026-11-23T00:29:14Z", "pr": 0},
     # PR #1966. First run on it: GUI-3-census-logistics-routes 2026-10-03_1017.
     "logistics": {"utc": "2026-10-03T10:18:00Z", "pr": 1966},
 }
