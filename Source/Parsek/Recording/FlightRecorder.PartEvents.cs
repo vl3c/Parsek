@@ -2025,7 +2025,7 @@ namespace Parsek
             double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
             int emitted = PartStateSeeder.EmitEvaStateSeedEvents(
                 BuildCurrentTrackingSets(), partNamesByPid.Keys, activeRec?.PartEvents, PartEvents,
-                seedUT, currentUT, "Recorder",
+                seedUT, "Recorder",
                 pid => partNamesByPid.TryGetValue(pid, out string n) ? n : "unknown");
             ParsekLog.Verbose("Recorder",
                 $"ResetPartEventTrackingState: emitted {emitted} EVA seed event(s) for chain " +

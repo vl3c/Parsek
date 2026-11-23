@@ -785,17 +785,17 @@ namespace Parsek
         /// A stowed pack needs no closing edge: the plume needs thrust, and stock does not thrust
         /// on a stowed pack.
         ///
-        /// The UT keeps the seed inert for the tail trim without rewriting the recording's past: a
-        /// part with no EVA event yet gets <paramref name="seedUT"/> (the recording's start, like
-        /// the engine and converter promotion seeds), where no thrust edge exists for it to
-        /// change. A part whose own events contradict the live state really changed after them, so
-        /// its seed goes at <paramref name="currentUT"/>, after every recorded edge.
+        /// The UT keeps a seed inert for the tail trim and the no-op checks without changing what
+        /// the recording already shows. A part with no EVA event gets <paramref name="seedUT"/>
+        /// (the recording's start, like the engine and converter promotion seeds). A part that has
+        /// some gets the UT of its last one; the stable event sort keeps the seed after it. Either
+        /// way no thrust edge lies between the seed and the promotion, so no recorded plume moves.
         /// </summary>
         /// <param name="evaPartPids">Every part pid on the EVA vessel being promoted.</param>
         /// <param name="recordedEvents">The promoted recording's own events (may be null).</param>
         internal static int EmitEvaStateSeedEvents(
             PartTrackingSets sets, IEnumerable<uint> evaPartPids, List<PartEvent> recordedEvents,
-            List<PartEvent> events, double seedUT, double currentUT, string logTag,
+            List<PartEvent> events, double seedUT, string logTag,
             System.Func<uint, string> NameFor)
         {
             if (sets == null || evaPartPids == null || events == null)
@@ -804,29 +804,30 @@ namespace Parsek
             int emitted = 0;
             foreach (uint pid in evaPartPids)
             {
-                FindLastEvaEdges(recordedEvents, pid, out bool hasEvaEvent,
+                FindLastEvaEdges(recordedEvents, pid, out double lastEvaUT,
                     out PartEventType? lastJetpack, out PartEventType? lastRagdoll);
+                double ut = double.IsNaN(lastEvaUT) ? seedUT : lastEvaUT;
 
                 if (sets.jetpackDeployedParts != null && sets.jetpackDeployedParts.Contains(pid)
                     && lastJetpack != PartEventType.EvaJetpackDeployed)
                 {
-                    Emit(pid, PartEventType.EvaJetpackDeployed, hasEvaEvent ? currentUT : seedUT);
+                    Emit(pid, PartEventType.EvaJetpackDeployed, ut);
                 }
 
                 bool ragdoll = sets.ragdollParts != null && sets.ragdollParts.Contains(pid);
                 if (ragdoll && lastRagdoll != PartEventType.EvaRagdollStarted)
-                    Emit(pid, PartEventType.EvaRagdollStarted, hasEvaEvent ? currentUT : seedUT);
+                    Emit(pid, PartEventType.EvaRagdollStarted, ut);
                 else if (!ragdoll && lastRagdoll == PartEventType.EvaRagdollStarted)
-                    Emit(pid, PartEventType.EvaRagdollEnded, currentUT);
+                    Emit(pid, PartEventType.EvaRagdollEnded, ut);
             }
             return emitted;
 
-            void Emit(uint pid, PartEventType type, double ut)
+            void Emit(uint pid, PartEventType type, double emitUT)
             {
                 string name = NameFor != null ? NameFor(pid) : "unknown";
                 events.Add(new PartEvent
                 {
-                    ut = ut,
+                    ut = emitUT,
                     partPersistentId = pid,
                     eventType = type,
                     partName = name,
@@ -836,20 +837,20 @@ namespace Parsek
                 emitted++;
                 ParsekLog.Verbose(logTag,
                     $"Seed event: {type} pid={pid} part='{name}' " +
-                    $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} (promotion)");
+                    $"ut={emitUT.ToString("F2", CultureInfo.InvariantCulture)} (promotion)");
             }
         }
 
         /// <summary>
         /// The last jetpack edge (deployed / stowed) and the last ragdoll edge (started / ended) a
-        /// recording carries for one part, and whether it carries any EVA event for it. The list
-        /// is not assumed sorted; the later list entry wins a UT tie.
+        /// recording carries for one part, and the UT of its last EVA event of any kind (NaN when
+        /// it has none). The list is not assumed sorted; the later list entry wins a UT tie.
         /// </summary>
         private static void FindLastEvaEdges(
-            List<PartEvent> recordedEvents, uint pid, out bool hasEvaEvent,
+            List<PartEvent> recordedEvents, uint pid, out double lastEvaUT,
             out PartEventType? lastJetpack, out PartEventType? lastRagdoll)
         {
-            hasEvaEvent = false;
+            lastEvaUT = double.NaN;
             lastJetpack = null;
             lastRagdoll = null;
             if (recordedEvents == null) return;
@@ -864,7 +865,6 @@ namespace Parsek
                 {
                     case PartEventType.EvaJetpackDeployed:
                     case PartEventType.EvaJetpackStowed:
-                        hasEvaEvent = true;
                         if (evt.ut >= jetpackUT)
                         {
                             jetpackUT = evt.ut;
@@ -873,7 +873,6 @@ namespace Parsek
                         break;
                     case PartEventType.EvaRagdollStarted:
                     case PartEventType.EvaRagdollEnded:
-                        hasEvaEvent = true;
                         if (evt.ut >= ragdollUT)
                         {
                             ragdollUT = evt.ut;
@@ -882,9 +881,12 @@ namespace Parsek
                         break;
                     case PartEventType.EvaJetpackThrustStarted:
                     case PartEventType.EvaJetpackThrustStopped:
-                        hasEvaEvent = true;
                         break;
+                    default:
+                        continue;
                 }
+                if (double.IsNaN(lastEvaUT) || evt.ut > lastEvaUT)
+                    lastEvaUT = evt.ut;
             }
         }
 

@@ -45,7 +45,7 @@ namespace Parsek.Tests
             var events = new List<PartEvent>();
             int emitted = PartStateSeeder.EmitEvaStateSeedEvents(
                 sets, new[] { Pid }, new List<PartEvent>(recorded), events,
-                SeedUT, NowUT, "Recorder", _ => "kerbalEVAfemale");
+                SeedUT, "Recorder", _ => "kerbalEVAfemale");
             Assert.Equal(events.Count, emitted);
             return events;
         }
@@ -124,13 +124,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LastRecordedWordStowed_EmitsDeployedAtTheCurrentUT()
+        public void LastRecordedWordStowed_EmitsDeployedAtThePartsLastEvaEvent()
         {
             PartEvent e = Assert.Single(Seed(true, false,
+                Ev(432, PartEventType.EvaRagdollEnded),
                 Ev(424, PartEventType.EvaJetpackDeployed),
-                Ev(430, PartEventType.EvaJetpackStowed)));
+                Ev(430, PartEventType.EvaJetpackStowed),
+                Ev(434, PartEventType.LightOn)));
             Assert.Equal(PartEventType.EvaJetpackDeployed, e.eventType);
-            Assert.Equal(NowUT, e.ut);
+            Assert.Equal(432, e.ut);
         }
 
         [Fact]
@@ -148,11 +150,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RagdollRecordedOpenAndUprightNow_EmitsRagdollEndedAtTheCurrentUT()
+        public void RagdollRecordedOpenAndUprightNow_EmitsRagdollEndedAtThePartsLastEvaEvent()
         {
             PartEvent e = Assert.Single(Seed(false, false, Ev(425, PartEventType.EvaRagdollStarted)));
             Assert.Equal(PartEventType.EvaRagdollEnded, e.eventType);
-            Assert.Equal(NowUT, e.ut);
+            Assert.Equal(425, e.ut);
             Assert.Empty(Seed(false, false,
                 Ev(425, PartEventType.EvaRagdollStarted), Ev(426, PartEventType.EvaRagdollEnded)));
         }
@@ -165,10 +167,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void APartAlreadyCarryingThrust_IsSeededNowSoItsPastDoesNotChange()
+        public void APartAlreadyCarryingThrust_IsSeededAfterItSoItsPastDoesNotChange()
         {
-            // A resumed recording from before this seed existed: thrust, no deploy. A backdated
-            // deploy would draw plumes over what was already recorded.
+            // A resumed recording from before this seed existed: thrust, no deploy. A deploy at
+            // the start would draw plumes over what was already recorded.
             var recorded = new[]
             {
                 Ev(425, PartEventType.EvaJetpackThrustStarted),
@@ -176,8 +178,30 @@ namespace Parsek.Tests
             };
             List<PartEvent> seeds = Seed(true, true, recorded);
             Assert.Equal(2, seeds.Count);
-            Assert.All(seeds, s => Assert.Equal(NowUT, s.ut));
-            Assert.False(PlumeEverOpens(recorded.Concat(seeds)));
+            Assert.All(seeds, s => Assert.Equal(426, s.ut));
+            Assert.False(PlumeEverOpens(recorded.Concat(Seed(true, false, recorded))));
+            // A burst after the promotion does open it.
+            Assert.True(PlumeEverOpens(recorded.Concat(Seed(true, false, recorded))
+                .Concat(new[] { Ev(436, PartEventType.EvaJetpackThrustStarted) })));
+        }
+
+        [Fact]
+        public void ADoNothingResumeOfAContradictingRecording_IsStillANoOp()
+        {
+            var rec = new Recording { RecordingId = "resumed" };
+            foreach (double ut in new[] { 424.0, 434.0, NowUT, 500.0 })
+                rec.Points.Add(new TrajectoryPoint { ut = ut, bodyName = "Kerbin" });
+            rec.PartEvents.Add(Ev(425, PartEventType.EvaJetpackThrustStarted));
+            rec.PartEvents.Add(Ev(426, PartEventType.EvaJetpackThrustStopped));
+            double lastInteresting = RecordingOptimizer.FindLastInterestingUT(rec);
+
+            List<PartEvent> seeds = Seed(true, false, rec.PartEvents.ToArray());
+            Assert.Single(seeds);
+            rec.PartEvents.AddRange(seeds);
+
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, NowUT, out string reason));
+            Assert.Null(reason);
+            Assert.Equal(lastInteresting, RecordingOptimizer.FindLastInterestingUT(rec));
         }
 
         [Fact]
@@ -187,13 +211,13 @@ namespace Parsek.Tests
             var sets = new PartTrackingSets();
             sets.jetpackDeployedParts.Add(Pid);
             Assert.Equal(0, PartStateSeeder.EmitEvaStateSeedEvents(
-                null, new[] { Pid }, null, events, 1, 2, "Recorder", null));
+                null, new[] { Pid }, null, events, 1, "Recorder", null));
             Assert.Equal(0, PartStateSeeder.EmitEvaStateSeedEvents(
-                sets, null, null, events, 1, 2, "Recorder", null));
+                sets, null, null, events, 1, "Recorder", null));
             Assert.Empty(events);
             // A missing recording (no active tree) still seeds.
             Assert.Equal(1, PartStateSeeder.EmitEvaStateSeedEvents(
-                sets, new[] { Pid }, null, events, 1, 2, "Recorder", null));
+                sets, new[] { Pid }, null, events, 1, "Recorder", null));
         }
 
         [Fact]
@@ -208,10 +232,20 @@ namespace Parsek.Tests
             };
             Assert.False(PlumeEverOpens(polled));
             Assert.True(PlumeEverOpens(Seed(true, false).Concat(polled)));
-            // A promotion in mid-thrust: the thrust edge can land in the seed's own tick and the
-            // recorder's seed-first insertion keeps the order.
-            Assert.True(PlumeEverOpens(Seed(true, false, Ev(424, PartEventType.EvaJetpackStowed))
-                .Concat(new[] { Ev(NowUT, PartEventType.EvaJetpackThrustStarted) })));
+            // A promotion in mid-thrust: the seed precedes the thrust edge even when that edge
+            // lands in the promotion's own tick, with and without earlier EVA events.
+            foreach (PartEvent[] recorded in new[]
+                { new PartEvent[0], new[] { Ev(424, PartEventType.EvaJetpackStowed) } })
+            {
+                var all = new List<PartEvent>(recorded);
+                all.AddRange(Seed(true, false, recorded));
+                all.Add(Ev(NowUT, PartEventType.EvaJetpackThrustStarted));
+                List<PartEvent> sorted = FlightRecorder.StableSortPartEventsByUT(all);
+                int deploy = sorted.FindIndex(x => x.eventType == PartEventType.EvaJetpackDeployed);
+                Assert.True(deploy >= recorded.Length && deploy < sorted.FindIndex(
+                    x => x.eventType == PartEventType.EvaJetpackThrustStarted));
+                Assert.True(PlumeEverOpens(all));
+            }
         }
 
         [Fact]
@@ -239,7 +273,7 @@ namespace Parsek.Tests
             sets.ragdollParts.Add(Pid);
 
             PartStateSeeder.EmitEvaStateSeedEvents(
-                sets, new[] { Pid }, rec.PartEvents.ToList(), rec.PartEvents, seedUT, 2000.0, "Recorder", null);
+                sets, new[] { Pid }, rec.PartEvents.ToList(), rec.PartEvents, seedUT, "Recorder", null);
 
             Assert.Equal(2, rec.PartEvents.Count);
             Assert.Equal(SeedUT, RecordingOptimizer.FindLastInterestingUT(rec));

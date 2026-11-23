@@ -94,10 +94,10 @@ compared with the last word of the recording's own events. Pack out and not reco
 EvaJetpackDeployed; ragdoll and not recorded ragdoll writes EvaRagdollStarted; the mirror that keeps
 a plume dark, recorded ragdoll but upright now, writes EvaRagdollEnded. Already recorded, or stowed
 now, writes nothing. UT: a part with no EVA event yet is seeded at the promotion seed UT (the
-recording's start, like the engine and converter seeds, so the tail trim's last interesting UT does
-not move); a part whose events contradict the live state is seeded at the promotion itself, so no
-recorded edge is overtaken. The switch-segment no-op check ignores an EvaJetpackDeployed at the
-segment's start (a pack already out), so visiting such a kerbal still discards a do-nothing segment.
+recording's start, like the engine and converter seeds), a part that has some at the UT of its last
+one, after it. So the tail trim's last interesting UT does not move, no recorded plume changes, and
+a do-nothing visit to the kerbal is still discarded (the resumed-tail check reads only events after
+the visit began; the switch-segment check ignores an EvaJetpackDeployed at the segment's start).
 Existing recordings are untouched; no format change. Tests: `EvaPromotionSeedTests`. Gate: EVA-17's
 required deploy line accepts the seed or either recorder's polled edge.
 
