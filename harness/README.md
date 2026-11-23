@@ -808,13 +808,13 @@ survives and then points at images that are gone.
 
 The page over a part ghost parity sweep (`results/<runId>_partparity/<label>/`, or a copy of
 one): every part of the install, real against ghost, one continuous scroll grouped part >
-skin > view, each view a REAL | GHOST | DIFFERENCE row, flagged parts first. Verdicts and their
+skin > view, each view a REAL | GHOST | DIFFERENCE row, flagged parts first (an FX case adds its plume
+strips, real and ghost in lock step, and its effect rows). Verdicts and their
 trigger lines are `lib/partparity.py`'s, never typed on the page. It writes `index.html` +
 `data.js` (all sidecars as one JS literal, so it opens from `file://`), by default into
 `<sweep>/viewer/` with the images referenced in place; `--out <dir>` copies them. Two sweep
 directories show two profiles with cross links (`stock=<dir> restock=<dir>`), and
-`--baseline <dir>` marks the cases that moved. An FX sweep's cases add the plume strips (real
-and ghost in lock step) and the effect rows (Appendix E.7). It refuses to write into the repository tree
+`--baseline <dir>` marks the cases that moved. It refuses to write into the repository tree
 outside `results/`. Contract: `docs/dev/design-part-ghost-parity.md` section 8; tests
 `lib/test_part_parity_view.py`.
 
