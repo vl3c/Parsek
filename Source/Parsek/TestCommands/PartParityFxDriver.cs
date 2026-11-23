@@ -734,35 +734,37 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>The stock nozzle a ghost's system belongs to, by position in part space: the
-        /// nozzle transform within <see cref="NozzlePositionToleranceM"/> and nearest; -1 for none.
-        /// The ghost's own part transform carries the system into part space (the ghost need not
-        /// stand on the real part when this runs).</summary>
-        private static int NozzleAt(WaveCase wc, Transform ghostRoot, ParticleSystem ps)
+        /// <summary>
+        /// Stock's nozzle for a ghost FX system, or -1 (a setup fault). Stock plays nozzle i's puff
+        /// on emitter i of the EFFECTS node (<c>ModuleRCSFX.UpdatePowerFX(running, idx, power)</c> ->
+        /// <c>Part.Effect(name, power, idx)</c> -> <c>ModelMultiParticleFX.OnEvent(power, idx)</c>,
+        /// emitter idx over <c>FindModelTransforms(transformName)</c>; decompiled), so the index F2
+        /// recorded IS the nozzle index whatever the two transforms are called, provided every
+        /// transform of that name sits under the part's model (F2's walk is the whole prefab) and the
+        /// module has a nozzle of that index.
+        /// </summary>
+        internal static int NozzleOf(int thrusterIndex, int nozzles, int matchesInPrefab, int matchesUnderModel)
+            => thrusterIndex >= 0 && thrusterIndex < nozzles && matchesInPrefab == matchesUnderModel ? thrusterIndex : -1;
+
+        private static int NozzleOf(WaveCase wc, RcsParticleThruster thruster, Dictionary<string, KeyValuePair<int, int>> counts)
         {
             PartParityFxRun fx = wc.Fx;
-            if (fx.Rcs == null || fx.Rcs.thrusterTransforms == null) return -1;
-            Transform partT = wc.Real.rootPart.transform;
-            Transform ghostPart = PartParityStateDriver.FindChildNamed(ghostRoot,
-                PartParityStructure.GhostPartSegmentPrefix + wc.Real.rootPart.persistentId.ToString(Ic));
-            if (ghostPart == null) return -1;
-            Vector3 p = ghostPart.InverseTransformPoint(ps.transform.position);
-            int best = -1;
-            float bestDistance = NozzlePositionToleranceM;
-            for (int i = 0; i < fx.Rcs.thrusterTransforms.Count; i++)
+            if (fx.Rcs?.thrusterTransforms == null || string.IsNullOrEmpty(thruster.transformName)) return -1;
+            if (!counts.TryGetValue(thruster.transformName, out KeyValuePair<int, int> n))
             {
-                Transform t = fx.Rcs.thrusterTransforms[i];
-                if (t == null) continue;
-                float d = (partT.InverseTransformPoint(t.position) - p).magnitude;
-                if (d < bestDistance) { bestDistance = d; best = i; }
+                Part prefab = wc.Real.rootPart.partInfo?.partPrefab;
+                if (prefab == null) return -1;
+                int all = 0;
+                foreach (Transform t in prefab.GetComponentsInChildren<Transform>(true))
+                    if (t.name == thruster.transformName) all++;
+                Transform[] model = prefab.FindModelTransforms(thruster.transformName);
+                n = new KeyValuePair<int, int>(all, model != null ? model.Length : 0);
+                counts[thruster.transformName] = n;
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: RCS FX transform {thruster.transformName} matches={n.Key.ToString(Ic)} underModel={n.Value.ToString(Ic)} " +
+                    $"nozzles={fx.Rcs.thrusterTransforms.Count.ToString(Ic)} thrusterTransformName={fx.Rcs.thrusterTransformName}");
             }
-            if (best < 0)
-                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: no nozzle within {NozzlePositionToleranceM.ToString("0.00", Ic)}m of ghost system {ps.name} at ({p.x.ToString("0.000", Ic)},{p.y.ToString("0.000", Ic)},{p.z.ToString("0.000", Ic)}) part space");
-            return best;
+            return NozzleOf(thruster.thrusterIndex, fx.Rcs.thrusterTransforms.Count, n.Key, n.Value);
         }
-
-        /// <summary>How close (metres) a ghost's FX system must sit to a nozzle to be it.</summary>
-        internal const float NozzlePositionToleranceM = 0.1f;
 
         /// <summary>The renderers of one ghost's nozzles stock did not fire (hidden on the judged
         /// rcs sides, shown on <c>ghost-all</c>).</summary>
@@ -771,6 +773,7 @@ namespace Parsek.TestCommands
             PartParityFxRun fx = wc.Fx;
             if (side.Ghost == null || side.Ghost.State?.rcsInfos == null || side.Ghost.Build?.root == null) return;
             var fired = new HashSet<int>(fx.RcsFired);
+            var counts = new Dictionary<string, KeyValuePair<int, int>>(StringComparer.Ordinal);
             int hidden = 0, unmapped = 0, misnamed = 0;
             foreach (RcsGhostInfo info in side.Ghost.State.rcsInfos.Values)
             {
@@ -780,11 +783,7 @@ namespace Parsek.TestCommands
                     ParticleSystem ps = info.particleSystems[i];
                     if (ps == null) continue;
                     if (!info.TryGetParticleThruster(i, out RcsParticleThruster thruster)) { unmapped++; continue; }
-                    // The index F2 recorded is stock's nozzle index only when the EFFECTS transform
-                    // is the module's thruster transform; on RCSBlock.v2 they differ (RCSjet, RCSthruster),
-                    // so the nozzle whose transform sits at the system's own position is the one.
-                    bool named = fx.Rcs != null && string.Equals(thruster.transformName, fx.Rcs.thrusterTransformName, StringComparison.Ordinal);
-                    int nozzle = named ? thruster.thrusterIndex : NozzleAt(wc, side.Ghost.Build.root.transform, ps);
+                    int nozzle = NozzleOf(wc, thruster, counts);
                     if (nozzle < 0) { misnamed++; continue; }
                     if (fired.Contains(nozzle)) continue;
                     hidden++;

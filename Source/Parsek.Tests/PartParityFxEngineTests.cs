@@ -24,6 +24,15 @@ namespace Parsek.Tests
             return (m, e, d);
         }
 
+        [Theory]
+        [InlineData(0, 9, 9, 9, 0)]
+        [InlineData(8, 9, 9, 9, 8)]   // RCSBlock.v2: RCSjet systems, RCSthruster nozzles
+        [InlineData(9, 9, 10, 10, -1)] // no such nozzle
+        [InlineData(-1, 9, 9, 9, -1)]
+        [InlineData(2, 9, 10, 9, -1)]  // a match outside the model shifts F2's index
+        public void AnRcsFxSystem_MapsToStocksNozzleByIndex(int index, int nozzles, int inPrefab, int underModel, int expected)
+            => Assert.Equal(expected, PartParityFxDriver.NozzleOf(index, nozzles, inPrefab, underModel));
+
         [Fact]
         public void Structure_PairsByNameAndParent_AndNamesWhatDiffers()
         {

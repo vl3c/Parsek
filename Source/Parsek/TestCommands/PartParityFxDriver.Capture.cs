@@ -195,7 +195,7 @@ namespace Parsek.TestCommands
             PartParityFxRun fx = wc.Fx;
             if (fx.BrokenGhost == null || fx.Exhaust == null) return;
             List<EngineGhostInfo> engines = InfosOf(fx.BrokenGhost.State, wc.Real.rootPart.persistentId);
-            if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShort) ScaleFx(engines, ShortScale);
+            if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShort) ShrinkFx(engines, ShortScale);
             else if (fx.Control == TestCommandPartParitySweep.ControlFxPlumeShift && wc.Shared != null && !wc.Shared.IsEmpty)
             {
                 Transform partT = wc.Real.rootPart.transform;
@@ -225,28 +225,32 @@ namespace Parsek.TestCommands
             return list;
         }
 
-        /// <summary>The short-plume control's scale. At E.5's 0.5 the broken LV-T45 flame measured
-        /// 0.77 of the intact one (first flight), inside the 25 % fail line: the far box ends at the
-        /// particles' 95th percentile, so the intact flame is cut at the tile edge and reads short.</summary>
-        internal const float ShortScale = 0.35f;
+        /// <summary>The short-plume control's scale.</summary>
+        internal const float ShortScale = 0.4f;
 
-        private static void ScaleFx(List<EngineGhostInfo> infos, float k)
+        /// <summary>
+        /// Shrinks a ghost's FX by <paramref name="k"/>: every system under an FX root takes the
+        /// Hierarchy scaling mode and the root is scaled. E.5's own recipe (start speed, lifetime
+        /// and energy scaled) does not shorten a stock legacy flame: it has no start speed and a
+        /// stretched billboard whose length is its size and its velocity over lifetime, so at 0.35
+        /// the LV-T45 flame still measured 0.73 of the intact one and its saturated bottom view
+        /// left the hue line. A shrunk flame keeps every colour and loses its length.
+        /// </summary>
+        private static void ShrinkFx(List<EngineGhostInfo> infos, float k)
         {
-            foreach (EngineGhostInfo info in infos)
+            List<Transform> roots = FxRoots(infos);
+            int systems = 0;
+            foreach (Transform t in roots)
             {
-                foreach (ParticleSystem ps in info.particleSystems)
+                foreach (ParticleSystem ps in t.GetComponentsInChildren<ParticleSystem>(true))
                 {
-                    if (ps == null) continue;
                     var main = ps.main;
-                    main.startSpeedMultiplier *= k;
-                    main.startLifetimeMultiplier *= k;
-                    KSPParticleEmitter e = ps.GetComponent<KSPParticleEmitter>();
-                    if (e == null) continue;
-                    e.minEnergy *= k;
-                    e.maxEnergy *= k;
-                    e.localVelocity *= k;
+                    main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+                    systems++;
                 }
+                t.localScale *= k;
             }
+            ParsekLog.Info(Tag, $"broken ghost shrunk {systems.ToString(Ic)} FX system(s) on {roots.Count.ToString(Ic)} root(s) by {k.ToString("0.00", Ic)}");
         }
 
         /// <summary>The topmost FX transforms of these infos (a system under another moves with it).</summary>
@@ -1037,13 +1041,17 @@ namespace Parsek.TestCommands
                 });
             if (fx.Sides.Count > 0)
             {
-                d["warmupS"] = PerSide(fx, side => PartParityJson.Num(side.WarmupS));
-                d["plateau"] = PerSide(fx, side => PartParityJson.KeyedBlock(PartParityJson.FxPlateauKeys, new Dictionary<string, string>(StringComparer.Ordinal)
+                // A heat or lamp case waits for no plateau: no block, so none reads as missed.
+                if (fx.Stochastic)
                 {
-                    { "signal", side.SignalName == null ? "null" : PartParityJson.Str(side.SignalName) },
-                    { "settled", PartParityJson.Bool(side.Settled) },
-                    { "waitS", PartParityJson.Num(side.PlateauWaitS) },
-                }));
+                    d["warmupS"] = PerSide(fx, side => PartParityJson.Num(side.WarmupS));
+                    d["plateau"] = PerSide(fx, side => PartParityJson.KeyedBlock(PartParityJson.FxPlateauKeys, new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "signal", side.SignalName == null ? "null" : PartParityJson.Str(side.SignalName) },
+                        { "settled", PartParityJson.Bool(side.Settled) },
+                        { "waitS", PartParityJson.Num(side.PlateauWaitS) },
+                    }));
+                }
                 d["layers"] = PerSide(fx, side => PartParityJson.KeyedBlock(PartParityJson.FxLayerKeys, LayerFragments(side)));
                 d["inventory"] = PerSide(fx, side => Strings(side.Inventory));
                 d["particles"] = PerSide(fx, side => PartParityFxMetrics.ParticlesJson(

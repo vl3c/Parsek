@@ -1208,7 +1208,7 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostAbsent: return plume + " burning, ghost not built";
                 case TestCommandPartParitySweep.ControlFxRealVsReal: return plume + " burning, real against itself in alternate samples";
                 case TestCommandPartParitySweep.ControlFxPlumeOff: return plume + ", event-route ghost built without the polled events";
-                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost with particle speed, lifetime and energy scaled 0.35";
+                case TestCommandPartParitySweep.ControlFxPlumeShort: return plume + ", intact ghost vs a ghost whose FX roots are scaled to 0.4 (Hierarchy scaling)";
                 case TestCommandPartParitySweep.ControlFxPlumeHue: return plume + ", intact ghost vs a ghost whose rendered flame channels are rotated (r,g,b)->(b,r,g)";
                 case TestCommandPartParitySweep.ControlFxPlumeShift: return plume + ", intact ghost vs a ghost whose FX roots are moved 10 % across and along the axis";
                 case TestCommandPartParitySweep.ControlFxSmokeDropped: return SmokeControlParts[0] + ", intact ghost vs a ghost with its smoke renderers hidden";
