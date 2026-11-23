@@ -59,7 +59,7 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "plume", "rcs", "heat", "light" }, PartParityFxRules.Families);
             Assert.Equal(new[] { "plume", "rcs", "heat", "plate" }, PartParityFxRules.ArgWords);
             Assert.Equal(new[] { "burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit" }, PartParityFxRules.States);
-            Assert.Equal(new[] { "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked" },
+            Assert.Equal(new[] { "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked", "fx-no-light" },
                 PartParityFxRules.ExclusionReasons);
             Assert.Equal(new[] { "fx-side-a", "fx-side-b", "fx-bottom", "fx-far" }, PartParityFxRules.Views);
             Assert.Equal("light", PartParityFxRules.FamilyForArg("plate"));
@@ -246,7 +246,8 @@ namespace Parsek.Tests
             Assert.Equal(locked, Reasons(r, "fx-throttle-locked"));
             Assert.Equal(needsAir, Reasons(r, "fx-needs-air"));
             Assert.Equal(ablator, Reasons(r, "fx-ablator-char"));
-            Assert.Equal(0, Reasons(r, "fx-reentry-camera") + Reasons(r, "fx-blackbody"));
+            // The config part lists carry no Light count, so no lamp is left out of them.
+            Assert.Equal(0, Reasons(r, "fx-reentry-camera") + Reasons(r, "fx-blackbody") + Reasons(r, "fx-no-light"));
             Assert.Equal(reference, r.Cases.Count(k => k.FxOption.Reference != null));
             Assert.Equal(r.Cases.Count, r.Cases.Select(TestCommandPartParitySweep.CaseId).Distinct().Count());
             Assert.All(r.Cases, k => Assert.True(TestCommandCaptureScreenshot.IsValidLabel(TestCommandPartParitySweep.CaseId(k))));
@@ -272,11 +273,39 @@ namespace Parsek.Tests
             Assert.Equal(5.0, PartParityFxRules.PressTimeoutSeconds(new PartParityFxOption { Family = "light" }));
             // A wave of four jets: 20 spawn + 45 spool + 8 plateau + 4 x 3 capture + 5 teardown.
             var wave = Enumerable.Repeat(jet, 3).Concat(new[] { burn }).ToList();
-            Assert.Equal(20 + 45 + 8 + 12 + 5, PartParityFxRules.WaveWorstCaseSeconds(wave), 9);
+            Assert.Equal(20 + 45 + 20 + 12 + 5, PartParityFxRules.WaveWorstCaseSeconds(wave), 9);
             var plates = Enumerable.Repeat(new PartParityFxOption { Family = "light" }, 2).ToList();
             Assert.Equal(20 + 5 + 5 + 1.0 + 5, PartParityFxRules.WaveWorstCaseSeconds(plates), 9);
             var heats = Enumerable.Repeat(new PartParityFxOption { Family = "heat" }, 4).ToList();
             Assert.Equal(20 + 5 + 0.5 + 1.2 + 5, PartParityFxRules.WaveWorstCaseSeconds(heats), 9);
+        }
+
+        [Fact]
+        public void ASlowSpool_GetsTheTimeStocksOwnSpoolNeeds()
+        {
+            // Never under 45 s: the RAPIER (0.2 /s) and the Wheesley (0.12 /s, 38 s to 0.99) fit.
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.2));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.12));
+            // The Goliath (0.06 /s): ln(100) / 0.06 = 76.8 s full, ln(30) / 0.06 = 56.7 s low, and 10 %.
+            Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.06), 9);
+            Assert.Equal(1.1 * Math.Log(30.0) / 0.06, PartParityFxRules.SpoolPressTimeoutSeconds(0.3, 0.06), 9);
+            // Stock's law really lands inside the tolerance by then, 0.02 s a step.
+            double throttle = 0.0, t = 0.0;
+            for (; Math.Abs(throttle - 1.0) > 0.01; t += 0.02) throttle += (1.0 - throttle) * 0.06 * 0.02;
+            Assert.InRange(t, 45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.06));
+            // Capped, and an engine that names no speed (or a senseless one) keeps the floor.
+            Assert.Equal(120.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.001));
+            foreach (double bad in new[] { double.NaN, 0.0, -1.0 })
+                Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, bad));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(double.NaN, 0.06));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(0.01, 0.06));
+            // The option reads it off the module, and the wave bound follows.
+            var r = Enumerate(Part("turboFanSize2", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                "useEngineResponseTime=True", "engineAccelerationSpeed=0.06", "PROPELLANT.name=IntakeAir")));
+            Assert.Equal(0.06, r.Cases[0].FxOption.EngineAccelerationSpeed);
+            Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.PressTimeoutSeconds(r.Cases[0].FxOption), 9);
+            Assert.Equal(20 + 1.1 * Math.Log(100.0) / 0.06 + 20 + 6 + 5,
+                PartParityFxRules.WaveWorstCaseSeconds(r.Cases.Select(k => k.FxOption).ToList()), 9);
         }
 
         [Fact]
@@ -420,6 +449,24 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(double.NaN, 8.0)]
+        [InlineData(0.0, 8.0)]      // coverage-plateaued: no particle lifetime
+        [InlineData(5.0, 8.0)]      // most ReStock plumes: the flat cap
+        [InlineData(7.5, 8.5)]
+        [InlineData(10.0, 11.0)]    // ReStock's Pollux and Thoroughbred
+        [InlineData(15.0, 16.0)]    // the Twin-Boar family
+        [InlineData(17.5, 18.5)]    // stock's Clydesdale, Pollux, Thoroughbred
+        [InlineData(60.0, 20.0)]
+        public void ThePlateauCap_FollowsTheLongestLifetime(double life, double cap)
+        {
+            Assert.Equal(cap, PartParityFxRules.PlateauCapFor(life), 9);
+            // A steady signal settles before its own cap, up to the hard one.
+            if (life > 0.0 && life < 19.0)
+                Assert.True(PartParityFxRules.PlateauSettled(cap, life, 99, 100));
+            Assert.True(cap <= PartParityFxRules.PlateauLifetimeCapSeconds);
+        }
+
+        [Theory]
         [InlineData("MeshRenderer", "KSP/Bumped Specular", "body")]
         [InlineData("SkinnedMeshRenderer", "KSP/Diffuse", "body")]
         [InlineData("MeshRenderer", "Waterfall/Additive (Dynamic)", "flame")]
@@ -482,6 +529,54 @@ namespace Parsek.Tests
             Assert.False(PartParityFxRules.PlateLit(0.019));
             Assert.Equal(3.0, PartParityFxRules.PlateDistanceM("Spot"));
             Assert.Equal(1.0, PartParityFxRules.PlateDistanceM("Point"));
+            // A cone inside the range: the footprint is the cone's (spotLight1, gearLarge, spotLight3).
+            Assert.Equal(4.32, PartParityFxRules.PlateSizeM("Spot", 58.0, 400.0, 3.0), 2);
+            Assert.Equal(4.50, PartParityFxRules.PlateSizeM("Spot", 60.0, 1200.0, 3.0), 2);
+            Assert.Equal(18.83, PartParityFxRules.PlateSizeM("Spot", 135.0, 15.0, 3.0), 2);
+            // A cone the range cuts: stripLight1 on stock (was 89.15) and on ReStock, domeLight1 on ReStock.
+            Assert.Equal(38.21, PartParityFxRules.PlateSizeM("Spot", 170.0, 15.0, 3.0), 2);
+            Assert.Equal(24.80, PartParityFxRules.PlateSizeM("Spot", 170.0, 10.0, 3.0), 2);
+            Assert.Equal(24.80, PartParityFxRules.PlateSizeM("Spot", 147.0, 10.0, 3.0), 2);
+            // The lit share of stripLight1's 89.15 m plate (1.10 % and 0.53 %) over the new one clears the floor.
+            Assert.True(PartParityFxRules.PlateLit(0.0110 * Math.Pow(89.15 / 38.21, 2)));
+            Assert.True(PartParityFxRules.PlateLit(0.0053 * Math.Pow(89.15 / 24.80, 2)));
+            // A light that does not reach the plate, a point light, a narrow spot: the fixed sizes.
+            Assert.Equal(2.0, PartParityFxRules.PlateSizeM("Spot", 60.0, 2.0, 3.0), 9);
+            Assert.Equal(3.0, PartParityFxRules.PlateSizeM("Point", 30.0, 3.0, 1.0), 9);
+            Assert.Equal(2.0, PartParityFxRules.PlateSizeM("Spot", 20.0, 100.0, 3.0), 9);
+        }
+
+        [Fact]
+        public void ARealVsRealControl_TakesTwiceTheSamples_SoEachSideHoldsAJudgedSidesCount()
+        {
+            Assert.Equal(32, PartParityFxRules.SampleRounds("ctl-fx-real-vs-real"));
+            Assert.Equal(32, PartParityFxRules.SampleRounds("ctl-fx-real-vs-real-air"));
+            foreach (string id in new[] { null, "ctl-empty", "ctl-fx-plume-off", "ctl-fx-plume-short", "ctl-fx-smoke-dropped" })
+                Assert.Equal(PartParityFxRules.Samples, PartParityFxRules.SampleRounds(id));
+            Assert.True(PartParityFxRules.SampleRounds("ctl-fx-real-vs-real") <= PartParityFxRules.MaxSamples);
+        }
+
+        [Fact]
+        public void ALampWithNoLight_IsExcluded()
+        {
+            PartParityStatePart part = Part("telescopicLadderBay", Mod(0, "RetractableLadder"), Mod(1, "ModuleLight"));
+            Assert.Equal(new[] { "lit/plate" }, Words(Enumerate(part)));   // nothing read the prefab
+            part.LightCount = 1;
+            Assert.Equal(new[] { "lit/plate" }, Words(Enumerate(part)));
+            part.LightCount = 0;
+            PartParityFxEnumeration r = Enumerate(part);
+            Assert.Empty(r.Cases);
+            PartParityFxExclusion e = Assert.Single(r.Exclusions);
+            Assert.Equal("fx-no-light", e.Reason);
+            Assert.Equal("light", e.Family);
+            Assert.Equal("ModuleLight", e.Module);
+            Assert.Equal(1, e.ModuleIndex);
+            Assert.True(PartParityFxRules.ExclusionApplies(e, false));
+            Assert.False(PartParityFxRules.ExclusionApplies(e, true));
+            // A part with neither has nothing to leave out.
+            part = Part("fuelTank", Mod(0, "ModuleTestSubject"));
+            part.LightCount = 0;
+            Assert.Empty(Enumerate(part).Exclusions);
             Assert.Equal("event:fx-far:smoke:smoke-missing", PartParityFxRules.FormatReason("event", "fx-far", "smoke", "smoke-missing"));
         }
 
@@ -499,18 +594,52 @@ namespace Parsek.Tests
             var stock = Install(new Dictionary<string, PartParityFxSubjectFacts>
                 { ["liquidEngine2.v2"] = F(), ["liquidEngine"] = F(), ["solidBooster.sm.v2"] = F() });
             var modded = Install(new Dictionary<string, PartParityFxSubjectFacts>
-                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["solidBooster.sm.v2"] = F() });
+                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["sepMotor1"] = F(), ["solidBooster.sm.v2"] = F() });
             Assert.Equal("liquidEngine2.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real", false, null, stock).Subject);
             var c = PartParityFxRules.ChooseControlSubject("ctl-fx-plume-off", false, null, modded);
-            Assert.Equal("solidBooster.sm.v2", c.Subject);
+            Assert.Equal("sepMotor1", c.Subject);
             Assert.Null(c.Outcome);
-            Assert.Equal("subject=solidBooster.sm.v2 skipped=liquidEngine2.v2:waterfall,liquidEngine:waterfall", c.Detail);
+            Assert.Equal("subject=sepMotor1 skipped=liquidEngine2.v2:waterfall,liquidEngine:waterfall", c.Detail);
+            // The list in order, every unmeetable subject skipped: the Flea is last.
+            var noSep = Install(new Dictionary<string, PartParityFxSubjectFacts>()
+                { ["liquidEngine2.v2"] = F(true), ["liquidEngine"] = F(true), ["sepMotor1"] = F(true), ["solidBooster.sm.v2"] = F() });
+            Assert.Equal("solidBooster.sm.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real", false, null, noSep).Subject);
             // The air controls run on the solid booster held in the air.
             Assert.Equal("solidBooster.sm.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-real-vs-real-air", true, null, stock).Subject);
             // No eligible subject: a required control is bad.
             c = PartParityFxRules.ChooseControlSubject("ctl-fx-smoke-dropped", false, null, Install(new Dictionary<string, PartParityFxSubjectFacts>()));
             Assert.Null(c.Subject);
             Assert.Equal("bad", c.Outcome);
+        }
+
+        [Fact]
+        public void APlumeControlsKey_IsItsRunsBurnFull_AndABoosterGoesIntoTheAir()
+        {
+            var rapier = Enumerate(Part("RAPIER", Mod(0, "MultiModeEngine"),
+                Mod(1, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=AirBreathing", "PROPELLANT.name=IntakeAir"),
+                Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=ClosedCycle", "PROPELLANT.name=LiquidFuel"))).Cases;
+            Assert.Same(rapier[0], PartParityFxRules.ControlPlumeKey(rapier, true));
+            Assert.Same(rapier[2], PartParityFxRules.ControlPlumeKey(rapier, false));
+            // The air controls' Flea breathes no air: its one plume is an orbit case, held in the
+            // air. Its own key and option stay orbit ones.
+            var flea = Enumerate(Part("solidBooster.sm.v2", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                "throttleLocked=True", "useEngineResponseTime=True", "PROPELLANT.name=SolidFuel"))).Cases;
+            Assert.Same(flea[0], PartParityFxRules.ControlPlumeKey(flea, false));
+            PartParityCaseKey air = PartParityFxRules.ControlPlumeKey(flea, true);
+            Assert.NotSame(flea[0], air);
+            Assert.Equal("air", air.Context);
+            Assert.Equal("air", air.FxOption.Context);
+            Assert.Equal("alone", flea[0].Context);
+            Assert.Equal("alone", flea[0].FxOption.Context);
+            Assert.Equal(new[] { flea[0].Part, flea[0].Source, flea[0].Skin, flea[0].State },
+                new[] { air.Part, air.Source, air.Skin, air.State });
+            Assert.Equal(flea[0].FxOption.RecorderKeyIndex, air.FxOption.RecorderKeyIndex);
+            Assert.True(air.FxOption.ThrottleLocked && air.FxOption.UseEngineResponseTime);
+            // A jet held in an orbit run has no key, and no plume is no key.
+            var jet = Enumerate(Part("JetEngine", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "PROPELLANT.name=IntakeAir"))).Cases;
+            Assert.Null(PartParityFxRules.ControlPlumeKey(jet, false));
+            Assert.Null(PartParityFxRules.ControlPlumeKey(new List<PartParityCaseKey>(), true));
+            Assert.Null(PartParityFxRules.ControlPlumeKey(null, true));
         }
 
         [Fact]

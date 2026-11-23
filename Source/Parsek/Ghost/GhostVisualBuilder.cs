@@ -13,6 +13,8 @@ namespace Parsek
         private const string LightsShowcaseRecordingPrefix = "Part Showcase - Light";
         private const string RcsShowcaseRecordingPrefix = "Part Showcase - RCS";
         private const float LightsShowcaseVisualYOffset = 2f;
+        /// <summary>The TryBuildHeatInfo source whose clip stock plays through ModuleAnimationSetter.</summary>
+        internal const string HeatSourceAnimateHeat = "ModuleAnimateHeat";
         private const float LightMinimumIntensity = 1f;
         private const float LightMinimumRange = 8f;
         private const float LightShowcaseIntensityScale = 2f;
@@ -244,7 +246,10 @@ namespace Parsek
                         if (wheelDamageInfo != null)
                             build.wheelDamageInfos.Add(wheelDamageInfo);
                         if (heatInfo != null)
+                        {
+                            StampPersistedGlowLevels(heatInfo, build.snapshotNode, parseSnapshotBaselines);
                             build.heatInfos.Add(heatInfo);
+                        }
                         if (lightInfo != null)
                             build.lightInfos.Add(lightInfo);
                         if (fairingInfo != null)
@@ -658,7 +663,6 @@ namespace Parsek
         //          already in scale with the tiny part, default boost over-sizes them.
         //   1.0x — Flea/Hammer SRBs; default boost reads ~30% too wide, pin to prefab.
         //   2.0x — Skipper/Mainsail; default boost reads ~30% too narrow.
-        //   2.7x — Rhino; prefab plume is visibly narrow even at 1.5x, ~80% wider.
         // Keys are runtime part names (KSP converts underscores to dots at runtime:
         // `smallRadialEngine_v2` registers as `smallRadialEngine.v2`).
         private static readonly Dictionary<string, float> engineFxSizeOverride =
@@ -673,7 +677,6 @@ namespace Parsek
                 { "solidBooster.v2",        1.0f  }, // RT-10 "Hammer" SRB
                 { "engineLargeSkipper.v2",  2.0f  }, // T-1 Toroidal "Skipper"
                 { "liquidEngineMainsail.v2",2.0f  }, // RE-M3 "Mainsail"
-                { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
             };
 
         // Cache: partName -> semi-deployed + deployed canopy states (root and animated bones);
@@ -1501,7 +1504,7 @@ namespace Parsek
             {
                 string heatSource = SelectHeatAnimationSourceModule(hasAnimateHeat, hasAnimateThrottle);
                 heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
-                    modelNode.transform, partName, persistentId);
+                    modelNode.transform, partName, persistentId, modelRoot, cloneMap);
             }
 
             // Detect light parts and clone Light components for ghost playback
@@ -1513,8 +1516,10 @@ namespace Parsek
             // field this builder reads is config-only and so never survives into a persisted
             // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
             // structure hider already uses two calls below.
+            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);
             colorChangerInfos = BuildColorChangerInfos(
-                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
+                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName,
+                ThrottleDrivenModuleIds(throttleGlowDrivers));
 
             // Material / active-state clips the live part holds at rest (the ion engine's glow,
             // ReStock's scanner screen): written after the heat, light and colour-changer infos
@@ -1525,6 +1530,12 @@ namespace Parsek
                 heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName,
                 hasStandaloneAnimateGenericDeploy ? standaloneAnimateGenericAnimName : null,
                 ref deployableInfo);
+
+            // Engine / RCS nozzle glow: FXModuleAnimateThrottle / FXModuleAnimateRCS clips and the
+            // colour changers an FXModuleThrottleEffects names, driven by the recorded engine / RCS
+            // power. After the rest-state write, whose material clones it reuses.
+            BuildNozzleGlows(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
+                ref heatInfo, lightInfo, colorChangerInfos, throttleGlowDrivers, persistentId, partName);
 
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);

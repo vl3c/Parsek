@@ -11,6 +11,19 @@ namespace Parsek
     /// </summary>
     internal static class DebrisRelativePlaybackPolicy
     {
+        /// <summary>No track section covers the playback UT.</summary>
+        internal const string NoCoveringSectionReason = "no-covering-section";
+
+        /// <summary>The recording carries no track section at all.</summary>
+        internal const string NoTrackSectionsReason = "no-track-sections";
+
+        /// <summary>
+        /// Past the last track section, inside the recording's own predicted tail: the tail is
+        /// the authored surface there (owner rulings Q1a / Q2). Set by
+        /// <see cref="GhostPlaybackEngine"/>, which owns the orbit-tail dispatch.
+        /// </summary>
+        internal const string CoveredByPredictedTailReason = "covered-by-predicted-tail";
+
         internal struct ParentAnchoredDebrisCoverageDiagnostic
         {
             internal int SectionIndex;
@@ -67,6 +80,12 @@ namespace Parsek
                 && traj.ParentAnchorRecordingId != null;
         }
 
+        /// <summary>
+        /// True when no TRACK SECTION authors the playback UT. This answers for the sections
+        /// only: past the last one a predicted tail still authors the ghost's path, and
+        /// <c>GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage</c>
+        /// adds it. A caller that asks here directly must already hold a section covering the UT.
+        /// </summary>
         internal static bool ShouldRetireOutsideAuthoredRelativeCoverage(
             IPlaybackTrajectory traj,
             double playbackUT,
@@ -79,6 +98,37 @@ namespace Parsek
                 return false;
 
             return ShouldRetireFromDiagnostic(diagnostic);
+        }
+
+        /// <summary>
+        /// The end of the last track section (the maximum over all of them), or negative
+        /// infinity when the recording carries none. NaN ends are ignored. Pure.
+        /// </summary>
+        internal static double ResolveTrackSectionsEndUT(IPlaybackTrajectory traj)
+        {
+            double endUT = double.NegativeInfinity;
+            if (traj?.TrackSections == null)
+                return endUT;
+            for (int i = 0; i < traj.TrackSections.Count; i++)
+            {
+                double sectionEndUT = traj.TrackSections[i].endUT;
+                if (sectionEndUT > endUT)
+                    endUT = sectionEndUT;
+            }
+            return endUT;
+        }
+
+        /// <summary>
+        /// Whether a predicted tail may answer for this miss: only when no section covers the
+        /// UT. A section that covers it with frames that do not (or a malformed parent id)
+        /// stays retired. Pure.
+        /// </summary>
+        internal static bool IsSectionMissAPredictedTailMayCover(
+            ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            return diagnostic.SectionIndex < 0
+                && (diagnostic.Reason == NoCoveringSectionReason
+                    || diagnostic.Reason == NoTrackSectionsReason);
         }
 
         /// <summary>
@@ -140,13 +190,13 @@ namespace Parsek
 
             if (traj.TrackSections == null || traj.TrackSections.Count == 0)
                 return ParentAnchoredDebrisCoverageDiagnostic.Create(
-                    "no-track-sections");
+                    NoTrackSectionsReason);
 
             int sectionIndex = TrajectoryMath.FindTrackSectionForUT(
                 traj.TrackSections, playbackUT);
             if (sectionIndex < 0 || sectionIndex >= traj.TrackSections.Count)
                 return ParentAnchoredDebrisCoverageDiagnostic.Create(
-                    "no-covering-section");
+                    NoCoveringSectionReason);
 
             TrackSection section = traj.TrackSections[sectionIndex];
             var diagnostic = ParentAnchoredDebrisCoverageDiagnostic.Create(null);
@@ -195,8 +245,8 @@ namespace Parsek
             ParentAnchoredDebrisCoverageDiagnostic diagnostic)
         {
             return diagnostic.Reason == "parent-recording-id-empty"
-                || diagnostic.Reason == "no-track-sections"
-                || diagnostic.Reason == "no-covering-section"
+                || diagnostic.Reason == NoTrackSectionsReason
+                || diagnostic.Reason == NoCoveringSectionReason
                 || diagnostic.Reason == "relative-only-without-body-fixed-primary"
                 || diagnostic.Reason == "relative-and-body-fixed-frames-out-of-range";
         }

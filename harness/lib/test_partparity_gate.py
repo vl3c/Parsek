@@ -608,6 +608,111 @@ class FxGateTests(unittest.TestCase):
                 everything = [_entry(self.ID, "*", "*", noisy=True), _entry(self.ID, "*", "structure")]
                 self.assertTrue(pp.unaccepted_fails([case], "stock-minimal", everything))
 
+    def test_a_capped_fx_fail_is_no_fail_reason_and_a_standing_one_is(self):
+        # E.4: the unsettled entry's own fail is a warn; the same plume missing in the settled
+        # views still reds, and nothing names the capped view.
+        loosen = tp.FxJudgeTests._loosen
+        doc = self._case(event=tp._broken("off"))
+        loosen(doc, views=("fx-side-a",))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        # The reason TEXT still holds the capped finding: only the judgement says it is capped.
+        self.assertIn("event:fx-side-a:flame:fx-missing", cv.reasons)
+        self.assertEqual({"event:%s" % v for v in pp.FX_VIEWS if v != "fx-side-a"},
+                         {f.view for f in pp.fail_reasons(cv)})
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(len(pp.FX_VIEWS) - 1, len(g.reds), [f.text() for f in g.reds])
+        # Every entry of the missing plume unsettled: a warn, so no reason and no red.
+        doc = self._case(event=tp._broken("off"))
+        loosen(doc)
+        cv = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_WARN, []), (cv.verdict, pp.fail_reasons(cv)))
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(([], []), (g.reds, g.unmeasured))
+
+    def test_a_body_fail_beside_capped_fx_fails_is_gated_by_its_body_reasons(self):
+        # No unsettled sample is in a body route, so the cap never holds it.
+        doc = self._case(event=tp._broken("off"))
+        tp.FxJudgeTests._loosen(doc)
+        doc["views"][0]["colorBlobPx"] = 10 ** 6
+        cv = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_WARN), (cv.verdict, cv.fx.verdict))
+        self.assertEqual({pp.GROUP_COLOR}, {f.group for f in pp.fail_reasons(cv)})
+        self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(doc, self._case()).reds))
+
+    def _weak_smoke(self, flame=None, **kw):
+        """Two weak smoke cores with something drawn: every smoke entry is skipped."""
+        smear = tp._fx_tile({(x, 0): (1, tp.GREY) for x in range(tp.FTILE)})
+        real = {"flame": flame or tp.REAL_FX["flame"], "smoke": (smear, smear)}
+        return self._case(real=real, **kw)
+
+    def test_a_skipped_fx_entry_is_unmeasured_and_never_a_silent_pass(self):
+        doc = self._weak_smoke()
+        skipped = ["skipped:%s:%s:smoke" % (r, v) for r in ("event", "start") for v in pp.FX_VIEWS]
+        self.assertEqual(tuple(sorted(skipped)), pp.fx_unmeasured(pp.judge_case(doc)))
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(([], False), (g.reds, g.ok))
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        self.assertIn("skipped:event:fx-far:smoke", g.unmeasured[0].detail)
+        # A red beside it stays a red, and both are said.
+        g = self._gate_of(self._weak_smoke(event={"flame": tp.FX_DARK}), self._case())
+        self.assertEqual(({pp.GATE_UNACCEPTED_FAIL}, [pp.GATE_UNMEASURED]),
+                         (set(_kinds(g.reds)), _kinds(g.unmeasured)))
+        # No accepted entry makes it measured.
+        g = self._gate_of(doc, self._case(), [_entry(self.ID, "*", "*", noisy=True),
+                                              _entry(self.ID, "*", "fx:smoke")])
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+
+    def test_a_skip_the_baseline_runs_hold_is_a_note(self):
+        doc = self._weak_smoke()
+        entry = _section([{self.ID: doc}])["cases"][self.ID]
+        self.assertEqual(8, len(entry["fxUnmeasured"]))
+        self.assertNotIn("fxUnmeasured", _section([{self.ID: self._case()}])["cases"][self.ID])
+        g = self._gate_of(doc, doc)
+        self.assertTrue(g.ok)
+        self.assertEqual([pp.NOTE_FX_UNMEASURED], _kinds(g.notes))
+        # Only what the baseline holds: the same case with its flame skipped too is unmeasured.
+        smear = tp._fx_tile({(x, 0): (1, tp.GREY) for x in range(tp.FTILE)})
+        g = self._gate_of(self._weak_smoke(flame=(smear, smear)), doc)
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        self.assertIn(":flame", g.unmeasured[0].detail)
+        self.assertNotIn(":smoke", g.unmeasured[0].detail)
+        # A new case says it too, as a note (as its other faults do).
+        section = _section([{self.ID: doc}])
+        section["cases"] = {}
+        self.assertEqual([pp.NOTE_FX_UNMEASURED, pp.NOTE_NEW_CASE], _kinds(_gate({self.ID: doc}, section).notes))
+        # The committed shape is checked.
+        bad = {"schema": pp.BASELINE_SCHEMA, "profile": "p", "labels": {"pp1": {"cases": {
+            self.ID: dict(entry, fxUnmeasured="x")}}}}
+        self.assertTrue(any("fxUnmeasured" in e for e in pp.validate_baseline(bad, "p")))
+
+    def test_an_fx_check_that_did_not_run_is_unmeasured(self):
+        lists = {"fxMissingOnGhost": None, "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
+        doc = self._case(structure=lists)
+        self.assertEqual((pp.FLAG_FX_STRUCTURE_NOT_MEASURED,), pp.fx_unmeasured(pp.judge_case(doc)))
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(self._gate_of(doc, self._case()).unmeasured))
+        self.assertTrue(self._gate_of(doc, doc).ok)
+        dark = self._case(real=tp.NO_FX)
+        self.assertEqual((pp.FLAG_FX_NO_REAL_EFFECT,), pp.fx_unmeasured(pp.judge_case(dark)))
+        self.assertEqual(set(pp.FX_FLAGS_RAISE_TO_WARN), set(pp._FX_NOT_RUN_FLAGS) | {pp.FLAG_FX_WEAK_CORE})
+
+    def test_a_reference_case_or_entry_and_one_weak_core_owe_no_fx_measure(self):
+        # A Waterfall case is never gated, its skipped entries included.
+        ref = self._weak_smoke(reference="waterfall")
+        self.assertEqual((), pp.fx_unmeasured(pp.judge_case(ref)))
+        g = self._gate_of(ref, self._case(reference="waterfall"))
+        self.assertEqual(([], [], [pp.NOTE_REFERENCE]), (g.reds, g.unmeasured, _kinds(g.notes)))
+        # A lamp's FX entries are reference only.
+        cv = pp.judge_case(self._weak_smoke())
+        shown = pp.replace(cv, fx=pp.replace(cv.fx, entries=tuple(
+            pp.replace(e, reference=True) for e in cv.fx.entries)))
+        self.assertEqual((), pp.fx_unmeasured(shown))
+        # One weak core: every measure is judged (E.4), so nothing is owed.
+        small = {"flame": (tp._plume(length=8, width=8), tp._disc(2))}
+        cv = pp.judge_case(self._case(event=small))
+        self.assertTrue(any(f.startswith(pp.FLAG_FX_WEAK_CORE) for f in cv.fx.flags), cv.fx.flags)
+        self.assertEqual((), pp.fx_unmeasured(cv))
+
     def test_the_accepted_list_takes_fx_measures_and_views_and_no_others(self):
         def errs(**kw):
             row = {"case": self.ID, "view": "event:fx-side-a", "measure": "fx:length", "reason": "r x", "todo": "A-TODO"}

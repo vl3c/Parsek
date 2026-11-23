@@ -447,6 +447,8 @@ namespace Parsek
                         out _,
                         out _))
                 {
+                    // A Relative section holds targetUT here, so the predicted tail (past every
+                    // section) is out of reach: the orbit-tail pose is dispatched before this.
                     if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                             rec,
                             targetUT,

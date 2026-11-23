@@ -5234,14 +5234,10 @@ PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
 # fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules.ArgWords):
 # `none` (the default), `all` or a csv of FX words, with no states= and at most contexts=air
-# beside it (FxCombinationValid). A well-formed orbit fx= run is built (design E.9 piece F3,
-# TestCommandPartParitySweep.FxRunsBuilt); one with contexts=air is REJECTED fx-runs-not-built
-# until the held air spawn lands (piece F7, FxAirSpawnBuilt).
+# beside it (FxCombinationValid). An fx= run with contexts=air holds its jets in the air and
+# meets the pad host rule (host-not-at-pad) like every air run.
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
 PARTPARITY_FX_ALL_TOKEN = "all"
-PARTPARITY_FX_RUNS_BUILT = True
-PARTPARITY_FX_AIR_SPAWN_BUILT = False
-PARTPARITY_FX_RUNS_NOT_BUILT_REASON = "fx-runs-not-built"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5258,7 +5254,7 @@ PARTPARITY_REASONS: Tuple[str, ...] = (
     "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
     "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
-    "fx-runs-not-built", "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
+    "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
 # Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
 # subkind (nothing was refused; the runner may already have spawned vessels).
@@ -5482,8 +5478,7 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
     ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
     of contexts (``air`` alone), ``fx`` none|all|a csv of FX words (no ``states`` and at most
-    ``contexts=air`` beside it; a well-formed FX run with ``contexts=air`` is refused
-    ``fx-runs-not-built`` until its held air spawn lands), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``contexts=air`` beside it), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5559,13 +5554,6 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     closed("controls", PARTPARITY_CONTROLS_VALUES, "controls-arg-invalid")
     shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
            "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
-
-    fx_air = set(str(step_args.get("contexts", "")).split(",")) == {PARTPARITY_AIR_CONTEXT}
-    if fx_run and not errors and (not PARTPARITY_FX_RUNS_BUILT
-                                  or (fx_air and not PARTPARITY_FX_AIR_SPAWN_BUILT)):
-        errors.append("driver.steps[%d].args.fx: an FX run with contexts=air is not built yet "
-                      "(design-part-ghost-parity.md E.9 piece F7); the seam answers REJECTED %s"
-                      % (index, PARTPARITY_FX_RUNS_NOT_BUILT_REASON))
 
     if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
             and str(step_args.get("op", "run")) == "run"):
@@ -13345,7 +13333,6 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "states-arg-invalid": "driver-arg",
     "contexts-arg-invalid": "driver-arg",
     "fx-arg-invalid": "driver-arg",
-    "fx-runs-not-built": "driver-arg",
     "views-arg-invalid": "driver-arg",
     "tile-arg-invalid": "driver-arg",
     "shard-arg-invalid": "driver-arg",
@@ -14138,7 +14125,6 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
     "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
-    "fx-runs-not-built",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",

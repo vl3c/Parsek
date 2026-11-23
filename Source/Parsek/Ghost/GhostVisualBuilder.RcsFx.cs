@@ -21,7 +21,8 @@ namespace Parsek
             ref FloatCurve speedCurve)
         {
             ConfigNode[] mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
-            if (mmpNodes.Length == 0)
+            bool stockNodes = mmpNodes.Length == 0;
+            if (stockNodes)
                 mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE");
 
             for (int mp = 0; mp < mmpNodes.Length; mp++)
@@ -34,7 +35,11 @@ namespace Parsek
                     Vector3 localScale = Vector3.one;
                     Quaternion localRotation = Quaternion.identity;
                     Vector3 parsedVector;
-                    if (TryParseVector3(mmpNodes[mp].GetValue("localOffset"), out parsedVector))
+                    // Stock ModelMultiParticleFX reads localPosition; it has no localOffset key.
+                    string rawOffset = mmpNodes[mp].GetValue("localPosition");
+                    if (string.IsNullOrEmpty(rawOffset) && !stockNodes)
+                        rawOffset = mmpNodes[mp].GetValue("localOffset");
+                    if (TryParseVector3(rawOffset, out parsedVector))
                         localOffset = parsedVector;
                     if (TryParseVector3(mmpNodes[mp].GetValue("localScale"), out parsedVector))
                         localScale = parsedVector;
@@ -46,7 +51,8 @@ namespace Parsek
                         modelName = modelName ?? "",
                         localOffset = localOffset,
                         localRotation = localRotation,
-                        localScale = localScale
+                        localScale = localScale,
+                        stockNested = stockNodes
                     });
 
                     if (emissionCurve == null)
@@ -283,7 +289,11 @@ namespace Parsek
                                 fxInstance.transform.SetParent(ghostFxParent, false);
                                 fxInstance.transform.localPosition = fxDefinitions[f].localOffset;
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
-                                fxInstance.transform.localScale = fxDefinitions[f].localScale;
+                                fxInstance.transform.localScale = fxDefinitions[f].stockNested
+                                    ? NestedModelFxScale(fxPrefab.transform.localScale,
+                                        allFxTransforms[0].lossyScale, srcFxTransform.lossyScale,
+                                        srcFxTransform == allFxTransforms[0], fxDefinitions[f].localScale)
+                                    : fxDefinitions[f].localScale;
 
                                 StripKspFxControllers(fxInstance, info.kspEmitters);
 

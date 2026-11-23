@@ -71,7 +71,136 @@ namespace Parsek
             }
 
             return DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
-                traj, playbackUT, out diagnostic);
+                    traj, playbackUT, out diagnostic)
+                && !TryCoverSectionMissByPredictedTail(traj, playbackUT, ref diagnostic);
+        }
+
+        /// <summary>
+        /// Owner rulings Q1a / Q2: past the last track section the recording's own predicted
+        /// tail is authored coverage, so a miss there is not a retirement. True (and the
+        /// diagnostic renamed <see cref="DebrisRelativePlaybackPolicy.CoveredByPredictedTailReason"/>)
+        /// only when no section covers the UT and <see cref="IsInAcceptedPredictedTail"/> does.
+        /// Pure.
+        /// </summary>
+        private static bool TryCoverSectionMissByPredictedTail(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            ref DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
+        {
+            if (!DebrisRelativePlaybackPolicy.IsSectionMissAPredictedTailMayCover(diagnostic)
+                || !IsInAcceptedPredictedTail(traj, playbackUT))
+            {
+                return false;
+            }
+
+            diagnostic.Reason = DebrisRelativePlaybackPolicy.CoveredByPredictedTailReason;
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="playbackUT"/> lies past the recording's last track section
+        /// and the orbit-tail dispatch draws the recording's own PREDICTED tail there: inside a
+        /// predicted segment, in the short bridged gap before the first one, or sliding to it
+        /// (owner ruling L5) from a last point a section places. It reads the same finders as
+        /// the dispatch (<see cref="ShouldUseOrbitTailPlayback"/>,
+        /// <c>IGhostPositioner.PositionFromOrbit</c>), so a UT accepted here is never positioned
+        /// from flat points. False before and between sections, past the end of the tail, and on
+        /// a segment that is not predicted. Pure.
+        /// </summary>
+        internal static bool IsInAcceptedPredictedTail(
+            IPlaybackTrajectory traj, double playbackUT)
+        {
+            if (traj?.OrbitSegments == null
+                || traj.OrbitSegments.Count == 0
+                || !(playbackUT > DebrisRelativePlaybackPolicy.ResolveTrackSectionsEndUT(traj)))
+            {
+                return false;
+            }
+
+            if (traj.Points == null || traj.Points.Count == 0)
+            {
+                // No points: the dispatch falls to the segment holding the UT, behind a
+                // surface pose when there is one.
+                if (traj.SurfacePos.HasValue)
+                    return false;
+                int index = FindOrbitSegmentIndexHoldingUT(traj.OrbitSegments, playbackUT);
+                return index >= 0
+                    && traj.OrbitSegments[index].isPredicted
+                    && TrajectoryMath.HasUsableOrbitSegmentElements(traj.OrbitSegments[index]);
+            }
+
+            if (TryFindOrbitTailPlaybackSegment(traj, playbackUT, out OrbitSegment segment, out _))
+                return segment.isPredicted;
+
+            // The slide starts at the last flat point, so its frame must be known: a point no
+            // section holds may be an anchor-local offset.
+            return TryFindPredictedOrbitTailSlide(traj, playbackUT, out _, out _, out double lastPointUT)
+                && TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, lastPointUT) >= 0;
+        }
+
+        // Same rule as the raw-segment fallback in IGhostPositioner.PositionFromOrbit: the first
+        // segment in list order that holds the UT, the last one with an inclusive end.
+        private static int FindOrbitSegmentIndexHoldingUT(
+            List<OrbitSegment> segments, double playbackUT)
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                bool inRange = i == segments.Count - 1
+                    ? playbackUT >= segments[i].startUT && playbackUT <= segments[i].endUT
+                    : playbackUT >= segments[i].startUT && playbackUT < segments[i].endUT;
+                if (inRange)
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// One line per recording per 5 s while a parent-anchored ghost is drawn on its
+        /// predicted tail past its last section (the frames the section coverage alone would
+        /// hide). Called after the frame's activation, so <c>active</c> is what is on screen.
+        /// </summary>
+        private static void LogParentAnchoredPredictedTailDrawn(
+            int index,
+            IPlaybackTrajectory traj,
+            GhostPlaybackState state,
+            double playbackUT)
+        {
+            if (!ParsekLog.IsVerboseEnabled
+                || !IsParentAnchoredBodyFixedPrimaryCandidate(traj)
+                || !IsInAcceptedPredictedTail(traj, playbackUT))
+            {
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "Anchor",
+                "parent-anchored-predicted-tail|" + (traj.RecordingId ?? "(none)") + "|"
+                + index.ToString(CultureInfo.InvariantCulture),
+                BuildParentAnchoredPredictedTailDrawnMessage(
+                    index, traj, playbackUT,
+                    !ReferenceEquals(state?.ghost, null) && IsGhostRootActive(state.ghost)),
+                5.0);
+        }
+
+        internal static string BuildParentAnchoredPredictedTailDrawnMessage(
+            int index, IPlaybackTrajectory traj, double playbackUT, bool active)
+        {
+            return "parent-anchored predicted tail: "
+                + "recording=#" + index.ToString(CultureInfo.InvariantCulture)
+                + " vessel=\"" + (traj?.VesselName ?? "(unknown)") + "\""
+                + " recordingId=" + (traj?.RecordingId ?? "(none)")
+                + " active=" + (active ? "T" : "F")
+                + " playbackUT=" + playbackUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " sectionsEndUT=" + DebrisRelativePlaybackPolicy.ResolveTrackSectionsEndUT(traj)
+                    .ToString("F2", CultureInfo.InvariantCulture)
+                + " endUT=" + (traj != null ? traj.EndUT : double.NaN)
+                    .ToString("F2", CultureInfo.InvariantCulture);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsGhostRootActive(GameObject ghost)
+        {
+            return ghost != null && ghost.activeSelf;
         }
 
         internal static bool ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(
@@ -95,9 +224,10 @@ namespace Parsek
             }
 
             return DebrisRelativePlaybackPolicy.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                traj,
-                playbackUT,
-                out diagnostic);
+                    traj,
+                    playbackUT,
+                    out diagnostic)
+                && !TryCoverSectionMissByPredictedTail(traj, playbackUT, ref diagnostic);
         }
 
         private bool TryPositionRelativeSectionAtPlaybackUT(

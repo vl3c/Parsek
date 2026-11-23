@@ -104,6 +104,9 @@ namespace Parsek
         /// <summary>True once a plume build was attempted and failed, so it is never re-tried.</summary>
         internal bool evaJetpackPlumeUnavailable;
         public Dictionary<uint, HeatGhostInfo> heatInfos;
+        // Every heat info's nozzle glows, flat; null when the ghost has none.
+        internal List<NozzleGlowInfo> nozzleGlows;
+        internal double nozzleGlowStartUT = double.NaN;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
         public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
@@ -173,6 +176,10 @@ namespace Parsek
         internal string smokeDensityBodyName;
         internal double smokeDensityAltitude = double.NaN;
         internal double smokeDensity;
+        // Air cache of GhostPlaybackLogic.UpdateEngineThrustFractions (a pure function of its own
+        // keys, so it needs no reset); the serial counts its refreshes.
+        internal GhostEngineAir engineAir;
+        internal int engineAirSerial;
         // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
         // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
         internal WheelGroundContactMemo wheelGroundContact;
@@ -231,6 +238,8 @@ namespace Parsek
             evaJetpackThrusting = false;
             evaRagdoll = false;
             heatInfos = null;
+            nozzleGlows = null;
+            nozzleGlowStartUT = double.NaN;
             lightInfos = null;
             lightPlaybackStates = null;
             colorChangerInfos = null;

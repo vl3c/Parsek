@@ -1,0 +1,110 @@
+schema = 1
+id = "PP-10-part-parity-fx-air-restock"
+tier = "operator"
+# PART GHOST PARITY, RESTOCK WITHOUT WATERFALL, AIR-BREATHING ENGINES (phase P8 of
+# docs/dev/design-part-ghost-parity.md, Appendix E.2 "F7 as built", E.6, E.8, row F7 of E.9;
+# owner ruling R6). The jets need air, so PP-9's orbit sweep leaves them out (`fx-needs-air`);
+# stock-minimal and modded-compat photograph theirs as the second label of PP-5 / PP-6, and this
+# install has no other air lane to host one, hence a lane of its own. ReStock's own jet plumes and
+# smoke draw on the real side here (no Waterfall, unlike PP-6's `pp6fx`), so every case is JUDGED.
+#
+# WHAT THE LANE FLIES. PP-5's host and setup: `b1-pad-craft` (sandbox, the "Jumping Flea"
+# PRELAUNCH on the KSC pad) boots into FLIGHT, turns every auto-record setting off, verbose
+# logging on, clears the label directory (`op=reset`), runs two time-boxed
+# `op=run contexts=air fx=all` steps and quits. The host never moves (host.txt mode=air; else
+# REJECTED host-not-at-pad). Each case vessel (one lone engine) is spawned 1600 m up over the KSC
+# showcase band, held from the first frame by the surface-frame test stand, its exhaust straight
+# down, fed by CheatOptions.InfinitePropellant on its independent throttle, spooled to within 0.01
+# of the request and compared with its event-route and start-route ghosts as a distribution over
+# 16 samples per view. `controls=true` runs the air FX control set: ctl-empty, ctl-ghost-absent,
+# ctl-fx-real-vs-real-air and ctl-fx-plume-off-air (the Flea).
+#
+# CASES (design E.1): the 14 air plume cases (7 air-breathing modules, burn-full and burn-low:
+# Wheesley, Juno, Whiplash, Panther in both modes, Goliath, RAPIER in air mode), none reference,
+# plus the 4 controls. Each step logs the exact counts on its `fx cases:` Info line.
+#
+# STEP SIZING. The F7 acceptance sweep took 336 s on stock-minimal (`2026-11-23_1014`; the Goliath's
+# 77 s spool sets its wave), so with D.8's 50 % margin two steps of maxSeconds=480 (budget 540).
+#
+# GATES. (1) The partParity verifier row: the four air FX controls (else INVALID(parity-controls)),
+# the press (INVALID(parity-state-press)), the Python recompute from the FX atlases
+# (INVALID(parity-instrument)), completeness (INVALID(parity-incomplete)), the host
+# (INVALID(parity-host-damaged)). (2) Part verdicts REPORT-ONLY (`gating = false`). (3) The log
+# pins: the run-step summary line with `crashed=0` and `controls=ok`, the seam applier's OK line,
+# the step's `fx cases: fx=all contexts=air` line, and no `[Parsek][ERROR]`: an ERROR a modded part
+# provokes is a finding to file, never a suppression (design 10).
+#
+# READING THE RESULT. As PP-9, from `harness/results/<runId>_partparity/pp10/`. Findings join todo
+# PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23. Its ReStock smoke is the one place that layer can be
+# judged: in orbit it is noise (todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE).
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied (this
+# install has no other air lane); (2) no warp at all; (3) the time box is the measurement; (4)/(5)
+# none; (6) `[retry] policy = "none"` (a retry's `op=reset` would clear the files a reading run
+# exists to keep); (7) count 0; (8)/(9) tier operator by purpose, flight_efficiency.py after the
+# first green flight.
+description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F7): every modded-restock (ReStock, ReStock+, B9PartSwitch, no Waterfall) air-breathing engine's plume and smoke beside its Parsek ghosts (event route, start route), held 1600 m over the KSC showcase band from a pad host, over two PartParitySweep contexts=air fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). Every case is judged."
+instanceProfile = "modded-restock"
+tags = ["part-parity", "ghost-visual", "modded-restock", "pending-flight", "PP-10"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Clear the label directory so no earlier run's files mix in. The reset carries contexts=air:
+  # the applier admits every step by its run kind, and this host is on the pad.
+  { cmd = "PartParitySweep", args = { label = "pp10", op = "reset", contexts = "air", fx = "all" }, expect = "OK", budget = 120 },
+  # Two time-boxed air FX steps over every held jet; the second resumes.
+  { cmd = "PartParitySweep", args = { label = "pp10", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp10", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 and no D17 claim: the part verdicts are report-only, so no FX family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design E.8); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp10 op=run ok=true label=pp10 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp10 elapsed=[0-9.]+s label=pp10 done=(true|false) ",
+  # The step planned an air FX run (design E.5, PartParityFxRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] fx cases: fx=all contexts=air install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The step budgets: LoadGame 300, the reset 120, two 540 s run steps (1500 s).
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

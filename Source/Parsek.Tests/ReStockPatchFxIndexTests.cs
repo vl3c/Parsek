@@ -401,8 +401,8 @@ namespace Parsek.Tests
         private static void ScanAllGroups(
             ConfigNode effectsNode,
             HashSet<string> moduleGroups,
-            List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName)> modelFxEntries,
-            List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries)
+            List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)> modelFxEntries,
+            List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)> prefabFxEntries)
         {
             ConfigNode[] allGroups = effectsNode.GetNodes();
             string[] allGroupNames = new string[allGroups.Length];
@@ -431,8 +431,8 @@ namespace Parsek.Tests
             var index = Extract(out _, BuildSwivelShapePatchNode());
             var entry = index["liquidEngine2.v2"];
 
-            var modelEntries = new List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName)>();
-            var prefabEntries = new List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelEntries = new List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabEntries = new List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanAllGroups(entry.EffectsNode, entry.EngineModuleEffectNames[0], modelEntries, prefabEntries);
 
             Assert.Single(modelEntries);
@@ -454,8 +454,8 @@ namespace Parsek.Tests
             Assert.True(ReStockPatchFxIndex.TryResolveEngineGroupFilter(
                 index["RAPIER"], pristine, 1, 2, out var names, out _));
 
-            var modelEntries = new List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName)>();
-            var prefabEntries = new List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelEntries = new List<(string nodeType, string transformName, string modelName, UnityEngine.Vector3 localPos, UnityEngine.Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabEntries = new List<(string prefabName, string transformName, UnityEngine.Vector3 localOffset, UnityEngine.Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanAllGroups(index["RAPIER"].EffectsNode, names, modelEntries, prefabEntries);
 
             Assert.Single(modelEntries);

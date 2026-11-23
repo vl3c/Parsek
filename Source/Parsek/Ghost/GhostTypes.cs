@@ -164,6 +164,8 @@ namespace Parsek
         // Only ReStock's world-space SRB smoke rigs are affected; every stock FX asset is
         // local-space and this flag stays false.
         public bool baselineUseWorldSpace;
+        // A GhostEngineFxRule writes this emitter; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -178,6 +180,8 @@ namespace Parsek
         public float startSpeedMultiplier;
         public float startSizeMultiplier;
         public bool captured;
+        // A GhostEngineFxRule writes this system; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -213,9 +217,20 @@ namespace Parsek
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>
         public List<GhostFxMagnitudeBaseline> particleBaselines = new List<GhostFxMagnitudeBaseline>();
+        // S1 fallback curves, of sources with no entry in fxRules.
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
+        /// <summary>The sources stock's own power rules size (<see cref="GhostPlaybackLogic.ApplyEngineFxRules"/>).</summary>
+        public List<GhostEngineFxRule> fxRules = new List<GhostEngineFxRule>();
+        /// <summary>The part PREFAB's engine module, read for its thrust curves only.</summary>
+        public ModuleEngines engine;
+        public bool usesThrustFraction;
+        /// <summary><c>finalThrust / maxThrust</c> at full throttle in the ghost's air; 1 until known.</summary>
+        public float thrustFraction = 1f;
+        // The inputs thrustFraction was last computed from.
+        public int thrustAirSerial;
+        public float thrustThrottle = -1f;
         /// <summary>The stock <c>SmokeTrailControl</c> and <c>FXFadeByPressure</c> fades of this
         /// engine's cloned FX, captured before the component is stripped (todo
         /// GHOST-SMOKE-IN-VACUUM). Empty for an engine whose FX carry none.</summary>
@@ -544,6 +559,14 @@ namespace Parsek
         public uint partPersistentId;
         public List<HeatTransformState> transforms;
         public List<HeatMaterialState> materialStates;
+        // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
+        public List<NozzleGlowInfo> nozzleGlows;
+        // Created for throttle-driven colour changers alone: no heat visual of its own, so the part
+        // keeps the reentry glow (which leaves a colour changer's property to it).
+        public bool throttleGlowsOnly;
+        // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
+        // heat event draws nothing here and the part counts as any other for the reentry glow.
+        public bool heatClipMissing;
     }
 
     internal class LightGhostInfo
@@ -581,6 +604,20 @@ namespace Parsek
         // will be needed when rewind/scrub support is added.
         public float peakCharIntensity;
         public List<ColorChangerMaterialState> materials;
+        // Set on a colour changer an FXModuleThrottleEffects drives (ReStock's nozzle glow): the
+        // colours BuildNozzleGlows plays by the recorded engine power.
+        public ThrottleGlowCurve throttleGlow;
+    }
+
+    /// <summary>What BuildNozzleGlows needs of a throttle-driven ModuleColorChanger.</summary>
+    internal class ThrottleGlowCurve
+    {
+        public string moduleId;
+        public float animRate;
+        public bool useRate;
+        public bool animState;
+        // The module's colour curves, evenly sampled from 0 to 1.
+        public Color[] samples;
     }
 
     internal class RcsGhostInfo
@@ -772,6 +809,8 @@ namespace Parsek
         public Vector3 localOffset;
         public Quaternion localRotation;
         public Vector3 localScale;
+        // A stock MODEL_MULTI_PARTICLE node, whose instances take stock's nested scale.
+        public bool stockNested;
     }
 
     internal class FairingGhostInfo

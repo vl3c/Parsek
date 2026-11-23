@@ -244,6 +244,7 @@ namespace Parsek.TestCommands
                 foreach (AttachNode n in prefab.attachNodes)
                     if (n != null && n.nodeType == AttachNode.NodeType.Stack && !string.IsNullOrEmpty(n.id))
                         sp.StackNodes.Add(n.id);
+            sp.LightCount = prefab.GetComponentsInChildren<Light>(true).Length;
             return sp;
         }
 
