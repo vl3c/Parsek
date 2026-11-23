@@ -221,6 +221,9 @@ namespace Parsek
             // Logistics route proof metadata (additive; missing node = no proof data)
             RouteProofCodec.SerializeRouteProofMetadata(recNode, rec);
 
+            // Delta-v snapshots (additive; no node when the list is empty)
+            DeltaVSnapshotCodec.Serialize(recNode, rec.DeltaVSnapshots);
+
             SaveRewindToStagingMergeState(recNode, rec);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
@@ -1065,6 +1068,9 @@ namespace Parsek
 
             // Logistics route proof metadata (additive; missing node = no proof data)
             RouteProofCodec.DeserializeRouteProofMetadata(recNode, rec);
+
+            // Delta-v snapshots (additive; missing node = no snapshots)
+            rec.DeltaVSnapshots = DeltaVSnapshotCodec.Deserialize(recNode, rec.RecordingId);
 
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed

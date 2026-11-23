@@ -20,11 +20,25 @@ tier = "nightly"
 # recordings. ROUTE: StartRecording, then ExitToSpaceCenter in the next seam step (one frame
 # since PR #2017, far inside the 3 s backstop), with autoMerge ON so the commit is silent.
 #
-# GATES. `pad evidence=none` is logged only when the distance walk has already read the tree as
-# idle (every recording within 30 m), so that line is the proof the run reached the one-sample
-# shape; then no idle discard, and the committed store holds the one recording. If a second
-# sample lands before the exit the distance walk answers not-idle first, the evidence line never
-# prints and the lane reds on it: read the recording's point count before touching the gate.
+# GATES. The idle-on-pad check answers not idle in either of its two forms, no idle discard,
+# the tree auto-commits, and the committed store holds the one recording.
+#   - `pad evidence=none` prints only when the distance walk has already read the tree as idle
+#     (every recording within 30 m), so it is the one-sample shape;
+#   - `'Kerbal X' maxDist=40.7m <dash> not idle` prints when a second sample moved it.
+# THE SECOND FORM IS NORMAL SINCE 4727b505f (2026-11-20, todo STOP-TAKES-NO-FINAL-SAMPLE): the
+# exit's forced stop takes a final sample at the stop UT, so any exit that lands one physics
+# tick (0.02 s, 41 m at orbital speed) or more after the first sample records two points. Until
+# then no sample followed the first. `2026-11-23_1554` red on the evidence token alone for that
+# reason (points=2 maxDist=41m, the tree committed); the greens `2026-11-08_0219`,
+# `2026-11-14_1441` and `2026-11-15_0717` exited on the first sample's own tick, which still
+# prints the evidence form. So this lane now proves the outcome
+# (an orbiting flight left at once is kept and committed), and the one-sample pad-evidence
+# decision is proven by xUnit `IdleOnPadPadEvidenceTests`:
+# `IsTreeIdleOnPad_OneSampleOrbitingSingleRecording_NotIdle` (the case and its log line),
+# `IsTreeIdleOnPad_NoRecordingShowsEvidence_NotIdle`,
+# `IsTreeIdleOnPad_DistanceGuardFiresBeforeTheEvidenceCheck`,
+# `IsTreeIdleOnPad_OneSamplePrelaunchSingleRecording_StaysIdle` (the mirror) and
+# `IsActiveTreeIdleOnPad_EvidenceCheckRunsAfterTheRecorderFlush`.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) no host flight is a prefix (H67 runs an in-game
 # cell, not a seam route); (2) no waits at all, the shape needs the exit at once; (3) no dwells;
@@ -33,8 +47,9 @@ tier = "nightly"
 # measured; (9) flight_efficiency.py after the first green flight.
 #
 # STATUS: AUTHORED 2026-10-22 (branch `claude/project-thread-77b92l`); LIVE-PROVEN on its first
-# flight `2026-10-22_1212` (PASS attempt 1).
-description = "PAD-1: on gs2-orbital-stack (an orbiting Kerbal X), start a recording and leave FLIGHT for the Space Center in the next step, under autoMerge, so the recording has one trajectory sample: the idle-on-pad check must find no pad evidence (pad evidence=none) and the flight must be committed, not discarded."
+# flight `2026-10-22_1212` (PASS attempt 1). Token widened 2026-11-23 off `2026-11-23_1554`,
+# re-flight owed.
+description = "PAD-1: on gs2-orbital-stack (an orbiting Kerbal X), start a recording and leave FLIGHT for the Space Center in the next step, under autoMerge, so the recording has one or two trajectory samples: the idle-on-pad check must answer not idle (no pad evidence, or moved past the idle distance) and the flight must be committed, not discarded."
 instanceProfile = "stock-minimal"
 tags = ["PAD-1", "idle-on-pad", "scene-exit", "auto-merge", "commit", "orbit", "kerbin", "sandbox"]
 
@@ -70,15 +85,19 @@ count = { min = 1, max = 1 }
 [expectations.logContracts]
 required = [
   "startrecording recordingId=[0-9a-f]+ already=false",
-  # The distance walk read the tree as idle (one sample), and the tree-level gate found no
-  # pad evidence: ParsekFlight.TreeHasPadEvidenceForIdle.
-  "startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*(?:IsActiveTreeIdleOnPad|IsTreeIdleOnPad): tree='[^']*' id=[0-9a-f]+ pad evidence=none",
+  # Either not-idle form (see GATES): the distance walk read the tree as idle (one sample) and
+  # the tree-level gate found no pad evidence (ParsekFlight.TreeHasPadEvidenceForIdle), or the
+  # walk itself read it as moved. The dash before "not idle" can be a non-ASCII character.
+  "startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*(?:IsActiveTreeIdleOnPad|IsTreeIdleOnPad): (?:tree='[^']*' id=[0-9a-f]+ pad evidence=none|'Kerbal X' maxDist=[0-9.]+m \\S+ not idle)",
+  # Kept and committed, not only not discarded.
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Kerbal X' recordings=1 ",
   "exittospacecenter complete scene=SPACECENTER",
   "MISSIONMARK label=pad1-committed-1 ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "pad evidence=(?!none)",
+  "Is(?:Active)?TreeIdleOnPad: all [0-9]+ recordings",
   "TryAutoDiscardIdleActiveTree: idle detected",
   "Idle on pad at scene exit",
   "startrecording rejected",

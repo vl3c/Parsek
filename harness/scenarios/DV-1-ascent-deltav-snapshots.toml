@@ -1,0 +1,117 @@
+# DV-1-ascent-deltav-snapshots - the recorder saves the game's delta-v readout (Mission
+# Profile P1a, docs/dev/design-mission-profile.md section 8.1).
+#
+# WHAT IT PROVES. The focused recording reads stock `VesselDeltaV` at its start, at every
+# staging, at each burn start and end, and at its end, and writes each read as an Ok
+# snapshot (figures present). The end read is the one a unit test cannot drive: at a
+# scene exit stock clears `FlightGlobals.ready` on the same `onGameSceneLoadRequested`
+# that stops the recorder, so the End read must not wait on it (P1a review blocker).
+#
+# THE HOST is B2's LKO ascent verbatim (the stock Kerbal X, MechJeb ascent autopilot):
+# a pad start, booster staging, the ascent burn, the coast and the circularization burn.
+# There is no post-mission coast: the flight leaves through `ExitToSpaceCenter` while the
+# recorder is live, so the scene-exit force stop writes the End snapshot. `autoMerge=true`
+# is mandatory for that verb (else it REJECTs `dialog-required`); `verboseLogging=true`
+# puts the per-snapshot `[DeltaV] Snapshot:` lines (Verbose) in the log. SaveGame after the
+# exit: the tree commits on arrival at the Space Center, after the exit's own write.
+#
+# THE WITNESS is the log: one `Snapshot:` line per written snapshot (trigger, status,
+# vacuum total, stage count) and one `stopped (<tag>)` summary per recorder stop. Start,
+# Staging, BurnStart, BurnEnd and the scene-exit End must each read Ok with a vacuum
+# figure; the End line must be followed by the `force stop` summary (the scene exit), not
+# a CommitTree stop. A Separation snapshot is not required: B2's booster drops are
+# debris-only splits that keep the focused recording.
+#
+# FIRST FLIGHT 2026-11-22_1908 (PARSEK-FAIL on this spec's own forbid regex, every required
+# line matched): the scene-exit End read Ok (vac=3521.7, force stop, unknown=0). The forbid on
+# ANY End Unknown matched the transient Ends of the four booster-staging chain-boundary stops,
+# each removed again by its false-alarm resume; replaced by unknown=0 on the force stop. The
+# flight also showed two tracker defects, fixed before the second flight: four BurnStart
+# snapshots inside one second at MechJeb's cut-off (a throttle flicker; a burn start now
+# withdraws a pending burn end) and the Start read landing 0.8 s after the first burn start
+# (a fresh start now reads on the first ready tick).
+#
+# PRE-STAGING READ (2026-11-22 review): the settled Staging read lands about 1.25 s after the
+# stage activation, so the reading before a staging was the previous snapshot, minutes earlier
+# in an ascent, and the drop absorbed the fuel burned since. The recorder now keeps its last
+# ready reading and writes it at each staging as a PreStaging snapshot (`source=cached
+# age=...`); the lane requires one such line followed by the settled Staging read. Not yet
+# flown with that line.
+schema = 1
+id = "DV-1-ascent-deltav-snapshots"
+tier = "nightly"
+description = "Mission Profile P1a: B2's MechJeb LKO ascent, then ExitToSpaceCenter with the recorder live; the log shows Ok delta-v snapshots (stock VesselDeltaV figures) at the recording's start, a staging, a burn start and end, and an Ok End snapshot written by the scene-exit force stop."
+instanceProfile = "stock-minimal"
+tags = ["DV", "DV-1", "deltav", "mission-profile", "staging", "scene-exit", "flown", "mechjeb", "kerbin"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b2_lko_ascent"
+
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",         expect = "MISSION-OK", budget = 780 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+eccentricityMax           = 0.02
+inclinationErrorDeg       = 2.0
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+
+[dimensionsCovered]
+D14 = ["kerbin"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# B2's population (main ascent + the in-flight optimizer's ascent-exit split + six
+# booster debris children), as on PWR-1.
+count = { min = 7, max = 8 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Start ut=\\S+ status=Ok vac=[0-9]",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Staging ut=\\S+ status=Ok vac=[0-9]",
+  # A staging writes the reading kept just before it (at most 1 s old, stamped with its own
+  # UT), then the settled read after it: the pair the staging drop is read from.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=PreStaging ut=\\S+ status=Ok vac=[0-9][^\\n]*source=cached age=(?:0\\.[0-9]{2}|1\\.00)s[\\s\\S]{0,120000}?\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=Staging ut=\\S+ status=Ok vac=[0-9]",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=BurnStart ut=\\S+ status=Ok vac=[0-9]",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=BurnEnd ut=\\S+ status=Ok vac=[0-9]",
+  # The scene exit: an Ok End read, then the force-stop summary of the same recorder, with
+  # no Unknown snapshot left in the recording.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[DeltaV\\] Snapshot: rec=\\S+ trigger=End ut=\\S+ status=Ok vac=[0-9][\\s\\S]{0,2000}?\\[Parsek\\]\\[INFO\\]\\[DeltaV\\] Recording \\S+ stopped \\(force stop\\): snapshots=[1-9][0-9]* unknown=0 ",
+]
+# Not forbidden: the End Unknown each booster staging writes at its debris-only chain-boundary
+# stop. That stop resumes as a false alarm and removes its End again ("Resume after false
+# alarm: removed the stop snapshot"), which the force-stop summary's unknown=0 proves.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[Parsek\\]\\[WARN\\]\\[DeltaV\\]",
+]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

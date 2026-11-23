@@ -81,21 +81,31 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GetSampleInterval — Out of Range (>= 2.3km)
+        #region GetSampleInterval past the last band (>= 2.3km)
 
-        [Fact]
-        public void GetSampleInterval_AtPhysicsBubbleBoundary_ReturnsMaxValue()
+        [Theory]
+        [InlineData(2300.0)]
+        [InlineData(2304.0)]
+        [InlineData(22500.0)]
+        [InlineData(1.0e7)]
+        [InlineData(double.MaxValue)]
+        [InlineData(double.NaN)]
+        public void GetSampleInterval_PastPhysicsBubble_KeepsTheFarRate(double distance)
         {
-            // 2300m is the boundary — no longer < 2300, so it falls out of range
-            double interval = ProximityRateSelector.GetSampleInterval(2300);
-            Assert.Equal(double.MaxValue, interval);
+            // Every caller holds a loaded, unpacked vessel, so there is no silent band: stock
+            // keeps a flying vessel in physics out to 22.5 km. No focused vessel reads
+            // double.MaxValue, an unreadable pose NaN.
+            Assert.Equal(ProximityRateSelector.FarInterval, ProximityRateSelector.GetSampleInterval(distance));
+            Assert.True(ProximityRateSelector.IsBeyondRange(distance));
         }
 
-        [Fact]
-        public void GetSampleInterval_FarBeyondPhysicsBubble_ReturnsMaxValue()
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(1000.0)]
+        [InlineData(2299.9)]
+        public void IsBeyondRange_InsidePhysicsBubble_False(double distance)
         {
-            double interval = ProximityRateSelector.GetSampleInterval(100000);
-            Assert.Equal(double.MaxValue, interval);
+            Assert.False(ProximityRateSelector.IsBeyondRange(distance));
         }
 
         #endregion
@@ -114,7 +124,10 @@ namespace Parsek.Tests
         {
             Assert.True(ProximityRateSelector.DockingInterval < ProximityRateSelector.MidInterval);
             Assert.True(ProximityRateSelector.MidInterval < ProximityRateSelector.FarInterval);
-            Assert.True(ProximityRateSelector.FarInterval < ProximityRateSelector.OutOfRangeInterval);
+            // Debris: 2 Hz inside the range (the MidInterval cap), 1 Hz past it.
+            Assert.True(ProximityRateSelector.MidInterval < ProximityRateSelector.BeyondRangeDebrisInterval);
+            Assert.True(ProximityRateSelector.BeyondRangeDebrisInterval < ProximityRateSelector.FarInterval);
+            Assert.True(ProximityRateSelector.FarInterval < ProximityRateSelector.UnsetInterval);
         }
 
         #endregion

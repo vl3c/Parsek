@@ -51,7 +51,7 @@ namespace Parsek
             public bool hasLastWorldRotation;
 
             // Proximity-based sample interval tracking
-            public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
+            public double currentSampleInterval = ProximityRateSelector.UnsetInterval;
             public double highFidelitySamplingUntilUT = double.NaN;
             public string highFidelitySamplingReason;
             public bool loggedFirstDebrisOrdinarySample;
@@ -152,10 +152,10 @@ namespace Parsek
             // lockstep with frames in TrimParentAtBranchBoundary.
             public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
-            // Out-of-proximity-range sampling silences (ShouldSkipTrajectorySamplingForProximity).
-            // The open one starts at the first skipped tick and closes at the first tick that
-            // is not skipped, or at a frame committed while still out of range (an
-            // event-driven snapshot); the closed ones explain the section-close gaps they
+            // Sampling silences of a vessel parked past the sampling range
+            // (ShouldRestSamplingBeyondRange). The open one starts at the first skipped tick
+            // and closes at the first tick that is not skipped, or at a frame committed while
+            // it is still parked there (an event-driven snapshot); the closed ones explain the section-close gaps they
             // overlap.
             // Cleared on StartBackgroundTrackSection; a window past a trimmed tail overlaps
             // no gap.

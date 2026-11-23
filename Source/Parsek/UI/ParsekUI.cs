@@ -85,6 +85,8 @@ namespace Parsek
         // The Route History: a second instance of the log-table window, opened from a
         // supply route's Log button (its own id, rect, lock and open state).
         private IStructureLogWindow routeHistoryUI;
+        // The Mission Profile window (one instance, retargeted per mission).
+        private IMissionProfileWindow missionProfileUI;
 
         // Logistics window (v0 — Supply Routes tab + Send Once button)
         private ILogisticsWindow logisticsUI;
@@ -138,6 +140,7 @@ namespace Parsek
             this.logisticsUI = windows.Logistics;
             this.structureListUI = windows.StructureList;
             this.routeHistoryUI = windows.RouteHistory;
+            this.missionProfileUI = windows.MissionProfile;
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             timelineUI.SubscribeTimelineDataChanged();
@@ -160,6 +163,7 @@ namespace Parsek
             this.logisticsUI = windows.Logistics;
             this.structureListUI = windows.StructureList;
             this.routeHistoryUI = windows.RouteHistory;
+            this.missionProfileUI = windows.MissionProfile;
             activeInstance = this;
             InitializeAppliedUiComplexityModeFromSettings();
             timelineUI.SubscribeTimelineDataChanged();
@@ -483,7 +487,8 @@ namespace Parsek
         /// <para>Deliberately ABSENT: <c>recordingsTableUI</c> (survives as the Missions
         /// window), <c>structureListUI</c> (the Mission Log, reachable from the Missions
         /// rows), <c>routeHistoryUI</c> (the Route History, reachable from every Logistics
-        /// route's Log in both modes), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
+        /// route's Log in both modes), <c>missionProfileUI</c> (the Mission Profile, reachable
+        /// from every mission's Profile button in both modes), <c>kerbalsUI</c> (drawn in Basic since the 2026-09-22 owner
         /// re-ruling: it is the only surface that explains why a reserved kerbal is
         /// missing from stock crew assignment), and the ungated <c>timelineUI</c> /
         /// <c>logisticsUI</c> / <c>settingsUI</c> / <c>missionsUI</c>.</para>
@@ -854,6 +859,7 @@ namespace Parsek
         {
             structureListUI.DrawIfOpen(mainWindowRect);
             routeHistoryUI.DrawIfOpen(mainWindowRect);
+            missionProfileUI.DrawIfOpen(mainWindowRect);
         }
 
         /// <summary>Opens the Route History window on one supply route (the route's Log
@@ -868,6 +874,13 @@ namespace Parsek
         internal void OpenStructureWindowForMission(string treeId, string missionId, string title)
         {
             structureListUI.OpenForMission(treeId, missionId, title);
+        }
+
+        /// <summary>Opens the Mission Profile on one Mission (the Missions tab's Profile
+        /// button). It can stand beside an open Mission Log.</summary>
+        internal void OpenProfileWindowForMission(string treeId, string missionId, string title)
+        {
+            missionProfileUI.OpenForMission(treeId, missionId, title);
         }
 
         // ════════════════════════════════════════════════════════════════
@@ -1611,6 +1624,11 @@ namespace Parsek
 
             /// <summary>Soft violet #b39ddb: the Logistics Paused Routes section accent.</summary>
             Violet = 5,
+
+            /// <summary>House orange #ff9940 (1, 0.6, 0.25): the Mission Profile's spent
+            /// delta-v. Between the countdown amber #ffcc66 and the error red, so it reads
+            /// as neither.</summary>
+            Orange = 6,
         }
 
         /// <summary>
@@ -1633,6 +1651,8 @@ namespace Parsek
                     return new Color(0.65f, 0.85f, 1f);
                 case StatusColorKind.Violet:
                     return new Color(179f / 255f, 157f / 255f, 219f / 255f);
+                case StatusColorKind.Orange:
+                    return new Color(1f, 0.6f, 0.25f);
                 case StatusColorKind.Grey:
                 default:
                     return new Color(0.7f, 0.7f, 0.7f);
@@ -1858,6 +1878,7 @@ namespace Parsek
             spawnControlUI.ReleaseInputLock();
             structureListUI.ReleaseInputLock();
             routeHistoryUI.ReleaseInputLock();
+            missionProfileUI.ReleaseInputLock();
             ResetCachedWindowStylesForSceneChange();
             // Map marker resources (icon atlas, fallback diamond, label style) are
             // owned by MapMarkerRenderer and reset per scene via ResetForSceneChange.

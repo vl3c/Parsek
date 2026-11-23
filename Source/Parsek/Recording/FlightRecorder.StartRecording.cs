@@ -194,6 +194,7 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = this;
 
             SubscribePartEvents();
+            BeginDeltaVTracking(v, isPromotion);
 
             // Initialize diagnostics growth rate tracking
             DiagnosticsState.activeGrowthRate = default;

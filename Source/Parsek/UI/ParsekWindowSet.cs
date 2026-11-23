@@ -24,6 +24,9 @@ namespace Parsek
         // A second instance of the same window, opened from a supply route's Log button
         // (its own id, rect, lock and open state).
         private readonly StructureListWindowUI routeHistoryUI;
+        // The Mission Profile, opened from a mission's Profile button (one instance,
+        // retargeted per mission, beside an open Log).
+        private readonly MissionProfileWindowUI missionProfileUI;
 
         private ParsekWindowSet(ParsekUI ui)
         {
@@ -37,6 +40,7 @@ namespace Parsek
             logisticsUI = new LogisticsWindowUI(ui);
             structureListUI = new StructureListWindowUI(ui);
             routeHistoryUI = new StructureListWindowUI(ui, routeHistory: true);
+            missionProfileUI = new MissionProfileWindowUI(ui, StructureListWindowUI.BuildProfileRequest);
         }
 
         /// <summary>The FLIGHT scene's ParsekUI with its windows.</summary>
@@ -79,6 +83,7 @@ namespace Parsek
         internal LogisticsWindowUI GetLogisticsUI() => logisticsUI;
         internal StructureListWindowUI GetStructureListUI() => structureListUI;
         internal StructureListWindowUI GetRouteHistoryUI() => routeHistoryUI;
+        internal MissionProfileWindowUI GetMissionProfileUI() => missionProfileUI;
 
         IRecordingsTableWindow IParsekUIWindows.RecordingsTable => recordingsTableUI;
         ISpawnControlWindow IParsekUIWindows.SpawnControl => spawnControlUI;
@@ -89,5 +94,6 @@ namespace Parsek
         ILogisticsWindow IParsekUIWindows.Logistics => logisticsUI;
         IStructureLogWindow IParsekUIWindows.StructureList => structureListUI;
         IStructureLogWindow IParsekUIWindows.RouteHistory => routeHistoryUI;
+        IMissionProfileWindow IParsekUIWindows.MissionProfile => missionProfileUI;
     }
 }

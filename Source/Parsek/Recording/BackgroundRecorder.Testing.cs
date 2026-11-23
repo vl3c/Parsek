@@ -462,6 +462,7 @@ namespace Parsek
             Vector3 currentVelocity,
             Quaternion currentWorldRotation,
             bool highFidelityActive,
+            bool beyondRange,
             float effectiveMinSampleInterval,
             float effectiveMaxSampleInterval,
             float minSampleInterval,
@@ -476,6 +477,7 @@ namespace Parsek
                 currentVelocity,
                 currentWorldRotation,
                 highFidelityActive,
+                beyondRange,
                 effectiveMinSampleInterval,
                 effectiveMaxSampleInterval,
                 minSampleInterval,
@@ -664,7 +666,8 @@ namespace Parsek
             SegmentEnvironment nextEnv,
             bool willHavePlayableOnRailsPayload,
             TrajectoryPoint boundaryPoint,
-            double ut)
+            double ut,
+            TrajectoryPoint? closingFrame = null)
         {
             BackgroundVesselState loadedState;
             Recording flushRec;
@@ -680,6 +683,7 @@ namespace Parsek
                 nextEnv,
                 willHavePlayableOnRailsPayload,
                 boundaryPoint,
+                closingFrame,
                 ut);
 
             EmitBackgroundRailsTerminalEvents(loadedState, ut);

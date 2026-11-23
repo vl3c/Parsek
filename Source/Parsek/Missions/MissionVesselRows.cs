@@ -294,6 +294,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The vessel rows of one mission tree, the one entry the Missions tab
+        /// (<c>MissionsWindowUI.GetVesselRows</c>) and the Mission Profile
+        /// (<c>MissionProfileBuilder.BuildVesselRows</c>) both build their rows through, so the
+        /// Profile's lines equal the tab's rows by construction: <see cref="Build"/> over
+        /// <paramref name="roots"/> (the composition of <paramref name="structure"/>) with the
+        /// same-tree and terminal dock-partner resolvers and the undock sides of
+        /// <paramref name="partnerLegIds"/>. Pure apart from Build's rate-limited lines.
+        /// </summary>
+        internal static List<MissionVesselRow> BuildForMission(
+            List<MissionCompositionNode> roots,
+            MissionStructure structure,
+            MissionThroughLineView view,
+            IReadOnlyDictionary<string, string> vesselNames,
+            ICollection<string> partnerLegIds)
+        {
+            return Build(
+                roots,
+                (ownerHeadId, boundaryUT) =>
+                    MissionPresentation.ResolveSameTreeDockPartnerVesselName(
+                        structure, view, ownerHeadId, boundaryUT, vesselNames),
+                vesselNames,
+                partnerLegIds,
+                (ownerHeadId, endUT) =>
+                    MissionPresentation.ResolveTerminalDockPartnerVesselName(
+                        structure, ownerHeadId, endUT, vesselNames),
+                ResolveUndockSides(structure, partnerLegIds));
+        }
+
+        /// <summary>
         /// The start event of the first row <see cref="Build"/> would produce, without building
         /// any row: what a collapsed mission's bar shows. Pure.
         /// </summary>

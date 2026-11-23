@@ -2071,9 +2071,8 @@ packs patch every liquid, nuclear, ion and monopropellant engine, every jet and 
 checked (46 engine and 13 RCS parts carry `ModuleWaterfallFX`), and 7 lamps (`spotLight1..3`,
 `spotLight1.v2`, `spotLight2.v2`, `groundLight1`, `groundLight2`); the solid boosters
 (`solidBooster.sm.v2`, `solidBooster.v2`, `Shrimp`, `Mite`, `sepMotor1`, `LaunchEscapeSystem`)
-and the nav, dome and strip lights are not patched. `LaunchEscapeSystem`'s ghost skips its
-particles by design (nozzle glow only, `EngineFxBuilder.TryBuildEngineFX`): judged like any
-other case, its expected fail is an entry of P5's accepted list, not a special case in code.
+and the nav, dome and strip lights are not patched. `LaunchEscapeSystem`'s stock ghost skipped its
+particles until GHOST-LES-NO-PLUME; it is judged like any other case.
 
 Out of P8, each an exclusion reason (`PartParityFxRules.ExclusionReasons`, mirrored as
 `partparity.FX_EXCLUSION_REASONS`):
@@ -2108,7 +2107,9 @@ plume / rcs case's body atlas), the exhaust `Light` of legacy engines (the case'
 name, ramping at `animRate`; the ghost plays it from the recorded power (todo
 GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
 (`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
-the ramp stood.
+the ramp stood and starts it at `animState`'s end when it loads the part, so the start-route ghost
+shows what a load would and the real part, which was not loaded, does not
+(PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the instrument's case, not the ghost's).
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 
@@ -3104,12 +3105,29 @@ F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stoc
   point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
   smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
 
-F7 lanes as authored (2026-11-23, not flown, tags `pending-flight`): the second labels `pp5fx` /
+F7 lanes as authored (2026-11-23): the second labels `pp5fx` /
 `pp6fx` of PP-5 / PP-6 after their chute step (reset and runs carry `contexts=air fx=all`) and
 `PP-10-part-parity-fx-air-restock`, wiring cells `PartParityAirFxLaneShapeTests`. Two steps and not
 the table's one: F7's acceptance sweep took 336 s on stock (the Goliath's 77 s spool sets its wave),
 so 480 s is under D.8's 50 % margin. `budgetSeconds` 2400 for PP-5 / PP-6 and 1800 for PP-10 (the
 step budgets sum to 2160 and 1500). No registry value, as the orbit lanes.
+
+Reading runs after the ghost FX fixes (2026-11-23, main with #2804, DLL 8b67133f; all report-only,
+every control ok, recompute 0 mismatches, no `[Parsek][ERROR]`; evidence `<umbrella>/logs/flights/fx-fly/`):
+
+| Lane | Run | Wall | Sweep steps (s) | Cases: pass / warn / fail / error / reference |
+| --- | --- | --- | --- | --- |
+| PP-7 | `2026-11-23_1732` | 1007 s | 452 + 399 + 46 + 0.3 | 128: 105 / 17 / 6 / 0 |
+| PP-9 | `2026-11-23_1749` | 1317 s | 454 + 421 + 322 + 0.4 + 0.4 | 164: 68 / 31 / 65 / 0 |
+| PP-8 | `2026-11-23_1811` | 1332 s | 453 + 422 + 342 + 0.4 + 0.6 | 164: 46 / 10 / 13 / 0, 95 reference |
+| PP-5 | `2026-11-23_1718` | 409 s | `pp5` 29.4; `pp5fx` 312.4 + 0.1 | `pp5fx` 14: 2 / 2 / 10 / 0 |
+| PP-6 | `2026-11-23_1725` | 423 s | `pp6` 32.6; `pp6fx` 312.8 + 0.1 | `pp6fx` 14 reference |
+| PP-10 | `2026-11-23_1712` | 397 s | 315.8 + 0.2 | 14: 0 / 4 / 10 / 0 |
+
+One air step does the work on every install (about 313 s of the 480 s box), so the second stays as
+margin; the orbit lanes still use three. One case fewer on the modded installs (164) since
+`telescopicLadderBay` is excluded (`fx-no-light`). PP-9 read 128 fails before the ghost fixes and 65
+after; what they are: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
 
 ### E.9 Work breakdown
 
@@ -3340,7 +3358,7 @@ None of the seventeen clean runs of the six lanes carries any of these except th
 stowed chutes (`drawn`) and the nine lit cases (`state-not-modelled`), which are accepted by name.
 
 **Accepted list** (`harness/partparity/accepted.toml`, 72 entries, 41 of them `noisy`, each with
-its todo id): 18 for the 9 lit cases stock draws no light on
+its todo id; as pinned by P5): 18 for the 9 lit cases stock draws no light on
 (PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK, two `flag:` entries each), 16 under
 GHOST-PARITY-RESIDUALS-2026-11-22 (the four cosmetic colour residuals and 12 ReStock wheel cases
 under the suspension-droop ruling it records), 12 sun trackers (PARTPARITY-SUN-TRACKER-RESIDUAL), 5
@@ -3350,7 +3368,8 @@ PARTPARITY-STOWED-CANOPY-RENDERED, new), 5 small state residuals
 (GHOST-WATERFALL-LIGHT-FX-MISSING), 2 scanners (PARTPARITY-SPIN-PHASE, new), 2 LV-1 shrouds
 (PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn today), 1
 RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
-(PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). Some matched nothing in any clean current-build run:
+(PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). One entry since, 73 in all (42 `noisy`): the truss edge row
+(PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE), from PP-2's armed flight `2026-11-23_1846`. Some matched nothing in any clean current-build run:
 owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.

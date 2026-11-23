@@ -1540,6 +1540,8 @@ namespace Parsek
                 recordedVessel,
                 stopIsChainBoundary: true);
 
+            // Focus left the recorded vessel, so stock stops computing its figures.
+            EndDeltaVTracking("vessel-switch stop");
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
@@ -2121,6 +2123,10 @@ namespace Parsek
                 recorderHarvestWindows.Clear();
                 openHarvestWindow = null;
             }
+
+            // The backgrounded leg takes no snapshots (stock computes for the active vessel
+            // only); a later switch back binds a new recorder, which records SwitchIn.
+            EndDeltaVTracking("background transition");
 
             // Disconnect from Harmony patch (stop physics-frame sampling)
             Patches.PhysicsFramePatch.ActiveRecorder = null;

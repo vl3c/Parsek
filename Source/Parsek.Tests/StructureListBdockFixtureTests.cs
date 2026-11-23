@@ -80,7 +80,7 @@ namespace Parsek.Tests
                     trees.Add(tree);
                 }
             }
-            Assert.Equal(expectedTrees, trees.Count);
+            if (expectedTrees >= 0) Assert.Equal(expectedTrees, trees.Count);
             return trees;
         }
 
