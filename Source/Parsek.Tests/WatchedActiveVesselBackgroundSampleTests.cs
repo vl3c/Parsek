@@ -78,8 +78,8 @@ namespace Parsek.Tests
             double distance = BackgroundRecorder.ResolveHighFidelityDistance(true, 0.0, false, double.NaN);
             bool highFidelity = FlightRecorder.IsHighFidelitySamplingActive(100.0, double.NaN, distance);
             BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
-                ProximitySamplingTier.None, highFidelity, ProximityRateSelector.GetSampleInterval(0.0),
-                0.2f, 3.0f, new Recording(), out float min, out float max);
+                ProximitySamplingTier.None, highFidelity, ProximityRateSelector.IsBeyondRange(0.0),
+                ProximityRateSelector.GetSampleInterval(0.0), 0.2f, 3.0f, new Recording(), out float min, out float max);
             Assert.False(highFidelity);
             Assert.Equal(0.2, (double)min, 3);
             Assert.Equal(3.0, (double)max, 3);

@@ -36,7 +36,7 @@ tier = "operator"
 # The step logs the exact counts on its `state cases:` Info line.
 #
 # THE SECOND LABEL, AIR FX (phase P8, Appendix E.2 "F7 as built", E.8, row F7 of E.9; added
-# 2026-11-23, NEVER FLOWN): the air-breathing engines need air, so their plume cases cannot join
+# 2026-11-23, LIVE-PROVEN `2026-11-23_1725`): the air-breathing engines need air, so their plume cases cannot join
 # the orbit lanes PP-7 / PP-8, and a sweep of about 340 s does not earn its own boot. After the
 # chute step the same host runs `op=reset` and two `op=run contexts=air fx=all` steps under the
 # label `pp6fx` (its own directory, manifest and control set). Each jet is held 1600 m up on a
@@ -84,9 +84,9 @@ tier = "operator"
 # and full for real with its events recorded and was captured inside the canopy window,
 # controls ok, complete, recompute 0 mismatches; the 10 report-only fails are todo
 # GHOST-CHUTE-CANOPY-AIM.
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1715`): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp6fx (added 2026-11-23, NEVER FLOWN: part ghost parity P8 F7), photographs the 14 held air-breathing engine cases (Waterfall: reference, never judged) over two contexts=air fx=all steps."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1715`): PP-5 on modded-compat: every parachute of the install opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp6fx (LIVE-PROVEN `2026-11-23_1725`: part ghost parity P8 F7), photographs the 14 held air-breathing engine cases (Waterfall: reference, never judged) over two contexts=air fx=all steps."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "flown", "pending-flight", "PP-6"]
+tags = ["part-parity", "ghost-visual", "flown", "PP-6"]
 
 [fixture]
 saveTemplate = "fixtures/saves/b1-pad-craft"

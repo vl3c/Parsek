@@ -17,6 +17,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The loaded scenario's supersede version, or 0 when none is loaded. For a cache
+        /// outside this module that rebuilds when the rows of
+        /// <see cref="CurrentSupersedesOrEmpty"/> change.
+        /// </summary>
+        internal static int CurrentSupersedeStateVersion()
+        {
+            return ParsekScenario.Instance?.SupersedeStateVersion ?? 0;
+        }
+
+        /// <summary>
         /// The MergeState a tree member counts as for a "can this tree still change"
         /// gate (route candidacy, the SealSlot seam). A Rewind Point slot's open /
         /// closed bit lives on its effective chain+supersede tip only: Seal, Stash, the

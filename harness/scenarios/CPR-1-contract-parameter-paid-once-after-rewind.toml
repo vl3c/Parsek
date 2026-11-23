@@ -52,14 +52,14 @@ id = "CPR-1-contract-parameter-paid-once-after-rewind"
 # (c) G's parameter row walked after its contract completion at the same UT logs
 # `effective=true, ... (walked after its contract's completion ...)`; the pin takes that suffix.
 #
-# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), never flown. Todo
+# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), flown the same day. Todo
 # TEST-GAPS-BATCH4-CAREER.
 # =====================================================================================
 tier = "operator"
 description = "A contract parameter's own reward paid once across a rewind: on cs-career-new a committed Flea hop completes the FIRSTLAUNCH contract (its parameter pays 3200 funds on its own), a Rewind-to-Launch onto it, and a second hop completes it earlier: stock pays live, the walk credits the earlier parameter and contract rows and zeroes the later ones, nothing is taken back and LedgerGroundTruth closes the career."
 instanceProfile = "stock-tree"
 tags = ["CPR-1", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-parameter",
-        "editor", "ground-truth", "ingame-batch", "timeline-ops", "pending-flight"]
+        "editor", "ground-truth", "ingame-batch", "timeline-ops", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-new"

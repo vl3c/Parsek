@@ -14,9 +14,9 @@ tier = "daily"
 # Finalized PENDING tree, and the verb's deferred terminal fires only once SPACECENTER
 # has settled with a game loaded.
 #
-# Since the 2026-10-18 pad-evidence rule it also proves the AUTO-COMMIT on arrival: an
-# orbiting host carries no pad evidence, so the one-point tree is no longer idle-discarded
-# and the autoMerge branch commits it silently (see the [expectations.recordings] note).
+# Since the 2026-10-18 pad-evidence rule it also proves the AUTO-COMMIT on arrival: the
+# idle-on-pad check reads the orbiting tree as not idle and the autoMerge branch commits it
+# silently (see the [expectations.recordings] note for the two not-idle forms).
 description = "Drive the live FLIGHT -> SPACECENTER exit through ExitToSpaceCenter under autoMerge: the wedge guard passes on live state, the stock exit path runs, the live tree is finalized and stashed as a pending tree on the transition, and the verb terminates only once the Space Center has settled."
 instanceProfile = "stock-minimal"
 tags = ["scene-exit", "auto-merge", "live-recording", "S0.7", "R12"]
@@ -84,12 +84,21 @@ allowedAnomalies = []
 #   Silent full-fidelity auto-commit (scene-exit): tree='Kerbal X' recordings=1 spawnable=1
 #
 # A seam round trip is ~130 ms and the recorder's minimum sample interval is 200 ms, so
-# a StartRecording -> ExitToSpaceCenter pair records exactly ONE point, and a one-point
-# recording has maxDist = 0 by construction. Until 2026-10-18 that alone made the tree
-# idle-on-pad and it was discarded before the autoMerge branch (the old ZERO pin). The
+# a StartRecording -> ExitToSpaceCenter pair used to record exactly ONE point, and a
+# one-point recording has maxDist = 0 by construction. Until 2026-10-18 that alone made the
+# tree idle-on-pad and it was discarded before the autoMerge branch (the old ZERO pin). The
 # pad-evidence rule now also requires the flight to have started or ended on the ground
 # (launch site, Prelaunch / Landed / Splashed); this host is a ~100 km orbit, so the
 # tree is not idle and auto-commits. Todo S07-PIN-PREDATES-PAD-EVIDENCE.
+#
+# SINCE 4727b505f (2026-11-20, todo STOP-TAKES-NO-FINAL-SAMPLE) a stop takes a FINAL SAMPLE
+# at the stop UT, so a second point is normal: the exit has only to land one physics tick
+# (0.02 s) after the first sample, and one tick at orbital speed is 41 m, past the 30 m idle
+# distance. `2026-11-23_1553` read points=2 maxDist=41m and `IsTreeIdleOnPad: 'Kerbal X'
+# maxDist=40.7m <dash> not idle`, where `2026-11-17_0018` at the same timing (exit 0.04 s
+# after the start) kept one point and printed the evidence form. When the exit lands on the
+# first sample's own tick the distance stays 0 and the evidence form still prints, so the
+# required token takes EITHER not-idle form, and both idle forms are forbidden.
 count = { min = 1, max = 1 }
 
 [expectations.logContracts]
@@ -121,10 +130,17 @@ required  = [
   "Stashed pending tree '.+' \\(1 recordings, state=Finalized\\)",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
   "Recording started",
-  "IsTreeIdleOnPad: tree='Kerbal X' .*pad evidence=none",
+  # Either not-idle form; the dash before "not idle" is a non-ASCII character in the log.
+  "IsTreeIdleOnPad: (?:tree='Kerbal X' id=[0-9a-f]+ pad evidence=none|'Kerbal X' maxDist=[0-9.]+m \\S+ not idle)",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='Kerbal X' recordings=1 ",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The idle forms: pad evidence found, the idle (or no-points) verdict, and the discard.
+  "pad evidence=(?!none)",
+  "Is(?:Active)?TreeIdleOnPad: all [0-9]+ recordings",
+  "Idle on pad at scene exit",
+]
 
 [runtime]
 # Budget arithmetic (M-A5 S8): 600 >= 300 LoadGame + 120 ExitToSpaceCenter + the fast

@@ -24,8 +24,18 @@ namespace Parsek
             {
                 // BackupVessel() sets vessel.isBackingUp = true internally (confirmed
                 // via decompilation) — PartModules see the flag during serialization. (#236)
-                ProtoVessel pv = vessel.BackupVessel();
+                // A vessel stock is unloading already has no parts: BackupVessel() would replace
+                // its protoVessel with an empty one (VesselUnloadState). Its protoVessel is
+                // current, stock built it at the top of the unload.
+                bool midUnload = VesselUnloadState.IsMidUnload(vessel);
+                ProtoVessel pv = midUnload ? vessel.protoVessel : vessel.BackupVessel();
                 if (pv == null) return null;
+                if (midUnload)
+                {
+                    ParsekLog.Verbose("Spawner",
+                        $"TryBackupSnapshot: vessel is unloading, snapshot read from its protoVessel " +
+                        $"pid={vessel.persistentId} protoParts={pv.protoPartSnapshots.Count}");
+                }
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);

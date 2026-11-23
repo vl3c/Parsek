@@ -576,6 +576,11 @@ namespace Parsek
             Vessel av = FlightGlobals.ActiveVessel;
             if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
 
+            // Staging changes what the vessel can still do; the recorder reads the settled
+            // delta-v after stock recalculates. A split that follows writes its own snapshots.
+            if (IsRecording && recorder != null)
+                recorder.RequestDeltaVSnapshot(DeltaVTrigger.Staging, "onStageActivate stage=" + stage);
+
             bool suppressLaunchAutoRecordForTimeJump =
                 TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
                     TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,

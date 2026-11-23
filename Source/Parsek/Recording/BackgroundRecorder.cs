@@ -399,25 +399,14 @@ namespace Parsek
 
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
+            bool beyondRange = ProximityRateSelector.IsBeyondRange(distance);
             double rawProximityInterval = ProximityRateSelector.GetSampleInterval(distance);
-            double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
+            double proximityInterval = ResolveDebrisAwareSampleInterval(
+                rawProximityInterval, treeRec, beyondRange);
             bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(
                 state, ut, ResolveBackgroundHighFidelityDistance(state, bgVessel, distance, isActiveVessel));
             // Log when sample rate changes for this vessel
             UpdateBackgroundSampleInterval(state, pid, distance, rawProximityInterval, proximityInterval);
-
-            // Skip trajectory sampling if out of range
-            if (ShouldSkipTrajectorySamplingForProximity(
-                    proximityInterval,
-                    highFidelityActive,
-                    debrisTier))
-            {
-                NoteProximitySilenceTick(state, ut);
-                return;
-            }
-            // Back in range (or a high-fidelity / debris tier overrides the range): the
-            // designed silence ends on this tick, whether or not a sample follows.
-            CloseProximitySilence(state, ut);
 
             // A FixedUpdate-step callback reads a pre-physics vessel against post-advance
             // bodies; the Update-step read at the end of the render frame samples instead
@@ -438,6 +427,24 @@ namespace Parsek
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(bgVessel.transform.rotation);
 
+            // A vessel parked past the range has no arc to lose: one sample at rest is enough.
+            if (ShouldRestSamplingBeyondRange(
+                    beyondRange,
+                    highFidelityActive,
+                    debrisTier,
+                    bgVessel.LandedOrSplashed,
+                    bgVessel.srfSpeed,
+                    state.lastRecordedUT,
+                    (currentVelocity - state.lastRecordedVelocity).magnitude)
+                && !state.physicsSoiSamplePending)
+            {
+                NoteProximitySilenceTick(state, ut);
+                return;
+            }
+            // Moving, or back in range: the designed silence ends on this tick, whether or not
+            // a sample follows.
+            CloseProximitySilence(state, ut);
+
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
             float minSampleInterval = ParsekSettings.Current?.minSampleInterval ?? ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium);
             float velocityDirThreshold = ParsekSettings.Current?.velocityDirThreshold ?? ParsekSettings.GetVelocityDirThreshold(SamplingDensity.Medium);
@@ -447,6 +454,7 @@ namespace Parsek
             ResolveBackgroundEffectiveSampleIntervals(
                 debrisTier,
                 highFidelityActive,
+                beyondRange,
                 proximityInterval,
                 minSampleInterval,
                 maxSampleInterval,
@@ -462,6 +470,7 @@ namespace Parsek
                 currentVelocity,
                 currentWorldRotation,
                 highFidelityActive,
+                beyondRange && debrisTier == ProximitySamplingTier.None,
                 effectiveMinSampleInterval,
                 effectiveMaxSampleInterval,
                 minSampleInterval,
@@ -542,6 +551,7 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("BgRecorder", $"bgPhysics.{pid}",
                 $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
                 $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)} " +
+                $"beyondRange={beyondRange} " +
                 $"highFidelity={highFidelityActive} reason={state.highFidelitySamplingReason ?? "(none)"}", 5.0);
         }
 
@@ -560,7 +570,7 @@ namespace Parsek
         {
             if (proximityInterval != state.currentSampleInterval)
             {
-                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.OutOfRangeInterval)
+                float newHz = (proximityInterval > 0 && proximityInterval < ProximityRateSelector.UnsetInterval)
                     ? (float)(1.0 / proximityInterval)
                     : 0f;
                 string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
@@ -593,12 +603,14 @@ namespace Parsek
         /// <summary>
         /// The effective adaptive-sampling floor and ceiling of a loaded background tick: a
         /// debris tier uses the debris cadence, high fidelity the configured foreground floor,
-        /// and otherwise the proximity interval is the floor; a non-debris tick also takes the
-        /// debris-aware ceiling cap.
+        /// and otherwise the proximity interval is the floor; a tick with no debris tier also
+        /// takes the debris-aware ceiling cap, except past the sampling range, where the
+        /// configured ceiling stands (a straight fall at constant speed needs no more).
         /// </summary>
         internal static void ResolveBackgroundEffectiveSampleIntervals(
             ProximitySamplingTier debrisTier,
             bool highFidelityActive,
+            bool beyondRange,
             double proximityInterval,
             float minSampleInterval,
             float maxSampleInterval,
@@ -622,7 +634,7 @@ namespace Parsek
                 highFidelityActive,
                 maxSampleInterval,
                 minSampleInterval);
-            if (debrisTier == ProximitySamplingTier.None)
+            if (debrisTier == ProximitySamplingTier.None && !beyondRange)
             {
                 effectiveMaxSampleInterval = ResolveDebrisAwareMaxSampleInterval(
                     effectiveMaxSampleInterval,
@@ -634,7 +646,8 @@ namespace Parsek
         /// The two sample triggers of a loaded background tick against the state's last
         /// recorded sample: motion (velocity direction / speed change or the interval bounds)
         /// and attitude (rotation past the background threshold, floored by the attitude
-        /// minimum interval).
+        /// minimum interval; past the sampling range by the motion floor, so a tumbling piece
+        /// far away is sampled no faster than a steady one).
         /// </summary>
         private static void ResolveBackgroundSampleTriggers(
             BackgroundVesselState state,
@@ -642,6 +655,7 @@ namespace Parsek
             Vector3 currentVelocity,
             Quaternion currentWorldRotation,
             bool highFidelityActive,
+            bool beyondRange,
             float effectiveMinSampleInterval,
             float effectiveMaxSampleInterval,
             float minSampleInterval,
@@ -656,6 +670,7 @@ namespace Parsek
                 velocityDirThreshold, speedChangeThreshold);
             float attitudeMinSampleInterval = ResolveBackgroundAttitudeMinSampleInterval(
                 highFidelityActive,
+                beyondRange,
                 effectiveMinSampleInterval,
                 minSampleInterval);
             attitudeTriggered = FlightRecorder.ShouldRecordAttitudePoint(
@@ -815,16 +830,24 @@ namespace Parsek
             if (loadedStates.TryGetValue(vesselPid, out loadedState))
             {
                 if (!ut.HasValue) ut = Planetarium.GetUniversalTime();
+                Recording flushRec;
+                bool hasFlushRec = tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec);
+                Vessel v = hasFlushRec ? FlightRecorder.FindVesselByPid(vesselPid) : null;
+                // An ending (closeUT supplied) closes its section on the vessel's own pose; a
+                // removal that hands the vessel on (promotion, merge) keeps the next recorder's
+                // seed as the continuation.
+                bool closingFrameTaken = closeUT.HasValue
+                    && AppendSectionClosingFrame(
+                        loadedState, flushRec,
+                        BuildSectionClosingFrame(loadedState, flushRec, v, ut.Value, "background-end"));
                 CloseBackgroundTrackSection(loadedState, ut.Value);
 
-                Recording flushRec;
-                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
+                if (hasFlushRec)
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
 
                     // Sample a final boundary point
-                    Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
-                    if (v != null)
+                    if (v != null && !closingFrameTaken)
                     {
                         SampleBoundaryPoint(v, flushRec, ut.Value);
                     }
@@ -918,6 +941,7 @@ namespace Parsek
                         nextEnv,
                         willHavePlayableOnRailsPayload,
                         CreateTrajectoryPointFromVessel(v, ut),
+                        BuildSectionClosingFrame(loadedState, flushRec, v, ut, "go-on-rails"),
                         ut);
                 }
 
@@ -1379,14 +1403,19 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
+                Recording flushRec;
+                bool hasFlushRec = tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec);
+                AppendSectionClosingFrame(
+                    loadedState, flushRec,
+                    BuildSectionClosingFrame(loadedState, flushRec, v, ut, "background-destroy"));
                 CloseBackgroundTrackSection(loadedState, ut);
 
-                Recording flushRec;
-                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
+                if (hasFlushRec)
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
                     // Final sample at the destroy UT, as the active recorder's destroy handler
                     // takes one: the last adaptive sample can be metres above the impact point.
+                    // A section that took its closing frame already holds it (the sample skips).
                     SampleBackgroundEndPoint(v, flushRec, ut, "background_destroy");
                     DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
                         flushRec,

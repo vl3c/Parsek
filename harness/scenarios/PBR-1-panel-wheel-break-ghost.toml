@@ -2,7 +2,7 @@ schema = 1
 id = "PBR-1-panel-wheel-break-ghost"
 # =====================================================================================
 # PBR-1: A SOLAR PANEL AND A WHEEL BROKEN WHILE RECORDING BREAK ON THE GHOST (todo
-# TEST-GAPS-B4-PART-BREAKS; test-gap list batch 4, AUTHORED 2026-11-23, NEVER FLOWN).
+# TEST-GAPS-B4-PART-BREAKS; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
 #
 # WHY. The recorder polls two break edges on every loaded vessel (PartStatePoller:
 # `DeployableBroken` when a ModuleDeployablePart enters deployState BROKEN, `WheelBroken` when
@@ -66,7 +66,7 @@ id = "PBR-1-panel-wheel-break-ghost"
 # after the first green flight. (7) recordings window 1..3 until measured. (8) operator until
 # measured. (9) flight_efficiency.py after the first green flight.
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN: a retracted SP-L 1x6 solar panel and a rover wheel on a landed rover (pbr-break-rover, 820 m from the runway) broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must log both break edges after their presses and the ghost must map and apply both breaks."
+description = "AUTHORED AND FLOWN 2026-11-23: a retracted SP-L 1x6 solar panel and a rover wheel on a landed rover (pbr-break-rover, 820 m from the runway) broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must log both break edges after their presses and the ghost must map and apply both breaks."
 instanceProfile = "stock-minimal"
 tags = ["PBR-1", "part-events", "deployable-broken", "wheel-damage", "ghost-render",
         "rewind-to-launch", "reading-run", "flown"]

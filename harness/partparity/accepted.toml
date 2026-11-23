@@ -516,6 +516,15 @@ reason = "one row of edge-shading pixels (312 px on one side view) flips in some
 todo = "PARTPARITY-ROTOR01-GRAY-EDGE-LINE"
 
 [[accepted]]
+case = "trusspiece1x--blankets--a5373665"
+profile = "modded-compat"
+view = "side-b"
+measure = "color-blob"
+noisy = true
+reason = "one row of edge pixels (259 px) where the real part's alpha is 246 and the ghost's 255, colour equal; 1 of 9 archived PP-2 runs, IoU 1, nothing else differs"
+todo = "PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE"
+
+[[accepted]]
 case = "grapplingdevice--basic--deployed--0b9f7e7b"
 profile = "stock-minimal"
 view = "*"

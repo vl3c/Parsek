@@ -307,6 +307,9 @@ namespace Parsek.TestCommands
         internal const string LogisticsWindow = "logistics";
         internal const string StructureWindow = "structure";
         internal const string RouteHistoryWindow = "routehistory";
+        /// <summary>The Mission Profile window (MissionProfileWindowUI), opened from a
+        /// mission's Profile button; populated through <c>op=target mission=</c>.</summary>
+        internal const string ProfileWindow = "profile";
         internal const string SettingsWindow = "settings";
         internal const string SpawnControlWindow = "spawncontrol";
         internal const string TestRunnerWindow = "testrunner";
@@ -594,7 +597,7 @@ namespace Parsek.TestCommands
         //
         // THE TWO DELIBERATE EXCLUSIONS, derived from a grep of every
         // ClickThruBlocker.GUILayoutWindow / GUILayout.Window host under Source/Parsek
-        // rather than from memory, so "eleven windows" is a claim about the whole program:
+        // rather than from memory, so "twelve windows" is a claim about the whole program:
         //   - GroupPickerUI (UI/GroupPickerUI.cs, "Set Parent Group" / "Manage Groups") is
         //     a real window with its own rect and its own input lock, and it IS in the
         //     Advanced -> Basic close set. It is excluded because it cannot be opened
@@ -658,6 +661,13 @@ namespace Parsek.TestCommands
             // rect and open state, so it stands beside an open Mission Log. Populated
             // through `op=target route=`, which calls the production opener.
             NewSpec(RouteHistoryWindow, true, true),
+
+            // MissionProfileWindowUI, titled "Parsek - Profile" (plus ": <mission>" once
+            // targeted): the mission's phases, burns and events as a tree, opened from a
+            // mission's Profile button. Its own id, rect and open state, so it stands
+            // beside an open Mission Log. Populated through `op=target mission=`, which
+            // calls the production opener.
+            NewSpec(ProfileWindow, true, true),
 
             // SettingsWindowUI. NO tabs: its six sections all draw in one pass, and three
             // of them are hidden in Basic - so the Basic/Advanced pair of captures IS the
@@ -1466,7 +1476,7 @@ namespace Parsek.TestCommands
             => value.ToString("F0", CultureInfo.InvariantCulture);
 
         /// <summary>The compact rect token: <c>x,y,w,h</c>. One key instead of four keeps a
-        /// describe line over eleven windows scannable, and a comma needs no
+        /// describe line over twelve windows scannable, and a comma needs no
         /// percent-encoding.</summary>
         internal static string FormatRect(UiActionRect rect)
             => FormatCoord(rect.X) + "," + FormatCoord(rect.Y) + ","

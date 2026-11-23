@@ -2,7 +2,7 @@ schema = 1
 id = "SEAT-4-seat-replay-kerbal-visibility"
 # =====================================================================================
 # SEAT-4: A KERBAL IN AN EXTERNAL COMMAND SEAT, REPLAYED: DRAWN ONCE, NEVER TWICE OR NOT
-# AT ALL. AUTHORED 2026-11-23, NEVER FLOWN (test-gap list 2026-11-18 batch 4, "Command seat
+# AT ALL. AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4, "Command seat
 # replay"; todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23).
 #
 # WHY. SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing
@@ -36,7 +36,7 @@ id = "SEAT-4-seat-replay-kerbal-visibility"
 #   Takes no mouse and no focus: it can share a runner with other lanes.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23). SEAT-1's seat board and dismount on seat-pad, committed in flight, Rewound-to-Launch; the stock Mallard on the Runway as the viewer; the new SeatGhostKerbal category samples UT 41-47 across the recorded dismount (44.90) and fails when Jeb's kerbal part is drawn on two ghosts or on none for 10 consecutive frames."
+description = "AUTHORED AND FLOWN 2026-11-23 (todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23). SEAT-1's seat board and dismount on seat-pad, committed in flight, Rewound-to-Launch; the stock Mallard on the Runway as the viewer; the new SeatGhostKerbal category samples UT 41-47 across the recorded dismount (44.90) and fails when Jeb's kerbal part is drawn on two ghosts or on none for 10 consecutive frames."
 instanceProfile = "stock-minimal"
 tags = ["SEAT4", "SEAT1", "eva", "seat", "external-command-seat", "ghost-render",
         "rewind-to-launch", "ingame-batch", "flown"]

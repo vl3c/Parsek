@@ -745,7 +745,7 @@ KSP gameplay frequently involves multiple vessels that are simultaneously releva
 A recording session is scoped to a single RecordingTree. During a session, the recorder maintains:
 
 1. **The focus track**: Full recording (source=Active) of whichever vessel the player is currently controlling.
-2. **Background physics tracks**: Reduced-rate trajectory sampling (source=Background) + all discrete part events for all other vessels within the physics bubble (~2.3km). Sample rate varies by proximity: <200m: 5Hz, 200m-1km: 2Hz, 1km-2.3km: 0.5Hz.
+2. **Background physics tracks**: Reduced-rate trajectory sampling (source=Background) + all discrete part events for all other vessels within the physics bubble (~2.3km). Sample rate varies by proximity: <200m: 5Hz, 200m-1km: 2Hz, 1km and beyond: 0.5Hz, until the vessel goes on rails (section 7.2).
 3. **Orbital checkpoints**: Keplerian element snapshots (source=Checkpoint) captured automatically at on-rails transitions, time warp boundaries, and scene changes.
 
 ### 5.3 Data Model
@@ -864,7 +864,12 @@ Background vessels are sampled at reduced rate compared to the focused vessel:
 |---|---|
 | < 200m (docking range) | ~5 Hz |
 | 200m - 1km | ~2 Hz |
-| 1km - 2.3km (physics edge) | ~0.5 Hz |
+| 1km - 2.3km | ~0.5 Hz (parent-anchored debris: 2 Hz) |
+| past 2.3km, still loaded and unpacked | ~0.5 Hz (parent-anchored debris: ~1 Hz) |
+
+There is no silent band. 2.3 km is where rendezvous-distance physics ends, not where stock stops simulating: `VesselRanges` keeps a flying vessel loaded out to 22.5 km (pack 25 km) and packs a sub-orbital one at 10 km, so a booster dropped during an ascent falls in physics for another half minute. Its samples are the only record of that fall, so the sampler runs until the vessel goes on rails or unloads (a packed vessel is never sampled, section 8). Past 2.3 km the rate is adaptive between that floor and the configured maximum interval: the 0.5 s debris ceiling does not apply, and the attitude trigger has the same floor as motion, so a tumbling piece costs no more than a steady one. A piece of debris is bounded by its 60 s time limit (at most about 60 such samples). A vessel parked on the surface past 2.3 km is sampled once at rest and then not again (`BackgroundRecorder.ShouldRestSamplingBeyondRange`; stock packs a surface vessel at 350 m, so this is an install with extended physics ranges).
+
+When a loaded vessel's recording leaves physics (goes on rails, ends, is destroyed, is committed) its open Absolute section takes one closing frame at that instant (`BackgroundRecorder.BuildSectionClosingFrame`). Playback holds a section's last frame to the section end, so the closing frame is what joins the section to the on-rails conic, the predicted tail or the impact without a hang and a jump.
 
 ### 7.3 Background Part Event Recording
 

@@ -4,7 +4,7 @@ id = "QTM-1-quit-to-main-menu-commits-flight"
 # QTM-1: STOCK "QUIT TO MAIN MENU" OUT OF A LIVE RECORDING, THEN THE SAVE LOADED BACK FROM THE
 # MAIN MENU. Test-gap list 2026-11-18, Medium "Quit to main menu, or Quit without saving,
 # during a Re-Fly", half (b), the live-recording variant (the Re-Fly variant is RFQ-2). Batch
-# 4, AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+# 4, AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`). Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
 #
 # The first lane of the `ExitToMainMenu` seam verb (stock PauseMenu saveAndExit(MAINMENU):
 # onSceneConfirmExit, the pid dictionaries, SaveGame, LoadScene(MAINMENU)). Owner ruling

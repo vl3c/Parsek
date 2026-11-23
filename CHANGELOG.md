@@ -10,6 +10,12 @@ Not released yet.
 
 ### Added
 
+- **Missions: a Profile window for each mission.** Its new Profile button shows the flight's
+  phases, burns, orbits, docking and EVA, with the delta-v spent and left.
+
+- **Recordings keep the game's delta-v.** Each flight now saves the stock delta-v readout at
+  launch, burns, staging and docking, which the mission Profile window shows.
+
 - **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly Klaw grabs, a
   release, rock mining on a route, a Re-Fly across a grab and a comet grab.
 
@@ -64,6 +70,10 @@ Not released yet.
 
 ### Fixed
 
+- **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a
+  minute and then jump kilometres down. (DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE)
+- **A craft the game unloads far away keeps its parts.** A stage left flying, or a pod landed over
+  2.5 km away, is no longer counted as destroyed or stored empty. (UNLOAD-READ-AS-DESTRUCTION)
 - **A kerbal on EVA stays beside the ship on replay.** Before its first move the ghost stayed
   behind while the ship flew on. (SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER)
 - **Ghost lights and heat glow match stock.** Ghost lamps shine as bright as real ones, engine
@@ -82,6 +92,10 @@ Not released yet.
   large, the Mainsail's side flames are in place, ReStock claw lamps show their pattern.
 - **Ghost nozzles heat up as the real ones do.** ReStock engine bells and RCS ports glow; jets and
   boosters that stay dark or heat slowly do too. (GHOST-NOZZLE-GLOW-WRONG-SOURCE)
+- **The launch escape tower's ghost burns with its plume.** It drew no flame at all on stock.
+  (GHOST-LES-NO-PLUME)
+- **A dropped stage's ReStock engine bell stays warm on its ghost.** It starts as hot as its burn
+  left it and cools, instead of starting cold. (GHOST-NOZZLE-GLOW-SPLIT-RAMP)
 - **A heated nose cone's ghost glows in the part's own colours.** Parts with a heat glow no longer
   all turn the same orange. (PARTPARITY-FX-FIRST-READINGS-2026-11-23)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and

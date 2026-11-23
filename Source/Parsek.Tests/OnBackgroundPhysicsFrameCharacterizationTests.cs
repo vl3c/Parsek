@@ -16,10 +16,10 @@ namespace Parsek.Tests
     /// Headless reach: every early exit (no vessel, a dead vessel, no map entry, a missing or
     /// destroyed recording, packed with and without on-rails state, loaded without loaded state),
     /// the part poll, the finalization-cache refresh, the environment transition, the debris tier,
-    /// the anchor detection, the proximity interval and its change line, the out-of-range skip with
-    /// its silence window, the in-range silence close and the high-fidelity override. The sampling
-    /// tail starts with <c>Krakensbane.GetFrameVelocity()</c> and <c>bgVessel.transform</c>, which
-    /// mono cannot run headless, so an in-range tick records the exception type there; the units
+    /// the anchor detection, the proximity interval and its change line in and past the sampling
+    /// range, and the high-fidelity override. The sampling tail (with the rest-past-the-range
+    /// silence behind it) starts with <c>Krakensbane.GetFrameVelocity()</c> and <c>bgVessel.transform</c>, which
+    /// mono cannot run headless, so every sampling tick records the exception type there; the units
     /// extracted from that tail carry their own direct tests.
     ///
     /// Each case dumps every log line, the exception type (if any), the recorder's whole per-pid

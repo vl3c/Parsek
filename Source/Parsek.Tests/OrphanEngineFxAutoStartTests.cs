@@ -62,6 +62,24 @@ namespace Parsek.Tests
             Assert.Contains(expectedKey, keys);
         }
 
+        // The launch escape tower draws its plume like any engine: an unlit one on the pad, or on
+        // a jettisoned piece, stays dark because its recording seeds a shutdown for it.
+        [Fact]
+        public void BuildEngineEventKeySet_AnUnlitEscapeTowersSeed_KeepsTheAutoStartOff()
+        {
+            const uint tower = 7001u;
+            var sets = new PartTrackingSets
+            {
+                activeEngineKeys = new HashSet<ulong>(),
+                allEngineKeys = new HashSet<ulong> { FlightRecorder.EncodeEngineKey(tower, 0) },
+                lastThrottle = new Dictionary<ulong, float>(),
+            };
+            var events = new List<PartEvent>();
+            PartStateSeeder.EmitEngineSeedEvents(sets, events, 10.0, "Test", pid => "LaunchEscapeSystem");
+            Assert.Equal(PartEventType.EngineShutdown, Assert.Single(events).eventType);
+            Assert.Contains(FlightRecorder.EncodeEngineKey(tower, 0), GhostPlaybackLogic.BuildEngineEventKeySet(events));
+        }
+
         [Fact]
         public void BuildEngineEventKeySet_EngineThrottle_CollectsKey()
         {

@@ -351,13 +351,20 @@ namespace Parsek.TestCommands
             {
                 string detail = reject == TestCommandUiState.TargetUnsupportedWindowReason
                     ? $"{reject} window={spec.Name} "
-                      + $"valid={TestCommandUiAction.StructureWindow},{TestCommandUiAction.RouteHistoryWindow}"
+                      + $"valid={TestCommandUiAction.StructureWindow},{TestCommandUiAction.RouteHistoryWindow},"
+                      + $"{TestCommandUiAction.ProfileWindow}"
                     : reject == TestCommandUiState.TargetRouteRetiredReason
                         ? $"{reject} window={spec.Name} use=window:{TestCommandUiAction.RouteHistoryWindow}"
                         : $"{reject} window={spec.Name}";
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={reject} "
                     + $"window={spec.Name}");
                 SetExecResult("REJECTED", null, detail);
+                return;
+            }
+
+            if (spec.Name == TestCommandUiAction.ProfileWindow)
+            {
+                UiActionTargetProfile(cmd, ui, spec, kind);
                 return;
             }
 
@@ -406,6 +413,37 @@ namespace Parsek.TestCommands
             SetExecResult(PendingVerdict, null, null);
         }
 
+        // The Mission Profile, through the production opener the mission's Profile button
+        // calls, on the same mission resolver as the Log.
+        private void UiActionTargetProfile(ParsedCommand cmd, ParsekUI ui, UiWindowSpec spec,
+                                           UiTargetKind kind)
+        {
+            string wanted = ArgOrNull(cmd, TestCommandUiState.MissionArg);
+            if (!TryResolveMissionTarget(wanted, out string resolvedId, out string missionId,
+                                         out string title, out List<string> candidates))
+            {
+                RejectTargetNotFound(kind, wanted, candidates);
+                return;
+            }
+            ui.OpenProfileWindowForMission(resolvedId, missionId, title);
+            MissionProfileWindowUI profile = ParsekWindowSet.Of(ui).GetMissionProfileUI();
+            uiActionPending = new UiActionPending
+            {
+                Op = UiActionOp.Target,
+                Window = spec.Name,
+                StartFrame = Time.frameCount,
+                TargetKind = kind,
+                TargetId = resolvedId,
+                TargetTitle = title,
+                TargetSteps = profile.StepCountForTesting,
+            };
+            ParsekLog.Info(Tag, $"uiaction target initiated window={spec.Name} "
+                + $"target={TestCommandUiState.TargetKindToken(kind)} id={resolvedId} "
+                + $"title={title} steps={Int(profile.StepCountForTesting)} "
+                + "(awaiting one drawn frame)");
+            SetExecResult(PendingVerdict, null, null);
+        }
+
         private void RejectTargetNotFound(UiTargetKind kind, string wanted,
                                           List<string> candidates)
         {
@@ -422,10 +460,14 @@ namespace Parsek.TestCommands
         private void CompleteUiActionTarget(UiActionSettleContext ctx,
                                             UiActionPending pending)
         {
-            StructureListWindowUI structure = pending.TargetKind == UiTargetKind.Route
-                ? ParsekWindowSet.Of(ctx.Ui).GetRouteHistoryUI()
-                : ParsekWindowSet.Of(ctx.Ui).GetStructureListUI();
-            bool open = structure.IsOpen;
+            bool isProfile = pending.Window == TestCommandUiAction.ProfileWindow;
+            MissionProfileWindowUI profile = isProfile
+                ? ParsekWindowSet.Of(ctx.Ui).GetMissionProfileUI() : null;
+            StructureListWindowUI structure = isProfile ? null
+                : pending.TargetKind == UiTargetKind.Route
+                    ? ParsekWindowSet.Of(ctx.Ui).GetRouteHistoryUI()
+                    : ParsekWindowSet.Of(ctx.Ui).GetStructureListUI();
+            bool open = isProfile ? profile.IsOpen : structure.IsOpen;
             if (!open)
             {
                 // The opener raised the flag and a drawn frame put it back down. Reported
@@ -440,11 +482,12 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            int steps = structure.StepCountForTesting;
+            int steps = isProfile ? profile.StepCountForTesting : structure.StepCountForTesting;
+            string targetMode = isProfile ? profile.TargetModeForTesting : structure.TargetModeForTesting;
             ParsekLog.Info(Tag, $"uiaction target window={pending.Window} "
                 + $"target={TestCommandUiState.TargetKindToken(pending.TargetKind)} "
                 + $"id={pending.TargetId} title={pending.TargetTitle} "
-                + $"mode={structure.TargetModeForTesting} steps={Int(steps)} "
+                + $"mode={targetMode} steps={Int(steps)} "
                 + $"frames={Int(ctx.Frames)}");
             EmitExecutedTerminal(ctx.Id, ctx.Seq, ctx.Verb, "OK",
                 TestCommandUiState.BuildTargetPayload(

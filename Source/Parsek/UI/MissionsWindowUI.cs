@@ -463,34 +463,39 @@ namespace Parsek
         private const float ColW_StartEvent = 110f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
-        // ----- the Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01) -----
+        // ----- the mission bar's button grid (owner layout A, 2026-11-22) -----
         //
-        // Warp to... and the Loop row sit as a two-column grid across the mission bar's two
-        // lines, inside the name cell, right-aligned, so the summary keeps the width they would
-        // take in one row after it:
-        //   line 1: title ...  [B: Warp to...        ] [Log           ]
-        //   line 2: summary .. [B: Loop [x] every    ] [period: [10][sec]]
-        // Every grid control has zero horizontal margin (loopGridButtonStyle, interactButtonStyle
-        // and the loopCell* styles), so each column is exactly its constant wide on both lines:
-        // the line-2 loop row starts at Warp's left edge and ends at Log's right edge, its
-        // "Loop [x] every" part fills column B under Warp, and its period part fills the Log slot
-        // under Log. Warp is always drawn in Advanced (greyed with its reason when it cannot
-        // act) and every width is fixed, so the grid never shifts between states.
-        internal const float LoopGridColumnBWidth = 92f;
-        // The loop row spans column B plus the Log slot above it.
-        internal const float LoopCellWidth = LoopGridColumnBWidth + InteractButtonWidth;
-        // Column B on line 2: "Loop", the checkbox's slot, "every". The three sum to column B.
+        // Two columns across the mission bar's two lines, inside the name cell, right-aligned,
+        // so the summary keeps the width they would take in one row after it:
+        //   Advanced line 1: title ...  [B: Warp to...               ] [C: Profile]
+        //   Advanced line 2: summary .. [B: Loop [x] every [10] [sec] ] [C: Log    ]
+        //   Basic    line 1: title ...                                  [C: Profile]
+        //   Basic    line 2: summary .. [Run by route]                  [C: Log    ]
+        // Column C (Profile over Log) draws in BOTH modes at one width, so the two modes put
+        // the buttons in the same place; column B (Warp to... over the loop row) is Advanced
+        // only. Every grid control has zero horizontal margin (loopGridButtonStyle,
+        // interactButtonStyle and the loopCell* styles), so each column is exactly its constant
+        // wide on both lines: the loop row starts at Warp's left edge and ends at Warp's right
+        // edge, the period field inside it. Warp is always drawn in Advanced (greyed with its
+        // reason when it cannot act) and every width is fixed, so the grid never shifts
+        // between states. MissionsTabColumnSequenceTests holds the arithmetic.
+        internal const float LoopGridColumnBWidth = 150f;
+        internal const float LoopGridColumnCWidth = 72f;
+        internal const float LoopGridGap = 4f;
+        // The loop row is column B alone.
+        internal const float LoopCellWidth = LoopGridColumnBWidth;
+        // Column B on line 2: "Loop", the checkbox's slot, "every", then the period slot (value
+        // field, gap, unit button). The parts sum to column B.
         internal const float LoopRowLabelWidth = 28f;
-        internal const float LoopRowToggleSlotWidth = 22f;
-        internal const float LoopRowEveryWidth =
-            LoopGridColumnBWidth - LoopRowLabelWidth - LoopRowToggleSlotWidth;
-        // The Log slot on line 2: the period value field, a gap and the unit button (the
-        // recordings window's 40 px unit button), summing to Log's width. A value-only locked
-        // period ("~13d-19d") is one label of the whole slot.
-        internal const float LoopPeriodUnitButtonWidth = 40f;
+        internal const float LoopRowToggleSlotWidth = 20f;
+        internal const float LoopPeriodUnitButtonWidth = 38f;
         internal const float LoopPeriodGap = 4f;
-        internal const float LoopPeriodValueWidth =
-            InteractButtonWidth - LoopPeriodUnitButtonWidth - LoopPeriodGap;
+        internal const float LoopPeriodValueWidth = 26f;
+        // The period slot; a value-only locked period ("~13d-19d") is one label of it.
+        internal const float LoopPeriodSlotWidth =
+            LoopPeriodValueWidth + LoopPeriodGap + LoopPeriodUnitButtonWidth;
+        internal const float LoopRowEveryWidth =
+            LoopGridColumnBWidth - LoopRowLabelWidth - LoopRowToggleSlotWidth - LoopPeriodSlotWidth;
         // One line: every control in the loop row is centred on it.
         private const float LoopCellHeight = 22f;
         // ----- the Interact column (Missions Model 1, owner mock-up 2026-09-30) -----

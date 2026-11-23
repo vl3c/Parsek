@@ -3,7 +3,7 @@ id = "RFK-1-ksc-purchases-before-refly-merge"
 # =====================================================================================
 # RFK-1: SPACE CENTER PURCHASES MADE BETWEEN A SEPARATION AND ITS RE-FLY, ACROSS A MERGED
 # RE-FLY. Test-gap list 2026-11-18, batch 4, item 3 ("KSC purchases between a separation and
-# its Re-Fly"); RFK-2 is the discard twin. AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN.
+# its Re-Fly"); RFK-2 is the discard twin. AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`).
 #
 # In gameplay terms: the player drops a probe stand on the pad (a rewind point) and commits
 # the flight, goes to the Space Center, upgrades the runway, repairs a building they knocked
@@ -53,7 +53,7 @@ description = "Re-Fly after Space Center purchases (batch 4 item 3, merge): on c
 instanceProfile = "stock-tree"
 tags = ["RFK-1", "career", "ledger", "rewind", "refly", "facility-upgrade", "facility-repair",
         "demolish", "dismissal", "merge", "editor", "ground-truth", "ingame-batch",
-        "timeline-ops", "pending-flight", "reading-run"]
+        "timeline-ops", "flown", "reading-run"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"

@@ -27,8 +27,8 @@ tier = "operator"
 #     through-tip line is Verbose).
 #   * the practice hop, unrecorded (added after the first flight, `2026-11-23_2110`: FirstLaunch
 #     and two record rows on the pod's recording sealed its slot, reason
-#     `recordingAction:MilestoneAchievement`): ExitToSpaceCenter, the same craft and profile to
-#     UT 1047, the pod exploded, the stand recovered from its Space Center marker.
+#     `recordingAction:MilestoneAchievement`): ExitToSpaceCenter, a Jumping Flea on the same profile to
+#     UT 1047, then the pod exploded.
 #   * the VAB, `CS Flea Probe` onto the pad, StartRecording, `PartAction
 #     decouple part=radialDecoupler`: the pod and the TT-38K probe stand are both controllable, so
 #     the split authors a Rewind Point with two slots (IR-3 / RW-25 measured `slots=2
@@ -65,13 +65,13 @@ tier = "operator"
 # THE RECORDING COUNT is a window until the first flight: the host's 5 + the pre-decouple root +
 # the stand + the pod's head and tip (9), plus whatever debris the explosion's breakup records.
 #
-# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), never flown. Todo
+# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), flown the same day. Todo
 # TEST-GAPS-BATCH4-CAREER. Operator by the calibration discipline until its first green flight.
 # =====================================================================================
 description = "SEAL-SPLIT-CHAIN-LANE-OWED: on rover-route-recorded a CS Flea Probe decoupled on the pad (a Rewind Point, two slots) hops and lands, then its pod is exploded, so its slot commits as an open Unfinished Flight whose recording the commit's optimizer splits at the landing; SealSlot in tree mode must complete, IsTreeFullySealed must read the tree sealed through the chain's closed tip, and the route-create gate must pass its sealed check (sealed=True, refused only as ineligible, since a Flea hop is no supply route)."
 instanceProfile = "stock-minimal"
 tags = ["SSC-1", "logistics", "route", "seal", "unfinished-flight", "rewind-point", "optimizer",
-        "split", "recorded-fixture", "sandbox", "pending-flight"]
+        "split", "recorded-fixture", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-route-recorded"
@@ -91,19 +91,19 @@ steps = [
   { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   # ---- the Flea Probe decoupled on the pad: a Rewind Point with two slots ----
   { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
-  # ---- the practice hop, unrecorded: the same craft and profile first reaches FirstLaunch and
-  # the speed / altitude record bands, so the recorded hop files no milestone row (one, even at
-  # zero value, seals the pod's slot: design section 2.12, measured on the first flight) ----
-  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
+  # ---- the practice hop, unrecorded: a Jumping Flea on the same profile first reaches
+  # FirstLaunch and the speed / altitude record bands, so the recorded hop files no milestone
+  # row (one, even at zero value, seals the pod's slot: design section 2.12, measured on the
+  # first flight). A Flea leaves nothing on the pad; the CS Flea Probe's dropped stand was
+  # still FLYING, or gone, at the Space Center (the second flight) ----
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "Jumping Flea" },   expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "g0",   expect = "OK", budget = 180 },
-  { cmd = "PartAction",   args = { button = "decouple", part = "radialDecoupler" }, label = "dec0", expect = "OK" },
   { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "PartAction",   args = { button = "activate", part = "solidBooster.sm.v2" }, expect = "OK" },
   { cmd = "WarpToUT",     args = { ut = "1047", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "PartAction",   args = { button = "explode", part = "mk1pod.v2" },    expect = "OK" },
   { cmd = "WarpToUT",     args = { ut = "1055", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
-  { cmd = "KscMarkerRecover", args = { pid = "${dec0.newPid}" },                expect = "OK", budget = 60 },
   { cmd = "MissionMark",  args = { label = "ssc1-practice-done" },              expect = "OK" },
   { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
