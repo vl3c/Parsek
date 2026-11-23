@@ -544,6 +544,11 @@ namespace Parsek
         public uint partPersistentId;
         public List<HeatTransformState> transforms;
         public List<HeatMaterialState> materialStates;
+        // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
+        public List<NozzleGlowInfo> nozzleGlows;
+        // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
+        // heat event draws nothing here and the part counts as any other for the reentry glow.
+        public bool heatClipMissing;
     }
 
     internal class LightGhostInfo

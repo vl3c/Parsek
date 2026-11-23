@@ -2362,6 +2362,15 @@ engine cases, 3 to 20 s elsewhere. U9 re-measured after the light settle: the in
 gap is real (todo GHOST-LAMP-LIGHT-INTENSITY). The first readings of the ghosts are todo
 PARTPARITY-FX-FIRST-READINGS-2026-11-23.
 
+Follow-up (2026-11-23, branch `ghost-fx-2`, flight `2026-11-23_1007`): the lamp light, the engine
+and one-nozzle RCS glow and the nose cones without their heat clip now read 0 colour px against the
+real part on both routes (at most 3 px on a view; todo PARTPARITY-FX-FIRST-READINGS-2026-11-23).
+`CaptureCase` brings the ghosts' nozzle glow to the current UT before every body view
+(`AdvanceNozzleGlows`), as a playback frame does: the real nozzle keeps heating through the warm-up
+while a primed ghost stands still. A lamp's `lightBrightenSpeed` is a rate, so a lamp at 0.3 (the
+ladder's) has not settled after the case's `lightBrightenSpeed` + 0.5 s wait; its real intensity
+reads low for about 10 s.
+
 F7 as built, C# half (2026-11-23). An `fx=` run with `contexts=air` is an ordinary air run: its
 reset and run steps are admitted by `host-not-at-pad`, and its FX waves keep F3's flow. The
 `fx-runs-not-built` refusal, its token and its mirrors are gone. Any label works, so the second
@@ -3070,4 +3079,5 @@ less; 16 is the starting value.
 Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
 on every stock legacy world-space system; the plan does not depend on it, since it frames from
 near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
-ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY).
+ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
+2026-11-23).

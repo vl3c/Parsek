@@ -736,6 +736,7 @@ namespace Parsek.TestCommands
                     {
                         yield return new WaitForEndOfFrame();
                         if (PartParitySweepRunner.CaseVesselLost(wc)) { LoseVessel(wc); yield break; }
+                        PartParitySweepRunner.Guard(ctx, wc, "fx-nozzle-glow", () => AdvanceNozzleGlows(wc));
                         PartParitySweepRunner.Guard(ctx, wc, "capture-" + view, () => PartParityCaseCapture.CaptureView(ctx, wc, view));
                     }
                 }
@@ -772,6 +773,17 @@ namespace Parsek.TestCommands
             {
                 PartParitySweepRunner.EndCaseLog(ctx);
             }
+        }
+
+        /// <summary>The ghosts' nozzle glow brought to now, as every playback frame does: the real
+        /// nozzle kept heating through the warm-up (an engine bell for minutes) while the ghosts
+        /// stood at their prime.</summary>
+        private static void AdvanceNozzleGlows(WaveCase wc)
+        {
+            double ut = Planetarium.GetUniversalTime();
+            GhostPlaybackLogic.UpdateNozzleGlows(wc.Ghost?.State, ut);
+            GhostPlaybackLogic.UpdateNozzleGlows(wc.State?.StartGhost?.State, ut);
+            GhostPlaybackLogic.UpdateNozzleGlows(wc.Fx?.BrokenGhost?.State, ut);
         }
 
         private static void LoseVessel(WaveCase wc)

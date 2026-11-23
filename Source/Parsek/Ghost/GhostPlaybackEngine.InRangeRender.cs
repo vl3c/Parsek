@@ -640,6 +640,9 @@ namespace Parsek
             // tick; here for the same every-visible-frame reason (a snapshot-baseline canopy can
             // be open in a recording with no part events).
             GhostPlaybackLogic.UpdateParachuteCanopyAim(state, ut);
+
+            // A nozzle keeps heating or cooling between events, and cools in a recording with none.
+            GhostPlaybackLogic.UpdateNozzleGlows(state, ut);
         }
 
         /// <summary>The FX teardown of a suppressed frame in <see cref="ApplyFrameVisuals"/>:

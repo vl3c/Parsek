@@ -444,7 +444,7 @@ namespace Parsek
         internal static string SelectHeatAnimationSourceModule(
             bool hasAnimateHeat, bool hasAnimateThrottle)
         {
-            return hasAnimateHeat ? "ModuleAnimateHeat"
+            return hasAnimateHeat ? HeatSourceAnimateHeat
                 : hasAnimateThrottle ? "FXModuleAnimateThrottle"
                 : "FXModuleAnimateRCS";
         }

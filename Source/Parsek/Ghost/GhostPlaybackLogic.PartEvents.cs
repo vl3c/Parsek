@@ -14,7 +14,12 @@ namespace Parsek
             int recIdx, IPlaybackTrajectory rec, double currentUT, GhostPlaybackState state,
             bool allowTransientEffects = true)
         {
-            if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
+            if (rec.PartEvents == null || rec.PartEvents.Count == 0)
+            {
+                // A warm nozzle cools in a recording with no events (the KSC path reaches only here).
+                UpdateNozzleGlows(state, currentUT);
+                return;
+            }
             if (state.ghost == null)
             {
                 ParsekLog.VerboseRateLimited("Flight", $"apply-part-events-null-ghost-{recIdx}",
@@ -34,6 +39,10 @@ namespace Parsek
             // frame (cursor already caught up, loop body never entered) pays nothing.
             GhostPartEventApplyTally tally = null;
 
+            // The walk starts over (spawn, scrub, loop): the nozzle glows replay from the start too.
+            if (evtIdx == 0 && rec.PartEvents[0].ut <= currentUT)
+                RestartNozzleGlows(state);
+
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
                 var evt = rec.PartEvents[evtIdx];
@@ -51,6 +60,7 @@ namespace Parsek
                     ref needsReentryMeshRebuild,
                     ref audioPowerTouched,
                     ref placedTargetPartIds);
+                ApplyNozzleGlowEvent(state, evt);
                 evtIdx++;
             }
 
@@ -85,6 +95,8 @@ namespace Parsek
             // Same reason again: the KSC-scene and preview ghosts reach only ApplyPartEvents.
             // A second call in one frame holds (same UT), so the flight engine's call is a no-op.
             UpdateParachuteCanopyAim(state, currentUT);
+            // Same again: a pure function of the recorded UTs, so a second call writes nothing.
+            UpdateNozzleGlows(state, currentUT);
         }
 
         /// <summary>
