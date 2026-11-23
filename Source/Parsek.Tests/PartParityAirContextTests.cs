@@ -217,6 +217,10 @@ namespace Parsek.Tests
         {
             string runner = Source("PartParitySweepRunner.cs");
             Assert.Contains("IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);", runner);
+            // An FX wave (design E.2) has its own flow, the air one included (its admission is
+            // refused until piece F7).
+            Assert.Contains("if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);", runner);
+            Assert.Contains("!FxAirSpawnBuilt", Source("TestCommandPartParitySweep.cs"));
             Assert.Contains("air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases", runner);
         }
 

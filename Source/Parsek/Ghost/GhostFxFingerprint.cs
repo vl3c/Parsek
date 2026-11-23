@@ -184,7 +184,7 @@ namespace Parsek
         /// testable headless.</summary>
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static FxSystemReading ReadSystem(ParticleSystem ps)
+        internal static FxSystemReading ReadSystem(ParticleSystem ps)
         {
             Transform t = ps.transform;
             var main = ps.main;

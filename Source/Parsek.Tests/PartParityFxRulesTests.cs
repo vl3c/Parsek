@@ -536,6 +536,23 @@ namespace Parsek.Tests
             Assert.Contains("spotLight2:no-spot-light", c.Detail);
         }
 
+        [Fact]
+        public void TheHeatControl_SkipsAPartWhoseModelHasNoHeatClip()
+        {
+            // Stock's two preferred nose cones name a clip their models do not carry.
+            var facts = new Dictionary<string, PartParityFxSubjectFacts>
+            {
+                ["standardNoseCone"] = F(), ["pointyNoseConeA"] = F(),
+                ["noseConeAdapter"] = new PartParityFxSubjectFacts { Present = true, HasHeatClip = true },
+            };
+            var c = PartParityFxRules.ChooseControlSubject("ctl-heat-events-dropped", false, null, Install(facts));
+            Assert.Equal("noseConeAdapter", c.Subject);
+            Assert.Equal("subject=noseConeAdapter skipped=standardNoseCone:no-heat-clip,pointyNoseConeA:no-heat-clip", c.Detail);
+            // The other controls do not ask for the clip.
+            Assert.Equal("solidBooster.sm.v2", PartParityFxRules.ChooseControlSubject("ctl-fx-smoke-dropped", false, null,
+                Install(new Dictionary<string, PartParityFxSubjectFacts> { ["solidBooster.sm.v2"] = F() })).Subject);
+        }
+
         private static PartParityFxControlEvidence E(params string[] failing)
         {
             var e = new PartParityFxControlEvidence { RealCorePresent = true, EventsRecorded = 1 };

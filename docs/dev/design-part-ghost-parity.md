@@ -2298,6 +2298,71 @@ F2 as built (2026-11-23, no behaviour change, IL proofs in `<umbrella>/logs/refa
   and feeds the first `EngineIgnited && isOperational` and the raw throttle (an activity
   detector), so it is not the sweep's reference; the recorders are.
 
+F3 as built (2026-11-23). The FX half of the sweep: `PartParityFxDriver` (three partials: the
+press and the poll, the capture, the plate), `PartParityFxRun` (one case's state),
+`PartParityFxHold` (the test stand), and the pure `PartParityFxFraming`, `PartParityFxControls`
+(evidence flag, judge) and `PartParityFxStructure` (inventory diff). An FX case is a P6 wave case
+with `WaveCase.Fx` laid over `WaveCase.State`: `TryPress` / `TryStep` hook P6's press and step, its
+ghosts are P6's three routes, and an `fx:<bucket>` wave kind admits up to 4 of them. `FxRunsBuilt`
+is true; an `fx=` run with `contexts=air` is still refused `fx-runs-not-built` until F7
+(`FxAirSpawnBuilt`, mirrored as hlib `PARTPARITY_FX_AIR_SPAWN_BUILT`). Decisions:
+
+- Prime. `PrimeVisible` sets `lastInterpolatedBodyName` / `lastInterpolatedAltitude` from the held
+  vessel, then E.2 step 3. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
+  their smoke draws as built (F4 noted the control could not be met otherwise). A start ghost's
+  "first frame at the target" is read again after the visible prime, which is the frame that lights
+  its engine.
+- A renderer counts as drawn only when its system plays or has particles: stock leaves idle systems
+  enabled (the Hammer's `fx_exhaustSparks_yellow`). An undrawn entry is `{key, rendered: false}` in
+  `fx.structure`. Particle reads and the plateau use drawn systems only, so a vacuum-hidden smoke
+  trail's lifetime no longer sets the wait (LV-T45 real side: 1.3 s, where E0 measured 5.1 to 7.3 s).
+- Controls write the `event` route only: 8 entries, real-vs-real with 8 samples a side (16 split).
+  `warmupS` and `plateau` are written for a plume or rcs case only (a heat or lamp case waits for no
+  plateau, so none reads as missed). `n/a` controls write no sidecar. `fx.plate.litPct` is a
+  fraction; the plate atlas is P6's four rows with one view, `plate`; the ghost-all route is `all`.
+- `ctl-fx-plume-short` shrinks the ghost's FX roots to 0.4 with
+  `ParticleSystemScalingMode.Hierarchy`. E.5's recipe (start speed, lifetime and energy scaled) does
+  not shorten a stock legacy flame, which has no start speed and is a stretched billboard whose
+  length is its size and its velocity over lifetime: scaled by 0.5 the LV-T45 flame measured 0.77 of
+  the intact one, by 0.35 0.73 with a hue failure on the saturated bottom view; shrunk, it measures
+  0.42 with the colour intact.
+- `ctl-fx-plume-shift` moves the roots, across and along, by the larger of 10 % of the body and 12 %
+  of the near box (0.594 m each on the LV-T45). 10 % of the body (0.13 m across, 0.17 m along, about
+  12 and 16 px) is under both lines (5 % and 10 % of a 359 px plume); as built it measures 56 px
+  lateral and 59 px origin.
+- `ctl-heat-events-dropped` skips a subject whose model lacks the clip its `ModuleAnimateHeat` names
+  (`HasHeatClip`, `Part.FindModelAnimators`). Stock's two listed nose cones name `Cone_Heat` and
+  neither carries it, so the real part never glows there. Subject on stock: `noseConeAdapter`
+  (`HeatControlParts` gained it and `avionicsNoseCone`).
+- The nozzle hide maps by index, not by name. Stock plays nozzle i's puff on emitter i of the
+  EFFECTS node (`ModuleRCSFX.UpdatePowerFX(running, idx, power)` -> `Part.Effect(name, power, idx)` ->
+  `ModelMultiParticleFX.OnEvent(power, idx)` over `FindModelTransforms(transformName)`, decompiled),
+  so F2's `thrusterIndex` is the nozzle index whatever the transforms are called. Checked per case:
+  every transform of that name sits under the prefab's model and the module has a nozzle of that
+  index, else `rcs-input-mismatch`. This replaces F2's equal-names condition: on `RCSBlock.v2` the
+  EFFECTS transform is `RCSjet` and the module's `RCSthruster` (9 and 9; 2 fired, 2 hidden), so a
+  name check would fault the case, and a 0.1 m position match faulted it (the jet sits 0.22 m out,
+  the nozzle near the block).
+- A case that throws in warm-up, sample or measure is `crashed`; a control that captured no view
+  writes no evidence flag and is judged `bad`. Strip and coverage tiles are made opaque before the
+  alpha-weighted downsample. `LogHeat` writes a heat case's scalar, animation states and emissive
+  colours at the capture (`states=0` on a part with no clip).
+
+Acceptance (2026-11-23, stock-minimal, throwaway spec, fourth flight `2026-11-23_0728`, a DLL from
+before #2792; evidence `<umbrella>/logs/flights/p8-f3/`). The 11 orbit controls are `ok` and the
+merged F4 judge reads the label REPORT with no problem: every control and the sampled cases
+recompute bit-identical. 0 setup faults, every case complete: `liquidEngine2.v2`, `ionEngine`
+and `RAPIER` (closed cycle) at burn-full and burn-low, `solidBooster.sm.v2` burn-full, `RCSBlock.v2`,
+`vernierEngine`, `standardNoseCone` and `noseConeAdapter` heat-medium and heat-hot, and `spotLight1`
+on the plate (a point light by the optional control: `telescopicLadderBay`). Hold drift at render
+time at most 0.00003 m. Per-side warm-up lines are logged for every plume and rcs case; one side
+(ion burn-low, start route) missed the plateau at the 8 s cap and carries its tag. Teardown:
+`step cleanup` reads `casesDestroyed=0 faults=0` on all 18 steps and the propellant cheat reads
+`restored -> False` after each. Wall: 92 s for the LV-T45 with its 11 controls, 26 s for a pair of
+engine cases, 3 to 20 s elsewhere. U9 re-measured after the light settle: the intensity and colour
+gap is real (todo GHOST-LAMP-LIGHT-INTENSITY). The first readings of the ghosts are todo
+PARTPARITY-FX-FIRST-READINGS-2026-11-23.
+
 ### E.3 Capture changes
 
 - Layers. Each side's renderers are split by kind (pure `PartParityFxRules.ClassifyFxRenderer`
@@ -2534,11 +2599,11 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   | `ctl-ghost-absent` | ghost not built | ghost layers zero |
   | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the Flea) | passes every FX measure (the noise floor) |
   | `ctl-fx-plume-off` | the same | real vs an event-route ghost built without the polled events: fails presence, while the real core is present and `EngineIgnited` was recorded |
-  | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose particle start speed and lifetime and emitter energy and local velocity are scaled by 0.5 AFTER the visible prime (the magnitude scaling rewrites those fields from its baselines at every event): fails length, passes presence and colour |
+  | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose FX roots are scaled to 0.4 with Hierarchy particle scaling AFTER the visible prime ("F3 as built" in E.2 says why not the particle fields): fails length, passes presence and colour |
   | `ctl-fx-plume-hue` | the same | intact ghost vs a ghost whose rendered `flame` pixels have their channels rotated (r, g, b) -> (b, r, g) in the readback, before accumulation. That leaves max-channel coverage exactly unchanged, so it fails colour and passes presence and length exactly. A material edit cannot do this (E0 U10): every stock flame tint is grey (0.537, 0.779, 1.0 or 0.5 in all channels), so rotating its channels changes nothing, and a (0, max, 0) tint changes coverage (by 46 % on the ion engine, whose colour comes from its particles) |
-  | `ctl-fx-plume-shift` | the same | intact ghost vs a ghost whose FX roots are moved 10 % of the body width across the axis and 10 % of the body length along it: fails origin and lateral offset, passes length and colour |
+  | `ctl-fx-plume-shift` | the same | intact ghost vs a ghost whose FX roots are moved across and along the axis by the larger of 10 % of the body and 12 % of the near box: fails origin and lateral offset, passes length and colour |
   | `ctl-fx-smoke-dropped` | `solidBooster.sm.v2` | intact ghost vs a ghost with its smoke renderers hidden: fails smoke, passes the flame |
-  | `ctl-heat-events-dropped` | `standardNoseCone`, `pointyNoseConeA` | P6's state control at `heat-hot` without the polled event, with a COLOUR requirement instead of shape |
+  | `ctl-heat-events-dropped` | `standardNoseCone`, `pointyNoseConeA`, `noseConeAdapter`, `avionicsNoseCone` (the first whose model carries the heat clip) | P6's state control at `heat-hot` without the polled event, with a COLOUR requirement instead of shape |
   | `ctl-plate-light-off` | a spot light: `spotLight1`, `spotLight2`, ... | the ghost's `Light`s disabled: fails on the plate, and the real side passes the plate floor. |
   | `ctl-plate-light-off-point` | a part whose prefab `Light` is a point light | the same for a point light; recorded `n/a`, never `bad`, when no part on the install has one: the seven light parts E0 U9 checked on both installs (`spotLight1`, `spotLight3`, `domeLight1`, `navLight1`, `stripLight1`, `groundLight1`, `groundLight2`) are all spot lights |
 
@@ -2581,8 +2646,9 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   Decisions it took:
   - `fx=` names no `states=` and at most `contexts=air` beside it, else `fx-arg-invalid`
     (`FxCombinationValid`: a P6 state word or an orbit context would be silently ignored).
-  - Until F3, a well-formed FX run is REJECTED `fx-runs-not-built` (`FxRunsBuilt`, hlib
-    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 flips both and drops the refusal.
+  - Until F3, a well-formed FX run was REJECTED `fx-runs-not-built` (`FxRunsBuilt`, hlib
+    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 flipped both, and the refusal covers only an
+    `fx=` run with `contexts=air`, until F7.
   - `settings.fx` is written by an FX run only, so every PP-1 to PP-6 manifest keeps its
     settings byte for byte; `partparity.control_set` reads a missing `fx` as `none`.
   - The orbit FX run plans the `alone` and `plate` cases, the air FX run the `air` plume cases
@@ -2910,5 +2976,5 @@ less; 16 is the starting value.
 
 Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
 on every stock legacy world-space system; the plan does not depend on it, since it frames from
-near particles and judges smoke in the air); and whether the stock spot light's plate gap is a
-ghost defect or a fade still running (U9).
+near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
+ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY).
