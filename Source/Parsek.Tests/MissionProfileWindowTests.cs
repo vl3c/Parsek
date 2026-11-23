@@ -61,7 +61,7 @@ namespace Parsek.Tests
             Assert.Equal(log.x + 80f, profile.x);
             Assert.Equal(log.y + 80f, profile.y);
             Assert.Equal(960f, profile.width);
-            Assert.Equal(420f, profile.height);
+            Assert.Equal(640f, profile.height);
             Assert.Equal(480f, MissionProfileWindowUI.MinWindowWidth);
             Assert.Equal(160f, MissionProfileWindowUI.MinWindowHeight);
         }

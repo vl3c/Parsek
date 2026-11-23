@@ -33,7 +33,7 @@ namespace Parsek
         private const string LogName = "Profile window";
 
         internal const float DefaultWindowWidth = 960f;
-        internal const float DefaultWindowHeight = 420f;
+        internal const float DefaultWindowHeight = 640f;
         internal const float MinWindowWidth = 480f;
         internal const float MinWindowHeight = 160f;
 
@@ -560,16 +560,22 @@ namespace Parsek
             for (int v = 0; v < visibleRows.Count; v++)
             {
                 MissionProfileRow row = rows[visibleRows[v]];
-                string hover = row.Hover ?? "";
+                // A clipped cell (a long Summary fact, a long label) still reads in full in the
+                // hover strip: a row with no hover of its own shows its element text there.
+                string hover = !string.IsNullOrEmpty(row.Hover) ? row.Hover : (row.Element ?? "");
                 // Same shared row container as the header row above (one inset).
                 GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
                 GUILayout.Label(new GUIContent(row.Time ?? "", hover), cellStyle, GUILayout.Width(ColW_Time));
                 // The Element cell expands like the Log's Event cell: the tree indent, the
                 // caret (phases and line headers) or its empty slot, then the label.
-                GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
+                // MinWidth(0) on the cell and its label: a non-wrapping label otherwise demands its
+                // full text width, which widens the scroll view's content past the header row and
+                // pushes every column right of the Element heading out of line.
+                GUILayout.BeginHorizontal(GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
                 GUILayout.Space(Mathf.Max(0, row.Depth) * IndentPerDepth);
                 DrawCaretSlot(row);
-                GUILayout.Label(new GUIContent(row.Element ?? "", hover), ElementStyleFor(row, cellStyle));
+                GUILayout.Label(new GUIContent(row.Element ?? "", hover), ElementStyleFor(row, cellStyle),
+                    GUILayout.MinWidth(0f), GUILayout.ExpandWidth(true));
                 GUILayout.EndHorizontal();
                 GUILayout.Label(new GUIContent(row.Location ?? "", hover), cellStyle, GUILayout.Width(ColW_Location));
                 GUILayout.Label(new GUIContent(row.Duration ?? "", hover), cellStyle, GUILayout.Width(ColW_Duration));
@@ -636,9 +642,16 @@ namespace Parsek
         }
 
         // The first row's date: the Log's formatter.
-        private static string FormatDate(double ut)
+        // The window's date cell. The gallery's mock profiles use it too, so a mocked capture
+        // prints the calendar string the game would; the headless unit suite (no KSP runtime)
+        // gets the invariant UT number instead.
+        internal static string FormatDate(double ut)
         {
-            return KSPUtil.PrintDateCompact(ut, true);
+            try { return KSPUtil.PrintDateCompact(ut, true); }
+            catch
+            {
+                return ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+            }
         }
     }
 }

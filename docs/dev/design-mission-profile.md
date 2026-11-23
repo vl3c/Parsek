@@ -118,7 +118,7 @@ Click: `ParsekLog.Info("UI", "Mission Profile button: tree=... mission=... name=
   survive a scene change: `ParsekUI` is rebuilt per scene (`ParsekFlight.cs:1240`,
   `ParsekKSC.cs:167`) and the window state is instance fields.
 - First open: to the right of the main window, cascaded 80 px down / right of the Log's default
-  rect so both can be open without covering each other. Default 960 x 420, min 480 x 160,
+  rect so both can be open without covering each other. Default 960 x 640, min 480 x 160,
   resizable from the corner like the Log.
 - Body: the log table (boxed column header row, scroll view, row style), then the single-line hover
   strip (`TooltipEchoBox`), then `Close`. Read-only.

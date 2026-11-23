@@ -129,6 +129,7 @@ namespace Parsek.UI.Gallery
                 Mission = new Mission("gallery-profile-empty-m", tree.Id, "Empty Mission"),
                 Tree = tree,
                 BodyFacts = MissionProfileBuilder.StockBodyFacts,
+                DateFormatter = MissionProfileWindowUI.FormatDate,
             });
         }
 
@@ -146,6 +147,7 @@ namespace Parsek.UI.Gallery
                 Mission = new Mission("gallery-profile-m", tree.Id, name),
                 Tree = tree,
                 BodyFacts = MissionProfileBuilder.StockBodyFacts,
+                DateFormatter = MissionProfileWindowUI.FormatDate,
             });
         }
 
