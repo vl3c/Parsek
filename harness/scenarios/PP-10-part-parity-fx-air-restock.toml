@@ -25,6 +25,7 @@ tier = "operator"
 #
 # STEP SIZING. The F7 acceptance sweep took 336 s on stock-minimal (`2026-11-23_1014`; the Goliath's
 # 77 s spool sets its wave), so with D.8's 50 % margin two steps of maxSeconds=480 (budget 540).
+# Measured on this install (`2026-11-23_1712`): one step did it all in 315.8 s.
 #
 # GATES. (1) The partParity verifier row: the four air FX controls (else INVALID(parity-controls)),
 # the press (INVALID(parity-state-press)), the Python recompute from the FX atlases
@@ -43,9 +44,9 @@ tier = "operator"
 # none; (6) `[retry] policy = "none"` (a retry's `op=reset` would clear the files a reading run
 # exists to keep); (7) count 0; (8)/(9) tier operator by purpose, flight_efficiency.py after the
 # first green flight.
-description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F7): every modded-restock (ReStock, ReStock+, B9PartSwitch, no Waterfall) air-breathing engine's plume and smoke beside its Parsek ghosts (event route, start route), held 1600 m over the KSC showcase band from a pad host, over two PartParitySweep contexts=air fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). Every case is judged."
+description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F7, `2026-11-23_1712`, PASS attempt 1, 397 s): every modded-restock (ReStock, ReStock+, B9PartSwitch, no Waterfall) air-breathing engine's plume and smoke beside its Parsek ghosts (event route, start route), held 1600 m over the KSC showcase band from a pad host, over two PartParitySweep contexts=air fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). Every case is judged."
 instanceProfile = "modded-restock"
-tags = ["part-parity", "ghost-visual", "modded-restock", "pending-flight", "PP-10"]
+tags = ["part-parity", "ghost-visual", "modded-restock", "flown", "PP-10"]
 
 [fixture]
 saveTemplate = "fixtures/saves/b1-pad-craft"
