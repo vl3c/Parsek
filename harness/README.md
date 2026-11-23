@@ -62,8 +62,13 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   parity-instrument | parity-incomplete | parity-host-damaged |
   parity-state-press)` from the
   start; the per-part verdicts are REPORT-ONLY unless armed via
-  `[expectations.partParity] gating = true` (`PARTPARITY_ARMED_SPECS` - empty
-  as shipped), then `PARSEK-FAIL(part-parity)`,
+  `[expectations.partParity] gating = true` (the roster
+  `PARTPARITY_ARMED_SPECS` in `lib/test_hlib.py`); armed, the P5 regression
+  gate reds `PARSEK-FAIL(part-parity)` on a measure that drifted past its
+  tolerance from the committed baseline `partparity/baseline-<profile>.json`
+  or a fail the accepted list `partparity/accepted.toml` does not cover
+  (writer and checker `tools/part_parity_baseline.py`, see "The part parity
+  baseline" below),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives
@@ -804,6 +809,30 @@ dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
 
+### The part parity baseline (`tools/part_parity_baseline.py`)
+
+The armed `partParity` row compares each sweep with the committed baseline
+`partparity/baseline-<profile>.json` (per label and case, the band of the raw measures over the
+reading runs that pinned it) and the accepted list `partparity/accepted.toml` (case / view /
+measure, reason, todo id; `noisy = true` also waives the drift rule for a measure that moves run
+to run). Rules, tolerances and their measured basis: `docs/dev/design-part-ghost-parity.md`
+section 10 and Appendix E. A fix that removes a difference removes its accepted entry and
+re-pins the label in the same commit. The tool reads only manifests and sidecars, so the
+results archive's copy of a run serves as well as `results/`:
+
+```
+python tools/part_parity_baseline.py write --label pp1 <run1 sweep dir> <run2 sweep dir>
+python tools/part_parity_baseline.py check <sweep dir> [--notes]
+python tools/part_parity_baseline.py spread <sweep dir A> <sweep dir B> [--skip-noisy]
+python tools/part_parity_baseline.py accepted <sweep dir> ...
+```
+
+`write` refuses (exit 3) while a run holds a fail the accepted list does not cover and prints a
+TOML block for each, with an empty reason and todo to fill in: a difference is never accepted
+silently. `check` exits 1 on a gate red. Tests `lib/test_partparity_gate.py`, which also check
+the committed files: the list parses, every todo id is a todo header, every baseline file is in
+its canonical rendering, and every armed PP lane has a section per label it sweeps.
+
 ### The part parity viewer (`tools/part_parity_view.py`)
 
 The page over a part ghost parity sweep (`results/<runId>_partparity/<label>/`, or a copy of
@@ -813,13 +842,16 @@ trigger lines are `lib/partparity.py`'s, never typed on the page. It writes `ind
 `data.js` (all sidecars as one JS literal, so it opens from `file://`), by default into
 `<sweep>/viewer/` with the images referenced in place; `--out <dir>` copies them. Two sweep
 directories show two profiles with cross links (`stock=<dir> restock=<dir>`), and
-`--baseline <dir>` marks the cases that moved. It refuses to write into the repository tree
+`--baseline <dir>` marks the cases that moved; `--pinned` marks them against the committed
+baseline and accepted list instead, through the armed gate itself (moved = a gate red on the
+case). It refuses to write into the repository tree
 outside `results/`. Contract: `docs/dev/design-part-ghost-parity.md` section 8; tests
 `lib/test_part_parity_view.py`.
 
 ```
 python tools/part_parity_view.py results/<runId>_partparity/pp1
 python tools/part_parity_view.py stock=<dir> restock=<dir> --baseline <older dir> --out ../../logs/partparity/<name>
+python tools/part_parity_view.py results/<runId>_partparity/pp1 --pinned --out ../../logs/partparity/<name>
 ```
 
 ### The GUI mirror (`tools/gui_mirror.py`)

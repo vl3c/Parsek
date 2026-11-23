@@ -19452,7 +19452,8 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
                 self.assertEqual(partparity.CONTROL_IDS_AIR,
                                  partparity.control_set({"states": a["states"], "contexts": a["contexts"]}))
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
                 self.assertEqual("none", spec["retry"]["policy"])
@@ -19500,7 +19501,8 @@ class PartParityLaneShapeTests(unittest.TestCase):
                         self.assertNotIn(key, a)
                     self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -19559,7 +19561,8 @@ class PartParityStateLaneShapeTests(unittest.TestCase):
                     self.assertEqual(partparity.CONTROL_IDS_ORBIT_STATE,
                                      partparity.control_set(settings))
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)

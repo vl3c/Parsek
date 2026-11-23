@@ -219,6 +219,12 @@ namespace Parsek.TestCommands
         internal const double MissingMeshMinIou = 0.99;
         internal const double WrongSkinMinIou = 0.98;
 
+        /// <summary><c>ctl-real-vs-real</c> renders the real part twice; the masks must match
+        /// exactly, but up to this many overlap pixels per view may differ in colour by more than
+        /// the colour threshold (render noise: 1 of the 216 archived views read 1 px, todo
+        /// PARTPARITY-REAL-VS-REAL-ONE-PIXEL), an eighth of the 64 px colour warn line.</summary>
+        internal const int RealVsRealColorNoisePx = 8;
+
         /// <summary>The control's subject (part) and its required outcome, in words.</summary>
         internal static string ControlSubject(string controlId) => ControlSubject(controlId, false);
 
@@ -250,7 +256,7 @@ namespace Parsek.TestCommands
             {
                 case TestCommandPartParitySweep.ControlEmpty: return "zero coverage in every view";
                 case TestCommandPartParitySweep.ControlGhostAbsent: return "ghost side zero coverage, real side covered";
-                case TestCommandPartParitySweep.ControlRealVsReal: return "identical masks and colours";
+                case TestCommandPartParitySweep.ControlRealVsReal: return "identical masks, colours within " + RealVsRealColorNoisePx.ToString(CultureInfo.InvariantCulture) + " px of noise";
                 case TestCommandPartParitySweep.ControlGhostScale90: return "fails every view on shape";
                 case TestCommandPartParitySweep.ControlGhostRot90: return "fails side-a and side-b on shape";
                 case TestCommandPartParitySweep.ControlGhostFlip: return "fails every view";
@@ -355,7 +361,7 @@ namespace Parsek.TestCommands
                     return All(views, m => m.GhostPx == 0, "ghost coverage", out detail)
                         && Any(views, m => m.RealPx > 0, "no real coverage in any view", out detail);
                 case TestCommandPartParitySweep.ControlRealVsReal:
-                    return All(views, m => m.RealOnlyPx == 0 && m.GhostOnlyPx == 0 && m.ColorOverPx == 0, "difference", out detail)
+                    return All(views, m => m.RealOnlyPx == 0 && m.GhostOnlyPx == 0 && m.ColorOverPx <= RealVsRealColorNoisePx, "difference", out detail)
                         && Any(views, m => m.RealPx > 0, "no coverage in any view", out detail);
                 case TestCommandPartParitySweep.ControlGhostScale90:
                     return All(views, ShapeFails, "shape passes", out detail);

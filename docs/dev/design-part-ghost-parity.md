@@ -352,7 +352,7 @@ proof that the instrument sees what it claims to.
 | --- | --- | --- |
 | `ctl-empty` | both sides hidden | zero coverage in every view (nothing else is in frame) |
 | `ctl-ghost-absent` | ghost not built | ghost side zero coverage (the hide of the real side works) |
-| `ctl-real-vs-real` | `fuelTankSmallFlat`, real captured as both sides | identical masks and colours (determinism) |
+| `ctl-real-vs-real` | `fuelTankSmallFlat`, real captured as both sides | identical masks, and at most 8 overlap pixels per view over the colour threshold (determinism; `RealVsRealColorNoisePx`, P5: two renders of one part read 1 px apart in 1 of 216 archived views, todo PARTPARITY-REAL-VS-REAL-ONE-PIXEL) |
 | `ctl-ghost-scale90` | same tank, ghost scaled 0.9 | fails every view on shape |
 | `ctl-ghost-rot90` | `mk1pod.v2` (hatch and ladder: no rotational symmetry), ghost rotated 90 deg about +Y | fails `side-a` / `side-b` on shape |
 | `ctl-ghost-flip` | `mk1pod.v2`, ghost rotated 180 deg about +X | fails every view |
@@ -748,6 +748,12 @@ The page is ONE continuous scroll, with no click per part (owner rulings, 2026-1
   rendered missing / extra counts or live skin names changed, or its worst shape blob or colour
   blob moved by more than 8 px, or its minimum IoU by more than 0.002; else `same`; `new` when
   the baseline lacks it. Baseline-only cases are listed as gone in the sweeps box.
+- **Pinned regression mode** (`--pinned [<dir>]`, P5; default `harness/partparity`): the same
+  filter and chips, but each sweep is compared with the COMMITTED baseline section of its
+  manifest's profile and label and the accepted list, through `partparity.gate_sweep` itself: a
+  case is `moved` when the armed gate would red on it, `new` when the baseline lacks it, else
+  `same`; its baseline row lists every gate finding (accepted fails, near-line fails and moves to
+  the better side as notes). `--pinned` and `--baseline` are exclusive.
 - **Profile name**: the manifest's `profile` when it is a plain name, else the sweep's `label`,
   else the directory name, with a note. Finding (P4): the P2 / P3 writer records `..` on the
   harness installs (`PartParityCaseCapture.ProfileName` takes the last segment of
@@ -823,13 +829,42 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 - `[Parsek][ERROR]` stays forbidden by the log validator; an ERROR a modded part provokes is a finding
   to file, never a suppression.
 - Verifier row `partParity` (`harness/lib/partparity.py`, pure): controls, completeness, verdicts,
-  the Python recompute sample, and in phase 4 the baseline compare against
+  the Python recompute sample, and from P5 the baseline compare against
   `harness/partparity/baseline-<profile>.json` (raw measures only) and
   `harness/partparity/accepted.toml` (case / view / measure, reason, todo id). Once armed
   (`gating = true`, the saveparse arming rule), a newly failing case or a measure moved past its
   tolerance reds `PARSEK-FAIL(part-parity)`.
 - Each ghost-visual defect the sweep finds is filed in `docs/dev/todo-and-known-bugs.md` with its
   case id; the fix removes the accepted entry and re-pins the baseline in the same commit.
+- As built (P5, 2026-11-23). The baseline is `harness/partparity/baseline-<profile>.json`, one
+  section per sweep label (`pp1` / `pp3` / `pp5` on stock-minimal, `pp2` / `pp4` / `pp6` on
+  modded-compat). A section names its reading runs and their DLL hashes and holds, per planned part
+  case, the setup statuses seen and, per judged view (a state case's routes as `event:<view>` /
+  `start:<view>`), the band `[lo, hi]` over those runs of four raw measures: `realOnlyBlobPx`,
+  `ghostOnlyBlobPx`, `colorBlobPx`, `iou` (a band equal to the identical-sides value, 0 px or
+  IoU 1, is left out). No verdict is stored: verdicts are recomputed from the sidecars, so a
+  threshold re-pin needs no new baseline. Controls are not baselined (their recorded outcomes are
+  the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
+  `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
+  (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `flag:<flag>` with an optional
+  trailing `*`, or `*`), `reason`, `todo`, optional `noisy`) names every known difference; a
+  placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
+  The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
+  `PARSEK-FAIL(part-parity)` on: a measure that left its band past its tolerance on the WORSE side
+  (`drift`; more blob pixels, a lower IoU), unless a `noisy` entry covers it; a fail reason no
+  entry covers when the reason is qualitative (a missing / extra rendered mesh, a skin mismatch,
+  a fail-floor state flag) or the case has no baseline (`unaccepted-fail`); a baselined case the
+  sweep no longer plans (`gone`); no section for the label or an unreadable file (`no-baseline`).
+  A numeric fail on a baselined case inside its band's tolerance is a `near-line-fail` note: a
+  case that sits near a fail line in every run is judged by the drift rule, so colour noise near
+  the 256 px line cannot flake the gate. A non-noisy entry waives only the fail verdict, so an
+  accepted difference that grows still reds. An `error` case never reds. Moves to the better side,
+  new passing cases and entries that matched nothing are notes, written to
+  `partparity-verdicts.json` (`gate`) and the summary line (`gate=ok|red reds= drift= ...`).
+  Tolerances and their measured basis: Appendix E. The writer and checker is
+  `harness/tools/part_parity_baseline.py` (`write` refuses while a reading run holds an unaccepted
+  fail, printing a TOML block per reason with the reason and todo left empty; `check`, `spread`,
+  `accepted`).
 
 ## 11. Code layout
 
@@ -857,6 +892,8 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
 | `harness/tools/part_parity_view.py` + `harness/lib/test_part_parity_view.py` | The viewer (8); the GIF / APNG writer later (9.2). |
+| `harness/partparity/baseline-<profile>.json`, `harness/partparity/accepted.toml` | P5: the committed baseline and accepted list (10, Appendix E). |
+| `harness/tools/part_parity_baseline.py` + `harness/lib/test_partparity_gate.py` | P5: the baseline writer / checker / spread tool; the gate's tests and the committed-file cells. |
 
 `Parsek.csproj` gains NO Unity module reference: PNGs are written by the P0 spike's own encoder
 (`PartParityPng`, zlib over `System.IO.Compression.DeflateStream`, filter 0, colour type 6; xUnit

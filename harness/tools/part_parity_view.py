@@ -77,6 +77,8 @@ DATA_SCHEMA = "parsek-part-parity-view/1"
 DATA_JS_FILE = "data.js"
 INDEX_FILE = "index.html"
 DEFAULT_OUT_LEAF = "viewer"
+# --pinned: the committed baseline and accepted list (design section 10).
+DEFAULT_PINNED_DIR = os.path.join(os.path.dirname(_HERE), pp.BASELINE_DIR_NAME)
 DATA_JS_PREFIX = "window.PARITY_DATA = "
 
 KIND_CONTROL = "control"
@@ -941,6 +943,64 @@ def apply_regression(rows: List[Dict], baseline_rows: Sequence[Dict],
                 [p for p in base_profiles if p not in pairs.values()]}
 
 
+def apply_pinned_regression(rows: List[Dict], sweeps: Sequence[Dict], keys: Sequence[str],
+                            pinned: Dict[str, Any]) -> Dict[str, Any]:
+    """Regression mode against the COMMITTED baseline (``--pinned``, design section 8 and
+    10): each sweep's part cases go through ``partparity.gate_sweep`` with the baseline
+    section of its manifest's profile and label and the accepted list, exactly the armed
+    gate. A case is ``moved`` when the gate reds on it (drift past tolerance or an
+    unaccepted fail), ``new`` when the baseline lacks it, else ``same``; its ``changes``
+    list every gate finding on it (accepted fails, near-line fails and moves to the better
+    side included, as notes). ``gone`` lists the baseline cases a sweep no longer plans.
+    ``pinned`` is ``{"dir", "baselines": {profile: parsed file}, "accepted": [entries],
+    "errors": [...]}``. In place."""
+    counts = {REG_MOVED: 0, REG_NEW: 0, REG_SAME: 0}
+    gone: List[str] = []
+    gates: Dict[str, Any] = {}
+    by_sweep: Dict[str, List[Dict]] = {}
+    for r in rows:
+        by_sweep.setdefault(r.get("sweep"), []).append(r)
+    for k, s in enumerate(sweeps):
+        manifest = s.get("manifest") if isinstance(s.get("manifest"), dict) else None
+        sweep_rows_ = [r for r in by_sweep.get(keys[k], []) if r["kind"] == KIND_PART]
+        if manifest is None:
+            continue
+        profile = pp.profile_of(manifest, None)
+        label = manifest.get("label")
+        doc = (pinned.get("baselines") or {}).get(profile)
+        section = ((doc or {}).get("labels") or {}).get(label) if doc else None
+        sidecars = {cid: sc for cid, sc in (s.get("sidecars") or {}).items() if isinstance(sc, dict)}
+        verdicts = [pp.judge_case(sidecars[r["caseId"]]) for r in sweep_rows_
+                    if r["caseId"] in sidecars]
+        gate = pp.gate_sweep(str(label), profile, manifest, sidecars, verdicts, section,
+                             pinned.get("accepted") or [])
+        gates[keys[k]] = {"profile": profile, "label": label, "ok": gate.ok,
+                          "baselineRuns": list(gate.baseline_runs), "counts": gate.counts()}
+        findings: Dict[str, List[Any]] = {}
+        for f in gate.reds:
+            if f.case_id is None:
+                continue
+            if f.kind == pp.GATE_GONE:
+                gone.append("%s/%s" % (s["profile"], f.case_id))
+                continue
+            findings.setdefault(f.case_id, []).append(f)
+        for f in gate.notes:
+            if f.case_id is not None:
+                findings.setdefault(f.case_id, []).append(f)
+        for r in sweep_rows_:
+            mine = findings.get(r["caseId"], [])
+            red = any(f.kind in pp.GATE_RED_KINDS for f in mine)
+            new = any(f.kind == pp.NOTE_NEW_CASE for f in mine) or section is None
+            status = REG_MOVED if red else (REG_NEW if new else REG_SAME)
+            r["regression"] = {"status": status,
+                               "changes": [("%s: %s" % (f.kind, f.detail)) for f in mine],
+                               "baseline": None}
+            counts[status] += 1
+    return {"dirs": [pinned.get("dir") or ""], "pairs": {}, "counts": counts,
+            "gone": sorted(gone), "unpairedBaselineProfiles": [], "pinned": True,
+            "gates": gates, "errors": list(pinned.get("errors") or [])}
+
+
 def apply_cross_links(rows: List[Dict]) -> None:
     """Link each case to the same case in every OTHER loaded profile (same ``regKey``:
     the case id, or for a control its set kind and id), else to that profile's cases of
@@ -997,7 +1057,8 @@ def sweep_keys(sweeps: Sequence[Dict]) -> List[str]:
 
 
 def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] = None,
-                    generated_utc: Optional[str] = None) -> Dict[str, Any]:
+                    generated_utc: Optional[str] = None,
+                    pinned: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The whole ``data.js`` payload. Each sweep is a dict with ``profile``,
     ``profileNote``, ``dir``, ``manifest``, ``manifestError``, ``sidecars`` (case id ->
     parsed / None / SIDECAR_UNREADABLE), ``imageUrl`` (callable or None) and optional
@@ -1039,6 +1100,8 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
             base_rows.extend(sweep_rows(b["profile"], b.get("manifest"),
                                         b.get("sidecars") or {}, None, base_keys[k], k))
         regression = apply_regression(rows, base_rows, [b.get("dir") or "" for b in baseline])
+    elif pinned is not None:
+        regression = apply_pinned_regression(rows, sweeps, keys, pinned)
     apply_cross_links(rows)
     apply_stowed_pairs(rows)
     groups = group_parts(rows)
@@ -1176,6 +1239,34 @@ def load_sweep(directory: str, explicit_name: Optional[str] = None) -> Dict[str,
     }
 
 
+def load_pinned(base_dir: str, sweeps: Sequence[Dict]) -> Dict[str, Any]:
+    """The committed baseline files of every profile the sweeps name, and the accepted
+    list, for ``--pinned``. A file that will not load is recorded in ``errors``."""
+    import tomllib
+    out: Dict[str, Any] = {"dir": os.path.abspath(base_dir), "baselines": {}, "accepted": [],
+                           "errors": []}
+    for s in sweeps:
+        profile = pp.profile_of(s.get("manifest") if isinstance(s.get("manifest"), dict) else None, None)
+        if not profile or profile in out["baselines"]:
+            continue
+        doc, err = _read_json(os.path.join(base_dir, pp.baseline_file_name(profile)))
+        problems = [err] if err else pp.validate_baseline(doc, profile)
+        if problems:
+            out["errors"].append("%s: %s" % (pp.baseline_file_name(profile), "; ".join(problems[:3])))
+        else:
+            out["baselines"][profile] = doc
+    path = os.path.join(base_dir, pp.ACCEPTED_FILE)
+    if os.path.isfile(path):
+        try:
+            with open(path, "rb") as fh:
+                entries, errors = pp.parse_accepted(tomllib.load(fh))
+            out["accepted"] = entries
+            out["errors"].extend(errors)
+        except (OSError, ValueError) as exc:
+            out["errors"].append("%s: %s" % (pp.ACCEPTED_FILE, exc))
+    return out
+
+
 def plan_images(sweeps: List[Dict], out_dir: str, mode: str) -> List[Tuple[str, str]]:
     """Give every sweep an ``imageUrl`` callable; return the (src, dst) copies owed.
     ``in-place``: relative to the sweep dir (copy only when no relative path exists);
@@ -1240,6 +1331,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--baseline", action="append", default=[], metavar="DIR",
                     help="an earlier sweep directory to compare with (regression mode); "
                          "repeat for several profiles")
+    ap.add_argument("--pinned", nargs="?", const=DEFAULT_PINNED_DIR, metavar="DIR",
+                    help="regression mode against the committed baseline and accepted list "
+                         "(the armed gate's view; default dir harness/partparity)")
     ap.add_argument("--out", metavar="DIR",
                     help="output directory (default: <first dir>/viewer/)")
     ap.add_argument("--images", choices=("auto", "copy", "in-place"), default="auto",
@@ -1270,6 +1364,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 2
         baseline.append(load_sweep(directory, name))
 
+    if args.pinned and args.baseline:
+        print("part_parity_view: --pinned and --baseline are two regression modes; pass one",
+              file=sys.stderr)
+        return 2
+    pinned = load_pinned(args.pinned, sweeps) if args.pinned else None
+
     out_dir = os.path.abspath(args.out) if args.out else os.path.join(sweeps[0]["dir"],
                                                                        DEFAULT_OUT_LEAF)
     refusal = out_dir_refusal(out_dir, find_repo_root(_HERE))
@@ -1284,7 +1384,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     import datetime
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    data = build_site_data(sweeps, baseline if args.baseline else None, stamp)
+    data = build_site_data(sweeps, baseline if args.baseline else None, stamp, pinned)
     copied, kept = copy_images(copies)
     data_js = render_data_js(data)
     _write_text(os.path.join(out_dir, DATA_JS_FILE), data_js)
