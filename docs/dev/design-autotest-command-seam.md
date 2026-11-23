@@ -5690,8 +5690,8 @@ that does not parse is REJECTED with its own token, never clamped: `label-arg-mi
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
 `maxseconds-arg-invalid` (the parse order). A well-formed `contexts=air` step parses like any
 other (the interim `air-runs-not-built` refusal was dropped when design D.10 S7 built the air
-context). Until the live FX engine lands (Appendix E.9 piece F3) a well-formed `fx=` step is
-REJECTED `fx-runs-not-built` (detail `fx=<token>`), after the grammar and before the admission.
+context), and so does an `fx=` one, in orbit or with `contexts=air` (the interim
+`fx-runs-not-built` refusal was dropped once Appendix E.9 pieces F3 and F7 built both).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
 arg parse the applier admits the host (`PartParityAirContext.DecideAdmission`, the runner's own

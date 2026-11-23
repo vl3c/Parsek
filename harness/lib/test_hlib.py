@@ -19243,8 +19243,8 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
 
     def test_the_fx_arg_mirrors_the_c_sharp(self):
         # fx= (design-part-ghost-parity.md E.5): the words are PartParityFxRules', the parse
-        # reads them through TryParseFx and FxCombinationValid, and TryParseArgs refuses a
-        # well-formed FX run while FxRunsBuilt is false (the S1 pattern).
+        # reads them through TryParseFx and FxCombinationValid, and the interim refusal of a
+        # well-formed FX run is gone (F3 built the orbit one, F7 the air one).
         text, consts = self._pure()
         fx_text = self._source("TestCommands", "PartParityFxRules.cs")
         fx = self._string_consts(fx_text)
@@ -19262,23 +19262,16 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertIn("a.States == null", combo)
         self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
                       combo)
-        m = re.search(r"internal const bool FxRunsBuilt = (true|false);", text)
-        self.assertIsNotNone(m, "FxRunsBuilt moved")
-        self.assertEqual(hlib.PARTPARITY_FX_RUNS_BUILT, m.group(1) == "true")
-        m = re.search(r"internal const bool FxAirSpawnBuilt = (true|false);", text)
-        self.assertIsNotNone(m, "FxAirSpawnBuilt moved")
-        self.assertEqual(hlib.PARTPARITY_FX_AIR_SPAWN_BUILT, m.group(1) == "true")
-        self.assertEqual(hlib.PARTPARITY_FX_RUNS_NOT_BUILT_REASON, consts["FxRunsNotBuiltReason"])
         args = text[text.index("internal static bool TryParseArgs("):text.index(
             "internal static bool TryParseGrammar(")]
-        self.assertIn("if (IsFxRun(parsed) && (!FxRunsBuilt || (IsAirRun(parsed) && !FxAirSpawnBuilt)))", args)
-        self.assertIn("rejectReason = FxRunsNotBuiltReason;", args)
+        self.assertIn("=> TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);", args)
+        self.assertNotIn("fx-runs-not-built", text)
+        self.assertNotIn("fx-runs-not-built", hlib.PARTPARITY_REASONS)
+        self.assertNotIn("fx-runs-not-built", hlib._SEAM_REFUSAL_SUBKINDS)
 
     def test_the_fx_validator_answers_what_the_seam_answers(self):
         v = hlib.validate_part_parity_sweep_step
         for step, reason in (
-                ({"label": "pp7", "fx": "plume", "contexts": "air"}, "fx-runs-not-built"),
-                ({"label": "pp7", "fx": "all", "contexts": "air"}, "fx-runs-not-built"),
                 ({"label": "pp7", "fx": "plume", "states": "all"}, "fx-arg-invalid"),
                 ({"label": "pp7", "fx": "plume", "contexts": "stacked"}, "fx-arg-invalid"),
                 ({"label": "pp7", "fx": "Plume"}, "fx-arg-invalid"),
@@ -19288,16 +19281,15 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                 errors = v(0, step)
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(reason, errors[0])
-        # An orbit FX run validates; only the air one waits on piece F7.
+        # An orbit FX run validates, and so does the held-jet air one.
         for fx in ("plume", "all", "plume,rcs"):
             self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
+            self.assertEqual([], v(0, {"label": "pp5fx", "fx": fx, "contexts": "air"}))
         # fx=none is no FX run: a P6 step beside it validates as before.
         self.assertEqual([], v(0, {"label": "pp3", "fx": "none", "states": "all"}))
         self.assertEqual([], v(0, {"label": "pp5", "fx": "none", "states": "all", "contexts": "air"}))
         # contexts= is canonicalised as the C# parse does: air,air is the air context.
-        errors = v(0, {"label": "pp10", "fx": "plume", "contexts": "air,air"})
-        self.assertEqual(1, len(errors), errors)
-        self.assertIn("fx-runs-not-built", errors[0])
+        self.assertEqual([], v(0, {"label": "pp10", "fx": "plume", "contexts": "air,air"}))
 
     def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
         text, consts = self._pure()

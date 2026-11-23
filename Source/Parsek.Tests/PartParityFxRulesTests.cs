@@ -280,6 +280,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ASlowSpool_GetsTheTimeStocksOwnSpoolNeeds()
+        {
+            // Never under 45 s: the RAPIER (0.2 /s) and the Wheesley (0.12 /s, 38 s to 0.99) fit.
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.2));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.12));
+            // The Goliath (0.06 /s): ln(100) / 0.06 = 76.8 s full, ln(30) / 0.06 = 56.7 s low, and 10 %.
+            Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.06), 9);
+            Assert.Equal(1.1 * Math.Log(30.0) / 0.06, PartParityFxRules.SpoolPressTimeoutSeconds(0.3, 0.06), 9);
+            // Stock's law really lands inside the tolerance by then, 0.02 s a step.
+            double throttle = 0.0, t = 0.0;
+            for (; Math.Abs(throttle - 1.0) > 0.01; t += 0.02) throttle += (1.0 - throttle) * 0.06 * 0.02;
+            Assert.InRange(t, 45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.06));
+            // Capped, and an engine that names no speed (or a senseless one) keeps the floor.
+            Assert.Equal(120.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, 0.001));
+            foreach (double bad in new[] { double.NaN, 0.0, -1.0 })
+                Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(1.0, bad));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(double.NaN, 0.06));
+            Assert.Equal(45.0, PartParityFxRules.SpoolPressTimeoutSeconds(0.01, 0.06));
+            // The option reads it off the module, and the wave bound follows.
+            var r = Enumerate(Part("turboFanSize2", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                "useEngineResponseTime=True", "engineAccelerationSpeed=0.06", "PROPELLANT.name=IntakeAir")));
+            Assert.Equal(0.06, r.Cases[0].FxOption.EngineAccelerationSpeed);
+            Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.PressTimeoutSeconds(r.Cases[0].FxOption), 9);
+            Assert.Equal(20 + 1.1 * Math.Log(100.0) / 0.06 + 8 + 6 + 5,
+                PartParityFxRules.WaveWorstCaseSeconds(r.Cases.Select(k => k.FxOption).ToList()), 9);
+        }
+
+        [Fact]
         public void TheDoneSignals()
         {
             Assert.True(PartParityFxRules.PlumeReached(true, 0.995, 1.0, true));
@@ -511,6 +539,36 @@ namespace Parsek.Tests
             c = PartParityFxRules.ChooseControlSubject("ctl-fx-smoke-dropped", false, null, Install(new Dictionary<string, PartParityFxSubjectFacts>()));
             Assert.Null(c.Subject);
             Assert.Equal("bad", c.Outcome);
+        }
+
+        [Fact]
+        public void APlumeControlsKey_IsItsRunsBurnFull_AndABoosterGoesIntoTheAir()
+        {
+            var rapier = Enumerate(Part("RAPIER", Mod(0, "MultiModeEngine"),
+                Mod(1, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=AirBreathing", "PROPELLANT.name=IntakeAir"),
+                Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=ClosedCycle", "PROPELLANT.name=LiquidFuel"))).Cases;
+            Assert.Same(rapier[0], PartParityFxRules.ControlPlumeKey(rapier, true));
+            Assert.Same(rapier[2], PartParityFxRules.ControlPlumeKey(rapier, false));
+            // The air controls' Flea breathes no air: its one plume is an orbit case, held in the
+            // air. Its own key and option stay orbit ones.
+            var flea = Enumerate(Part("solidBooster.sm.v2", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                "throttleLocked=True", "useEngineResponseTime=True", "PROPELLANT.name=SolidFuel"))).Cases;
+            Assert.Same(flea[0], PartParityFxRules.ControlPlumeKey(flea, false));
+            PartParityCaseKey air = PartParityFxRules.ControlPlumeKey(flea, true);
+            Assert.NotSame(flea[0], air);
+            Assert.Equal("air", air.Context);
+            Assert.Equal("air", air.FxOption.Context);
+            Assert.Equal("alone", flea[0].Context);
+            Assert.Equal("alone", flea[0].FxOption.Context);
+            Assert.Equal(new[] { flea[0].Part, flea[0].Source, flea[0].Skin, flea[0].State },
+                new[] { air.Part, air.Source, air.Skin, air.State });
+            Assert.Equal(flea[0].FxOption.RecorderKeyIndex, air.FxOption.RecorderKeyIndex);
+            Assert.True(air.FxOption.ThrottleLocked && air.FxOption.UseEngineResponseTime);
+            // A jet held in an orbit run has no key, and no plume is no key.
+            var jet = Enumerate(Part("JetEngine", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "PROPELLANT.name=IntakeAir"))).Cases;
+            Assert.Null(PartParityFxRules.ControlPlumeKey(jet, false));
+            Assert.Null(PartParityFxRules.ControlPlumeKey(new List<PartParityCaseKey>(), true));
+            Assert.Null(PartParityFxRules.ControlPlumeKey(null, true));
         }
 
         [Fact]
