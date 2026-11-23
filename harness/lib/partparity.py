@@ -2150,7 +2150,9 @@ def build_baseline_section(runs: Sequence[Tuple[str, Dict, Dict[str, Optional[Di
     are instrument cases, judged by their recorded outcomes, never baselined)."""
     per_case: Dict[str, List[Dict]] = {}
     hashes: List[str] = []
+    views: List[str] = []
     for _run_id, manifest, sidecars in runs:
+        views += [str(v) for v in manifest.get("views") or [] if str(v) not in views]
         h = manifest.get("dllHash")
         if isinstance(h, str) and h not in hashes:
             hashes.append(h)
@@ -2162,7 +2164,7 @@ def build_baseline_section(runs: Sequence[Tuple[str, Dict, Dict[str, Optional[Di
             s = sidecars.get(cid)
             if isinstance(s, dict):
                 per_case[cid].append(s)
-    return {"runs": [r[0] for r in runs], "dllHashes": hashes, "writtenUtc": written_utc,
+    return {"runs": [r[0] for r in runs], "dllHashes": hashes, "writtenUtc": written_utc, "views": views,
             "tolerances": drift_tolerances(),
             "cases": {cid: baseline_case_entry(per_case[cid]) for cid in sorted(per_case)}}
 
@@ -2473,7 +2475,9 @@ def qualitative_differences(sidecar: Dict) -> List[FailReason]:
     for key in ("structure", "structureStart"):
         structure = sidecar.get(key)
         for e in (structure.get("renderedDiffers") or []) if isinstance(structure, dict) else []:
-            if not isinstance(e, dict) or is_non_visual(e):
+            # No path fallback here: these entries carry no nonVisual key, and a mesh whose
+            # name merely contains "mask" must not hide from the gate.
+            if not isinstance(e, dict) or e.get("nonVisual"):
                 continue
             real, ghost = str(e.get("real")).lower(), str(e.get("ghost")).lower()
             group = GROUP_HIDDEN if (real, ghost) == ("true", "false") else GROUP_DRAWN
@@ -2487,7 +2491,8 @@ def qualitative_differences(sidecar: Dict) -> List[FailReason]:
     return out
 
 
-def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict) -> Optional[str]:
+def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
+                      baseline_views: Sequence[str] = ()) -> Optional[str]:
     """Why a case that has no setup fault still says nothing about its ghost, or None:
     a planned view or a route missing, a measure that is not a number, a structure that
     was not measured, a capture that threw."""
@@ -2498,7 +2503,10 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict) -> Optional[str]:
             return "flag %s" % f
     state_case = is_state_case(sidecar.get("state"))
     current = case_measures(sidecar)
-    for view in manifest.get("views") or sorted({k.split(":")[-1] for k in current}):
+    # The baseline's own view set too: a view dropped from the manifest is still owed.
+    views = [str(v) for v in manifest.get("views") or []]
+    views += [v for v in baseline_views if v not in views]
+    for view in views or sorted({k.split(":")[-1] for k in current}):
         for route in ((ROUTE_EVENT, ROUTE_START) if state_case else (None,)):
             vk = view_key(str(view), route)
             lost = [m for m in BASELINE_MEASURES if m not in current.get(vk, {})]
@@ -2543,7 +2551,7 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
         if cv.verdict == VERDICT_ERROR:
             text = ", ".join(cv.reasons[:2]) or "error"
             if section is None or cv.setup_status in ((base or {}).get("setup") or []) \
-                    and cv.setup_status != SETUP_OK:
+                    and is_setup_fault(cv.setup_status):
                 notes.append(GateFinding(NOTE_SETUP_FAULT, cid, text))
             elif cv.setup_status == SETUP_CRASHED:
                 reds.append(GateFinding(GATE_UNACCEPTED_FAIL, cid, "crashed (the ghost builder "
@@ -2575,7 +2583,7 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                 notes.append(GateFinding(NOTE_NEW_CASE, cid, "baselined only as a setup fault "
                                          "(verdict %s)" % cv.verdict))
             continue
-        lost = unmeasured_reason(side, manifest)
+        lost = unmeasured_reason(side, manifest, section.get("views") or ())
         if lost:
             unmeasured.append(GateFinding(GATE_UNMEASURED, cid, lost))
         current = case_measures(side) if isinstance(side, dict) else {}

@@ -5,7 +5,8 @@
     "pp1": {
       "runs": ["2026-11-22_2159_PP-1-part-parity-stock", "2026-11-22_2317_PP-1-part-parity-stock", "2026-11-23_0035_PP-1-part-parity-stock"],
       "dllHashes": ["c0afedca2aabc3b59abe867739289140fd0cddf46788316acdc715839e9b07c6", "206033bde6c1e1c9a8ac8fe144ff89945d369021b7fb25a469b94ba94bf9c9c4", "36eabc6dbab897ddccca8b76700c0f20f0229ce7b0bb55d060499359b143bff7"],
-      "writtenUtc": "2026-11-23T06:03:19Z",
+      "writtenUtc": "2026-11-23T06:44:45Z",
+      "views": ["side-a", "side-b", "top", "bottom"],
       "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "adapterengines--default--881234f6": {"measured": true, "setup": ["ok"], "views": {}},
@@ -805,7 +806,8 @@
     "pp3": {
       "runs": ["2026-11-22_2220_PP-3-part-parity-states-stock", "2026-11-22_2328_PP-3-part-parity-states-stock", "2026-11-23_0046_PP-3-part-parity-states-stock"],
       "dllHashes": ["206033bde6c1e1c9a8ac8fe144ff89945d369021b7fb25a469b94ba94bf9c9c4", "36eabc6dbab897ddccca8b76700c0f20f0229ce7b0bb55d060499359b143bff7"],
-      "writtenUtc": "2026-11-23T06:03:22Z",
+      "writtenUtc": "2026-11-23T06:44:46Z",
+      "views": ["side-a", "side-b", "top", "bottom"],
       "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "airbrake1--default--deployed--65d4f96a": {"measured": true, "setup": ["ok"], "views": {"event:side-b": {"colorBlobPx": [0, 3]}, "event:top": {"colorBlobPx": [0, 1]}, "start:side-b": {"colorBlobPx": [0, 3], "iou": [0.9998, 1.0]}, "start:top": {"colorBlobPx": [0, 1]}}},
@@ -987,7 +989,8 @@
     "pp5": {
       "runs": ["2026-11-22_2157_PP-5-part-parity-chutes-stock", "2026-11-22_2315_PP-5-part-parity-chutes-stock"],
       "dllHashes": ["c0afedca2aabc3b59abe867739289140fd0cddf46788316acdc715839e9b07c6", "206033bde6c1e1c9a8ac8fe144ff89945d369021b7fb25a469b94ba94bf9c9c4"],
-      "writtenUtc": "2026-11-23T00:13:59Z",
+      "writtenUtc": "2026-11-23T06:44:47Z",
+      "views": ["side-a", "side-b", "top", "bottom"],
       "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "parachutedrogue--default--full--air--af4e8df3": {"measured": true, "setup": ["ok"], "views": {"event:bottom": {"colorBlobPx": [6173, 6320], "ghostOnlyBlobPx": [1071, 1244], "iou": [0.8741, 0.8862], "realOnlyBlobPx": [1076, 1245]}, "event:side-a": {"colorBlobPx": [1778, 2206], "ghostOnlyBlobPx": [335, 394], "iou": [0.7445, 0.7607], "realOnlyBlobPx": [337, 383]}, "event:side-b": {"colorBlobPx": [978, 1983], "ghostOnlyBlobPx": [33, 169], "iou": [0.758, 0.9044], "realOnlyBlobPx": [18, 179]}, "event:top": {"colorBlobPx": [4508, 4821], "ghostOnlyBlobPx": [1076, 1250], "iou": [0.8734, 0.8855], "realOnlyBlobPx": [1084, 1250]}, "start:bottom": {"colorBlobPx": [6173, 6320], "ghostOnlyBlobPx": [1071, 1244], "iou": [0.8741, 0.8862], "realOnlyBlobPx": [1076, 1245]}, "start:side-a": {"colorBlobPx": [1778, 2206], "ghostOnlyBlobPx": [335, 394], "iou": [0.7445, 0.7607], "realOnlyBlobPx": [337, 383]}, "start:side-b": {"colorBlobPx": [978, 1983], "ghostOnlyBlobPx": [33, 169], "iou": [0.758, 0.9044], "realOnlyBlobPx": [18, 179]}, "start:top": {"colorBlobPx": [4508, 4821], "ghostOnlyBlobPx": [1076, 1250], "iou": [0.8734, 0.8855], "realOnlyBlobPx": [1084, 1250]}}},

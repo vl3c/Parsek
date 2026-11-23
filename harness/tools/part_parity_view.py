@@ -984,12 +984,13 @@ def apply_pinned_regression(rows: List[Dict], sweeps: Sequence[Dict], keys: Sequ
                 gone.append("%s/%s" % (s["profile"], f.case_id))
                 continue
             findings.setdefault(f.case_id, []).append(f)
-        for f in gate.notes:
+        for f in gate.unmeasured + gate.notes:
             if f.case_id is not None:
                 findings.setdefault(f.case_id, []).append(f)
         for r in sweep_rows_:
             mine = findings.get(r["caseId"], [])
-            red = any(f.kind in pp.GATE_RED_KINDS for f in mine)
+            # An unmeasured case makes the armed row INVALID, so it is never "same".
+            red = any(f.kind in pp.GATE_RED_KINDS or f.kind == pp.GATE_UNMEASURED for f in mine)
             new = any(f.kind == pp.NOTE_NEW_CASE for f in mine) or section is None
             status = REG_MOVED if red else (REG_NEW if new else REG_SAME)
             r["regression"] = {"status": status,

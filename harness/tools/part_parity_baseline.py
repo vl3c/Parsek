@@ -61,7 +61,7 @@ def render_baseline(doc: Dict) -> str:
     for i, label in enumerate(labels):
         section = doc["labels"][label]
         lines.append("    %s: {" % json.dumps(label))
-        for key in ("runs", "dllHashes", "writtenUtc", "tolerances"):
+        for key in ("runs", "dllHashes", "writtenUtc", "views", "tolerances"):
             lines.append("      %s: %s," % (json.dumps(key),
                                             json.dumps(section.get(key), sort_keys=True)))
         lines.append('      "cases": {')

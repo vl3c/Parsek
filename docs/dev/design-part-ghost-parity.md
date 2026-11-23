@@ -2957,6 +2957,10 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
   `ghost-not-built*` and `state-not-*` red now whatever the verdict, and a noisy case whose IoU falls
   under half its band's low end reds too.
 
+Known to pass still (re-review): a state case whose ghost stays stowed while its read-back claims
+`applied` and no flag is raised, where the picture cannot tell: 9 of 134 PP-3 and 18 of 179 PP-4
+cases (both scanners, one claw, and lit cases whose lit / unlit difference is inside tolerance).
+
 None of the seventeen clean runs of the six lanes carries any of these except the five
 stowed chutes (`drawn`) and the nine lit cases (`state-not-modelled`), which are accepted by name.
 

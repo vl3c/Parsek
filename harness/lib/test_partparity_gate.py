@@ -424,6 +424,27 @@ class GateTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertIsNotNone(pp.unmeasured_reason(doc, manifest))
 
+    def test_a_view_dropped_from_the_manifest_too_is_still_owed(self):
+        base = {"a--x--1": _case("a--x--1", [_view("side-a"), _view("top")])}
+        m = _manifest(["a--x--1"])
+        m["views"] = ["side-a", "top"]
+        section = pp.build_baseline_section([("r", m, base)])
+        self.assertEqual(["side-a", "top"], section["views"])
+        now = {"a--x--1": _case("a--x--1", [_view("top")])}
+        cut = dict(m, views=["top"])
+        g = pp.gate_sweep("pp1", "stock-minimal", cut, now, [pp.judge_case(now["a--x--1"])], section, [])
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+
+    def test_an_error_on_a_case_baselined_still_animating_is_not_a_note(self):
+        base = {"a--x--1": _case("a--x--1", status="still-animating")}
+        skin = {"module": "ModulePartVariants", "requested": "A", "real": "B", "ghost": "B"}
+        g = _gate({"a--x--1": _case("a--x--1", status="still-animating", skin=skin)}, _section([base]))
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+
+    def test_a_hidden_renderer_whose_name_contains_mask_reds(self):
+        hidden = {"renderedDiffers": [{"key": "model/obj_damask", "real": "true", "ghost": "false"}]}
+        self.assertEqual(["hidden"], [f.group for f in pp.qualitative_differences(_case("a--x--1", structure=hidden))])
+
     def test_a_hidden_renderer_or_an_unmodelled_state_reds_on_a_passing_noisy_case(self):
         noisy = [_entry("a--x--1", "*", "*", noisy=True)]
         base = {"a--x--1": _case("a--x--1")}
@@ -701,6 +722,10 @@ class ViewerPinnedModeTests(unittest.TestCase):
         self.assertEqual(["stock/g--x--4"], data["regression"]["gone"])
         self.assertEqual({"moved": 1, "new": 1, "same": 1}, data["regression"]["counts"])
         self.assertTrue(data["regression"]["pinned"])
+        now["a--x--1"] = _case("a--x--1", [_view(color=None)])
+        data = ppv.build_site_data([dict(sweep, sidecars=now)], None, None, {
+            "dir": "pinned", "baselines": {"stock-minimal": doc}, "accepted": [], "errors": []})
+        self.assertEqual("moved", {r["caseId"]: r["regression"]["status"] for r in data["cases"]}["a--x--1"])
 
 
 class CommittedFilesTests(unittest.TestCase):
