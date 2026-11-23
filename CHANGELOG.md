@@ -68,6 +68,8 @@ Not released yet.
   puffs at once, not at its next RCS change. (GHOST-RCS-DARK-AFTER-FX-SUPPRESSION)
 - **Ghost engines leave no smoke trail in space.** Their smoke thins out high up and is gone in
   vacuum, as on the real engine. (GHOST-SMOKE-IN-VACUUM)
+- **Ghost RAPIER engines show the RAPIER's own trail.** They drew a thick grey smoke trail the
+  real engine does not have. (GHOST-RAPIER-AIR-SMOKE-SUBSTITUTE)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and
   ReStock's surface scanner shows its screen on. (GHOST-SCANNER-STATE-NO-INFO)
 - **ReStock's Communotron 88-88 ghost opens into the right shape.** Its dish and feed rise above

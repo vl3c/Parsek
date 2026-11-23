@@ -95,7 +95,9 @@ below was moved here from `.claude/CLAUDE.md` on 2026-09-01; it is the authority
 - Legacy `fx_*` names resolve through KSP's builtin `Effects/{name}` Resources path so exact
   size-variant flames win. NEVER add `Effects/` to the shared `TryResolveFxPrefabExact` probes: stock
   paths rely on the deliberate `fxPrefabFallbacks` substitutions. A wanted flame that never resolves
-  gets the white-flame fallback.
+  gets the white-flame fallback. One part-specific exact lookup exists: the RAPIER's own trail
+  (`EngineFxBuilder.IsRapierOwnTrail` -> `GhostVisualBuilder.FindBuiltinEffectsPrefab`,
+  `Effects/fx_smokeTrail_aeroSpike`), which never falls back to `fx_smokeTrail_large`.
 - Stock Swivel / Poodle / Mainsail are LEGACY parts (plain ModuleEngines + top-level `fx_*` keys, NO
   EFFECTS node); Spark / RAPIER have real pristine EFFECTS particles.
 - `ReStockPatchFxIndex.cs` is a lazy per-session index of the EFFECTS definitions ReStock authors for
