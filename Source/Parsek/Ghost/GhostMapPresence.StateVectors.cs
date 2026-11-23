@@ -804,6 +804,8 @@ namespace Parsek
                     out _,
                     out _))
             {
+                // A Relative section holds playbackUT here, so the predicted tail (past every
+                // section) is out of reach; its map line and icon come from the orbit segments.
                 if (DebrisRelativePlaybackPolicy.ShouldRetireOutsideAuthoredRelativeCoverage(
                         traj,
                         playbackUT,
