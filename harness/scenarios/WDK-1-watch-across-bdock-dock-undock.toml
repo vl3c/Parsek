@@ -1,0 +1,107 @@
+schema = 1
+id = "WDK-1-watch-across-bdock-dock-undock"
+# =====================================================================================
+# WDK-1: WATCH MODE HELD ACROSS A REPLAYED DOCK AND UNDOCK. AUTHORED 2026-11-23, NEVER
+# FLOWN (test-gap list 2026-11-18 batch 4, "Watch mode across a docking replay"; todo
+# WATCH-ACROSS-DOCK-LANE-2026-11-23).
+#
+# WHY. WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION (fixed 2026-11-20, batch 2) is xUnit only
+# (`WatchAcrossDockTests`): a watch session remembers the launch guid of the vessel it
+# started on, and at an Undock branch point `GhostPlaybackLogic.FindWatchedIdentityChild`
+# prefers the child that continues that identity over the same-pid child. No lane holds a
+# watch across a replayed dock and undock, so the live path (session start, the dock
+# transfer, the undock decision) has never run.
+#
+# THE HOST is `bdock-recorded`, tree 2 (8c677bba0ec04e558c6ebec4ad8c3c9f, Kerbal X #2):
+# the recorded Dock merge 4fe5e39e at UT 8949.268 and the Undock 857e997a 1.32 s later at
+# UT 8950.588, both in low Kerbin orbit beside the station. WL-3's instant (open PR #2782,
+# its reading flight 2026-11-22_2128): loop playback of the tree with the jump to 73477
+# puts the recorded dock at about 73597.5 and the undock at about 73598.8.
+#
+# THE FLIGHT: WL-3's setup verbatim (StopRecording / DiscardTree, MissionConfig loop,
+# StartLoopPlayback, TimeJump 73477, WarpToUT 73482 at 1x, EnterWatchMode on the tree),
+# then WarpToUT 73610 at 1x: the watched ghost docks, the watch transfers to the merged
+# recording, and at its undock the identity rule decides which child to follow.
+#
+# PRE-REGISTERED READING: `Watch session identity:` at session start; one undock decision
+# line for 857e997a. The fixture predates the dock-absorb link rows, so the expected
+# outcome is `no child continues the watched vessel identity=` (the ship that leaves gets
+# a fresh guid with no link) or `watched identity unknown` (a recording without a guid):
+# either keeps the same-pid rule, and the pin regexes the outcome. Proving the FOLLOW
+# outcome needs a BDOCK re-harvest that records the dock-absorb rows (a flight item).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: WL-3's setup and instant. 2 waits: explicit-UT WarpToUT only. 3 dwells: none.
+#   4 burns: none. 5 b5 coasts: none. 6 fail fast: every seam verb refuses in one frame.
+#   7 count: no [expectations.recordings] (nothing is recorded). 8 tier: operator by the
+#   calibration discipline until the first flight. 9 run tools/flight_efficiency.py on
+#   the first green flight.
+#   Takes the flight camera (watch mode) but no mouse: keep it off a shared desktop focus.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-23, NEVER FLOWN (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: loop playback of tree 2 (Kerbal X #2), WL-3's jump to UT 73477, watch mode entered on the tree, then a 1x warp across the replayed dock (about 73597.5) and undock (about 73598.8). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity line and the undock decision line."
+instanceProfile = "stock-minimal"
+tags = ["WDK1", "watch", "docking", "loop-playback", "flight-view", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                                      expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # LOAD-BEARING: the Watch identity lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" }, label = "slp", expect = "OK", budget = 300 },
+  { cmd = "TimeJump",          args = { ut = "73477" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",          args = { ut = "73482", maxRate = "1" },                        expect = "OK", budget = 120 },
+  { cmd = "EnterWatchMode",    args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" },          expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "wdk1-watching" },                            expect = "OK" },
+  # Across the dock (about 73597.5) and the undock (about 73598.8), at 1x.
+  { cmd = "WarpToUT",          args = { ut = "73610", maxRate = "1" },                        expect = "OK", budget = 240 },
+  { cmd = "MissionMark",       args = { label = "wdk1-past-undock" },                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "enterwatchmode initiated:",
+  # THE SUBJECT (WatchModeController.TryCommitWatchSessionStart).
+  "\\[Watch\\] Watch session identity: #[0-9]+ \"[^\"]+\" id=[0-9a-f]{32} identity=",
+  # THE SUBJECT (GhostPlaybackLogic.FindWatchedIdentityChild): the replayed undock decided by
+  # the watched identity, after the watch began. The outcome is regexed (header).
+  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[Watch\\] [^\\r\\n]*: undock 857e997acb43492ca4d7635e47e7b698 for rec '[^']+': (?:following the watched vessel identity=|no child continues the watched vessel identity=|[0-9]+ children continue the watched vessel identity=|watched identity unknown)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "enterwatchmode rejected",
+  "warptout refused",
+]
+
+[runtime]
+# Boot + LoadGame 300 + StartLoopPlayback 300 + TimeJump 300 + warps 360 + watch 120,
+# rounded up with boot margin.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
