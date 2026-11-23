@@ -1331,17 +1331,6 @@ namespace Parsek
                     return true;
                 }
 
-                // LES particle FX (LES_Thruster) produces excessive particles at playback distance.
-                // Skip particle FX — the nozzle glow from FXModuleAnimateThrottle provides sufficient visual.
-                // ReStock's LES has lightweight model-based EFFECTS instead, so the skip stands down.
-                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal) &&
-                    !TuningStandsDown("LES particle-FX skip"))
-                {
-                    ParsekLog.Verbose("GhostVisual",
-                        $"    Skipping engine particle FX for '{partName}' pid={persistentId}: LES uses nozzle glow only");
-                    continue;
-                }
-
                 bool isRapierPart =
                     string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
 
