@@ -920,6 +920,14 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # carrying a Z-200 on its front (harness/tools/build_srv_hinge_rover.py, the SRV-1
         # host). Inherits the node.
         "srv-hinge-rover": True,
+        # `miner-rover-watched` with the rover renamed `PBR1 Break Rover` and one RTG swapped
+        # for a retracted SP-L 1x6 solar panel (harness/tools/build_pbr_break_rover.py, the
+        # PBR-1 host). Inherits the node.
+        "pbr-break-rover": True,
+        # `b1-pad-craft` restamped `Mode = SCENARIO` with its ParsekScenario node kept verbatim
+        # (harness/tools/build_gm_scenario_modes.py, the GM-1 host). Its training.sfs twin
+        # (SCENARIO_NON_RESUMABLE, node-less) is not the persistent save this map reads.
+        "gm-scenario-modes": True,
         # `miner-rover-watched` with the rover renamed `SRV2 Rotor Rover` and an EM-16 rotor
         # carrying a Z-200 on its front (harness/tools/build_srv_rotor_rover.py, the SRV-2
         # host). Inherits the node.

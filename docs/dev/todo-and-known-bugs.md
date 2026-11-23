@@ -73,6 +73,31 @@ stays unlit for 30 frames and 1 s. No lane runs it: a B4 or LAY-1 descent replay
 descent UT (`ListHandles` gives `ut` only for rewind points). Unblock with a viewer placed near
 the descent (a spawn-at-orbit verb) or a descent-UT handle. Ghost sound does not apply mid-descent
 (no engine runs).
+## TEST-GAPS-B4-PART-BREAKS: no lane records a live solar panel or wheel break and replays it [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+
+- Gap: the recorder's `DeployableBroken` / `WheelBroken` edges and the ghost's break appliers were proven only in xUnit and synthetically (H37 builds break visuals from prefabs); no seam verb could break a part (archived GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER).
+- Built: `PartAction button=breakpanel` (stock `ModuleDeployablePart.breakPanels()`) and `button=breakwheel` (stock `ModuleWheelDamage.DamageWheel()`), automation-only, refusing a part with no such module (`partaction-deployable-not-found` / `partaction-wheel-not-found`) and skipping an already broken one; the applied line's `state=` reads `deployable:state=` / `wheel:damaged=` after a break press. Lane PBR-1 on the derived fixture `pbr-break-rover` (`harness/tools/build_pbr_break_rover.py`).
+- Owed: PBR-1's first flight (stock-minimal); then retry `none` and a tier call.
+- NOT BUILT, the RAPIER mode switch: no committed fixture carries a RAPIER, and the recorder skips a zero-throttle ignite, so a live switch needs a throttle seam (no verb sets the main throttle) plus an SPH host. PR #2792 changed only the RAPIER trail visuals and the part parity lanes read per-mode FX from a held ghost, not a recorded switch.
+
+## TEST-GAPS-B4-INERT-GAME-MODES: no lane loads a stock scenario or training save [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+
+- Gap: `ParsekGameModeGate` (owner ruling S9) and ParsekScenario's inert pass-through were pinned only headless; no committed fixture had a SCENARIO or SCENARIO_NON_RESUMABLE mode.
+- Built: lane GM-1 on the derived fixture `gm-scenario-modes` (`harness/tools/build_gm_scenario_modes.py`, from `b1-pad-craft`: `persistent.sfs` SCENARIO with a 4-value Parsek node, `training.sfs` SCENARIO_NON_RESUMABLE with none). Gates the inert lines, the refused StartRecording, the inert stash / write-back round trip, no normal ParsekScenario load or save and no backup; the produced save is the training game, whose report-only saveParse row must read no Parsek node.
+- Not covered: Making History MISSION / MISSION_BUILDER (a mission loads from `Missions/<name>/`, not a plain save). To fly one the PC must copy a stock mission folder from the install's `Missions/` (Making History ships them) into the automation instance and the seam needs a mission-load verb; neither exists.
+- Owed: GM-1's first flight (stock-minimal); a daily promotion call after it (no warps, three loads).
+
+## TEST-GAPS-B4-MODDED-TWINS: no route or Re-Fly lane flies with mods loaded [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed]
+
+- Built: MC-6 (H6's RouteRewindTimeline batch, interim `total=7` pin) and MC-7 (S4.1's B9 Re-Fly merge cycle, its rewind block and Unity exception ceiling report-only) on modded-compat, steps and contracts verbatim from their stock lanes.
+- Owed: both first flights on modded-compat; then pin MC-6's split whole and arm MC-7's rewind block off a green reading matching S4.1's (supersedeRows 0, tombstones 0), and its exception ceiling only through UnityExceptionScanTests' allowlist with the measured count.
+
+## TEST-GAPS-B4-BATCH-CRASH-RECOVERY-LANE: the in-game batch crash recovery has no lane [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED on the harness]
+
+- Gap: `RunTestBatchCrashReconcile` (TestBatchMarker; revert the `.bak`, sweep, deferred real LoadGame) is proven headless only. It fires only on a `ParsekScenario.OnLoad` in a DIFFERENT process (the marker's `ProcessSessionId` must differ) on the same save folder.
+- Blocked: the harness v1 has no kill-and-relaunch inside one attempt (`INTERRUPTED` is unreachable; the killed-run mode is the boot watchdog's), so a lane cannot kill KSP mid-batch and boot it again on the same staged save.
+- Fix options: (a) a `run.py` step kind that kills the game and relaunches it on the same instance without re-staging, then resumes the seam steps (the faithful one); or (b) an automation-only seam op that simulates the second process in place (reset `ProcessSessionId`, then a cold LoadGame of the save holding the marker), like SafeWriteCrash's cold reload. (b) is cheaper but proves less (the same AppDomain keeps every static store).
+- Not reached in batch 4: the aerobraking lane (L).
 
 ## ~~MISSION-CLONE-REMOVAL~~: the Advanced Missions tab's Clone and Delete buttons are removed with the clone feature [FILED + BUILT 2026-11-22 (owner decision, `docs/dev/plans/remove-player-looping.md` 10.5 item 1), branch `mission-clone-removal`; xUnit; lanes MS-1 `2026-11-22_2215` and GUI-4 `2026-11-22_2216` re-flown green]
 

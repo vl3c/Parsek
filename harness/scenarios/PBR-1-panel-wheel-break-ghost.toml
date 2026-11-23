@@ -1,0 +1,171 @@
+schema = 1
+id = "PBR-1-panel-wheel-break-ghost"
+# =====================================================================================
+# PBR-1: A SOLAR PANEL AND A WHEEL BROKEN WHILE RECORDING BREAK ON THE GHOST (todo
+# TEST-GAPS-B4-PART-BREAKS; test-gap list batch 4, AUTHORED 2026-11-23, NEVER FLOWN).
+#
+# WHY. The recorder polls two break edges on every loaded vessel (PartStatePoller:
+# `DeployableBroken` when a ModuleDeployablePart enters deployState BROKEN, `WheelBroken` when
+# a ModuleWheelDamage goes isDamaged), and the ghost applies them (GhostPlaybackLogic
+# ApplyDeployableBrokenStateWithOutcome hides the panel's break subtree; the wheel-damage
+# surface swaps the busted mesh in). xUnit proves the edges and the seed / optimizer handling,
+# and H37 builds the break visuals from prefabs SYNTHETICALLY; no lane ever recorded a live
+# break and replayed it (GS-6's archived todo GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: no driver
+# could break a part on demand). The PartAction buttons `breakpanel` / `breakwheel` (added
+# with this lane) call stock's own `ModuleDeployablePart.breakPanels()` and
+# `ModuleWheelDamage.DamageWheel()`, the methods stock's over-stress and impact paths call.
+#
+# THE HOST. `pbr-break-rover` (harness/tools/build_pbr_break_rover.py): MINE-6's proven
+# `miner-rover-watched` pair with the rover renamed `PBR1 Break Rover` and one of its two
+# RTGs (part 12, surface-attached to the fuel tank, mirror link dropped) swapped for a
+# retracted SP-L 1x6 (`solarPanels2`, a pivoting deployable). The wheel broken is the rover's
+# own `roverWheel1` pid 2261801323 (part 22). The rover is LANDED 820 m from the runway, so
+# LaunchSiteOnlyGhost does not hide its ghost, and `Miner Watcher` stands 120 m north: after
+# Rewind-to-Launch strips the rover, a reload of the rewound save lands FLIGHT on the watcher,
+# inside the physics bubble of the replay (MINE-6 / SRV-1, live-proven).
+#
+# THE INSTALL. stock-minimal: both parts and both modules are base-game stock.
+#
+# THE TIMELINE (the fixture's clock is UT 30):
+#   30     LoadGame -> FLIGHT on the rover; StartRecording; mark pbr1-recording.
+#   33     1x settle (the first poll seeds both break sets clean), mark pbr1-break-panel,
+#          PartAction breakpanel: deployState -> BROKEN this frame; 1x to 36.
+#   36     mark pbr1-break-wheel, PartAction breakwheel on pid 2261801323; 1x to 40.
+#   40     StopRecording, CommitTree, Rewind-to-Launch (`tree=latest`); SaveGame + LoadGame of
+#          the rewound save lands FLIGHT on the watcher about 15 s before the recording.
+#   ~16    5x rails to 26, then 1x to 45: the ghost plays [30, 40] 120 m away (Physics zone,
+#          part events applied); at its end the rover spawns where it stood.
+#
+# THE LOG LINES (literals read from source, 2026-11-23):
+#   partaction applied button=breakpanel ... event=breakPanels ... state='...deployable:state=BROKEN'
+#   partaction applied button=breakwheel ... event=DamageWheel ... state='...wheel:damaged=1'
+#                                                    TestCommandPartAction.FormatAppliedLine
+#   Part event: DeployableBroken '<part>' pid= (deployable-broken edge, deployState=BROKEN)
+#   Part event: WheelBroken '<part>' pid= (wheel damage)
+#                                                    PartStatePoller (tag Recorder, Verbose)
+#   Deployable '<part>' pid=: break subtree '<t>' resolved from     GhostVisualBuilder (build)
+#   apply family=DeployableBroken surface=deployable rec= pid= applied=
+#   apply family=WheelBroken surface=wheel-damage rec= pid= applied=  GhostPartEventApplyLog
+#
+# PRE-REGISTERED READINGS:
+#   - `partaction rejected reason=partaction-deployable-not-found` / `-wheel-not-found`: the
+#     part loaded without its module (fixture regression), or the panel / wheel already broken.
+#   - `state=` without BROKEN / `damaged=1`: stock refused the break (packed part, cheat
+#     NoCrashDamage on, a panel with no pivot and no break transform).
+#   - no `Part event: DeployableBroken` / `WheelBroken`: the recorder poll missed the edge.
+#   - a break event before its mark: the load settle broke the part (impact on load).
+#   - `DeployableBroken will have no visual` / `a recorded WheelBroken will have no visual`:
+#     the ghost could not map the break transform / wheel mesh (product defect, todo it).
+#   - `applied=0` on either apply line: the event reached the ghost and was skipped; the
+#     line's reason names why.
+#   - `Ghost hidden: vessel 'PBR1 Break Rover'`: the launch-site rule fired off-site (defect).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: MINE-6 / SRV-1's host and rewind-and-
+# reload shape verbatim, one part swapped. (2) explicit-UT WarpToUT only. (3) 3-4 s holds: a
+# break is one frame. (4)/(5) no burns or coasts. (6) retry `once` for a new fixture; `none`
+# after the first green flight. (7) recordings window 1..3 until measured. (8) operator until
+# measured. (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "AUTHORED 2026-11-23, NEVER FLOWN: a retracted SP-L 1x6 solar panel and a rover wheel on a landed rover (pbr-break-rover, 820 m from the runway) broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must log both break edges after their presses and the ghost must map and apply both breaks."
+instanceProfile = "stock-minimal"
+tags = ["PBR-1", "part-events", "deployable-broken", "wheel-damage", "ghost-render",
+        "rewind-to-launch", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/pbr-break-rover"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 StartRecording + 120 x 3 warps + 120 CommitTree +
+# 300 rewind + 120 SaveGame + 300 LoadGame + 120 x 2 warps = 1920; runtime 2400 adds the
+# inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  # The recorder's Part event lines and the ghost's apply / build lines are Verbose.
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+
+  # ---- the recorded flight: the panel and the wheel broken on the parked rover ----
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "MissionMark",      args = { label = "pbr1-recording" },                            expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "pbr1-break-panel" },                          expect = "OK" },
+  { cmd = "PartAction",       args = { button = "breakpanel", part = "solarPanels2" },        expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "36", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "pbr1-break-wheel" },                          expect = "OK" },
+  { cmd = "PartAction",       args = { button = "breakwheel", part = "roverWheel1", partPid = "2261801323" }, expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "40", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "pbr1-committed" },                            expect = "OK" },
+
+  # ---- the rewind, then FLIGHT on the watcher (a Space Center save focuses vessel 0) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "pbr1-rewound" },                              expect = "OK" },
+  { cmd = "SaveGame",         args = { name = "pbr1-rewound" },                               expect = "OK", budget = 120 },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "pbr1-rewound" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "pbr1-reloaded" },                             expect = "OK" },
+
+  # ---- the replay over [30, 40] ----
+  { cmd = "WarpToUT",         args = { ut = "26", maxRate = "5" },                            expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "45", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "pbr1-replayed" },                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- the recorded flight: each press broke its part, and the recorder saw the edge ----
+  "MISSIONMARK label=pbr1-break-panel ut=[\\s\\S]*?partaction applied button=breakpanel pid=[0-9]+ part='solarPanels2' partId=[0-9]+ event=breakPanels [^\\r\\n]*state='[^']*deployable:state=BROKEN[^']*'",
+  "MISSIONMARK label=pbr1-break-wheel ut=[\\s\\S]*?partaction applied button=breakwheel pid=2261801323 part='roverWheel1' partId=[0-9]+ event=DamageWheel [^\\r\\n]*state='[^']*wheel:damaged=1[^']*'",
+  # No break edge before its own press (a load-settle impact would read as a recorded break).
+  "MISSIONMARK label=pbr1-recording ut=(?:(?!Part event: (?:DeployableBroken|WheelBroken) )[\\s\\S])*?MISSIONMARK label=pbr1-break-panel ut=",
+  "MISSIONMARK label=pbr1-break-panel ut=(?:(?!MISSIONMARK label=pbr1-break-wheel )(?!Part event: WheelBroken )[\\s\\S])*?Part event: DeployableBroken 'solarPanels2' pid=[0-9]+ \\(deployable-broken edge, deployState=BROKEN\\)[\\s\\S]*?MISSIONMARK label=pbr1-break-wheel ut=",
+  "MISSIONMARK label=pbr1-break-wheel ut=(?:(?!MISSIONMARK label=pbr1-committed )[\\s\\S])*?Part event: WheelBroken 'roverWheel1' pid=2261801323 \\(wheel damage\\)[\\s\\S]*?MISSIONMARK label=pbr1-committed ut=",
+  "committree committed=true",
+  "Rewind-to-Launch initiated to UT",
+
+  # ---- the replay: the ghost maps the panel's break subtree and applies both breaks ----
+  "MISSIONMARK label=pbr1-rewound ut=[\\s\\S]*?Deployable 'solarPanels2' pid=[0-9]+: break subtree '[^']+' resolved from [\\s\\S]*?MISSIONMARK label=pbr1-replayed ut=",
+  "MISSIONMARK label=pbr1-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=DeployableBroken surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=pbr1-replayed ut=",
+  "MISSIONMARK label=pbr1-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=WheelBroken surface=wheel-damage rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=pbr1-replayed ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Ghost hidden: vessel 'PBR1 Break Rover'",
+  "Deployable 'solarPanels2' pid=[0-9]+: break transform [^\\r\\n]*DeployableBroken will have no visual",
+  "Part 'roverWheel1' pid=[0-9]+: no wheel damage swap [^\\r\\n]*a recorded WheelBroken will have no visual",
+  "\\[GhostPartEvents\\] apply family=(?:DeployableBroken|WheelBroken) surface=[a-z-]+ rec=[0-9]+ pid=[0-9]+ applied=0 ",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

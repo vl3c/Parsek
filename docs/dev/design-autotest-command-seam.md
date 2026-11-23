@@ -4884,7 +4884,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer|servomax|servomin|rotoron|rotoroff|rotorbrake> [part=<part name>]
+transfer|servomax|servomin|rotoron|rotoroff|rotorbrake|breakpanel|breakwheel> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4949,6 +4949,19 @@ action=MotorPowerAction servoMotorLimit=0.00->100.00` (a limit above 0 is kept: 
 (stock holds it with a drive of 1 toward zero speed, so SRV-2 read 30 RPM three seconds after
 `rotoroff`), the brake drives it to zero with `brakeTorque * brakePercentage` (60 on the EM-16) and
 it stops. Candidates and refusals are the rotor pair's.
+`button=breakpanel|breakwheel part=<name>` (2026-11-23, test-gap batch 4, lane PBR-1) breaks a part
+the way physics does, since no player control and no other verb can break a panel or a wheel on a
+parked craft: candidates are the named parts' `ModuleDeployablePart` modules not already
+`deployState = BROKEN` (solar panels, antennas, deployable radiators) or `ModuleWheelDamage`
+modules not yet `isDamaged`; the press calls stock's own `ModuleDeployablePart.breakPanels()` /
+`ModuleWheelDamage.DamageWheel()` (KSP 1.12.5 decompiled: the methods the collision, aero-load and
+stress checks call; `DamageWheel` is `SetDamaged(true)`), `event=breakPanels` / `DamageWheel`.
+Named parts carrying no such module refuse `partaction-deployable-not-found` /
+`partaction-wheel-not-found` (driver-arg); an already broken one is `event-unavailable`. For these
+two buttons only, `state=` adds `deployable:state=<deployState>` / `wheel:damaged=0|1`, so every
+other button's state string is unchanged. `breakPanels()` returns without breaking on a PACKED part,
+with the NoCrashDamage cheat on, or on a module with neither a pivot nor a break transform, so a
+lane pins `state='deployable:state=BROKEN'` rather than trusting the OK.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the

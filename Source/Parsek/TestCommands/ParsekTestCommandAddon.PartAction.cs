@@ -21,6 +21,9 @@ namespace Parsek.TestCommands
             internal string EventName;
             internal uint OtherPortId;
             internal ModuleScienceExperiment Experiment;
+            // The break buttons call the stock method the physics path calls.
+            internal ModuleDeployablePart Deployable;
+            internal ModuleWheels.ModuleWheelDamage WheelDamage;
         }
 
         private void PartActionImpl(ParsedCommand cmd)
@@ -122,6 +125,8 @@ namespace Parsek.TestCommands
             int resourceParts = 0;
             int servoModules = 0;
             int rotorModules = 0;
+            int breakModules = 0;
+            bool breakKind = TestCommandPartAction.IsBreakKind(kind);
             bool transferKind = TestCommandPartAction.IsTransferKind(kind);
             bool servoKind = TestCommandPartAction.IsServoKind(kind);
             bool rotorKind = TestCommandPartAction.IsRotorKind(kind);
@@ -205,6 +210,33 @@ namespace Parsek.TestCommands
                             });
                         continue;
                     }
+                    if (breakKind)
+                    {
+                        // Only the module the physics path breaks, not yet broken.
+                        if (kind == PartActionKind.BreakPanel)
+                        {
+                            if (!(module is ModuleDeployablePart dp)) continue;
+                            breakModules++;
+                            if (TestCommandPartAction.IsBreakCandidate(kind, dp.deployState.ToString(), false))
+                                found.Add(new PartActionCandidate
+                                {
+                                    Part = p, Deployable = dp,
+                                    EventName = TestCommandPartAction.BreakPanelEventName,
+                                });
+                        }
+                        else
+                        {
+                            if (!(module is ModuleWheels.ModuleWheelDamage wd)) continue;
+                            breakModules++;
+                            if (TestCommandPartAction.IsBreakCandidate(kind, null, wd.isDamaged))
+                                found.Add(new PartActionCandidate
+                                {
+                                    Part = p, WheelDamage = wd,
+                                    EventName = TestCommandPartAction.BreakWheelEventName,
+                                });
+                        }
+                        continue;
+                    }
                     if (radiatorKind)
                     {
                         // Only the radiator module's Activate / Shutdown: other modules on
@@ -260,7 +292,7 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
-            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : -1;
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : breakKind ? breakModules : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
                 matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
@@ -271,6 +303,7 @@ namespace Parsek.TestCommands
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"radiatorModules={radiatorModules} engineModules={engineModules} " +
                     $"parachuteModules={parachuteModules} resourceParts={resourceParts} servoModules={servoModules} rotorModules={rotorModules} " +
+                    $"breakModules={breakModules} " +
                     $"partPid={(hasPartPid ? partPid.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)} " +
                     $"candidates={candidates.Count}");
                 return;
@@ -364,6 +397,12 @@ namespace Parsek.TestCommands
                     else if (kind == PartActionKind.Explode)
                         // Stock's crash path on the part itself: FX, then Die().
                         c.Part.explode();
+                    else if (c.Deployable != null)
+                        // The over-speed / impact break: stock flings the subtree off itself.
+                        c.Deployable.breakPanels();
+                    else if (c.WheelDamage != null)
+                        // The over-stress / hard-landing break: SetDamaged(true).
+                        c.WheelDamage.DamageWheel();
                     else if (transferKind)
                     {
                         // What each source gives, the destination gains: the amounts move as
@@ -428,13 +467,13 @@ namespace Parsek.TestCommands
                     Part part = candidates[k].Part;
                     if (part == null || !seenParts.Add(part.flightID)) continue;
                     perPart.Add(new KeyValuePair<uint, IList<PartActionModuleReading>>(
-                        part.flightID, ReadPartActionState(part)));
+                        part.flightID, ReadPartActionState(part, breakKind)));
                 }
                 state = TestCommandPartAction.FormatAllState(perPart);
             }
             else
             {
-                state = TestCommandPartAction.FormatState(ReadPartActionState(first.Part));
+                state = TestCommandPartAction.FormatState(ReadPartActionState(first.Part, breakKind));
             }
 
             // A packed (on-rails) vessel is pressed like an unpacked one: still loaded, so its
@@ -620,8 +659,11 @@ namespace Parsek.TestCommands
                 page.OnKeepData(page.pageData);
         }
 
-        /// <summary>The target part's relevant module state for <c>state=</c>, in module order.</summary>
-        private static List<PartActionModuleReading> ReadPartActionState(Part part)
+        /// <summary>The target part's relevant module state for <c>state=</c>, in module order.
+        /// <paramref name="includeBreakState"/> (the break buttons only) adds each deployable's
+        /// <c>deployState</c> and each wheel's damage flag, so no other button's state string
+        /// changes.</summary>
+        private static List<PartActionModuleReading> ReadPartActionState(Part part, bool includeBreakState = false)
         {
             var readings = new List<PartActionModuleReading>();
             if (part == null || part.Modules == null) return readings;
@@ -654,6 +696,11 @@ namespace Parsek.TestCommands
                     && module.Fields["rpmLimit"].GetValue(module) is float rpmLimit)
                     readings.Add(PartActionModuleReading.Rotor(engaged, rpmLimit,
                         ReadRotorTorqueLimit(module)));
+                if (!includeBreakState) continue;
+                if (module is ModuleDeployablePart dep)
+                    readings.Add(PartActionModuleReading.Deployable(dep.deployState.ToString()));
+                else if (module is ModuleWheels.ModuleWheelDamage wdm)
+                    readings.Add(PartActionModuleReading.WheelDamage(wdm.isDamaged));
             }
             return readings;
         }
