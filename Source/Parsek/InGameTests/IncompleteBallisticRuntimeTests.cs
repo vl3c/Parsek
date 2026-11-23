@@ -755,83 +755,10 @@ namespace Parsek.InGameTests
             const double launchMilestoneUT = 9.4;
             const double deadActionUT = 50.0;
 
-            // Build origin recording: spans [8.42, 52.7] with a sample at the
-            // rewind UT so SplitAtSection's Unity-runtime-only Slerp branch
-            // is bypassed (same pattern as the unit-test BuildSpanningOrigin
-            // helper in MergeJournalOrchestratorTests.cs:801).
-            var origin = new Recording
-            {
-                RecordingId = originId,
-                VesselName = "Kerbal X (acceptance)",
-                TreeId = treeId,
-                MergeState = MergeState.Immutable,
-                TerminalStateValue = TerminalState.Destroyed,
-                LaunchSiteName = "LaunchPad",
-                StartBodyName = "Kerbin",
-                // NO ParentBranchPointId, and its absence is load-bearing twice
-                // over. (1) This origin is the test's LAUNCH ROOT - the launch-row
-                // assertion at the tail is the test's core - and
-                // TimelineBuilder.Build suppresses RecordingStart for any recording
-                // carrying a ParentBranchPointId ("created by staging/decouple/
-                // breakup, not player launch"). The first cut of the Site B-1
-                // fixture fix set it to bpId anyway and the R7c flight
-                // (2026-08-04_1914) measured exactly that suppression: the merge
-                // went through the slot-aware path cleanly and the launch-row
-                // assertion failed. (2) It is not needed for the Site B-1 lookup
-                // either: TryResolveRewindPointForRecording runs on the
-                // PROVISIONAL, whose ParentBranchPointId (set below) reaches the
-                // RP, and the slot resolves to the fork through the
-                // EffectiveTipRecordingId chain+supersede walk from the slot's
-                // origin id - no branch link on the origin participates.
-            };
-            origin.Points.Add(new TrajectoryPoint { ut = originStartUT });
-            origin.Points.Add(new TrajectoryPoint { ut = rewindUT });
-            origin.Points.Add(new TrajectoryPoint { ut = originEndUT });
-            origin.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = originStartUT,
-                endUT = originEndUT,
-                sampleRateHz = 1f,
-                minAltitude = float.NaN,
-                maxAltitude = float.NaN,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = originStartUT },
-                    new TrajectoryPoint { ut = rewindUT },
-                    new TrajectoryPoint { ut = originEndUT },
-                },
-            });
-            origin.CrewEndStates = new Dictionary<string, KerbalEndState>
-            {
-                ["Jebediah Kerman"] = KerbalEndState.Dead,
-            };
-            origin.CrewEndStatesResolved = true;
-
-            // Build the provisional fork: covers [34.5, ...] with Landed terminal.
-            var fork = new Recording
-            {
-                RecordingId = forkId,
-                VesselName = "Kerbal X (acceptance) re-fly",
-                TreeId = treeId,
-                MergeState = MergeState.NotCommitted,
-                TerminalStateValue = TerminalState.Landed,
-                SupersedeTargetId = originId,
-                CreatingSessionId = sessId,
-                // RewindInvoker builds the provisional with
-                // `ParentBranchPointId = originChild?.ParentBranchPointId ??
-                // rp.BranchPointId` (RewindInvoker.cs:1748) — both resolve to
-                // the RP's BP here, so the fork carries it too.
-                ParentBranchPointId = bpId,
-                // And one line above that (RewindInvoker.cs:1747) production
-                // stamps the provisional's RP linkage. The Site B-1 resolver keys
-                // off the branch link, not this field — but a production
-                // provisional never lacks it, so neither does the fixture.
-                ProvisionalForRpId = rpId,
-            };
-            fork.Points.Add(new TrajectoryPoint { ut = 34.5 });
-            fork.Points.Add(new TrajectoryPoint { ut = 45.0 });
+            Recording origin = BuildSpannedSplitOrigin(
+                originId, treeId, originStartUT, rewindUT, originEndUT);
+            Recording fork = BuildSpannedSplitFork(
+                forkId, treeId, originId, sessId, bpId, rpId);
 
             // The multi-controllable split the RP was captured at. Its parent
             // is an upstream id that is deliberately NOT in the store (same
@@ -1218,17 +1145,26 @@ namespace Parsek.InGameTests
                 // TIP under the synthetic treeId with our chainId, and fork).
                 // The split may have inserted TIP with a generated id, so we
                 // sweep by TreeId rather than by id alone.
+                var sidecarIds = new HashSet<string> { originId, forkId };
                 var committed = RecordingStore.CommittedRecordings;
                 for (int i = committed.Count - 1; i >= 0; i--)
                 {
                     var rec = committed[i];
                     if (rec != null && rec.TreeId == treeId)
+                    {
+                        sidecarIds.Add(rec.RecordingId);
                         RecordingStore.RemoveCommittedInternal(rec);
+                    }
                 }
                 var liveTrees = RecordingStore.CommittedTrees;
                 for (int i = liveTrees.Count - 1; i >= 0; i--)
                     if (liveTrees[i] != null && liveTrees[i].Id == treeId)
                         liveTrees.RemoveAt(i);
+
+                // The merge's own optimizer pass flushed HEAD and TIP (the split marks both
+                // dirty) to the live save, and a DiskOnly batch restores persistent.sfs only.
+                // Reap AFTER the removals: the reaper keeps ids the store still knows.
+                InGameTestSidecarReaper.DeleteSidecarsForIds(sidecarIds, "SpannedSplitReFly");
 
                 // Drop the synthetic ledger action(s). Anything we added is
                 // tagged with originId pre-split or TIP post-split; the
@@ -1253,6 +1189,108 @@ namespace Parsek.InGameTests
                 scenario.BumpSupersedeStateVersion();
                 EffectiveState.ResetCachesForTesting();
             }
+        }
+
+        /// <summary>Body of every sample the spanned-split fixture authors. The post-merge optimizer
+        /// pass flushes HEAD and TIP to disk and the binary sidecar writer refuses a null body
+        /// name (no production point has one), so a point without it logs an ERROR and writes
+        /// nothing (R7c `2026-11-23_1529`).</summary>
+        private const string SpannedSplitBodyName = "Kerbin";
+
+        /// <summary>The spanned-split cell's origin, spanning the rewind UT. Pinned headlessly by
+        /// MergeFixtureSidecarFlushTests.</summary>
+        internal static Recording BuildSpannedSplitOrigin(
+            string originId, string treeId, double originStartUT, double rewindUT, double originEndUT)
+        {
+            // Build origin recording: spans [8.42, 52.7] with a sample at the
+            // rewind UT so SplitAtSection's Unity-runtime-only Slerp branch
+            // is bypassed (same pattern as the unit-test BuildSpanningOrigin
+            // helper in MergeJournalOrchestratorTests.cs:801).
+            var origin = new Recording
+            {
+                RecordingId = originId,
+                VesselName = "Kerbal X (acceptance)",
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                LaunchSiteName = "LaunchPad",
+                StartBodyName = SpannedSplitBodyName,
+                // NO ParentBranchPointId, and its absence is load-bearing twice
+                // over. (1) This origin is the test's LAUNCH ROOT - the launch-row
+                // assertion at the tail is the test's core - and
+                // TimelineBuilder.Build suppresses RecordingStart for any recording
+                // carrying a ParentBranchPointId ("created by staging/decouple/
+                // breakup, not player launch"). The first cut of the Site B-1
+                // fixture fix set it to bpId anyway and the R7c flight
+                // (2026-08-04_1914) measured exactly that suppression: the merge
+                // went through the slot-aware path cleanly and the launch-row
+                // assertion failed. (2) It is not needed for the Site B-1 lookup
+                // either: TryResolveRewindPointForRecording runs on the
+                // PROVISIONAL, whose ParentBranchPointId (set below) reaches the
+                // RP, and the slot resolves to the fork through the
+                // EffectiveTipRecordingId chain+supersede walk from the slot's
+                // origin id - no branch link on the origin participates.
+            };
+            origin.Points.Add(SpannedSplitPoint(originStartUT));
+            origin.Points.Add(SpannedSplitPoint(rewindUT));
+            origin.Points.Add(SpannedSplitPoint(originEndUT));
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = originStartUT,
+                endUT = originEndUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    SpannedSplitPoint(originStartUT),
+                    SpannedSplitPoint(rewindUT),
+                    SpannedSplitPoint(originEndUT),
+                },
+            });
+            origin.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                ["Jebediah Kerman"] = KerbalEndState.Dead,
+            };
+            origin.CrewEndStatesResolved = true;
+            return origin;
+        }
+
+        /// <summary>The spanned-split cell's provisional fork.</summary>
+        internal static Recording BuildSpannedSplitFork(
+            string forkId, string treeId, string originId, string sessId, string bpId, string rpId)
+        {
+            // Build the provisional fork: covers [34.5, ...] with Landed terminal.
+            var fork = new Recording
+            {
+                RecordingId = forkId,
+                VesselName = "Kerbal X (acceptance) re-fly",
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Landed,
+                SupersedeTargetId = originId,
+                CreatingSessionId = sessId,
+                // RewindInvoker builds the provisional with
+                // `ParentBranchPointId = originChild?.ParentBranchPointId ??
+                // rp.BranchPointId` (RewindInvoker.cs:1748) - both resolve to
+                // the RP's BP here, so the fork carries it too.
+                ParentBranchPointId = bpId,
+                // And one line above that (RewindInvoker.cs:1747) production
+                // stamps the provisional's RP linkage. The Site B-1 resolver keys
+                // off the branch link, not this field - but a production
+                // provisional never lacks it, so neither does the fixture.
+                ProvisionalForRpId = rpId,
+            };
+            fork.Points.Add(SpannedSplitPoint(34.5));
+            fork.Points.Add(SpannedSplitPoint(45.0));
+            return fork;
+        }
+
+        private static TrajectoryPoint SpannedSplitPoint(double ut)
+        {
+            return new TrajectoryPoint { ut = ut, bodyName = SpannedSplitBodyName };
         }
 
         private static BallisticStateVector MakeApoapsisState(

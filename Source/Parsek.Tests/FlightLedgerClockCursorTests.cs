@@ -104,6 +104,44 @@ namespace Parsek.Tests
             Assert.Single(recalcs);
         }
 
+        // The premise of ContractReachedOutcomeInGameTest (lane L12) on the LIVE ledger lookup:
+        // a row filed after the seed is a crossing only inside the window, so one filed at an
+        // accept behind the scene load leaves the career alone and one filed a second behind
+        // the clock is applied on the next frame. Values are L12's `2026-11-23_1548`.
+        [Fact]
+        public void RowFiledBehindTheSeed_IsNoCrossing_RowInsideTheWindowIs()
+        {
+            Ledger.ResetForTesting();
+            try
+            {
+                var cursor = new CareerLedgerClockCursor("flight",
+                    recalculate: (ut, reason) => recalcs.Add(new KeyValuePair<double, string>(ut, reason)),
+                    afterRecalculate: (after, ut, reason) => windows.Add(Tuple.Create(after, ut, reason)));
+                Assert.False(cursor.Advance(409.6));
+                Assert.False(cursor.Advance(411.28));
+
+                Ledger.AddAction(new GameAction
+                {
+                    Type = GameActionType.ContractComplete, ContractId = "c", UT = 361.0,
+                }, LedgerRowWriter.StockApplied);
+                Assert.False(cursor.Advance(411.3));
+                Assert.False(cursor.Advance(426.3));
+                Assert.Empty(recalcs);
+
+                Ledger.AddAction(new GameAction
+                {
+                    Type = GameActionType.ContractComplete, ContractId = "c", UT = 410.28,
+                }, LedgerRowWriter.StockApplied);
+                Assert.True(cursor.Advance(426.4));
+                Assert.Equal("flight-clock", Assert.Single(recalcs).Value);
+                Assert.Equal(409.6, Assert.Single(windows).Item1);
+            }
+            finally
+            {
+                Ledger.ResetForTesting();
+            }
+        }
+
         // ---- the building fold over the crossing window ----
 
         [Fact]

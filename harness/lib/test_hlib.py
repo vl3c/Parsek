@@ -25421,7 +25421,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # B2-lko-ascent was absorbed into PWR-2 on 2026-10-14 (shared-flight merge): PWR-2
     # flies B2's mission, fixture and missionParams and carries B2's window and token.
     GATED = {
-        "PWR-2-physwarp-ascent-medium.toml": (7, 8, "b2_decide", False),
+        "PWR-2-physwarp-ascent-medium.toml": (9, 9, "b2_decide", False),
         "B4-reentry-splashdown.toml": (11, 11, "b4_decide", True),
         "B5-mun-flyby.toml":          (11, 11, "b5_decide", True),
         "B6-minmus-flyby.toml":       (11, 11, "b5_decide", True),
@@ -25444,17 +25444,19 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # _1210). B4 reads two splits (ascent exit plus reentry): re-pinned 9..10 -> 11 exact
     # by the 2026-10-01 operator ruling that closed todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS
     # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11). Split rule version
-    # 3 adds the orbit-insertion cut on B5 / B6 / B7 and the departure cut on B5 / B6 (B7's
-    # departure stays inside its interplanetary transfer row): each re-pinned exact.
+    # 3 adds the orbit-insertion cut on B5 / B6 / B7 / PWR-2 and the departure cut on B5 / B6
+    # (B7's departure stays inside its interplanetary transfer row; PWR-2 never leaves its
+    # orbit): each re-pinned exact.
     OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 2, "B4-reentry-splashdown.toml": 2,
-                        "B5-mun-flyby.toml": 3, "B6-minmus-flyby.toml": 3}
+                        "B5-mun-flyby.toml": 3, "B6-minmus-flyby.toml": 3,
+                        "PWR-2-physwarp-ascent-medium.toml": 2}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
     # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
     # was inferred from sharing b5_decide; both measured at exactly what was
     # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
-    # which is why the run ids of that reading are from that morning. The three
+    # which is why the run ids of that reading are from that morning. The four
     # 2026-11-23 ids are the version-3 readings, PARSEK-FAIL on `recordings.count` ALONE
     # (the stale windows) with every other verifier green; replace each with its first
     # PASS on the new pin.
@@ -25465,8 +25467,9 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # (`if driver_valid and not short_circuited`). Their .prec counts are lower
     # and are not this population.
     MEASURED = {
-        # PWR-2 carries B2's population and cites B2's measurement (the same flight).
-        "PWR-2-physwarp-ascent-medium.toml": (7, ("2026-07-25_0824_B2-lko-ascent",)),
+        # B2's population (7, measured on 2026-07-25_0824_B2-lko-ascent, the same flight)
+        # plus two optimizer splits (OPTIMIZER_SPLITS).
+        "PWR-2-physwarp-ascent-medium.toml": (9, ("2026-11-23_1323_PWR-2-physwarp-ascent-medium",)),
         # 9 since 2026-09-24: the flight now drops the core AND the Poodle stack
         # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
         # 11 since 2026-10-01: plus #1931's two in-flight optimizer splits.
@@ -25850,13 +25853,13 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 "CommitTreeFlight: starting tree commit at UT=480.5\n"
                 "Recording stopped. 226 points, 1 orbit segments over 195.4s\n"
                 % self.EMITTED_FG)
-        self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good).status)
+        self.assertEqual("PASS", hlib.evaluate_expectations(exp, 9, good).status)
 
         no_debris = "Recording started\nRecording stopped\n"
         r = hlib.evaluate_expectations(exp, 1, no_debris)
         self.assertEqual("FAIL", r.status)
         self.assertTrue(any("debris child created" in m for m in r.mismatches))
-        self.assertTrue(any("< min 7" in m for m in r.mismatches))
+        self.assertTrue(any("< min 9" in m for m in r.mismatches))
 
     def test_the_old_window_would_have_passed_that_same_regression(self):
         # Negative control: without the change, the identical log and count read
