@@ -388,7 +388,7 @@ namespace Parsek.TestCommands
         internal static readonly string[] FxViewKeys =
             { "view", "route", "layer", "width", "height", "axis", "real", "ghost", "compare", "splitHalf" };
 
-        internal static readonly string[] FxAxisKeys = { "originPx", "dirPx" };
+        internal static readonly string[] FxAxisKeys = { "originPx", "dirPx", "nozzleDiameterPx" };
 
         /// <summary>One side's measures of one tile, all from the 8-bit tile.</summary>
         internal static readonly string[] FxSideMeasureKeys =

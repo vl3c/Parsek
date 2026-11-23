@@ -2328,7 +2328,7 @@ Per route (event, start), FX view and layer:
 | lateral offset | distance of the core centroid from the axis line, ghost minus real | side, far | more than max(4 px, 5 % of the real length) | half that |
 | length | envelope extent along the axis from its origin | side, far | differs by more than 25 % of the real | 12.5 % |
 | width | largest envelope extent across the axis | side, far | 30 % | 15 % |
-| direction | angle between the axis and the origin-to-core-centroid line, ghost minus real | side, far | 10 deg | 5 deg |
+| direction | angle between the axis and the line through the centroids of the core's upstream and downstream halves, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 5 deg |
 | cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.8, 1.25] |
 | colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | a quarter of each |
 | brightness | mean luminance ratio ghost / real over the core's unsaturated pixels, beside each side's saturated share | all | - | outside [0.5, 2.0] |
@@ -2372,6 +2372,88 @@ A case's verdict is the worst of its body routes judged by the P6 judge (D.6: th
 the stowed reference and every P6 flag apply), its FX measures per route, and a rendered FX
 asset missing or extra on the ghost (the structural raise of 6). Each reason names its route,
 view and layer (`event:fx-far:smoke:smoke-missing`).
+
+F1b as built (2026-11-23). The pure measures live in `PartParityFxMetrics.cs`
+(`Source/Parsek/TestCommands/`); they hold no constant of their own (every one is
+`PartParityFxRules`'). The only contract change is one key, `nozzleDiameterPx`, added to the
+existing `axis` table (`PartParityJson.FxAxisKeys`, mirrored by `partparity.FX_AXIS_KEYS`):
+the cross-section offset needs the nozzle box diameter in the view's pixels and nothing else in
+the sidecar carried it. Definitions, which a Python recompute transcribes:
+
+- Accumulation (E.3). `PartParityFxAccumulator` per side, view and layer: a sample is RGBA8,
+  rows top-down, the tile's size (a flame sample the render over black, a smoke sample the
+  straight-alpha matte of its two renders); `SampleCovered` decides each pixel; covered samples'
+  channels are summed as integers; `ToTile` writes `TileChannel` RGB and `TileAlpha(k, N)`,
+  (0, 0, 0, 0) where k = 0. More than `MaxSamples` refuses. `PartParityFxSampleSet` keeps the
+  whole set and the 0-based even (0, 2, ...) and odd samples, so 16 samples split 8 / 8.
+- Coordinates. x is the column, y the row, a pixel's centre (x + 0.5, y + 0.5). With
+  u = dirPx / |dirPx| and o = originPx: `t = (cx - ox) * ux + (cy - oy) * uy` (along the axis
+  from the nozzle), `s = (cy - oy) * ux - (cx - ox) * uy` (across it). The axis view
+  (`fx-bottom`), a null origin or a zero direction has no axis.
+- One side (`MeasureTile`, every key of `FxSideMeasureKeys`), k = `CoveredSamples(alpha, N)`:
+  `corePx` (`IsCore`), `envelopePx` (k at least 1), `saturatedPx` (core pixels whose TILE colour
+  has a channel at 255: the mean of the covered samples, the only colour the file holds);
+  `originPx` = min t, `lengthPx` = max t - min t, `widthPx` = max s - min s, all over the
+  envelope (null with no axis or no envelope); `coreCentroid` = `((Sx + 0.5 n) / n, (Sy + 0.5 n) / n)`
+  over the core's integer index sums; `meanColor`, `luminance` (`Luminance` of the integer channel
+  sums, divided by the count) and `chromaticity` (`[R, G] / (R + G + B)` of the sums) over the
+  core's unsaturated pixels; `hueHistogram`: 12 bins over the envelope's unsaturated, non-grey
+  pixels, each bin `Luminance(sum r, sum g, sum b)` of its pixels. The hue bin is integer
+  arithmetic (`HueBin`): with d = max - min, `hn = g - b` (plus 6d when negative) when r is the
+  max, `b - r + 2d` when g is, else `r - g + 4d`; bin = `12 hn / (6d)` (floor), a grey pixel has
+  none.
+- Compare (`Compare`, every key of `FxCompareKeys`, ghost minus real; null where undefined): on
+  a side view `originDeltaPx`, `lateralOffsetPx` (s of the ghost core centroid minus s of the
+  real one), `lengthRatio`, `widthRatio` (null when the real extent is 0), and `directionDeg`:
+  each core is split at its centroid's t (upstream t < tc, downstream the rest), each half's
+  centroid is taken from its integer index sums, the side's direction is
+  `atan2(s_down - s_up, t_down - t_up)`, and `directionDeg` is ghost minus real wrapped into
+  (-180, 180] (null when a half is empty). That replaces the E.4 table's
+  "origin-to-core-centroid line": a line drawn from a point on the axis moves with a lateral
+  shift (a shifted plume would also fail direction), a line from the plume's first pixels
+  starts at a corner when the plume turns, and the core's principal axis (tried first, rejected
+  in review) is ill-conditioned for a near-round core (a perfect 11 x 10 px puff read up to
+  90 deg between its own sample halves). The half-centroid line is unchanged by a translation or
+  a length change, moved by a turn, and stays well conditioned (worst 6.5 deg, under the 10 deg
+  fail line, for a 9 x 8 px core against itself over 40 seeds; `ARoundCore_AgainstItself_*`),
+  so a compact core can still warn on direction from noise alone, which the reading runs
+  re-pin. On the axis view: `crossSectionAreaRatio` (ghost core / real core) and
+  `crossSectionOffset` (the distance between the two core centroids, which is the difference of
+  their offsets from the nozzle point, over `axis.nozzleDiameterPx`). On every view:
+  `chromaDistance` (Euclidean, chromaticity), `hueL1` (the histograms each normalized to sum 1,
+  0 to 2; null when either sums to 0), `brightnessRatio` (luminance) and `coreIou` (1 when both
+  cores are empty).
+- Fail lines (`FailingMeasures`), for the C# FX control judges only (case verdicts stay
+  Python's, F4): the flame layer judges `presence` and the smoke layer `smoke`
+  (`PresenceReason`: one side's core at `PresenceMinPx` / `SmokeMinPx` or more and the other's
+  0, giving `fx-missing` / `fx-extra` / `smoke-missing` / `smoke-extra`); both layers judge
+  origin, lateral offset, length, width, direction, cross-section and colour at the E.4 fail
+  defaults; brightness and core IoU are warn-only and never listed; an rcs case drops
+  `RcsReportOnlyMeasures`; a null measure never fails.
+- Split halves. `PartParityFxViewResult.Measure` measures the whole set, and each half (the real
+  half against the ghost half), from tiles of the same 8-bit rule; the halves are written as
+  numbers only (`splitHalf.even` / `odd`, `FxHalfKeys`). `SplitHalfDisagreement`: the halves of
+  one side disagree on presence (the presence rule above between the halves) or their lengths or
+  widths differ by more than `SplitHalfPct` of the larger.
+- Particles (`ReduceParticles`, report-only): `count` = mean particles per sample, every
+  particle; over the particles within the near distance of the nozzle (all samples): mean speed,
+  mean velocity angle from the axis (moving particles), mean size, and the nearest-rank
+  `FramingPercentile` of the along-axis position and the across-axis distance. F3's framing can
+  call it with `FramingNearParticleM`.
+- RCS (R4): `FormatRcsReportedOnly` writes the reported-only length, width and brightness ratios
+  beside `rcsPowerRatio`; `AtlasRowFor(side, layer)` names a side's FX atlas row.
+- Exact recompute. Counts and bin sums are integers; t and s (so origin, length and width) are
+  whole or half pixels only along an axis-aligned `dirPx` and otherwise floats; every value is
+  computed from the written tile alone, in one order of operations, so a Python transcription
+  reproduces it (exactly where integral, within 1e-9 otherwise). The committed fixture
+  `Source/Parsek.Tests/Fixtures/PartParity/fx/` (`fxfixtureplume--default--burn-full--aae6c591`:
+  `.fx.png`, 6 rows x 4 views of 64 px, 16 samples, and its `.part.json`, whose `fx.views[]`
+  hold 16 entries) is rebuilt by `PARSEK_WRITE_PART_PARITY_FX_FIXTURE=1 dotnet test --filter
+  WriteFxFixture` and pinned by pixels and by numbers (`Fixture_CommittedFilesMatchTheBuilder`;
+  the PNG's deflate bytes are not the contract); its event ghost is short, its start ghost
+  hue-rotated, shifted and smoke-less, its real core clips. A stdlib transcription of the
+  definitions above reproduced all 528 side and compare values of the fixture bit for bit
+  (2026-11-23); F4's recompute cells are that transcription.
 
 ### E.5 Case identity, controls, sidecar, gates
 
