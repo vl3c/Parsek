@@ -42,8 +42,8 @@ New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
 `GhostKerbalVisibilityTests`): for 6 s it reads every live ghost's kerbal parts (the `kerbalEVA*`
 PART nodes of its snapshot, by crew name) and counts per frame whether each kerbal is drawn on
 one ghost, two or none; it fails on a run of 10 frames drawn twice or missing. Lane
-`SEAT-4-seat-replay-kerbal-visibility` (operator, seat-pad) runs it in the seated and the dismount
-leg of SEAT-1's replay.
+`SEAT-4-seat-replay-kerbal-visibility` (operator, seat-pad) runs it over UT 41-47 of SEAT-1's
+replay, across the recorded dismount at 44.90 (the handoff from the pod ghost to the EVA ghost).
 
 ## PRESWITCH-CASE-C-LANES-2026-11-23: no lane switches to its own separately committed vessel while recording, by map or by `[` / `]` [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
 

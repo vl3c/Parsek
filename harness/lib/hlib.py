@@ -8692,6 +8692,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # validate_part_parity_sweep_step checks it.
             if cmd == PARTPARITY_VERB and arg_key in PARTPARITY_ARG_KEYS:
                 continue
+            # EvaMove reads its own `mode=` (jetpack|walk) and `dir=` (an axis; UiAction
+            # owns both table rows); validate_eva_move_step checks them.
+            if cmd == EVAMOVE_VERB and arg_key in EVAMOVE_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
