@@ -390,6 +390,32 @@ namespace Parsek
                 $"srcLocalRot={srcFxTransform.localRotation.eulerAngles} parentLocalRot={ghostFxParent.localRotation.eulerAngles}", 60.0);
         }
 
+        /// <summary>
+        /// Pure: the local scale stock gives one instance of a MODEL_MULTI_PARTICLE model
+        /// (<c>ModelMultiParticleFX.OnInitialize</c>, decompiled). <c>NestToParent</c> keeps the world
+        /// scale, so the first mount's instance divides out its mount's scale. Every later instance is
+        /// a copy of the first made AFTER it was nested, so the first's local scale is its world
+        /// scale: on a part rescaled by 1.25 the first nozzle reads 0.8 and the rest 0.64. The node's
+        /// own <c>localScale</c> multiplies each nesting, so a copy takes it twice.
+        /// </summary>
+        internal static Vector3 NestedModelFxScale(
+            Vector3 assetScale, Vector3 firstMountScale, Vector3 mountScale, bool isFirstMount, Vector3 configScale)
+        {
+            Vector3 first = Vector3.Scale(DivideFxScale(assetScale, firstMountScale), configScale);
+            return isFirstMount
+                ? first
+                : Vector3.Scale(DivideFxScale(first, mountScale), configScale);
+        }
+
+        /// <summary>Per axis; a mount scaled to nothing keeps the value (nothing under it draws).</summary>
+        private static Vector3 DivideFxScale(Vector3 scale, Vector3 mount)
+        {
+            return new Vector3(
+                System.Math.Abs(mount.x) > 1e-6f ? scale.x / mount.x : scale.x,
+                System.Math.Abs(mount.y) > 1e-6f ? scale.y / mount.y : scale.y,
+                System.Math.Abs(mount.z) > 1e-6f ? scale.z / mount.z : scale.z);
+        }
+
         internal static void LogFxInstancePlacementDiagnostic(
             string partName,
             int moduleIndex,

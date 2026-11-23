@@ -445,9 +445,9 @@ namespace Parsek.Tests
                 "                                    GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(", builder);
             Assert.Contains("if (!isStockAsset || !TryAddPrefabFxRule(fxInstance, info, engine, groupName, fxCurves))\n" +
                 "                            GhostVisualBuilder.ApplyGhostEngineFxSizeBoost(", builder);
-            // Stock's three parentings keep the world scale.
+            // Stock's three parentings keep the world scale (a model's copies: GhostFxStockPlacementTests).
             Assert.Contains("fxInstance.transform.SetParent(ghostFxParent, isStockAsset);", builder);
-            Assert.Contains("fxInstance.transform.SetParent(ghostFxParent, fxCurves != null);", builder);
+            Assert.Contains("fxInstance.transform.localScale = GhostVisualBuilder.NestedModelFxScale(", builder);
             Assert.Contains("fxClone.transform.SetParent(ghostLegacyParent, true);", builder);
             Assert.DoesNotContain("fxClone.transform.localScale = child.localScale;\n\n                        GhostVisualBuilder.Strip", builder);
             Assert.Contains("MarkStockRuledFx(result[i]);", builder);

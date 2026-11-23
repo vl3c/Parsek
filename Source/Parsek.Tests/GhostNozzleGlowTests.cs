@@ -286,6 +286,257 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Throttle glow (FXModuleThrottleEffects driving a ModuleColorChanger)
+
+        // ReStock: heatColor at animRate 0.05 (aerospike) or 0.025, throttleColor at 1.
+        private static NozzleGlowInfo Ramp(float animRate, bool kspcf, float initialState = 0f, bool animState = false, bool useRate = true)
+            => GhostVisualBuilder.NewThrottleGlow(Pid,
+                new ThrottleGlowDriver { moduleIds = new[] { "heatColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f },
+                new ThrottleGlowCurve { moduleId = "heatColor", animRate = animRate, useRate = useRate, animState = animState },
+                initialState, kspcf);
+
+        [Fact]
+        public void Ramp_IsStocksRateState_LinearAndClamped()
+        {
+            Assert.Equal((double)0.62f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0f, 1f, 0.05f, 12.4), 4);
+            Assert.Equal(1f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0f, 1f, 0.05f, 25.0));
+            Assert.Equal((double)0.5f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.75f, 0f, 0.025f, 10.0), 4);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.75f, 0f, 0.025f, 1000.0));
+            // SetScalar switches on at 0.5 exactly.
+            Assert.Equal(1f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0f, 0.5f, 1f, 2.0));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0f, 0.499f, 1f, 2.0));
+            Assert.Equal(0.3f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.3f, 1f, 1f, -1.0));
+            Assert.Equal(0.3f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.3f, 1f, 1f, double.NaN));
+            Assert.Equal(0.3f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.3f, 1f, 0f, 5.0));
+            Assert.Equal(0.3f, GhostPlaybackLogic.ComputeNozzleGlowRamp(0.3f, 1f, float.NaN, 5.0));
+        }
+
+        // PP-9 `2026-11-23_1050`, toroidalAerospike (KSPCommunityFixes installed): at full thrust
+        // the real bell stood at 0.62 after 12.4 s, at 30 % at exactly 0.30.
+        [Theory]
+        [InlineData(true, 1f, 0.62f)]
+        [InlineData(true, 0.3f, 0.3f)]
+        [InlineData(false, 1f, 0.62f)]
+        [InlineData(false, 0.3f, 0f)]
+        public void Throttle_ShowsTheRampWhileItMoves_ThenTheSettersLevelUnderKspcf(bool kspcf, float power, float expected)
+        {
+            NozzleGlowInfo g = Ramp(0.05f, kspcf);
+            GhostPlaybackState state = StateWith(100.0, g);
+            Assert.Equal(0f, g.writtenLevel);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, power));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 132.4);
+            Assert.Equal((double)expected, g.writtenLevel, 3);
+        }
+
+        [Theory]
+        [InlineData(true, 0.7f)]
+        [InlineData(false, 1f)]
+        public void Throttle_ARampThatHasArrivedShowsTheSettersLevelOnlyUnderKspcf(bool kspcf, float expected)
+        {
+            NozzleGlowInfo g = Ramp(1f, kspcf);
+            GhostPlaybackState state = StateWith(100.0, g);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 0.7f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 120.5);
+            Assert.Equal((double)0.5f, g.writtenLevel, 3);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
+            Assert.Equal((double)expected, g.writtenLevel, 4);
+            Assert.Equal((double)expected, GhostPlaybackLogic.NozzleGlowRestLevel(g), 4);
+            // Settled: a later frame writes nothing.
+            g.colors.Clear();
+            float before = g.writtenLevel;
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 900.0);
+            Assert.Equal(before, g.writtenLevel);
+            Assert.Equal(1f, g.startRamp);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Throttle_AShutdownCoolsFromWhereTheRampStood_HoweverThePlaybackGetsThere(bool kspcf)
+        {
+            float At(double ut, params double[] frames)
+            {
+                NozzleGlowInfo g = Ramp(0.025f, kspcf);
+                GhostPlaybackState state = StateWith(100.0, g);
+                Apply(state, Evt(PartEventType.EngineIgnited, 100.0, 1f));
+                foreach (double f in frames) if (f <= 120.0) GhostPlaybackLogic.UpdateNozzleGlows(state, f);
+                Apply(state, Evt(PartEventType.EngineShutdown, 120.0));
+                foreach (double f in frames) if (f > 120.0) GhostPlaybackLogic.UpdateNozzleGlows(state, f);
+                GhostPlaybackLogic.UpdateNozzleGlows(state, ut);
+                return g.writtenLevel;
+            }
+            Assert.Equal((double)0.25f, At(130.0), 3);
+            Assert.Equal((double)0.25f, At(130.0, 101.0, 110.0, 119.9, 121.0, 129.0), 3);
+            Assert.Equal(0f, At(141.0));
+            Assert.Equal(0f, At(141.0, 110.0, 139.9, 140.5));
+        }
+
+        [Fact]
+        public void Throttle_AColourChangerWithoutARateShowsTheSettersLevel()
+        {
+            NozzleGlowInfo g = Ramp(1f, false, useRate: false);
+            Assert.False(g.ramps);
+            GhostPlaybackState state = StateWith(100.0, g);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 0.3f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
+            Assert.Equal((double)0.3f, g.writtenLevel, 4);
+        }
+
+        // Stock does not persist where the ramp stood: Start puts it at animState's end.
+        [Fact]
+        public void Throttle_StartsAtTheSnapshotsSwitch_AndRestartsThereOnALoop()
+        {
+            NozzleGlowInfo g = Ramp(0.025f, true, initialState: 1f, animState: true);
+            Assert.Equal(1f, g.initialRamp);
+            g.initialUT = 100.0;
+            GhostPlaybackState state = StateWith(100.0, g);
+            Assert.Equal(1f, g.writtenLevel);
+            Apply(state, Evt(PartEventType.EngineShutdown, 110.0));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
+            float cooled = g.writtenLevel;
+            Assert.True(cooled < 1f);
+            GhostPlaybackLogic.RestartNozzleGlows(state);
+            Assert.Equal(1f, g.startRamp);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 100.0);
+            Assert.Equal(1f, g.writtenLevel);
+        }
+
+        [Fact]
+        public void Throttle_AnEndSnapshotOrALaterStateStartsTheRampCold()
+        {
+            NozzleGlowInfo g = Ramp(0.025f, true, initialState: 1f, animState: true);
+            GhostVisualBuilder.StampPersistedGlowLevels(
+                new HeatGhostInfo { nozzleGlows = new List<NozzleGlowInfo> { g } }, new ConfigNode("VESSEL"), trusted: false);
+            Assert.Equal(0f, g.initialRamp);
+            Assert.Equal(0f, g.initialLevel);
+
+            NozzleGlowInfo later = Ramp(0.025f, true, initialState: 1f, animState: true);
+            later.initialUT = 500.0;
+            StateWith(100.0, later);
+            Assert.Equal(0f, later.initialRamp);
+            Assert.Equal(0f, later.writtenLevel);
+        }
+
+        // A row cut off an earlier one: the engine ran 20 s of its 40 s ramp in the row before.
+        [Fact]
+        public void Throttle_ACutRowTakesTheRampItsEarlierRowReached()
+        {
+            NozzleGlowInfo g = Ramp(0.025f, true);
+            g.initialUT = 100.0;
+            Recording head = Row(100.0, 140.0, Evt(PartEventType.EngineIgnited, 100.0, 1f));
+            Recording tail = Row(120.0, 1000.0);
+            var state = new GhostPlaybackState
+            {
+                heatInfos = new Dictionary<uint, HeatGhostInfo>
+                {
+                    [Pid] = new HeatGhostInfo { partPersistentId = Pid, nozzleGlows = new List<NozzleGlowInfo> { g } },
+                },
+            };
+            GhostPlaybackLogic.BindNozzleGlows(state, tail, r => r == tail ? head : null);
+            Assert.Equal((double)0.5f, g.initialRamp, 3);
+        }
+
+        [Fact]
+        public void Driver_NamesAreSplitAndTrimmed_AndTheFirstOneThatNamesTheModuleWins()
+        {
+            Assert.Equal(new[] { "heatColor", "throttleColor" }, GhostVisualBuilder.SplitFxModuleNames("heatColor, throttleColor"));
+            Assert.Empty(GhostVisualBuilder.SplitFxModuleNames(""));
+            Assert.Empty(GhostVisualBuilder.SplitFxModuleNames(null));
+            var first = new ThrottleGlowDriver { moduleIds = new[] { "a", "b" } };
+            var second = new ThrottleGlowDriver { moduleIds = new[] { "b", "c" } };
+            var drivers = new List<ThrottleGlowDriver> { first, second };
+            Assert.Same(first, GhostVisualBuilder.FindThrottleGlowDriver(drivers, "b"));
+            Assert.Same(second, GhostVisualBuilder.FindThrottleGlowDriver(drivers, "c"));
+            Assert.Null(GhostVisualBuilder.FindThrottleGlowDriver(drivers, "colorChanger"));
+            Assert.Null(GhostVisualBuilder.FindThrottleGlowDriver(null, "a"));
+        }
+
+        // Only the modules an FXModuleThrottleEffects names become a glow: a cabin light and a
+        // heat shield char keep the writer they had, named or not.
+        [Theory]
+        [InlineData(false, "_EmissiveColor", true, false, (int)ColorChangerPattern.ThrottleGlow)]
+        [InlineData(false, "_TintColor", false, false, (int)ColorChangerPattern.ThrottleGlow)]
+        [InlineData(true, "_EmissiveColor", true, false, (int)ColorChangerPattern.CabinLight)]
+        [InlineData(false, "_BurnColor", false, true, (int)ColorChangerPattern.AblationChar)]
+        [InlineData(false, "", true, false, (int)ColorChangerPattern.None)]
+        public void ColorChanger_ANamedModuleIsAGlowUnlessAnotherWriterOwnsIt(
+            bool toggleInFlight, string property, bool useRate, bool ablatorDriven, int expected)
+            => Assert.Equal((ColorChangerPattern)expected, GhostVisualBuilder.ClassifyColorChangerPattern(
+                toggleInFlight, property, useRate, ablatorDriven, throttleDriven: true));
+
+        // The curves the glow plays: ReStock's heatColor ramps all four channels, so its emission
+        // goes with the square of the level.
+        [Fact]
+        public void ColorChanger_TheGlowPlaysTheModulesOwnCurves()
+        {
+            var node = new ConfigNode("MODULE");
+            foreach (string curve in new[] { "redCurve", "greenCurve", "blueCurve", "alphaCurve" })
+            {
+                ConfigNode c = node.AddNode(curve);
+                c.AddValue("key", curve == "blueCurve" ? "0 1" : "0 0 1 1");
+                c.AddValue("key", "1 1 1 1");
+            }
+            Color[] samples = GhostVisualBuilder.SampleColorChangerCurves(node);
+            Assert.Equal(GhostVisualBuilder.NozzleGlowSampleCount, samples.Length);
+            for (int n = 0; n < samples.Length; n++)
+                Assert.Equal(GhostVisualBuilder.EvaluateColorChangerColor(node, n / (float)(samples.Length - 1)), samples[n]);
+            Assert.Equal((double)0.3f, GhostPlaybackLogic.ResolveNozzleGlowColor(samples, 0.3f).r, 3);
+            Assert.Equal((double)0.3f, GhostPlaybackLogic.ResolveNozzleGlowColor(samples, 0.3f).a, 3);
+        }
+
+        // The prefab's modules and materials are Unity objects, so the path from the part to a
+        // written glow is pinned by text.
+        [Fact]
+        public void Wiring_TheBuilderTurnsNamedColourChangersIntoGlows()
+        {
+            string build = Source("GhostVisualBuilder.cs");
+            int collect = build.IndexOf("throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);", StringComparison.Ordinal);
+            int named = build.IndexOf("ThrottleDrivenModuleIds(throttleGlowDrivers));", StringComparison.Ordinal);
+            int glows = build.IndexOf("colorChangerInfos, throttleGlowDrivers, persistentId, partName);", StringComparison.Ordinal);
+            Assert.True(collect > 0 && named > collect && glows > named);
+            string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
+            Assert.Contains("int throttleGlows = BuildThrottleGlows(", nozzle);
+            Assert.Contains("ColorChangerWritesOnlyWhileRamping());", nozzle);
+            Assert.Contains("patches.Owners.Contains(KspCommunityFixesHarmonyId)", nozzle);
+            Assert.Contains("typeof(ModuleColorChanger), \"Update\"", nozzle);
+            Assert.Contains("samples = info.throttleGlow.samples,", nozzle);
+            string changers = Source("GhostVisualBuilder.ColorChangers.cs");
+            Assert.Contains("bool throttleDriven = driven != null && driven.Remove(moduleId);", changers);
+            Assert.Contains("samples = SampleColorChangerCurves(node),", changers);
+            Assert.Contains("throttleGlow = plan.throttleGlow,", changers);
+            // KSPCommunityFixes.dll: new Harmony("KSPCommunityFixes").
+            Assert.Equal("KSPCommunityFixes", GhostVisualBuilder.KspCommunityFixesHarmonyId);
+        }
+
+        // A colour changer's glow alone leaves the part to the reentry glow it had before.
+        [Fact]
+        public void ReentryGlow_KeepsAPartWhoseOnlyGlowIsAColourChanger()
+        {
+            NozzleGlowInfo throttle = Ramp(0.025f, true);
+            Assert.True(throttle.isColorChanger);
+            var only = new HeatGhostInfo { throttleGlowsOnly = true, nozzleGlows = new List<NozzleGlowInfo> { throttle } };
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(only));
+            only.nozzleGlows.Add(Glow(false, BellRate, 1f, 0));
+            Assert.True(GhostVisualBuilder.HeatInfoOwnsPartMaterials(only));
+            var missing = new HeatGhostInfo { heatClipMissing = true, nozzleGlows = new List<NozzleGlowInfo> { throttle } };
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(missing));
+            Assert.True(GhostVisualBuilder.HeatInfoOwnsPartMaterials(
+                new HeatGhostInfo { nozzleGlows = new List<NozzleGlowInfo> { throttle } }));
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(null));
+        }
+
+        [Fact]
+        public void ColorChanger_ModuleIdIsTheConfigsOrStocksDefault()
+        {
+            var node = new ConfigNode("MODULE");
+            Assert.Equal("colorChanger", GhostVisualBuilder.ColorChangerModuleId(node));
+            Assert.Equal("colorChanger", GhostVisualBuilder.ColorChangerModuleId(null));
+            node.AddValue("moduleID", "heatColor");
+            Assert.Equal("heatColor", GhostVisualBuilder.ColorChangerModuleId(node));
+        }
+
+        #endregion
+
         #region Playback
 
         [Theory]

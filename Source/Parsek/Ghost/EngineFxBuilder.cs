@@ -379,6 +379,15 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stock <c>ModuleEngines.AutoPlaceFXGroup</c> (decompiled): a legacy system under its thrust
+        /// transform is set to identity, then <c>Rotate(-90, 0, 0)</c>, whatever the part-frame
+        /// rotation its <c>fx_*</c> key gave it (a separation motor points each of its nozzles
+        /// another way). A literal because <c>Quaternion.Euler</c> is native and cannot run headless.
+        /// </summary>
+        internal static readonly Quaternion LegacyFxLocalRotation =
+            new Quaternion(-0.70710677f, 0f, 0f, 0.70710677f);
+
+        /// <summary>
         /// Processes legacy PART-level fx_* child entries when no EFFECTS node is present.
         /// Clones particle systems from prefab children onto ghost thrust anchors.
         /// Returns true if any particle systems were added to the info.
@@ -468,7 +477,10 @@ namespace Parsek
                         // Stock AutoPlaceFXGroup parents the group's system keeping its world scale.
                         fxClone.transform.SetParent(ghostLegacyParent, true);
                         fxClone.transform.localPosition = legacyFxOffset;
-                        Quaternion legacyLocalRot = Quaternion.Inverse(srcLegacyAnchor.rotation) * child.rotation;
+                        // A system stock does not move itself keeps the child's part-frame rotation.
+                        Quaternion legacyLocalRot = ownSystemOnly
+                            ? LegacyFxLocalRotation
+                            : Quaternion.Inverse(srcLegacyAnchor.rotation) * child.rotation;
                         fxClone.transform.localRotation = legacyLocalRot;
 
                         GhostVisualBuilder.StripKspFxControllers(fxClone, info.kspEmitters, info.smokeTrailFades);
@@ -724,6 +736,8 @@ namespace Parsek
                 var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot, groupName, fxCurves) = modelFxEntries[f];
 
                 var fxTransforms = GhostVisualBuilder.FindTransformsRecursive(prefab.transform, transformName);
+                // Stock nests an instance under every mount, the other variants' included.
+                Transform firstMount = fxTransforms.Count > 0 ? fxTransforms[0] : null;
                 // #242c: exclude transforms under disabled variant GameObjects
                 if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
                 {
@@ -760,10 +774,20 @@ namespace Parsek
                         {
                             GameObject fxInstance = Object.Instantiate(fxPrefab);
                             fxInstance.SetActive(true);
-                            // Stock nests a model keeping its world scale (NestToParent).
-                            fxInstance.transform.SetParent(ghostFxParent, fxCurves != null);
+                            fxInstance.transform.SetParent(ghostFxParent, false);
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
+                            if (fxCurves != null)
+                            {
+                                // Stock's MODEL_PARTICLE has one mount; MODEL_MULTI_PARTICLE copies
+                                // its first instance for the others.
+                                bool single = nodeType == "MODEL_PARTICLE";
+                                fxInstance.transform.localScale = GhostVisualBuilder.NestedModelFxScale(
+                                    fxPrefab.transform.localScale,
+                                    single ? srcFxTransform.lossyScale : firstMount.lossyScale,
+                                    srcFxTransform.lossyScale,
+                                    single || srcFxTransform == firstMount, Vector3.one);
+                            }
 
                             GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters, info.smokeTrailFades);
 

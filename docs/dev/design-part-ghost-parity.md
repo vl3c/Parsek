@@ -2063,7 +2063,11 @@ today's for the PP-1 to PP-6 arguments.
 Not separate cases: a lit lamp's lens and flare (P6's `lit` case, with the `lightBrightenSpeed`
 settle handed to the state driver by todo GHOST-LIT-SPOTLIGHT-LENS), engine and RCS glow (the
 plume / rcs case's body atlas), the exhaust `Light` of legacy engines (the case's structural
-`Light` diff).
+`Light` diff). ReStock's engine glow is a `ModuleColorChanger` an `FXModuleThrottleEffects` sets by
+name, ramping at `animRate`; the ghost plays it from the recorded power (todo
+GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
+(`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
+the ramp stood.
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 

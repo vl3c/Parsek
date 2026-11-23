@@ -16,6 +16,15 @@ namespace Parsek
         public float initialLevel;
     }
 
+    /// <summary>One FXModuleThrottleEffects and the modules it sets by name.</summary>
+    internal sealed class ThrottleGlowDriver
+    {
+        public string[] moduleIds;
+        public int[] moduleIndices;
+        public float responseSpeed;
+        public int ordinal;
+    }
+
     internal static partial class GhostVisualBuilder
     {
         private struct NozzleGlowColorSample
@@ -81,6 +90,10 @@ namespace Parsek
         /// 0 when absent or unreadable.</summary>
         internal static float ReadPersistedGlowLevel(
             ConfigNode snapshotPartNode, string moduleName, int ordinal, bool isRcs)
+            => ReadPersistedGlowLevel(snapshotPartNode, moduleName, ordinal, isRcs ? "animStates" : "animState", isRcs);
+
+        private static float ReadPersistedGlowLevel(
+            ConfigNode snapshotPartNode, string moduleName, int ordinal, string key, bool isList)
         {
             ConfigNode[] modules = snapshotPartNode?.GetNodes("MODULE");
             if (modules == null) return 0f;
@@ -89,9 +102,9 @@ namespace Parsek
             {
                 if (modules[i]?.GetValue("name") != moduleName) continue;
                 if (seen++ != ordinal) continue;
-                string raw = modules[i].GetValue(isRcs ? "animStates" : "animState");
+                string raw = modules[i].GetValue(key);
                 if (string.IsNullOrEmpty(raw)) return 0f;
-                string[] parts = isRcs ? raw.Split(',') : new[] { raw };
+                string[] parts = isList ? raw.Split(',') : new[] { raw };
                 float sum = 0f;
                 for (int p = 0; p < parts.Length; p++)
                 {
@@ -208,17 +221,193 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The part's FXModuleThrottleEffects that set modules by name, each with the engines it
+        /// follows; null when there is none. ReStock ships two per engine, one for the bell's heat
+        /// (a 10 to 40 s ramp) and one for the throat.
+        /// </summary>
+        private static List<ThrottleGlowDriver> CollectThrottleGlowDrivers(Part prefab)
+        {
+            List<string> engineIds = null;
+            bool hasMultiMode = false, any = false;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                PartModule module = prefab.Modules[m];
+                if (module is ModuleEngines engine)
+                {
+                    if (engineIds == null) engineIds = new List<string>();
+                    engineIds.Add(engine.engineID);
+                }
+                else if (module is MultiModeEngine)
+                {
+                    hasMultiMode = true;
+                }
+                else if (module is FXModuleThrottleEffects)
+                {
+                    any = true;
+                }
+            }
+            if (!any || engineIds == null) return null;
+
+            List<ThrottleGlowDriver> drivers = null;
+            int ordinal = 0;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                if (!(prefab.Modules[m] is FXModuleThrottleEffects effects)) continue;
+                var driver = new ThrottleGlowDriver
+                {
+                    moduleIds = SplitFxModuleNames(effects.fxModuleNames),
+                    moduleIndices = ResolveNozzleGlowEngineIndices(
+                        effects.dependOnEngineState, effects.preferMultiMode, effects.engineName,
+                        effects.engineIndex, engineIds, hasMultiMode),
+                    responseSpeed = effects.responseSpeed,
+                    ordinal = ordinal++,
+                };
+                if (driver.moduleIds.Length == 0 || driver.moduleIndices.Length == 0) continue;
+                if (drivers == null) drivers = new List<ThrottleGlowDriver>();
+                drivers.Add(driver);
+            }
+            return drivers;
+        }
+
+        /// <summary>Pure: stock <c>PartModuleFXSetter.OnStart</c>: split on ',', each trimmed.</summary>
+        internal static string[] SplitFxModuleNames(string fxModuleNames)
+        {
+            if (string.IsNullOrEmpty(fxModuleNames)) return new string[0];
+            string[] names = fxModuleNames.Split(',');
+            for (int i = 0; i < names.Length; i++) names[i] = names[i].Trim();
+            return names;
+        }
+
+        private static HashSet<string> ThrottleDrivenModuleIds(List<ThrottleGlowDriver> drivers)
+        {
+            if (drivers == null) return null;
+            var ids = new HashSet<string>();
+            for (int d = 0; d < drivers.Count; d++)
+                ids.UnionWith(drivers[d].moduleIds);
+            return ids;
+        }
+
+        /// <summary>The Harmony id of KSPCommunityFixes, whose ModuleColorChangerOptimization
+        /// replaces <c>ModuleColorChanger.Update</c> with one that writes only while its ramp moves.</summary>
+        internal const string KspCommunityFixesHarmonyId = "KSPCommunityFixes";
+
+        private static bool? colorChangerWritesOnlyWhileRamping;
+
+        private static bool ColorChangerWritesOnlyWhileRamping()
+        {
+            if (colorChangerWritesOnlyWhileRamping.HasValue) return colorChangerWritesOnlyWhileRamping.Value;
+            System.Reflection.MethodInfo update = HarmonyLib.AccessTools.Method(typeof(ModuleColorChanger), "Update");
+            HarmonyLib.Patches patches = update != null ? HarmonyLib.Harmony.GetPatchInfo(update) : null;
+            bool patched = patches != null && patches.Owners.Contains(KspCommunityFixesHarmonyId);
+            colorChangerWritesOnlyWhileRamping = patched;
+            ParsekLog.Verbose("GhostVisual",
+                $"  Throttle glow: ModuleColorChanger.Update writes {(patched ? "only while its ramp moves (KSPCommunityFixes)" : "every frame (stock)")}");
+            return patched;
+        }
+
+        /// <summary>
+        /// Pure: the glow of one throttle-driven colour changer. A useRate module shows its ramp,
+        /// which stock restarts at <c>animState</c>'s end on load (it does not persist where it
+        /// stood); another shows the setter's level.
+        /// </summary>
+        internal static NozzleGlowInfo NewThrottleGlow(
+            uint persistentId, ThrottleGlowDriver driver, ThrottleGlowCurve curve,
+            float persistedState, bool settledShowsScalar)
+        {
+            var glow = new NozzleGlowInfo
+            {
+                partPersistentId = persistentId,
+                moduleName = nameof(FXModuleThrottleEffects),
+                animationName = curve.moduleId,
+                isColorChanger = true,
+                moduleKeys = new ulong[driver.moduleIndices.Length],
+                modulePowers = new float[driver.moduleIndices.Length],
+                powerScale = 1f,
+                approachRate = GhostPlaybackLogic.ComputeNozzleGlowRate(driver.responseSpeed),
+                initialLevel = persistedState,
+                ramps = curve.useRate,
+                rampRate = curve.animRate,
+                settledShowsScalar = settledShowsScalar,
+                initialRamp = curve.useRate && curve.animState ? 1f : 0f,
+            };
+            for (int k = 0; k < driver.moduleIndices.Length; k++)
+                glow.moduleKeys[k] = FlightRecorder.EncodeEngineKey(persistentId, driver.moduleIndices[k]);
+            return glow;
+        }
+
+        /// <summary>The first driver that names the module, or null.</summary>
+        internal static ThrottleGlowDriver FindThrottleGlowDriver(List<ThrottleGlowDriver> drivers, string moduleId)
+        {
+            if (drivers == null) return null;
+            for (int d = 0; d < drivers.Count; d++)
+                if (System.Array.IndexOf(drivers[d].moduleIds, moduleId) >= 0) return drivers[d];
+            return null;
+        }
+
+        /// <summary>
+        /// The glows of the throttle-driven colour changers, on the material clones
+        /// <see cref="BuildColorChangerInfos"/> made for them.
+        /// </summary>
+        private static int BuildThrottleGlows(
+            List<ThrottleGlowDriver> drivers, ConfigNode partNode, ref HeatGhostInfo heatInfo,
+            List<ColorChangerGhostInfo> colorChangerInfos, uint persistentId)
+        {
+            if (drivers == null || colorChangerInfos == null) return 0;
+            int built = 0;
+            for (int c = 0; c < colorChangerInfos.Count; c++)
+            {
+                ColorChangerGhostInfo info = colorChangerInfos[c];
+                if (info?.throttleGlow == null) continue;
+                ThrottleGlowDriver driver = FindThrottleGlowDriver(drivers, info.throttleGlow.moduleId);
+                if (driver == null) continue;
+                NozzleGlowInfo glow = NewThrottleGlow(persistentId, driver, info.throttleGlow,
+                    ReadPersistedGlowLevel(partNode, nameof(FXModuleThrottleEffects), driver.ordinal, "state", false),
+                    ColorChangerWritesOnlyWhileRamping());
+                for (int i = 0; i < info.materials.Count; i++)
+                    glow.colors.Add(new NozzleGlowColor
+                    {
+                        material = info.materials[i].material,
+                        property = info.shaderProperty,
+                        samples = info.throttleGlow.samples,
+                    });
+                AddNozzleGlow(ref heatInfo, glow, persistentId);
+                built++;
+            }
+            return built;
+        }
+
+        private static void AddNozzleGlow(ref HeatGhostInfo heatInfo, NozzleGlowInfo glow, uint persistentId)
+        {
+            if (heatInfo == null)
+                heatInfo = new HeatGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    throttleGlowsOnly = glow.isColorChanger,
+                };
+            if (heatInfo.nozzleGlows == null) heatInfo.nozzleGlows = new List<NozzleGlowInfo>();
+            heatInfo.nozzleGlows.Add(glow);
+        }
+
+        /// <summary>
         /// Builds the part's nozzle glows and puts them on its heat info (created when the part
         /// has none, which also keeps the reentry glow off these materials). Runs after the light,
         /// colour-changer and rest-state writes, reuses their per-ghost materials, and leaves a
-        /// property a light or a colour changer drives to it.
+        /// property a light or a colour changer drives to it. A colour changer an
+        /// FXModuleThrottleEffects drives is a glow of its own.
         /// </summary>
         private static void BuildNozzleGlows(
             Part prefab, ConfigNode partNode, Transform modelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap, ref HeatGhostInfo heatInfo, LightGhostInfo lightInfo,
-            List<ColorChangerGhostInfo> colorChangerInfos, uint persistentId, string partName)
+            List<ColorChangerGhostInfo> colorChangerInfos, List<ThrottleGlowDriver> throttleDrivers,
+            uint persistentId, string partName)
         {
             if (prefab == null || modelRoot == null || ghostModelNode == null || cloneMap == null) return;
+            int throttleGlows = BuildThrottleGlows(
+                throttleDrivers, partNode, ref heatInfo, colorChangerInfos, persistentId);
+            if (throttleDrivers != null)
+                ParsekLog.VerboseRateLimited("GhostVisual", $"throttle-glow-{partName}",
+                    $"Throttle glow '{partName}' pid={persistentId}: drivers={throttleDrivers.Count} " +
+                    $"bound={throttleGlows}" + DescribeNozzleGlows(heatInfo), 60.0);
             List<NozzleGlowPlan> plans = CollectNozzleGlowPlans(prefab, partNode, modelRoot);
             if (plans == null) return;
 
@@ -278,9 +467,7 @@ namespace Parsek
                     });
                 }
                 if (glow.colors.Count == 0) continue;
-                if (heatInfo == null) heatInfo = new HeatGhostInfo { partPersistentId = persistentId };
-                if (heatInfo.nozzleGlows == null) heatInfo.nozzleGlows = new List<NozzleGlowInfo>();
-                heatInfo.nozzleGlows.Add(glow);
+                AddNozzleGlow(ref heatInfo, glow, persistentId);
                 bound++;
             }
 
@@ -301,7 +488,11 @@ namespace Parsek
                     .Append(g.moduleKeys.Length.ToString(CultureInfo.InvariantCulture)).Append(" scale=")
                     .Append(g.powerScale.ToString("0.###", CultureInfo.InvariantCulture)).Append(" rate=")
                     .Append(g.approachRate.ToString("0.####", CultureInfo.InvariantCulture)).Append(" initial=")
-                    .Append(g.initialLevel.ToString("0.###", CultureInfo.InvariantCulture)).Append(']');
+                    .Append(g.initialLevel.ToString("0.###", CultureInfo.InvariantCulture));
+                if (g.ramps)
+                    sb.Append(" ramp=").Append(g.initialRamp.ToString("0.###", CultureInfo.InvariantCulture))
+                        .Append('@').Append(g.rampRate.ToString("0.####", CultureInfo.InvariantCulture));
+                sb.Append(']');
             }
             return sb.ToString();
         }
@@ -318,7 +509,9 @@ namespace Parsek
             for (int i = 0; i < heatInfo.nozzleGlows.Count; i++)
             {
                 heatInfo.nozzleGlows[i].initialUT = ut;
-                if (!trusted) heatInfo.nozzleGlows[i].initialLevel = 0f;
+                if (trusted) continue;
+                heatInfo.nozzleGlows[i].initialLevel = 0f;
+                heatInfo.nozzleGlows[i].initialRamp = 0f;
             }
         }
 
