@@ -1267,7 +1267,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # ghost parity capture (PP-1).
         # 64 / 4 after ExitToMainMenu, an ADDITION by one: the flight Esc-menu Quit to Main
         # Menu (QTM-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 64)
+        # 65 / 4 after EvaMove, an ADDITION by one: the active EVA kerbal driven by jetpack
+        # or on foot with the player's own movement input (EVA-17).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 65)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -5077,10 +5079,18 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # cell (`total=13`), H48 the rescued-kerbal ledger cell (`total=5`), each literal with the
     # split regexed (each new cell skips on a host without its precondition). They leave on
     # their first flight.
+    # EVA-17-orbit-jetpack-hop-rewind and SEAT-4-seat-replay-kerbal-visibility ENTERED on
+    # 2026-11-23 (test-gap list batch 4; todos EVA-JETPACK-LIVE-LANES-2026-11-23 and
+    # SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23): EVA-17 pins FlightGhostPosition
+    # `total=3` literal with the split regexed (expected passed=1 skipped=2), SEAT-4 pins the
+    # new SeatGhostKerbal category `total=1` literal (expected passed=1). Both
+    # leave on their first flight.
     INTERIM_PIN_IDS: set = {
+        "EVA-17-orbit-jetpack-hop-rewind",
         "FGV-1-fairing-ghost-visual",
         "H45-stock-ui-overlay",
         "H48-ledger-drawdown",
+        "SEAT-4-seat-replay-kerbal-visibility",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -11622,6 +11632,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GPOS-1-kerbalx-ascent-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-20, LIVE-PROVEN on its first flight 2026-11-20_2302 at 269 s, batch split pinned whole), NOT debt; test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: GS-4's Kerbal X ascent in RF-9's coast-exit profile, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the replay, then the FlightGhostPosition batch reads the live ghosts by position; owed: the ordinary promotion call",
         "GPOS-2-eva-chute-relative-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-21; first flight 2026-11-22_1123 PASS attempt 1 pinned the batch split), NOT debt; todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: EVA-4's atmospheric EVA flown verbatim, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the kerbal's anchor-local Relative section, then the FlightGhostPosition batch reads the pod ghost and the anchor-placed kerbal ghost by position; owed: the ordinary promotion call",
+        "EVA-17-orbit-jetpack-hop-rewind.toml": "tier=operator by the calibration discipline (authored 2026-11-23, never flown, tag `pending-flight`), NOT debt; todo EVA-JETPACK-LIVE-LANES-2026-11-23: on eva2-lko-crewed Valentina steps out of Kerbal X in orbit, four 0.5 s jetpack bursts through the EvaMove seam verb, boards back, commit, Rewind-to-Launch, reload beside the formation, a 1x warp to the first burst and the FlightGhostPosition batch; gates the recorder's live jetpack events and the ghost's plume; owed: the first flight",
+        "SEAT-4-seat-replay-kerbal-visibility.toml": "tier=operator by the calibration discipline (authored 2026-11-23, never flown, tag `pending-flight`), NOT debt; todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23: SEAT-1's seat board and dismount on seat-pad, committed, Rewound-to-Launch, the Mallard on the Runway as the viewer, then the SeatGhostKerbal category across the replayed dismount (Jeb drawn on exactly one ghost); owed: the first flight",
+        "SWC-1-map-switch-own-committed-case-c.toml": "tier=operator by the calibration discipline (authored 2026-11-23, never flown, tag `pending-flight`), NOT debt; todo PRESWITCH-CASE-C-LANES-2026-11-23: on eva2-lko-crewed Kerbal X recorded and committed, the probe recording, then a stock Map Switch-To back to Kerbal X auto-resolves pre-switch Case C (case=C-loaded-separate-committed) and restores through the committed-clone route; owed: the first flight",
+        "SWC-2-cycle-own-committed-case-c.toml": "tier=operator by the calibration discipline (authored 2026-11-23, never flown, tag `pending-flight`), NOT debt; todo PRESWITCH-CASE-C-LANES-2026-11-23: SWC-1's opening with the `]` vessel cycle instead of the map click, the lane of the CYCLE-SWITCH-PRESWITCH-BYPASS fix (the cycle hands the switch to pre-switch handling); owed: the first flight",
+        "WDK-1-watch-across-bdock-dock-undock.toml": "tier=operator by the calibration discipline (authored 2026-11-23, never flown, tag `pending-flight`), NOT debt; todo WATCH-ACROSS-DOCK-LANE-2026-11-23: on bdock-recorded loop playback of tree 2, watch mode held across the replayed dock and undock, gating the live session identity line and the undock identity decision of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION; owed: the first flight",
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # FLOWN GREEN 2026-08-27, same-day discipline: reading run
         # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two
@@ -17183,16 +17198,17 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                  if v not in hlib.IMPLEMENTED_SEAM_VERBS]
         self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
 
-    def test_outcome_set_is_exactly_the_six_eva_verbs(self):
+    def test_outcome_set_is_exactly_the_seven_eva_verbs(self):
         # The whole gating set. Each one's verdict is a claim about a KERBAL's
         # in-world state that no verifier re-derives; widening this set to a Parsek
         # verb would route a Parsek defect through the wrong subkind. Coverage wave 10
         # added EvaGroundScience ("the part is on the ground / back in the inventory");
-        # FLG-1 added PickUpFlag ("the flag is out of the ground").
+        # FLG-1 added PickUpFlag ("the flag is out of the ground"); EVA-17 added
+        # EvaMove ("the kerbal moved under the player's own input").
         outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
                          if r == hlib.POST_MISSION_ROLE_OUTCOME)
         self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "EvaGroundScience",
-                          "PickUpFlag", "PlantFlag"], outcome)
+                          "EvaMove", "PickUpFlag", "PlantFlag"], outcome)
 
     def test_recording_verbs_do_not_gate(self):
         # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to
@@ -19053,6 +19069,84 @@ class PickUpFlagSourceSyncTests(unittest.TestCase):
         errs = v(4, {"pid": "1"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[4]", errs[0])
+        self.assertIn("silently ignored", errs[0])
+
+
+class EvaMoveSourceSyncTests(unittest.TestCase):
+    """`EvaMove`. Reads OUTSIDE harness/: the verb, arg keys, closed value sets, the seconds
+    range and the arg / refusal / error reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandEvaMove.cs, and the input patch's target, so the pre-launch
+    validator, the refusal subkinds and a spec's pinned reasons cannot drift from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# EvaMove tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_keys_values_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandEvaMove.cs")
+        arr = StockScreenSourceSyncTests._cs_string_array
+        self.assertIn('internal const string Verb = "%s";' % hlib.EVAMOVE_VERB, text)
+        self.assertEqual(list(hlib.EVAMOVE_ARG_KEYS), arr(text, "ArgKeys"))
+        self.assertEqual(list(hlib.EVAMOVE_MODES), arr(text, "ModeValues"))
+        self.assertEqual(list(hlib.EVAMOVE_DIRS), arr(text, "DirValues"))
+        self.assertIn("internal const double MinSeconds = %s;" % hlib.EVAMOVE_MIN_SECONDS, text)
+        self.assertIn("internal const double MaxSeconds = %s;" % hlib.EVAMOVE_MAX_SECONDS, text)
+        self.assertEqual(list(hlib.EVAMOVE_ARG_REASONS), arr(text, "ArgReasons"))
+        self.assertEqual(list(hlib.EVAMOVE_REASONS), arr(text, "string[] Reasons"))
+        self.assertEqual(list(hlib.EVAMOVE_ERROR_REASONS), arr(text, "ErrorReasons"))
+        for reason in hlib.EVAMOVE_ARG_REASONS:
+            self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+        for reason in hlib.EVAMOVE_REASONS:
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in hlib.EVAMOVE_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+
+    def test_the_input_patch_targets_stocks_movement_input(self):
+        patch = self._source("TestCommands", "EvaMoveInputPatch.cs")
+        self.assertIn('[HarmonyPatch(typeof(KerbalEVA), "HandleMovementInput")]', patch)
+        self.assertIn("ParsekTestCommandAddon.IsArmed(", patch)
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.EvaMove.cs")
+        self.assertIn("evaCtl.ToggleJetpack();", applier)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.EVAMOVE_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(90.0, hlib.dispatch_deferral_budget(verb))
+        dispatcher = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn('["EvaMove"] = VerbSceneRequirement.RequiresFlight,', dispatcher)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_OUTCOME, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertTrue(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_eva_move_step
+        self.assertEqual([], v(0, {"mode": "jetpack", "dir": "up", "seconds": 1.5, "stow": True}))
+        self.assertEqual([], v(0, {"mode": "walk", "dir": "left", "seconds": "3"}))
+        self.assertEqual([], v(0, {"mode": "jetpack", "dir": "down", "seconds": "${hop.seconds}"}))
+        bad = [
+            ({"mode": "fly", "dir": "up", "seconds": 1}, "evamove-mode-invalid"),
+            ({"mode": "jetpack", "dir": "Up", "seconds": 1}, "evamove-dir-invalid"),
+            ({"mode": "walk", "dir": "up", "seconds": 1}, "evamove-dir-invalid"),
+            ({"mode": "jetpack", "dir": "up"}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 0.05}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 31}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": True}, "evamove-seconds-invalid"),
+            ({"mode": "jetpack", "dir": "up", "seconds": 1, "stow": "yes"}, "evamove-stow-invalid"),
+            ({"mode": "walk", "dir": "left", "seconds": 1, "stow": True}, "evamove-stow-invalid"),
+        ]
+        for args, reason in bad:
+            errs = v(3, args)
+            self.assertEqual(1, len(errs), (args, errs))
+            self.assertIn(reason, errs[0])
+            self.assertIn("driver.steps[3]", errs[0])
+        errs = v(2, {"mode": "jetpack", "dir": "up", "seconds": 1, "label": "x"})
+        self.assertEqual(1, len(errs), errs)
         self.assertIn("silently ignored", errs[0])
 
 

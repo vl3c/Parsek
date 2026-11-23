@@ -20,6 +20,60 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+
+Every committed EVA lane exits, floats, plants, boards or chutes. New seam verb `EvaMove
+mode=jetpack|walk dir=forward|back|left|right|up|down seconds=<0.1..30> [stow=true]`
+(`TestCommandEvaMove.cs` pure, `ParsekTestCommandAddon.EvaMove.cs` applier,
+`EvaMoveInputPatch.cs`): it deploys the pack through stock's `ToggleJetpack` (silent outside the
+idle states, so the applier verifies it and refuses `pack-refused`), freezes the direction in world
+space, and a Prepare-gated postfix on `KerbalEVA.HandleMovementInput` writes `packTgtRPos` (the
+field the `EVA_Pack_*` keys write) or sets a walk waypoint every frame for the burst. Inert unless
+`PARSEK_TEST_COMMANDS=1`. Answers OK with `effect` / `deployed` / the nearest loaded vessel's
+distance and relative speed; ERROR on kerbal lost, ragdoll, no effect, a refused stow or timeout.
+Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s bursts, board,
+commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
+walks yet (a landed EVA host is needed); a walk lane is the follow-up.
+
+## SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+
+SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
+New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
+`GhostKerbalVisibilityTests`): for 6 s it reads every live ghost's kerbal parts (the `kerbalEVA*`
+PART nodes of its snapshot, by crew name) and counts per frame whether each kerbal is drawn on
+one ghost, two or none; it fails on a run of 10 frames drawn twice or missing. Lane
+`SEAT-4-seat-replay-kerbal-visibility` (operator, seat-pad) runs it over UT 41-47 of SEAT-1's
+replay, across the recorded dismount at 44.90 (the handoff from the pod ghost to the EVA ghost).
+
+## PRESWITCH-CASE-C-LANES-2026-11-23: no lane switches to its own separately committed vessel while recording, by map or by `[` / `]` [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+
+Pre-switch Case C (`case=C-loaded-separate-committed`) and the CYCLE-SWITCH-PRESWITCH-BYPASS fix
+are xUnit only. Lanes on eva2-lko-crewed with `autoMerge` on: Kerbal X recorded and committed,
+the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchClick`
+(`SWC-1-map-switch-own-committed-case-c`) or by `CycleVessel direction=next`
+(`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
+committed-clone route; recordings 2..3 is a reading window until the first flight.
+
+## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, low]
+
+WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION is xUnit only. Lane `WDK-1-watch-across-bdock-dock-undock`
+(operator, bdock-recorded) loops tree 2, jumps to WL-3's instant, enters watch mode and plays the
+recorded dock and undock 1.3 s apart at 1x, pinning the session identity line and the undock
+decision line with the outcome regexed. The fixture predates the dock-absorb link rows, so the
+live FOLLOW outcome needs a BDOCK re-harvest that records them (flight work, not filed as a
+defect).
+
+## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
+
+New FLIGHT category `LiveGhostReentryFx` (`LiveGhostReentryFx.cs` pure, xUnit in
+`GhostKerbalVisibilityTests`): for 8 s it re-derives each live ghost's raw reentry intensity from
+its interpolated body, altitude and surface velocity and fails when a ghost hot enough to glow
+stays unlit for 30 frames and 1 s. No lane runs it: a B4 or LAY-1 descent replays far beyond the
+300 km watch range of any FLIGHT viewer the seam can place, and the seam has no handle for the
+descent UT (`ListHandles` gives `ut` only for rewind points). Unblock with a viewer placed near
+the descent (a spawn-at-orbit verb) or a descent-UT handle. Ghost sound does not apply mid-descent
+(no engine runs).
+
 ## ~~MISSION-CLONE-REMOVAL~~: the Advanced Missions tab's Clone and Delete buttons are removed with the clone feature [FILED + BUILT 2026-11-22 (owner decision, `docs/dev/plans/remove-player-looping.md` 10.5 item 1), branch `mission-clone-removal`; xUnit; lanes MS-1 `2026-11-22_2215` and GUI-4 `2026-11-22_2216` re-flown green]
 
 What: Clone and Delete were the loop grid's column A on the mission bar (Advanced only); the owner judged them the least useful loop controls for visual verification and debugging. Owner answer to the legacy-clone question (plan 10.6), 2026-11-22: remove Delete entirely and drop cloned missions from the list on load ("we will deal with it if anyone complains").
@@ -2806,7 +2860,7 @@ Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id besi
 Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
 Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
 
-## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; lane SWC-2 AUTHORED 2026-11-23 (PRESWITCH-CASE-C-LANES-2026-11-23), flight owed; medium (the vessel gets a second history and its own mission stops)]
 
 What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
 stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
@@ -2942,7 +2996,7 @@ cycle in flight). Design table row added (supply-routes design section 1.3). Owe
 raises the confirm mid-cycle (`UiAction raise popup=deleteroute` after a pickup window) and
 reads `cargoInTransit=True`.
 
-## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
+## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit; lane WDK-1 AUTHORED 2026-11-23 (WATCH-ACROSS-DOCK-LANE-2026-11-23), flight owed; low (camera choice, the player can pick the ship again)]
 
 At the dock itself watch was right in every shape and is unchanged: the merged vessel is the
 only child, so it is followed whether the merge kept the watched ship's pid (same-pid rule) or

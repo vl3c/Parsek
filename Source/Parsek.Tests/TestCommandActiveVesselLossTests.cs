@@ -43,6 +43,8 @@ namespace Parsek.Tests
         [InlineData("PickUpFlag", true)]
         // Owns its own debounced eva-chute-kerbal-lost terminal.
         [InlineData("EvaChuteDeploy", false)]
+        // Owns its own evamove-kerbal-lost terminal.
+        [InlineData("EvaMove", false)]
         // Boarding removes the EVA vessel on its own success path.
         [InlineData("EvaBoard", false)]
         // Switches focus to the new kerbal.

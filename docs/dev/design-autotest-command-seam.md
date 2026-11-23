@@ -5621,6 +5621,46 @@ kerbal dist fires`. ERROR `pickupflag-threw`, `pickupflag-flag-lost` (the flag w
 press) or `pickupflag-timeout`. Pure half `TestCommandPickUpFlag`, applier
 `ParsekTestCommandAddon.PickUpFlag.cs`, mirrored by `PickUpFlagSourceSyncTests`.
 
+#### EvaMove (additive; an EVA kerbal moved by the player's own input, jetpack or walk)
+
+**Why.** No seam verb could fly a jetpack or walk a kerbal, so the recorder's EVA poll
+(`EvaJetpackDeployed` / `EvaJetpackThrustStarted` / `Stopped`) and the ghost's jetpack plume had
+no lane (todo EVA-JETPACK-LIVE-LANES-2026-11-23).
+
+**Stock ground truth (decompiled `KerbalEVA`, KSP 1.12.5).** `FixedUpdate` zeroes the movement
+targets, calls the protected virtual `HandleMovementInput()` (where the `EVA_Pack_*` keys write
+the protected `packTgtRPos`) and then runs the state machine, so a value written after that call
+is the one the FSM reads that frame. `ToggleJetpack()` is a silent no-op outside `st_idle_gr`,
+`st_idle_b_gr`, `st_idle_fl` and `st_weldAcquireHeading`. `SetWaypoint(Vector3)` drives the walk.
+`JetpackIsThrusting` is recomputed every frame.
+
+**Grammar.** `cmd=EvaMove mode=jetpack|walk dir=forward|back|left|right|up|down
+seconds=<0.1..30> [stow=true|false]`, issued in FLIGHT. `walk` takes no `up` / `down`.
+Arg-class refusals: `evamove-mode-invalid`, `evamove-dir-invalid`, `evamove-seconds-invalid`,
+`evamove-stow-invalid`.
+
+**Behavior.** Dispatch defers `not-eva` until the active vessel is an EVA kerbal. REJECTED
+(gate-class, nothing moved): `evamove-not-eva`, `evamove-no-jetpack`, `evamove-no-fuel`,
+`evamove-ragdoll`, `evamove-not-on-ground` (a walk off the ground), `evamove-pack-refused` (the
+jetpack toggle left the pack stowed). The direction is frozen in world space at the arm, from the
+kerbal's own axes, so paired bursts cancel. The drive is `EvaMoveInputPatch`, a Harmony postfix
+on `HandleMovementInput` whose `Prepare` reads `PARSEK_TEST_COMMANDS`, so a player build never
+patches; it acts only on the armed kerbal's part flight id. Logs `evamove start kerbal='..'
+evaPid= mode= dir= seconds= stow= startUT= packBefore= ` and the nearest loaded non-ghost vessel
+as the reference.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, 90 s budget (30 s cap plus 60), world-mutating tail role,
+`outcome` post-mission role (the EVA verbs'). It owns its kerbal-lost terminal, so it is not in the
+active-vessel-loss watched set. After `seconds` the drive is released (`evamove released ...`);
+with `stow=true` the pack is toggled off, re-pressed at most three times 30 polls apart (`evamove
+stow press ...`). OK: `evamove complete kerbal='..' evaPid= mode= dir= effect= deployed= moved=
+refPid= refDistEnd= refSpeed= stowFires=`, payload `kerbal evaPid mode dir seconds startUT endUT
+effect deployed refPid refDistStart refDistEnd refSpeed` (handles: `${label.startUT}` is the
+burst's start, the replay target). ERROR `evamove-threw`, `evamove-kerbal-lost`,
+`evamove-ragdolled`, `evamove-no-effect` (no thrust frame for a jetpack, under 0.2 m for a walk),
+`evamove-stow-refused` or `evamove-timeout`. Pure half `TestCommandEvaMove`, applier
+`ParsekTestCommandAddon.EvaMove.cs`, mirrored by `EvaMoveSourceSyncTests`.
+
 #### DumpMapGeometry (additive; the map's drawn geometry, one frame, to a json)
 
 **Why.** A map or Tracking Station screenshot shows WHERE a ghost line went wrong but not WHICH

@@ -956,6 +956,16 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     dialog. OK `scene=MAINMENU persisted=true` once the main menu held for the NewGame
     #     settle polls. The next boot step is `LoadGame`, which runs from the main menu.
     "ExitToMainMenu",
+    # ADDITIVE (64 -> 65 implemented, reserved unchanged at 4), the EVA-17 host (a live
+    # jetpack flight recorded and replayed after a rewind).
+    #   EvaMove mode=jetpack|walk dir=forward|back|left|right|up|down seconds=<0.1..30>
+    #     [stow=true|false], FLIGHT, TWO-PHASE, 90 s: drives the active EVA kerbal with the
+    #     player's own movement input (the jetpack deployed through stock's ToggleJetpack
+    #     first) for `seconds` game seconds, the direction frozen in world space at the arm;
+    #     up / down and stow are jetpack only. OK `kerbal= evaPid= mode= dir= seconds=
+    #     startUT= endUT= effect= deployed= refPid= refDistStart= refDistEnd= refSpeed=` once
+    #     the input was released, a requested stow took and the scene settled.
+    "EvaMove",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1354,6 +1364,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # 480 s) plus the last wave's teardown and the case files' write. The WarpToUT size, at
     # MAX_DEFERRED_STEP_BUDGET_SECONDS.
     "PartParitySweep": 540.0,
+    # DeferralBudget.EvaMoveSeconds: the held input (at most 30 game seconds at 1x) plus a
+    # minute for the pack toggle, the stow presses and the settle. Unmeasured (never flown).
+    "EvaMove": 90.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1633,6 +1646,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "PartParitySweep": TAIL_ROLE_WORLD_MUTATING,
     # ExitToMainMenu writes the save and unloads the game: ExitToSpaceCenter's role.
     "ExitToMainMenu": TAIL_ROLE_WORLD_MUTATING,
+    # EvaMove moves the kerbal and burns its jetpack propellant (stock state a save captures).
+    "EvaMove": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1661,10 +1676,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
 # analyzer / expectations / ledger chain already owns.
 #   outcome   -> gates. Its failure means the FLIGHT failed after the handoff.
 #   recording -> non-gating, exactly as before. Preserves the original carve-out.
-# The four M-C2 EVA verbs, EvaGroundScience and PickUpFlag are the whole outcome set
-# today: each one's OK/ERROR is a claim about a kerbal's in-world state (left the pod /
+# The four M-C2 EVA verbs, EvaGroundScience, PickUpFlag and EvaMove are the whole outcome
+# set today: each one's OK/ERROR is a claim about a kerbal's in-world state (left the pod /
 # boarded / flag planted / canopy opened and landed alive / part placed or picked up /
-# flag taken down). Everything else is Parsek or plumbing.
+# flag taken down / flew or walked under its own input). Everything else is Parsek or plumbing.
 #
 # The pairing is gated by a unit cell, so promoting a RESERVED verb or adding a new
 # one forces an explicit decision here instead of inheriting a default silently.
@@ -1876,6 +1891,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # ExitToMainMenu is `recording` for ExitToSpaceCenter's reason: its OK is a statement
     # about the commit-on-exit and the scene change, never a kerbal's in-world state.
     "ExitToMainMenu": POST_MISSION_ROLE_RECORDING,
+    # EvaMove is `outcome` for PlantFlag's reason: "the kerbal flew or walked under its own
+    # input" is a kerbal's in-world state no verifier re-derives.
+    "EvaMove": POST_MISSION_ROLE_OUTCOME,
 }
 
 
@@ -4700,6 +4718,32 @@ PICKUPFLAG_ERROR_REASONS: Tuple[str, ...] = (
 )
 
 
+# EvaMove: mirrored from TestCommands/TestCommandEvaMove.cs (EvaMoveSourceSyncTests).
+EVAMOVE_VERB = "EvaMove"
+EVAMOVE_MODE_KEY = "mode"
+EVAMOVE_DIR_KEY = "dir"
+EVAMOVE_SECONDS_KEY = "seconds"
+EVAMOVE_STOW_KEY = "stow"
+EVAMOVE_ARG_KEYS: Tuple[str, ...] = ("mode", "dir", "seconds", "stow")
+EVAMOVE_MODES: Tuple[str, ...] = ("jetpack", "walk")
+EVAMOVE_DIRS: Tuple[str, ...] = ("forward", "back", "left", "right", "up", "down")
+EVAMOVE_JETPACK_ONLY_DIRS: Tuple[str, ...] = ("up", "down")
+EVAMOVE_MIN_SECONDS = 0.1
+EVAMOVE_MAX_SECONDS = 30.0
+EVAMOVE_ARG_REASONS: Tuple[str, ...] = (
+    "evamove-mode-invalid", "evamove-dir-invalid", "evamove-seconds-invalid",
+    "evamove-stow-invalid",
+)
+EVAMOVE_REASONS: Tuple[str, ...] = (
+    "evamove-not-eva", "evamove-no-jetpack", "evamove-no-fuel", "evamove-ragdoll",
+    "evamove-not-on-ground", "evamove-pack-refused",
+)
+EVAMOVE_ERROR_REASONS: Tuple[str, ...] = (
+    "evamove-threw", "evamove-kerbal-lost", "evamove-ragdolled", "evamove-no-effect",
+    "evamove-stow-refused", "evamove-timeout",
+)
+
+
 # NewGame: mirrored from TestCommands/TestCommandNewGame.cs (NewGameSourceSyncTests). All
 # three args are REQUIRED. `mode` CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table keys one
 # verb per arg name and UiAction already owns `mode` (the interface mode), so validate_spec
@@ -4869,6 +4913,49 @@ def validate_pick_up_flag_step(index: int, step_args: Dict) -> List[str]:
         return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
                 % (index, PICKUPFLAG_VERB, ", ".join(extra))]
     return []
+
+
+def validate_eva_move_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``EvaMove`` step, the C# TryParseArgs rules: mode and
+    dir from their closed sets (up / down jetpack only), seconds a number in [0.1, 30],
+    stow true / false and jetpack only, no other key."""
+    errors: List[str] = []
+    where = "driver.steps[%d].args" % index
+    mode = step_args.get(EVAMOVE_MODE_KEY)
+    if str(mode) not in EVAMOVE_MODES:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse "
+                      "evamove-mode-invalid)" % (where, EVAMOVE_MODE_KEY, mode, "/".join(EVAMOVE_MODES)))
+    direction = step_args.get(EVAMOVE_DIR_KEY)
+    if str(direction) not in EVAMOVE_DIRS:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse "
+                      "evamove-dir-invalid)" % (where, EVAMOVE_DIR_KEY, direction, "/".join(EVAMOVE_DIRS)))
+    elif str(mode) == "walk" and str(direction) in EVAMOVE_JETPACK_ONLY_DIRS:
+        errors.append("%s.%s: %r is jetpack only (the seam would refuse "
+                      "evamove-dir-invalid)" % (where, EVAMOVE_DIR_KEY, direction))
+    seconds = step_args.get(EVAMOVE_SECONDS_KEY)
+    if not value_is_handle_templated(seconds):
+        try:
+            value = float(str(seconds)) if not isinstance(seconds, bool) else float("nan")
+        except (TypeError, ValueError):
+            value = float("nan")
+        if not (EVAMOVE_MIN_SECONDS <= value <= EVAMOVE_MAX_SECONDS):
+            errors.append("%s.%s: %r is not a number in [%s, %s] (the seam would refuse "
+                          "evamove-seconds-invalid)" % (where, EVAMOVE_SECONDS_KEY, seconds,
+                                                        EVAMOVE_MIN_SECONDS, EVAMOVE_MAX_SECONDS))
+    if EVAMOVE_STOW_KEY in step_args:
+        stow = step_args.get(EVAMOVE_STOW_KEY)
+        stow_text = ("true" if stow else "false") if isinstance(stow, bool) else str(stow)
+        if stow_text not in ("true", "false"):
+            errors.append("%s.%s: %r is not true/false (the seam would refuse "
+                          "evamove-stow-invalid)" % (where, EVAMOVE_STOW_KEY, stow))
+        elif stow_text == "true" and str(mode) != "jetpack":
+            errors.append("%s.%s: stow is jetpack only (the seam would refuse "
+                          "evamove-stow-invalid)" % (where, EVAMOVE_STOW_KEY))
+    extra = sorted(str(k) for k in step_args if k not in EVAMOVE_ARG_KEYS)
+    if extra:
+        errors.append("%s: %s reads only %s, so %s would be silently ignored"
+                      % (where, EVAMOVE_VERB, ", ".join(EVAMOVE_ARG_KEYS), ", ".join(extra)))
+    return errors
 
 
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -8639,6 +8726,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # validate_part_parity_sweep_step checks it.
             if cmd == PARTPARITY_VERB and arg_key in PARTPARITY_ARG_KEYS:
                 continue
+            # EvaMove reads its own `mode=` (jetpack|walk) and `dir=` (an axis; UiAction
+            # owns both table rows); validate_eva_move_step checks them.
+            if cmd == EVAMOVE_VERB and arg_key in EVAMOVE_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8710,6 +8801,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
         elif cmd == PICKUPFLAG_VERB:
             errors.extend(validate_pick_up_flag_step(i, step_args))
+        elif cmd == EVAMOVE_VERB:
+            errors.extend(validate_eva_move_step(i, step_args))
         elif cmd == NEWGAME_VERB:
             errors.extend(validate_new_game_step(i, step_args, run_save_name))
         elif cmd == ALARMJUMP_VERB:
@@ -13339,6 +13432,20 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "pickupflag-not-eva": "driver-gate",
     "pickupflag-no-flag": "driver-gate",
     "pickupflag-not-near-flag": "driver-gate",
+    # EvaMove: an arg spelling or range is the SPEC's fault; every other refusal is a live
+    # state the move would not act in (no EVA kerbal, no jetpack or propellant, a ragdoll,
+    # a walk off the ground, stock's toggle refusing in the kerbal's FSM state)
+    # (EvaMoveSourceSyncTests).
+    "evamove-mode-invalid": "driver-arg",
+    "evamove-dir-invalid": "driver-arg",
+    "evamove-seconds-invalid": "driver-arg",
+    "evamove-stow-invalid": "driver-arg",
+    "evamove-not-eva": "driver-gate",
+    "evamove-no-jetpack": "driver-gate",
+    "evamove-no-fuel": "driver-gate",
+    "evamove-ragdoll": "driver-gate",
+    "evamove-not-on-ground": "driver-gate",
+    "evamove-pack-refused": "driver-gate",
     # The map-geometry pair (MapGeometrySeamVerbSourceSyncTests). MapCamera's arg
     # spellings, ranges and a body the game does not have are the SPEC's fault; a map that
     # is not open (FLIGHT) or a scene with no map is a live state the verb does not drive

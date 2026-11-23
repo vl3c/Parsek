@@ -1175,6 +1175,14 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // EvaMove, in the .EvaMove.cs partial: holds the input until the step's end UT,
+            // releases it, presses a requested stow and answers once the scene settles.
+            if (completionVerb == TestCommandEvaMove.Verb)
+            {
+                TryCompleteEvaMove(now);
+                return;
+            }
+
             bool done = false;
             string verdict = null;
             List<KeyValuePair<string, string>> payload = null;
@@ -1400,6 +1408,8 @@ namespace Parsek.TestCommands
             ResetLaunchSiteProbeState();
             // So must a flag pick-up's.
             ResetPickUpFlagState();
+            // And an EVA move's input drive: an armed drive would keep feeding the kerbal.
+            ResetEvaMoveState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1805,6 +1815,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.LaunchSiteProbe(ParsedCommand cmd) => LaunchSiteProbeImpl(cmd);
         // PickUpFlag: body + two-phase completion in ParsekTestCommandAddon.PickUpFlag.cs.
         void ITestCommandExecutor.PickUpFlag(ParsedCommand cmd) => PickUpFlagImpl(cmd);
+        // EvaMove: body + two-phase completion in ParsekTestCommandAddon.EvaMove.cs.
+        void ITestCommandExecutor.EvaMove(ParsedCommand cmd) => EvaMoveImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1886,6 +1898,7 @@ namespace Parsek.TestCommands
                 case "AlarmJump": exec.AlarmJump(cmd); break;
                 case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 case "PickUpFlag": exec.PickUpFlag(cmd); break;
+                case "EvaMove": exec.EvaMove(cmd); break;
                 case "DumpMapGeometry": exec.DumpMapGeometry(cmd); break;
                 case "MapCamera": exec.MapCamera(cmd); break;
                 case "PartParitySweep": exec.PartParitySweep(cmd); break;
