@@ -2973,6 +2973,32 @@ reading flight, the step count set from its `wall=` (D.8). The ids PP-7 to PP-10
 `[retry] policy = "none"`, one slot each; modded-restock flies on its own slot (port block 50060),
 so it can fly beside the other two installs.
 
+F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stock`,
+`PP-8-part-parity-fx-modded` and `PP-9-part-parity-fx-restock`, and the hlib wiring cells
+(`PartParityFxLaneShapeTests`). No registry value: like PP-3 / PP-4 they claim D14 only.
+
+- As flown: PP-7 `2026-11-23_1027` (1002 s wall, 906 s of sweep: 451.8 + 404.6 + 49.8 + 0.3), PP-9
+  `2026-11-23_1050` (1338 s, 1243 s: 445.5 + 443.5 + 353.1 + 0.8) and PP-8 `2026-11-23_1232` (1350 s,
+  1254 s: 453.7 + 443.4 + 355.8 + 1.2), each PASS attempt 1 after its `limit=20` reading flight (192,
+  203 and 216 s). About 6.5 s per case plus 80 to 90 s of controls, under the table's 1080 / 1470 s.
+  Every lane needs three steps; the step counts of the table stay as margin, at no cost.
+- Verdicts (report-only): PP-7 34 pass / 33 warn / 60 fail / 1 error of 128; PP-9 28 / 74 / 61 / 2 of
+  165 (28 / 71 / 64 / 2 under the weak-core rule); PP-8 27 / 21 / 20 / 2 and 95 reference (would be 42
+  fail, 53 warn) of 165. Triage: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
+- Two instrument changes the reading flights forced: weak cores (E.4), and the plume controls'
+  subject on modded-compat. The Flea's smoke is noise there against itself: a ReStock booster's
+  world-space puffs are sheared 130 to 160 m away in orbit and land in the near box now and then
+  (E.12 U8). `ctl-fx-real-vs-real` on it read 0 / 0 px smoke cores (`2026-11-23_1112`, failing origin
+  and length) and then 0 / 754 px (`_1217`, failing smoke). Measured over PP-9's own split halves
+  (real even samples against real odd ones): `solidBooster.sm.v2`, `solidBooster.v2` and `Shrimp`
+  jump (519 / 0, 53 / 542 and 3976 / 0 px); `sepMotor1`, both escape towers, `restock-srb-anvil-1`,
+  `restock-srb-castor-1`, `Pollux`, `Mite`, `Clydesdale`, `MassiveBooster`, `solidBooster1-1` and
+  the two separation-motor tanks fail nothing measured there. So `PlumeControlParts`
+  is `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2`, in that order, each
+  unmeetable one skipped; stock-minimal and modded-restock keep the LV-T45. All 11 controls (the
+  point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
+  smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+
 ### E.9 Work breakdown
 
 Rule (D.10): two pieces in flight never touch one file, each is green on its own, and every C#

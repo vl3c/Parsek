@@ -32,9 +32,15 @@ tier = "operator"
 # has no other part parity lane to host it); (2) one explicit-UT rails warp; (3) the time box
 # is the measurement; (4)/(5) none; (6) `[retry] policy = "none"`; (7) count 0; (8)/(9) tier
 # operator by purpose, flight_efficiency.py after the first green flight.
-description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F6): every working modded-restock part's (ReStock, ReStock+, B9PartSwitch, no Waterfall) visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over five PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). Every case is judged."
+#
+# LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, modded-restock): reading flight
+# `2026-11-23_1044` (`limit=20`: 20 cases + 11 controls in 202.7 s, PASS); full flight
+# `2026-11-23_1050` PASS attempt 1 (1338 s wall, 445.5 s + 443.5 s + 353.1 s + 0.8 s of sweep,
+# 165 cases, controls ok, press ok, complete, recompute 25 / 0 mismatches; report-only verdicts
+# 28 pass / 74 warn / 61 fail / 2 error). Three steps did the work, two are margin.
+description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F6, `2026-11-23_1050`): every working modded-restock part's (ReStock, ReStock+, B9PartSwitch, no Waterfall) visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over five PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). Every case is judged."
 instanceProfile = "modded-restock"
-tags = ["part-parity", "ghost-visual", "modded-restock", "pending-flight", "PP-9"]
+tags = ["part-parity", "ghost-visual", "modded-restock", "flown", "PP-9"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"

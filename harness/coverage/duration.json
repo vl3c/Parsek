@@ -2901,6 +2901,36 @@
         "2026-11-22T20:43:06Z": 91.0
       }
     },
+    "PP-7-part-parity-fx-stock": {
+      "last": 1002.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 1002.0,
+      "p95": 1002.0,
+      "samples": {
+        "2026-11-23T10:44:38Z": 1002.0
+      }
+    },
+    "PP-8-part-parity-fx-modded": {
+      "last": 1350.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 1350.0,
+      "p95": 1350.0,
+      "samples": {
+        "2026-11-23T12:54:57Z": 1350.0
+      }
+    },
+    "PP-9-part-parity-fx-restock": {
+      "last": 1338.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 1338.0,
+      "p95": 1338.0,
+      "samples": {
+        "2026-11-23T11:12:23Z": 1338.0
+      }
+    },
     "PPB-1-untouched-career-backup": {
       "last": 49.0,
       "lastVsP50": 1.0,

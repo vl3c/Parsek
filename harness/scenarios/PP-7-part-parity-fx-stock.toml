@@ -59,9 +59,15 @@ tier = "operator"
 # `[retry] policy = "none"`: a retry's `op=reset` would clear the files a reading run exists
 # to keep. (7) Recording count pinned at 0. (8)/(9) tier operator by purpose (a report-only
 # reading lane), flight_efficiency.py after the first green flight.
-description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F6): every working stock part's visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over four PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+#
+# LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, stock-minimal): reading flight
+# `2026-11-23_1022` (`limit=20`: 20 cases + 11 controls in 192.3 s, PASS); full flight
+# `2026-11-23_1027` PASS attempt 1 (1002 s wall, 451.8 s + 404.6 s + 49.8 s + 0.3 s of sweep,
+# 128 cases, controls ok, press ok, complete, recompute 24 / 0 mismatches; report-only verdicts
+# 34 pass / 33 warn / 60 fail / 1 error). Three steps did the work, the fourth is margin.
+description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F6, `2026-11-23_1027`): every working stock part's visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over four PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
 instanceProfile = "stock-minimal"
-tags = ["part-parity", "ghost-visual", "pending-flight", "PP-7"]
+tags = ["part-parity", "ghost-visual", "flown", "PP-7"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"

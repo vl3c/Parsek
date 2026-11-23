@@ -39,9 +39,16 @@ tier = "operator"
 # are its own measurement, E.8); (2) one explicit-UT rails warp; (3) the time box is the
 # measurement; (4)/(5) none; (6) `[retry] policy = "none"`; (7) count 0; (8)/(9) tier
 # operator by purpose, flight_efficiency.py after the first green flight.
-description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F6): every working modded-compat part's (ReStock, ReStock+, Waterfall, B9PartSwitch) visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over five PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A part whose plume is Waterfall's reads reference, never judged."
+#
+# LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, modded-compat): reading flights
+# `2026-11-23_1112` and `_1217` (`limit=20`) INVALID(parity-controls), the instrument's own
+# (design E.4 weak cores, E.5 control subject), `_1227` PASS; full flight `2026-11-23_1232`
+# PASS attempt 1 (1350 s wall, 453.7 s + 443.4 s + 355.8 s + 1.2 s of sweep, 165 cases,
+# controls ok, press ok, complete, recompute 25 / 0 mismatches; report-only verdicts 27 pass /
+# 21 warn / 20 fail / 2 error / 95 reference). Three steps did the work, two are margin.
+description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F6, `2026-11-23_1232`): every working modded-compat part's (ReStock, ReStock+, Waterfall, B9PartSwitch) visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over five PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A part whose plume is Waterfall's reads reference, never judged."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-8"]
+tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-8"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"
