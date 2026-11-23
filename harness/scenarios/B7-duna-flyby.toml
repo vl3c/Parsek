@@ -248,8 +248,18 @@ allowedAnomalies = []
 #   prev=Atmospheric next=ExoBallistic
 #   CommitTreeFlight: optimization pass ran committed=8->9
 # Re-flown on the new pin: `2026-10-01_1508_B7-duna-flyby` PASS attempt 1, count 9.
-# Still exact: 8 (the split missing) and 10 (a second split) both red.
-count = { min = 9, max = 9 }
+# RE-PINNED 10 (2026-11-23, run 2026-11-23_0828_B7-duna-flyby): split rule version 3 adds the circularization row
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# ascent and debris population above is unchanged (3 Kerbal X rows ascent /
+# circularization / transfer + 7 debris); this was `count = { min = 9, max = 9 }`.
+# The KSP.log carries exactly two splits, and the departure burn stays inside the
+# interplanetary transfer row:
+#   Split candidate (PersistedPhaseChange) splitUT=187.66
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=1476.74
+#   Burn kind change: ... InOrbit -> Leaving (Departure) SuppressedInterplanetaryTransfer
+#   CommitTreeFlight: optimization pass ran committed=8->10
+# Still exact: 9 (a split missing) and 11 (an extra one) both red.
+count = { min = 10, max = 10 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
