@@ -14,6 +14,24 @@ namespace Parsek
         public float powerScale;
         public float responseSpeed;
         public float initialLevel;
+        public bool vesselThrottleUnrecorded;
+    }
+
+    /// <summary>What decides whether a recorded engine power tells the vessel's throttle.</summary>
+    internal struct EngineThrottleSetup
+    {
+        /// <summary>The engine does not follow the vessel's throttle (independent or locked).</summary>
+        public bool ignoresVesselThrottle;
+        /// <summary>The thrust limiter, 0 to 1.</summary>
+        public float limit;
+    }
+
+    /// <summary>The part's engines in recorder module order.</summary>
+    internal sealed class PartEngineList
+    {
+        public List<string> engineIds = new List<string>();
+        public List<EngineThrottleSetup> throttles = new List<EngineThrottleSetup>();
+        public bool hasMultiMode;
     }
 
     /// <summary>One FXModuleThrottleEffects and the modules it sets by name.</summary>
@@ -23,6 +41,8 @@ namespace Parsek
         public int[] moduleIndices;
         public float responseSpeed;
         public int ordinal;
+        public float powerScale = 1f;
+        public bool vesselThrottleUnrecorded;
     }
 
     internal static partial class GhostVisualBuilder
@@ -95,27 +115,103 @@ namespace Parsek
         private static float ReadPersistedGlowLevel(
             ConfigNode snapshotPartNode, string moduleName, int ordinal, string key, bool isList)
         {
-            ConfigNode[] modules = snapshotPartNode?.GetNodes("MODULE");
-            if (modules == null) return 0f;
-            int seen = 0;
-            for (int i = 0; i < modules.Length; i++)
+            string raw = FindModuleNode(snapshotPartNode, moduleName, ordinal)?.GetValue(key);
+            if (string.IsNullOrEmpty(raw)) return 0f;
+            string[] parts = isList ? raw.Split(',') : new[] { raw };
+            float sum = 0f;
+            for (int p = 0; p < parts.Length; p++)
             {
-                if (modules[i]?.GetValue("name") != moduleName) continue;
-                if (seen++ != ordinal) continue;
-                string raw = modules[i].GetValue(key);
-                if (string.IsNullOrEmpty(raw)) return 0f;
-                string[] parts = isList ? raw.Split(',') : new[] { raw };
-                float sum = 0f;
-                for (int p = 0; p < parts.Length; p++)
-                {
-                    if (!float.TryParse(parts[p], NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
-                        || float.IsNaN(v) || float.IsInfinity(v))
-                        return 0f;
-                    sum += v < 0f ? 0f : (v > 1f ? 1f : v);
-                }
-                return sum / parts.Length;
+                if (!float.TryParse(parts[p], NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+                    || float.IsNaN(v) || float.IsInfinity(v))
+                    return 0f;
+                sum += v < 0f ? 0f : (v > 1f ? 1f : v);
             }
-            return 0f;
+            return sum / parts.Length;
+        }
+
+        /// <summary>Pure: the part node's <paramref name="ordinal"/>-th MODULE of that name, or null.</summary>
+        private static ConfigNode FindModuleNode(ConfigNode partNode, string moduleName, int ordinal)
+        {
+            ConfigNode[] modules = partNode?.GetNodes("MODULE");
+            int seen = 0;
+            for (int i = 0; modules != null && i < modules.Length; i++)
+                if (modules[i]?.GetValue("name") == moduleName && seen++ == ordinal)
+                    return modules[i];
+            return null;
+        }
+
+        /// <summary>Pure: whether stock's FXModuleAnimateThrottle / FXModuleThrottleEffects reads the
+        /// vessel's main throttle (decompiled FixedUpdate), gated on the engine running or not.</summary>
+        internal static bool GlowFollowsVesselThrottle(
+            bool dependOnEngineState, bool dependOnOutput, bool dependOnThrottle)
+            => !dependOnEngineState || (!dependOnOutput && !dependOnThrottle);
+
+        /// <summary>Pure: an engine's throttle setup (decompiled <c>ModuleEngines.UpdateThrottle</c>)
+        /// from its saved module node; absent, stock's defaults.</summary>
+        internal static EngineThrottleSetup ReadEngineThrottleSetup(ConfigNode engineModuleNode, bool throttleLocked)
+        {
+            float percent = ParseFloatOr(engineModuleNode?.GetValue("thrustPercentage"), 100f);
+            return new EngineThrottleSetup
+            {
+                ignoresVesselThrottle = throttleLocked
+                    || ParseBoolOr(engineModuleNode?.GetValue("independentThrottle"), false),
+                limit = percent >= 0f && percent <= 100f ? percent * 0.01f : 1f,
+            };
+        }
+
+        /// <summary>
+        /// Pure: how a glow reads the vessel's throttle off its engines' recorded power. A glow on
+        /// its engine's own throttle takes the power as it is. Otherwise an engine on the main
+        /// throttle runs at throttle times limiter, so the power divides by the limiter; and when
+        /// every engine ignores the main throttle no recorded power tells it
+        /// (<see cref="NozzleGlowInfo.vesselThrottle"/> does).
+        /// </summary>
+        internal static void ResolveVesselThrottleSource(
+            bool followsVesselThrottle, int[] engineIndices, IList<EngineThrottleSetup> engines,
+            out float powerScale, out bool unrecorded)
+        {
+            powerScale = 1f;
+            unrecorded = false;
+            if (!followsVesselThrottle || engineIndices.Length == 0) return;
+            float limit = 0f;
+            unrecorded = true;
+            for (int i = 0; i < engineIndices.Length; i++)
+            {
+                EngineThrottleSetup engine = engines[engineIndices[i]];
+                if (engine.ignoresVesselThrottle) continue;
+                unrecorded = false;
+                if (engine.limit > limit) limit = engine.limit;
+            }
+            if (limit > 0f) powerScale = 1f / limit;
+        }
+
+        /// <summary>Pure: the main throttle a vessel snapshot was taken at (stock
+        /// <c>FlightCtrlState.Save</c>), clamped; NaN when absent or unreadable.</summary>
+        internal static float ReadSnapshotMainThrottle(ConfigNode snapshotNode)
+        {
+            return float.TryParse(snapshotNode?.GetNode("CTRLSTATE")?.GetValue("mainThrottle"), NumberStyles.Float,
+                       CultureInfo.InvariantCulture, out float throttle)
+                   && !float.IsNaN(throttle)
+                ? (throttle < 0f ? 0f : (throttle > 1f ? 1f : throttle))
+                : float.NaN;
+        }
+
+        private static PartEngineList CollectPartEngines(Part prefab, ConfigNode partNode)
+        {
+            var engines = new PartEngineList();
+            var ordinals = new Dictionary<string, int>();
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                PartModule module = prefab.Modules[m];
+                if (module is MultiModeEngine) engines.hasMultiMode = true;
+                if (!(module is ModuleEngines engine)) continue;
+                ordinals.TryGetValue(module.moduleName, out int ordinal);
+                ordinals[module.moduleName] = ordinal + 1;
+                engines.engineIds.Add(engine.engineID);
+                engines.throttles.Add(ReadEngineThrottleSetup(
+                    FindModuleNode(partNode, module.moduleName, ordinal), engine.throttleLocked));
+            }
+            return engines;
         }
 
         /// <summary>
@@ -136,23 +232,13 @@ namespace Parsek
         private static List<NozzleGlowPlan> CollectNozzleGlowPlans(
             Part prefab, ConfigNode partNode, Transform modelRoot)
         {
-            List<string> engineIds = null;
-            bool hasMultiMode = false, hasGlowModule = false;
+            bool hasGlowModule = false;
             ModuleRCS rcs = null;
             int rcsIndex = -1, rcsSeen = 0;
             for (int m = 0; m < prefab.Modules.Count; m++)
             {
                 PartModule module = prefab.Modules[m];
-                if (module is ModuleEngines engine)
-                {
-                    if (engineIds == null) engineIds = new List<string>();
-                    engineIds.Add(engine.engineID);
-                }
-                else if (module is MultiModeEngine)
-                {
-                    hasMultiMode = true;
-                }
-                else if (module is ModuleRCS r)
+                if (module is ModuleRCS r)
                 {
                     if (rcs == null) { rcs = r; rcsIndex = rcsSeen; }
                     rcsSeen++;
@@ -164,6 +250,7 @@ namespace Parsek
             }
             if (!hasGlowModule) return null;
 
+            PartEngineList engines = CollectPartEngines(prefab, partNode);
             List<NozzleGlowPlan> plans = null;
             var ordinals = new Dictionary<string, int>();
             var seenClips = new HashSet<string>();
@@ -182,10 +269,14 @@ namespace Parsek
                     if (!throttle.affectTime || string.IsNullOrEmpty(throttle.animationName)) continue;
                     plan.animationName = throttle.animationName;
                     plan.responseSpeed = throttle.responseSpeed;
-                    plan.powerScale = 1f;
                     plan.moduleIndices = ResolveNozzleGlowEngineIndices(
                         throttle.dependOnEngineState, throttle.preferMultiMode, throttle.engineName,
-                        throttle.engineIndex, engineIds, hasMultiMode);
+                        throttle.engineIndex, engines.engineIds, engines.hasMultiMode);
+                    ResolveVesselThrottleSource(
+                        GlowFollowsVesselThrottle(throttle.dependOnEngineState, throttle.dependOnOutput,
+                            throttle.dependOnThrottle),
+                        plan.moduleIndices, engines.throttles,
+                        out plan.powerScale, out plan.vesselThrottleUnrecorded);
                 }
                 else
                 {
@@ -225,28 +316,14 @@ namespace Parsek
         /// follows; null when there is none. ReStock ships two per engine, one for the bell's heat
         /// (a 10 to 40 s ramp) and one for the throat.
         /// </summary>
-        private static List<ThrottleGlowDriver> CollectThrottleGlowDrivers(Part prefab)
+        private static List<ThrottleGlowDriver> CollectThrottleGlowDrivers(Part prefab, ConfigNode partNode)
         {
-            List<string> engineIds = null;
-            bool hasMultiMode = false, any = false;
-            for (int m = 0; m < prefab.Modules.Count; m++)
-            {
-                PartModule module = prefab.Modules[m];
-                if (module is ModuleEngines engine)
-                {
-                    if (engineIds == null) engineIds = new List<string>();
-                    engineIds.Add(engine.engineID);
-                }
-                else if (module is MultiModeEngine)
-                {
-                    hasMultiMode = true;
-                }
-                else if (module is FXModuleThrottleEffects)
-                {
-                    any = true;
-                }
-            }
-            if (!any || engineIds == null) return null;
+            bool any = false;
+            for (int m = 0; m < prefab.Modules.Count && !any; m++)
+                any = prefab.Modules[m] is FXModuleThrottleEffects;
+            if (!any) return null;
+            PartEngineList engines = CollectPartEngines(prefab, partNode);
+            if (engines.engineIds.Count == 0) return null;
 
             List<ThrottleGlowDriver> drivers = null;
             int ordinal = 0;
@@ -258,11 +335,16 @@ namespace Parsek
                     moduleIds = SplitFxModuleNames(effects.fxModuleNames),
                     moduleIndices = ResolveNozzleGlowEngineIndices(
                         effects.dependOnEngineState, effects.preferMultiMode, effects.engineName,
-                        effects.engineIndex, engineIds, hasMultiMode),
+                        effects.engineIndex, engines.engineIds, engines.hasMultiMode),
                     responseSpeed = effects.responseSpeed,
                     ordinal = ordinal++,
                 };
                 if (driver.moduleIds.Length == 0 || driver.moduleIndices.Length == 0) continue;
+                ResolveVesselThrottleSource(
+                    GlowFollowsVesselThrottle(effects.dependOnEngineState, effects.dependOnOutput,
+                        effects.dependOnThrottle),
+                    driver.moduleIndices, engines.throttles,
+                    out driver.powerScale, out driver.vesselThrottleUnrecorded);
                 if (drivers == null) drivers = new List<ThrottleGlowDriver>();
                 drivers.Add(driver);
             }
@@ -322,7 +404,10 @@ namespace Parsek
                 isColorChanger = true,
                 moduleKeys = new ulong[driver.moduleIndices.Length],
                 modulePowers = new float[driver.moduleIndices.Length],
-                powerScale = 1f,
+                powerScale = driver.powerScale,
+                vesselThrottleUnrecorded = driver.vesselThrottleUnrecorded,
+                samples = curve.samples,
+                setterOrder = ThrottleGlowSetterOrder(driver, curve.moduleId),
                 approachRate = GhostPlaybackLogic.ComputeNozzleGlowRate(driver.responseSpeed),
                 initialLevel = persistedState,
                 ramps = curve.useRate,
@@ -334,6 +419,13 @@ namespace Parsek
                 glow.moduleKeys[k] = FlightRecorder.EncodeEngineKey(persistentId, driver.moduleIndices[k]);
             return glow;
         }
+
+        private const int ThrottleGlowSetterNamesMax = 1000;
+
+        /// <summary>Pure: where the driver's setter call for a module stands among the part's:
+        /// FXModuleThrottleEffects in module order, each through its names in order.</summary>
+        internal static int ThrottleGlowSetterOrder(ThrottleGlowDriver driver, string moduleId)
+            => driver.ordinal * ThrottleGlowSetterNamesMax + System.Array.IndexOf(driver.moduleIds, moduleId);
 
         /// <summary>The first driver that names the module, or null.</summary>
         internal static ThrottleGlowDriver FindThrottleGlowDriver(List<ThrottleGlowDriver> drivers, string moduleId)
@@ -358,11 +450,19 @@ namespace Parsek
             {
                 ColorChangerGhostInfo info = colorChangerInfos[c];
                 if (info?.throttleGlow == null) continue;
-                ThrottleGlowDriver driver = FindThrottleGlowDriver(drivers, info.throttleGlow.moduleId);
-                if (driver == null) continue;
-                NozzleGlowInfo glow = NewThrottleGlow(persistentId, driver, info.throttleGlow,
-                    ReadPersistedGlowLevel(partNode, nameof(FXModuleThrottleEffects), driver.ordinal, "state", false),
-                    ColorChangerWritesOnlyWhileRamping());
+                NozzleGlowInfo glow = BuildThrottleGlow(drivers, partNode, info.throttleGlow, persistentId);
+                if (glow == null) continue;
+                // Writers without materials of their own: the event walk moves their level, the
+                // glow on top reads it. In the list before it, so they have moved when it does.
+                var under = new List<NozzleGlowInfo>();
+                for (int u = 0; info.throttleGlowUnder != null && u < info.throttleGlowUnder.Count; u++)
+                {
+                    NozzleGlowInfo writer = BuildThrottleGlow(drivers, partNode, info.throttleGlowUnder[u], persistentId);
+                    if (writer == null) continue;
+                    under.Add(writer);
+                    AddNozzleGlow(ref heatInfo, writer, persistentId);
+                }
+                if (under.Count > 0) glow.under = under.ToArray();
                 for (int i = 0; i < info.materials.Count; i++)
                     glow.colors.Add(new NozzleGlowColor
                     {
@@ -374,6 +474,100 @@ namespace Parsek
                 built++;
             }
             return built;
+        }
+
+        private static NozzleGlowInfo BuildThrottleGlow(
+            List<ThrottleGlowDriver> drivers, ConfigNode partNode, ThrottleGlowCurve curve, uint persistentId)
+        {
+            ThrottleGlowDriver driver = FindThrottleGlowDriver(drivers, curve.moduleId);
+            if (driver == null) return null;
+            return NewThrottleGlow(persistentId, driver, curve,
+                ReadPersistedGlowLevel(partNode, nameof(FXModuleThrottleEffects), driver.ordinal, "state", false),
+                ColorChangerWritesOnlyWhileRamping());
+        }
+
+        /// <summary>ReStock's PartModule that shows an RCS nozzle's force as a colour.</summary>
+        internal const string ReStockRcsGlowModule = "ModuleRestockRCSGlow";
+
+        /// <summary>
+        /// Pure: the glow of a one-nozzle ModuleRestockRCSGlow (decompiled Restock.dll: every physics
+        /// step the curves at <c>thrustForces[i] / thrusterPower</c>, which is the recorded power), and
+        /// the colour property it writes.
+        /// </summary>
+        internal static NozzleGlowInfo NewReStockRcsGlow(
+            uint persistentId, int rcsIndex, ConfigNode moduleConfig, out string property)
+        {
+            property = moduleConfig?.GetValue("shaderColorParameter");
+            if (string.IsNullOrEmpty(property)) property = "_EmissiveColor";
+            return new NozzleGlowInfo
+            {
+                partPersistentId = persistentId,
+                moduleName = ReStockRcsGlowModule,
+                animationName = property,
+                isRcs = true,
+                isColorChanger = true,
+                samples = moduleConfig != null ? SampleColorChangerCurves(moduleConfig) : null,
+                moduleKeys = new[] { FlightRecorder.EncodeEngineKey(persistentId, rcsIndex) },
+                modulePowers = new float[1],
+                approachRate = float.PositiveInfinity,
+            };
+        }
+
+        /// <summary>
+        /// The glow of a ModuleRestockRCSGlow: stock's side writes the first MeshRenderer under each
+        /// thruster transform of the part's first ModuleRCSFX. One nozzle only, as every RCS glow
+        /// (<see cref="RcsGlowPowerIsPerNozzle"/>).
+        /// </summary>
+        private static void BuildReStockRcsGlow(
+            Part prefab, Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap, ref HeatGhostInfo heatInfo,
+            uint persistentId, string partName)
+        {
+            ModuleRCSFX rcs = null;
+            int rcsIndex = -1, rcsSeen = 0;
+            bool hasGlow = false;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                PartModule module = prefab.Modules[m];
+                if (module.moduleName == ReStockRcsGlowModule) hasGlow = true;
+                if (!(module is ModuleRCS)) continue;
+                if (rcs == null && module is ModuleRCSFX fx) { rcs = fx; rcsIndex = rcsSeen; }
+                rcsSeen++;
+            }
+            if (!hasGlow || rcs == null) return;
+
+            Transform[] thrusters = prefab.FindModelTransforms(rcs.thrusterTransformName);
+            string outcome = "per-nozzle power not recorded";
+            if (RcsGlowPowerIsPerNozzle(thrusters.Length))
+            {
+                NozzleGlowInfo glow = NewReStockRcsGlow(persistentId, rcsIndex,
+                    FindModuleNode(prefab.partInfo?.partConfig, ReStockRcsGlowModule, 0), out string property);
+                MeshRenderer[] meshes = thrusters[0].GetComponentsInChildren<MeshRenderer>(true);
+                Renderer ghostRenderer = meshes.Length > 0 && glow.samples != null
+                    ? ResolveGhostRenderer(meshes[0], modelRoot, ghostModelNode, cloneMap)
+                    : null;
+                Material[] slots = ghostRenderer != null ? ghostRenderer.sharedMaterials : null;
+                if (slots == null || slots.Length == 0 || slots[0] == null || !slots[0].HasProperty(property))
+                {
+                    outcome = "no mesh with '" + property + "' on the ghost";
+                }
+                else
+                {
+                    slots[0] = new Material(slots[0]);
+                    ghostRenderer.sharedMaterials = slots;
+                    glow.colors.Add(new NozzleGlowColor
+                    {
+                        material = slots[0],
+                        property = property,
+                        samples = glow.samples,
+                    });
+                    AddNozzleGlow(ref heatInfo, glow, persistentId);
+                    outcome = "bound";
+                }
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", "restock-rcs-glow-" + partName,
+                $"  Nozzle glow '{partName}' pid={persistentId}: {ReStockRcsGlowModule} {outcome} " +
+                $"(rcsIndex={rcsIndex} thrusters={thrusters.Length})", 60.0);
         }
 
         private static void AddNozzleGlow(ref HeatGhostInfo heatInfo, NozzleGlowInfo glow, uint persistentId)
@@ -408,6 +602,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("GhostVisual", $"throttle-glow-{partName}",
                     $"Throttle glow '{partName}' pid={persistentId}: drivers={throttleDrivers.Count} " +
                     $"bound={throttleGlows}" + DescribeNozzleGlows(heatInfo), 60.0);
+            BuildReStockRcsGlow(prefab, modelRoot, ghostModelNode, cloneMap, ref heatInfo, persistentId, partName);
             List<NozzleGlowPlan> plans = CollectNozzleGlowPlans(prefab, partNode, modelRoot);
             if (plans == null) return;
 
@@ -430,6 +625,7 @@ namespace Parsek
                     moduleKeys = new ulong[plan.moduleIndices.Length],
                     modulePowers = new float[plan.moduleIndices.Length],
                     powerScale = plan.powerScale,
+                    vesselThrottleUnrecorded = plan.vesselThrottleUnrecorded,
                     approachRate = GhostPlaybackLogic.ComputeNozzleGlowRate(plan.responseSpeed),
                     initialLevel = plan.initialLevel,
                 };
@@ -489,6 +685,8 @@ namespace Parsek
                     .Append(g.powerScale.ToString("0.###", CultureInfo.InvariantCulture)).Append(" rate=")
                     .Append(g.approachRate.ToString("0.####", CultureInfo.InvariantCulture)).Append(" initial=")
                     .Append(g.initialLevel.ToString("0.###", CultureInfo.InvariantCulture));
+                if (g.vesselThrottleUnrecorded) sb.Append(" vesselThrottle=snapshot");
+                if (g.under != null) sb.Append(" writersUnder=").Append(g.under.Length.ToString(CultureInfo.InvariantCulture));
                 if (g.ramps)
                     sb.Append(" ramp=").Append(g.initialRamp.ToString("0.###", CultureInfo.InvariantCulture))
                         .Append('@').Append(g.rampRate.ToString("0.####", CultureInfo.InvariantCulture));
@@ -501,14 +699,18 @@ namespace Parsek
         /// Stamps the UT the persisted levels were read at, the snapshot vessel's <c>lastUT</c>
         /// (NaN when absent). A build from the end-of-recording snapshot carries the glow of the
         /// wrong end: its nozzles start cold (<see cref="SnapshotBaselineTrustedForBuildType"/>).
+        /// A glow whose vessel throttle no recorded power tells takes the snapshot's.
         /// </summary>
         internal static void StampPersistedGlowLevels(HeatGhostInfo heatInfo, ConfigNode snapshotNode, bool trusted)
         {
             if (heatInfo?.nozzleGlows == null) return;
             double ut = trusted ? ReadSnapshotUT(snapshotNode) : double.NaN;
+            float throttle = trusted ? ReadSnapshotMainThrottle(snapshotNode) : float.NaN;
             for (int i = 0; i < heatInfo.nozzleGlows.Count; i++)
             {
                 heatInfo.nozzleGlows[i].initialUT = ut;
+                if (heatInfo.nozzleGlows[i].vesselThrottleUnrecorded)
+                    heatInfo.nozzleGlows[i].vesselThrottle = throttle;
                 if (trusted) continue;
                 heatInfo.nozzleGlows[i].initialLevel = 0f;
                 heatInfo.nozzleGlows[i].initialRamp = 0f;

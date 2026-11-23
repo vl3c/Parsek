@@ -78,6 +78,8 @@ Not released yet.
   them) had an extra or replaced flame on their ghosts. (GHOST-ENGINE-ADDED-PLUMES)
 - **Ghost effects point and scale like the real ones.** Flames on rescaled parts are no longer too
   large, ReStock engine bells glow and its claw lamps show their pattern. (GHOST-FX-MODEL-SCALE)
+- **Ghost jet and booster nozzles heat up when the real ones do.** They glowed on engines stock
+  keeps dark or slow to heat, and ReStock's RCS glow shows. (GHOST-NOZZLE-GLOW-WRONG-SOURCE)
 - **A heated nose cone's ghost glows in the part's own colours.** Parts with a heat glow no longer
   all turn the same orange. (PARTPARITY-FX-FIRST-READINGS-2026-11-23)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and

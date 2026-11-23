@@ -42,6 +42,14 @@ namespace Parsek
             public ColorChangerRendererFilter filter;
             public ThrottleGlowCurve throttleGlow;
             public List<ColorChangerMaterialState> materials = new List<ColorChangerMaterialState>();
+            public List<ColorChangerOverlap> overlaps;
+        }
+
+        /// <summary>Materials whose property other throttle-driven modules write before the plan does.</summary>
+        private sealed class ColorChangerOverlap
+        {
+            public int[] under;
+            public List<ColorChangerMaterialState> materials = new List<ColorChangerMaterialState>();
         }
 
         /// <summary>
@@ -137,6 +145,7 @@ namespace Parsek
             List<ColorChangerGhostInfo> results = null;
             int renderersWritten = 0;
             int renderersFiltered = 0;
+            int overlapped = 0;
             if (plans.Count > 0)
             {
                 var patterns = new List<ColorChangerPattern>(plans.Count);
@@ -154,10 +163,12 @@ namespace Parsek
 
                 var writerProperties = new List<string>(plans.Count);
                 var writerKeeps = new List<bool[]>(plans.Count);
+                var writerIsGlow = new List<bool>(plans.Count);
                 for (int w = 0; w < frameOrder.Length; w++)
                 {
                     ColorChangerWritePlan plan = plans[frameOrder[w]];
                     writerProperties.Add(plan.shaderProperty);
+                    writerIsGlow.Add(plan.pattern == ColorChangerPattern.ThrottleGlow);
                     var keeps = new bool[renderers.Count];
                     for (int r = 0; r < renderers.Count; r++)
                         keeps[r] = ColorChangerKeepsRenderer(
@@ -198,7 +209,9 @@ namespace Parsek
                                 clonedAny = true;
                             }
                             ColorChangerWritePlan plan = plans[frameOrder[source.Value]];
-                            plan.materials.Add(new ColorChangerMaterialState
+                            int[] under = ResolveThrottleGlowWritersUnder(
+                                writerProperties, writerKeeps, writerIsGlow, source.Value, r);
+                            MaterialsOf(plan, under).Add(new ColorChangerMaterialState
                             {
                                 material = slots[s],
                                 offColor = plan.offColor,
@@ -217,18 +230,16 @@ namespace Parsek
                 for (int i = 0; i < plans.Count; i++)
                 {
                     ColorChangerWritePlan plan = plans[i];
-                    if (plan.materials.Count == 0) continue;
-                    if (results == null)
-                        results = new List<ColorChangerGhostInfo>();
-                    results.Add(new ColorChangerGhostInfo
+                    if (plan.materials.Count > 0)
+                        AddColorChangerInfo(ref results, persistentId, plan, plan.materials, null);
+                    for (int o = 0; plan.overlaps != null && o < plan.overlaps.Count; o++)
                     {
-                        partPersistentId = persistentId,
-                        shaderProperty = plan.shaderProperty,
-                        isCabinLight = plan.pattern == ColorChangerPattern.CabinLight,
-                        isAblationChar = plan.pattern == ColorChangerPattern.AblationChar,
-                        materials = plan.materials,
-                        throttleGlow = plan.throttleGlow,
-                    });
+                        var under = new List<ThrottleGlowCurve>();
+                        for (int u = 0; u < plan.overlaps[o].under.Length; u++)
+                            under.Add(plans[frameOrder[plan.overlaps[o].under[u]]].throttleGlow);
+                        overlapped += plan.overlaps[o].materials.Count;
+                        AddColorChangerInfo(ref results, persistentId, plan, plan.overlaps[o].materials, under);
+                    }
                 }
             }
 
@@ -247,9 +258,40 @@ namespace Parsek
                 $"modules={colorChangerNodes.Count} built={(results != null ? results.Count : 0)} " +
                 $"cabinLight={cabin} ablationChar={charCount} restState={rest} throttleGlow={throttle} " +
                 $"noShaderProperty={skippedNoShaderProperty} neverWritten={skippedNeverWritten} " +
-                $"renderersWritten={renderersWritten} renderersFiltered={renderersFiltered}", 60.0);
+                $"renderersWritten={renderersWritten} renderersFiltered={renderersFiltered} " +
+                $"materialsWithMoreGlowWriters={overlapped}", 60.0);
 
             return results;
+        }
+
+        private static void AddColorChangerInfo(
+            ref List<ColorChangerGhostInfo> results, uint persistentId, ColorChangerWritePlan plan,
+            List<ColorChangerMaterialState> materials, List<ThrottleGlowCurve> under)
+        {
+            if (results == null)
+                results = new List<ColorChangerGhostInfo>();
+            results.Add(new ColorChangerGhostInfo
+            {
+                partPersistentId = persistentId,
+                shaderProperty = plan.shaderProperty,
+                isCabinLight = plan.pattern == ColorChangerPattern.CabinLight,
+                isAblationChar = plan.pattern == ColorChangerPattern.AblationChar,
+                materials = materials,
+                throttleGlow = plan.throttleGlow,
+                throttleGlowUnder = under,
+            });
+        }
+
+        private static List<ColorChangerMaterialState> MaterialsOf(ColorChangerWritePlan plan, int[] under)
+        {
+            if (under.Length == 0) return plan.materials;
+            if (plan.overlaps == null) plan.overlaps = new List<ColorChangerOverlap>();
+            for (int o = 0; o < plan.overlaps.Count; o++)
+                if (System.Linq.Enumerable.SequenceEqual(plan.overlaps[o].under, under))
+                    return plan.overlaps[o].materials;
+            var overlap = new ColorChangerOverlap { under = under };
+            plan.overlaps.Add(overlap);
+            return overlap.materials;
         }
 
         private static List<string> SharedMaterialNames(Renderer renderer)
@@ -421,6 +463,26 @@ namespace Parsek
             for (int i = 0; i < patterns.Count; i++)
                 if (patterns[i] == ColorChangerPattern.AblationChar) order.Add(i);
             return order.ToArray();
+        }
+
+        /// <summary>
+        /// Pure: the throttle-driven writers (frame order) that write the same property of the
+        /// renderer before <paramref name="writer"/>, itself one. Stock's Update hides them, but
+        /// KSPCommunityFixes' writes only while a ramp moves, so they show once
+        /// <paramref name="writer"/>'s stands (ReStock's boosters, whose <c>includedRenderers</c> /
+        /// <c>excludedRenderers</c> no OnLoad reads: both modules write the whole model).
+        /// </summary>
+        internal static int[] ResolveThrottleGlowWritersUnder(
+            IList<string> writerProperties, IList<bool[]> writerKeepsRenderer, IList<bool> writerIsGlow,
+            int writer, int renderer)
+        {
+            if (!writerIsGlow[writer] || !writerKeepsRenderer[writer][renderer]) return new int[0];
+            var under = new List<int>();
+            for (int w = 0; w < writer; w++)
+                if (writerIsGlow[w] && writerKeepsRenderer[w][renderer]
+                    && writerProperties[w] == writerProperties[writer])
+                    under.Add(w);
+            return under.ToArray();
         }
 
         /// <summary>
