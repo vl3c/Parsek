@@ -214,7 +214,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryReadPrefabParticleConfigEntry_UsesLocalPositionAsOffsetFallback()
+        public void TryReadPrefabParticleConfigEntry_IgnoresLocalPosition_AsStockPrefabParticleFxDoes()
         {
             var prefabNode = new ConfigNode("PREFAB_PARTICLE");
             prefabNode.AddValue("prefabName", "fx_smokeTrail_light");
@@ -230,10 +230,13 @@ namespace Parsek.Tests
             Assert.True(parsed);
             Assert.Equal("fx_smokeTrail_light", entry.prefabName);
             Assert.Equal("thrustTransform", entry.transformName);
-            AssertVector3Close(new Vector3(0f, 0f, 0.2f), entry.localOffset);
+            AssertVector3Close(Vector3.zero, entry.localOffset);
             Assert.Equal("0,45,0", entry.rawLocalRotation);
             Assert.Equal("running", entry.groupName);
-            AssertHasEngineFxLog("using localPosition fallback");
+
+            prefabNode.AddValue("localOffset", "0,0,1");
+            Assert.True(EngineFxBuilder.TryReadPrefabParticleConfigEntry(prefabNode, "running", out entry));
+            AssertVector3Close(new Vector3(0f, 0f, 1f), entry.localOffset);
         }
 
         [Fact]
@@ -311,14 +314,14 @@ namespace Parsek.Tests
         // ---- RAPIER: its own trail, never the fx_smokeTrail_large substitute ----------
 
         /// <summary>The stock RAPIER's trail entry (rapierEngine.cfg, running_open).</summary>
-        private static List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> StockRapierEntries()
+        private static List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)> StockRapierEntries()
         {
             ConfigNode[] groups = { new ConfigNode("running_open") };
             ConfigNode prefab = groups[0].AddNode("PREFAB_PARTICLE");
             prefab.AddValue("prefabName", "fx_smokeTrail_aeroSpike");
             prefab.AddValue("transformName", "smokePoint");
             prefab.AddValue("localOffset", "0, 0, 1");
-            var entries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var entries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             EngineFxBuilder.ScanEffectsPrefabParticleEntries(groups, new[] { "running_open" }, entries);
             return entries;
         }
@@ -382,7 +385,7 @@ namespace Parsek.Tests
         [InlineData("none", "customThrust", "thrustTransform")]
         public void RapierWhiteFlame_AnchorFallback(string existing, string thrustVector, string expected)
         {
-            var entries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var entries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             Assert.True(EngineFxBuilder.TryAddRapierWhiteFlame(
                 entries, 0, name => name == existing, thrustVector, out string flameTransform));
             Assert.Equal(expected, flameTransform);
@@ -410,9 +413,11 @@ namespace Parsek.Tests
             Assert.Contains("CapturePressureFade(behaviours[i] as FXFadeByPressure, smokeFadeSink);", setup);
 
             Assert.DoesNotContain(code, l => l.Contains("fx_smokeTrail_large"));
-            Assert.Contains("GameObject fxPrefab = isRapierOwnTrail ? " +
-                "GhostVisualBuilder.FindBuiltinEffectsPrefab(prefabName) : " +
-                "GhostVisualBuilder.FindFxPrefab(prefabName);", string.Join(" ", code));
+            Assert.Contains("GameObject fxPrefab = fxCurves != null || isRapierOwnTrail ? " +
+                "GhostVisualBuilder.FindBuiltinEffectsPrefab(prefabName) : null; " +
+                "bool isStockAsset = fxPrefab != null; " +
+                "if (fxPrefab == null && !isRapierOwnTrail) " +
+                "fxPrefab = GhostVisualBuilder.FindFxPrefab(prefabName);", string.Join(" ", code));
         }
 
         // ---- ReStock-alone donor scarcity / size fidelity / prefab aim --------------

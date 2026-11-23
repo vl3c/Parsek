@@ -164,6 +164,8 @@ namespace Parsek
         // Only ReStock's world-space SRB smoke rigs are affected; every stock FX asset is
         // local-space and this flag stays false.
         public bool baselineUseWorldSpace;
+        // A GhostEngineFxRule writes this emitter; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -178,6 +180,8 @@ namespace Parsek
         public float startSpeedMultiplier;
         public float startSizeMultiplier;
         public bool captured;
+        // A GhostEngineFxRule writes this system; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -213,9 +217,20 @@ namespace Parsek
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>
         public List<GhostFxMagnitudeBaseline> particleBaselines = new List<GhostFxMagnitudeBaseline>();
+        // S1 fallback curves, of sources with no entry in fxRules.
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
+        /// <summary>The sources stock's own power rules size (<see cref="GhostPlaybackLogic.ApplyEngineFxRules"/>).</summary>
+        public List<GhostEngineFxRule> fxRules = new List<GhostEngineFxRule>();
+        /// <summary>The part PREFAB's engine module, read for its thrust curves only.</summary>
+        public ModuleEngines engine;
+        public bool usesThrustFraction;
+        /// <summary><c>finalThrust / maxThrust</c> at full throttle in the ghost's air; 1 until known.</summary>
+        public float thrustFraction = 1f;
+        // The inputs thrustFraction was last computed from.
+        public int thrustAirSerial;
+        public float thrustThrottle = -1f;
         /// <summary>The stock <c>SmokeTrailControl</c> and <c>FXFadeByPressure</c> fades of this
         /// engine's cloned FX, captured before the component is stripped (todo
         /// GHOST-SMOKE-IN-VACUUM). Empty for an engine whose FX carry none.</summary>

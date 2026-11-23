@@ -2261,7 +2261,8 @@ F2 as built (2026-11-23, no behaviour change, IL proofs in `<umbrella>/logs/refa
   (`GhostPlaybackEngine.InRangeRender.cs`, `internal static`): `UpdateEvaJetpackPlumeForFrame`,
   `RestoreAllRcsEmissions`, `MuteAllAudio` for a boundary-overlap secondary else
   `UnmuteAllAudio`, `RestoreActiveEngineFx` when `ShouldRestartEngineFxAfterSuppression(false,
-  prior)`, then `UpdateEngineSmokeTrailFades`. The smoke fade belongs IN it: it is part of the
+  prior)`, then `UpdateEngineThrustFractions` (ghost-fx-3, 2026-11-23) and
+  `UpdateEngineSmokeTrailFades`. The smoke fade belongs IN it: it is part of the
   same unsuppressed branch, it runs after every emission write of the frame (the restore
   re-enables smoke renderers, and the fade re-hides a vacuum trail), and leaving it out would
   give a part case a smoke look production never shows. It reads the ghost's
@@ -2307,7 +2308,10 @@ ghosts are P6's three routes, and an `fx:<bucket>` wave kind admits up to 4 of t
 air run waited for F7 ("F7 as built" below). Decisions:
 
 - Prime. `PrimeVisible` sets `lastInterpolatedBodyName` / `lastInterpolatedAltitude` from the held
-  vessel, then E.2 step 3. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
+  vessel, then E.2 step 3. Since ghost-fx-3 (2026-11-23) it also sets
+  `lastInterpolatedSurfaceVelocity` (the held vessel's `srf_velocity`, source `Positions`), as
+  playback's `SetInterpolated` does for a playing ghost: a jet's thrust share follows mach, and a
+  ghost whose ground speed is unknown keeps its share. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
   their smoke draws as built (F4 noted the control could not be met otherwise). A start ghost's
   "first frame at the target" is read again after the visible prime, which is the frame that lights
   its engine.

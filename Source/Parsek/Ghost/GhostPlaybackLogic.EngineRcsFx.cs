@@ -110,7 +110,9 @@ namespace Parsek
                 && ParsekLog.IsVerboseEnabled;
             info.currentPower = power;
 
-            // S1: MAGNITUDE. Scale the plume to the throttle before flipping the boolean gate.
+            // MAGNITUDE. Size the plume to the throttle before flipping the boolean gate: a source
+            // stock drives by its own rule takes that rule (ApplyEngineFxRules), the rest (Parsek's
+            // own added plumes, SmokeScreen nodes) the S1 ratio.
             // Only on the way UP (power > 0): the fields are persistent, and writing a zero-scale
             // at power 0 would leave an invisible plume behind for the next path that re-enables
             // emitters without a fresh magnitude.
@@ -125,6 +127,7 @@ namespace Parsek
                         ComputeEngineSpeed(info.speedCurve, power),
                         ComputeEngineSpeed(info.speedCurve, 1f), power),
                     "engine", info.partPersistentId, info.moduleIndex, power);
+                ApplyEngineFxRules(info);
             }
 
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
@@ -734,7 +737,7 @@ namespace Parsek
                 for (int i = 0; i < emitters.Count; i++)
                 {
                     KspEmitterRef r = emitters[i];
-                    if (!r.magnitudeBaselineCaptured || r.emitter == null) continue;
+                    if (!r.magnitudeBaselineCaptured || r.stockRuled || r.emitter == null) continue;
 
                     // Each field is written INDEPENDENTLY. The pre-fix code wrote all three inside
                     // one try, so the first failure (minEmission, always) skipped the other two as
@@ -777,7 +780,7 @@ namespace Parsek
                 {
                     ParticleSystem ps = systems[i];
                     GhostFxMagnitudeBaseline b = baselines[i];
-                    if (ps == null || !b.captured) continue;
+                    if (ps == null || !b.captured || b.stockRuled) continue;
                     // Size rides the SPEED ratio on purpose - neither the engine nor the RCS path
                     // carries a separate size curve, and a throttled-down plume is shorter and
                     // thinner in the same proportion its exhaust slows. Do NOT "fix" this to the

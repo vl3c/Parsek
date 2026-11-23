@@ -345,7 +345,8 @@ namespace Parsek
         /// </summary>
         private static HeatGhostInfo TryBuildHeatInfo(
             Part prefab, string heatAnimName, string heatSource,
-            Transform modelNodeTransform, string partName, uint persistentId, Transform modelRoot)
+            Transform modelNodeTransform, string partName, uint persistentId, Transform modelRoot,
+            Dictionary<Transform, Transform> cloneMap)
         {
             if (IsHeatClipMissing(heatSource, ModelHoldsClip(modelRoot, heatAnimName)))
             {
@@ -391,8 +392,15 @@ namespace Parsek
                 }
             }
 
-            List<HeatMaterialState> heatMaterialStates =
-                BuildHeatMaterialStates(modelNodeTransform, partName, persistentId, resolvedHeatTransforms);
+            // A ModuleAnimateHeat clip's own colours; the generic ramp only for a part whose colours
+            // another source drives, or a clip that animates none.
+            List<HeatMaterialState> heatMaterialStates = null;
+            if (heatSource == HeatSourceAnimateHeat)
+                heatMaterialStates = BuildClipHeatMaterialStates(
+                    prefab, modelRoot, modelNodeTransform, cloneMap, heatAnimName, partName, persistentId);
+            if (heatMaterialStates == null)
+                heatMaterialStates = BuildHeatMaterialStates(
+                    modelNodeTransform, partName, persistentId, resolvedHeatTransforms);
 
             if ((resolvedHeatTransforms != null && resolvedHeatTransforms.Count > 0) ||
                 (heatMaterialStates != null && heatMaterialStates.Count > 0))

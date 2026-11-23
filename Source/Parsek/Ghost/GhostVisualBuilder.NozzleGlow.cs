@@ -336,12 +336,18 @@ namespace Parsek
         private static List<NozzleGlowColorSample> GetNozzleGlowSamples(
             Transform modelRoot, NozzleGlowPlan plan, string partKey)
         {
-            string key = partKey + "|" + plan.animationName + (plan.isRcs ? "|all" : "|first");
-            if (nozzleGlowSampleCache.TryGetValue(key, out List<NozzleGlowColorSample> cached)) return cached;
             // Stock FXModuleAnimateThrottle drives the first Animation that holds the clip,
             // FXModuleAnimateRCS one per nozzle.
+            return GetClipColorSamples(modelRoot, plan.animationName, !plan.isRcs, partKey);
+        }
+
+        private static List<NozzleGlowColorSample> GetClipColorSamples(
+            Transform modelRoot, string animationName, bool firstAnimationOnly, string partKey)
+        {
+            string key = partKey + "|" + animationName + (firstAnimationOnly ? "|first" : "|all");
+            if (nozzleGlowSampleCache.TryGetValue(key, out List<NozzleGlowColorSample> cached)) return cached;
             List<NozzleGlowColorSample> samples =
-                SampleNozzleGlowClip(modelRoot, plan.animationName, !plan.isRcs, partKey);
+                SampleNozzleGlowClip(modelRoot, animationName, firstAnimationOnly, partKey);
             nozzleGlowSampleCache[key] = samples;
             return samples;
         }

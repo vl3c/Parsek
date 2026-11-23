@@ -176,6 +176,10 @@ namespace Parsek
         internal string smokeDensityBodyName;
         internal double smokeDensityAltitude = double.NaN;
         internal double smokeDensity;
+        // Air cache of GhostPlaybackLogic.UpdateEngineThrustFractions (a pure function of its own
+        // keys, so it needs no reset); the serial counts its refreshes.
+        internal GhostEngineAir engineAir;
+        internal int engineAirSerial;
         // Ground-contact gate memo for RoboticVisualMode.WheelGroundSpeed spin. See
         // WheelGroundContactMemo and GhostPlaybackLogic.ResolveWheelGroundContact.
         internal WheelGroundContactMemo wheelGroundContact;

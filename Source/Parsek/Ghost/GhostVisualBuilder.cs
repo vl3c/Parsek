@@ -1506,7 +1506,7 @@ namespace Parsek
             {
                 string heatSource = SelectHeatAnimationSourceModule(hasAnimateHeat, hasAnimateThrottle);
                 heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
-                    modelNode.transform, partName, persistentId, modelRoot);
+                    modelNode.transform, partName, persistentId, modelRoot, cloneMap);
             }
 
             // Detect light parts and clone Light components for ghost playback

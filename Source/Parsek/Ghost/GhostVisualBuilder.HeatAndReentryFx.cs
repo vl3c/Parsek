@@ -510,6 +510,71 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the clip samples a heat level shows. Stock <c>ModuleAnimateHeat</c> sets the clip's
+        /// normalized time to its 0..1 heat; the recorded levels stand for 0, 0.5 and 1, the poses
+        /// <see cref="SampleHeatAnimation3State"/> samples.
+        /// </summary>
+        internal static void SelectHeatClipColors(
+            Color[] samples, out Color cold, out Color medium, out Color hot)
+        {
+            cold = samples[0];
+            medium = samples[(samples.Length - 1) / 2];
+            hot = samples[samples.Length - 1];
+        }
+
+        /// <summary>
+        /// The colours a ModuleAnimateHeat clip writes, per renderer slot and property, on per-ghost
+        /// material clones. Stock plays the clip on every Animation of the model that holds it
+        /// (<c>ModuleAnimationSetter.AnimStartup</c>). Null when the clip animates no colour.
+        /// </summary>
+        private static List<HeatMaterialState> BuildClipHeatMaterialStates(
+            Part prefab, Transform modelRoot, Transform modelNode, Dictionary<Transform, Transform> cloneMap,
+            string animName, string partName, uint persistentId)
+        {
+            if (prefab == null || modelRoot == null || modelNode == null || cloneMap == null) return null;
+            List<NozzleGlowColorSample> samples = GetClipColorSamples(
+                modelRoot, animName, false, prefab.partInfo?.name ?? prefab.name);
+            if (samples.Count == 0) return null;
+
+            Renderer[] modelRenderers = modelRoot.GetComponentsInChildren<Renderer>(true);
+            var perGhost = new HashSet<Material>();
+            List<HeatMaterialState> states = null;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                NozzleGlowColorSample s = samples[i];
+                if (s.rendererIndex >= modelRenderers.Length) continue;
+                Renderer ghostRenderer = ResolveGhostRenderer(
+                    modelRenderers[s.rendererIndex], modelRoot, modelNode, cloneMap);
+                if (ghostRenderer == null) continue;
+                Material[] slots = ghostRenderer.sharedMaterials;
+                if (slots == null || s.slot >= slots.Length || slots[s.slot] == null) continue;
+                Material material = slots[s.slot];
+                if (!material.HasProperty(s.property)) continue;
+                if (!perGhost.Contains(material))
+                {
+                    material = new Material(material);
+                    slots[s.slot] = material;
+                    ghostRenderer.sharedMaterials = slots;
+                    perGhost.Add(material);
+                }
+                SelectHeatClipColors(s.samples, out Color cold, out Color medium, out Color hot);
+                if (states == null) states = new List<HeatMaterialState>();
+                states.Add(new HeatMaterialState
+                {
+                    material = material,
+                    emissiveProperty = s.property,
+                    coldEmission = cold,
+                    mediumEmission = medium,
+                    hotEmission = hot
+                });
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"heat-clip-colors-{partName}",
+                $"Heat clip '{partName}' pid={persistentId}: '{animName}' colours={samples.Count} " +
+                $"bound={(states != null ? states.Count : 0)}", 60.0);
+            return states;
+        }
+
+        /// <summary>
         /// Creates reentry FX layers (glow materials + fire streak trails)
         /// on a ghost root GameObject.
         /// Called once at ghost spawn time; FX start dormant and are driven by UpdateReentryFx.
