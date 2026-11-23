@@ -2976,5 +2976,5 @@ less; 16 is the starting value.
 
 Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
 on every stock legacy world-space system; the plan does not depend on it, since it frames from
-near particles and judges smoke in the air); and whether the stock spot light's plate gap is a
-ghost defect or a fade still running (U9).
+near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
+ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY).
