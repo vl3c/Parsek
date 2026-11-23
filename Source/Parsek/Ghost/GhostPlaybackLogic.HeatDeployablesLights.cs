@@ -981,8 +981,9 @@ namespace Parsek
         /// Every material a ghost info holds as a per-ghost instance and writes during
         /// playback, with the shader property its owner drives: light lens
         /// (<c>_EmissiveColor</c>) and flare (<c>_TintColor</c>), colour-changer materials
-        /// (their <c>shaderProperty</c>). The reentry glow reuses these instead of re-cloning
-        /// them (<see cref="GhostVisualBuilder.DecideReentryGlowMaterial"/>). HeatGhostInfo
+        /// (their <c>shaderProperty</c>), and a nozzle glow's when it is a colour curve on materials
+        /// of its own. The reentry glow reuses these instead of re-cloning
+        /// them (<see cref="GhostVisualBuilder.DecideReentryGlowMaterial"/>). Other HeatGhostInfo
         /// materials are not listed: the glow skips heat-managed parts outright.
         /// </summary>
         internal static Dictionary<Material, string> CollectGhostOwnedMaterials(GhostPlaybackState state)
@@ -1015,6 +1016,17 @@ namespace Parsek
                                 owned[m] = cc.shaderProperty;
                         }
                     }
+                }
+            }
+            for (int g = 0; state.nozzleGlows != null && g < state.nozzleGlows.Count; g++)
+            {
+                NozzleGlowInfo glow = state.nozzleGlows[g];
+                if (!glow.isColorChanger) continue;
+                for (int i = 0; i < glow.colors.Count; i++)
+                {
+                    Material m = glow.colors[i].material;
+                    if (m != null && !owned.ContainsKey(m))
+                        owned[m] = glow.colors[i].property;
                 }
             }
             return owned;

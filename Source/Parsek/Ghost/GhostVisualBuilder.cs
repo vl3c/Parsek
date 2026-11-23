@@ -1516,7 +1516,7 @@ namespace Parsek
             // field this builder reads is config-only and so never survives into a persisted
             // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
             // structure hider already uses two calls below.
-            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);
+            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab, partNode);
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName,
                 ThrottleDrivenModuleIds(throttleGlowDrivers));
