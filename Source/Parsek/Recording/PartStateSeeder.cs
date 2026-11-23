@@ -771,6 +771,124 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Emits the EVA seeds of a chain promotion: what a kerbal's jetpack and ragdoll state is
+        /// now, wherever the recording's own events do not already say so. Nothing polls a kerbal
+        /// between the switch to him and the promotion, so a pack deployed in that window has no
+        /// edge, and the ghost's plume gate (deployed, thrusting, not ragdoll) would stay shut for
+        /// the whole EVA.
+        /// <list type="bullet">
+        /// <item>pack out now, last recorded jetpack edge not a deploy: EvaJetpackDeployed;</item>
+        /// <item>ragdoll now, last recorded ragdoll edge not a start: EvaRagdollStarted;</item>
+        /// <item>not ragdoll now, last recorded ragdoll edge a start: EvaRagdollEnded (the mirror;
+        /// a ragdoll left open shuts the plume for the rest of the recording).</item>
+        /// </list>
+        /// A stowed pack needs no closing edge: the plume needs thrust, and stock does not thrust
+        /// on a stowed pack.
+        ///
+        /// The UT keeps the seed inert for the tail trim without rewriting the recording's past: a
+        /// part with no EVA event yet gets <paramref name="seedUT"/> (the recording's start, like
+        /// the engine and converter promotion seeds), where no thrust edge exists for it to
+        /// change. A part whose own events contradict the live state really changed after them, so
+        /// its seed goes at <paramref name="currentUT"/>, after every recorded edge.
+        /// </summary>
+        /// <param name="evaPartPids">Every part pid on the EVA vessel being promoted.</param>
+        /// <param name="recordedEvents">The promoted recording's own events (may be null).</param>
+        internal static int EmitEvaStateSeedEvents(
+            PartTrackingSets sets, IEnumerable<uint> evaPartPids, List<PartEvent> recordedEvents,
+            List<PartEvent> events, double seedUT, double currentUT, string logTag,
+            System.Func<uint, string> NameFor)
+        {
+            if (sets == null || evaPartPids == null || events == null)
+                return 0;
+
+            int emitted = 0;
+            foreach (uint pid in evaPartPids)
+            {
+                FindLastEvaEdges(recordedEvents, pid, out bool hasEvaEvent,
+                    out PartEventType? lastJetpack, out PartEventType? lastRagdoll);
+
+                if (sets.jetpackDeployedParts != null && sets.jetpackDeployedParts.Contains(pid)
+                    && lastJetpack != PartEventType.EvaJetpackDeployed)
+                {
+                    Emit(pid, PartEventType.EvaJetpackDeployed, hasEvaEvent ? currentUT : seedUT);
+                }
+
+                bool ragdoll = sets.ragdollParts != null && sets.ragdollParts.Contains(pid);
+                if (ragdoll && lastRagdoll != PartEventType.EvaRagdollStarted)
+                    Emit(pid, PartEventType.EvaRagdollStarted, hasEvaEvent ? currentUT : seedUT);
+                else if (!ragdoll && lastRagdoll == PartEventType.EvaRagdollStarted)
+                    Emit(pid, PartEventType.EvaRagdollEnded, currentUT);
+            }
+            return emitted;
+
+            void Emit(uint pid, PartEventType type, double ut)
+            {
+                string name = NameFor != null ? NameFor(pid) : "unknown";
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = type,
+                    partName = name,
+                    value = 0f,
+                    moduleIndex = 0
+                });
+                emitted++;
+                ParsekLog.Verbose(logTag,
+                    $"Seed event: {type} pid={pid} part='{name}' " +
+                    $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} (promotion)");
+            }
+        }
+
+        /// <summary>
+        /// The last jetpack edge (deployed / stowed) and the last ragdoll edge (started / ended) a
+        /// recording carries for one part, and whether it carries any EVA event for it. The list
+        /// is not assumed sorted; the later list entry wins a UT tie.
+        /// </summary>
+        private static void FindLastEvaEdges(
+            List<PartEvent> recordedEvents, uint pid, out bool hasEvaEvent,
+            out PartEventType? lastJetpack, out PartEventType? lastRagdoll)
+        {
+            hasEvaEvent = false;
+            lastJetpack = null;
+            lastRagdoll = null;
+            if (recordedEvents == null) return;
+
+            double jetpackUT = double.NegativeInfinity;
+            double ragdollUT = double.NegativeInfinity;
+            for (int i = 0; i < recordedEvents.Count; i++)
+            {
+                PartEvent evt = recordedEvents[i];
+                if (evt.partPersistentId != pid) continue;
+                switch (evt.eventType)
+                {
+                    case PartEventType.EvaJetpackDeployed:
+                    case PartEventType.EvaJetpackStowed:
+                        hasEvaEvent = true;
+                        if (evt.ut >= jetpackUT)
+                        {
+                            jetpackUT = evt.ut;
+                            lastJetpack = evt.eventType;
+                        }
+                        break;
+                    case PartEventType.EvaRagdollStarted:
+                    case PartEventType.EvaRagdollEnded:
+                        hasEvaEvent = true;
+                        if (evt.ut >= ragdollUT)
+                        {
+                            ragdollUT = evt.ut;
+                            lastRagdoll = evt.eventType;
+                        }
+                        break;
+                    case PartEventType.EvaJetpackThrustStarted:
+                    case PartEventType.EvaJetpackThrustStopped:
+                        hasEvaEvent = true;
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
         /// Emits EngineIgnited seed events from activeEngineKeys with throttle values.
         /// Engines with throttle=0 are skipped — they are staged but not yet producing
         /// thrust, so no plume should be shown at playback start. The first real

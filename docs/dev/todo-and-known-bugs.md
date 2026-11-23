@@ -71,7 +71,7 @@ Gate: EVA-17 stays red on the plume pin until this and the next entry are fixed.
 do not see it: `RelativeSectionGhostsLandOnTheirRecordedShadow` skips (`ghosts=0`), the batch reads
 `total=3 passed=1 failed=0 skipped=2`.
 
-## EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; OPEN; visual]
+## ~~EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION~~: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; FIXED 2026-11-24, branch `eva-jetpack-promotion`; visual]
 
 What happens. The player (or the seam) deploys the pack on a kerbal who is not yet promoted: no
 recorder polls her (previous entry), and the thrust that follows is the trigger. The promoted
@@ -88,11 +88,32 @@ family=EvaJetpackThrustStarted ... applied=1` at 23:13:44.859, .381, .936) but t
 plume emitting` line is ever written and no plume is drawn. The normal in-game order (press R, then
 thrust) is exactly this one.
 
-Fix idea: on a promotion, emit EvaJetpackDeployed (and the ragdoll state) at the seed UT when the
-recording's own event list does not already say deployed, the way the converter seeds do
-(`PromotionConverterSeedInGameTest`); a deploy event is not an interesting-UT poison if it is
-classified inert for the tail trim. Gate: EVA-17's two required lines (`Part event:
-EvaJetpackDeployed` after the hops mark, and the plume line after the replay mark).
+Fix (`PartStateSeeder.EmitEvaStateSeedEvents`, called on the EVA promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): per part, the live jetpack and ragdoll state is
+compared with the last word of the recording's own events. Pack out and not recorded out writes
+EvaJetpackDeployed; ragdoll and not recorded ragdoll writes EvaRagdollStarted; the mirror that keeps
+a plume dark, recorded ragdoll but upright now, writes EvaRagdollEnded. Already recorded, or stowed
+now, writes nothing. UT: a part with no EVA event yet is seeded at the promotion seed UT (the
+recording's start, like the engine and converter seeds, so the tail trim's last interesting UT does
+not move); a part whose events contradict the live state is seeded at the promotion itself, so no
+recorded edge is overtaken. The switch-segment no-op check ignores an EvaJetpackDeployed at the
+segment's start (a pack already out), so visiting such a kerbal still discards a do-nothing segment.
+Existing recordings are untouched; no format change. Tests: `EvaPromotionSeedTests`. Gate: EVA-17's
+required deploy line accepts the seed or either recorder's polled edge.
+
+## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
+engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
+ladders, fairings, animation groups and aero surfaces are post-switch triggers
+(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
+trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
+lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
+way. The fix shape is the same (compare the live state with the recording's last word); it needs its
+own pass because deployables are exactly the family bug A / #263 is about. A kerbal's helmet and
+headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
+mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
+recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 
 ## SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
 

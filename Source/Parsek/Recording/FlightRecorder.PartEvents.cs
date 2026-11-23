@@ -1772,7 +1772,10 @@ namespace Parsek
         /// split branches, and merge branches that begin with empty PartEvents.
         /// Non-engine seeds are still skipped on promotion to preserve the bug A
         /// invariant — the orphan-engine guard only inspects engine events, so engine
-        /// sentinels are the minimum needed to defeat it.</param>
+        /// sentinels are the minimum needed to defeat it. Two more exceptions ride the same
+        /// path: running converters (<see cref="ChainPromotionShouldEmitConverterSeeds"/>) and
+        /// an EVA kerbal's jetpack and ragdoll where the recording's own events do not already
+        /// say so (<see cref="PartStateSeeder.EmitEvaStateSeedEvents"/>).</param>
         internal void ResetPartEventTrackingState(Vessel v, bool emitSeedEvents = true)
         {
             decoupledPartIds.Clear();
@@ -1891,6 +1894,11 @@ namespace Parsek
                     ParsekLog.Verbose("Recorder",
                         $"ResetPartEventTrackingState: skipping converter seeds (chain promotion, " +
                         $"activeRec='{activeRecId}' already has {converterEventCount} converter event(s))");
+                // The kerbal's jetpack and ragdoll are reconciled per part rather than gated on
+                // "no event yet": nothing polls a kerbal between the switch to him and this
+                // promotion, so his recording's last word can be out of date.
+                if (v.isEVA)
+                    EmitEvaStateSeedEventsForPromotion(v, activeRec, activeRecId);
                 return;
             }
 
@@ -1992,6 +2000,37 @@ namespace Parsek
             ParsekLog.Verbose("Recorder",
                 $"ResetPartEventTrackingState: emitted {emitted} converter seed event(s) for chain " +
                 $"promotion (activeRec='{activeRecId ?? "(none)"}' had 0 converter events - " +
+                $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// Emits the jetpack and ragdoll seeds of an EVA kerbal at a chain promotion
+        /// (<see cref="PartStateSeeder.EmitEvaStateSeedEvents"/>). The recorder's own buffer is
+        /// empty here, so the active recording's events are all that has been recorded of him.
+        /// </summary>
+        private void EmitEvaStateSeedEventsForPromotion(Vessel v, Recording activeRec, string activeRecId)
+        {
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            double currentUT = Planetarium.GetUniversalTime();
+            double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
+            int emitted = PartStateSeeder.EmitEvaStateSeedEvents(
+                BuildCurrentTrackingSets(), partNamesByPid.Keys, activeRec?.PartEvents, PartEvents,
+                seedUT, currentUT, "Recorder",
+                pid => partNamesByPid.TryGetValue(pid, out string n) ? n : "unknown");
+            ParsekLog.Verbose("Recorder",
+                $"ResetPartEventTrackingState: emitted {emitted} EVA seed event(s) for chain " +
+                $"promotion (activeRec='{activeRecId ?? "(none)"}' " +
+                $"jetpack={jetpackDeployedParts.Count} ragdoll={ragdollParts.Count} " +
                 $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
         }

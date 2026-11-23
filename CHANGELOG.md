@@ -64,6 +64,8 @@ Not released yet.
 
 ### Fixed
 
+- **A kerbal's jetpack plume shows on the replay.** A pack deployed before the recording picked the
+  kerbal up is now recorded. (EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION)
 - **Ghost lights and heat glow match stock.** Ghost lamps shine as bright as real ones, engine
   nozzles heat up, and nose cones that never glow stay dark. (GHOST-LAMP-LIGHT-INTENSITY)
 - **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the
