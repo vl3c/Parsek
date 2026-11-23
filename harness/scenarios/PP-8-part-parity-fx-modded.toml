@@ -1,0 +1,109 @@
+schema = 1
+id = "PP-8-part-parity-fx-modded"
+tier = "operator"
+# PART GHOST PARITY, MODDED INSTALL, VISUAL EFFECTS IN ORBIT (phase P8 of
+# docs/dev/design-part-ghost-parity.md, Appendix E, row F6 of E.9). PP-7's shape on the
+# modded-compat instance (ReStock, ReStock+, Waterfall, B9PartSwitch): every part that shows
+# an effect while it works (engine plumes and smoke, RCS puffs, thermal glow, the light a
+# lamp casts on a matte plate) held on a test stand beside its event-route and start-route
+# ghosts, compared as a distribution over 16 samples per view. Base skin only (owner ruling
+# R2).
+#
+# MOSTLY REFERENCE (design E.6, owner ruling 2026-11-21: no Waterfall on ghosts). Every
+# Waterfall-patched engine and RCS part draws Waterfall meshes on the real side and the
+# recovered particles on the ghost, so its case is captured, measured and shown with its
+# would-be verdict, but reads `reference`: never `fail`, never gated, counted apart. The
+# solid boosters, the heat cases and the plate pictures stay judged. The same parts without
+# Waterfall are judged by PP-9 on modded-restock.
+#
+# WHAT THE LANE FLIES. PP-7's host and setup on `eva2-lko-crewed` (auto-record off, verbose
+# logging, WarpToUT 1900), `op=reset`, FIVE time-boxed `op=run fx=all` steps and quit.
+# `controls=true` runs the orbit FX control set on subjects that carry no Waterfall module
+# (the Flea for the plume controls, E.5).
+#
+# CASES (design E.1, pinned by `fx-parts-modded-compat.txt`): 102 plume (60 burn-full, 42
+# burn-low), 19 rcs, 26 heat, 18 plate, plus the 11 orbit FX controls. Each step logs the
+# exact counts on its `fx cases:` Info line.
+#
+# GATES. As PP-7: (1) the partParity row's instrument gates (controls, press, recompute,
+# completeness, host); (2) part verdicts REPORT-ONLY (`gating = false`); (3) the log pins:
+# the run-step summary line with `crashed=0` and `controls=ok`, the seam applier's OK line,
+# the step's `fx cases:` line, and no `[Parsek][ERROR]`: an ERROR a modded part provokes is a
+# finding to file, never a suppression (design 10).
+#
+# READING THE RESULT. As PP-7, from `harness/results/<runId>_partparity/pp8/`; the viewer's
+# Reference filter separates the judged cases.
+#
+# FAST-LANE CHECKLIST (harness/README.md). As PP-7: (1) considered, not applied (PP-4's steps
+# are its own measurement, E.8); (2) one explicit-UT rails warp; (3) the time box is the
+# measurement; (4)/(5) none; (6) `[retry] policy = "none"`; (7) count 0; (8)/(9) tier
+# operator by purpose, flight_efficiency.py after the first green flight.
+description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F6): every working modded-compat part's (ReStock, ReStock+, Waterfall, B9PartSwitch) visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over five PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A part whose plume is Waterfall's reads reference, never judged."
+instanceProfile = "modded-compat"
+tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-8"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "reset" }, expect = "OK", budget = 120 },
+  # Five time-boxed FX steps over every orbit FX case; each resumes.
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp8", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 and no D17 claim: the part verdicts are report-only, so no FX family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design E.8); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp8 op=run ok=true label=pp8 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp8 elapsed=[0-9.]+s label=pp8 done=(true|false) ",
+  # The step planned an orbit FX run (design E.5, PartParityFxRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] fx cases: fx=all contexts=none install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The step budgets: LoadGame 300, the warp 120, the reset 120, five 540 s run steps (3240 s).
+budgetSeconds = 3300
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

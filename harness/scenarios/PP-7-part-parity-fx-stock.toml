@@ -1,0 +1,129 @@
+schema = 1
+id = "PP-7-part-parity-fx-stock"
+tier = "operator"
+# PART GHOST PARITY, STOCK INSTALL, VISUAL EFFECTS IN ORBIT (phase P8 of
+# docs/dev/design-part-ghost-parity.md, Appendix E, row F6 of E.9). PP-1 photographs every
+# stock part STOWED beside its Parsek ghost and PP-3 every transforming part DEPLOYED; this
+# lane photographs every part that shows an effect while it works: engine plumes and smoke
+# (`burn-full`, `burn-low`), RCS puffs (`rcs-fire`), thermal glow (`heat-medium`,
+# `heat-hot`) and the light a lamp casts on a matte plate (`lit` in context `plate`). Each
+# real part is held on a test stand (position and attitude written back every physics step,
+# the propellant cheat on for the step only) beside its event-route and start-route ghosts.
+# The particles are stochastic, so a plume is compared as a distribution over 16 samples per
+# view (E.4), never frame against frame. Base skin only (owner ruling R2).
+#
+# WHAT THE LANE FLIES. PP-1's host and setup: `eva2-lko-crewed` (sandbox, every part
+# available, the 13-part Kerbal X Probe ORBITING Kerbin at ~100 km) boots into FLIGHT, turns
+# every auto-record setting off (no case vessel may be recorded), turns verbose logging on
+# (the per-case lines are verbose-tier), warps on rails to UT 1900 (FGV-1's sunlit window),
+# clears the label directory (`op=reset`), runs FOUR time-boxed `op=run fx=all` steps and
+# quits. An `fx=` run names no `states=` and no `skins=` and plans ONLY the FX keys, so
+# nothing of PP-1 or PP-3 is repeated; without `contexts=air` it plans the orbit ones, and
+# the jets' air cases (`fx-needs-air`) are piece F7's. `controls=true` runs the orbit FX
+# control set (E.5): real-vs-real, and a ghost broken one way each (plume off, short, hue,
+# shifted, smoke dropped, heat events dropped, plate light off) that must fail its own
+# measure and no other.
+#
+# CASES (design E.1, pinned by `fx-parts-stock-minimal.txt`): 74 plume (43 burn-full, 31
+# burn-low), 7 rcs, 32 heat, 15 plate, plus the 11 orbit FX controls. Each step logs the
+# exact counts on its `fx cases:` Info line.
+#
+# KNOWN DIFFERENCE (owner ruling R4): the ghost fires every nozzle of an RCS module at its
+# mean power. An rcs case's length, width and brightness are reported, never judged (todo
+# RCS-PER-NOZZLE-RECORDING).
+#
+# GATES. (1) The partParity verifier row, from the start: the run's control set (recomputed
+# from the manifest's settings) behaved, every FX control re-judged from its sidecar (else
+# INVALID(parity-controls)); no family's press path broke (more than half of one family's
+# cases action-failed / state-timeout is INVALID(parity-state-press)); the Python recompute
+# of the atlases and of every FX measure from the FX tiles agrees with the C# sidecars (else
+# INVALID(parity-instrument)); the sweep reached done and every planned case has a complete
+# sidecar or a recorded setup fault (else INVALID(parity-incomplete)); the host survived
+# (else INVALID(parity-host-damaged)). (2) The part verdicts are REPORT-ONLY
+# (`[expectations.partParity] gating = false`); every E.4 threshold is a starting guess the
+# reading flights re-pin. (3) The log pins as a second guard: the run-step summary line with
+# `crashed=0` and `controls=ok`, the seam applier's OK line, the step's `fx cases:` line
+# (proof the step planned an FX run), and no `[Parsek][ERROR]`.
+#
+# READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp7/` into
+# `harness/results/<runId>_partparity/pp7/`, where the row writes `partparity-verdicts.json`.
+# The viewer (`harness/tools/part_parity_view.py stock=<pp3 dir> stock=<pp7 dir>`) shows each
+# part's FX rows and strips under its state cases. Every ghost-visual defect a case shows is
+# filed in docs/dev/todo-and-known-bugs.md with its case id.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - the
+# cheat, the holds and the burning waves are a new risk to a host the state sweep shares, and
+# PP-3 would pass 2000 s of wall with them (E.8). (2) No idle waits: the one game-time wait is
+# an explicit-UT WarpToUT on rails; a step with nothing left to sweep answers `done=true` at
+# once. (3) The time box is the measurement itself. (4)/(5) no mission burns, no coasts. (6)
+# `[retry] policy = "none"`: a retry's `op=reset` would clear the files a reading run exists
+# to keep. (7) Recording count pinned at 0. (8)/(9) tier operator by purpose (a report-only
+# reading lane), flight_efficiency.py after the first green flight.
+description = "AUTHORED 2026-11-23, NEVER FLOWN (part ghost parity P8 F6): every working stock part's visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over four PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+instanceProfile = "stock-minimal"
+tags = ["part-parity", "ghost-visual", "pending-flight", "PP-7"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp7", op = "reset" }, expect = "OK", budget = 120 },
+  # Four time-boxed FX steps over every orbit FX case; each resumes.
+  { cmd = "PartParitySweep", args = { label = "pp7", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp7", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp7", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp7", op = "run", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 and no D17 claim: the part verdicts are report-only, so no FX family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design E.8); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp7 op=run ok=true label=pp7 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp7 elapsed=[0-9.]+s label=pp7 done=(true|false) ",
+  # The step planned an orbit FX run (design E.5, PartParityFxRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] fx cases: fx=all contexts=none install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The step budgets: LoadGame 300, the warp 120, the reset 120, four 540 s run steps (2700 s).
+budgetSeconds = 2700
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
