@@ -118,6 +118,72 @@ namespace Parsek.Tests
             return b;
         }
 
+        // catches: an interval detail row repeating its vessel row's Fly / Seal, or losing a
+        // Re-Fly target no other row offers (owner decision 2026-11-22: remove the duplicates).
+        // Only a bare-recording-id interval can resolve a recording. Walked over every tree of the
+        // two fixtures with own-side undocks (GUI-4's bdock-recorded, GUI-3's
+        // interbody-route-recorded): every bare-id interval that equals its vessel row's target
+        // draws blank, and the three that differ (the launch head of a row stitched across an
+        // own-side undock) keep their cell and are named here. The bdock one ended Docked, so its
+        // cell renders blank anyway; the two interbody ones did not, and no row of their mission
+        // targets them.
+        [Fact]
+        public void IntervalRows_DrawReFlyOnlyWhereTheVesselRowDoesNotOfferIt()
+        {
+            int blank = 0;
+            var kept = new List<string>();
+            foreach (List<RecordingTree> trees in new[] {
+                         StructureListBdockFixtureTests.LoadBdockTrees(), InterbodyTrees() })
+            {
+                foreach (RecordingTree tree in trees)
+                {
+                    Built b = BuildLikeTheWindow(trees, tree.Id);
+                    var rowTargets = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (MissionVesselRow r in AllRows(b.Rows))
+                        rowTargets.Add(r.InteractHeadId ?? r.OwnerHeadId);
+                    foreach (MissionVesselRow row in AllRows(b.Rows))
+                    {
+                        foreach (MissionCompositionNode iv in row.Intervals)
+                        {
+                            bool draws = MissionsWindowUI.IntervalRowDrawsReFly(row, iv);
+                            if (iv == null || !tree.Recordings.TryGetValue(iv.HeadLegId, out Recording rec))
+                                continue;   // /segN, @dockM: resolves to nothing, cell blank anyway
+                            if (!draws)
+                            {
+                                Assert.Equal(row.InteractHeadId ?? row.OwnerHeadId, iv.HeadLegId);
+                                blank++;
+                                continue;
+                            }
+                            Assert.DoesNotContain(iv.HeadLegId, rowTargets);
+                            kept.Add(row.VesselName + ":" + iv.HeadLegId.Substring(0, 8) + ":"
+                                + (rec.TerminalStateValue?.ToString() ?? "-"));
+                        }
+                    }
+                }
+            }
+            kept.Sort(StringComparer.Ordinal);
+            output.WriteLine("blank=" + blank + " kept=" + string.Join(", ", kept));
+            Assert.True(blank > 0, "no interval row repeated its vessel row: the walk is vacuous");
+            Assert.Equal(new[] {
+                "Duna Supply 1:d23e453b:-",
+                "Kerbal X:5157d655:Docked",
+                "Kerbal X:c549ef6e:SubOrbital",
+            }, kept);
+        }
+
+        [Fact]
+        public void IntervalRowDrawsReFly_IsFalseForTheRowsOwnTarget_AndForAtomsAndNulls()
+        {
+            var row = new MissionVesselRow { OwnerHeadId = "head", InteractHeadId = "tail" };
+            Assert.False(MissionsWindowUI.IntervalRowDrawsReFly(row, new MissionCompositionNode { HeadLegId = "tail" }));
+            Assert.True(MissionsWindowUI.IntervalRowDrawsReFly(row, new MissionCompositionNode { HeadLegId = "head" }));
+            var plain = new MissionVesselRow { OwnerHeadId = "head" };
+            Assert.False(MissionsWindowUI.IntervalRowDrawsReFly(plain, new MissionCompositionNode { HeadLegId = "head" }));
+            Assert.False(MissionsWindowUI.IntervalRowDrawsReFly(row, new MissionCompositionNode { HeadLegId = "" }));
+            Assert.False(MissionsWindowUI.IntervalRowDrawsReFly(null, new MissionCompositionNode { HeadLegId = "x" }));
+            Assert.False(MissionsWindowUI.IntervalRowDrawsReFly(row, null));
+        }
+
         private static IEnumerable<MissionVesselRow> AllRows(IEnumerable<MissionVesselRow> rows)
         {
             foreach (MissionVesselRow r in rows)

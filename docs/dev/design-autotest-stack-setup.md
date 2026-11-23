@@ -240,7 +240,7 @@ on drift or partial failure.
   `Code\Parsek\Kerbal Space Program`. Never modified by this script (read-only
   source for cloning and for mod payloads).
 - **Automation instance**: a cloned KSP directory the harness launches.
-  Three profiles: `stock-minimal`, `modded-compat` and `stock-tree`.
+  Four profiles: `stock-minimal`, `modded-compat`, `stock-tree` and `modded-restock`.
 - **Profile**: a declarative spec (a file) naming the mod set, settings deltas,
   and component pins that define one automation instance.
 - **Component**: a pinned installable (kRPC, TestingTools, MechJeb2,
@@ -413,6 +413,21 @@ decision is a stock tech tree; the per-node part listing it is checked against i
 `run.py` admits it only while its deployed `Parsek.dll` is byte-identical to
 `stock-minimal`'s (`hlib.decide_reference_dll_drift`): provision BOTH profiles from the same
 worktree before a campaign flight, since two worktrees' builds never hash the same.
+
+`modded-restock.toml` (2026-11-22, owner ruling R6) is `modded-compat` with the four
+Waterfall folders (`Waterfall`, `WaterfallRestock`, `RestockWaterfallExpansion`,
+`StockWaterfallEffects`) removed from `devSourcedMods` and its own `instanceDir`
+(`automation/modded-restock`); every other key is identical (ReStock, ReStockPlus,
+B9PartSwitch, Kopernicus and the rest, the same stack, the same pinned optional mods, the
+same `[settings]`), which `test_provlib.ModdedRestockProfileTests` asserts key for key. It
+exists so ReStock's own particle plumes can be judged by the part ghost parity sweep:
+without Waterfall a ReStock engine keeps ReStock's EFFECTS on the real vessel, and
+`WaterfallCompat`'s pristine fallback stays closed, so ghosts take the same EFFECTS path a
+stock install takes (`docs/dev/design-part-ghost-parity.md`, Appendix E, E.6). Provision
+it with `provision.py --profile modded-restock`; a spec selects it with
+`instanceProfile = "modded-restock"`. It is a secondary instance under the same
+byte-identical `Parsek.dll` admission rule. The D17 registry dimension stays
+`modded-compat`'s.
 
 **Pinned optional mods.** An `[[optionalMods]]` entry carrying `pin = "<pins.toml
 table>"` is never looked up in the dev GameData. Its pins table is `kind =
@@ -699,7 +714,8 @@ a SLOT; the contract (names, ports, lock paths) is `harness/lib/slots.py`.
   when the owner is away.
 - **kRPC ports.** The SETTINGS phase stamps the golden kRPC settings with the
   slot's ports: profile base (stock-minimal 50000, stock-tree 50020,
-  modded-compat 50040) + `2*(K-1)` for RPC and the next port for the stream.
+  modded-compat 50040, modded-restock 50060) + `2*(K-1)` for RPC and the next
+  port for the stream.
   Copy 1 of stock-minimal keeps 50000/50001. run.py stamps the same bytes
   before every launch, so copy 1 of stock-tree and modded-compat moves to
   50020 / 50040 on its next provision or its next run, with no re-provision

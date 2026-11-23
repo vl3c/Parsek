@@ -105,22 +105,6 @@ namespace Parsek.Tests
             Assert.Contains(CrossTreeDockFixture.DockBpId, m.IncludedForeignDockLinkIds);
         }
 
-        // ---- clone ----
-
-        [Fact]
-        public void Clone_CopiesForeignDockLinks()
-        {
-            var m = AddMission("m1", "tb", "B mission");
-            m.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
-
-            Mission copy = MissionStore.Clone(m);
-
-            Assert.Contains(CrossTreeDockFixture.DockBpId, copy.IncludedForeignDockLinkIds);
-            // Definition-only copy: mutating the clone never touches the source.
-            copy.IncludedForeignDockLinkIds.Clear();
-            Assert.Contains(CrossTreeDockFixture.DockBpId, m.IncludedForeignDockLinkIds);
-        }
-
         // ---- spanned-set loop clearing ----
 
         [Fact]

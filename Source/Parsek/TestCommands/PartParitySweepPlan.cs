@@ -231,7 +231,14 @@ namespace Parsek.TestCommands
         /// <summary>As above for an orbit or an air run: the air run's real-vs-real control
         /// photographs an armed, falling <see cref="ControlAirPart"/>.</summary>
         internal static string ControlSubject(string controlId, bool airRun)
+            => ControlSubject(controlId, airRun, false);
+
+        /// <summary>As above for an FX run too (design E.5): its controls, the two coverage
+        /// controls among them, run on <see cref="PartParityFxRules.ChooseControlSubject"/>'s
+        /// subjects (<see cref="PartParityFxRules.ControlSubjectWords"/>).</summary>
+        internal static string ControlSubject(string controlId, bool airRun, bool fxRun)
         {
+            if (fxRun || IsFxOnlyControl(controlId)) return PartParityFxRules.ControlSubjectWords(controlId, airRun);
             if (airRun && controlId == TestCommandPartParitySweep.ControlRealVsReal)
                 return ControlAirPart + " armed and falling, real captured as both sides";
             switch (controlId)
@@ -252,6 +259,7 @@ namespace Parsek.TestCommands
 
         internal static string ControlRequired(string controlId)
         {
+            if (IsFxOnlyControl(controlId)) return PartParityFxRules.ControlRequiredWords(controlId);
             switch (controlId)
             {
                 case TestCommandPartParitySweep.ControlEmpty: return "zero coverage in every view";
@@ -270,6 +278,12 @@ namespace Parsek.TestCommands
         }
 
         internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.AllControlIds, id) >= 0;
+
+        /// <summary>A control only an FX run plans (every FX control but the two coverage ones).</summary>
+        internal static bool IsFxOnlyControl(string id)
+            => id != TestCommandPartParitySweep.ControlEmpty && id != TestCommandPartParitySweep.ControlGhostAbsent
+               && (Array.IndexOf(TestCommandPartParitySweep.FxOrbitControlIds, id) >= 0
+                   || Array.IndexOf(TestCommandPartParitySweep.FxAirControlIds, id) >= 0);
 
         /// <summary>
         /// Judges a state control (<c>ctl-state-events-dropped</c>, its air twin; design D.6):

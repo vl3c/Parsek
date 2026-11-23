@@ -216,6 +216,34 @@ namespace Parsek
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
+        /// <summary>The stock <c>SmokeTrailControl</c> fades of this engine's cloned FX, captured
+        /// before the component is stripped (todo GHOST-SMOKE-IN-VACUUM). Empty for an engine
+        /// whose FX carry none.</summary>
+        public List<GhostSmokeTrailFade> smokeTrailFades = new List<GhostSmokeTrailFade>();
+    }
+
+    /// <summary>
+    /// One stock <c>SmokeTrailControl</c> transcribed onto a ghost renderer. Stock fades a smoke
+    /// trail by air density every frame (decompiled <c>SmokeTrailControl.Update</c>, KSP 1.12.5):
+    /// <c>airDensity = InverseLerp(fadeEndDns, fadeStartDns, ship_dns)</c>; above 0.001 it tints
+    /// the material and enables the renderer, otherwise it disables the renderer, which is why no
+    /// smoke draws in vacuum. The ghost keeps the component's own serialized values and drives the
+    /// same rule from its playback altitude (<see cref="GhostPlaybackLogic.UpdateEngineSmokeTrailFades"/>).
+    /// </summary>
+    internal sealed class GhostSmokeTrailFade
+    {
+        public Renderer renderer;
+        public float maxAlpha;
+        public float fadeStartDns;
+        public float fadeEndDns;
+        public string shaderColorName;
+        public Color fadedColor;
+        public bool fadeToColor;
+        /// <summary>The renderer's own material instance, made on the first tint write.</summary>
+        public Material material;
+        /// <summary>The quantized fade level last written (<see cref="GhostPlaybackLogic.QuantizeSmokeTrailAirDensity"/>):
+        /// -1 never written, 0 hidden, 1..N drawn.</summary>
+        public int appliedLevel = -1;
     }
 
     internal struct DeployableTransformState

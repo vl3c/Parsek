@@ -1,0 +1,731 @@
+# Part parity FX-rules fixture (design-part-ghost-parity.md Appendix E.1), profile stock-minimal.
+# Derived once from state-parts-stock-minimal.txt (module order and type chains) and
+# <umbrella>/automation/stock-minimal/GameData/ModuleManager.ConfigCache (post-patch part configs, read 2026-11-23).
+# Only parts carrying a module the FX rules read are listed (91): an as-ModuleEngines, as-ModuleRCS,
+# ModuleAnimateHeat, as-ModuleLight or as-ModuleAblator module; every module of such a part is listed in
+# prefab order. P <part> <stack nodes>; M <index> <moduleName> <type chain or -> <the config the rules read:
+# key=value|..., PROPELLANT.name=<x> one per PROPELLANT child node, engine modules only, or ->. Tab-separated.
+# Never hand-edited.
+P	CircularIntake	bottom01
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	Clydesdale	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	KOSNameTag	-	-
+P	GearLarge	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelBrakes	-	-
+M	3	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	4	ModuleWheelBogey	-	-
+M	5	FXModuleLookAtConstraint	-	-
+M	6	ModuleStatusLight	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleLight	-	-
+M	9	ModuleWheelDamage	-	-
+M	10	ModuleDragModifier	-	-
+M	11	ModuleDragModifier	-	-
+M	12	KOSNameTag	-	-
+P	GearMedium	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelBrakes	-	-
+M	3	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	4	ModuleWheelBogey	-	-
+M	5	FXModuleLookAtConstraint	-	-
+M	6	ModuleStatusLight	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleLight	-	-
+M	9	ModuleWheelDamage	-	-
+M	10	ModuleDragModifier	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleCargoPart	-	-
+M	13	KOSNameTag	-	-
+P	GearSmall	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelSteering	-	-
+M	3	ModuleWheelBrakes	-	-
+M	4	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	5	FXModuleConstrainPosition	-	-
+M	6	FXModuleLookAtConstraint	-	-
+M	7	ModuleStatusLight	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleLight	-	-
+M	10	ModuleWheelDamage	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleDragModifier	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	HeatShield0	bottom,top
+M	0	ModuleAblator	-	-
+M	1	ModuleColorChanger	-	-
+M	2	ModuleDecouple	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModuleLiftingSurface	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	HeatShield1	direct,bottom,top
+M	0	ModuleJettison	-	-
+M	1	ModuleAblator	-	-
+M	2	ModuleColorChanger	-	-
+M	3	ModuleDecouple	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield1p5	direct,bottom,top
+M	0	ModuleJettison	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield2	direct,bottom,top
+M	0	ModuleJettison	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	HeatShield3	direct,bottom,top
+M	0	ModuleJettison	-	-
+M	1	ModuleDecouple	-	-
+M	2	ModuleAblator	-	-
+M	3	ModuleColorChanger	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleLiftingSurface	-	-
+M	6	KOSNameTag	-	-
+P	JetEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Cruise|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleAnimateGeneric	-	-
+M	3	ModuleAlternator	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	LaunchEscapeSystem	bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=LES|throttleLocked=True|PROPELLANT.name=SolidFuel
+M	1	ModuleTestSubject	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	LiquidEngineKE-1	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineLV-T91	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleJettison	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleTestSubject	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineLV-TX87	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	ModuleGimbal	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	-
+M	6	ModuleTestSubject	-	-
+M	7	KOSNameTag	-	-
+P	LiquidEngineRE-I2	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleCargoPart	-	-
+M	9	KOSNameTag	-	-
+P	LiquidEngineRE-J10	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	ModuleAlternator	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	KOSNameTag	-	-
+P	LiquidEngineRK-7	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModulePartVariants	-	-
+M	3	ModuleJettison	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	LiquidEngineRV-1	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	MEMLander	bottom2,bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleColorChanger	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	FlagDecal	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleConductionMultiplier	-	-
+M	7	ModuleDataTransmitter	-	-
+M	8	ModuleProbeControlPoint	-	-
+M	9	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	10	ModuleStructuralNode	-	-
+M	11	ModuleInventoryPart	-	-
+M	12	ModuleCargoPart	-	-
+M	13	MechJebCore	-	-
+M	14	KOSNameTag	-	-
+P	MK1IntakeFuselage	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	MassiveBooster	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=S1SRB|throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	KOSNameTag	-	-
+P	Mite	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleJettison	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Pollux	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	KOSNameTag	-	-
+P	RAPIER	top,bottom
+M	0	MultiModeEngine	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=AirBreathing|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=ClosedCycle|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleGimbal	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	KOSNameTag	-	-
+P	RCSBlock.v2	
+M	0	ModulePartVariants	-	-
+M	1	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	2	FXModuleAnimateRCS	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	RCSLinearSmall	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	ModulePartVariants	-	-
+M	4	KOSNameTag	-	-
+P	RCSblock.01.small	
+M	0	ModulePartVariants	-	-
+M	1	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	2	FXModuleAnimateRCS	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	SSME	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KS25|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleJettison	-	-
+M	3	ModuleGimbal	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	Shrimp	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleJettison	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	Size1p5.Tank.05	bottom
+M	0	ModuleEngines	-	throttleLocked=True|PROPELLANT.name=SolidFuel
+M	1	ModulePartVariants	-	-
+M	2	KOSNameTag	-	-
+P	Size2LFB	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSLFB|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	FlagDecal	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	Size2LFB.v2	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSLFB|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	FlagDecal	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	Size3AdvancedEngine	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSX|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleAlternator	-	-
+M	4	FlagDecal	-	-
+M	5	ModuleJettison	-	-
+M	6	ModuleTestSubject	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	KOSNameTag	-	-
+P	Size3EngineCluster	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KS25|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleAlternator	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	KOSNameTag	-	-
+P	SmallGearBay	
+M	0	ModuleWheelBase	-	-
+M	1	ModuleWheelSuspension	-	-
+M	2	ModuleWheelSteering	-	-
+M	3	ModuleWheelBrakes	-	-
+M	4	ModuleStatusLight	-	-
+M	5	ModuleWheelDeployment	ModuleWheelDeployment,ModuleWheelSubmodule,PartModule	-
+M	6	FXModuleConstrainPosition	-	-
+M	7	FXModuleLookAtConstraint	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleLight	-	-
+M	10	ModuleWheelDamage	-	-
+M	11	ModuleDragModifier	-	-
+M	12	ModuleDragModifier	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	Thoroughbred	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	KOSNameTag	-	-
+P	airplaneTail	top
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	airplaneTailB	top
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	avionicsNoseCone	bottom
+M	0	ModuleSAS	-	-
+M	1	ModuleKerbNetAccess	-	-
+M	2	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	domeLight1	
+M	0	ModuleLight	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	engineLargeSkipper.v2	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleJettison	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModulePartVariants	-	-
+M	8	KOSNameTag	-	-
+P	groundLight1	
+M	0	ModuleLight	-	-
+M	1	ModuleGroundPart	ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	2	KOSNameTag	-	-
+P	groundLight2	
+M	0	ModuleLight	-	-
+M	1	ModuleGroundPart	ModuleGroundPart,ModuleCargoPart,PartModule	-
+M	2	KOSNameTag	-	-
+P	ionEngine	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Ion|PROPELLANT.name=ElectricCharge|PROPELLANT.name=XenonGas
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	kv1Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	-
+M	7	ModuleColorChanger	-	-
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	kv2Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	-
+M	7	ModuleColorChanger	-	-
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	kv3Pod	top,bottom
+M	0	ModuleCommand	-	-
+M	1	ModuleAnchoredDecoupler	-	-
+M	2	ModuleScienceExperiment	-	-
+M	3	ModuleScienceContainer	-	-
+M	4	ModuleDataTransmitter	-	-
+M	5	ModuleAblator	-	-
+M	6	ModuleColorChanger	-	-
+M	7	ModuleColorChanger	-	-
+M	8	ModuleConductionMultiplier	-	-
+M	9	ModuleCargoPart	-	-
+M	10	ModuleInventoryPart	-	-
+M	11	MechJebCore	-	-
+M	12	KOSNameTag	-	-
+P	linearRcs	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	liquidEngine	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleJettison	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleAlternator	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	liquidEngine.v2	top,bottom
+M	0	ModulePartVariants	-	-
+M	1	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	2	ModuleJettison	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	liquidEngine2	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleJettison	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleTestSubject	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	liquidEngine2-2.v2	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleJettison	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleAlternator	-	-
+M	7	ModuleTestSubject	-	-
+M	8	ModuleSurfaceFX	-	-
+M	9	ModulePartVariants	-	-
+M	10	ModuleCargoPart	-	-
+M	11	KOSNameTag	-	-
+P	liquidEngine2.v2	top,bottom
+M	0	FXModuleLookAtConstraint	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleJettison	-	-
+M	4	ModuleGimbal	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleAlternator	-	-
+M	7	ModuleSurfaceFX	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleCargoPart	-	-
+M	10	KOSNameTag	-	-
+P	liquidEngine3.v2	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	ModuleJettison	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModulePartVariants	-	-
+M	6	FXModuleAnimateThrottle	-	-
+M	7	ModuleCargoPart	-	-
+M	8	KOSNameTag	-	-
+P	liquidEngineMainsail.v2	top,bottom
+M	0	ModulePartVariants	-	-
+M	1	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	2	ModuleJettison	-	-
+M	3	ModuleGimbal	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleAlternator	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	ModuleTestSubject	-	-
+M	8	FXModuleLookAtConstraint	-	-
+M	9	KOSNameTag	-	-
+P	liquidEngineMini.v2	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleJettison	-	-
+M	2	ModuleGimbal	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModulePartVariants	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	microEngine.v2	top,bottom
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleTestSubject	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	miniJetEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Cruise|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	1	ModuleAlternator	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModuleCargoPart	-	-
+M	5	KOSNameTag	-	-
+P	mk1-3pod	bottom,top
+M	0	ModuleCommand	-	-
+M	1	ModuleReactionWheel	-	-
+M	2	ModuleColorChanger	-	-
+M	3	ModuleScienceExperiment	-	-
+M	4	ModuleScienceContainer	-	-
+M	5	FlagDecal	-	-
+M	6	ModuleConductionMultiplier	-	-
+M	7	ModuleDataTransmitter	-	-
+M	8	ModuleProbeControlPoint	-	-
+M	9	ModuleLiftingSurface	-	-
+M	10	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	11	ModuleInventoryPart	-	-
+M	12	MechJebCore	-	-
+M	13	KOSNameTag	-	-
+P	nacelleBody	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	navLight1	
+M	0	ModuleLight	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	noseConeAdapter	top,bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	KOSNameTag	-	-
+P	nuclearEngine	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel
+M	1	ModuleJettison	-	-
+M	2	ModuleJettison	-	-
+M	3	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	omsEngine	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=MonoPropellant
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	pointyNoseConeA	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	pointyNoseConeB	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	radialEngineBody	top,bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	KOSNameTag	-	-
+P	radialEngineMini.v2	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleTestSubject	-	-
+M	2	ModuleGimbal	-	-
+M	3	FXModuleLookAtConstraint	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModulePartVariants	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	radialLiquidEngine1-2	
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleTestSubject	-	-
+M	4	ModuleSurfaceFX	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	ramAirIntake	bottom01
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	sepMotor1	
+M	0	ModuleEngines	-	throttleLocked=True|PROPELLANT.name=SolidFuel
+M	1	ModuleTestSubject	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	shockConeIntake	bottom
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	smallRadialEngine	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleCargoPart	-	-
+M	4	KOSNameTag	-	-
+P	smallRadialEngine.v2	
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	ModuleGimbal	-	-
+M	2	FXModuleLookAtConstraint	-	-
+M	3	FXModuleAnimateThrottle	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModulePartVariants	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	solidBooster.sm.v2	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	ModuleTestSubject	-	-
+M	2	ModuleSurfaceFX	-	-
+M	3	ModulePartVariants	-	-
+M	4	ModuleJettison	-	-
+M	5	ModuleCargoPart	-	-
+M	6	KOSNameTag	-	-
+P	solidBooster.v2	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	ModulePartVariants	-	-
+M	5	ModuleJettison	-	-
+M	6	KOSNameTag	-	-
+P	solidBooster1-1	bottom,top
+M	0	ModuleEngines	-	throttleLocked=True|useEngineResponseTime=True|PROPELLANT.name=SolidFuel
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleTestSubject	-	-
+M	3	ModuleSurfaceFX	-	-
+M	4	KOSNameTag	-	-
+P	spotLight1	
+M	0	ModuleLight	-	-
+M	1	KOSNameTag	-	-
+P	spotLight1.v2	
+M	0	ModuleLight	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModulePartVariants	-	-
+M	3	KOSNameTag	-	-
+P	spotLight2	
+M	0	ModuleLight	-	-
+M	1	KOSNameTag	-	-
+P	spotLight2.v2	
+M	0	ModuleLight	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModulePartVariants	-	-
+M	3	KOSNameTag	-	-
+P	spotLight3	
+M	0	ModuleLight	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	standardNoseCone	bottom01
+M	0	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	1	ModuleCargoPart	-	-
+M	2	KOSNameTag	-	-
+P	stripLight1	
+M	0	ModuleLight	-	-
+M	1	ModulePartVariants	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-
+P	telescopicLadderBay	
+M	0	RetractableLadder	-	-
+M	1	ModuleCargoPart	-	-
+M	2	ModuleLight	-	-
+M	3	RetractableLadderLightController	-	-
+M	4	KOSNameTag	-	-
+P	toroidalAerospike	top,bottom
+M	0	ModuleEngines	-	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	1	FXModuleAnimateThrottle	-	-
+M	2	ModuleAlternator	-	-
+M	3	ModuleJettison	-	-
+M	4	ModuleTestSubject	-	-
+M	5	ModuleSurfaceFX	-	-
+M	6	ModuleCargoPart	-	-
+M	7	KOSNameTag	-	-
+P	turboFanEngine	top
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	1	FXModuleAnimateThrottle	-	-
+M	2	FXModuleAnimateThrottle	-	-
+M	3	ModuleGimbal	-	-
+M	4	ModuleAlternator	-	-
+M	5	ModuleTestSubject	-	-
+M	6	ModuleSurfaceFX	-	-
+M	7	KOSNameTag	-	-
+P	turboFanSize2	top
+M	0	ModuleResourceIntake	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Cruise|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	2	ModuleAnimateHeat	ModuleAnimateHeat,ModuleAnimationSetter,PartModule	-
+M	3	ModuleAnimateGeneric	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	ModuleJettison	-	-
+M	6	FlagDecal	-	-
+M	7	ModuleAlternator	-	-
+M	8	ModuleTestSubject	-	-
+M	9	ModuleSurfaceFX	-	-
+M	10	KOSNameTag	-	-
+P	turboJet	top
+M	0	MultiModeEngine	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Dry|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=Wet|useEngineResponseTime=True|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	3	FXModuleAnimateThrottle	-	-
+M	4	FXModuleAnimateThrottle	-	-
+M	5	FXModuleAnimateThrottle	-	-
+M	6	ModuleGimbal	-	-
+M	7	FXModuleConstrainPosition	-	-
+M	8	ModuleAlternator	-	-
+M	9	ModuleAlternator	-	-
+M	10	ModuleSurfaceFX	-	-
+M	11	ModuleSurfaceFX	-	-
+M	12	ModuleTestSubject	-	-
+M	13	ModuleCargoPart	-	-
+M	14	KOSNameTag	-	-
+P	vernierEngine	
+M	0	ModuleRCSFX	ModuleRCSFX,ModuleRCS,PartModule	-
+M	1	FXModuleAnimateRCS	-	-
+M	2	ModuleCargoPart	-	-
+M	3	KOSNameTag	-	-

@@ -35,6 +35,16 @@ class PortTests(unittest.TestCase):
     def test_stock_minimal_copy_one_keeps_the_legacy_ports(self):
         self.assertEqual(slots.krpc_ports("stock-minimal", 1), (50000, 50001))
 
+    def test_the_profile_port_bases_are_pinned(self):
+        # A moved base re-stamps every provisioned copy of that profile, so the
+        # blocks are pinned value for value (modded-restock: design-part-ghost-parity.md
+        # E.6, the next free 20-port block after modded-compat).
+        self.assertEqual(slots.PROFILE_PORT_BASE,
+                         {"stock-minimal": 50000, "stock-tree": 50020,
+                          "modded-compat": 50040, "modded-restock": 50060})
+        self.assertEqual(slots.krpc_ports("modded-restock", 1), (50060, 50061))
+        self.assertEqual(slots.parse_slot_name("modded-restock-2"), ("modded-restock", 2))
+
     def test_every_slot_of_every_profile_has_unique_ports(self):
         seen = {}
         for profile in slots.PROFILE_PORT_BASE:

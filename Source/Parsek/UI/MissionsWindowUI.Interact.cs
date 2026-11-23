@@ -167,42 +167,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why a mission's "Delete" is greyed out - the REAL reason, per mission. The
-        /// previous version took no arguments and returned the tree-original sentence as a
-        /// constant, so it could not distinguish the three cases
-        /// <see cref="MissionStore.CanDelete"/> refuses for, and it kept talking when the
-        /// control was live (the one reason function in the mod that did, which is why it
-        /// was absent from `DisabledHoverEchoTests`' silence check). Pure for unit testing
-        /// apart from the store read the classifier performs.
-        /// </summary>
-        internal static string MissionDeleteDisabledReason(Mission mission)
-        {
-            return MissionDeleteDisabledReason(MissionStore.ClassifyDeleteRefusal(mission));
-        }
-
-        /// <summary>
-        /// The wording half of <see cref="MissionDeleteDisabledReason(Mission)"/>, split out
-        /// so every refusal's text is unit-testable without standing up the mission store.
-        /// Pure.
-        /// </summary>
-        internal static string MissionDeleteDisabledReason(MissionStore.MissionDeleteRefusal refusal)
-        {
-            switch (refusal)
-            {
-                case MissionStore.MissionDeleteRefusal.None:
-                    return string.Empty;
-                case MissionStore.MissionDeleteRefusal.NoMission:
-                    return "There is no mission selected to delete";
-                case MissionStore.MissionDeleteRefusal.NotInStore:
-                    return "This mission is no longer in the mission list";
-                default:
-                    // Every tree keeps its ORIGINAL mission - it is what the recordings hang
-                    // off - so only missions cloned onto the same tree can be removed.
-                    return "A flight always keeps its first mission";
-            }
-        }
-
-        /// <summary>
         /// Why a mission's "Watch" is greyed out. Watching parents the camera to a live
         /// ghost, so it needs a flight scene AND a ghost of this mission actually flying
         /// at the current moment. Pure for unit testing.

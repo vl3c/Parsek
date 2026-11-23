@@ -73,9 +73,12 @@ namespace Parsek
         /// intervals / partner journeys the loop replays.
         /// <para>One key for all three because they are one decision: the checkboxes write
         /// <c>Mission.ExcludedIntervalKeys</c> / <c>Mission.IncludedForeignDockLinkIds</c>,
-        /// which nothing but the loop-unit pipeline reads, so a mode that hides the Loop
-        /// toggle and keeps them would leave the player controls with no observable
-        /// effect.</para>
+        /// which the loop-unit pipeline reads, and so do the Mission Log (it drops the rows of
+        /// excluded intervals, <c>StructureListWindowUI</c> / <c>MissionStructureList</c>) and
+        /// Watch (it picks its target from the trimmed windows, also on a mission that does not
+        /// loop, <c>MissionsWindowUI.Interact</c>). The selection is authored for the loop, so
+        /// it is hidden with the Loop toggle; a selection made in Advanced keeps trimming the
+        /// Log and Watch in Basic (philosophy 1: visibility only, never behavior).</para>
         /// <para>Deliberately NOT covered: the route status label ("Run by route" in Basic,
         /// "Looped by route" in Advanced), the TTL
         /// countdown column, "Warp to...", and Watch. Those REPORT or NAVIGATE a loop that
