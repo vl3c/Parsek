@@ -157,8 +157,37 @@ id = "GS-8-kerbalx-zone-round-trip"
 # terminal=SubOrbital` and the Kerbal X `watch hold expired`; `rewind` and
 # `recordings.structure` armed off it.
 # =====================================================================================
+# ROUND 4, 2026-11-23. `2026-11-23_0840` (main 08445c153, MISSION-OK) red
+# PARSEK-FAIL(save-structure) on `terminalStates.SubOrbital 1 < min 2`, with
+# `ghostLifecycle.requireBalanced` unmet on the probe's tail recording alone. Cause: todo
+# ABANDONED-STAGE-D1, the dropped core's recording keeps its predicted fall past the
+# commit and ends Destroyed at its impact (terminal UT 616.52), not SubOrbital at the
+# pod's commit UT (298.43). The run ends at UT 329.26, so that one ghost is still live
+# when the lane quits: `engine-frame-iter` carries `[i=9 rec=728e31c5 ... hs=T
+# endUT=616.5]` to the last frame, and the other nine ghosts spawned and were destroyed
+# as before. Re-pinned below to name exactly that ghost.
+# =====================================================================================
+# ROUND 5, 2026-11-23 (branch `predicted-tail-flight`, todo
+# PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT; FLOWN as ROUND 6). `_0840` drew none of the predicted falls: the
+# probe's ghost read `out:vis=F retired=T` from UT 298.44 to the quit, and all six boosters
+# were hidden from UT 112.5-114.6 to their impact (114.46-123.30) and destroyed with
+# `reason=parent-anchored debris outside relative coverage at endpoint`, no explosion. The
+# fix draws each tail and ends it at its impact, and GROUP 7 gates it.
+# =====================================================================================
+# ROUND 6, 2026-11-23. `2026-11-23_1119` (the fix's DLL, MISSION-OK) met every GROUP 7
+# token: all six boosters drawn on their tails (first line UT 112.24, sections ended 112.22)
+# and six `Stock FXMonger.Explode` lines (UT 113.84-122.58, each followed by `reason=playback
+# completed`), the probe's `active=T` at UT 298.38 (sections ended 298.37), no
+# `recorded-relative-retired` past a last section, and `out:vis=T retired=F` for the probe
+# until the watch hold ended (UT 301.38), after which it is 226 km from the pad and hidden by
+# the distance LOD. It red PARSEK-FAIL(expectation) on one line: the probe's live ghost was
+# torn down by ParsekFlight.OnDestroy AFTER the quit (`reason=engine teardown`, 0.5 s past
+# `flushandquit: Application.Quit`), so destroyLines read 10, Probe destroyLines 2, and the
+# live-at-quit token missed. `_0840`'s log ends before that teardown. The three pins now
+# accept the quit teardown, and only it; NOT RE-FLOWN on the widened pins.
+# =====================================================================================
 tier = "nightly"
-description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip."
+description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip (only the dropped core's predicted fall outlives the quit)."
 instanceProfile = "stock-minimal"
 tags = ["GS8", "rewind-to-launch", "watch-mode", "ghost-render", "zone-transitions", "ghost-lifecycle"]
 
@@ -277,6 +306,24 @@ count = { min = 10, max = 10 }
 #   "phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired" - the WATCHED
 #       ending only; run 1's unwatched `stale past-end` reading is exactly what the
 #       alternation GS-4 uses would have let through here.
+#   "phase=MeshSpawned ... Kerbal X Probe ... MeshSpawned rec=<R> ... Kerbal X Probe"
+#       with no later "MeshDestroyed rec=<R> " before the quit - the probe's SECOND recording
+#       (the piece past its atmosphere exit, which carries the predicted fall) is live at
+#       quit. ParsekFlight.OnDestroy may log its `reason=engine teardown` after
+#       `flushandquit: Application.Quit` or not (Unity's quit order is not fixed: `_1119`
+#       logged it, `_0840` did not), so that one line, and no other destroy of <R>, is
+#       allowed, and the quit line itself is required. The "MeshDestroyed ... vessel=Kerbal
+#       X Probe" token is its first recording's ending, so it excludes the quit teardown.
+#
+# GROUP 7 - THE PREDICTED FALLS (owner rulings Q1a / Q2), flown on `_1119` (ROUND 6).
+#   "[Anchor] parent-anchored predicted tail: ... Kerbal X Probe ... active=T": the probe's
+#       ghost is on screen past its last track section (producer
+#       GhostPlaybackEngine.LogParentAnchoredPredictedTailDrawn, written after the frame's
+#       activation, only at a UT no section covers).
+#   exactly six "Stock FXMonger.Explode for ghost #<i> "Kerbal X Debris" at" lines after the
+#       rewind: each booster explodes at its predicted impact. Line-bracketed like GS-9's
+#       census, so it is linear; five or seven red.
+#   forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -296,22 +343,38 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Ghost #[0-9]+ \"Kerbal X\" visuals rebuilt \\([^)]*watch mode requested\\)",
              "Zone transition: ghost=#[0-9]+ \"Kerbal X\" Beyond->Physics dist=[0-9]+m",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=watch hold expired",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=(?!engine teardown)",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created[\\s\\S]*?phase=MeshSpawned rec=([0-9a-f]+) [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created(?![\\s\\S]*phase=MeshDestroyed rec=\\1 (?![^\\r\\n]*reason=engine teardown))(?![\\s\\S]*phase=MeshDestroyed rec=\\1 [\\s\\S]*flushandquit: Application\\.Quit)(?=[\\s\\S]*flushandquit: Application\\.Quit)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Probe\" recordingId=[0-9a-f]+ active=T ",
+             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at[^\\n]*\\n){6}(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\Z"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
 
 # ARMED 2026-09-08 (roster GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py): both
 # readings, `2026-09-08_1119` (red on the late watch, the census untouched by it) and
 # `2026-09-08_1225` (PASS), measured spawned=8 spawnLines=8 destroyLines=8
 # unbalanced=0 malformed=0, and the balance across the teardown/rebuild round trip
 # is the point of declaring it here (code fact 5). Armed re-flight `_1239` PASS with
-# the gate live; negative control `_1249` (spawned min 9) red exactly. The armed statement: all eight
-# ghosts render and every one is destroyed again, with the parent's mesh having
-# been torn down and rebuilt in between.
+# the gate live; negative control `_1249` (spawned min 9) red exactly.
+# RE-PINNED (2026-11-23, run 2026-11-23_0840): the armed statement is that all ten ghosts
+# render and every one but the probe's tail recording is destroyed again, with the
+# parent's mesh having been torn down and rebuilt in between. That recording ends at its
+# predicted impact (UT ~616), 287 s after the quit (todo ABANDONED-STAGE-D1), so
+# `requireBalanced` cannot hold and the per-vessel windows carry the balance instead:
+# exact line counts per vessel, with the one missing destroy on `Kerbal X Probe`, and the
+# live-at-quit token above naming which of its two recordings it is. The quit teardown of
+# that one ghost is logged or not (ROUND 6), hence destroyLines 9 or 10 and Probe 1 or 2; the
+# token allows the second Probe line only as `engine teardown` after the quit. Every archived green
+# flight from `2026-10-11_1533` on measured 10 spawns and 10 destroys. This was
+# `spawned = { min = 8 }` with `requireBalanced = true`.
 [expectations.ghostLifecycle]
 gating = true
-spawned = { min = 8 }
-requireBalanced = true
+spawned = { min = 10, max = 10 }
+spawnLines = { min = 10, max = 10 }
+destroyLines = { min = 9, max = 10 }
+requireBalanced = false
+vessels = { "Kerbal X" = { spawnLines = { min = 2, max = 2 }, destroyLines = { min = 2, max = 2 } }, "Kerbal X Debris" = { spawnLines = { min = 6, max = 6 }, destroyLines = { min = 6, max = 6 } }, "Kerbal X Probe" = { spawnLines = { min = 2, max = 2 }, destroyLines = { min = 1, max = 2 } } }
 
 # ARMED 2026-09-28 (branch `gs8-watch-hold`) off the reading `2026-09-28_1732` on the
 # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix (PASS attempt 1, automation DLL sha256
@@ -329,13 +392,17 @@ tombstones    = { max = 0 }
 # ARMED 2026-09-28 (branch `gs8-watch-hold`) off `2026-09-28_1732` (PASS attempt 1),
 # which read the same shape: trees 1, committedTrees 1, recordings 8, JointBreak 5,
 # SubOrbital 2, Destroyed 6; its 8 bounds inverted offline each red on exactly their window.
+# RE-PINNED (2026-11-23, run 2026-11-23_0840): the dropped core ends Destroyed at its
+# predicted impact (todo ABANDONED-STAGE-D1), so only the pod ends SubOrbital: SubOrbital
+# exactly 1, Destroyed 7. This was `SubOrbital = { min = 2 }, Destroyed = { min = 6 }`. A
+# core frozen SubOrbital again reds both windows.
 [expectations.recordings.structure]
 gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 5 } }
-terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 6 } }
+terminalStates = { SubOrbital = { min = 1, max = 1 }, Destroyed = { min = 7 } }
 
 [runtime]
 # GS-4's 2400 plus the longer recorded span (~+150 s of flight, spent again in real

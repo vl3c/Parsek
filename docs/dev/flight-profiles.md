@@ -1197,7 +1197,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GS-3-switch-nudge-deployed | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | scene-change, vessel-switch | - | RE-CUT AND RE-FLOWN 2026-10-24 (branch cl... |
 | GS-6-part-event-applier-sweep | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-02 |
 | GS-7-kerbalx-crash-watch-hold | operator | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-08 |
-| GS-8-kerbalx-zone-round-trip | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | 2026-09-28: red 2026-09-27_2029 on the wa... |
+| GS-8-kerbalx-zone-round-trip | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | RE-PINNED 2026-11-23, not re-flown |
 | GS-9-kerbalx-repeat-rewind | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-11 |
 
 ### GUI (28)

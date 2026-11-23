@@ -190,7 +190,18 @@ allowedAnomalies = []
 # `verifiers.expectations.observed.recordings.count = 8`.
 # RE-PIN CONTRACT: re-pin from a measured observed.recordings.count if a later
 # run legitimately differs; never widen it blindly.
-count = { min = 8, max = 9 }
+# RE-PINNED 11 (2026-11-23, run 2026-11-23_0848_B5-mun-flyby): split rule version 3 adds the circularization and orbit rows
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The ascent
+# and debris population above is unchanged (4 Kerbal X rows ascent / circularization /
+# orbit / transfer + 7 debris); this was `count = { min = 8, max = 9 }`, whose 9 was the
+# 8 recordings plus the atmosphere-exit split. The KSP.log carries exactly three splits:
+#   Split candidate (PersistedPhaseChange) splitUT=213.14
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=300.81
+#   Split candidate (DepartureBurnStart) splitUT=1872.85
+#   CommitTreeFlight: optimization pass ran committed=8->11
+# The other two burns keep their orbit kind (`burns=4 burnsUnjudged=0 burnKindKept=2`).
+# Still exact: 10 (a cut or a recording missing) and 12 (an extra one) both red.
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a

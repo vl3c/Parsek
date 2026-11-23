@@ -138,7 +138,17 @@ allowedAnomalies = []
 # 8 rather than 7 for B11/B12's reason: 7 is exactly what a single dropped
 # recording would produce on an 8-population run, so it would blind the guard.
 # Never widen back toward 1.
-count = { min = 8, max = 9 }
+# RE-PINNED 11 (2026-11-23, run 2026-11-23_0858_B6-minmus-flyby): split rule version 3 adds the circularization and orbit rows
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The ascent
+# and debris population above is unchanged (4 Kerbal X rows ascent / circularization /
+# orbit / transfer + 7 debris); this was `count = { min = 8, max = 9 }`, whose 9 was the
+# 8 recordings plus the atmosphere-exit split. The KSP.log carries exactly three splits:
+#   Split candidate (PersistedPhaseChange) splitUT=212.98
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=300.69
+#   Split candidate (DepartureBurnStart) splitUT=445.47
+#   CommitTreeFlight: optimization pass ran committed=8->11
+# Still exact: 10 (a cut or a recording missing) and 12 (an extra one) both red.
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a

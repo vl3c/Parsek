@@ -203,7 +203,7 @@ namespace Parsek
                             }
                         }
 
-                        if (exactSection)
+                        if (!MayAnchorContinuityOnFlatPoint(traj, section, exactSection))
                             return false;
                     }
 
@@ -238,6 +238,22 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Whether the continuity offset may read the last flat point as lat/lon/alt when the
+        /// nearest section is Relative and its body-fixed frames do not reach it. Inside the
+        /// section the point is an anchor-local offset; past it, a parent-anchored recording's
+        /// flat tail has no known frame (read as degrees it gives a planet-scale offset), so the
+        /// tail starts without a blend. Pure.
+        /// </summary>
+        internal static bool MayAnchorContinuityOnFlatPoint(
+            IPlaybackTrajectory traj, TrackSection section, bool exactSection)
+        {
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return true;
+            return !exactSection
+                && !GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj);
         }
 
         internal static int FindNearestTrackSectionIndexForContinuityAnchor(

@@ -15096,11 +15096,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # with GS-4's window shape and ARMED the same day (see the armed roster):
         # GS-7 declares spawned {min 8} (parent + six boosters + the probe child
         # the far-crash profile discards before the fall) and GS-8 spawned {min 8}
-        # (GS-4's census - the longer burn adds distance, not recordings). Both
-        # keep requireBalanced because
-        # the balance IS the claim each lane makes about its round trip (the
-        # explosion hold's derender, the zone teardown/rebuild); arming follows
-        # the reading runs through GHOSTLIFE_ARMED_SPECS.
+        # (GS-4's census - the longer burn adds distance, not recordings). The
+        # balance IS the claim each lane makes about its round trip (the
+        # explosion hold's derender, the zone teardown/rebuild): GS-7 keeps
+        # requireBalanced, and GS-8 states it per vessel since 2026-11-23, because
+        # the dropped core's predicted fall outlives its quit (one Probe destroy
+        # short, unless the quit teardown is logged); arming follows the reading
+        # runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
         # [D] THE FIRST DECLARER OF THE LINE-COUNT WINDOWS (GS-9, 2026-09-10,
@@ -25421,9 +25423,9 @@ class DebrisPopulationGateTests(unittest.TestCase):
     GATED = {
         "PWR-2-physwarp-ascent-medium.toml": (7, 8, "b2_decide", False),
         "B4-reentry-splashdown.toml": (11, 11, "b4_decide", True),
-        "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
-        "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
-        "B7-duna-flyby.toml":         (9, 9, "b5_decide", True),
+        "B5-mun-flyby.toml":          (11, 11, "b5_decide", True),
+        "B6-minmus-flyby.toml":       (11, 11, "b5_decide", True),
+        "B7-duna-flyby.toml":         (10, 10, "b5_decide", True),
     }
 
     # Stacks a spec drops BEYOND the one extra stage the GATED flag counts. B4's
@@ -25441,15 +25443,21 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # B5 and B6 read the same +1 inside their existing max (2026-10-01_1127 / _1201 /
     # _1210). B4 reads two splits (ascent exit plus reentry): re-pinned 9..10 -> 11 exact
     # by the 2026-10-01 operator ruling that closed todo INFLIGHT-COMMIT-MULTI-SPLIT-COUNTS
-    # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11).
-    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 1, "B4-reentry-splashdown.toml": 2}
+    # (reading 2026-10-01_1143, confirmed 2026-10-01_2023 PASS at 11). Split rule version
+    # 3 adds the orbit-insertion cut on B5 / B6 / B7 and the departure cut on B5 / B6 (B7's
+    # departure stays inside its interplanetary transfer row): each re-pinned exact.
+    OPTIMIZER_SPLITS = {"B7-duna-flyby.toml": 2, "B4-reentry-splashdown.toml": 2,
+                        "B5-mun-flyby.toml": 3, "B6-minmus-flyby.toml": 3}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
     # JSON, read 2026-07-27. Before this, B4's floor was structural-only and B6's
     # was inferred from sharing b5_decide; both measured at exactly what was
     # derived. The field only exists on runs after 72cf344fb (2026-07-25 06:48),
-    # which is why all seven run ids are from that morning.
+    # which is why the run ids of that reading are from that morning. The three
+    # 2026-11-23 ids are the version-3 readings, PARSEK-FAIL on `recordings.count` ALONE
+    # (the stale windows) with every other verifier green; replace each with its first
+    # PASS on the new pin.
     #
     # These are NOT re-derivable from the archived `logs/*/KSP.log` folders:
     # run.py collects logs on NON-PASS only, so every archived B-lane folder is a
@@ -25463,12 +25471,11 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
         # 11 since 2026-10-01: plus #1931's two in-flight optimizer splits.
         "B4-reentry-splashdown.toml": (11, ("2026-10-01_2023_B4-reentry-splashdown",)),
-        "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
-                                           "2026-07-25_0847_B5-mun-flyby")),
-        "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
-                                           "2026-07-25_0856_B6-minmus-flyby")),
-        # 9 since 2026-10-01: #1931's in-flight optimizer split (OPTIMIZER_SPLITS).
-        "B7-duna-flyby.toml":         (9, ("2026-10-01_1508_B7-duna-flyby",)),
+        # 8 recordings plus three optimizer splits (OPTIMIZER_SPLITS).
+        "B5-mun-flyby.toml":          (11, ("2026-11-23_0848_B5-mun-flyby",)),
+        "B6-minmus-flyby.toml":       (11, ("2026-11-23_0858_B6-minmus-flyby",)),
+        # 8 recordings plus two optimizer splits (OPTIMIZER_SPLITS).
+        "B7-duna-flyby.toml":         (10, ("2026-11-23_0828_B7-duna-flyby",)),
     }
 
     CELL = "parent-anchored-debris"

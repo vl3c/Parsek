@@ -403,10 +403,11 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
             bool usedBodyFixedPrimary = false;
 
-            // Position the ghost. Parent-anchored debris is only valid
-            // while a recorded Relative section covers the playback UT; outside
-            // that coverage, hide instead of falling through to flat points,
-            // surface, or orbit-tail playback. The ShadowPositioned route has
+            // Position the ghost. A parent-anchored recording is only valid
+            // while its authored surface covers the playback UT: a track section
+            // whose frames do, or, past the last section, its own predicted tail.
+            // Outside that coverage, hide instead of falling through to flat
+            // points, surface, or a recorded orbit. The ShadowPositioned route has
             // already positioned the ghost via the bodyFixedFrames lerp, so the
             // normal positioning chain is also skipped for that frame.
             if (!TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -481,6 +482,7 @@ namespace Parsek
                 ApplyNonRetiredPostPosition(
                     i, traj, ctx, state, visiblePlaybackUT, suppressVisualFx, zoneResult,
                     ref ghostActive);
+                LogParentAnchoredPredictedTailDrawn(i, traj, state, visiblePlaybackUT);
             }
 
             // Targeted post-separation observability: emits one
