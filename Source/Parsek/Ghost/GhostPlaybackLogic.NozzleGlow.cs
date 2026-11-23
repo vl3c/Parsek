@@ -41,8 +41,22 @@ namespace Parsek
         public float basePower;
         public List<NozzleGlowColor> colors = new List<NozzleGlowColor>();
 
-        // The glow is a throttle-driven ModuleColorChanger, not a clip.
+        // The clip follows the VESSEL's throttle (no dependOnThrottle, the Whiplash and the wet
+        // Panther) and its engine does not (independent throttle or throttle lock), so no recorded
+        // power tells it: the level is vesselThrottle, the snapshot's main throttle (NaN = unknown),
+        // while the engine runs.
+        public bool vesselThrottleUnrecorded;
+        public float vesselThrottle = float.NaN;
+
+        // The glow is a colour curve on materials of its own, not a clip: a throttle-driven
+        // ModuleColorChanger, or ReStock's RCS glow. samples is its curve.
         public bool isColorChanger;
+        public Color[] samples;
+        // The other throttle-driven colour changers that write the same property of the same
+        // materials, in frame order, all before this one; null for the only writer.
+        public NozzleGlowInfo[] under;
+        // Where the setter call stands among the part's (a later one overwrites an earlier one).
+        public int setterOrder;
         // A useRate ModuleColorChanger: SetScalar turns the level into a switch (animState, on from
         // 0.5) and the module's own Update, which runs after the setter's, shows a ramp toward that
         // end at rampRate per second. With settledShowsScalar (KSPCommunityFixes) the module writes
@@ -58,6 +72,7 @@ namespace Parsek
         public float targetLevel;
         public double startUT = double.NaN;
         public float writtenLevel = float.NaN;
+        public NozzleGlowInfo writtenBy;
     }
 
     // Engine and RCS nozzle glow (FXModuleAnimateThrottle / FXModuleAnimateRCS).
@@ -134,6 +149,15 @@ namespace Parsek
             float target = strongest * powerScale;
             if (float.IsNaN(target) || target <= 0f) return 0f;
             return target > 1f ? 1f : target;
+        }
+
+        /// <summary>The level the glow's recorded powers ask for now.</summary>
+        internal static float NozzleGlowTarget(NozzleGlowInfo glow)
+        {
+            if (float.IsNaN(glow.vesselThrottle))
+                return ResolveNozzleGlowTarget(glow.modulePowers, glow.powerScale);
+            if (ResolveNozzleGlowTarget(glow.modulePowers, 1f) <= 0f || glow.vesselThrottle <= 0f) return 0f;
+            return glow.vesselThrottle > 1f ? 1f : glow.vesselThrottle;
         }
 
         /// <summary>Pure: the clip colour at <paramref name="level"/>, between evenly spaced samples.</summary>
@@ -281,7 +305,7 @@ namespace Parsek
                 g.startLevel = g.initialLevel;
                 g.startRamp = g.initialRamp;
                 g.startUT = double.IsNaN(g.initialUT) ? state.nozzleGlowStartUT : g.initialUT;
-                g.targetLevel = ResolveNozzleGlowTarget(g.modulePowers, g.powerScale);
+                g.targetLevel = NozzleGlowTarget(g);
                 g.writtenLevel = float.NaN;
             }
         }
@@ -359,7 +383,7 @@ namespace Parsek
                 g.startRamp = NozzleGlowRampAt(g, at);
                 g.startUT = at;
                 g.modulePowers[slot] = power;
-                g.targetLevel = ResolveNozzleGlowTarget(g.modulePowers, g.powerScale);
+                g.targetLevel = NozzleGlowTarget(g);
                 if (!log) continue;
                 ParsekLog.VerboseRateLimited("GhostFx",
                     "nozzle-glow-" + g.partPersistentId.ToString(CultureInfo.InvariantCulture)
@@ -385,19 +409,70 @@ namespace Parsek
                 ? ComputeNozzleGlowRamp(glow.startRamp, glow.targetLevel, glow.rampRate, ut - glow.startUT)
                 : 0f;
 
-        /// <summary>The level that shows.</summary>
-        internal static float NozzleGlowLevelAt(NozzleGlowInfo glow, double ut)
+        /// <summary>
+        /// Whether the module's own Update writes its ramp at <paramref name="ut"/>: stock's every
+        /// frame, KSPCommunityFixes' only while the ramp moves. Without a ramp never (the setter does).
+        /// </summary>
+        private static bool NozzleGlowRampWrites(NozzleGlowInfo glow, double ut)
+            => glow.ramps && (!glow.settledShowsScalar
+                              || NozzleGlowRampAt(glow, ut) != NozzleGlowRampEnd(glow.targetLevel));
+
+        /// <summary>The writer whose setter call comes last in the frame.</summary>
+        private static NozzleGlowInfo LastNozzleGlowSetter(NozzleGlowInfo glow)
         {
-            if (!glow.ramps) return NozzleGlowScalarAt(glow, ut);
-            float ramp = NozzleGlowRampAt(glow, ut);
-            return glow.settledShowsScalar && ramp == NozzleGlowRampEnd(glow.targetLevel)
-                ? NozzleGlowScalarAt(glow, ut)
-                : ramp;
+            NozzleGlowInfo last = glow;
+            for (int i = 0; glow.under != null && i < glow.under.Length; i++)
+                if (glow.under[i].setterOrder > last.setterOrder) last = glow.under[i];
+            return last;
         }
 
-        /// <summary>The level that shows once nothing moves any more.</summary>
-        internal static float NozzleGlowRestLevel(NozzleGlowInfo glow)
-            => glow.ramps && !glow.settledShowsScalar ? NozzleGlowRampEnd(glow.targetLevel) : glow.targetLevel;
+        /// <summary>
+        /// The writer whose value shows, and the value. In one frame every setter writes its level,
+        /// then every module's Update its ramp, each in module order, onto the same renderers: the
+        /// last Update that writes wins, and with none the last setter.
+        /// </summary>
+        internal static NozzleGlowInfo ShownNozzleGlow(NozzleGlowInfo glow, double ut, out float level)
+        {
+            int below = glow.under != null ? glow.under.Length : 0;
+            for (int i = below; i >= 0; i--)
+            {
+                NozzleGlowInfo writer = i == below ? glow : glow.under[i];
+                if (!NozzleGlowRampWrites(writer, ut)) continue;
+                level = NozzleGlowRampAt(writer, ut);
+                return writer;
+            }
+            NozzleGlowInfo setter = LastNozzleGlowSetter(glow);
+            level = NozzleGlowScalarAt(setter, ut);
+            return setter;
+        }
+
+        /// <summary>The writer and the level that show once nothing moves any more.</summary>
+        internal static NozzleGlowInfo RestingNozzleGlow(NozzleGlowInfo glow, out float level)
+        {
+            int below = glow.under != null ? glow.under.Length : 0;
+            for (int i = below; i >= 0; i--)
+            {
+                NozzleGlowInfo writer = i == below ? glow : glow.under[i];
+                if (!writer.ramps || writer.settledShowsScalar) continue;
+                level = NozzleGlowRampEnd(writer.targetLevel);
+                return writer;
+            }
+            NozzleGlowInfo setter = LastNozzleGlowSetter(glow);
+            level = setter.targetLevel;
+            return setter;
+        }
+
+        private static bool IsNozzleGlowAtRest(NozzleGlowInfo glow)
+        {
+            if (!IsNozzleGlowWriterAtRest(glow)) return false;
+            for (int i = 0; glow.under != null && i < glow.under.Length; i++)
+                if (!IsNozzleGlowWriterAtRest(glow.under[i])) return false;
+            return true;
+        }
+
+        private static bool IsNozzleGlowWriterAtRest(NozzleGlowInfo glow)
+            => glow.startLevel == glow.targetLevel
+               && (!glow.ramps || glow.startRamp == NozzleGlowRampEnd(glow.targetLevel));
 
         /// <summary>Per visible frame: writes the glows whose level moved. A settled glow costs
         /// a few compares; a ghost with no glow one null check.</summary>
@@ -408,34 +483,36 @@ namespace Parsek
             for (int i = 0; i < glows.Count; i++)
             {
                 NozzleGlowInfo g = glows[i];
-                float rest = NozzleGlowRestLevel(g);
-                if (g.writtenLevel == rest && g.startLevel == g.targetLevel
-                    && (!g.ramps || g.startRamp == NozzleGlowRampEnd(g.targetLevel))) continue;
+                NozzleGlowInfo resting = RestingNozzleGlow(g, out float rest);
+                if (g.writtenLevel == rest && g.writtenBy == resting && IsNozzleGlowAtRest(g)) continue;
                 if (double.IsNaN(g.startUT))
                 {
                     // Latched on the state, so a restart of the event walk keeps it.
                     if (double.IsNaN(state.nozzleGlowStartUT)) state.nozzleGlowStartUT = currentUT;
                     g.startUT = state.nozzleGlowStartUT;
                 }
-                float level = NozzleGlowLevelAt(g, currentUT);
+                NozzleGlowInfo writer = ShownNozzleGlow(g, currentUT, out float level);
                 if (NozzleGlowScalarAt(g, currentUT) == g.targetLevel) g.startLevel = g.targetLevel;
                 if (g.ramps && NozzleGlowRampAt(g, currentUT) == NozzleGlowRampEnd(g.targetLevel))
                     g.startRamp = NozzleGlowRampEnd(g.targetLevel);
+                if (g.writtenBy != writer) g.writtenLevel = float.NaN;
                 if (!ShouldWriteNozzleGlow(g.writtenLevel, level, rest)) continue;
                 g.writtenLevel = level;
-                if (g.colors != null && g.colors.Count > 0) WriteNozzleGlowColors(g.colors, level);
+                g.writtenBy = writer;
+                if (g.colors != null && g.colors.Count > 0)
+                    WriteNozzleGlowColors(g.colors, writer.samples, level);
             }
         }
 
         // Material.SetColor is an ECall; NoInlining keeps it out of the methods xUnit calls.
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void WriteNozzleGlowColors(List<NozzleGlowColor> colors, float level)
+        private static void WriteNozzleGlowColors(List<NozzleGlowColor> colors, Color[] curve, float level)
         {
             for (int c = 0; c < colors.Count; c++)
             {
                 NozzleGlowColor color = colors[c];
                 if (color.material == null || string.IsNullOrEmpty(color.property)) continue;
-                color.material.SetColor(color.property, ResolveNozzleGlowColor(color.samples, level));
+                color.material.SetColor(color.property, ResolveNozzleGlowColor(curve ?? color.samples, level));
             }
         }
 

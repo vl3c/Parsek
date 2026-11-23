@@ -340,7 +340,8 @@ namespace Parsek.Tests
             Assert.Equal((double)0.5f, g.writtenLevel, 3);
             GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
             Assert.Equal((double)expected, g.writtenLevel, 4);
-            Assert.Equal((double)expected, GhostPlaybackLogic.NozzleGlowRestLevel(g), 4);
+            Assert.Same(g, GhostPlaybackLogic.RestingNozzleGlow(g, out float rest));
+            Assert.Equal((double)expected, rest, 4);
             // Settled: a later frame writes nothing.
             g.colors.Clear();
             float before = g.writtenLevel;
@@ -490,7 +491,7 @@ namespace Parsek.Tests
         public void Wiring_TheBuilderTurnsNamedColourChangersIntoGlows()
         {
             string build = Source("GhostVisualBuilder.cs");
-            int collect = build.IndexOf("throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);", StringComparison.Ordinal);
+            int collect = build.IndexOf("throttleGlowDrivers = CollectThrottleGlowDrivers(prefab, partNode);", StringComparison.Ordinal);
             int named = build.IndexOf("ThrottleDrivenModuleIds(throttleGlowDrivers));", StringComparison.Ordinal);
             int glows = build.IndexOf("colorChangerInfos, throttleGlowDrivers, persistentId, partName);", StringComparison.Ordinal);
             Assert.True(collect > 0 && named > collect && glows > named);
@@ -504,8 +505,164 @@ namespace Parsek.Tests
             Assert.Contains("bool throttleDriven = driven != null && driven.Remove(moduleId);", changers);
             Assert.Contains("samples = SampleColorChangerCurves(node),", changers);
             Assert.Contains("throttleGlow = plan.throttleGlow,", changers);
+            Assert.Contains("throttleGlowUnder = under,", changers);
+            Assert.Contains("MaterialsOf(plan, under).Add(", changers);
+            Assert.Contains("if (under.Count > 0) glow.under = under.ToArray();", nozzle);
             // KSPCommunityFixes.dll: new Harmony("KSPCommunityFixes").
             Assert.Equal("KSPCommunityFixes", GhostVisualBuilder.KspCommunityFixesHarmonyId);
+        }
+
+        // ReStock's boosters (Mite): the plural includedRenderers / excludedRenderers are no key
+        // OnLoad reads, so heatColor (0.025 /s) and throttleColor (1 /s) write the whole bell.
+        private static NozzleGlowInfo[] BoosterGlows(bool kspcf)
+        {
+            Color[] Solid(float v)
+            {
+                var samples = new Color[GhostVisualBuilder.NozzleGlowSampleCount];
+                for (int i = 0; i < samples.Length; i++) samples[i] = new Color(v, v, v, v);
+                return samples;
+            }
+            NozzleGlowInfo heat = GhostVisualBuilder.NewThrottleGlow(Pid,
+                new ThrottleGlowDriver { moduleIds = new[] { "heatColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, ordinal = 0 },
+                new ThrottleGlowCurve { moduleId = "heatColor", animRate = 0.025f, useRate = true, samples = Solid(0.25f) }, 0f, kspcf);
+            NozzleGlowInfo throttle = GhostVisualBuilder.NewThrottleGlow(Pid,
+                new ThrottleGlowDriver { moduleIds = new[] { "throttleColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, ordinal = 1 },
+                new ThrottleGlowCurve { moduleId = "throttleColor", animRate = 1f, useRate = true, samples = Solid(0.75f) }, 0f, kspcf);
+            throttle.under = new[] { heat };
+            return new[] { heat, throttle };
+        }
+
+        // PPS-12b `2026-11-23_1656`, Mite at full: the real bell read 0.157 of full 6.3 s into the
+        // burn, PP-9's 0.316 at 12.6 s; the ghost showed throttleColor's 1.
+        [Theory]
+        [InlineData(true, 0.5, 0.5f, false)]
+        [InlineData(true, 6.3, 0.1575f, true)]
+        [InlineData(true, 12.6, 0.315f, true)]
+        [InlineData(true, 60.0, 1f, false)]
+        [InlineData(false, 0.5, 0.5f, false)]
+        [InlineData(false, 6.3, 1f, false)]
+        [InlineData(false, 60.0, 1f, false)]
+        public void Overlap_TheLastModuleThatWritesShows_AndUnderKspcfOnlyAMovingRampWrites(
+            bool kspcf, double after, float expected, bool heatShows)
+        {
+            NozzleGlowInfo[] g = BoosterGlows(kspcf);
+            GhostPlaybackState state = StateWith(100.0, g[0], g[1]);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 1f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 120.0 + after);
+            Assert.Equal((double)expected, g[1].writtenLevel, 3);
+            Assert.Same(heatShows ? g[0] : g[1], g[1].writtenBy);
+        }
+
+        // The spool: 12 throttle events from 0.05 up. Below 0.5 nothing ramps (the setter shows);
+        // from the 0.5 crossing the ramps run whatever the number of events.
+        [Fact]
+        public void Overlap_TheSpoolEventsNeverRestartTheRamp()
+        {
+            NozzleGlowInfo[] g = BoosterGlows(true);
+            GhostPlaybackState state = StateWith(100.0, g[0], g[1]);
+            for (int i = 0; i < 12; i++)
+            {
+                double ut = 120.0 + i * 0.04;
+                Apply(state, Evt(i == 0 ? PartEventType.EngineIgnited : PartEventType.EngineThrottle, ut, (i + 1) / 12f));
+                GhostPlaybackLogic.UpdateNozzleGlows(state, ut);
+            }
+            // 0.5 is reached by the sixth event, at 120.20.
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 125.2);
+            Assert.Equal((double)0.125f, g[1].writtenLevel, 3);
+            Assert.Same(g[0], g[1].writtenBy);
+        }
+
+        [Fact]
+        public void Overlap_APartThrottleShowsTheLastSettersLevel_AndTheShutdownTheCoolingHeatRamp()
+        {
+            NozzleGlowInfo[] g = BoosterGlows(true);
+            GhostPlaybackState state = StateWith(100.0, g[0], g[1]);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 0.3f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
+            Assert.Equal((double)0.3f, g[1].writtenLevel, 4);
+            Assert.Same(g[1], g[1].writtenBy);
+
+            Apply(state, Evt(PartEventType.EngineThrottle, 130.0, 1f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 150.0);
+            Assert.Equal((double)0.5f, g[1].writtenLevel, 3);
+            Apply(state, Evt(PartEventType.EngineShutdown, 150.0));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 150.5);
+            Assert.Equal((double)0.5f, g[1].writtenLevel, 3);
+            Assert.Same(g[1], g[1].writtenBy);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 160.0);
+            Assert.Equal((double)0.25f, g[1].writtenLevel, 3);
+            Assert.Same(g[0], g[1].writtenBy);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 171.0);
+            Assert.Equal(0f, g[1].writtenLevel);
+        }
+
+        [Fact]
+        public void Overlap_OnceBothRampsStandNothingIsWrittenAgain_AndARestartWritesAgain()
+        {
+            NozzleGlowInfo[] g = BoosterGlows(true);
+            GhostPlaybackState state = StateWith(100.0, g[0], g[1]);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 1f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 200.0);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 201.0);
+            Assert.Equal(1f, g[1].writtenLevel);
+            Assert.Equal(1f, g[0].startRamp);
+            Assert.Equal(1f, g[1].startRamp);
+            NozzleGlowInfo by = g[1].writtenBy;
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 900.0);
+            Assert.Same(by, g[1].writtenBy);
+            Assert.Equal(1f, g[1].writtenLevel);
+            GhostPlaybackLogic.RestartNozzleGlows(state);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 100.0);
+            Assert.Equal(0f, g[1].writtenLevel);
+        }
+
+        // With the setters in the other order the heat module's setter comes last in the frame.
+        [Fact]
+        public void Overlap_TheRestingLevelIsTheLastSettersOne()
+        {
+            NozzleGlowInfo[] g = BoosterGlows(true);
+            g[0].setterOrder = 5000;
+            g[0].targetLevel = 0.7f;
+            g[1].targetLevel = 0.6f;
+            Assert.Same(g[0], GhostPlaybackLogic.RestingNozzleGlow(g[1], out float rest));
+            Assert.Equal(0.7f, rest);
+            NozzleGlowInfo[] stock = BoosterGlows(false);
+            stock[1].targetLevel = 0.6f;
+            Assert.Same(stock[1], GhostPlaybackLogic.RestingNozzleGlow(stock[1], out rest));
+            Assert.Equal(1f, rest);
+        }
+
+        [Fact]
+        public void Overlap_TheSetterOrderIsTheDriversModuleOrderThenItsNames()
+        {
+            var first = new ThrottleGlowDriver { moduleIds = new[] { "a", "b" }, ordinal = 0 };
+            var second = new ThrottleGlowDriver { moduleIds = new[] { "c" }, ordinal = 1 };
+            int a = GhostVisualBuilder.ThrottleGlowSetterOrder(first, "a");
+            int b = GhostVisualBuilder.ThrottleGlowSetterOrder(first, "b");
+            int c = GhostVisualBuilder.ThrottleGlowSetterOrder(second, "c");
+            Assert.True(a < b && b < c);
+        }
+
+        [Fact]
+        public void Overlap_OnlyThrottleGlowsOfTheSamePropertyThatWriteTheRendererCount()
+        {
+            var properties = new List<string> { "_EmissiveColor", "_EmissiveColor", "_TintColor", "_EmissiveColor" };
+            var keeps = new List<bool[]>
+            {
+                new[] { true, true, false }, new[] { true, false, true }, new[] { true, true, true }, new[] { true, true, true },
+            };
+            var glow = new List<bool> { true, true, true, true };
+            Assert.Equal(new[] { 0, 1 }, GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 3, 0));
+            Assert.Equal(new[] { 0 }, GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 3, 1));
+            Assert.Equal(new[] { 1 }, GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 3, 2));
+            Assert.Empty(GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 2, 0));
+            Assert.Empty(GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 0, 0));
+            // A renderer that only carries the block's value, not written by the module itself.
+            Assert.Empty(GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 1, 1));
+            glow[0] = false;
+            Assert.Equal(new[] { 1 }, GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 3, 0));
+            glow[3] = false;
+            Assert.Empty(GhostVisualBuilder.ResolveThrottleGlowWritersUnder(properties, keeps, glow, 3, 0));
         }
 
         // A colour changer's glow alone leaves the part to the reentry glow it had before.
@@ -533,6 +690,217 @@ namespace Parsek.Tests
             Assert.Equal("colorChanger", GhostVisualBuilder.ColorChangerModuleId(null));
             node.AddValue("moduleID", "heatColor");
             Assert.Equal("heatColor", GhostVisualBuilder.ColorChangerModuleId(node));
+        }
+
+        #endregion
+
+        #region Vessel throttle
+
+        // Stock's two clips without dependOnThrottle: TRJ_Heat (Whiplash), TurboJetHeat (Panther).
+        [Theory]
+        [InlineData(true, false, true, false)]
+        [InlineData(true, true, false, false)]
+        [InlineData(true, false, false, true)]
+        [InlineData(false, false, true, true)]
+        [InlineData(false, true, false, true)]
+        public void VesselThrottle_IsReadWithoutDependOnThrottleOrOutput(
+            bool dependOnEngineState, bool dependOnOutput, bool dependOnThrottle, bool expected)
+            => Assert.Equal(expected, GhostVisualBuilder.GlowFollowsVesselThrottle(
+                dependOnEngineState, dependOnOutput, dependOnThrottle));
+
+        private static ConfigNode EngineNode(string independent, string limiter)
+        {
+            var node = new ConfigNode("MODULE");
+            node.AddValue("name", "ModuleEnginesFX");
+            if (independent != null) node.AddValue("independentThrottle", independent);
+            if (limiter != null) node.AddValue("thrustPercentage", limiter);
+            return node;
+        }
+
+        [Theory]
+        [InlineData("False", "100", false, false, 1f)]
+        [InlineData("True", "100", false, true, 1f)]
+        [InlineData("False", "40", false, false, 0.4f)]
+        [InlineData("False", "100", true, true, 1f)]
+        [InlineData(null, null, false, false, 1f)]
+        [InlineData("junk", "NaN", false, false, 1f)]
+        [InlineData("False", "-3", false, false, 1f)]
+        public void EngineThrottle_IsReadFromTheSavedModule(
+            string independent, string limiter, bool locked, bool ignores, float limit)
+        {
+            EngineThrottleSetup setup = GhostVisualBuilder.ReadEngineThrottleSetup(EngineNode(independent, limiter), locked);
+            Assert.Equal(ignores, setup.ignoresVesselThrottle);
+            Assert.Equal((double)limit, setup.limit, 4);
+            Assert.False(GhostVisualBuilder.ReadEngineThrottleSetup(null, false).ignoresVesselThrottle);
+        }
+
+        [Fact]
+        public void VesselThrottle_ComesFromARunningMainThrottleEngine_ElseNoRecordedPowerTellsIt()
+        {
+            var main = new EngineThrottleSetup { limit = 1f };
+            var limited = new EngineThrottleSetup { limit = 0.5f };
+            var independent = new EngineThrottleSetup { limit = 1f, ignoresVesselThrottle = true };
+            void Check(bool follows, int[] indices, EngineThrottleSetup[] engines, float scale, bool unrecorded)
+            {
+                GhostVisualBuilder.ResolveVesselThrottleSource(follows, indices, engines, out float s, out bool u);
+                Assert.Equal((double)scale, s, 4);
+                Assert.Equal(unrecorded, u);
+            }
+            // A glow on its engine's own throttle takes the power as it is.
+            Check(false, new[] { 0 }, new[] { independent }, 1f, false);
+            Check(false, new[] { 0 }, new[] { limited }, 1f, false);
+            Check(true, new[] { 0 }, new[] { main }, 1f, false);
+            Check(true, new[] { 0 }, new[] { limited }, 2f, false);
+            Check(true, new[] { 0 }, new[] { independent }, 1f, true);
+            Check(true, new[] { 1 }, new[] { main, independent }, 1f, true);
+            Check(true, new[] { 0, 1 }, new[] { limited, independent }, 2f, false);
+            Check(true, new[] { 0 }, new[] { new EngineThrottleSetup { limit = 0f } }, 1f, false);
+            Check(true, new int[0], new EngineThrottleSetup[0], 1f, false);
+        }
+
+        [Theory]
+        [InlineData("0", 0f)]
+        [InlineData("0.65", 0.65f)]
+        [InlineData("7", 1f)]
+        [InlineData("-1", 0f)]
+        [InlineData("x", float.NaN)]
+        [InlineData("NaN", float.NaN)]
+        [InlineData(null, float.NaN)]
+        public void SnapshotMainThrottle_IsTheControlStates_OrUnknown(string raw, float expected)
+        {
+            var node = new ConfigNode("VESSEL");
+            ConfigNode ctrl = node.AddNode("CTRLSTATE");
+            if (raw != null) ctrl.AddValue("mainThrottle", raw);
+            Assert.Equal(expected, GhostVisualBuilder.ReadSnapshotMainThrottle(node));
+            Assert.True(float.IsNaN(GhostVisualBuilder.ReadSnapshotMainThrottle(new ConfigNode("VESSEL"))));
+            Assert.True(float.IsNaN(GhostVisualBuilder.ReadSnapshotMainThrottle(null)));
+        }
+
+        // `2026-11-23_1201` Whiplash: independent throttle at 100 %, vessel throttle 0, 39 s in.
+        [Theory]
+        [InlineData(0f, 0f)]
+        [InlineData(0.4f, 0.4f)]
+        [InlineData(1f, 1f)]
+        [InlineData(float.NaN, 1f)]
+        public void IndependentEngine_TheGlowFollowsTheSnapshotsVesselThrottle_WhileItRuns(float vesselThrottle, float target)
+        {
+            NozzleGlowInfo g = Glow(false, 0.0125f, 1f, 0);
+            g.vesselThrottleUnrecorded = true;
+            g.vesselThrottle = vesselThrottle;
+            GhostPlaybackState state = StateWith(100.0, g);
+            Assert.Equal(0f, g.targetLevel);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 1f));
+            Assert.Equal(target, g.targetLevel);
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 159.0);
+            Assert.Equal(target * (1.0 - Math.Exp(-0.0125 * 39.0)), g.writtenLevel, 3);
+            Apply(state, Evt(PartEventType.EngineShutdown, 159.0));
+            Assert.Equal(0f, g.targetLevel);
+        }
+
+        // The ordinary flight: the engine is on the main throttle, so its power tells it.
+        [Fact]
+        public void MainThrottleEngine_TheBellStillHeats_AndALimitedOneHeatsToTheThrottle()
+        {
+            NozzleGlowInfo g = Glow(false, 0.0125f, 1f / 0.4f, 0);
+            GhostPlaybackState state = StateWith(100.0, g);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 0.4f));
+            Assert.Equal((double)1f, g.targetLevel, 4);
+            Apply(state, Evt(PartEventType.EngineThrottle, 121.0, 0.2f));
+            Assert.Equal((double)0.5f, g.targetLevel, 4);
+        }
+
+        [Fact]
+        public void StampPersistedLevels_GivesOnlyAnUnrecordedVesselThrottleTheSnapshots()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddNode("CTRLSTATE").AddValue("mainThrottle", "0.25");
+            NozzleGlowInfo unrecorded = Glow(false, BellRate, 1f, 0);
+            unrecorded.vesselThrottleUnrecorded = true;
+            NozzleGlowInfo recorded = Glow(false, BellRate, 1f, 0);
+            var heat = new HeatGhostInfo { nozzleGlows = new List<NozzleGlowInfo> { unrecorded, recorded } };
+            GhostVisualBuilder.StampPersistedGlowLevels(heat, snapshot, trusted: true);
+            Assert.Equal(0.25f, unrecorded.vesselThrottle);
+            Assert.True(float.IsNaN(recorded.vesselThrottle));
+            GhostVisualBuilder.StampPersistedGlowLevels(heat, snapshot, trusted: false);
+            Assert.True(float.IsNaN(unrecorded.vesselThrottle));
+        }
+
+        [Fact]
+        public void Wiring_BothGlowModulesResolveTheirThrottleSource()
+        {
+            string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
+            Assert.Contains("GlowFollowsVesselThrottle(throttle.dependOnEngineState, throttle.dependOnOutput,", nozzle);
+            Assert.Contains("GlowFollowsVesselThrottle(effects.dependOnEngineState, effects.dependOnOutput,", nozzle);
+            Assert.Contains("vesselThrottleUnrecorded = plan.vesselThrottleUnrecorded,", nozzle);
+            Assert.Contains("vesselThrottleUnrecorded = driver.vesselThrottleUnrecorded,", nozzle);
+        }
+
+        #endregion
+
+        #region ReStock RCS glow
+
+        private static ConfigNode RcsGlowNode()
+        {
+            var node = new ConfigNode("MODULE");
+            node.AddValue("name", "ModuleRestockRCSGlow");
+            node.AddValue("shaderColorParameter", "_TintColor");
+            ConfigNode alpha = node.AddNode("alphaCurve");
+            alpha.AddValue("key", "0 0");
+            alpha.AddValue("key", "1 1");
+            foreach (string curve in new[] { "redCurve", "greenCurve", "blueCurve" })
+                node.AddNode(curve).AddValue("key", "0 1");
+            return node;
+        }
+
+        // PPS-12b `2026-11-23_1656` linearRcs: the nozzle's white glow disc, the recorded power 1.
+        [Fact]
+        public void ReStockRcsGlow_ShowsTheForceAtOnce_InTheModulesCurve()
+        {
+            NozzleGlowInfo g = GhostVisualBuilder.NewReStockRcsGlow(Pid, 0, RcsGlowNode(), out string property);
+            Assert.Equal("_TintColor", property);
+            Assert.True(g.isRcs);
+            GhostPlaybackState state = StateWith(100.0, g);
+            Assert.Equal(0f, g.writtenLevel);
+            Assert.Equal(new Color(1f, 1f, 1f, 0f), GhostPlaybackLogic.ResolveNozzleGlowColor(g.samples, 0f));
+            Apply(state, Evt(PartEventType.EngineIgnited, 110.0, 1f));
+            Assert.Equal(0f, g.targetLevel);
+            Apply(state, Evt(PartEventType.RCSActivated, 110.0, 1f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 110.02);
+            Assert.Equal(1f, g.writtenLevel);
+            Assert.Equal(new Color(1f, 1f, 1f, 1f), GhostPlaybackLogic.ResolveNozzleGlowColor(g.samples, 1f));
+            Apply(state, Evt(PartEventType.RCSThrottle, 111.0, 0.4f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 111.02);
+            Assert.Equal(0.4f, g.writtenLevel);
+            Assert.Equal((double)0.4f, GhostPlaybackLogic.ResolveNozzleGlowColor(g.samples, 0.4f).a, 4);
+            Apply(state, Evt(PartEventType.RCSStopped, 112.0));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 112.02);
+            Assert.Equal(0f, g.writtenLevel);
+        }
+
+        [Fact]
+        public void ReStockRcsGlow_WithoutAPropertyWritesTheModulesDefault_AndWithoutAConfigHasNoCurve()
+        {
+            NozzleGlowInfo g = GhostVisualBuilder.NewReStockRcsGlow(Pid, 0, new ConfigNode("MODULE"), out string property);
+            Assert.Equal("_EmissiveColor", property);
+            Assert.NotNull(g.samples);
+            Assert.Null(GhostVisualBuilder.NewReStockRcsGlow(Pid, 0, null, out _).samples);
+        }
+
+        // Its material is its own, so the part keeps the reentry glow and that glow keeps the material.
+        [Fact]
+        public void ReStockRcsGlow_LeavesThePartToTheReentryGlow()
+        {
+            NozzleGlowInfo g = GhostVisualBuilder.NewReStockRcsGlow(Pid, 0, RcsGlowNode(), out _);
+            Assert.True(g.isColorChanger);
+            Assert.False(GhostVisualBuilder.HeatInfoOwnsPartMaterials(
+                new HeatGhostInfo { throttleGlowsOnly = true, nozzleGlows = new List<NozzleGlowInfo> { g } }));
+            string owned = Source("GhostPlaybackLogic.HeatDeployablesLights.cs");
+            Assert.Contains("if (!glow.isColorChanger) continue;", owned);
+            Assert.Contains("owned[m] = glow.colors[i].property;", owned);
+            string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
+            Assert.Contains("throttleGlowsOnly = glow.isColorChanger,", nozzle);
+            Assert.Contains("BuildReStockRcsGlow(prefab, modelRoot, ghostModelNode, cloneMap, ref heatInfo, persistentId, partName);", nozzle);
+            Assert.Contains("if (RcsGlowPowerIsPerNozzle(thrusters.Length))", nozzle);
         }
 
         #endregion

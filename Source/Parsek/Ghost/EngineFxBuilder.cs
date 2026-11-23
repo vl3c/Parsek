@@ -353,6 +353,18 @@ namespace Parsek
         internal static readonly Quaternion LegacyFxLocalRotation =
             new Quaternion(-0.70710677f, 0f, 0f, 0.70710677f);
 
+        /// <summary>What stock's <c>PartLoader</c> adds to the name of an <c>fx_*</c> child whose key
+        /// ends in <c>true</c> (decompiled).</summary>
+        internal const string LegacyFxKeepPositionMark = "Keep Pos";
+
+        /// <summary>
+        /// Pure: where stock <c>ModuleEngines.AutoPlaceFXGroup</c> (decompiled) puts a legacy system
+        /// under its thrust transform: the engine's <c>fxOffset</c>, or the position its key authored
+        /// when the key asks to keep it (the Mainsail's two verniers).
+        /// </summary>
+        internal static Vector3 LegacyFxLocalPosition(string fxObjectName, Vector3 authoredPosition, Vector3 fxOffset)
+            => fxObjectName != null && fxObjectName.Contains(LegacyFxKeepPositionMark) ? authoredPosition : fxOffset;
+
         /// <summary>
         /// Processes legacy PART-level fx_* child entries when no EFFECTS node is present.
         /// Clones particle systems from prefab children onto ghost thrust anchors.
@@ -442,7 +454,8 @@ namespace Parsek
                         GameObject fxClone = Object.Instantiate(child.gameObject);
                         // Stock AutoPlaceFXGroup parents the group's system keeping its world scale.
                         fxClone.transform.SetParent(ghostLegacyParent, true);
-                        fxClone.transform.localPosition = legacyFxOffset;
+                        Vector3 legacyLocalPos = LegacyFxLocalPosition(child.name, child.localPosition, legacyFxOffset);
+                        fxClone.transform.localPosition = legacyLocalPos;
                         // A system stock does not move itself keeps the child's part-frame rotation.
                         Quaternion legacyLocalRot = ownSystemOnly
                             ? LegacyFxLocalRotation
@@ -460,7 +473,7 @@ namespace Parsek
                             GhostVisualBuilder.LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD",
                                 srcLegacyAnchor.name, child.name, prefab.transform, ghostModelNode,
                                 srcLegacyAnchor, ghostLegacyParent, fxClone.transform,
-                                legacyFxOffset, legacyLocalRot, true);
+                                legacyLocalPos, legacyLocalRot, true);
                             ParsekLog.VerboseRateLimited("EngineFx", $"legacy-{partName}-{moduleIndex}",
                                 $"Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}' systems={addedSystems}");
                             LogFxDirection(partName, moduleIndex, "LEGACY", srcLegacyAnchor.name, child.name, fxClone.transform);
