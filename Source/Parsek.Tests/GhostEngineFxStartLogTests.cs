@@ -150,10 +150,10 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(1, 1, 0, (int)EngineFxSource.EffectsNode)]  // the Ant: EFFECTS + Twitch supplement
+        [InlineData(1, 1, 0, (int)EngineFxSource.EffectsNode)]  // EFFECTS beside an injected plume
         [InlineData(2, 0, 0, (int)EngineFxSource.EffectsNode)]
         [InlineData(0, 0, 3, (int)EngineFxSource.Legacy)]       // an LV-T45: fx_* children
-        [InlineData(0, 2, 0, (int)EngineFxSource.Supplement)]   // Kickback / Rhino forced plumes
+        [InlineData(0, 2, 0, (int)EngineFxSource.Supplement)]   // a Waterfall last-resort flame
         [InlineData(0, 0, 0, (int)EngineFxSource.None)]
         public void ClassifyEngineFxSource_EffectsWinsOverSupplements(
             int effects, int supplement, int legacy, int expected)

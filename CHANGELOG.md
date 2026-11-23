@@ -74,6 +74,8 @@ Not released yet.
   real engine does not have. (GHOST-RAPIER-AIR-SMOKE-SUBSTITUTE)
 - **Ghost jet smoke and plume sizes match stock.** A ghost's flame and smoke follow its throttle,
   altitude and speed as the real engine's do; jets no longer draw a thick trail.
+- **Ghost engines draw only stock's plumes.** Nine engines (the Twin-Boar, Mammoth and Rhino among
+  them) had an extra or replaced flame on their ghosts. (GHOST-ENGINE-ADDED-PLUMES)
 - **Ghost effects point and scale like the real ones.** Flames on rescaled parts are no longer too
   large, ReStock engine bells glow and its claw lamps show their pattern. (GHOST-FX-MODEL-SCALE)
 - **A heated nose cone's ghost glows in the part's own colours.** Parts with a heat glow no longer

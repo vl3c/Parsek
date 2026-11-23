@@ -109,8 +109,8 @@ below was moved here from `.claude/CLAUDE.md` on 2026-09-01; it is the authority
   directory = a permanently empty index = stock-install no-op.
 - Consumers of the index: `EngineFxBuilder.TryScanReStockEffectsEntries`,
   `GhostVisualBuilder.TryApplyPristineRcsFxFallback`, and `HasAuthoredEffectsFor`, which stands down the
-  hardcoded stock per-part FX tunings whenever ReStock authored the part's EFFECTS (ReStock-presence
-  gated, NOT Waterfall-gated).
+  hardcoded stock per-part FX tunings (the RAPIER's white core and the LES particle skip) whenever
+  ReStock authored the part's EFFECTS (ReStock-presence gated, NOT Waterfall-gated).
 - Parity instruments: `GhostFxFingerprint.cs` emits canonical per-part `[FxFingerprint]` Verbose lines
   after every engine/RCS FX build (stock AND Waterfall installs) for mechanical A/B diffs, paired with
   the in-game `AllEnginesPristineFxResolveExactly` sweep (WaterfallCompat category).
