@@ -10,20 +10,30 @@ namespace Parsek.InGameTests
     /// <summary>
     /// Live check of the in-flight contract fail block for a committed outcome the flight
     /// clock already passed (todo CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME, game-actions
-    /// design 3.13 rule 1). The flight scene applies a committed outcome only at the next
-    /// recalculation, so until then stock still holds the contract Active; stock must not
+    /// design 3.13 rule 1). A reached outcome reaches stock only with the next applied
+    /// recalculation (the flight clock cursor's patch is deferred while a flight records), so
+    /// until then stock still holds the contract Active; stock must not
     /// end it in between. The test files a committed (Space Center origin) completion of a
-    /// live Active contract one second in the past, moves the contract's deadline behind the
-    /// clock so stock's own <c>ContractSystem</c> update daemon expires it through
+    /// live Active contract one second after that contract's accept, moves its deadline behind
+    /// the clock so stock's own <c>ContractSystem</c> update daemon expires it through
     /// <c>Contract.Update()</c> -> <c>SetState(DeadlineExpired)</c>, then calls stock's public
     /// <c>Fail()</c>. Both must be refused: the contract stays Active and neither funds nor
     /// reputation move. The deadline, the row and the index are restored afterwards; the
     /// batch's campaign isolation reverts the save on top of that.
+    /// <para>The row's UT is the fixture's load-bearing choice. A contract Active in flight was
+    /// accepted before this scene loaded, and the flight clock cursor
+    /// (<see cref="CareerLedgerClockCursor"/>) starts at the load clock, so a row at the accept
+    /// is no crossing and nothing recalculates. Filed inside the window instead (a second
+    /// behind the clock), the cursor completes the contract on the next frame, as ruled
+    /// (todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS; L12 <c>2026-11-23_1548</c>), and the Active
+    /// assertions would read that as stock ending it. The accept is also the earliest UT the
+    /// block counts a reached outcome from (its accept-date bound).</para>
     /// </summary>
     public class ContractReachedOutcomeInGameTest
     {
         private const string Tag = "TestRunner";
         private const float DaemonWaitSeconds = 15f;
+        private const double CommittedCompleteSecondsAfterAccept = 1.0;
 
         private static readonly FieldInfo DateDeadlineField =
             typeof(Contract).GetField("dateDeadline", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -71,10 +81,15 @@ namespace Parsek.InGameTests
             int refusedBefore = Patches.ContractEarlyFailPatch.RefusedFailCount;
             double deadlineBefore = (double)DateDeadlineField.GetValue(contract);
             object deadlineTypeBefore = DeadlineTypeField.GetValue(contract);
+            double acceptedUT = contract.DateAccepted;
+            double committedCompleteUT = acceptedUT + CommittedCompleteSecondsAfterAccept;
+            InGameAssert.IsTrue(acceptedUT > 0.0 && committedCompleteUT < now,
+                "the Active contract carries no accept date behind the clock (accepted=" +
+                acceptedUT.ToString("F1", CultureInfo.InvariantCulture) + ")");
 
             var row = new GameAction
             {
-                UT = now - 1.0,
+                UT = committedCompleteUT,
                 Type = GameActionType.ContractComplete,
                 ContractId = guid,
                 ContractTitle = contract.Title,
@@ -82,8 +97,8 @@ namespace Parsek.InGameTests
             Ledger.AddAction(row, LedgerRowWriter.StockApplied);
             CommittedFutureIndexCache.Invalidate("ContractReachedOutcomeInGameTest");
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                "contract reached outcome: fixture guid={0} title=\"{1}\" committedCompleteUT={2:F1} now={3:F1} deadline={4:F1} deadlineType={5} funds={6:F1} rep={7:F3}",
-                guid, contract.Title, row.UT, now, deadlineBefore, deadlineTypeBefore, fundsBefore, repBefore));
+                "contract reached outcome: fixture guid={0} title=\"{1}\" committedCompleteUT={2:F1} now={3:F1} deadline={4:F1} deadlineType={5} funds={6:F1} rep={7:F3} acceptedUT={8:F1}",
+                guid, contract.Title, row.UT, now, deadlineBefore, deadlineTypeBefore, fundsBefore, repBefore, acceptedUT));
 
             bool restored = false;
             try

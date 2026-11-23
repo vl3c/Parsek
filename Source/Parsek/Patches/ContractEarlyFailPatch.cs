@@ -24,9 +24,10 @@ namespace Parsek.Patches
     /// contract Active, and the state patch applies the committed outcome at the next
     /// recalculation past its UT.</para>
     /// <para>The refusal covers a committed outcome at ANY UT, not only one ahead of the clock
-    /// (todo CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME). The flight scene has no clock
-    /// cursor, so once a flight passes the committed UT stock still shows the contract Active
-    /// until the next recalculation; a fail there would charge a penalty the walk then skips
+    /// (todo CONTRACT-FAIL-AFTER-REACHED-COMMITTED-OUTCOME). The flight clock cursor's patch is
+    /// deferred while a recorded flight lives, so once such a flight passes the committed UT
+    /// stock still shows the contract Active until the next applied recalculation; a fail there
+    /// would charge a penalty the walk then skips
     /// (the contract already ended), and the stock pool reference files that gap as a kept
     /// leak, a permanent loss. An Active contract with a committed outcome at or before now is
     /// exactly that stale state, counted from the live contract's own accept date on so an

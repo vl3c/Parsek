@@ -161,7 +161,26 @@ def write_text_atomic(path: str, text: str) -> None:
     tmp = "%s.tmp-%d" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
+
+
+REPLACE_ATTEMPTS = 20
+REPLACE_RETRY_SECONDS = 0.5
+
+
+def replace_with_retry(src: str, dst: str, sleep: Callable[[float], None] = time.sleep) -> None:
+    """``os.replace`` that waits out a reader. On Windows the replace fails with
+    PermissionError while another process holds ``dst`` open without delete
+    sharing (a ``tail``, an antivirus scan), and an error here would end the run
+    and kill every lane in flight."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            sleep(REPLACE_RETRY_SECONDS)
 
 
 def write_json_atomic(path: str, obj: Any) -> None:

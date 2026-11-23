@@ -124,8 +124,8 @@ count = { min = 1 }
 # window under labels claiming a filter. `excluded=0` after `key=all` is EXACT and is the
 # proof the restore really restored.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select bulk mission=[0-9a-f-]+ include=false keysChanged=[1-9][0-9]* linksChanged=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction select window=missions mission=[0-9a-f-]+ key=none include=false changed=[1-9][0-9]* excluded=[1-9][0-9]* links=[0-9]+ frames=[0-9]+",

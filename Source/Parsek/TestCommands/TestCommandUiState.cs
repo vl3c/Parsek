@@ -267,8 +267,8 @@ namespace Parsek.TestCommands
         /// </summary>
         internal const string ExpandStateWithBulkKeyReason = "expand-state-with-bulk-key";
 
-        /// <summary><c>op=target</c> against a window with no targeted opener. Only
-        /// <c>structure</c> has one today.</summary>
+        /// <summary><c>op=target</c> against a window with no targeted opener. The ones
+        /// that have one: <c>structure</c>, <c>routehistory</c> and <c>profile</c>.</summary>
         internal const string TargetUnsupportedWindowReason = "target-unsupported-window";
 
         /// <summary>No <c>mission=</c>.</summary>
@@ -427,7 +427,8 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>Parses <c>op=target</c>'s selector, which is per-window: the Mission
-        /// Log (<c>structure</c>) takes <c>mission=</c> (a <c>route=</c> there is refused:
+        /// Log (<c>structure</c>) and the Mission Profile (<c>profile</c>) take
+        /// <c>mission=</c> (a <c>route=</c> there is refused:
         /// a route's history is its own window), the Route History (<c>routehistory</c>)
         /// takes <c>route=</c>.</summary>
         internal static bool TryParseTarget(string window, string rawMission, string rawRoute,
@@ -448,7 +449,8 @@ namespace Parsek.TestCommands
                 rejectReason = null;
                 return true;
             }
-            if (window != TestCommandUiAction.StructureWindow)
+            if (window != TestCommandUiAction.StructureWindow
+                && window != TestCommandUiAction.ProfileWindow)
             {
                 rejectReason = TargetUnsupportedWindowReason;
                 return false;

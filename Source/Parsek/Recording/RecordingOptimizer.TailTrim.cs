@@ -979,6 +979,7 @@ namespace Parsek
             StripEventsPastUT(rec.PartEvents, newEndUT);
             StripEventsPastUT(rec.SegmentEvents, newEndUT);
             StripEventsPastUT(rec.FlagEvents, newEndUT);
+            DeltaVSnapshotList.ClampPastUT(rec.DeltaVSnapshots, newEndUT);
 
             // Invalidate cached stats
             rec.CachedStats = null;

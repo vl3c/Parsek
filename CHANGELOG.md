@@ -10,6 +10,12 @@ Not released yet.
 
 ### Added
 
+- **Missions: a Profile window for each mission.** Its new Profile button shows the flight's
+  phases, burns, orbits, docking and EVA, with the delta-v spent and left.
+
+- **Recordings keep the game's delta-v.** Each flight now saves the stock delta-v readout at
+  launch, burns, staging and docking, which the mission Profile window shows.
+
 - **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly Klaw grabs, a
   release, rock mining on a route, a Re-Fly across a grab and a comet grab.
 

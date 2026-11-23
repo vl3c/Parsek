@@ -4125,12 +4125,17 @@ class RealTreeSmokeTests(unittest.TestCase):
         # PredictedEndingTakeover (owner ruling Q1b: a takeover of an abandoned stage drops
         # its predicted ending) reads Recording and is called from the flight controller's
         # restore and switch services, so it joins: 437.
+        # The Mission Profile window (P1b) calls MissionProfileBuilder.BuildProfile, whose
+        # analyzer, line builder, request, labels and row context read Recording, so the
+        # window, its shared LogTableWindowFrame and those eight profile types join beside
+        # the Mission Log's builder: 446 (one on the cut side of the first cut, eight on the
+        # uncut side of all three).
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [446, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4309,11 +4314,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # side of the first cut, which therefore starts one lower and lands where it did
         # (436 -> 405). PredictedEndingTakeover joining the knot (see above) sits on the cut
         # side of the first cut, which therefore starts one higher and lands where it did
-        # (437 -> 405).
+        # (437 -> 405). The Mission Profile window's nine (see the knot sizes above) put one on
+        # the cut side of the first cut and eight on the uncut side of all three
+        # (446 -> 413, 413 -> 391, 391 -> 373).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 437)
-        self.assertEqual(first["sizeAfter"], 405)
+        self.assertEqual(first["sizeBefore"], 446)
+        self.assertEqual(first["sizeAfter"], 413)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4321,8 +4328,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 405)
-        self.assertEqual(second["sizeAfter"], 383)
+        self.assertEqual(second["sizeBefore"], 413)
+        self.assertEqual(second["sizeAfter"], 391)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4344,8 +4351,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
         # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 383)
-        self.assertEqual(third["sizeAfter"], 365)
+        self.assertEqual(third["sizeBefore"], 391)
+        self.assertEqual(third["sizeAfter"], 373)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 

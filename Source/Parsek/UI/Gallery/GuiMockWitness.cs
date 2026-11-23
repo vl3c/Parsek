@@ -101,6 +101,8 @@ namespace Parsek.UI.Gallery
                     AppendStructureCovered(payload.Structure, enumName, member, found);
                     AppendStructureBoolCovered(payload.Structure, cover, found);
                 }
+                if (payload.Profile != null)
+                    AppendProfileCovered(payload.Profile, cover, found);
             }
             return found;
         }
@@ -111,6 +113,7 @@ namespace Parsek.UI.Gallery
             if (payload == null) return;
             if (payload.Kerbals.HasValue) AppendKerbals(payload.Kerbals.Value, tab, into);
             if (payload.Structure != null) AppendStructure(payload.Structure, into);
+            if (payload.Profile != null) AppendProfile(payload.Profile, into);
         }
 
         // ----- kerbals: covered -----
@@ -368,6 +371,45 @@ namespace Parsek.UI.Gallery
             {
                 Add(into, steps[i].Label);
                 Add(into, steps[i].Location);
+            }
+        }
+
+        // ----- profile -----
+
+        // The row a covered bool branch names: the first row whose Spent the window draws in
+        // the house orange (its Element and Spent cells), or the Empty row's sentence.
+        private static void AppendProfileCovered(GuiMockProfile mock, string cover,
+                                                 List<string> into)
+        {
+            List<MissionProfileRow> rows = mock.Profile != null ? mock.Profile.Rows : null;
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionProfileRow row = rows[i];
+                if (cover == "MissionProfileRow.SpentOrange"
+                    && MissionProfileWindowUI.DrawsSpentInOrange(row))
+                {
+                    Add(into, row.Element);
+                    return;
+                }
+                if (cover == "MissionProfileRow.Empty" && row.Kind == MissionProfileRowKind.Empty)
+                {
+                    Add(into, row.Element);
+                    return;
+                }
+            }
+        }
+
+        // BACKWARDS, like the Log: a profile's distinctive rows are its ending, and every
+        // flight starts with the same launch rows.
+        private static void AppendProfile(GuiMockProfile mock, List<string> into)
+        {
+            List<MissionProfileRow> rows = mock.Profile != null ? mock.Profile.Rows : null;
+            if (rows == null) return;
+            for (int i = rows.Count - 1; i >= 0 && into.Count < MaxWitnesses; i--)
+            {
+                Add(into, rows[i].Element);
+                Add(into, rows[i].Result);
             }
         }
 

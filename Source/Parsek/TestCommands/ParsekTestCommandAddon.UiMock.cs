@@ -804,6 +804,9 @@ namespace Parsek.TestCommands
                     case GuiMockSession.StructureWindow:
                         InstallStructureMock(ui, payload, undo);
                         break;
+                    case GuiMockSession.ProfileWindow:
+                        InstallProfileMock(ui, payload, undo);
+                        break;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(window), window);
                 }
@@ -872,6 +875,17 @@ namespace Parsek.TestCommands
             StructureListWindowUI.GalleryTargetSnapshot prev = w.CaptureGalleryTarget();
             w.OpenWithGallerySteps(payload.Structure.Title,
                                    payload.Structure.Steps);
+            undo.Add(() => w.RestoreGalleryTarget(prev));
+        }
+
+        private static void InstallProfileMock(ParsekUI ui, GuiMockPayload payload,
+                                               List<Action> undo)
+        {
+            MissionProfileWindowUI w = ParsekWindowSet.Of(ui).GetMissionProfileUI();
+            // Like the Log, this window rebuilds only from an open call, so its restore puts
+            // the captured target BACK rather than nulling it.
+            MissionProfileWindowUI.GalleryTargetSnapshot prev = w.CaptureGalleryTarget();
+            w.OpenWithGalleryProfile(payload.Profile.Title, payload.Profile.Profile);
             undo.Add(() => w.RestoreGalleryTarget(prev));
         }
 

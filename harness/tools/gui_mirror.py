@@ -127,10 +127,17 @@ LAYOUT_EPOCHS = {
     # PR #1867: section order, pressed equal-width option rows, reworded labels.
     # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
     "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
-    # PR #1984: the collapse caret sits under the mission's number in the # column,
-    # Watch (line 1) stacks over Rewind / Forward (line 2) in Interact, and the # header
-    # sits over the index numbers. First run on it: GUI-1-census-ksc 2026-10-03_1704.
-    "missions": {"utc": "2026-10-03T17:05:18Z", "pr": 1984},
+    # Mission Profile P1b (PR #2789): the mission bar gains a
+    # Profile button above Log in both modes, and after PR #2781 the Advanced loop grid is
+    # two columns (B 150 px Warp to... over the loop row, C 72 px Profile over Log), so
+    # every earlier Missions capture is the old layout. First run on it:
+    # GUI-4-census-missions-docked 2026-11-23_0012. Previous epoch: PR #1984
+    # (GUI-1-census-ksc 2026-10-03_1704, 2026-10-03T17:05:18Z).
+    "missions": {"utc": "2026-11-23T00:12:36Z", "pr": 2789},
+    # Mission Profile P1b (PR #2789): the window is new; its current layout (one row height, the
+    # fold triangles on the text line) was first captured by GUI-4-census-missions-docked
+    # 2026-11-23_0603.
+    "profile": {"utc": "2026-11-23T06:03:47Z", "pr": 2789},
     # PR #1966. First run on it: GUI-3-census-logistics-routes 2026-10-03_1017.
     "logistics": {"utc": "2026-10-03T10:18:00Z", "pr": 1966},
 }
