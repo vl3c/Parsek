@@ -352,16 +352,19 @@ namespace Parsek
                 }
             }
             int settled = 0;
+            float hottest = 0f;
             for (int i = 0; i < glows.Count; i++)
             {
                 NozzleGlowInfo g = glows[i];
                 if (!g.ramps || !seen[i]) continue;
                 g.initialRamp = NozzleGlowRampAt(g, double.IsNaN(g.initialUT) ? splitUT : g.initialUT);
+                if (g.initialRamp > hottest) hottest = g.initialRamp;
                 settled++;
             }
             ParsekLog.VerboseRateLimited("GhostFx", "nozzle-glow-split-" + (state.recordingId ?? string.Empty),
                 $"Nozzle glow at a split: vessel='{state.vesselName ?? "unknown"}' rows={line.Count} " +
-                $"ramps={settled}/{glows.Count} headUT={headUT.ToString("0.0", CultureInfo.InvariantCulture)} " +
+                $"ramps={settled}/{glows.Count} " +
+                $"hottest={hottest.ToString("0.000", CultureInfo.InvariantCulture)} headUT={headUT.ToString("0.0", CultureInfo.InvariantCulture)} " +
                 $"splitUT={splitUT.ToString("0.0", CultureInfo.InvariantCulture)}", 5.0);
         }
 

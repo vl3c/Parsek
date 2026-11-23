@@ -123,7 +123,7 @@ Tests: `GhostNozzleGlowTests` (Vessel throttle, ReStock RCS glow, `Overlap_*`).
 
 Flown (main 82dc51fb, DLL ede21f49, evidence `<umbrella>/logs/flights/fx-fly/`; 16c and 16d INVALID on controls only, their specs plan none; recompute 0 mismatches, no `[Parsek][ERROR]`). `color-blob-px`, event / start route: PPS-16a `2026-11-23_1927` PASS (stock air) and PPS-16b `_1934` PASS (ReStock air), four controls ok each, `turboFanEngine` burn-full bottom 16355 / 0 and 16356 / 0 -> 0 / 0, `turboJet` burn-full-m2 18271 / 1 and 18272 / 1 -> 1 / 1: the bells agree, cold against cold, as the rig's reading says (PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN; nothing here measures the ordinary hot bell). Every other glow reading as in the headers; ReStock RAPIER 30 % still reads event bottom 10010 (start 0, ENGINE-THROTTLE-EVENT-STEP). PPS-16c `_1940` (ReStock orbit): event 0 on all seven boosters (Pollux side-b 1, Shrimp bottom 1), `linearRcs` top 7279 / 7279 -> 0 / 0 (pass), `RCSLinearSmall` 2 / 2; `toroidalAerospike`, LV-T91 (6), ionEngine, RAPIER and `liquidEngine2` unchanged. The boosters' start routes stay hot (Mite bottom 10531), as filed. PPS-16d `_1946` (stock orbit): 13 of 13 pass.
 
-## ~~GHOST-NOZZLE-GLOW-SPLIT-RAMP~~: a ghost that begins at a split starts its ReStock bell at the wrong heat [FILED 2026-11-23 from the PP-9 `2026-11-23_1749` start routes (owner: "Yes, both"); FIXED 2026-11-23, branch `ghost-fx-7`, NOT FLOWN; low (visual only, modded)]
+## ~~GHOST-NOZZLE-GLOW-SPLIT-RAMP~~: a ghost that begins at a split starts its ReStock bell at the wrong heat [FILED 2026-11-23 from the PP-9 `2026-11-23_1749` start routes (owner: "Yes, both"); FIXED 2026-11-23, branch `ghost-fx-7`; live: the code ran on six dropped boosters (`2026-11-23_2156`), their bell heat not seen in game; low (visual only, modded)]
 
 What: 40 PP-9 cases fail on the start-route bell (`toroidalAerospike` up to 128022 px): the ghost built from a snapshot taken mid-burn stands at the hot end, the real bell is mid-ramp.
 
@@ -137,7 +137,9 @@ Fix: `GhostPlaybackLogic.SettleRampsAtSplit` (at bind, only for a ghost with a r
 
 Not covered, by choice: a docked vessel's bell still warm from before the dock (two parents), a switch to a vessel in the physics bubble (nothing was loaded, the ghost takes the switch's end), a re-aimed loop row (GHOST-NOZZLE-GLOW-REAIM-HISTORY).
 
-Tests: `GhostNozzleGlowTests` (`Split_*`).
+Tests: `GhostNozzleGlowTests` (`Split_*`; `Split_ARecordedBoosterTakesItsRampFromTheAscent` replays three boosters of `duna-one-recorded`).
+
+Flown: PPS-17c `2026-11-23_2156` (throwaway, modded-restock, DLL 1d211ee6, evidence `<umbrella>/logs/flights/ghost-fx-7/`), a Kerbal X ascent, Rewind-to-Launch and replay: `Nozzle glow at a split` fired for each of the six `Kerbal X Debris` ghosts with rows=1 ramps=2/2, headUT 30.9 and splitUT 61.5 / 63.7 / 65.9, no `[Parsek][ERROR]`. The heat each bell started at is not in the log: the per-glow line is rate limited and only the first pair (ramp 0.000, engines off for 17 s, so 0 either way) printed. The flown recordings replayed offline through the same code give 0 / 0.625 / 0.580 (before: 0 / 0 / 0). The split line now prints the hottest ramp; that build has not flown. Run verdict PARSEK-FAIL on `recordings.count 9 > max 8`, a bound copied from GPOS-1 (stock): the ninth is the "Kerbal X Probe" row the optimizer cut where it left the atmosphere. PPS-17b `_2152` (modded-restock): event-route bells at most 2 px on Mite, `liquidEngine2`, RAPIER, `ionEngine` and `toroidalAerospike` at every power flown; the start routes stay hot as filed (Mite bottom 10530, aerospike 132302, RAPIER 24966, `liquidEngine2` side-a 10635). Its controls are absent by spec, so it is INVALID on controls only.
 
 ## PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the parity start route compares a loaded ghost with a real bell that was never loaded [FILED 2026-11-23 from `ghost-fx-7`; OPEN; instrument, low]
 
@@ -145,15 +147,17 @@ What: the start-route ghost is built from a snapshot of the real part while it b
 
 Fix (not started), either: let the real bell arrive (hold until the ramp stands, up to 40 s a case at 0.025 /s) before the start snapshot; or save and reload the real vessel before the start-route picture; or report the start route's bell on a ramping part as a known difference. No ghost change makes these right: the only data that says where a ramp stood is the engine events before the snapshot, and the rig's start route has none.
 
-## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, NOT FLOWN; low (visual only, stock)]
+## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, flown `2026-11-23_2149`; low (visual only, stock)]
 
 What: stock draws five `Squad/FX/LES_Thruster` emitters (one per `thrustTransform`) by the engine's thrust (`powerEffectName = running_closed`), dark below 5 %, so it burns on abort and on jettison. The ghost drew nothing; ReStock's tower passed.
 
-Cause: `EngineFxBuilder.TryBuildEngineFX` skipped the part by name since 2026-03-16 (8185c6817): "excessive particles at playback distance, the nozzle glow is enough". The part has no `FXModuleAnimateThrottle`, so there was no glow either; the excess came from that time's rules (fixed emission, the size boost), which GHOST-ENGINE-FX-STOCK-RULES replaced with stock's own curves. Real: 235 particles over the five nozzles.
+Cause: `EngineFxBuilder.TryBuildEngineFX` skipped the part by name since 2026-03-16 (8185c6817): "excessive particles at playback distance, the nozzle glow is enough". The part has no `FXModuleAnimateThrottle`, so there was no glow either; the excess is likely that time's rules (fixed emission, the size boost; inferred, not measured), which GHOST-ENGINE-FX-STOCK-RULES replaced with stock's own curves. Real: 235 particles over the five nozzles.
 
 Fix: the skip is gone; the tower goes through the same EFFECTS path as every engine. An unlit tower (on the pad, on a jettisoned piece) stays dark: its recording seeds an engine-off event, which also keeps the zero-event auto-start off (287 of 287 fixture recordings with an engine carry one).
 
 Tests: `EngineFxBuilderTests` (`LaunchEscapeTower_*`, `TryBuildEngineFx_NamesNoPartButTheRapier`), `OrphanEngineFxAutoStartTests` (`*_AnUnlitEscapeTowersSeed_*`).
+
+Flown: PPS-17a `2026-11-23_2149` (throwaway, stock-minimal, DLL 1d211ee6, INVALID on controls only, its spec plans none; recompute 0 mismatches, no `[Parsek][ERROR]`), core px real / ghost side-a 1469 / 1473, side-b 1477 / 1463, bottom 10345 / 10387, far 2015 / 2015, far length and width 1.00 / 1.01, 237.8 / 235.1 particles, 5 of 5 emitters, `pass`. Mite, `liquidEngine2`, RAPIER, `ionEngine` and `toroidalAerospike`: 9 of 9 other cases `pass`, the missing-system lists as in PP-7 (flameout and spark systems that do not render). ReStock's tower (PPS-17b `_2152`) still passes, 14191 / 14451.
 
 ## ~~GHOST-LEGACY-FX-KEEP-POSITION~~: the Mainsail's two vernier flames burn at the main nozzle on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732`; FIXED 2026-11-23, branch `ghost-fx-6`, flown `2026-11-23_1946`; low (visual only, stock)]
 
@@ -196,7 +200,7 @@ Clusters, each with its entry:
 - RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts (the position and the scale are fixed with GHOST-FX-MODEL-SCALE, not flown).
 - `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum; GHOST-FLAME-Z-DIRECTION).
 - ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
-- Stock `LaunchEscapeSystem` draws no particles (GHOST-LES-NO-PLUME, fixed, not flown); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed and flown).
+- Stock `LaunchEscapeSystem` draws no particles (GHOST-LES-NO-PLUME, fixed and flown); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed and flown).
 - `sepMotor1` (stock) flame origin 34 px late, width 0.76.
 
 Re-flown 2026-11-23 (lanes PP-7 `2026-11-23_1732`, PP-9 `_1749`, PP-8 `_1811`, each PASS attempt 1, every control ok, recompute 0 mismatches, no `[Parsek][ERROR]`; DLL 8b67133f, main with #2795 to #2802 and #2804, without #2806; evidence `<umbrella>/logs/flights/fx-fly/`, which also holds the KSP logs). Old sweeps re-judged with the same rules:

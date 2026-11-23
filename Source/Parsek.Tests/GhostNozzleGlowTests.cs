@@ -476,7 +476,26 @@ namespace Parsek.Tests
             GhostPlaybackLogic.UpdateNozzleGlows(state, 130.0);
             Assert.Equal((double)0.25f, g.writtenLevel, 3);
             Assert.Contains(logLines, l => l.Contains("[GhostFx]") && l.Contains("Nozzle glow at a split")
-                && l.Contains("rows=1 ramps=1/1") && l.Contains("headUT=100.0 splitUT=124.0"));
+                && l.Contains("rows=1 ramps=1/1 hottest=0.400 headUT=100.0 splitUT=124.0"));
+        }
+
+        // A recorded Kerbal X ascent: three of its boosters, through the tree's own branch points.
+        // Ignited at 34.258, shut down at 47.458 / 63.096 / 82.116 (the 40 s ramp is full by then).
+        [Theory]
+        [InlineData("6dae41d1b2584f0cbc49afdd587cbdfe", 2502517217u, 0.287f)]
+        [InlineData("b06a8b5f81274995879f42b67d24eae8", 3684832787u, 0.6925f)]
+        [InlineData("70e9c28bd20947d0afeaa1deb9215e34", 3105750609u, 0.9655f)]
+        public void Split_ARecordedBoosterTakesItsRampFromTheAscent(string childId, uint enginePid, float expected)
+        {
+            RecordingTree tree = StructureListBdockFixtureTests.LoadFixtureTrees("duna-one-recorded", -1)
+                .Find(t => t.Recordings.ContainsKey(childId));
+            Recording child = tree.Recordings[childId];
+            NozzleGlowInfo g = Ramp(0.025f, true);
+            g.moduleKeys = new[] { FlightRecorder.EncodeEngineKey(enginePid, 0) };
+            g.initialUT = child.StartUT;
+            GhostPlaybackLogic.BindNozzleGlows(StateOf(g), child, r => null,
+                r => GhostPlaybackLogic.ResolveNozzleGlowSplitParent(r, tree));
+            Assert.InRange(g.initialRamp, expected - 0.001f, expected + 0.001f);
         }
 
         // The reported case: a split in the middle of a burn. The snapshot's switch is on (hot end).
