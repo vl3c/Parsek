@@ -134,8 +134,9 @@ namespace Parsek.TestCommands
         /// heat-hot, or lit plate case; null when the part offers none.</summary>
         internal static PartParityCaseKey ControlKey(StepContext ctx, string id, PartParityPartEntry entry, bool air)
         {
-            foreach (PartParityCaseKey k in PartParityFxRules.Enumerate(PartParityStateDriver.BuildStatePart(entry.Info),
-                         PartParityCaseRules.DefaultCaseKey(entry)).Cases)
+            List<PartParityCaseKey> cases = PartParityFxRules.Enumerate(PartParityStateDriver.BuildStatePart(entry.Info),
+                PartParityCaseRules.DefaultCaseKey(entry)).Cases;
+            foreach (PartParityCaseKey k in cases)
             {
                 PartParityFxOption o = k.FxOption;
                 switch (id)
@@ -148,9 +149,7 @@ namespace Parsek.TestCommands
                         if (o.Family == PartParityFxRules.FamilyLight) return k;
                         break;
                     default:
-                        if (o.Family == PartParityFxRules.FamilyPlume && o.State == PartParityFxRules.StateBurnFull
-                            && o.Context == (air ? PartParityStateRules.ContextAir : PartParityStateRules.ContextAlone)) return k;
-                        break;
+                        return PartParityFxRules.ControlPlumeKey(cases, air);
                 }
             }
             return null;
@@ -160,9 +159,11 @@ namespace Parsek.TestCommands
         // authoring and spawn (E.2)
         // =====================================================================================
 
-        /// <summary>Spawns the case vessel: a lamp through P6's authoring, everything else the lone
-        /// part with the independent throttle, its exhaust along the orbit normal.</summary>
-        internal static void SpawnCase(StepContext ctx, WaveCase wc)
+        /// <summary>Spawns the case vessel at slot <paramref name="slot"/> of a wave of
+        /// <paramref name="count"/>: a lamp through P6's authoring, everything else the lone part
+        /// with the independent throttle; in orbit its exhaust along the orbit normal, in an air run
+        /// held over the showcase band (<see cref="PartParityAirContext.SpawnHeld"/>).</summary>
+        internal static void SpawnCase(StepContext ctx, WaveCase wc, int slot, int count)
         {
             PartParityFxRun fx = wc.Fx;
             if (fx == null)
@@ -177,6 +178,11 @@ namespace Parsek.TestCommands
             {
                 wc.Status = TestCommandPartParitySweep.SetupSpawnTimeout;
                 wc.Detail = wc.Detail ?? why ?? "FX vessel node not authored";
+                return;
+            }
+            if (TestCommandPartParitySweep.IsAirRun(ctx.Args))
+            {
+                PartParityAirContext.SpawnHeld(ctx, wc, node, ExhaustAxis(wc), slot, count);
                 return;
             }
             Quaternion? rotation = SpawnRotation(wc, ctx.Host);
@@ -232,6 +238,23 @@ namespace Parsek.TestCommands
         /// case has no plume.</summary>
         private static Quaternion? SpawnRotation(WaveCase wc, Vessel anchor)
         {
+            Vector3? exhaust = ExhaustAxis(wc);
+            if (!exhaust.HasValue) return null;
+            Vector3 position = anchor.GetWorldPos3D();
+            Vector3 radial = (position - anchor.mainBody.position).normalized;
+            Vector3 normal = Vector3.Cross(radial, anchor.obt_velocity).normalized;
+            if (normal.sqrMagnitude < 0.5f) return null;
+            Vector3 e = exhaust.Value;
+            Quaternion rotation = Quaternion.FromToRotation(e, normal);
+            ParsekLog.Verbose(Tag, $"case {wc.CaseId}: spawn rotation exhaust=({e.x.ToString("0.00", Ic)}," +
+                $"{e.y.ToString("0.00", Ic)},{e.z.ToString("0.00", Ic)}) along the orbit normal");
+            return rotation;
+        }
+
+        /// <summary>The unit exhaust axis of a plume case in part space, off the prefab's thrust
+        /// transforms (they point down the exhaust); null when unknown or the case has no plume.</summary>
+        private static Vector3? ExhaustAxis(WaveCase wc)
+        {
             if (wc.Fx.Option.Family != PartParityFxRules.FamilyPlume) return null;
             Part prefab = wc.Entry.Info.partPrefab;
             if (prefab == null || prefab.Modules == null) return null;
@@ -242,15 +265,7 @@ namespace Parsek.TestCommands
             Vector3 sum = Vector3.zero;
             foreach (Transform t in thrust)
                 if (t != null) sum += Quaternion.Inverse(prefab.transform.rotation) * t.forward;
-            if (sum.sqrMagnitude < 1e-6f) return null;
-            Vector3 position = anchor.GetWorldPos3D();
-            Vector3 radial = (position - anchor.mainBody.position).normalized;
-            Vector3 normal = Vector3.Cross(radial, anchor.obt_velocity).normalized;
-            if (normal.sqrMagnitude < 0.5f) return null;
-            Quaternion rotation = Quaternion.FromToRotation(sum.normalized, normal);
-            ParsekLog.Verbose(Tag, $"case {wc.CaseId}: spawn rotation exhaust=({sum.normalized.x.ToString("0.00", Ic)}," +
-                $"{sum.normalized.y.ToString("0.00", Ic)},{sum.normalized.z.ToString("0.00", Ic)}) along the orbit normal");
-            return rotation;
+            return sum.sqrMagnitude < 1e-6f ? (Vector3?)null : sum.normalized;
         }
 
         // =====================================================================================
@@ -314,13 +329,14 @@ namespace Parsek.TestCommands
         // =====================================================================================
 
         /// <summary>Before the press: the module under test, the hold and the press timeout. Runs
-        /// after the stowed inputs (the hold starts with the part settled).</summary>
+        /// after the settle (the hold starts with the part settled; an air case has been held since it
+        /// was unpacked).</summary>
         private static void Prepare(StepContext ctx, WaveCase wc)
         {
             PartParityFxRun fx = wc.Fx;
             PartParityStateRun run = wc.State;
             Part part = wc.Real.rootPart;
-            fx.Hold = PartParityFxHold.Attach(wc.Real, ctx.Host);
+            if (fx.Hold == null) fx.Hold = PartParityFxHold.Attach(wc.Real, ctx.Host);
             PartModule m = fx.Option.ModuleIndex >= 0 && fx.Option.ModuleIndex < part.Modules.Count
                 ? part.Modules[fx.Option.ModuleIndex] : null;
             switch (fx.Option.Family)

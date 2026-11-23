@@ -46,6 +46,10 @@ namespace Parsek.TestCommands
         /// <summary>The engine's <c>useEngineResponseTime</c> (a spooling engine).</summary>
         internal bool UseEngineResponseTime;
 
+        /// <summary>The engine's <c>engineAccelerationSpeed</c> (1/s; a spooling engine's throttle
+        /// closes on its request at this rate), NaN when it names none.</summary>
+        internal double EngineAccelerationSpeed = double.NaN;
+
         /// <summary>The engine's <c>engineID</c>; null when it names none.</summary>
         internal string EngineId;
 
@@ -55,6 +59,14 @@ namespace Parsek.TestCommands
         /// <summary><see cref="PartParityFxRules.ReferenceWaterfall"/> for a case judged
         /// reference-only (E.6), else null.</summary>
         internal string Reference;
+
+        /// <summary>The same option in another context.</summary>
+        internal PartParityFxOption InContext(string context)
+        {
+            var o = (PartParityFxOption)MemberwiseClone();
+            o.Context = context;
+            return o;
+        }
     }
 
     /// <summary>A module (or part) an FX run leaves out, and why (design E.1).</summary>
@@ -270,6 +282,7 @@ namespace Parsek.TestCommands
         // Config keys and their stock defaults (decompiled KSP 1.12.5 ModuleEngines field initializers).
         internal const string KeyThrottleLocked = "throttleLocked";              // default false
         internal const string KeyUseEngineResponseTime = "useEngineResponseTime"; // default false
+        internal const string KeyEngineAccelerationSpeed = "engineAccelerationSpeed";
         internal const string KeyEngineId = "engineID";
         internal const string NodePropellant = "PROPELLANT";
         internal const string KeyPropellantName = "name";
@@ -310,6 +323,11 @@ namespace Parsek.TestCommands
         /// <summary>A spooling engine (<c>useEngineResponseTime</c>): a jet's spool has a
         /// time constant of about 8 s, so it reaches 0.99 of the request after about 38 s (E0 U1).</summary>
         internal const double SpoolTimeoutSeconds = 45.0;
+
+        /// <summary>The margin over stock's own spool time and the longest press timeout a slow
+        /// spool may ask for (<see cref="SpoolPressTimeoutSeconds"/>).</summary>
+        internal const double SpoolTimeoutMargin = 1.1;
+        internal const double SpoolTimeoutCapSeconds = 120.0;
 
         internal const double RcsTimeoutSeconds = 10.0;
         internal const double HeatTimeoutSeconds = 5.0;
@@ -590,6 +608,8 @@ namespace Parsek.TestCommands
             o.AirBreathing = air;
             o.ThrottleLocked = locked;
             o.UseEngineResponseTime = PartParityStateRules.ParseBool(m.Value(KeyUseEngineResponseTime), false);
+            if (double.TryParse(m.Value(KeyEngineAccelerationSpeed), NumberStyles.Float, Ic, out double accel))
+                o.EngineAccelerationSpeed = accel;
             o.EngineId = m.Value(KeyEngineId);
             o.MultiMode = multiMode;
             return o;
@@ -732,12 +752,29 @@ namespace Parsek.TestCommands
         {
             switch (BucketFor(o))
             {
-                case PartParityFxBucket.Spool: return SpoolTimeoutSeconds;
+                case PartParityFxBucket.Spool: return SpoolPressTimeoutSeconds(o.Throttle, o.EngineAccelerationSpeed);
                 case PartParityFxBucket.Rcs: return RcsTimeoutSeconds;
                 case PartParityFxBucket.Heat: return HeatTimeoutSeconds;
                 case PartParityFxBucket.Plate: return PlateTimeoutSeconds;
                 default: return PlumeTimeoutSeconds;
             }
+        }
+
+        /// <summary>
+        /// A spooling engine's press timeout: 45 s, or the time stock's own spool needs to come
+        /// within <see cref="ThrottleDoneTolerance"/> of the request, with its margin, when that is
+        /// longer (the Goliath's 0.06 /s needs 77 s; the Wheesley's 0.12 /s 38 s), capped. Stock
+        /// moves the throttle by <c>Lerp(current, requested, engineAccelerationSpeed * dt)</c>
+        /// (decompiled <c>ModuleEngines.UpdateThrottle</c>), so it closes on the request
+        /// exponentially.
+        /// </summary>
+        internal static double SpoolPressTimeoutSeconds(double requested, double accelerationSpeed)
+        {
+            if (double.IsNaN(requested) || double.IsNaN(accelerationSpeed) || accelerationSpeed <= 0.0
+                || requested <= ThrottleDoneTolerance)
+                return SpoolTimeoutSeconds;
+            double needed = SpoolTimeoutMargin * Math.Log(requested / ThrottleDoneTolerance) / accelerationSpeed;
+            return Math.Min(SpoolTimeoutCapSeconds, Math.Max(SpoolTimeoutSeconds, needed));
         }
 
         /// <summary>The wave bucket of a case.</summary>
@@ -1131,6 +1168,33 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlPlateLightOffPoint: return null;
                 default: return PlumeControlParts;
             }
+        }
+
+        /// <summary>
+        /// The key a plume control stands for among its subject's cases: the burn-full plume of the
+        /// run's own context. An air run's subject is a booster, whose only plume is an orbit case
+        /// (it breathes no air), so there it is that case taken into the air; null when the subject
+        /// has no plume.
+        /// </summary>
+        internal static PartParityCaseKey ControlPlumeKey(IEnumerable<PartParityCaseKey> cases, bool airRun)
+        {
+            if (cases == null) return null;
+            string context = airRun ? PartParityStateRules.ContextAir : PartParityStateRules.ContextAlone;
+            PartParityCaseKey orbit = null;
+            foreach (PartParityCaseKey k in cases)
+            {
+                PartParityFxOption o = k?.FxOption;
+                if (o == null || o.Family != FamilyPlume || o.State != StateBurnFull) continue;
+                if (o.Context == context) return k;
+                if (airRun && orbit == null && o.Context == PartParityStateRules.ContextAlone) orbit = k;
+            }
+            if (orbit == null) return null;
+            return new PartParityCaseKey
+            {
+                Part = orbit.Part, Source = orbit.Source, Skin = orbit.Skin, SkinOrdinal = orbit.SkinOrdinal,
+                SkinOption = orbit.SkinOption, State = orbit.State, StateOption = orbit.StateOption,
+                Context = context, FxOption = orbit.FxOption.InContext(context),
+            };
         }
 
         /// <summary>The light type a control's subject must carry, or null for none.</summary>

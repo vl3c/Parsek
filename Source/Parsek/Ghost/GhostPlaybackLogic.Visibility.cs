@@ -358,6 +358,8 @@ namespace Parsek
         ///     <see cref="HeatLevel.Cold"/> via <c>ApplyHeatState</c>, so a
         ///     cycle whose prior pass went hot does not carry that emission
         ///     into the new cycle's pre-reentry frames.
+        ///  1b. Nozzle glow: every engine / RCS glow back to its level at the
+        ///     recording start.
         ///  2. Deployable parts: reset every transform in
         ///     <c>DeployableGhostInfo</c> to its stowed pose, so a solar
         ///     panel that deployed mid-cycle is folded again before the new
@@ -400,6 +402,10 @@ namespace Parsek
                     ApplyHeatState(state, coldEvt, HeatLevel.Cold);
                 }
             }
+
+            // 1b. Nozzle glow: back to the recording start, written over the cold heat write.
+            RestartNozzleGlows(state);
+            UpdateNozzleGlows(state, state.nozzleGlowStartUT);
 
             // 2. Deployables: re-stow every panel. Events during the new
             //    cycle re-deploy on their original UT.

@@ -1812,6 +1812,7 @@ namespace Parsek
                 ghost.SetActive(false);
 
             GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
+            GhostPlaybackLogic.BindNozzleGlows(state, rec);
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
             GhostPlaybackLogic.RefreshCompoundPartVisibility(state);

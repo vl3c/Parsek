@@ -46,6 +46,7 @@ namespace Parsek
             if (result.wheelDamageInfos != null)
                 state.wheelDamageInfos = BuildDictByPid(result.wheelDamageInfos, w => w.partPersistentId);
             PopulateHeatInfos(state, result);
+            BindNozzleGlows(state, traj);
             PopulateLightInfos(state, result);
 
             if (result.fairingInfos != null)
@@ -698,6 +699,7 @@ namespace Parsek
                         // eventType unused by SetEngineEmission — only pid+midx matter
                         var syntheticEvt = new PartEvent { partPersistentId = pid, moduleIndex = midx };
                         SetEngineEmission(state, syntheticEvt, 1f);
+                        SetNozzleGlowBasePower(state, kvp.Key, 1f);
                         ParsekLog.Verbose("GhostFx",
                             $"Auto-started engine FX for orphan engine key={kvp.Key} pid={pid} midx={midx} " +
                             $"(no engine events in recording — likely debris booster)");

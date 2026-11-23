@@ -64,6 +64,8 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost lights and heat glow match stock.** Ghost lamps shine as bright as real ones, engine
+  nozzles heat up, and nose cones that never glow stay dark. (GHOST-LAMP-LIGHT-INTENSITY)
 - **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the
   puffs at once, not at its next RCS change. (GHOST-RCS-DARK-AFTER-FX-SUPPRESSION)
 - **Ghost engines leave no smoke trail in space.** Their smoke thins out high up and is gone in

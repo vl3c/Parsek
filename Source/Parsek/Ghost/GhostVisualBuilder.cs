@@ -13,6 +13,8 @@ namespace Parsek
         private const string LightsShowcaseRecordingPrefix = "Part Showcase - Light";
         private const string RcsShowcaseRecordingPrefix = "Part Showcase - RCS";
         private const float LightsShowcaseVisualYOffset = 2f;
+        /// <summary>The TryBuildHeatInfo source whose clip stock plays through ModuleAnimationSetter.</summary>
+        internal const string HeatSourceAnimateHeat = "ModuleAnimateHeat";
         private const float LightMinimumIntensity = 1f;
         private const float LightMinimumRange = 8f;
         private const float LightShowcaseIntensityScale = 2f;
@@ -244,7 +246,10 @@ namespace Parsek
                         if (wheelDamageInfo != null)
                             build.wheelDamageInfos.Add(wheelDamageInfo);
                         if (heatInfo != null)
+                        {
+                            StampPersistedGlowLevels(heatInfo, build.snapshotNode, parseSnapshotBaselines);
                             build.heatInfos.Add(heatInfo);
+                        }
                         if (lightInfo != null)
                             build.lightInfos.Add(lightInfo);
                         if (fairingInfo != null)
@@ -1501,7 +1506,7 @@ namespace Parsek
             {
                 string heatSource = SelectHeatAnimationSourceModule(hasAnimateHeat, hasAnimateThrottle);
                 heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
-                    modelNode.transform, partName, persistentId);
+                    modelNode.transform, partName, persistentId, modelRoot);
             }
 
             // Detect light parts and clone Light components for ghost playback
@@ -1525,6 +1530,12 @@ namespace Parsek
                 heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName,
                 hasStandaloneAnimateGenericDeploy ? standaloneAnimateGenericAnimName : null,
                 ref deployableInfo);
+
+            // Engine / RCS nozzle glow: FXModuleAnimateThrottle / FXModuleAnimateRCS clips, driven
+            // by the recorded engine / RCS power. After the rest-state write, whose material clones
+            // it reuses.
+            BuildNozzleGlows(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
+                ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName);
 
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);

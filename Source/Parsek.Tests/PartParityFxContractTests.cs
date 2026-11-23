@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Pure coverage for the P8 sweep contract (design-part-ghost-parity.md Appendix E.5, piece
-    /// F1): the <c>fx=</c> arg, its refusals and the interim <c>fx-runs-not-built</c> gate;
+    /// F1): the <c>fx=</c> arg and its refusals;
     /// <c>IsFxRun</c>, <c>settings.fx</c>, <c>ControlSetFor</c> and <c>PlanCases</c> for an FX
     /// run; the two no-change cells of E.1 (a <c>states=all</c> plan holds no FX key, and with
     /// <c>fx=none</c> every PP-1 to PP-6 plan, control set and setting is today's); the FX key
@@ -86,30 +86,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AnOrbitFxRun_Parses_AndAnAirOneIsRefusedUntilItsSpawnIsBuilt()
+        public void AnOrbitFxRun_AndAnAirOne_Parse()
         {
-            Assert.True(TestCommandPartParitySweep.FxRunsBuilt);
-            Assert.False(TestCommandPartParitySweep.FxAirSpawnBuilt);
             Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "plume,rcs"), out var parsed,
                 out string reason, out string detail));
             Assert.True(TestCommandPartParitySweep.IsFxRun(parsed));
             Assert.Null(reason);
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "all", "contexts", "air"), out parsed, out reason, out detail));
-            Assert.Null(parsed);
-            Assert.Equal("fx-runs-not-built", reason);
-            Assert.Equal("fx=all", detail);
+            Assert.False(TestCommandPartParitySweep.IsAirRun(parsed));
+            // The held-jet run: the air run kind, so the applier admits it at the pad.
+            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "all", "contexts", "air"), out parsed, out reason, out detail));
+            Assert.Null(reason);
+            Assert.True(TestCommandPartParitySweep.IsFxRun(parsed) && TestCommandPartParitySweep.IsAirRun(parsed));
+            Assert.Equal("host-not-at-pad", TestCommandPartParitySweep.DecideHostAdmission(parsed, true, true, false, double.PositiveInfinity));
+            Assert.Null(TestCommandPartParitySweep.DecideHostAdmission(parsed, true, false, true, 10.0));
             // A bad value keeps its own reason; fx=none parses as before.
             Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "bogus"), out _, out reason, out _));
             Assert.Equal("fx-arg-invalid", reason);
             Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "none", "states", "all"), out parsed, out reason, out _));
             Assert.Null(reason);
             Assert.True(TestCommandPartParitySweep.IsStateRun(parsed));
-            // The refusals sit in the parse order: fx-arg-invalid after the contexts token,
-            // fx-runs-not-built after the last grammar token, before the admission.
+            // The refusal sits in the parse order, after the contexts token; the admission
+            // follows the last grammar token.
             var reasons = TestCommandPartParitySweep.Reasons.ToList();
             Assert.Equal(reasons.IndexOf("contexts-arg-invalid") + 1, reasons.IndexOf("fx-arg-invalid"));
-            Assert.Equal(reasons.IndexOf("maxseconds-arg-invalid") + 1, reasons.IndexOf("fx-runs-not-built"));
-            Assert.Equal(reasons.IndexOf("fx-runs-not-built") + 1, reasons.IndexOf("no-active-vessel"));
+            Assert.Equal(reasons.IndexOf("maxseconds-arg-invalid") + 1, reasons.IndexOf("no-active-vessel"));
+            Assert.DoesNotContain("fx-runs-not-built", reasons);
             Assert.Contains("fx", TestCommandPartParitySweep.ArgKeys);
         }
 
