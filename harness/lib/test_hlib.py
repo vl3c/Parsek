@@ -15097,7 +15097,8 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # explosion hold's derender, the zone teardown/rebuild): GS-7 keeps
         # requireBalanced, and GS-8 states it per vessel since 2026-11-23, because
         # the dropped core's predicted fall outlives its quit (one Probe destroy
-        # short); arming follows the reading runs through GHOSTLIFE_ARMED_SPECS.
+        # short, unless the quit teardown is logged); arming follows the reading
+        # runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
         # [D] THE FIRST DECLARER OF THE LINE-COUNT WINDOWS (GS-9, 2026-09-10,
