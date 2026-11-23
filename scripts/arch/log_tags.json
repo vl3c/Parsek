@@ -17,7 +17,11 @@
   "Parsek.FlightRecorder::ShouldEmitRoboticEvents -> Verbose(arg 0)",
   "Parsek.GhostMapPresence::StampParkingConicLineHoldForLoiterGap -> VerboseRateLimited(arg 6)",
   "Parsek.GhostPlaybackLogic::LogChainLoopFirstRunSpawn -> InfoRateLimited(arg 0)",
+  "Parsek.InGameTests.FairingGhostAuthoring::Build -> Info(arg 2)",
+  "Parsek.InGameTests.FairingGhostAuthoring::BuildFairingVessel -> Info(arg 2)",
+  "Parsek.InGameTests.FairingGhostAuthoring::BuildSkirtVessel -> Info(arg 2)",
   "Parsek.InGameTests.GhostCoOrbitalRig::SpawnCoOrbital -> Info(arg 4)",
+  "Parsek.InGameTests.GhostCoOrbitalRig::SpawnInAir -> Info(arg 7)",
   "Parsek.LedgerOrchestrator::FinalizeScopedPendingScienceCommit -> Verbose(arg 0)",
   "Parsek.Logistics.RouteLoadReconcile::InstallFloorAfterLoad -> Info(arg 2)",
   "Parsek.Logistics.RouteLoadReconcile::RestoreCycleCountersFromSave -> Verbose(arg 2)",
@@ -52,7 +56,7 @@
  "generator": "scripts/arch/logtags.py",
  "nonLiteral": {
   "byKind": {
-   "call": 29,
+   "call": 73,
    "other": 13
   },
   "byMethod": {
@@ -69,6 +73,7 @@
    "Parsek.PartStatePoller::PollGear": 1,
    "Parsek.PartStatePoller::PollJettisons": 1,
    "Parsek.PartStatePoller::PollLadders": 2,
+   "Parsek.PartStatePoller::PollLights": 3,
    "Parsek.PartStatePoller::PollParachutes": 1,
    "Parsek.PartStatePoller::PollRobotArmScanners": 2,
    "Parsek.PartStatePoller::PollWheelDamage": 1,
@@ -76,6 +81,29 @@
    "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitFromUintSet|1": 1,
    "Parsek.PartStateSeeder::EmitSeedEvents": 6,
    "Parsek.Patches.VesselCycleReFlySwitchPatch::RunCycle": 1,
+   "Parsek.TestCommands.PartParityAirContext::AdvanceCase": 4,
+   "Parsek.TestCommands.PartParityAirContext::ArmChute": 2,
+   "Parsek.TestCommands.PartParityAirContext::DecideAdmission": 1,
+   "Parsek.TestCommands.PartParityAirContext::MoveNext": 2,
+   "Parsek.TestCommands.PartParityAirContext::SpawnCase": 2,
+   "Parsek.TestCommands.PartParityAirContext::StepFull": 1,
+   "Parsek.TestCommands.PartParityStateDriver::AuthorFgvVesselNode": 2,
+   "Parsek.TestCommands.PartParityStateDriver::AuthorStowedPose": 1,
+   "Parsek.TestCommands.PartParityStateDriver::AuthorVesselNode": 1,
+   "Parsek.TestCommands.PartParityStateDriver::BuildStartGhost": 1,
+   "Parsek.TestCommands.PartParityStateDriver::CaptureStowedInputs": 3,
+   "Parsek.TestCommands.PartParityStateDriver::CaptureView": 1,
+   "Parsek.TestCommands.PartParityStateDriver::DestroyStateParts": 4,
+   "Parsek.TestCommands.PartParityStateDriver::FillSidecar": 1,
+   "Parsek.TestCommands.PartParityStateDriver::KillSeparatedVessel": 2,
+   "Parsek.TestCommands.PartParityStateDriver::MoveNext": 1,
+   "Parsek.TestCommands.PartParityStateDriver::Prepare": 2,
+   "Parsek.TestCommands.PartParityStateDriver::Press": 3,
+   "Parsek.TestCommands.PartParityStateDriver::PressSeparate": 1,
+   "Parsek.TestCommands.PartParityStateDriver::ReadSunTracker": 1,
+   "Parsek.TestCommands.PartParityStateDriver::Settle": 1,
+   "Parsek.TestCommands.PartParityStateDriver::StampCanopy": 1,
+   "Parsek.TestCommands.PartParityStateDriver::Step": 3,
    "Parsek.VesselSpawner::CleanupFailedSpawnedProtoVessel": 2,
    "Parsek.VesselSpawner::TryAdoptExistingSourceVesselForSpawn": 1
   }
@@ -157,14 +185,14 @@
    "helperSites": 6,
    "levels": {
     "INFO": 77,
-    "VERBOSE": 101,
+    "VERBOSE": 102,
     "WARN": 22,
     "mixed": 4
    },
    "modules": {
-    "Recording": 204
+    "Recording": 205
    },
-   "sites": 204
+   "sites": 205
   },
   "Boundary": {
    "levels": {
@@ -619,6 +647,17 @@
    },
    "sites": 6
   },
+  "DeltaV": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 9,
+    "WARN": 2
+   },
+   "modules": {
+    "Recording": 12
+   },
+   "sites": 12
+  },
   "DescentHandoffTest": {
    "levels": {
     "INFO": 1,
@@ -763,15 +802,15 @@
   "Extrapolator": {
    "levels": {
     "ERROR": 4,
-    "INFO": 18,
-    "VERBOSE": 40,
-    "WARN": 23
+    "INFO": 20,
+    "VERBOSE": 41,
+    "WARN": 24
    },
    "modules": {
-    "Recording": 58,
-    "Trajectory": 27
+    "Recording": 61,
+    "Trajectory": 28
    },
-   "sites": 85
+   "sites": 89
   },
   "FLIGHT": {
    "helperSites": 1,
@@ -826,14 +865,14 @@
    "sites": 5
   },
   "FairingGhostVisual": {
-   "helperSites": 2,
+   "helperSites": 4,
    "levels": {
-    "INFO": 33
+    "INFO": 29
    },
    "modules": {
-    "InGameTests": 33
+    "InGameTests": 29
    },
-   "sites": 33
+   "sites": 29
   },
   "FastForward": {
    "levels": {
@@ -859,13 +898,13 @@
   "FinalizerCache": {
    "levels": {
     "INFO": 9,
-    "VERBOSE": 17,
+    "VERBOSE": 18,
     "WARN": 4
    },
    "modules": {
-    "Recording": 30
+    "Recording": 31
    },
-   "sites": 30
+   "sites": 31
   },
   "FlagReplay": {
    "levels": {
@@ -1165,13 +1204,13 @@
    "levels": {
     "ERROR": 1,
     "INFO": 5,
-    "VERBOSE": 136,
+    "VERBOSE": 142,
     "WARN": 13
    },
    "modules": {
-    "Ghost": 155
+    "Ghost": 161
    },
-   "sites": 155
+   "sites": 161
   },
   "Ghoster": {
    "levels": {
@@ -1669,12 +1708,12 @@
   "MapRenderTrace": {
    "levels": {
     "INFO": 1,
-    "VERBOSE": 7
+    "VERBOSE": 8
    },
    "modules": {
-    "MapRender": 8
+    "MapRender": 9
    },
-   "sites": 8
+   "sites": 9
   },
   "MapTraj": {
    "levels": {
@@ -1747,17 +1786,17 @@
   },
   "Mission": {
    "levels": {
-    "INFO": 30,
+    "INFO": 28,
     "VERBOSE": 42,
     "WARN": 12
    },
    "modules": {
     "Controllers": 3,
     "Ghost": 1,
-    "Missions": 49,
+    "Missions": 47,
     "UI": 31
    },
-   "sites": 84
+   "sites": 82
   },
   "MissionLoopFirstRun": {
    "levels": {
@@ -1812,18 +1851,18 @@
    "sites": 7
   },
   "PartParity": {
-   "helperSites": 10,
+   "helperSites": 11,
    "levels": {
-    "INFO": 21,
-    "VERBOSE": 8,
-    "WARN": 19,
+    "INFO": 26,
+    "VERBOSE": 10,
+    "WARN": 21,
     "mixed": 8
    },
    "modules": {
-    "InGameTests": 1,
-    "TestCommands": 55
+    "InGameTests": 2,
+    "TestCommands": 63
    },
-   "sites": 56
+   "sites": 65
   },
   "PartPuffFx": {
    "levels": {
@@ -2102,15 +2141,25 @@
   },
   "PredictedTouchdownReconcile": {
    "levels": {
-    "INFO": 5,
+    "INFO": 6,
     "VERBOSE": 3,
     "WARN": 2
    },
    "modules": {
     "Controllers": 3,
-    "Recording": 7
+    "Recording": 8
    },
-   "sites": 10
+   "sites": 11
+  },
+  "Profile": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Missions": 4
+   },
+   "sites": 4
   },
   "ProgressRewardPatch": {
    "levels": {
@@ -2324,7 +2373,7 @@
    "levels": {
     "ERROR": 3,
     "INFO": 59,
-    "VERBOSE": 150,
+    "VERBOSE": 147,
     "WARN": 28,
     "mixed": 4
    },
@@ -2332,21 +2381,21 @@
     "Controllers": 2,
     "Logistics": 17,
     "Patches": 3,
-    "Recording": 222
+    "Recording": 219
    },
-   "sites": 244
+   "sites": 241
   },
   "Recording": {
    "levels": {
     "INFO": 2,
-    "VERBOSE": 5,
+    "VERBOSE": 6,
     "WARN": 3
    },
    "modules": {
-    "Recording": 9,
+    "Recording": 10,
     "Rewind": 1
    },
-   "sites": 10
+   "sites": 11
   },
   "RecordingInvariants": {
    "levels": {
@@ -3072,15 +3121,15 @@
   },
   "TestCommands": {
    "levels": {
-    "ERROR": 153,
-    "INFO": 370,
+    "ERROR": 151,
+    "INFO": 369,
     "VERBOSE": 41,
-    "WARN": 367
+    "WARN": 365
    },
    "modules": {
-    "TestCommands": 931
+    "TestCommands": 926
    },
-   "sites": 931
+   "sites": 926
   },
   "TestHelper": {
    "helperSites": 1,
@@ -3206,17 +3255,17 @@
   },
   "UI": {
    "levels": {
-    "INFO": 113,
-    "VERBOSE": 163,
+    "INFO": 117,
+    "VERBOSE": 165,
     "WARN": 20
    },
    "modules": {
     "Config": 1,
     "Controllers": 1,
     "Missions": 1,
-    "UI": 293
+    "UI": 299
    },
-   "sites": 296
+   "sites": 302
   },
   "UIScale": {
    "levels": {
@@ -3341,9 +3390,9 @@
   }
  },
  "totals": {
-  "forwarders": 48,
-  "nonLiteralSites": 42,
-  "sites": 9756,
-  "tags": 294
+  "forwarders": 52,
+  "nonLiteralSites": 86,
+  "sites": 9788,
+  "tags": 296
  }
 }

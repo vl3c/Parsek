@@ -3265,6 +3265,9 @@ UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     # in route mode), opened from a supply route's Log button; populated by
     # op=target route=.
     "routehistory",
+    # The Mission Profile: one mission's flight as a row of phase blocks, opened from the
+    # Missions tab's Profile button; populated by op=target mission=.
+    "profile",
     "settings", "spawncontrol", "testrunner",
     # LAST, because it is the one window the main window has no button for: the global
     # Ctrl+Shift+T runner (TestRunnerShortcut), a separate MonoBehaviour that carries the
@@ -3363,7 +3366,7 @@ SAVEGAME_REFUSED_GUI_MOCK_REASON = "save-refused-gui-mock"
 # The windows the P1 applier has an injection seam and a builder family for, mirroring
 # GuiMockCatalogue.SupportedWindows. `op=mock` on any other window answers
 # mock-window-unsupported after a boot, so the validator refuses it here instead.
-UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "structure")
+UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "structure", "profile")
 
 # `op=playback`'s OPTIONAL recording selector, and `op=picker window=missions`'s. OPEN
 # valued (a RecordingId is a save-specific generated token, plus the picker's own `first`
@@ -6260,11 +6263,13 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
 
     if op == "target":
         window_name = str(window) if window is not None else None
-        if window_name is not None and window_name not in ("structure", "routehistory"):
+        if (window_name is not None
+                and window_name not in ("structure", "routehistory", "profile")):
             errors.append(
-                "driver.steps[%d].args.%s: only the 'structure' (Mission Log) and "
-                "'routehistory' (Route History) windows have a targeted opener, so "
-                "op=target against %r answers REJECTED target-unsupported-window"
+                "driver.steps[%d].args.%s: only the 'structure' (Mission Log), "
+                "'routehistory' (Route History) and 'profile' (Mission Profile) windows "
+                "have a targeted opener, so op=target against %r answers REJECTED "
+                "target-unsupported-window"
                 % (index, UIACTION_WINDOW_KEY, window_name))
         if window_name == "routehistory":
             if step_args.get("route") is None:
@@ -6273,9 +6278,10 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                     "route=; the seam answers REJECTED target-arg-missing" % index)
         elif step_args.get("route") is not None:
             errors.append(
-                "driver.steps[%d].args.route: the Mission Log takes mission=; a route's "
-                "runs are the Route History window (window=routehistory route=). The "
-                "seam answers REJECTED target-route-retired" % index)
+                "driver.steps[%d].args.route: the Mission Log and the Mission Profile "
+                "take mission=; a route's runs are the Route History window "
+                "(window=routehistory route=). The seam answers REJECTED "
+                "target-route-retired" % index)
         elif step_args.get("mission") is None:
             errors.append(
                 "driver.steps[%d].args: op=target REQUIRES mission=; the seam answers "

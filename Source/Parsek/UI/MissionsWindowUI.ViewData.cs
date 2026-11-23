@@ -242,17 +242,9 @@ namespace Parsek
                 // left, not under it; and a ship that undocked from a pair carrying the
                 // partner's identity keeps its own row through the undock.
                 HashSet<string> partnerLegIds = vesselNamingCache.PartnerLegIds(tree.Id);
-                rows = MissionVesselRowBuilder.Build(
-                    GetCompositionRoots(tree),
-                    (ownerHeadId, boundaryUT) =>
-                        MissionPresentation.ResolveSameTreeDockPartnerVesselName(
-                            structure, view, ownerHeadId, boundaryUT, vesselNames),
-                    vesselNames,
-                    partnerLegIds,
-                    (ownerHeadId, endUT) =>
-                        MissionPresentation.ResolveTerminalDockPartnerVesselName(
-                            structure, ownerHeadId, endUT, vesselNames),
-                    MissionVesselRowBuilder.ResolveUndockSides(structure, partnerLegIds));
+                // The one shared entry the Mission Profile builds its lines through too.
+                rows = MissionVesselRowBuilder.BuildForMission(
+                    GetCompositionRoots(tree), structure, view, vesselNames, partnerLegIds);
                 vesselRowsCache[tree.Id] = rows;
             }
             return rows;

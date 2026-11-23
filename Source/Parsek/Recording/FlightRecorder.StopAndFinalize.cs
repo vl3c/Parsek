@@ -141,6 +141,10 @@ namespace Parsek
         {
             double stopUT = ReadStopUT();
 
+            // Before the stop changes any state: the figures the game holds now are this
+            // recording's end.
+            CaptureDeltaVSnapshotAtStop(recordedVessel, stopUT, logTag);
+
             // Finalize in-progress orbit segment
             if (isOnRails)
             {
@@ -568,6 +572,7 @@ namespace Parsek
             }
 
             IsRecording = true;
+            RemoveDeltaVStopSnapshotForResume();
 
             // Undo orphaned terminal events added by FinalizeRecordingState (#255).
             // StopRecordingForChainBoundary emits EngineShutdown/RCSStop events for all

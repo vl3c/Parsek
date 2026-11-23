@@ -107,6 +107,14 @@ $allowedTypes = @(
     'MissionStructure', 'MissionStructureBuilder', 'MissionStructureListBuilder',
     'MissionCompositionBuilder', 'StructureLocationFormatter',
 
+    # --- the Mission Profile window (gallery P1b): its builder family, the window the
+    # applier injects into, the pure profile builder the states run, its row kind, and the
+    # pure track-section enums a detached recording is built from ---
+    'GuiMockProfile', 'GuiMockProfileStates', 'PieceInputs',
+    'MissionProfileWindowUI', 'MissionProfileBuilder', 'MissionProfileRowKind',
+    'SegmentEnvironment', 'ReferenceFrame', 'TrackSectionSource', 'DeltaVTrigger',
+    'DeltaVSnapshotStatus',
+
     # --- the observability + capture surfaces (read-only, or write ONE artifact) ---
     'ParsekLog', 'GuiTreeRecorder', 'GuiTreeResult', 'GuiTreeNode', 'GuiTreeAssembler',
 

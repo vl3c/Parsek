@@ -184,6 +184,7 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(RecordingTreeRecordCodec))]
     [SaveRoundTripCovers(typeof(RecordingManifestCodec))]
     [SaveRoundTripCovers(typeof(RouteProofCodec))]
+    [SaveRoundTripCovers(typeof(DeltaVSnapshotCodec))]
     [SaveRoundTripCovers(typeof(RecordingStore))]
     [SaveRoundTripCovers(typeof(SurfacePosition))]
     public class RecordingSaveRoundTripTests : IDisposable

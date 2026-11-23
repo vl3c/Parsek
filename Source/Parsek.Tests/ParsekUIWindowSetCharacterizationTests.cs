@@ -277,7 +277,8 @@ namespace Parsek.Tests
                 new[] { "logisticsUI.DrawIfOpen(mainWindowRect);" } },
             new object[] { "public void DrawStructureWindowIfOpen(Rect mainWindowRect)",
                 new[] { "structureListUI.DrawIfOpen(mainWindowRect);",
-                        "routeHistoryUI.DrawIfOpen(mainWindowRect);" } },
+                        "routeHistoryUI.DrawIfOpen(mainWindowRect);",
+                        "missionProfileUI.DrawIfOpen(mainWindowRect);" } },
             new object[] { "public void DrawSettingsWindowIfOpen(Rect mainWindowRect)",
                 new[] { "settingsUI.DrawIfOpen(mainWindowRect);" } },
             new object[] { "public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)",
@@ -414,7 +415,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WindowSet_BuildsTheTenWindowsInOrder()
+        public void WindowSet_BuildsTheElevenWindowsInOrder()
         {
             string body = Body("UI/ParsekWindowSet.cs", "private ParsekWindowSet(ParsekUI ui)");
             AssertCallsInOrder("ParsekWindowSet", body, new[]
@@ -429,10 +430,11 @@ namespace Parsek.Tests
                 "logisticsUI = new LogisticsWindowUI(ui);",
                 "structureListUI = new StructureListWindowUI(ui);",
                 "routeHistoryUI = new StructureListWindowUI(ui, routeHistory: true);",
+                "missionProfileUI = new MissionProfileWindowUI(ui, StructureListWindowUI.BuildProfileRequest);",
             });
             int news = 0, at = 0;
             while ((at = body.IndexOf("new ", at, StringComparison.Ordinal)) >= 0) { news++; at++; }
-            Assert.Equal(10, news);
+            Assert.Equal(11, news);
         }
 
         private sealed class ReferenceEqualityComparer : IEqualityComparer<object>

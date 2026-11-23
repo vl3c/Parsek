@@ -17,6 +17,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+import unittest.mock
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -506,6 +507,43 @@ class SummaryTests(unittest.TestCase):
     def test_totals_line(self):
         line = P.format_totals_line(["A", "B"], [outcome_line("A", "PASS")], ["X"])
         self.assertEqual(line, "# totals PASS=1 pending=1 of 2 notFlown=X")
+
+
+class AtomicReplaceTests(unittest.TestCase):
+    """A run-folder rewrite waits out a reader that holds the target open."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="parsek-replace-")
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.src = os.path.join(self.dir, "a.tmp")
+        self.dst = os.path.join(self.dir, "a")
+        for path, text in ((self.src, "new"), (self.dst, "old")):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+
+    def test_a_held_target_is_retried_until_the_reader_lets_go(self):
+        real, calls, sleeps = os.replace, [], []
+
+        def held(src, dst):
+            calls.append(dst)
+            if len(calls) < 3:
+                raise PermissionError(5, "Access is denied")
+            real(src, dst)
+
+        with unittest.mock.patch.object(pr.os, "replace", held):
+            pr.replace_with_retry(self.src, self.dst, sleep=sleeps.append)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sleeps, [pr.REPLACE_RETRY_SECONDS] * 2)
+        with open(self.dst, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "new")
+
+    def test_a_target_held_past_the_budget_still_raises(self):
+        sleeps = []
+        with unittest.mock.patch.object(pr.os, "replace",
+                                        side_effect=PermissionError(5, "Access is denied")):
+            with self.assertRaises(PermissionError):
+                pr.replace_with_retry(self.src, self.dst, sleep=sleeps.append)
+        self.assertEqual(len(sleeps), pr.REPLACE_ATTEMPTS - 1)
 
 
 class ControlAndStatusTests(unittest.TestCase):

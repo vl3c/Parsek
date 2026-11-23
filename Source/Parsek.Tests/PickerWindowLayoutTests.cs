@@ -331,6 +331,7 @@ namespace Parsek.Tests
         [InlineData("KerbalsWindowUI.cs", "DrawKerbalsWindow")]
         [InlineData("SettingsWindowUI.cs", "DrawSettingsWindow")]
         [InlineData("StructureListWindowUI.cs", "DrawWindow")]
+        [InlineData("MissionProfileWindowUI.cs", "DrawWindow")]
         public void PickerTitleGapIsTheMainWindowsTitleGap(string file, string method)
         {
             string gap = MethodBody(Prepared("UI", "PickerWindowLayout.cs"), "DrawTitleGap");

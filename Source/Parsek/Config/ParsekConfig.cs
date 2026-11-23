@@ -51,6 +51,8 @@ namespace Parsek
         {
             internal const double DockingRangeMeters = RelativeFrame.DockingApproachMeters;
             internal const double MidRangeMeters = 1000.0;
+            // Outer edge of the proximity bands. A vessel stock still simulates past it is
+            // sampled at the outermost rate (ProximityRateSelector).
             internal const double MaxDistanceMeters = PhysicsBubbleMeters;
         }
 
