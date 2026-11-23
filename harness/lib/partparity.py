@@ -1676,7 +1676,8 @@ def judge_fx_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
         return CONTROLS_BAD, "setup %s" % (setup.get("status") or "<none>")
     proof = sidecar.get("stateProof") if isinstance(sidecar.get("stateProof"), dict) else {}
     events = proof.get("events") if isinstance(proof.get("events"), list) else []
-    views = [v for v in sidecar.get("views") or [] if isinstance(v, dict)]
+    views = sidecar.get("views")
+    views = [v for v in views if isinstance(v, dict)] if isinstance(views, list) else []
     if cid == "ctl-heat-events-dropped":
         if proof.get("reached") is not True:
             return CONTROLS_BAD, "the press never reached heat-hot"
