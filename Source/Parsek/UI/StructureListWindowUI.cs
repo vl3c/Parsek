@@ -32,7 +32,8 @@ namespace Parsek
         private readonly ParsekUI parentUI;
 
         private bool isOpen;
-        private Rect windowRect;
+        // The shared log-table frame: rect, resize, scaled draw, position log, input lock.
+        private readonly LogTableWindowFrame frame;
         /// <summary>
         /// The live window rect, readable and writable from outside the draw pass.
         /// <para>Two consumers: an in-game test that needs the measured rect, and the
@@ -44,14 +45,11 @@ namespace Parsek
         /// </summary>
         internal Rect WindowRectForTesting
         {
-            get { return windowRect; }
-            set { windowRect = value; }
+            get { return frame.WindowRect; }
+            set { frame.WindowRect = value; }
         }
 
-        private bool hasInputLock;
-        private bool isResizing;
         private Vector2 scrollPos;
-        private Rect lastWindowRect;
 
         private const string InputLockId = "Parsek_StructureListWindow";
 
@@ -133,7 +131,7 @@ namespace Parsek
         /// <summary>The empty-state line of a mission Log.</summary>
         internal const string EmptyMissionText = "This mission has no recorded flight.";
         /// <summary>The empty-state line before any target was given (the bare seam open).</summary>
-        internal const string EmptyNoTargetText = "Nothing to show.";
+        internal const string EmptyNoTargetText = LogTableWindowFrame.EmptyNoTargetText;
 
         /// <summary>The empty-state line for a target mode. Pure.</summary>
         internal static string EmptyText(TargetMode targetMode)
@@ -163,9 +161,7 @@ namespace Parsek
         /// <summary>A window title from a fixed part and a target name. Pure.</summary>
         internal static string BuildWindowTitle(string prefix, string targetName)
         {
-            return string.IsNullOrEmpty(targetName)
-                ? prefix
-                : prefix + ": " + targetName;
+            return LogTableWindowFrame.BuildWindowTitle(prefix, targetName);
         }
 
         /// <summary>The title the window draws right now, for tests and the census.</summary>
@@ -185,6 +181,8 @@ namespace Parsek
             instanceInputLockId = routeHistory ? RouteHistoryInputLockId : InputLockId;
             instanceTitlePrefix = routeHistory ? RouteHistoryTitlePrefix : WindowTitlePrefix;
             logName = routeHistory ? "Route History window" : "Structure window";
+            frame = new LogTableWindowFrame(instanceWindowIdKey, instanceInputLockId, logName,
+                routeHistory ? "RouteHistory" : "StructureList", MinWindowWidth, MinWindowHeight);
         }
 
         /// <summary>
@@ -430,9 +428,8 @@ namespace Parsek
         /// </summary>
         internal static Rect DefaultWindowRect(Rect mainWindowRect, bool routeHistory)
         {
-            float offset = routeHistory ? RouteHistoryCascadeOffset : 0f;
-            return new Rect(mainWindowRect.x + mainWindowRect.width + 10 + offset,
-                mainWindowRect.y + offset, DefaultWindowWidth, DefaultWindowHeight);
+            return LogTableWindowFrame.DefaultRect(mainWindowRect,
+                routeHistory ? RouteHistoryCascadeOffset : 0f, DefaultWindowWidth, DefaultWindowHeight);
         }
 
         /// <summary>
@@ -445,29 +442,8 @@ namespace Parsek
             int stateVersion, bool missionFound, string missionName,
             ICollection<string> excludedIntervalKeys, int displayNamesVersion = 0)
         {
-            unchecked
-            {
-                int h = 17;
-                h = h * 31 + stateVersion;
-                h = h * 31 + displayNamesVersion;
-                h = h * 31 + (missionFound ? 1 : 0);
-                h = h * 31 + (missionName != null ? StringComparer.Ordinal.GetHashCode(missionName) : 0);
-                int setHash = 0;
-                int count = 0;
-                if (excludedIntervalKeys != null)
-                {
-                    foreach (string key in excludedIntervalKeys)
-                    {
-                        // Summed, so the order a HashSet enumerates in does not matter.
-                        int k = key != null ? StringComparer.Ordinal.GetHashCode(key) : 0;
-                        setHash += (k * 0x2F0B3A49) ^ (k >> 7);
-                        count++;
-                    }
-                }
-                h = h * 31 + count;
-                h = h * 31 + setHash;
-                return h;
-            }
+            return LogTableWindowFrame.ComputeChangeSignature(stateVersion, missionFound,
+                missionName, excludedIntervalKeys, displayNamesVersion);
         }
 
         private static Mission FindMission(string id)
@@ -486,11 +462,50 @@ namespace Parsek
 
         // The other side of a Dock branch point, through the dock-event graph (ERS-scoped by
         // its host cache, which rebuilds only when the committed topology moved).
-        private static string ResolveMergePartner(string treeId, BranchPoint bp, string viewerId)
+        internal static string ResolveMergePartner(string treeId, BranchPoint bp, string viewerId)
         {
             return MissionStructureListBuilder.DescribeMergePartnerFromGraph(
                 DockEventGraphCache.GetOrBuild(), treeId, bp, viewerId,
                 MissionsWindowUI.ResolvePartnerMissionName);
+        }
+
+        /// <summary>
+        /// The Mission Profile's builder request, filled the way the Log fills its own build: the
+        /// vessel names and partner legs from <see cref="MissionVesselNaming"/>, the part titles
+        /// and dock partners through the resolvers above, plus the Profile's own inputs (effective
+        /// ids, supersede rows, live body facts, career totals). Handed to the Profile window by
+        /// <see cref="ParsekWindowSet"/>.
+        /// </summary>
+        internal static MissionProfileRequest BuildProfileRequest(Mission mission, RecordingTree tree)
+        {
+            var request = new MissionProfileRequest
+            {
+                Mission = mission,
+                Tree = tree,
+                BodyFacts = RecordingOptimizer.ResolveBodyFacts,
+                DateFormatter = MissionProfileWindowUI.FormatDate,
+                PartTitleResolver = ResolvePartTitle,
+                CommittedTrees = RecordingStore.CommittedTrees,
+                TreeMissionName = otherTreeId => MissionsWindowUI.ResolvePartnerMissionName(otherTreeId, null),
+            };
+            if (tree == null)
+                return request;
+
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = EffectiveState.CurrentSupersedesOrEmpty();
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            var partnerLegIds = new HashSet<string>(StringComparer.Ordinal);
+            request.Structure = structure;
+            request.VesselNames = MissionVesselNaming.Build(tree, structure,
+                MissionVesselNaming.LaunchIndex.Build(RecordingStore.CommittedTrees),
+                request.TreeMissionName, out MissionVesselNaming.Tally _, null, partnerLegIds);
+            request.PartnerLegIds = partnerLegIds;
+            request.SupersedeRelations = supersedes;
+            request.EffectiveRecordingIds = MissionProfileWindowUI.EffectiveRecordingIdsOf(tree, supersedes);
+            string id = tree.Id;
+            request.MergePartnerResolver = (bp, viewerId) =>
+                ResolveMergePartner(id, bp, viewerId);
+            request.Career = MissionProfileWindowUI.SumCareer(EffectiveState.ComputeELS(), request.EffectiveRecordingIds);
+            return request;
         }
 
         private static RecordingTree FindTree(string treeId)
@@ -514,53 +529,13 @@ namespace Parsek
             if (Event.current != null && Event.current.type == EventType.Layout)
                 RefreshIfChanged();
 
-            if (windowRect.width < 1f)
-                windowRect = DefaultWindowRect(mainWindowRect, isRouteHistory);
-
-            ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
-                MinWindowWidth, MinWindowHeight, logName);
-
-            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
-            try
-            {
-                windowRect = ParsekUiScale.Window(
-                    instanceWindowIdKey.GetHashCode(),
-                    windowRect,
-                    DrawWindow,
-                    BuildWindowTitle(instanceTitlePrefix, title),
-                    opaqueWindowStyle,
-                    GUILayout.Width(windowRect.width),
-                    GUILayout.Height(windowRect.height)
-                );
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
-            parentUI.LogWindowPosition(isRouteHistory ? "RouteHistory" : "StructureList", ref lastWindowRect, windowRect);
-
-            if (windowRect.Contains(Event.current.mousePosition))
-            {
-                if (!hasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, instanceInputLockId);
-                    hasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseInputLock();
-            }
+            frame.Draw(parentUI, DefaultWindowRect(mainWindowRect, isRouteHistory),
+                BuildWindowTitle(instanceTitlePrefix, title), DrawWindow);
         }
 
         public void ReleaseInputLock()
         {
-            if (!hasInputLock) return;
-            InputLockManager.RemoveControlLock(instanceInputLockId);
-            hasInputLock = false;
+            frame.ReleaseInputLock();
         }
 
         private void DrawWindow(int windowID)
@@ -595,8 +570,7 @@ namespace Parsek
             if (GUILayout.Button("Close"))
                 Close();
 
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, logName);
-            GUI.DragWindow();
+            frame.DrawResizeHandleAndDrag();
         }
 
         /// <summary>

@@ -70,3 +70,7 @@ Source/Parsek/InGameTests/
 # rationale as the InGameTests entry above, one layer out: a fixture stating its own
 # starting verdict is not a production verdict decision.
 Source/Parsek/UI/Gallery/GuiMockStructureStates.cs | TerminalStateValue = terminal,
+# GuiMockProfileStates (the Mission Profile's gallery states) builds one DETACHED Recording
+# the same way: a fixture stating its own starting verdict, never in a store, unreachable
+# after the profile builder returns.
+Source/Parsek/UI/Gallery/GuiMock.Profile.cs | rec.TerminalStateValue = terminal;

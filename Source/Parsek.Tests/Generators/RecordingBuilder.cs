@@ -59,6 +59,7 @@ namespace Parsek.Tests.Generators
         private List<RouteHarvestWindow> routeHarvestWindows;
         private List<RouteConnectionWindow> routeConnectionWindows;
         private RouteOriginProof routeOriginProof;
+        private List<DeltaVSnapshot> deltaVSnapshots;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -705,6 +706,35 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Adds one delta-v snapshot (design-mission-profile.md section 8.1), kept in UT
+        /// order. Written through the production <c>DeltaVSnapshotCodec</c> by
+        /// <see cref="Build"/> and <see cref="BuildV3Metadata"/>; a builder with none writes
+        /// no <c>DELTAV</c> node.
+        /// </summary>
+        internal RecordingBuilder AddDeltaVSnapshot(DeltaVSnapshot snapshot)
+        {
+            DeltaVSnapshotList.TryInsertByUT(ref deltaVSnapshots, snapshot, int.MaxValue);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds an Ok snapshot with one stage holding the whole vacuum total.
+        /// </summary>
+        internal RecordingBuilder AddDeltaVSnapshot(
+            double ut, DeltaVTrigger trigger, double vacuum, double seaLevel = double.NaN,
+            double actual = double.NaN, int stage = 0, double burnTimeSeconds = 0.0)
+        {
+            return AddDeltaVSnapshot(new DeltaVSnapshot(
+                ut, trigger, DeltaVSnapshotStatus.Ok, vacuum,
+                double.IsNaN(seaLevel) ? vacuum : seaLevel,
+                double.IsNaN(actual) ? vacuum : actual,
+                new[] { new DeltaVStageReading(stage, vacuum, burnTimeSeconds) }));
+        }
+
+        /// <summary>Returns the delta-v snapshots (may be null).</summary>
+        internal List<DeltaVSnapshot> GetDeltaVSnapshots() => deltaVSnapshots;
+
         /// <summary>Returns the connection window list (may be null).</summary>
         internal List<RouteConnectionWindow> GetRouteConnectionWindows() => routeConnectionWindows;
 
@@ -1079,6 +1109,9 @@ namespace Parsek.Tests.Generators
             // fixtures exercise the production node shape.
             SerializeRouteProofMetadataInto(node);
 
+            // Delta-v snapshots (sparse, through the production codec)
+            DeltaVSnapshotCodec.Serialize(node, deltaVSnapshots);
+
             return node;
         }
 
@@ -1265,6 +1298,9 @@ namespace Parsek.Tests.Generators
 
             // M2 route-proof metadata (sparse, same chokepoint as BuildV3Metadata)
             SerializeRouteProofMetadataInto(node);
+
+            // Delta-v snapshots (sparse, through the production codec)
+            DeltaVSnapshotCodec.Serialize(node, deltaVSnapshots);
 
             return node;
         }

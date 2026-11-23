@@ -61,6 +61,18 @@ namespace Parsek.Tests.Logistics
             Assert.Equal((byte)0xff, c.a);
         }
 
+        // catches: the Profile's spent delta-v orange drifting into the countdown amber
+        // (#ffcc66) or the error red, the two colours it must read apart from.
+        [Fact]
+        public void StatusColor_Orange_IsFF9940AndDistinctFromAmberAndRed()
+        {
+            // #ff9940 = (255, 153, 64) / 255 = (1, 0.6, 0.25) to the byte.
+            Assert.Equal(new Color(1f, 0.6f, 0.25f), ParsekUI.StatusColor(ParsekUI.StatusColorKind.Orange));
+            Assert.NotEqual(ParsekUI.CountdownTextColor, ParsekUI.StatusColor(ParsekUI.StatusColorKind.Orange));
+            Assert.NotEqual(ParsekUI.StatusColor(ParsekUI.StatusColorKind.Red),
+                ParsekUI.StatusColor(ParsekUI.StatusColorKind.Orange));
+        }
+
         // The shared stepper value cell holds the widest Every readout: every windowed
         // form up to two digits, the flat two-digit / four-digit-day form, a Priority;
         // a narrow measure keeps the floor, NaN never wins.

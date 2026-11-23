@@ -2475,9 +2475,10 @@ to apply a mode the save does not carry.
 **The window vocabulary is a table, in the main window's own button order** (so a describe
 payload reads down the same list a reviewer sees on screen): `main`, `missions`,
 `timeline`, `kerbals`, `logistics`, `structure`, `routehistory` (the Route History, the
-second instance of the log-table window `StructureListWindowUI`), `settings`,
-`spawncontrol`, `testrunner`, and LAST `testrunnerglobal` - eleven rows, so every
-`describe` reads `windows=11`. `testrunnerglobal` is last because it is the one window the
+second instance of the log-table window `StructureListWindowUI`), `profile` (the Mission
+Profile, `MissionProfileWindowUI`, since 2026-11-23), `settings`,
+`spawncontrol`, `testrunner`, and LAST `testrunnerglobal` - twelve rows, so every
+`describe` reads `windows=12`. `testrunnerglobal` is last because it is the one window the
 main window has no button for at all. `main` is in it because every sub-window draw in both hosts sits
 inside the host's `showUI` gate, so a sub-window with `IsOpen = true` and the main window
 hidden is invisible - `op=open window=main` is the first step of any census, and the only
@@ -2796,7 +2797,10 @@ stays the tree id. `route=` is REFUSED as `target-route-retired` (alone or besid
 `mission=`): the route Log was retired 2026-10-01 and a route's `Log` button opens the Log of
 its source tree's original mission, so a lane names that mission by its tree id. Refused
 rather than ignored, since an ignored selector would photograph something else under the
-caller's label.
+caller's label. `window=profile` (since 2026-11-23) takes the same `mission=` on the same rungs and opens
+the Mission Profile through `MissionProfileWindowUI.OpenForMission`, the Profile button's opener;
+its `steps=` is the profile's row count (the Summary block included), and `route=` there is
+refused the same way.
 
 **`op=picker` opens a popup a ROW arms.** The three windows the original table named as
 deliberate exclusions were excluded because they are popups over a SELECTION, and raising

@@ -61,6 +61,7 @@ namespace Parsek.UI.Gallery
 
         internal const string KerbalsWindow = "kerbals";
         internal const string StructureWindow = "structure";
+        internal const string ProfileWindow = "profile";
 
         // ----- the suppression sites (design 7.4) -----
 

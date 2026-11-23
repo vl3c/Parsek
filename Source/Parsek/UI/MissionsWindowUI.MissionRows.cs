@@ -10,10 +10,11 @@ namespace Parsek
         // Mission bar (Missions Model 1; owner mock-up 2026-09-30): a dark section-header bubble
         // holding TWO table rows, each laying out the same columns as every vessel row under it
         // (MissionsTabColumnSequenceTests holds both to the column header's sequence).
-        //   Line 1: index | bold title + Log (right-aligned in the name cell) | the mission's
+        //   Line 1: index | bold title + (Advanced) Warp to... + Profile (right-aligned in the
+        //           name cell) | the mission's
         //           start time, start event, outcome, end time | Interact: Watch.
         //   Line 2: the collapse caret under the index | the summary, then (Advanced) the loop
-        //           group right-aligned in the name cell | four blank data cells | Interact:
+        //           row and Log right-aligned in the name cell | four blank data cells | Interact:
         //           Rewind / Forward (a reserved slot when neither applies).
         // The loop toggle goes through MissionStore.SetLoopEnabled, which allows concurrent
         // looping across trees but at most one looping mission per spanned tree set (it only
@@ -73,9 +74,8 @@ namespace Parsek
         }
 
         // The name cell of line 1: the bold title (double-click renames), which expands, then (in
-        // Advanced) the loop grid's first row - "Warp to..." in column B - and Log right-aligned
-        // at the Interact single-button width. See LoopGridColumnBWidth for how the grid lines up
-        // with its second row on line 2.
+        // Advanced) "Warp to..." in column B, then Profile in column C in both modes. See
+        // LoopGridColumnBWidth for how the grid lines up with its second row on line 2.
         private void DrawMissionNameCell(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
@@ -90,18 +90,40 @@ namespace Parsek
                 // (owner request 2026-10-01): greyed, with its reason on hover, while the mission
                 // does not loop or cannot warp yet, so the grid reads the same in every state.
                 DrawMissionWarpToWindowButton(mission, periodicity);
+                GUILayout.Space(LoopGridGap);
             }
 
-            // "Log": opens the chronological step-list window for this mission (launch,
-            // staging, dock / undock, terminal).
-            if (GUILayout.Button("Log", interactButtonStyle, GUILayout.Width(InteractButtonWidth)))
+            // Column C, line 1, both modes: Profile, drawn immediately before Log (which sits
+            // under it on line 2).
+            DrawMissionProfileButton(mission);
+            GUILayout.EndHorizontal();
+        }
+
+        // "Profile": opens the Mission Profile window on this mission (its phases, burns,
+        // orbits, docking and EVA, design-mission-profile.md section 2.1).
+        private void DrawMissionProfileButton(Mission mission)
+        {
+            if (GUILayout.Button(new GUIContent("Profile", MissionPresentation.ProfileButtonTooltip),
+                    interactButtonStyle, GUILayout.Width(LoopGridColumnCWidth)))
+            {
+                ParsekLog.Info("UI",
+                    $"Mission Profile button: tree={mission.TreeId ?? "<null>"} mission={mission.Id ?? "<null>"} " +
+                    $"name='{mission.Name ?? ""}'");
+                parentUI.OpenProfileWindowForMission(mission.TreeId, mission.Id, mission.Name);
+            }
+        }
+
+        // "Log": opens the chronological step-list window for this mission (launch, staging,
+        // dock / undock, terminal). Column C, line 2, under Profile, in both modes.
+        private void DrawMissionLogButton(Mission mission)
+        {
+            if (GUILayout.Button("Log", interactButtonStyle, GUILayout.Width(LoopGridColumnCWidth)))
             {
                 ParsekLog.Info("UI",
                     $"Mission Log button: tree={mission.TreeId ?? "<null>"} mission={mission.Id ?? "<null>"} " +
                     $"name='{mission.Name ?? ""}'");
                 parentUI.OpenStructureWindowForMission(mission.TreeId, mission.Id, mission.Name);
             }
-            GUILayout.EndHorizontal();
         }
 
         private void DrawMissionValueCell(string value, float width)
@@ -134,10 +156,9 @@ namespace Parsek
         }
 
         // The name cell of line 2: the summary on the left (it expands and wraps), then:
-        //   Basic:    [Run by route], right-aligned, when route-bound.
-        //   Advanced: the loop grid's second row, the loop row spanning column B plus the
-        //             Log slot above it: "Loop [x] every" under Warp and the period under
-        //             Log, or "Looped by route" across the whole row when route-bound.
+        //   Basic:    [Run by route] when route-bound, then Log (column C, under Profile).
+        //   Advanced: the loop row under Warp ("Loop [x] every [10] [sec]", or "Looped by
+        //             route" across the whole row when route-bound), then Log under Profile.
         private void DrawMissionSummaryNameCell(Mission mission, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
         {
@@ -151,15 +172,19 @@ namespace Parsek
             if (loopAuthoring)
             {
                 DrawMissionLoopRow(mission, view, periodicity, missionRouteBound, bindingRoute);
+                GUILayout.Space(LoopGridGap);
             }
             else if (missionRouteBound)
             {
                 // Basic keeps the route label (owner decision 2026-09-29) - it says why this
                 // mission's flights repeat - right-aligned after the summary, in Basic's
-                // words ("Run by route"; Basic reads no loop word).
+                // words ("Run by route"; Basic reads no loop word), left of Log.
                 DrawLoopedByRouteLabel(bindingRoute, ParsekUI.AppliedUiComplexityMode);
+                GUILayout.Space(LoopGridGap);
             }
 
+            // Column C, line 2, both modes: Log, under Profile.
+            DrawMissionLogButton(mission);
             GUILayout.EndHorizontal();
         }
 

@@ -491,7 +491,11 @@ namespace Parsek
         public void OnPhysicsFrame(Vessel v)
         {
             if (!IsRecording) return;
-            if (isOnRails) return;
+            if (isOnRails)
+            {
+                TickDeltaVSnapshots(v);
+                return;
+            }
 
             if (v.persistentId != RecordingVesselId)
             {
@@ -516,6 +520,8 @@ namespace Parsek
             }
 
             PollPartStates(v);
+            // After the engine poll, so a burn edge seen this tick files its request now.
+            TickDeltaVSnapshots(v);
             // M2 harvest poll (plan D4): threshold-crossing window open/close.
             // Also consumes the rails-exit pending flag - this is the funnel
             // through which a warp-period converter toggle gets attributed at

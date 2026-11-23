@@ -464,6 +464,7 @@ namespace Parsek
             // Create new FlightRecorder for active child
             host.recorder = new FlightRecorder();
             host.recorder.ActiveTree = host.activeTree;
+            host.recorder.DeltaVStartTrigger = FlightRecorder.DeltaVTriggerForBranch(branchType);
             host.recorder.StartRecording(isPromotion: true);
 
             if (!host.recorder.IsRecording)
@@ -740,6 +741,7 @@ namespace Parsek
 
             host.recorder = new FlightRecorder();
             host.recorder.ActiveTree = host.activeTree;
+            host.recorder.DeltaVStartTrigger = FlightRecorder.DeltaVTriggerForBranch(BranchPointType.EVA);
             host.recorder.StartRecording(isPromotion: true);
 
             if (!host.recorder.IsRecording)
@@ -1278,6 +1280,7 @@ namespace Parsek
             // 10. Start new FlightRecorder for merged child
             host.recorder = new FlightRecorder();
             host.recorder.ActiveTree = host.activeTree;
+            host.recorder.DeltaVStartTrigger = FlightRecorder.DeltaVTriggerForBranch(branchType);
             host.recorder.StartRecording(isPromotion: true);
 
             if (!host.recorder.IsRecording)

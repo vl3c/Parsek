@@ -151,6 +151,12 @@ namespace Parsek.Tests
                 { "StructureStep.CollapsedRun",
                   () => AnyStructure(steps => steps.Any(
                       st => st.Label != null && st.Label.Contains(" x"))) },
+                // The Profile's Spent cell in the house orange (a burn with a figure).
+                { "MissionProfileRow.SpentOrange",
+                  () => AnyProfile(rows => rows.Any(MissionProfileWindowUI.DrawsSpentInOrange)) },
+                // The Profile's empty state: the builder's one Empty row.
+                { "MissionProfileRow.Empty",
+                  () => AnyProfile(rows => rows.Any(r => r.Kind == MissionProfileRowKind.Empty)) },
             };
 
         /// <summary>The bool-branch keys, so the cover-key validity cell accepts them
@@ -260,6 +266,16 @@ namespace Parsek.Tests
                      GuiMockCatalogue.ForWindow(GuiMockSession.StructureWindow))
             {
                 if (match(state.Build().Structure.Steps)) return true;
+            }
+            return false;
+        }
+
+        private static bool AnyProfile(Func<List<MissionProfileRow>, bool> match)
+        {
+            foreach (GuiMockState state in
+                     GuiMockCatalogue.ForWindow(GuiMockSession.ProfileWindow))
+            {
+                if (match(state.Build().Profile.Profile.Rows)) return true;
             }
             return false;
         }

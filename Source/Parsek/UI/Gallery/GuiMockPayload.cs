@@ -31,6 +31,9 @@ namespace Parsek.UI.Gallery
         /// <summary>Structure List: steps plus target mode and title.</summary>
         internal GuiMockStructure Structure;
 
+        /// <summary>Mission Profile: a built profile plus the title.</summary>
+        internal GuiMockProfile Profile;
+
         /// <summary>The window token this payload is FOR, checked against the state's own
         /// <c>Window</c> by a unit cell so a builder filed under the wrong window is a
         /// local red rather than a <c>mock-not-applied</c> after a boot.</summary>

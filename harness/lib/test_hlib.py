@@ -21286,6 +21286,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 "mockState": "kerbals.roster.lost"}))
         self.assertEqual([], hlib.validate_ui_action_step(
             4, {"op": "mock", "window": "kerbals", "mockState": "none"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            5, {"op": "mock", "window": "profile",
+                "mockState": "profile.mission.mun-return"}))
+        self.assertTrue(any("mock-state-window-mismatch" in e
+                            for e in hlib.validate_ui_action_step(
+                                6, {"op": "mock", "window": "profile",
+                                    "mockState": "structure.mission.breakup"})))
 
     def test_uiaction_mock_args_are_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
@@ -22040,6 +22047,22 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 2, {"op": "target", "window": "missions", "mission": "A"})))
         self.assertEqual([], hlib.validate_ui_action_step(
             3, {"op": "target", "window": "structure", "mission": "Apollo"}))
+
+    def test_uiaction_target_takes_a_mission_on_the_profile_window(self):
+        # The Mission Profile is the Log's sibling: mission= is required, route= is the
+        # Route History's selector and is refused by the same reason.
+        self.assertTrue(any(
+            "target-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "target", "window": "profile"})))
+        for args in ({"op": "target", "window": "profile", "route": "B"},
+                     {"op": "target", "window": "profile", "mission": "A",
+                      "route": "B"}):
+            with self.subTest(args=args):
+                self.assertTrue(any(
+                    "target-route-retired" in e
+                    for e in hlib.validate_ui_action_step(1, args)))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "target", "window": "profile", "mission": "Kerbal X #2"}))
 
     def test_uiaction_picker_selectors_are_per_window(self):
         self.assertTrue(any(

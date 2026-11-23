@@ -8,8 +8,8 @@ namespace Parsek
     internal partial class MissionsWindowUI
     {
         // The loop row (Advanced, line 2 of the grid): a fixed LoopCellWidth x LoopCellHeight row
-        // whose left edge is Warp's and whose right edge is Log's (see LoopGridColumnBWidth).
-        //   not route-bound: column B = "Loop" [x] "every", the Log slot = the period
+        // under Warp, edge to edge (see LoopGridColumnBWidth).
+        //   not route-bound: "Loop" [x] "every", then the period slot
         //                    ("[10] [sec]", "[60s] [auto]" or the value-only "~13d-19d").
         //   route-bound:     "Looped by route" across the whole row. A route owns the tree's
         //                    loop, so the toggle and the period cell could only draw greyed and
@@ -293,8 +293,9 @@ namespace Parsek
         private void DrawMissionLoopPeriodCell(
             Mission mission, MissionThroughLineView view, MissionPeriodicityDisplay periodicity)
         {
-            // The period fills the Log slot of the loop row (see LoopGridColumnBWidth): value
-            // field + gap + unit button == Log's width, so the row ends at Log's right edge.
+            // The period fills the period slot at the end of the loop row (see
+            // LoopGridColumnBWidth): value field + gap + unit button == LoopPeriodSlotWidth, so
+            // the row ends at Warp's right edge.
             const float unitBtnW = LoopPeriodUnitButtonWidth;
             const float valueW = LoopPeriodValueWidth;
 
@@ -303,7 +304,7 @@ namespace Parsek
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
-            // Fixed-width period cell: every state fills exactly the Log slot (a read-only
+            // Fixed-width period cell: every state fills exactly the period slot (a read-only
             // value label of that width, or the value field + gap + unit button), so nothing in
             // the grid moves when the period's state changes. NO wrapping horizontal group of its
             // own: its controls are entries of the loop row directly; the field and the unit
@@ -347,12 +348,12 @@ namespace Parsek
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
                 // loopCellLabelStyle (vertically centred) so "~6.4d" sits on the same line as
-                // "every" before it, at the whole Log slot's width: "Loop [x] every ~6.4d".
+                // "every" before it, at the whole period slot's width: "Loop [x] every ~6.4d".
                 // T1.5: name the state the cell is in - the four period states are distinguished by
                 // greyness, editability, and tint alone, and none of them says so.
                 GUILayout.Label(
                     new GUIContent(locked, MissionPresentation.BuildLockedPeriodTooltip(lockedFull)),
-                    loopCellLabelStyle, GUILayout.Width(InteractButtonWidth),
+                    loopCellLabelStyle, GUILayout.Width(LoopPeriodSlotWidth),
                     GUILayout.Height(LoopCellHeight));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;

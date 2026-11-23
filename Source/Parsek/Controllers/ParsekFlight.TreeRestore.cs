@@ -426,6 +426,7 @@ namespace Parsek
 
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
+            recorder.DeltaVStartTrigger = DeltaVTrigger.Resume;
             recorder.StartRecording(isPromotion: true);
             if (!recorder.IsRecording)
             {
@@ -711,6 +712,7 @@ namespace Parsek
             // the quickload UT. The new recorder's buffers start empty and will append
             // to activeTree.Recordings[activeRecId] on the next chain boundary or
             // scene exit flush.
+            recorder.DeltaVStartTrigger = DeltaVTrigger.Resume;
             recorder.StartRecording(isPromotion: true);
             if (!recorder.IsRecording)
             {
