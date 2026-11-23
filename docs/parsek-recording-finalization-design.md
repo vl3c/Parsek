@@ -341,6 +341,8 @@ The implementation consumes cache at these seams:
 
 Focus switching is not itself a consumer unless the switch path actually ends the old recording. In the normal tree model, switching transfers cache ownership to the background recorder instead.
 
+Playback draws what the cache applied. A predicted tail lies past every track section, so for a parent-anchored recording (a dropped booster, a decoupled core) it is authored coverage there: the flight ghost follows the tail, loops included, and ends at its terminal UT with the explosion of a `Destroyed` ending (`GhostPlaybackEngine.IsInAcceptedPredictedTail`; Q1a, Q2). The Space Center ghost and the map / Tracking Station markers ride the same tail.
+
 Later paths square a committed or pending prediction with the game: the takeover (`PredictedEndingTakeover.DropPredictedEndingForTakeover`, edge cases 31-33), the recovery (`PredictedEndingRecovery`, edge case 29), the crash reconciler (`PredictedCrashReconciler`, edge case 34) and the stock-fate pass (`PredictedTouchdownStockFate`, edge cases 37-38).
 
 ## Edge Cases

@@ -175,10 +175,17 @@ id = "GS-9-kerbalx-repeat-rewind"
 # `terminalStates.SubOrbital 1 < min 2`. One cause: the dropped core's recording now keeps
 # its predicted fall and ends Destroyed at impact UT 331.64 (todo ABANDONED-STAGE-D1; it
 # ended SubOrbital at the commit, UT ~140), past both cycles' end, so the second rewind
-# tears its first ghost down and its second one is live at quit. The lane asserts nothing
-# about how that tail DRAWS: `engine-frame-iter` reads `out:vis=F retired=T` for it from
-# UT 140.34 on (todo PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT), and the pins hold with the
-# tail drawn or hidden. The quoted 16 / SubOrbital 2 readings below are of older builds.
+# tears its first ghost down and its second one is live at quit. The quoted 16 / SubOrbital 2
+# readings below are of older builds.
+#
+# GROUP 8 ADDED 2026-11-23, NOT FLOWN (branch `predicted-tail-flight`, todo
+# PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT): `_0850` drew none of the predicted falls in either
+# cycle. The core's ghost read `out:vis=F retired=T` from UT 140.34 on, and all six boosters
+# were hidden from their last section to their impact (UT 114.36-123.06) and destroyed with
+# `reason=parent-anchored debris outside relative coverage at endpoint`, no explosion. The
+# fix draws each tail and ends it at its impact. Every GROUP 8 number is a PREDICTION off
+# `_0850`'s census (six boosters per cycle, all loaded at their impact, 1x warp); no
+# ghostLifecycle window moves.
 # =====================================================================================
 tier = "nightly"
 description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts (re-pinned 8 / 16 / 15 on 2026-11-23: the dropped core's predicted fall outlives both cycles, so its last ghost is live at quit). LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."
@@ -320,6 +327,14 @@ count = { min = 8, max = 8 }
 #     two-cycle proof is GROUP 6 plus the CYCLE-1 pair, which miss both of those logs.
 # 0.06-0.18 s per pattern on the reading's 28.8 MB log, matching or missing; removing or
 # duplicating one line of a phase in one cycle reds exactly that phase-cycle pattern.
+#
+# GROUP 8 - THE PREDICTED FALLS (owner rulings Q1a / Q2), not flown yet:
+#   - `[Anchor] parent-anchored predicted tail: ... Kerbal X Probe ... active=T` in BOTH
+#     cycles (a line, a later rewind, a later line): the core's ghost is on screen past its
+#     last track section (GhostPlaybackEngine.LogParentAnchoredPredictedTailDrawn);
+#   - exactly six `Stock FXMonger.Explode for ghost #<i> "Kerbal X Debris" at` lines per
+#     cycle, bracketed like GROUP 7: each booster explodes at its predicted impact;
+#   - forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -353,6 +368,10 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*\\n){7}(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Rewind-to-Launch initiated to UT",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshSpawned [^\\n]*\\n){8}(?:(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:phase=MeshSpawned |Rewind-to-Launch initiated))[^\\n]*\\Z",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*vessel=Kerbal X Probe reason=engine teardown[^\\n]*\\n(?:(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*phase=MeshDestroyed [^\\n]*\\n){7}(?:(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:phase=MeshDestroyed |Rewind-to-Launch initiated))[^\\n]*\\Z",
+             # GROUP 8 - the predicted falls (not flown, see the header).
+             "\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Probe\" recordingId=[0-9a-f]+ active=T [\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Probe\" recordingId=[0-9a-f]+ active=T ",
+             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at[^\\n]*\\n){6}(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Rewind-to-Launch initiated to UT",
+             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at[^\\n]*\\n){6}(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\Z",
              # From GS-4 (2026-10-14 merge): D12 crew-swap + D16 sfs-scenario-node
              # (see [dimensionsCovered]).
              "\\[CrewReservation\\] Swapped '[^']+' \\u2192 '[^']+' in part '",
@@ -376,7 +395,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
 # one-shot-quicksave refusal text (outcome O2) wherever the product or the seam
 # prints it.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
-             "Rewind save file missing"]
+             "Rewind save file missing",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
 
 # ARMED 2026-09-10 off the reading run `2026-09-10_1944`, which measured spawned=8
 # (distinct recIds - both replays are of the SAME committed recordings), spawnLines=16

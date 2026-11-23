@@ -165,10 +165,17 @@ id = "GS-8-kerbalx-zone-round-trip"
 # pod's commit UT (298.43). The run ends at UT 329.26, so that one ghost is still live
 # when the lane quits: `engine-frame-iter` carries `[i=9 rec=728e31c5 ... hs=T
 # endUT=616.5]` to the last frame, and the other nine ghosts spawned and were destroyed
-# as before. Re-pinned below to name exactly that ghost. The lane asserts nothing about
-# how the tail DRAWS: the same frames read `out:vis=F retired=T` from UT 298.44 on (todo
-# PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT), and the pins hold with the tail drawn or
-# hidden, because the ghost object lives to UT 616 either way.
+# as before. Re-pinned below to name exactly that ghost.
+# =====================================================================================
+# ROUND 5, 2026-11-23, NOT FLOWN (branch `predicted-tail-flight`, todo
+# PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT). `_0840` drew none of the predicted falls: the
+# probe's ghost read `out:vis=F retired=T` from UT 298.44 to the quit, and all six boosters
+# were hidden from UT 112.5-114.6 to their impact (114.46-123.30) and destroyed with
+# `reason=parent-anchored debris outside relative coverage at endpoint`, no explosion. The
+# fix draws each tail and ends it at its impact, and GROUP 7 gates it. Every GROUP 7 number
+# is a PREDICTION off `_0840`'s census (six boosters with a predicted tail, all Destroyed,
+# all loaded at their impact, 1x warp); the ghostLifecycle windows do not move, because a
+# booster's ghost is destroyed once either way and the probe's outlives the quit.
 # =====================================================================================
 tier = "nightly"
 description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip (only the dropped core's predicted fall outlives the quit)."
@@ -294,6 +301,16 @@ count = { min = 10, max = 10 }
 #       with no later "MeshDestroyed rec=<R> " - the probe's SECOND recording (the piece
 #       past its atmosphere exit, which carries the predicted fall) is live at quit; the
 #       "MeshDestroyed ... vessel=Kerbal X Probe" token is its first recording's ending.
+#
+# GROUP 7 - THE PREDICTED FALLS (owner rulings Q1a / Q2), not flown yet, see ROUND 5.
+#   "[Anchor] parent-anchored predicted tail: ... Kerbal X Probe ... active=T": the probe's
+#       ghost is on screen past its last track section (producer
+#       GhostPlaybackEngine.LogParentAnchoredPredictedTailDrawn, written after the frame's
+#       activation, only at a UT no section covers).
+#   exactly six "Stock FXMonger.Explode for ghost #<i> "Kerbal X Debris" at" lines after the
+#       rewind: each booster explodes at its predicted impact. Line-bracketed like GS-9's
+#       census, so it is linear; five or seven red.
+#   forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -315,8 +332,11 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=watch hold expired",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created[\\s\\S]*?phase=MeshSpawned rec=([0-9a-f]+) [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created(?![\\s\\S]*phase=MeshDestroyed rec=\\1 )",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Probe\" recordingId=[0-9a-f]+ active=T ",
+             "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at[^\\n]*\\n){6}(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\Z"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
 
 # ARMED 2026-09-08 (roster GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py): both
 # readings, `2026-09-08_1119` (red on the late watch, the census untouched by it) and
