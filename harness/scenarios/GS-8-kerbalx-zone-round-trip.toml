@@ -184,7 +184,7 @@ id = "GS-8-kerbalx-zone-round-trip"
 # torn down by ParsekFlight.OnDestroy AFTER the quit (`reason=engine teardown`, 0.5 s past
 # `flushandquit: Application.Quit`), so destroyLines read 10, Probe destroyLines 2, and the
 # live-at-quit token missed. `_0840`'s log ends before that teardown. The three pins now
-# accept the quit teardown, and only it; NOT RE-FLOWN on the widened pins.
+# accept the quit teardown, and only it; RE-FLOWN PASS `2026-11-23_1954`.
 # =====================================================================================
 tier = "nightly"
 description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip (only the dropped core's predicted fall outlives the quit)."
@@ -324,7 +324,7 @@ count = { min = 10, max = 10 }
 #       rewind: each booster explodes at its predicted impact. Line-bracketed like GS-9's
 #       census, so it is linear; five or seven red.
 #   forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
-#   forbidden, NOT FLOWN (todo DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE): a frame that moves
+#   forbidden, flown clean `2026-11-23_1954` (todo DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE): a frame that moves
 #       a ghost 100 m or more where its own speed predicts under 10 m (`phase=AfterUpdate ...
 #       reason=large-delta ... dM=4393.52 expectedDM=5.86`, GhostRenderTrace). `_1119` carries
 #       exactly 12 (two per booster: section -> on-rails conic -> predicted tail) and `_0840`

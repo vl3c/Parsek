@@ -101,6 +101,20 @@ namespace Parsek.Tests
             Assert.Equal((double)-1f, dir.z, 5);
         }
 
+        // The Mainsail's `fx_exhaustFlame_yellow_mini = 0.041, -1.01, 1.85, ..., running, true`: the
+        // prefab child is named as PP-7's `2026-11-23_1732` hierarchy dump reads it.
+        [Theory]
+        [InlineData("fx_exhaustFlame_yellow_mini(Clone)(Keep Pos)", true)]
+        [InlineData("fx_exhaustFlame_yellow_mini(Clone)", false)]
+        [InlineData("fx_exhaustFlame_yellow_mini(Clone)(keep pos)", false)]
+        [InlineData(null, false)]
+        public void LegacyPosition_IsFxOffset_UnlessTheKeyKeepsItsOwn(string name, bool keeps)
+        {
+            var authored = new Vector3(0.041f, -1.01f, 1.85f);
+            var fxOffset = new Vector3(0f, 0f, 2.18f);
+            Assert.Equal(keeps ? authored : fxOffset, EngineFxBuilder.LegacyFxLocalPosition(name, authored, fxOffset));
+        }
+
         // The builders instantiate Unity objects, so what they hand the pure rules is pinned by text.
         [Fact]
         public void Wiring_TheBuildersFollowStocksPlacement()
@@ -112,6 +126,8 @@ namespace Parsek.Tests
             Assert.True(engine.IndexOf("Transform firstMount =", StringComparison.Ordinal)
                 < engine.IndexOf("variant-model-filter-", StringComparison.Ordinal));
             Assert.Contains("? LegacyFxLocalRotation", engine);
+            Assert.Contains("LegacyFxLocalPosition(child.name, child.localPosition, legacyFxOffset);", engine);
+            Assert.Contains("fxClone.transform.localPosition = legacyLocalPos;", engine);
             string rcs = Source("GhostVisualBuilder.RcsFx.cs");
             Assert.Contains("allFxTransforms[0].lossyScale, srcFxTransform.lossyScale,", rcs);
             Assert.Contains("srcFxTransform == allFxTransforms[0], fxDefinitions[f].localScale)", rcs);

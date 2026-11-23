@@ -142,66 +142,8 @@ namespace Parsek.InGameTests
             string xpActionId = "act_rb_xp_" + suffix;
             string controlActionId = "act_rb_control_" + suffix;
 
-            // -- Origin: a recovered flight spanning the rewind UT ------------
-            // Sample AT the rewind UT so RecordingOptimizer.SplitAtUT's
-            // Unity-only Slerp branch is bypassed (same reason as the R7c
-            // spanned-recording cell).
-            var origin = new Recording
-            {
-                RecordingId = originId,
-                VesselName = "Recovery Bundle Probe",
-                TreeId = treeId,
-                MergeState = MergeState.Immutable,
-                TerminalStateValue = TerminalState.Recovered,
-                LaunchSiteName = "LaunchPad",
-                StartBodyName = "Kerbin",
-                // Launch identity, both halves, as a real launch carries it.
-                VesselPersistentId = launchPid,
-                RecordedVesselGuid = launchGuid,
-                // No ParentBranchPointId: this origin is the launch root (same
-                // load-bearing absence the R7c cell documents).
-            };
-            origin.Points.Add(new TrajectoryPoint { ut = OriginStartUT });
-            origin.Points.Add(new TrajectoryPoint { ut = RewindUT });
-            origin.Points.Add(new TrajectoryPoint { ut = OriginEndUT });
-            origin.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.Atmospheric,
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = OriginStartUT,
-                endUT = OriginEndUT,
-                sampleRateHz = 1f,
-                minAltitude = float.NaN,
-                maxAltitude = float.NaN,
-                frames = new List<TrajectoryPoint>
-                {
-                    new TrajectoryPoint { ut = OriginStartUT },
-                    new TrajectoryPoint { ut = RewindUT },
-                    new TrajectoryPoint { ut = OriginEndUT },
-                },
-            });
-            // Recovered crew need no stand-in, so this end state keeps the live
-            // roster out of the recalc the merge triggers.
-            origin.CrewEndStates = new Dictionary<string, KerbalEndState>
-            {
-                [BundleKerbal] = KerbalEndState.Recovered,
-            };
-            origin.CrewEndStatesResolved = true;
-
-            var fork = new Recording
-            {
-                RecordingId = forkId,
-                VesselName = "Recovery Bundle Probe re-fly",
-                TreeId = treeId,
-                MergeState = MergeState.NotCommitted,
-                TerminalStateValue = TerminalState.Landed,
-                SupersedeTargetId = originId,
-                CreatingSessionId = sessId,
-                ParentBranchPointId = bpId,
-                ProvisionalForRpId = rpId,
-            };
-            fork.Points.Add(new TrajectoryPoint { ut = RewindUT + 0.5 });
-            fork.Points.Add(new TrajectoryPoint { ut = OriginEndUT + 6.0 });
+            Recording origin = BuildOriginRecording(originId, treeId, launchPid, launchGuid);
+            Recording fork = BuildForkRecording(forkId, treeId, originId, sessId, bpId, rpId);
 
             var branchPoint = new BranchPoint
             {
@@ -594,17 +536,26 @@ namespace Parsek.InGameTests
                 foreach (var kvp in priorReplacements)
                     CrewReservationManager.SetReplacement(kvp.Key, kvp.Value);
 
+                var sidecarIds = new HashSet<string> { originId, forkId };
                 var live = RecordingStore.CommittedRecordings;
                 for (int i = live.Count - 1; i >= 0; i--)
                 {
                     var rec = live[i];
                     if (rec != null && rec.TreeId == treeId)
+                    {
+                        sidecarIds.Add(rec.RecordingId);
                         RecordingStore.RemoveCommittedInternal(rec);
+                    }
                 }
                 var liveTrees = RecordingStore.CommittedTrees;
                 for (int i = liveTrees.Count - 1; i >= 0; i--)
                     if (liveTrees[i] != null && liveTrees[i].Id == treeId)
                         liveTrees.RemoveAt(i);
+
+                // The merge's own optimizer pass flushed HEAD and TIP (the split marks both
+                // dirty) to the live save, and a DiskOnly batch restores persistent.sfs only.
+                // Reap AFTER the removals: the reaper keeps ids the store still knows.
+                InGameTestSidecarReaper.DeleteSidecarsForIds(sidecarIds, "RecoveryBundleReFly");
 
                 FlightIntegrationTests.TruncateLedgerForTeardown(
                     priorLedgerCount, "ReFlyRecoveryBundle restore");
@@ -623,6 +574,91 @@ namespace Parsek.InGameTests
         // --------------------------------------------------------------------
         // Helpers.
         // --------------------------------------------------------------------
+
+        /// <summary>Body of every sample the recovery-bundle fixture authors. The post-merge optimizer
+        /// pass flushes HEAD and TIP to disk and the binary sidecar writer refuses a null body
+        /// name (no production point has one), so a point without it logs an ERROR and writes
+        /// nothing (R7c `2026-11-23_1529`).</summary>
+        private const string FixtureBodyName = "Kerbin";
+
+        /// <summary>The recovery-bundle cell's origin, spanning the rewind UT. Pinned headlessly by
+        /// MergeFixtureSidecarFlushTests.</summary>
+        internal static Recording BuildOriginRecording(
+            string originId, string treeId, uint launchPid, string launchGuid)
+        {
+            // -- Origin: a recovered flight spanning the rewind UT ------------
+            // Sample AT the rewind UT so RecordingOptimizer.SplitAtUT's
+            // Unity-only Slerp branch is bypassed (same reason as the R7c
+            // spanned-recording cell).
+            var origin = new Recording
+            {
+                RecordingId = originId,
+                VesselName = "Recovery Bundle Probe",
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Recovered,
+                LaunchSiteName = "LaunchPad",
+                StartBodyName = FixtureBodyName,
+                // Launch identity, both halves, as a real launch carries it.
+                VesselPersistentId = launchPid,
+                RecordedVesselGuid = launchGuid,
+                // No ParentBranchPointId: this origin is the launch root (same
+                // load-bearing absence the R7c cell documents).
+            };
+            origin.Points.Add(FixturePoint(OriginStartUT));
+            origin.Points.Add(FixturePoint(RewindUT));
+            origin.Points.Add(FixturePoint(OriginEndUT));
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = OriginStartUT,
+                endUT = OriginEndUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    FixturePoint(OriginStartUT),
+                    FixturePoint(RewindUT),
+                    FixturePoint(OriginEndUT),
+                },
+            });
+            // Recovered crew need no stand-in, so this end state keeps the live
+            // roster out of the recalc the merge triggers.
+            origin.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                [BundleKerbal] = KerbalEndState.Recovered,
+            };
+            origin.CrewEndStatesResolved = true;
+            return origin;
+        }
+
+        /// <summary>The recovery-bundle cell's provisional fork.</summary>
+        internal static Recording BuildForkRecording(
+            string forkId, string treeId, string originId, string sessId, string bpId, string rpId)
+        {
+            var fork = new Recording
+            {
+                RecordingId = forkId,
+                VesselName = "Recovery Bundle Probe re-fly",
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Landed,
+                SupersedeTargetId = originId,
+                CreatingSessionId = sessId,
+                ParentBranchPointId = bpId,
+                ProvisionalForRpId = rpId,
+            };
+            fork.Points.Add(FixturePoint(RewindUT + 0.5));
+            fork.Points.Add(FixturePoint(OriginEndUT + 6.0));
+            return fork;
+        }
+
+        private static TrajectoryPoint FixturePoint(double ut)
+        {
+            return new TrajectoryPoint { ut = ut, bodyName = FixtureBodyName };
+        }
 
         private static bool ContainsAction(IReadOnlyList<GameAction> actions, string actionId)
         {

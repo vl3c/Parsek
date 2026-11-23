@@ -561,8 +561,8 @@ namespace Parsek
         public List<HeatMaterialState> materialStates;
         // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
         public List<NozzleGlowInfo> nozzleGlows;
-        // Created for throttle-driven colour changers alone: no heat visual of its own, so the part
-        // keeps the reentry glow (which leaves a colour changer's property to it).
+        // Created for glows on materials of their own (NozzleGlowInfo.isColorChanger) alone: no heat
+        // visual, so the part keeps the reentry glow (which leaves those materials' property to them).
         public bool throttleGlowsOnly;
         // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
         // heat event draws nothing here and the part counts as any other for the reentry glow.
@@ -607,6 +607,9 @@ namespace Parsek
         // Set on a colour changer an FXModuleThrottleEffects drives (ReStock's nozzle glow): the
         // colours BuildNozzleGlows plays by the recorded engine power.
         public ThrottleGlowCurve throttleGlow;
+        // The throttle-driven colour changers that write the same property of these materials
+        // before throttleGlow in a frame, in frame order; null when it is the only one.
+        public List<ThrottleGlowCurve> throttleGlowUnder;
     }
 
     /// <summary>What BuildNozzleGlows needs of a throttle-driven ModuleColorChanger.</summary>

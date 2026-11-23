@@ -663,7 +663,6 @@ namespace Parsek
         //          already in scale with the tiny part, default boost over-sizes them.
         //   1.0x — Flea/Hammer SRBs; default boost reads ~30% too wide, pin to prefab.
         //   2.0x — Skipper/Mainsail; default boost reads ~30% too narrow.
-        //   2.7x — Rhino; prefab plume is visibly narrow even at 1.5x, ~80% wider.
         // Keys are runtime part names (KSP converts underscores to dots at runtime:
         // `smallRadialEngine_v2` registers as `smallRadialEngine.v2`).
         private static readonly Dictionary<string, float> engineFxSizeOverride =
@@ -678,7 +677,6 @@ namespace Parsek
                 { "solidBooster.v2",        1.0f  }, // RT-10 "Hammer" SRB
                 { "engineLargeSkipper.v2",  2.0f  }, // T-1 Toroidal "Skipper"
                 { "liquidEngineMainsail.v2",2.0f  }, // RE-M3 "Mainsail"
-                { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
             };
 
         // Cache: partName -> semi-deployed + deployed canopy states (root and animated bones);
@@ -1518,7 +1516,7 @@ namespace Parsek
             // field this builder reads is config-only and so never survives into a persisted
             // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
             // structure hider already uses two calls below.
-            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);
+            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab, partNode);
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName,
                 ThrottleDrivenModuleIds(throttleGlowDrivers));

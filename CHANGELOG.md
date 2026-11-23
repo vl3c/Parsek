@@ -78,8 +78,12 @@ Not released yet.
   real engine does not have. (GHOST-RAPIER-AIR-SMOKE-SUBSTITUTE)
 - **Ghost jet smoke and plume sizes match stock.** A ghost's flame and smoke follow its throttle,
   altitude and speed as the real engine's do; jets no longer draw a thick trail.
-- **Ghost effects point and scale like the real ones.** Flames on rescaled parts are no longer too
-  large, ReStock engine bells glow and its claw lamps show their pattern. (GHOST-FX-MODEL-SCALE)
+- **Ghost engines draw only stock's plumes.** Nine engines (the Twin-Boar, Mammoth and Rhino among
+  them) had an extra or replaced flame on their ghosts. (GHOST-ENGINE-ADDED-PLUMES)
+- **Ghost effects sit and scale like the real ones.** Flames on rescaled parts are no longer too
+  large, the Mainsail's side flames are in place, ReStock claw lamps show their pattern.
+- **Ghost nozzles heat up as the real ones do.** ReStock engine bells and RCS ports glow; jets and
+  boosters that stay dark or heat slowly do too. (GHOST-NOZZLE-GLOW-WRONG-SOURCE)
 - **A heated nose cone's ghost glows in the part's own colours.** Parts with a heat glow no longer
   all turn the same orange. (PARTPARITY-FX-FIRST-READINGS-2026-11-23)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and

@@ -84,7 +84,17 @@ allowedAnomalies = []
 [expectations.recordings]
 # B2's population (main ascent + the in-flight optimizer's ascent-exit split + six
 # booster debris children); density does not move a split.
-count = { min = 7, max = 8 }
+# RE-PINNED 9 (2026-11-23, run 2026-11-23_1322_PWR-1-physwarp-ascent-low): split rule
+# version 3 adds the circularization row to this flight (burn cut at an orbit-kind change,
+# design section 14.1). The ascent and debris population above is unchanged (3 Kerbal X rows
+# ascent / circularization / orbit + 6 debris); this was `count = { min = 7, max = 8 }`,
+# whose 8 was the 7 recordings plus the atmosphere-exit split. The KSP.log carries exactly
+# two splits:
+#   Split candidate (PersistedPhaseChange) splitUT=212.88
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=300.57
+#   CommitTreeFlight: optimization pass ran committed=7->9
+# Still exact: 8 (a cut or a recording missing) and 10 (an extra one) both red.
+count = { min = 9, max = 9 }
 
 [expectations.recordings.sampling]
 # ARMED 2026-10-02 off the report-only reading run `2026-10-02_2102` (PASS attempt 1):
