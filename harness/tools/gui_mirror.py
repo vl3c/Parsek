@@ -134,10 +134,10 @@ LAYOUT_EPOCHS = {
     # GUI-4-census-missions-docked 2026-11-23_0012. Previous epoch: PR #1984
     # (GUI-1-census-ksc 2026-10-03_1704, 2026-10-03T17:05:18Z).
     "missions": {"utc": "2026-11-23T00:12:36Z", "pr": 2789},
-    # Mission Profile P1b (PR #2789): the window is new; its current layout (the Element cell no
-    # longer widens past its heading) was first captured by GUI-4-census-missions-docked
-    # 2026-11-23_0029.
-    "profile": {"utc": "2026-11-23T00:29:14Z", "pr": 2789},
+    # Mission Profile P1b (PR #2789): the window is new; its current layout (one row height, the
+    # fold triangles on the text line) was first captured by GUI-4-census-missions-docked
+    # 2026-11-23_0603.
+    "profile": {"utc": "2026-11-23T06:03:47Z", "pr": 2789},
     # PR #1966. First run on it: GUI-3-census-logistics-routes 2026-10-03_1017.
     "logistics": {"utc": "2026-10-03T10:18:00Z", "pr": 1966},
 }
