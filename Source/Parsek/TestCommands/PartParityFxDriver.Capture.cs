@@ -34,10 +34,23 @@ namespace Parsek.TestCommands
             PartParitySweepRunner.WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
             foreach (var wc in wave)
                 if (wc.Fx != null && wc.Fx.Stochastic) EnsureCheat(ctx, wc);
-            foreach (var wc in wave) PartParitySweepRunner.Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc));
+            for (int i = 0; i < wave.Count; i++)
+            {
+                WaveCase wc = wave[i];
+                int slot = i;
+                PartParitySweepRunner.Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc, slot, wave.Count));
+            }
             IEnumerator ready = PartParitySweepRunner.WaitReady(ctx, wave);
-            try { while (ready.MoveNext()) yield return ready.Current; }
+            try
+            {
+                while (ready.MoveNext())
+                {
+                    PartParityAirContext.HoldReadyCases(ctx, wave);
+                    yield return ready.Current;
+                }
+            }
             finally { PartParitySweepRunner.DisposeNested(ready); }
+            PartParityAirContext.HoldReadyCases(ctx, wave);
             if (ctx.HostDamage == null)
             {
                 IEnumerator settle = PartParitySweepRunner.WaitSettled(ctx, wave);
