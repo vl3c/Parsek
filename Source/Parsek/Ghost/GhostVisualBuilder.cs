@@ -74,7 +74,8 @@ namespace Parsek
             {
                 { "fx_exhaustFlame_yellow_tiny_Z", new[] { "fx_exhaustFlame_yellow_tiny" } },
                 { "fx_smokeTrail_veryLarge", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } },
-                // RAPIER's smokePoint frame matches stock large-smoke setups more closely.
+                // Parts whose patches name this trail. The RAPIER loads its own trail exactly
+                // (EngineFxBuilder.IsRapierOwnTrail) and never reaches this substitution.
                 { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } }
             };
 

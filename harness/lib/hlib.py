@@ -5234,11 +5234,13 @@ PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
 # fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules.ArgWords):
 # `none` (the default), `all` or a csv of FX words, with no states= and at most contexts=air
-# beside it (FxCombinationValid). Until the live FX engine lands (design E.9 piece F3,
-# TestCommandPartParitySweep.FxRunsBuilt) a well-formed fx= run is REJECTED fx-runs-not-built.
+# beside it (FxCombinationValid). A well-formed orbit fx= run is built (design E.9 piece F3,
+# TestCommandPartParitySweep.FxRunsBuilt); one with contexts=air is REJECTED fx-runs-not-built
+# until the held air spawn lands (piece F7, FxAirSpawnBuilt).
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
 PARTPARITY_FX_ALL_TOKEN = "all"
-PARTPARITY_FX_RUNS_BUILT = False
+PARTPARITY_FX_RUNS_BUILT = True
+PARTPARITY_FX_AIR_SPAWN_BUILT = False
 PARTPARITY_FX_RUNS_NOT_BUILT_REASON = "fx-runs-not-built"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
@@ -5480,8 +5482,8 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
     ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
     of contexts (``air`` alone), ``fx`` none|all|a csv of FX words (no ``states`` and at most
-    ``contexts=air`` beside it; a well-formed FX run is refused ``fx-runs-not-built`` until the
-    live FX engine lands), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``contexts=air`` beside it; a well-formed FX run with ``contexts=air`` is refused
+    ``fx-runs-not-built`` until its held air spawn lands), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5558,9 +5560,11 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
            "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
 
-    if fx_run and not PARTPARITY_FX_RUNS_BUILT and not errors:
-        errors.append("driver.steps[%d].args.fx: an FX run is not built yet (design-part-ghost-"
-                      "parity.md E.9 piece F3); the seam answers REJECTED %s"
+    fx_air = set(str(step_args.get("contexts", "")).split(",")) == {PARTPARITY_AIR_CONTEXT}
+    if fx_run and not errors and (not PARTPARITY_FX_RUNS_BUILT
+                                  or (fx_air and not PARTPARITY_FX_AIR_SPAWN_BUILT)):
+        errors.append("driver.steps[%d].args.fx: an FX run with contexts=air is not built yet "
+                      "(design-part-ghost-parity.md E.9 piece F7); the seam answers REJECTED %s"
                       % (index, PARTPARITY_FX_RUNS_NOT_BUILT_REASON))
 
     if (isinstance(budget, (int, float)) and not isinstance(budget, bool)

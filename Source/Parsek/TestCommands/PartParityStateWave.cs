@@ -43,6 +43,11 @@ namespace Parsek.TestCommands
 
         // ----- wave composition (D.3) -----
 
+        /// <summary>The prefix of an FX wave's kind (design E.2): <c>fx:&lt;bucket&gt;</c>.</summary>
+        internal const string KindFxPrefix = "fx:";
+
+        internal static bool IsFxKind(string kind) => kind != null && kind.StartsWith(KindFxPrefix, StringComparison.Ordinal);
+
         /// <summary>The wave kind of a stowed case (the stowed waves of today).</summary>
         internal const string KindStowed = "stowed";
 
@@ -51,6 +56,7 @@ namespace Parsek.TestCommands
         /// worst case is that bucket's.</summary>
         internal static string WaveKind(PartParityCaseKey key)
         {
+            if (key?.FxOption != null) return KindFxPrefix + PartParityFxRules.BucketFor(key.FxOption).ToString();
             if (key?.StateOption == null) return KindStowed;
             return "state:" + PartParityStateRules.BucketFor(key.StateOption.Family).ToString();
         }
@@ -106,13 +112,16 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static bool AdmitWave(string kind, double elapsedSeconds, int maxSeconds,
             double lastWaveSeconds, int cases, double trackerCapSeconds, IEnumerable<string> families = null,
-            bool firstWaveOfStep = false)
+            bool firstWaveOfStep = false, IList<PartParityFxOption> fxOptions = null)
         {
             if (kind == null || kind == KindStowed)
                 return TestCommandPartParitySweep.ShouldStartWave(elapsedSeconds, maxSeconds, lastWaveSeconds);
             // The first wave of a step always starts (the elapsed time is never 0: it counts
             // the planning), so a box shorter than one worst case still makes progress.
             if (firstWaveOfStep) return true;
+            if (IsFxKind(kind))
+                return PartParitySweepPlan.ShouldStartStateWave(elapsedSeconds, maxSeconds,
+                    PartParityFxRules.WaveWorstCaseSeconds(fxOptions ?? new List<PartParityFxOption>()));
             return PartParitySweepPlan.ShouldStartStateWave(elapsedSeconds, maxSeconds,
                 PartParitySweepPlan.WaveWorstCaseSeconds(BucketOfKind(kind), cases, trackerCapSeconds, families));
         }
@@ -302,6 +311,17 @@ namespace Parsek.TestCommands
                 Nodes = o.NodeNames != null && o.NodeNames.Count > 0
                     ? o.NodeNames.ConvertAll(n => new PartParityContextNode { Node = n, Part = FillerPartName })
                     : null,
+            };
+        }
+
+        /// <summary>The <c>stateProof</c> of an FX case that crashed before its sidecar.</summary>
+        internal static PartParityStateProof CrashedFxStateProof(PartParityFxOption o, string caseState = null)
+        {
+            if (o == null) return null;
+            return new PartParityStateProof
+            {
+                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex, State = caseState ?? o.State,
+                Action = PartParityFxDriver.FxAction, Reached = false,
             };
         }
 

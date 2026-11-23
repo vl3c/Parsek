@@ -19262,16 +19262,19 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         m = re.search(r"internal const bool FxRunsBuilt = (true|false);", text)
         self.assertIsNotNone(m, "FxRunsBuilt moved")
         self.assertEqual(hlib.PARTPARITY_FX_RUNS_BUILT, m.group(1) == "true")
+        m = re.search(r"internal const bool FxAirSpawnBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "FxAirSpawnBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_FX_AIR_SPAWN_BUILT, m.group(1) == "true")
         self.assertEqual(hlib.PARTPARITY_FX_RUNS_NOT_BUILT_REASON, consts["FxRunsNotBuiltReason"])
         args = text[text.index("internal static bool TryParseArgs("):text.index(
             "internal static bool TryParseGrammar(")]
-        self.assertIn("if (!FxRunsBuilt && IsFxRun(parsed))", args)
+        self.assertIn("if (IsFxRun(parsed) && (!FxRunsBuilt || (IsAirRun(parsed) && !FxAirSpawnBuilt)))", args)
         self.assertIn("rejectReason = FxRunsNotBuiltReason;", args)
 
     def test_the_fx_validator_answers_what_the_seam_answers(self):
         v = hlib.validate_part_parity_sweep_step
         for step, reason in (
-                ({"label": "pp7", "fx": "plume"}, "fx-runs-not-built"),
+                ({"label": "pp7", "fx": "plume", "contexts": "air"}, "fx-runs-not-built"),
                 ({"label": "pp7", "fx": "all", "contexts": "air"}, "fx-runs-not-built"),
                 ({"label": "pp7", "fx": "plume", "states": "all"}, "fx-arg-invalid"),
                 ({"label": "pp7", "fx": "plume", "contexts": "stacked"}, "fx-arg-invalid"),
@@ -19282,6 +19285,9 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                 errors = v(0, step)
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(reason, errors[0])
+        # An orbit FX run validates; only the air one waits on piece F7.
+        for fx in ("plume", "all", "plume,rcs"):
+            self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
         # fx=none is no FX run: a P6 step beside it validates as before.
         self.assertEqual([], v(0, {"label": "pp3", "fx": "none", "states": "all"}))
         self.assertEqual([], v(0, {"label": "pp5", "fx": "none", "states": "all", "contexts": "air"}))

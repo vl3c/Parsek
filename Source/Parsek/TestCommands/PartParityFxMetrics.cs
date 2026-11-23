@@ -101,8 +101,11 @@ namespace Parsek.TestCommands
         internal readonly string Layer;
         internal readonly int Width;
         internal readonly int Height;
-        private readonly int[] covered;
-        private readonly long[] sumR, sumG, sumB;
+        // k <= MaxSamples (255) fits a byte, and 255 covered samples of a 255 channel sum to 65025,
+        // so one 512 px side / view / layer holds 7 bytes per pixel: a case's 32 sample sets of
+        // two halves stay near 120 MB instead of 700.
+        private readonly byte[] covered;
+        private readonly ushort[] sumR, sumG, sumB;
 
         internal int Samples { get; private set; }
 
@@ -113,10 +116,10 @@ namespace Parsek.TestCommands
             Width = width;
             Height = height;
             int n = width * height;
-            covered = new int[n];
-            sumR = new long[n];
-            sumG = new long[n];
-            sumB = new long[n];
+            covered = new byte[n];
+            sumR = new ushort[n];
+            sumG = new ushort[n];
+            sumB = new ushort[n];
         }
 
         /// <summary>Adds one sample: RGBA8, rows top-down, the tile's size. A flame sample is
@@ -137,6 +140,24 @@ namespace Parsek.TestCommands
                 sumB[p] += b;
             }
             Samples++;
+        }
+
+        /// <summary>Adds another accumulator of the same size and layer: the sum of its samples.</summary>
+        internal void Merge(PartParityFxAccumulator other)
+        {
+            if (other == null) throw new ArgumentNullException(nameof(other));
+            if (other.Width != Width || other.Height != Height || other.Layer != Layer)
+                throw new ArgumentException("accumulators differ in size or layer");
+            if (Samples + other.Samples > PartParityFxRules.MaxSamples)
+                throw new InvalidOperationException("more than " + PartParityFxRules.MaxSamples + " samples");
+            for (int p = 0; p < covered.Length; p++)
+            {
+                covered[p] += other.covered[p];
+                sumR[p] += other.sumR[p];
+                sumG[p] += other.sumG[p];
+                sumB[p] += other.sumB[p];
+            }
+            Samples += other.Samples;
         }
 
         /// <summary>The samples that covered pixel <paramref name="p"/>.</summary>
@@ -167,22 +188,42 @@ namespace Parsek.TestCommands
     /// </summary>
     internal sealed class PartParityFxSampleSet
     {
-        internal readonly PartParityFxAccumulator All;
         internal readonly PartParityFxAccumulator Even;
         internal readonly PartParityFxAccumulator Odd;
+        private readonly string layer;
+        private readonly int width;
+        private readonly int height;
+        private PartParityFxAccumulator all;
 
         internal PartParityFxSampleSet(string layer, int width, int height)
         {
-            All = new PartParityFxAccumulator(layer, width, height);
+            this.layer = layer;
+            this.width = width;
+            this.height = height;
             Even = new PartParityFxAccumulator(layer, width, height);
             Odd = new PartParityFxAccumulator(layer, width, height);
         }
 
+        /// <summary>Every sample: the even and odd halves' sums, built on first read and dropped
+        /// by the next <see cref="Add"/> (a live case holds the two halves, never a third copy).</summary>
+        internal PartParityFxAccumulator All
+        {
+            get
+            {
+                if (all == null)
+                {
+                    all = new PartParityFxAccumulator(layer, width, height);
+                    all.Merge(Even);
+                    all.Merge(Odd);
+                }
+                return all;
+            }
+        }
+
         internal void Add(byte[] rgba)
         {
-            bool even = All.Samples % 2 == 0;
-            All.Add(rgba);
-            (even ? Even : Odd).Add(rgba);
+            all = null;
+            ((Even.Samples + Odd.Samples) % 2 == 0 ? Even : Odd).Add(rgba);
         }
     }
 

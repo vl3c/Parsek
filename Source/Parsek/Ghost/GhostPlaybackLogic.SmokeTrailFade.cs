@@ -168,6 +168,13 @@ namespace Parsek
                 fade.renderer.enabled = false;
                 return;
             }
+            // A fade with no colour name is visibility only (stock FXFadeByPressure writes no tint),
+            // so it needs no material instance.
+            if (string.IsNullOrEmpty(fade.shaderColorName))
+            {
+                fade.renderer.enabled = true;
+                return;
+            }
             Material material = fade.material;
             if (material == null)
             {
@@ -181,7 +188,7 @@ namespace Parsek
                     state.materials.Add(material);
                 }
             }
-            if (material != null && !string.IsNullOrEmpty(fade.shaderColorName))
+            if (material != null)
                 material.SetColor(fade.shaderColorName,
                     ComputeSmokeTrailTint(fade.maxAlpha, fade.fadeToColor, fade.fadedColor, airDensity));
             fade.renderer.enabled = true;

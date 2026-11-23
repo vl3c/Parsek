@@ -86,15 +86,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AnFxRun_IsRefusedUntilTheEngineIsBuilt()
+        public void AnOrbitFxRun_Parses_AndAnAirOneIsRefusedUntilItsSpawnIsBuilt()
         {
-            Assert.False(TestCommandPartParitySweep.FxRunsBuilt);
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "plume,rcs"), out var parsed,
+            Assert.True(TestCommandPartParitySweep.FxRunsBuilt);
+            Assert.False(TestCommandPartParitySweep.FxAirSpawnBuilt);
+            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "plume,rcs"), out var parsed,
                 out string reason, out string detail));
+            Assert.True(TestCommandPartParitySweep.IsFxRun(parsed));
+            Assert.Null(reason);
+            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "all", "contexts", "air"), out parsed, out reason, out detail));
             Assert.Null(parsed);
-            Assert.Equal("fx-runs-not-built", reason);
-            Assert.Equal("fx=plume,rcs", detail);
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "all", "contexts", "air"), out _, out reason, out detail));
             Assert.Equal("fx-runs-not-built", reason);
             Assert.Equal("fx=all", detail);
             // A bad value keeps its own reason; fx=none parses as before.

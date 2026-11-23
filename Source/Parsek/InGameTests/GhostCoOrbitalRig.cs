@@ -92,6 +92,16 @@ namespace Parsek.InGameTests
         /// </summary>
         internal static uint SpawnCoOrbital(
             ConfigNode vesselNode, Vessel anchor, double alongTrackMeters, string label, string logTag)
+            => SpawnCoOrbital(vesselNode, anchor, alongTrackMeters, label, logTag, null);
+
+        /// <summary>
+        /// As above, spawned with a world rotation (design-part-ghost-parity.md E.2: an FX case's
+        /// exhaust axis along the orbit normal, so no plume points at a neighbour slot). The
+        /// rotation is passed on as the surface-relative one stock's ProtoVessel reads.
+        /// </summary>
+        internal static uint SpawnCoOrbital(
+            ConfigNode vesselNode, Vessel anchor, double alongTrackMeters, string label, string logTag,
+            Quaternion? worldRotation)
         {
             Orbit src = anchor.orbit;
             double ut = Planetarium.GetUniversalTime();
@@ -108,7 +118,10 @@ namespace Parsek.InGameTests
             orbit.UpdateFromUT(ut);
             uint pid = VesselSpawner.SpawnAtPosition(
                 vesselNode, src.referenceBody, anchor.latitude, anchor.longitude, anchor.altitude,
-                anchor.obt_velocity, ut, terminalState: TerminalState.Orbiting, orbitOverride: orbit);
+                anchor.obt_velocity, ut, terminalState: TerminalState.Orbiting,
+                surfaceRelativeRotation: worldRotation.HasValue && src.referenceBody.bodyTransform != null
+                    ? (Quaternion?)(Quaternion.Inverse(src.referenceBody.bodyTransform.rotation) * worldRotation.Value) : null,
+                orbitOverride: orbit);
             ParsekLog.Info(logTag, $"spawn {label}: pid={pid.ToString(IC)} alongTrack={alongTrackMeters.ToString("F0", IC)}m " +
                 $"dM={dM.ToString("R", IC)}rad body={src.referenceBody.name}");
             return pid;
