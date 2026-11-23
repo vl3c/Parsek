@@ -2822,6 +2822,52 @@ The Waterfall-free profile (R6), so ReStock's own particle plumes are judged on 
   flags (`fx-unsettled`, `fx-not-plateaued`, `rcs-known-difference`). Regression keys
   `<caseId>/fx/<view>/<layer>[/start]`.
 
+F5 as built (2026-11-23, `harness/tools/part_parity_view.py`; Python only, no flight). Every FX
+verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the viewer decides none.
+
+- Case rows. A row's `fx` (null on every other case) is `fx_row`: the judgement, every captured
+  entry with both halves (the hue histogram left out, its comparison is `hueL1`; values at six
+  significant digits), the FX atlas and strip, the proof, the inventory diff and the `rcs` block.
+  An FX case joins its skin in `FAMILY_ORDER` / `STATE_ORDER` / `CONTEXT_ORDER`: P6's, then `plume`,
+  `rcs`, `heat`; a lamp keeps P6's family `light`, context `plate`.
+- Rows. Under the body rows: the strip, then one row per layer and FX view. A layer nothing draws on
+  any side (the smoke of most orbit plumes) has no row; one line names those. A control's rows are
+  its `event` pair with the measures that fail, no verdict chip (an altered side is meant to fail).
+  Every FX crop paints its own opaque ground under the picture (black for flame, the matte for
+  smoke), so the difference of two equal, partly covered tiles is black.
+- Strips. The two rows are two layers of one image with the same `steps(K)` keyframes, duration and
+  step count, inserted together and run by one class on `<body>`, so they start, pause and resume in
+  one style change. The Play / Pause button is in the header; with `prefers-reduced-motion` the
+  strips start paused. A click opens a strip enlarged, any FX picture at 1:1 (an rcs case adds
+  its `ghost-all` tile).
+- RCS. The dashed block reads `rcs-known-difference` with E.7's caption, per layer and view REAL |
+  GHOST all nozzles, the `all` entry's measures and the judged routes' reported-only values beside
+  `rcsPowerRatio`, all greyed. A module whose every nozzle fired at the recorded power (the
+  vernier, whose written flag is `nozzles=1/1,power=1.000`) says so and stays in the filter, which
+  lists every case that carries the flag.
+- Verdicts outside the judged four. `reference` has its own counter and filter entry, a dashed
+  border, and ranks below every judged verdict (a part reads `reference` only when all its cases do;
+  "flagged" leaves it out); its trigger reads `reference, would be <verdict>: ...`. An optional
+  control's `n/a` is `control-na`: neither ok nor bad, no sidecar expected. A required control's
+  `n/a` stays bad, and a control recorded `ok` in an FX run follows `judge_fx_control`.
+- A trigger names what decided: fail-level FX reasons before warn-level ones, the FX half first when
+  it is the worse half.
+- Header. The Family and State filters gain the FX words, `Reference` and `FX flags` appear with an
+  FX case; the writer checks include `fx_run_problems` and `fx_block_problems`; the sweep box counts
+  the effect cases and prints the FX lines. `control_set_kind` knows `fx-orbit` and `fx-air`.
+- Regression. Per entry key: the verdict, a layer that came or went on either side, and each measure
+  that moved by more than its own warn line (`REG_FX_MOVES`; a smaller step is re-run noise); per
+  case the would-be verdict and the FX flags. The `all` route has no key.
+- Seen on F3's acceptance evidence (`2026-11-23_0728`, nine labels as one profile, 25 cases): plumes
+  and puffs on every engine and RCS row, both strip rows at one frame in every reading (equal start
+  times and background positions), the `RCSBlock.v2` block (9 nozzles at 0.157, stock fired 2,
+  ratio 0.222), controls 11/11 ok with each broken plume failing its own measure. The labels after
+  the first ran with `controls=false`, so the sweep box is red for them. Screenshots in
+  `<umbrella>/logs/flights/p8-f5/`.
+- Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
+  `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
+  them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
+
 ### E.8 Lanes and wall time
 
 Measured basis: P6 orbit state cases ran about 3.3 s per case (D.8); P0 measured about 9.4 ms per

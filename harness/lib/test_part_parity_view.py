@@ -853,7 +853,8 @@ class StateGroupingTests(_StateSetMixin, unittest.TestCase):
         self.assertFalse(heads["pp3"]["controls"]["ok"])
         self.assertTrue(heads["pp1"]["controls"]["ok"] and heads["pp5"]["controls"]["ok"])
         self.assertIn("(h.controls && !h.controls.ok)", ppv.INDEX_HTML)
-        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok"; })',
+        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok" '
+                      '&& CASE[id].verdict !== "control-na"; })',
                       ppv.INDEX_HTML)
         # an untouched state control recorded ok stays ok, judged ok
         air = [c for c in data["cases"] if c["caseId"] == pp.CONTROL_STATE_EVENTS_DROPPED_AIR][0]
@@ -942,6 +943,451 @@ class StateSiteTests(_StateSetMixin, unittest.TestCase):
         p.feed(page)
         self.assertEqual([], p.errors)
         CliTests._node_check(self, out, page)
+
+
+FX_BURN = "liquidengine2.v2--default--burn-full--0000f001"
+FX_SHORT = "engineshort--default--burn-full--0000f002"
+FX_RCS = "rcsblock.v2--default--rcs-fire--0000f003"
+FX_REF = "engineref--default--burn-full--0000f004"
+FX_REF_OK = "engineref--default--burn-low--0000f005"
+FX_JET = "jetengine--default--burn-full--0000f006"
+FX_LOOSE = "engineloose--default--burn-full--0000f007"
+FX_RCS_BLOCK = {"input": [1, 0, 0], "predicted": [0, 1], "fired": [0, 1], "nozzles": 4,
+                "ghostHidden": [2, 3], "powerRatio": 0.5}
+FX_STRIP_K = 4
+
+
+def _strip_png(path, tpp, frames=FX_STRIP_K):
+    """A strip whose two rows step together: frame j is one grey level, the ghost row's
+    green channel tells the rows apart."""
+    n = 8
+    out = bytearray()
+    for row in range(2):
+        for _y in range(n):
+            for j in range(frames):
+                out += bytes((40 + 50 * j, 255 if row else 40 + 50 * j, 40 + 50 * j, 255)) * n
+    with open(path, "wb") as fh:
+        fh.write(tpp.gui_mirror.write_png(frames * n, 2 * n, 4, bytes(out)))
+
+
+def fx_cases():
+    """(sidecar, masks, tiles) of the synthetic FX sweep: a clean plume, a short one, an rcs
+    case whose ghost fires every nozzle, two Waterfall cases (would fail / would pass), a
+    static jet that draws nothing, and a plume that did not converge."""
+    tpp = _tpp()
+    plume = [
+        tpp._fx_case(FX_BURN),
+        tpp._fx_case(FX_SHORT, part="engineShort", event=tpp._broken("short")),
+        tpp._fx_case(FX_RCS, part="RCSBlock.v2", family="rcs", state="rcs-fire",
+                     rcs=FX_RCS_BLOCK, all_={"flame": (tpp._plume(y0=2, width=40), tpp._disc(20))}),
+        tpp._fx_case(FX_REF, part="engineRef", reference="waterfall", event=tpp._broken("off")),
+        tpp._fx_case(FX_REF_OK, part="engineRef", state="burn-low", reference="waterfall"),
+        tpp._fx_case(FX_JET, part="JetEngine", real=tpp.NO_FX),
+        tpp._fx_case(FX_LOOSE, part="engineLoose", event=tpp._broken("short")),
+    ]
+    rcs = plume[2][0]
+    rcs["fx"]["drive"] = {"ignited": None, "finalThrust": None, "currentThrottle": None,
+                          "recordedPower": 0.25, "cheat": True}
+    rcs["fx"]["inventory"] = {"real": ["a", "a", "b"], "ghost": ["a", "c"], "ghostStart": ["a"],
+                              "ghostAll": ["a", "a", "b"]}
+    rcs["fx"]["structure"]["lightsDiffer"] = ["x real=1 ghost=2", "x real=1 ghost=2"]
+    loose = plume[6][0]["fx"]["views"][0]
+    loose["splitHalf"]["odd"]["real"]["lengthPx"] = loose["splitHalf"]["even"]["real"]["lengthPx"] * 2
+    for doc, _m, _t in plume:
+        doc["strip"] = {"file": doc["caseId"] + pp.STRIP_SUFFIX, "frames": FX_STRIP_K}
+        for c in ("ghostEvent", "ghostStart"):
+            doc["stateProof"][c] = "applied"
+    return plume
+
+
+def write_synthetic_fx_sweep(root, name="pp7"):
+    tpp = _tpp()
+    d = os.path.join(root, name)
+    cases = fx_cases()
+    tpp._build_fx_sweep(d, cases)
+    _relabel(d, name)
+    for doc, _m, _t in cases:
+        _strip_png(os.path.join(d, doc["strip"]["file"]), tpp)
+    return d
+
+
+_FX_TEMPLATE = []
+
+
+def fx_sweep_copy(root, name="pp7"):
+    """A fresh copy of the synthetic FX sweep (built once per run of this module)."""
+    if not _FX_TEMPLATE:
+        tmp = tempfile.mkdtemp(prefix="ppv-fx-template-")
+        unittest.addModuleCleanup(shutil.rmtree, tmp, True)
+        unittest.addModuleCleanup(_FX_TEMPLATE.clear)
+        _FX_TEMPLATE.append(write_synthetic_fx_sweep(tmp))
+    d = os.path.join(root, name)
+    shutil.copytree(_FX_TEMPLATE[0], d)
+    return d
+
+
+class _FxSetMixin:
+    def setUp(self):
+        quiet = contextlib.ExitStack()
+        quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
+        self.addCleanup(quiet.close)
+        self.tmp = tempfile.mkdtemp(prefix="ppv-fx-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.dir = fx_sweep_copy(self.tmp)
+        self.sweep = ppv.load_sweep(self.dir)
+        self.sweep["imageUrl"] = lambda n: "../" + n if n in self.sweep["files"] else None
+        self.data = ppv.build_site_data([self.sweep])
+        self.by_id = {c["caseId"]: c for c in self.data["cases"]}
+
+    def _edit(self, case_id, fn, d=None):
+        path = os.path.join(d or self.dir, case_id + pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        fn(doc)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+    def _edit_manifest(self, fn, d=None):
+        path = os.path.join(d or self.dir, pp.MANIFEST_FILE)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        fn(doc)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+
+class FxRowTests(_FxSetMixin, unittest.TestCase):
+    def test_the_fx_half_is_partparitys(self):
+        for cid, sc in self.sweep["sidecars"].items():
+            row, cv = self.by_id[cid], pp.judge_case(sc)
+            if cv.fx is None:
+                self.assertIsNone(row["fx"], cid)
+                continue
+            want, fx = cv.fx.to_dict(), row["fx"]
+            for key in ("family", "wouldBe", "verdict", "routes", "unsettled", "flags"):
+                self.assertEqual(want[key], fx[key], (cid, key))
+            judged = {(e["route"], e["view"], e["layer"]): e for e in want["entries"]}
+            for e in fx["entries"]:
+                j = judged.pop((e["route"], e["view"], e["layer"]), None)
+                if j is None:
+                    self.assertEqual((pp.FX_ROUTE_ALL, None, None, []),
+                                     (e["route"], e["verdict"], e["regKey"], e["reasons"]))
+                else:
+                    self.assertEqual((j["verdict"], j["reasons"]), (e["verdict"], e["reasons"]))
+            self.assertEqual({}, judged, cid)
+            if row["kind"] == ppv.KIND_PART:
+                self.assertEqual(cv.verdict, row["verdict"])
+        self.assertIsNone(self.by_id["ctl-heat-events-dropped"]["fx"]["atlas"])
+
+    def test_the_verdicts_of_the_synthetic_sweep(self):
+        self.assertEqual(
+            {FX_BURN: "pass", FX_SHORT: "fail", FX_RCS: "pass", FX_REF: "reference",
+             FX_REF_OK: "reference", FX_JET: "warn", FX_LOOSE: "warn"},
+            {c["caseId"]: c["verdict"] for c in self.data["cases"] if c["kind"] == "part"})
+        self.assertEqual(("fail", "pass"),
+                         (self.by_id[FX_REF]["fx"]["wouldBe"], self.by_id[FX_REF_OK]["fx"]["wouldBe"]))
+        self.assertIn(pp.FLAG_FX_NO_REAL_EFFECT, self.by_id[FX_JET]["fx"]["flags"])
+        self.assertIn(pp.CAP_FX_UNSETTLED, self.by_id[FX_LOOSE]["fx"]["flags"])
+
+    def test_entries_carry_both_halves_and_never_the_hue_histogram(self):
+        e = self.by_id[FX_SHORT]["fx"]["entries"][0]
+        for half in (e, e["even"], e["odd"]):
+            self.assertEqual(set(ppv.FX_SIDE_FIELDS), set(half["real"]))
+            self.assertEqual(set(ppv.FX_SIDE_FIELDS), set(half["ghost"]))
+            self.assertEqual(set(pp.FX_COMPARE_KEYS), set(half["compare"]))
+        self.assertNotIn("hueHistogram", json.dumps(self.data["cases"]))
+        self.assertEqual((8, 8), (e["even"]["samples"], e["odd"]["samples"]))
+
+    def test_empty_is_nothing_drawn_on_either_side(self):
+        self.assertTrue(all(e["empty"] for e in self.by_id[FX_JET]["fx"]["entries"]))
+        off = {(e["route"], e["layer"]): e["empty"] for e in self.by_id[FX_REF]["fx"]["entries"]}
+        self.assertFalse(off[("event", "flame")])  # the ghost side alone is empty
+
+    def test_regression_keys(self):
+        keys = {(e["route"], e["view"], e["layer"]): e["regKey"]
+                for e in self.by_id[FX_RCS]["fx"]["entries"]}
+        self.assertEqual(FX_RCS + "/fx/fx-side-a/flame", keys[("event", "fx-side-a", "flame")])
+        self.assertEqual(FX_RCS + "/fx/fx-far/smoke/start", keys[("start", "fx-far", "smoke")])
+        self.assertIsNone(keys[("all", "fx-side-a", "flame")])
+
+    def test_pictures_and_a_missing_one(self):
+        fx = self.by_id[FX_BURN]["fx"]
+        self.assertEqual(("../" + FX_BURN + pp.FX_ATLAS_SUFFIX, list(pp.FX_ATLAS_ROWS),
+                          list(pp.FX_VIEWS)), (fx["atlas"], fx["atlasRows"], fx["atlasCols"]))
+        self.assertEqual(("../" + FX_BURN + pp.STRIP_SUFFIX, FX_STRIP_K, ["real", "ghost"]),
+                         (fx["strip"], fx["stripFrames"], fx["stripRows"]))
+        self.assertEqual(list(pp.FX_ATLAS_ROWS_RCS), self.by_id[FX_RCS]["fx"]["atlasRows"])
+        os.remove(os.path.join(self.dir, FX_BURN + pp.STRIP_SUFFIX))
+        os.remove(os.path.join(self.dir, FX_BURN + pp.FX_ATLAS_SUFFIX))
+        sweep = ppv.load_sweep(self.dir)
+        sweep["imageUrl"] = lambda n: n if n in sweep["files"] else None
+        fx = [c for c in ppv.build_site_data([sweep])["cases"] if c["caseId"] == FX_BURN][0]["fx"]
+        self.assertEqual((None, None), (fx["atlas"], fx["strip"]))
+        self.assertTrue(fx["atlasFile"] and fx["stripFile"])  # the page names what is missing
+
+    def test_the_rcs_known_difference_row(self):
+        row = self.by_id[FX_RCS]
+        rcs = row["fx"]["rcs"]
+        self.assertEqual("rcs-known-difference:nozzles=2/4,power=0.500", rcs["flag"])
+        self.assertEqual((2, 4, 0.5, 0.25, 2, True),
+                         (rcs["fired"], rcs["total"], rcs["powerRatio"], rcs["recordedPower"],
+                          rcs["ghostHidden"], rcs["differs"]))
+        self.assertEqual(pp.judge_case(self.sweep["sidecars"][FX_RCS]).fx.to_dict()["rcs"],
+                         {"powerRatio": rcs["powerRatio"], "reportedOnly": rcs["reportedOnly"]})
+        drawn = [e for e in row["fx"]["entries"] if e["route"] == pp.FX_ROUTE_ALL and not e["empty"]]
+        self.assertEqual({(v, l) for v in pp.FX_VIEWS for l in pp.FX_LAYERS},
+                         {(e["view"], e["layer"]) for e in drawn})
+        # never a verdict, never a trigger
+        self.assertEqual(("pass", ""), (row["verdict"], row["trigger"]))
+        self.assertIsNone(self.by_id[FX_BURN]["fx"]["rcs"])
+        # a block with every nozzle at the recorded power is no difference
+        full = dict(FX_RCS_BLOCK, predicted=[0], fired=[0], nozzles=1, ghostHidden=[], powerRatio=1.0)
+        doc = _tpp()._fx_case(FX_RCS, family="rcs", state="rcs-fire", rcs=full)[0]
+        doc["flags"] = ["rcs-known-difference:nozzles=1/1,power=1.000"]
+        one = ppv.case_row("p", FX_RCS, doc, None, None, True, False, None)["fx"]["rcs"]
+        self.assertFalse(one["differs"])
+        self.assertEqual(doc["flags"][0], one["flag"])  # the written flag still lists the case
+
+    def test_inventory_diff_and_tallies(self):
+        fx = self.by_id[FX_RCS]["fx"]
+        self.assertEqual({"real": 3, "ghost": 2, "ghostStart": 1, "ghostAll": 3},
+                         fx["inventory"]["counts"])
+        self.assertEqual({"realOnly": [["a", 1], ["b", 1]], "ghostOnly": [["c", 1]]},
+                         fx["inventory"]["diff"]["ghost"])
+        self.assertEqual({"realOnly": [], "ghostOnly": []}, fx["inventory"]["diff"]["ghostAll"])
+        self.assertEqual([["x real=1 ghost=2", 2]], fx["structure"]["lightsDiffer"])
+        self.assertEqual({}, ppv.fx_inventory_diff(None)["diff"])
+
+    def test_triggers(self):
+        self.assertIn("event route: flame length 0.576 in fx-side-a", self.by_id[FX_SHORT]["trigger"])
+        self.assertTrue(self.by_id[FX_REF]["trigger"].startswith("reference, would be fail: "))
+        self.assertIn("ghost draws no flame in fx-side-a", self.by_id[FX_REF]["trigger"])
+        self.assertEqual("", self.by_id[FX_REF_OK]["trigger"])
+        self.assertIn("the real part draws no effect", self.by_id[FX_JET]["trigger"])
+        self.assertEqual("effect did not converge (capped at warn)",
+                         ppv.reason_phrase(pp.REASON_FX_UNSETTLED))
+        self.assertEqual("ghost missing effect k", ppv.reason_phrase("missing-fx:k"))
+        self.assertEqual("ghost draws smoke the real part does not in fx-far",
+                         ppv.reason_phrase("fx-far:smoke:smoke-extra"))
+
+    def test_the_half_that_decided_leads_the_trigger(self):
+        tpp = _tpp()
+        doc = tpp._fx_case(FX_SHORT, event=tpp._broken("short"))[0]
+        e = next(e for e in doc["fx"]["views"] if e["view"] == "fx-side-a")
+        e["compare"]["coreIou"] = 0.4  # a warn-level finding before the failing views
+        doc["views"][0]["colorBlobPx"] = 100  # and a warn-level body
+        line = ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc)))
+        self.assertTrue(line.startswith("event route: flame length"), line)
+        self.assertNotIn("core-iou", line)
+        doc["views"][0]["colorBlobPx"] = pp.COLOR_BLOB_FAIL_PX + 1  # now the body fails too
+        line = ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc)))
+        self.assertTrue(line.startswith("event route: colour blob"), line)
+
+
+class FxControlTests(_FxSetMixin, unittest.TestCase):
+    def test_control_set_kinds(self):
+        self.assertEqual("fx-orbit", ppv.control_set_kind(self.sweep["manifest"]))
+        self.assertEqual("fx-air", ppv.control_set_kind({"settings": {"fx": "plume", "contexts": "air"}}))
+        self.assertEqual("stowed", ppv.control_set_kind({"settings": {"fx": "none"}}))
+        self.assertEqual("fx-orbit", self.data["controlSets"][0]["kind"])
+        self.assertEqual("ctl:fx-orbit:ctl-empty", self.by_id["ctl-empty"]["regKey"])
+
+    def test_not_applicable_is_neither_ok_nor_bad(self):
+        row = self.by_id["ctl-plate-light-off-point"]
+        self.assertEqual((ppv.VERDICT_CONTROL_NA, "n/a"), (row["verdict"], row["control"]["outcome"]))
+        self.assertEqual({"ok": 10, "bad": 0}, self.data["counts"]["controls"])
+        self.assertEqual(1, self.data["counts"]["controlsNa"])
+        self.assertTrue(self.data["sweeps"][0]["controls"]["ok"])
+
+    def test_a_required_controls_na_is_bad(self):
+        self._edit_manifest(lambda m: [c.update(outcome="n/a") for c in m["controls"]
+                                       if c["id"] == "ctl-fx-plume-hue"])
+        data = ppv.build_site_data([ppv.load_sweep(self.dir)])
+        row = [c for c in data["cases"] if c["caseId"] == "ctl-fx-plume-hue"][0]
+        self.assertEqual(ppv.VERDICT_CONTROL_BAD, row["verdict"])
+        self.assertEqual(1, data["counts"]["controls"]["bad"])
+
+    def test_a_control_recorded_ok_is_re_judged_by_judge_fx_control(self):
+        def intact(doc):
+            for e in doc["fx"]["views"]:
+                e["ghost"], e["compare"] = e["real"], dict(e["compare"], lengthRatio=1.0)
+        self._edit("ctl-fx-plume-short", intact)
+        data = ppv.build_site_data([ppv.load_sweep(self.dir)])
+        row = [c for c in data["cases"] if c["caseId"] == "ctl-fx-plume-short"][0]
+        self.assertEqual((ppv.VERDICT_CONTROL_BAD, pp.CONTROLS_BAD, "length passes"),
+                         (row["verdict"], row["control"]["judged"], row["control"]["judgedDetail"]))
+        self.assertFalse(data["sweeps"][0]["controls"]["ok"])
+
+    def test_a_controls_rows_say_what_failed(self):
+        failing = {e["view"]: e["failing"] for e in self.by_id["ctl-fx-plume-off"]["fx"]["entries"]
+                   if e["layer"] == "flame"}
+        self.assertEqual({v: ["presence"] for v in pp.FX_VIEWS}, failing)
+        self.assertIsNone(self.by_id[FX_BURN]["fx"]["entries"][0]["failing"])
+        self.assertEqual({"event"}, {e["route"] for e in self.by_id["ctl-fx-plume-off"]["fx"]["entries"]})
+
+
+class FxPageDataTests(_FxSetMixin, unittest.TestCase):
+    def test_reference_is_counted_beside_the_judged_verdicts(self):
+        counts = self.data["counts"]
+        self.assertEqual({"pass": 2, "warn": 2, "fail": 1, "error": 0}, counts["cases"])
+        self.assertEqual({"cases": 2, "parts": 1}, counts["reference"])
+        self.assertEqual(2, self.data["sweeps"][0]["counts"][pp.VERDICT_REFERENCE])
+        self.assertIn(pp.VERDICT_REFERENCE, ppv.VERDICT_ORDER)
+        g = [g for g in self.data["groups"] if g["part"] == "engineRef"][0]
+        self.assertEqual((pp.VERDICT_REFERENCE, 2, ["reference"]),
+                         (g["verdict"], g["reference"], g["refs"]))
+        self.assertIn("would be fail", g["trigger"])
+        self.assertEqual("engineRef", self.data["groups"][-1]["part"])  # below the passes
+
+    def test_worst_with_reference(self):
+        self.assertEqual("reference", ppv.worst(["reference", "reference"]))
+        self.assertEqual("pass", ppv.worst(["reference", "pass"]))
+        self.assertEqual("error", ppv.worst(["reference", "error"]))
+
+    def test_filters(self):
+        f = self.data["facets"]
+        self.assertEqual([["plume", 5], ["rcs", 1]], f["family"])
+        self.assertEqual([["burn-full", 5], ["burn-low", 1], ["rcs-fire", 1]], f["state"])
+        self.assertEqual([["judged", 5], ["reference", 1]], f["reference"])
+        self.assertEqual([["rcs-known-difference", 1], ["fx-unsettled", 1],
+                          ["fx-no-real-effect", 1]], f["fxFlag"])
+        self.assertEqual(["reference", 1], f["verdict"][-1])
+        rcs = [g for g in self.data["groups"] if "rcs-known-difference" in g["fxFlags"]]
+        self.assertEqual(["RCSBlock.v2"], [g["part"] for g in rcs])
+        # a sweep with no FX case offers neither filter
+        plain = build()
+        self.assertEqual(([], []), (plain["facets"]["reference"], plain["facets"]["fxFlag"]))
+        self.assertIsNone(plain["fxThresholds"])
+        self.assertIsNone(plain["sweeps"][0]["fx"])
+
+    def test_an_fx_case_joins_its_skin_after_the_p6_states(self):
+        rows = [{"state": s, "family": f, "context": c, "sweepIndex": 0, "index": 0, "caseId": s}
+                for s, f, c in (("heat-hot", "heat", "alone"), ("burn-full", "plume", "alone"),
+                                ("lit", "light", "plate"), ("jettisoned", "jettison", "alone"),
+                                ("stowed", None, "alone"), ("rcs-fire", "rcs", "alone"),
+                                ("burn-low", "plume", "alone"))]
+        rows.sort(key=ppv.state_order_key)
+        self.assertEqual(["stowed", "jettisoned", "burn-full", "burn-low", "rcs-fire", "heat-hot",
+                          "lit"], [r["state"] for r in rows])
+        skins = [g for g in self.data["groups"] if g["part"] == "engineRef"][0]["skins"]
+        self.assertEqual([[self.by_id[FX_REF]["id"], self.by_id[FX_REF_OK]["id"]]],
+                         [s["cases"] for s in skins])
+
+    def test_the_header_counts_effects_and_runs_the_fx_writer_checks(self):
+        h = self.data["sweeps"][0]
+        self.assertEqual(({"plume": 6, "rcs": 1}, 2, {"fail": 1, "pass": 1}),
+                         (h["fx"]["families"], h["fx"]["reference"], h["fx"]["referenceWouldBe"]))
+        self.assertNotIn("thresholds", h["fx"])
+        self.assertEqual(pp.FX_THRESHOLDS, self.data["fxThresholds"])
+        # only FX_LOOSE's hand-edited half is a writer contradiction
+        self.assertTrue(all(p.startswith(FX_LOOSE) for p in h["instrumentProblems"]),
+                        h["instrumentProblems"])
+        self._edit(FX_BURN, lambda doc: doc["fx"].update(family="heat"))
+        h = ppv.build_site_data([ppv.load_sweep(self.dir)])["sweeps"][0]
+        self.assertTrue(any(p.startswith(FX_BURN) for p in h["instrumentProblems"]))
+
+    def test_a_plate_case(self):
+        doc = _tpp()._fx_control("ctl-plate-light-off")[0]
+        row = ppv.case_row("p", "lamp--default--lit--plate--1", doc, None, None, True, False, None)
+        self.assertEqual((0.4, [], None), (row["fx"]["plate"]["litPct"], row["fx"]["entries"],
+                                           row["fx"]["atlas"]))
+        self.assertEqual({}, row["fx"]["routes"])
+
+
+class FxRegressionTests(_FxSetMixin, unittest.TestCase):
+    def _status(self, cur_dir, base_dir):
+        data = ppv.build_site_data([ppv.load_sweep(cur_dir)], [ppv.load_sweep(base_dir)])
+        return {c["caseId"]: c["regression"] for c in data["cases"]}
+
+    def test_same_then_moved_by_entry_key(self):
+        other = fx_sweep_copy(self.tmp, "again")
+        reg = self._status(self.dir, other)
+        self.assertEqual({ppv.REG_SAME}, {r["status"] for r in reg.values()})
+
+        def longer(doc):
+            e = next(e for e in doc["fx"]["views"] if (e["route"], e["view"], e["layer"])
+                     == ("start", "fx-far", "flame"))
+            e["compare"]["lengthRatio"] = 1.3
+            e["compare"]["widthRatio"] = 1.01  # under its warn line: noise
+        self._edit(FX_BURN, longer)
+        self._edit(FX_REF, lambda d: d["fx"].update(
+            views=json.loads(json.dumps(self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]))))
+        reg = self._status(self.dir, other)
+        key = FX_BURN + "/fx/fx-far/flame/start"
+        self.assertIn("verdict pass -> fail", reg[FX_BURN]["changes"])
+        self.assertIn(key + " verdict pass -> fail", reg[FX_BURN]["changes"])
+        self.assertIn(key + " lengthRatio 1.000 -> 1.300", reg[FX_BURN]["changes"])
+        self.assertFalse(any("widthRatio" in c for c in reg[FX_BURN]["changes"]))
+        self.assertIn("fx.wouldBe fail -> pass", reg[FX_REF]["changes"])
+        self.assertIn(FX_REF + "/fx/fx-side-a/flame ghost.corePx 0 -> %d" % next(
+            e["ghost"]["corePx"] for e in self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]),
+            reg[FX_REF]["changes"])
+        self.assertEqual(ppv.REG_SAME, reg[FX_RCS]["status"])
+
+    def test_flags_and_presence(self):
+        base = {"flags": ["fx-unsettled"], "entries": [], "wouldBe": None}
+        cur = {"flags": ["rcs-known-difference:nozzles=1/4,power=0.250"], "entries": [], "wouldBe": None}
+        self.assertEqual(["fx.flags +rcs-known-difference:nozzles=1/4,power=0.250 -fx-unsettled"],
+                         ppv.fx_changes(cur, base))
+        self.assertEqual(["fx absent -> present"], ppv.fx_changes(cur, None))
+        self.assertEqual([], ppv.fx_changes(None, None))
+
+
+class FxSiteTests(_FxSetMixin, unittest.TestCase):
+    def test_a_site_with_strips_and_the_known_difference_row(self):
+        out = os.path.join(self.tmp, "site")
+        self.assertEqual(0, ppv.main([self.dir, "--out", out]))
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            data = ppv.parse_data_js(fh.read())
+        for c in data["cases"]:
+            if c["kind"] == ppv.KIND_PART:
+                for url in (c["fx"]["atlas"], c["fx"]["strip"]):
+                    self.assertTrue(os.path.isfile(os.path.join(out, *url.split("/"))), url)
+        with open(os.path.join(out, ppv.INDEX_FILE), encoding="ascii") as fh:
+            page = fh.read()
+        p = _Balance()
+        p.feed(page)
+        self.assertEqual([], p.errors)
+        CliTests._node_check(self, out, page)
+
+    def test_strips_play_in_lock_step(self):
+        # One keyframe set, one duration and one step count per pair, started and paused by
+        # one class on <body>: the two rows can never run at different frames.
+        page = ppv.INDEX_HTML
+        self.assertEqual(1, page.count("@keyframes"))
+        self.assertIn("steps(var(--k)) infinite; animation-play-state: paused", page)
+        self.assertIn("body.stripsplay .layer.film { animation-play-state: running; }", page)
+        self.assertEqual(2, len(re.findall(r'filmTile\(c, "(?:real|ghost)"', page)))
+        self.assertIn('var fx = c.fx, K = fx.stripFrames', page)
+        self.assertIn("prefers-reduced-motion: reduce", page)
+        self.assertNotRegex(page, r"<canvas|getContext")
+
+    def test_the_known_difference_row_and_filters_are_on_the_page(self):
+        page = ppv.INDEX_HTML
+        self.assertIn('var KNOWN_DIFF = "%s";' % ppv.FX_FLAG_KNOWN_DIFFERENCE, page)
+        self.assertIn("known difference (owner ruling 2026-11-22): the ghost fires all ", page)
+        body = page[page.index("function knownBlock"):page.index("function fxSection")]
+        self.assertNotIn("vchip", body)     # greyed: no verdict chip ...
+        self.assertNotIn("tr-", body)       # ... and no verdict colour
+        for key in ("refClass", "fxFlag"):
+            self.assertIn('if (state.%s && g.%s.indexOf(state.%s) < 0) return false;' % (
+                key, {"refClass": "refs", "fxFlag": "fxFlags"}[key], key), page)
+
+    def test_the_diff_of_two_equal_covered_tiles_is_black(self):
+        # Each FX layer paints its own opaque ground, so a partly covered pixel differences
+        # against its flattened twin (an alpha layer would leave a residue).
+        self.assertIn(".tile.fx-flame, .tile.fx-flame .layer { background-color: #000; }", ppv.INDEX_HTML)
+        self.assertIn(".tile.fx-smoke, .tile.fx-smoke .layer { background-color: var(--tilebg); }",
+                      ppv.INDEX_HTML)
+
+    def test_the_page_reads_only_fx_keys_the_core_writes(self):
+        used = set(re.findall(r"\bfx\.([A-Za-z]+)", ppv.INDEX_HTML))
+        keys = set(self.by_id[FX_RCS]["fx"]) | set(self.data["sweeps"][0]["fx"])
+        self.assertEqual(set(), used - keys)
+        entry = set(self.by_id[FX_RCS]["fx"]["entries"][0])
+        body = ppv.INDEX_HTML[ppv.INDEX_HTML.index("function fxLine"):ppv.INDEX_HTML.index("function fxViews")]
+        self.assertEqual(set(), set(re.findall(r"\be\.([A-Za-z]+)", body)) - entry)
 
 
 class PageContractTests(unittest.TestCase):
