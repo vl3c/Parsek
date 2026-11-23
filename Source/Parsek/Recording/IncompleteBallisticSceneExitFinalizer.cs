@@ -1295,8 +1295,9 @@ namespace Parsek
         /// active vessel has a patched-conic solver, so a missing solver alone says nothing
         /// about destruction. An UNLOADED vessel (on rails beyond the load range) has no
         /// loaded parts at all (stock <c>Vessel.Unload</c> clears <c>parts</c>); its parts live
-        /// in its protoVessel, so it counts as alive through them. Kept out of line so callers
-        /// JIT headless.
+        /// in its protoVessel, so it counts as alive through them. So does one stock is unloading
+        /// right now, which still reads loaded (<see cref="VesselUnloadState"/>). Kept out of line
+        /// so callers JIT headless.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         internal static bool IsLiveVesselAlive(Vessel vessel)
@@ -1312,7 +1313,7 @@ namespace Parsek
                     : 0;
                 return IsVesselAliveCore(
                     vessel.state == Vessel.State.DEAD,
-                    vessel.loaded,
+                    vessel.loaded && !VesselUnloadState.IsMidUnload(vessel),
                     loadedPartCount,
                     protoPartCount);
             }

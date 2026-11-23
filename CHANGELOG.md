@@ -64,6 +64,10 @@ Not released yet.
 
 ### Fixed
 
+- **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a
+  minute and then jump kilometres down. (DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE)
+- **A craft the game unloads far away keeps its parts.** A stage left flying, or a pod landed over
+  2.5 km away, is no longer counted as destroyed or stored empty. (UNLOAD-READ-AS-DESTRUCTION)
 - **Ghost lights and heat glow match stock.** Ghost lamps shine as bright as real ones, engine
   nozzles heat up, and nose cones that never glow stay dark. (GHOST-LAMP-LIGHT-INTENSITY)
 - **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the

@@ -342,7 +342,10 @@ count = { min = 8, max = 8 }
 #     last track section (GhostPlaybackEngine.LogParentAnchoredPredictedTailDrawn);
 #   - exactly six `Stock FXMonger.Explode for ghost #<i> "Kerbal X Debris" at` lines per
 #     cycle, bracketed like GROUP 7: each booster explodes at its predicted impact;
-#   - forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
+#   - forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending;
+#   - forbidden, NOT FLOWN (todo DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE): a frame that moves
+#     a ghost 100 m or more where its own speed predicts under 10 m, the GS-8 gate. `_1133`
+#     carries exactly 24 (two per booster per cycle) and `_0850` 12, all of them that defect.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -404,7 +407,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
 # prints it.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "Rewind save file missing",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint",
+             "phase=AfterUpdate [^\\r\\n]*reason=large-delta [^\\r\\n]* dM=[0-9]{3,}\\.[0-9]+ expectedDM=[0-9]\\.[0-9]+ "]
 
 # ARMED 2026-09-10 off the reading run `2026-09-10_1944`, which measured spawned=8
 # (distinct recIds - both replays are of the SAME committed recordings), spawnLines=16

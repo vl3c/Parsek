@@ -239,10 +239,14 @@ namespace Parsek
                     commitUT,
                     v,
                     previous);
+                Recording flushRec;
+                bool hasFlushRec = tree.Recordings.TryGetValue(state.recordingId, out flushRec);
+                AppendSectionClosingFrame(
+                    state, flushRec,
+                    BuildSectionClosingFrame(state, flushRec, v, closeUT, "background-commit"));
                 CloseBackgroundTrackSection(state, closeUT);
 
-                Recording flushRec;
-                if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
+                if (hasFlushRec)
                 {
                     FlushTrackSectionsToRecording(state, flushRec);
                     // A loaded vessel's last adaptive sample can be seconds old at the commit.

@@ -324,6 +324,11 @@ count = { min = 10, max = 10 }
 #       rewind: each booster explodes at its predicted impact. Line-bracketed like GS-9's
 #       census, so it is linear; five or seven red.
 #   forbidden: a booster's ghost ending on the endpoint coverage miss, the pre-fix ending.
+#   forbidden, NOT FLOWN (todo DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE): a frame that moves
+#       a ghost 100 m or more where its own speed predicts under 10 m (`phase=AfterUpdate ...
+#       reason=large-delta ... dM=4393.52 expectedDM=5.86`, GhostRenderTrace). `_1119` carries
+#       exactly 12 (two per booster: section -> on-rails conic -> predicted tail) and `_0840`
+#       6, all of them that defect; a frame hitch raises expectedDM with dM and stays out.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -349,7 +354,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Probe\" recordingId=[0-9a-f]+ active=T ",
              "Rewind-to-Launch initiated to UT[^\\n]*\\n(?:(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*[^\\n]*Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at[^\\n]*\\n){6}(?:(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\n)*(?![^\\n]*(?:Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X Debris\" at|Rewind-to-Launch initiated))[^\\n]*\\Z"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=parent-anchored debris outside relative coverage at endpoint",
+             "phase=AfterUpdate [^\\r\\n]*reason=large-delta [^\\r\\n]* dM=[0-9]{3,}\\.[0-9]+ expectedDM=[0-9]\\.[0-9]+ "]
 
 # ARMED 2026-09-08 (roster GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py): both
 # readings, `2026-09-08_1119` (red on the late watch, the census untouched by it) and
