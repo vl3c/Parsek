@@ -653,8 +653,20 @@ FX_VIEW_AXIS = "fx-bottom"
 FX_LAYER_FLAME = "flame"
 FX_LAYER_SMOKE = "smoke"
 FX_FAMILY_RCS = "rcs"
-# A stochastic case whose ``fx.structure`` was not measured: the FX inventory raise did not run.
+FX_FAMILY_LIGHT = "light"
+# What a stochastic case did not measure, so a check did not run: its FX structure lists (the
+# inventory raise), the bottom view's nozzle diameter (the cross-section offset), and a real
+# side with no effect at all (nothing to compare). Each raises its case to at least ``warn``.
 FLAG_FX_STRUCTURE_NOT_MEASURED = "fx-structure-not-measured"
+FLAG_FX_NOZZLE_NOT_MEASURED = "fx-nozzle-not-measured"
+FLAG_FX_NO_REAL_EFFECT = "fx-no-real-effect"
+FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
+    FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT)
+# The family of each FX state word (PartParityFxRules.Enumerate).
+FX_STATE_FAMILY: Dict[str, str] = {
+    "burn-full": "plume", "burn-low": "plume", "rcs-fire": "rcs", "heat-medium": "heat",
+    "heat-hot": "heat", "lit": "light"}
+_TIEBREAK_RE = re.compile(r"-m\d+$")
 REASON_FX_UNSETTLED = CAP_FX_UNSETTLED + ":capped at warn"
 EVENT_ENGINE_IGNITED = "EngineIgnited"
 
@@ -683,6 +695,11 @@ def fx_entries(sidecar: Optional[Dict]) -> List[Dict]:
 
 def _fx_count(side: Any, key: str) -> int:
     return int(_num(side.get(key)) or 0) if isinstance(side, dict) else 0
+
+
+def fx_real_effect(sidecar: Optional[Dict]) -> bool:
+    """The real side drew something: some entry's real envelope is not empty."""
+    return any(_fx_count(e.get("real"), "envelopePx") for e in fx_entries(sidecar))
 
 
 # --- the measures (PartParityFxMetrics.cs) -----------------------------------------------
@@ -986,20 +1003,78 @@ def _missing_keys(at: str, block: Any, keys: Sequence[str]) -> List[str]:
     return ["%s: missing key(s) %s" % (at, ",".join(missing))] if missing else []
 
 
-def _fx_side_problems(at: str, side: Any) -> List[str]:
+def _fx_numbers(value: Any, count: int) -> bool:
+    return isinstance(value, list) and len(value) == count and all(_num(v) is not None for v in value)
+
+
+def _fx_side_problems(at: str, side: Any, has_axis: bool) -> List[str]:
+    """One side block: every key, counts that are counts, and each value a number (or a list
+    of them) exactly where PartParityFxMetrics.MeasureTile defines it, null elsewhere."""
     problems = _missing_keys(at, side, FX_SIDE_MEASURE_KEYS)
     if problems:
         return problems
     for key in FX_EXACT_KEYS:
-        if type(side[key]) is not int or side[key] < 0:
+        if type(side[key]) is not int or side[key] < 0 or _num(side[key]) is None:
             problems.append("%s.%s=%s" % (at, key, side[key]))
-    hist = side["hueHistogram"]
-    if not isinstance(hist, list) or len(hist) != FX_HUE_BINS:
-        problems.append("%s.hueHistogram is not %d bins" % (at, FX_HUE_BINS))
+    if problems:
+        return problems
+    core, env, sat = (side[k] for k in FX_EXACT_KEYS)
+    if not sat <= core <= env:
+        problems.append("%s: corePx=%d envelopePx=%d saturatedPx=%d" % (at, core, env, sat))
+    lit, along = core > sat, has_axis and env > 0
+    black = lit and _fx_numbers(side["meanColor"], 3) and not any(side["meanColor"])
+    for key, count, defined in (
+            ("originPx", 0, along), ("lengthPx", 0, along), ("widthPx", 0, along),
+            ("coreCentroid", 2, core > 0), ("meanColor", 3, lit), ("chromaticity", 2, lit and not black),
+            ("luminance", 0, lit), ("hueHistogram", FX_HUE_BINS, True)):
+        v = side[key]
+        if not defined:
+            ok = v is None
+        else:
+            ok = _fx_numbers(v, count) if count else _num(v) is not None
+        if not ok:
+            problems.append("%s.%s=%s" % (at, key, v))
     return problems
 
 
-def _fx_half_problems(at: str, split: Any, n: Optional[int]) -> List[str]:
+def _fx_compare_problems(at: str, view: Any, axis: Any, block: Dict, size: Any) -> List[str]:
+    """One compare block against the side blocks beside it (both already shaped): every value
+    they determine is recomputed from them; ``coreIou`` and ``directionDeg``, which need the
+    tile, are range-checked. Run on every captured case, so a compare block that lost or bent
+    its numbers cannot unjudge a case the atlas recompute did not sample."""
+    recorded = block.get("compare")
+    problems = _missing_keys(at, recorded, FX_COMPARE_KEYS)
+    if problems:
+        return problems
+    real, ghost = [FxTile(block[name], frozenset(), None, []) for name in ("real", "ghost")]
+    for key, value in fx_compare(view, axis, real, ghost).items():
+        if key not in ("directionDeg", "coreIou"):
+            problems.extend(_fx_value_diffs("%s.%s" % (at, key), recorded[key], value, False))
+    iou, turn = _num(recorded["coreIou"]), recorded["directionDeg"]
+    if iou is None or not 0.0 <= iou <= 1.0:
+        problems.append("%s.coreIou=%s" % (at, recorded["coreIou"]))
+    core = min(block["real"]["corePx"], block["ghost"]["corePx"])
+    has_axis = fx_axis(view, axis) is not None
+    if turn is None:
+        # A core of more pixels than a tile row holds has two halves, so a direction.
+        bad = has_axis and (type(size) is not int or core > size)
+    else:
+        bad = not has_axis or not core or _num(turn) is None or abs(turn) > 180.0
+    if bad:
+        problems.append("%s.directionDeg=%s with a core of %d px" % (at, turn, core))
+    return problems
+
+
+def _fx_measure_problems(at: str, view: Any, axis: Any, block: Dict, size: Any) -> List[str]:
+    """The real, ghost and compare blocks of an entry or of one of its halves."""
+    has_axis = fx_axis(view, axis) is not None
+    problems = [p for name in ("real", "ghost")
+                for p in _fx_side_problems("%s.%s" % (at, name), block.get(name), has_axis)]
+    return problems or _fx_compare_problems(at + ".compare", view, axis, block, size)
+
+
+def _fx_half_problems(at: str, entry: Dict, n: Optional[int]) -> List[str]:
+    split = entry.get("splitHalf")
     problems = _missing_keys(at, split, FX_SPLIT_HALF_KEYS)
     if problems:
         return problems
@@ -1012,17 +1087,69 @@ def _fx_half_problems(at: str, split: Any, n: Optional[int]) -> List[str]:
         want = None if n is None else ((n + 1) // 2 if half == "even" else n // 2)
         if want is not None and block["samples"] != want:
             problems.append("%s.samples=%s (expected %d)" % (hat, block["samples"], want))
-        for side in ("real", "ghost"):
-            problems.extend(_fx_side_problems("%s.%s" % (hat, side), block[side]))
-        problems.extend(_missing_keys(hat + ".compare", block["compare"], FX_COMPARE_KEYS))
+        problems.extend(_fx_measure_problems(hat, entry.get("view"), entry.get("axis"), block,
+                                             entry.get("width")))
+    return problems
+
+
+def _fx_axis_problem(view: Any, axis: Any, required: bool) -> Optional[str]:
+    """An entry's axis: null, or its three keys, each null or numbers; a side or far view of a
+    plume or rcs case (``required``) needs a usable one (E.4: every side view carries it;
+    without one five measures are not defined, so not judged)."""
+    if axis is not None:
+        missing = _missing_keys("axis", axis, FX_AXIS_KEYS)
+        if missing:
+            return missing[0]
+        for key in ("originPx", "dirPx"):
+            if axis[key] is not None and not _fx_numbers(axis[key], 2):
+                return "axis.%s=%s" % (key, axis[key])
+        if axis["nozzleDiameterPx"] is not None and _num(axis["nozzleDiameterPx"]) is None:
+            return "axis.nozzleDiameterPx=%s" % axis["nozzleDiameterPx"]
+    if required and view != FX_VIEW_AXIS and fx_axis(view, axis) is None:
+        return "no exhaust axis"
+    return None
+
+
+def fx_contradictions(sidecar: Optional[Dict]) -> List[str]:
+    """What a captured FX part case says against itself (the pattern of
+    ``press_proof_problem``: the case is ``error`` and the sweep INVALID(parity-instrument)):
+    ``fx.family``, the switch that decides what is judged, against the state word and
+    ``stateProof.family``; an ``ok`` rcs case that fired nothing or not the predicted nozzles
+    (the C# side records ``rcs-input-mismatch``); an ``ok`` light case whose real side is
+    under the plate floor (``plate-not-lit``, never judged)."""
+    fx = fx_block(sidecar)
+    if fx is None or _fx_setup_fault(sidecar):
+        return []
+    family = fx.get("family")
+    problems: List[str] = []
+    word = _TIEBREAK_RE.sub("", str(sidecar.get("state")))
+    if FX_STATE_FAMILY.get(word) != family:
+        problems.append("fx.family=%s on a %s case" % (family, sidecar.get("state")))
+    proof = sidecar.get("stateProof")  # a missing one is press_proof_problem's
+    if isinstance(proof, dict) and proof.get("family") != family:
+        problems.append("fx.family=%s stateProof.family=%s" % (family, proof.get("family")))
+    if family == FX_FAMILY_RCS:
+        rcs = fx.get("rcs") if isinstance(fx.get("rcs"), dict) else {}
+        fired, predicted, total = rcs.get("fired"), rcs.get("predicted"), _fx_len(rcs.get("nozzles"))
+        same = sorted(map(str, fired)) == sorted(map(str, predicted)) \
+            if isinstance(fired, list) and isinstance(predicted, list) else fired == predicted
+        if not _fx_len(fired) or not same or total is None or total < _fx_len(fired):
+            problems.append("rcs fired=%s predicted=%s nozzles=%s on an ok case"
+                            % (fired, predicted, rcs.get("nozzles")))
+    if family == FX_FAMILY_LIGHT:
+        plate = fx.get("plate") if isinstance(fx.get("plate"), dict) else {}
+        lit = _num(plate.get("litPct"))
+        if lit is None or lit < PLATE_LIT_MIN_PCT:
+            problems.append("plate litPct=%s on an ok case" % plate.get("litPct"))
     return problems
 
 
 def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
     """The shape of an ``fx`` block (E.5), run over every captured FX case, sampled or not:
-    a known family; ``reference`` null or ``waterfall``, and only on a stochastic family; a
-    sample count; every expected entry exactly once with every key of its blocks; the split
-    halves' blocks, whose sample counts are the even and odd halves of the set."""
+    a known family that agrees with the case (``fx_contradictions``); ``reference`` null or
+    ``waterfall``, and only on a stochastic family; a sample count; every expected entry
+    exactly once, with an axis and every value of its blocks where the C# side defines it; the
+    split halves' blocks, whose sample counts are the even and odd halves of the set."""
     fx = fx_block(sidecar)
     if fx is None or _fx_setup_fault(sidecar):
         return []
@@ -1034,6 +1161,17 @@ def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[st
     reference = fx.get("reference")
     if reference is not None and (reference != REFERENCE_WATERFALL or not stochastic):
         problems.append("fx.reference=%s on a %s case" % (reference, family))
+    if not control:
+        problems.extend(fx_contradictions(sidecar))
+    structure = fx.get("structure")
+    if structure is not None:
+        problems.extend(_missing_keys("fx.structure", structure, FX_STRUCTURE_KEYS))
+        for key in FX_STRUCTURE_KEYS if isinstance(structure, dict) else ():
+            if structure.get(key) is not None and not isinstance(structure[key], list):
+                problems.append("fx.structure.%s=%s" % (key, structure[key]))
+    views = fx.get("views")
+    if views is not None and not (isinstance(views, list) and all(isinstance(v, dict) for v in views)):
+        problems.append("fx.views is not a list of entries")
     entries = fx_entries(sidecar)
     if not stochastic and not entries:
         return problems
@@ -1049,12 +1187,12 @@ def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[st
         problems.extend(_missing_keys(at, e, FX_VIEW_KEYS))
         if key[0] not in FX_ROUTE_ROW or key[1] not in FX_VIEWS or key[2] not in FX_LAYERS:
             problems.append("%s: not a known route, view and layer" % at)
-        if e.get("axis") is not None:
-            problems.extend(_missing_keys(at + ".axis", e.get("axis"), FX_AXIS_KEYS))
-        for side in ("real", "ghost"):
-            problems.extend(_fx_side_problems("%s.%s" % (at, side), e.get(side)))
-        problems.extend(_missing_keys(at + ".compare", e.get("compare"), FX_COMPARE_KEYS))
-        problems.extend(_fx_half_problems(at + ".splitHalf", e.get("splitHalf"), n))
+        bad_axis = _fx_axis_problem(e.get("view"), e.get("axis"), stochastic)
+        if bad_axis is not None:
+            problems.append("%s: %s" % (at, bad_axis))
+            continue
+        problems.extend(_fx_measure_problems(at, e.get("view"), e.get("axis"), e, e.get("width")))
+        problems.extend(_fx_half_problems(at + ".splitHalf", e, n))
     if stochastic:
         lost = ["%s:%s:%s" % k for k in fx_expected_entries(family, control) if k not in seen]
         if lost:
@@ -1067,10 +1205,14 @@ def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[st
 
 def fx_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
     """Writer cross-checks of an FX run (E.5): a case that carries an ``fx`` block while the
-    settings recompute a non-FX control set, and a captured case of an FX run with none."""
+    settings recompute a non-FX control set, a captured case of an FX run with none, a row
+    family that is not the sidecar's, and an rcs family whose every captured case drew nothing
+    on its real side (no control has an rcs subject, so nothing else would notice a capture
+    that cannot see a puff; a stock jet legitimately draws no plume, E.12)."""
     settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
     fx_run = is_fx_run(settings)
     problems: List[str] = []
+    rcs: List[bool] = []
     for entry in manifest.get("cases") or []:
         cid = entry.get("caseId") if isinstance(entry, dict) else None
         side = sidecars.get(cid) if isinstance(cid, str) else None
@@ -1083,6 +1225,14 @@ def fx_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List
         elif fx_run and not has and not _fx_setup_fault(side):
             problems.append("%s has no fx block in an fx=%s run"
                             % (cid, _setting(settings, SETTING_FX)))
+        if has and not _fx_setup_fault(side):
+            family = fx_block(side).get("family")
+            if entry.get("family") is not None and entry.get("family") != family:
+                problems.append("%s row family=%s fx.family=%s" % (cid, entry.get("family"), family))
+            if family == FX_FAMILY_RCS:
+                rcs.append(fx_real_effect(side))
+    if rcs and not any(rcs):
+        problems.append("rcs: the real side of all %d captured case(s) drew nothing" % len(rcs))
     return problems
 
 
@@ -1330,8 +1480,8 @@ def fx_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
     """The FX flags and tags of a case, none of which fails it: those written in ``flags`` or
     ``tags``, then the ones its ``fx`` block implies and the writer left out (the union, so a
     dropped one cannot hide): ``fx-not-plateaued:<side>``, ``fx-framing-clamped``,
-    ``rcs-known-difference:*``; then ``fx-unsettled`` and ``fx-structure-not-measured``,
-    which Python decides."""
+    ``rcs-known-difference:*``; then the ones Python decides: ``fx-unsettled`` and what was not
+    measured (``FX_FLAGS_RAISE_TO_WARN``)."""
     fx = fx_block(sidecar) or {}
     out: List[str] = []
     for key in ("flags", "tags"):
@@ -1356,8 +1506,17 @@ def fx_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
             out.append(known)
     if unsettled:
         out.append(CAP_FX_UNSETTLED)
-    if is_fx_stochastic(sidecar) and not _fx_setup_fault(sidecar)             and not isinstance(fx.get("structure"), dict):
-        out.append(FLAG_FX_STRUCTURE_NOT_MEASURED)
+    if is_fx_stochastic(sidecar) and not _fx_setup_fault(sidecar):
+        structure = fx.get("structure") if isinstance(fx.get("structure"), dict) else {}
+        if not all(isinstance(structure.get(k), list) for k in ("fxMissingOnGhost", "fxExtraOnGhost")):
+            out.append(FLAG_FX_STRUCTURE_NOT_MEASURED)
+        for e in fx_entries(sidecar):
+            axis = e.get("axis") if isinstance(e.get("axis"), dict) else {}
+            if e.get("view") == FX_VIEW_AXIS and not (_num(axis.get("nozzleDiameterPx")) or 0.0) > 0.0:
+                out.append(FLAG_FX_NOZZLE_NOT_MEASURED)
+                break
+        if not fx_real_effect(sidecar):
+            out.append(FLAG_FX_NO_REAL_EFFECT)
     return tuple(out)
 
 
@@ -1378,7 +1537,8 @@ def judge_fx(sidecar: Dict) -> Optional[FxJudgement]:
     """The FX half of a case (E.4), None for a case with no ``fx`` block. A plume or rcs
     case: each judged entry's measures, worst per route, each reason
     ``<route>:<view>:<layer>:<reason>``, raised to fail by a rendered FX asset missing or
-    extra on the ghost; a case without its entries is ``error``. The ``all`` route of an rcs
+    extra on the ghost; a case without its entries, or one that contradicts itself
+    (``fx_contradictions``), is ``error``. The ``all`` route of an rcs
     case is never judged, and neither are the entries of a heat or light case: a lamp's
     ``flame`` layer is the Waterfall flare its ghost leaves out (E.6)."""
     fx = fx_block(sidecar)
@@ -1436,10 +1596,20 @@ def judge_fx(sidecar: Dict) -> Optional[FxJudgement]:
         if lost and not _fx_setup_fault(sidecar):
             reasons.insert(0, "fx-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
             verdict = VERDICT_ERROR
+    flags = fx_flags(sidecar, bool(unsettled))
+    for f in FX_FLAGS_RAISE_TO_WARN:
+        if f in flags:
+            reasons.append("flag:%s" % f)
+            if _RANK[VERDICT_WARN] > _RANK[verdict]:
+                verdict = VERDICT_WARN
+    contradictions = fx_contradictions(sidecar)
+    if contradictions:
+        reasons[:0] = contradictions
+        verdict = VERDICT_ERROR
     rcs = fx.get("rcs") if isinstance(fx.get("rcs"), dict) else {}
     return FxJudgement(
         family, reference, verdict, tuple(reasons), tuple(routes), tuple(entries),
-        tuple(unsettled), fx_flags(sidecar, bool(unsettled)), tuple(reported),
+        tuple(unsettled), flags, tuple(reported),
         _num(rcs.get("powerRatio")) if rcs_case else None,
         {"missing": missing, "extra": extra,
          "fxDiffers": _fx_len(structure.get("fxDiffers")) or 0,
@@ -1520,7 +1690,7 @@ def judge_fx_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
             return CONTROLS_BAD, "the plate views pass"
         return CONTROLS_OK, ""
     entries = [e for e in fx_entries(sidecar) if e.get("route") == ROUTE_EVENT]
-    have = {(e.get("route"), e.get("view"), e.get("layer")) for e in entries}
+    have = {(str(e.get("route")), str(e.get("view")), str(e.get("layer"))) for e in entries}
     if any(k not in have for k in fx_expected_entries(None, True)):
         return CONTROLS_BAD, "the event-route entries are incomplete"
     real_env = any(_fx_count(e.get("real"), "envelopePx") for e in entries)
@@ -1568,10 +1738,14 @@ def control_not_applicable(cid: Any, outcome: Any) -> bool:
 # --- the press gate and the documents -----------------------------------------------------
 
 def fx_press_failed(status: Any, detail: Any, sidecar: Optional[Dict]) -> bool:
-    """An rcs press that fired NOTHING: its setup fault is ``rcs-input-mismatch`` (the RCS
-    group books ``RCSActivated`` at zero input, so it does not time out) with an empty
-    ``fired`` set, in ``fx.rcs`` or in the detail. A press that fired other nozzles than
-    predicted is a wrong prediction, not a dead press path."""
+    """A press that did nothing under a status of its own (E.5: an RCS that never fires, a
+    lamp that never lights): a lamp under the plate floor (``plate-not-lit``); an rcs press
+    that fired NOTHING, which is ``rcs-input-mismatch`` (the RCS group books ``RCSActivated``
+    at zero input, so it does not time out) with an empty ``fired`` set in ``fx.rcs`` or in
+    the detail. A press that fired other nozzles than predicted is a wrong prediction, not a
+    dead press path."""
+    if status == SETUP_PLATE_NOT_LIT:
+        return True
     if status != SETUP_RCS_INPUT_MISMATCH:
         return False
     rcs = (fx_block(sidecar) or {}).get("rcs")
@@ -1616,7 +1790,10 @@ def _num(value: Any) -> Optional[float]:
         return None
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return None
-    return float(value)
+    try:
+        return float(value)
+    except OverflowError:  # a JSON integer no float holds
+        return None
 
 
 @dataclass(frozen=True)
@@ -2464,7 +2641,7 @@ def check_completeness(manifest: Dict, sidecars: Dict[str, Optional[Dict]],
         problems.append("no planned cases")
     if progress.get("controls") != CONTROLS_OFF:
         outcomes = {c.get("id"): c.get("outcome") for c in manifest.get("controls") or []
-                    if isinstance(c, dict)}
+                    if isinstance(c, dict) and isinstance(c.get("id"), str)}
         ctl_ids = [c for c in manifest_control_set(manifest)
                    if not control_not_applicable(c, outcomes.get(c))]
         planned_ids = list(ctl_ids) + [c for c in planned_ids if c not in ctl_ids]
@@ -2520,12 +2697,12 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
     nothing and does not count, nor do the controls). Its family is the row's ``family``,
     else the sidecar's ``stateProof.family``, else its ``fx.family``, else
     ``PRESS_UNKNOWN_FAMILY`` (a crashed case's sidecar may carry no proof, so a family-less
-    case is still counted); the four FX families count like P6's, and an rcs press that
-    fired nothing (``fx_press_failed``) counts as failed; a case's status is
+    case is still counted); the four FX families count like P6's, and a press that did
+    nothing under its own status (``fx_press_failed``) counts as failed; a case's status is
     the sidecar's ``setup.status``, else the row's ``setupStatus``. None when no planned
     case is a state case (a stowed run: the gate does not apply)."""
     ctl = set(ALL_CONTROL_IDS)
-    dead_rcs = set()
+    dead_press = set()
     per_family: Dict[str, List[Tuple[str, Optional[str], Optional[str]]]] = {}
     for entry in manifest.get("cases") or []:
         if not isinstance(entry, dict) or not isinstance(entry.get("caseId"), str):
@@ -2551,7 +2728,7 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         if status is None:
             status = entry.get("setupStatus")
         if fx_press_failed(status, detail, side):
-            dead_rcs.add(cid)
+            dead_press.add(cid)
         per_family.setdefault(family, []).append((cid, status, detail))
     if not per_family:
         return None
@@ -2561,7 +2738,7 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
     problems: List[str] = []
     for family in sorted(per_family, key=lambda f: (order.get(f, len(order)), f)):
         cases = per_family[family]
-        failed = [c for c in cases if c[1] in PRESS_GATE_STATUSES or c[0] in dead_rcs]
+        failed = [c for c in cases if c[1] in PRESS_GATE_STATUSES or c[0] in dead_press]
         rows.append((family, len(cases), len(failed)))
         if 2 * len(failed) > len(cases):
             cid, status, detail = failed[0]

@@ -2732,13 +2732,136 @@ class FxJudgeTests(unittest.TestCase):
 
     def test_a_reference_marker_on_a_judged_family_is_an_instrument_problem(self):
         doc = _fx_case()[0]
-        doc["fx"].update({"family": "heat", "reference": "waterfall", "views": None})
+        self._as_family(doc, "heat", "heat-hot", reference="waterfall", views=None)
         self.assertIn("fx.reference=waterfall on a heat case", pp.fx_block_problems(doc))
         doc["views"][0]["colorBlobPx"] = 5000
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
         doc = _fx_case(event=_broken("off"), reference="other")[0]
         self.assertIn("fx.reference=other on a plume case", pp.fx_block_problems(doc))
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    @staticmethod
+    def _as_family(doc, family, state, **fx_values):
+        doc["state"] = doc["stateProof"]["state"] = state
+        doc["fx"]["family"] = doc["stateProof"]["family"] = family
+        doc["fx"].update(fx_values)
+
+    def test_the_family_must_agree_with_the_case(self):
+        # The family is what decides whether the FX is judged at all.
+        for family in ("light", "heat"):
+            doc = _fx_case(event=_broken("off"))[0]
+            doc["fx"].update({"family": family, "plate": {"litPct": 0.4}})
+            self.assertIn("fx.family=%s on a burn-full case" % family, pp.fx_block_problems(doc))
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+            doc["stateProof"]["family"] = family  # the state word alone still tells
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+        doc = _fx_case(state="burn-low-m2")[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+        for family in ("rcs", None):
+            doc["stateProof"]["family"] = family
+            self.assertEqual(["fx.family=plume stateProof.family=%s" % family], pp.fx_block_problems(doc))
+            self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_dark_plate_is_an_error_never_a_pass(self):
+        doc = _fx_case()[0]
+        for plate in (None, {"litPct": None}, {"litPct": 0.0}, {"litPct": 0.0199}):
+            for status in ("ok", "still-animating"):
+                with self.subTest(plate=plate, status=status):
+                    self._as_family(doc, "light", "lit", plate=plate, views=None)
+                    doc["setup"] = {"status": status, "detail": None}
+                    self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+                    self.assertTrue(any("on an ok case" in p for p in pp.fx_block_problems(doc)))
+        doc["setup"] = {"status": "plate-not-lit", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(doc))
+        self._as_family(doc, "light", "lit", plate={"litPct": 0.02})
+        doc["setup"] = {"status": "ok", "detail": None}
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(doc).verdict)
+
+    def test_an_ok_rcs_case_fired_the_predicted_nozzles(self):
+        for rcs in (None, dict(self.RCS, fired=[]), dict(self.RCS, fired=[2, 3]),
+                    dict(self.RCS, fired=None), dict(self.RCS, nozzles=1),
+                    dict(self.RCS, predicted=None)):
+            with self.subTest(rcs):
+                doc = _fx_case(family="rcs", state="rcs-fire", rcs=rcs)[0]
+                self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+                self.assertTrue(any("on an ok case" in p for p in pp.fx_block_problems(doc)))
+        doc = _fx_case(family="rcs", state="rcs-fire", rcs=dict(self.RCS, fired=[1, 0]))[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+
+    def test_an_entry_without_an_axis_is_an_instrument_problem(self):
+        for axis in (None, dict(FX_AXIS, dirPx=None), dict(FX_AXIS, originPx=None),
+                     dict(FX_AXIS, dirPx=[0, 0]), dict(FX_AXIS, dirPx=["a", 1])):
+            with self.subTest(axis):
+                doc = _fx_case()[0]
+                doc["fx"]["views"][0]["axis"] = axis
+                self.assertTrue(any("axis" in p for p in pp.fx_block_problems(doc)))
+        # Consistently measured without one, the atlas recompute agrees; the shape does not.
+        doc, _m, tiles = _fx_case(event=_broken("short"))
+        for e in doc["fx"]["views"]:
+            rows = ("real-" + e["layer"], "%s-%s" % (pp.FX_ROUTE_ROW[e["route"]], e["layer"]))
+            r, g = [pp.fx_measure_tile(tiles[(row, e["view"])], FTILE, 0, 0, FTILE, FN, e["view"], None)
+                    for row in rows]
+            e.update(axis=None, real=r.measures, ghost=g.measures,
+                     compare=pp.fx_compare(e["view"], None, r, g))
+        self.assertEqual([], pp.recompute_fx_case(doc, _fx_atlas(doc, tiles)))
+        self.assertIn("fx:event:fx-far:flame: no exhaust axis", pp.fx_block_problems(doc))
+
+    def test_a_bottom_view_without_its_nozzle_diameter_warns(self):
+        doc = _fx_case()[0]
+        for e in doc["fx"]["views"]:
+            if e["view"] == "fx-bottom":
+                e["axis"] = dict(FX_AXIS, dirPx=None, nozzleDiameterPx=None)
+                for block in (e, e["splitHalf"]["even"], e["splitHalf"]["odd"]):
+                    block["compare"]["crossSectionOffset"] = None
+        self.assertEqual([], pp.fx_block_problems(doc))
+        c = pp.judge_case(doc)
+        self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_NOZZLE_NOT_MEASURED,)), (c.verdict, c.fx.flags))
+
+    def test_a_lost_or_bent_measure_is_an_instrument_problem_sampled_or_not(self):
+        doc = _fx_case(event=_broken("short"))[0]
+        for key in pp.FX_COMPARE_KEYS:
+            for value in (None, "0.5", float("nan"), True):
+                bad = copy.deepcopy(doc)
+                for e in bad["fx"]["views"]:
+                    if e["compare"][key] is not None:
+                        e["compare"][key] = value
+                with self.subTest(key=key, value=value):
+                    self.assertTrue(pp.fx_block_problems(bad))
+        for key in pp.FX_SIDE_MEASURE_KEYS:
+            for value in (None, "x", [], 10 ** 400):
+                bad = copy.deepcopy(doc)
+                bad["fx"]["views"][0]["real"][key] = value
+                with self.subTest(key=key, value=str(value)[:8]):
+                    self.assertTrue(pp.fx_block_problems(bad))
+                    pp.judge_case(bad)  # a verdict, never a raise
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["compare"]["lengthRatio"] = 1.0
+        self.assertTrue(any("lengthRatio" in p for p in pp.fx_block_problems(bad)))
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["splitHalf"]["odd"]["real"]["lengthPx"] = None
+        self.assertTrue(pp.fx_block_problems(bad))
+        bad = copy.deepcopy(doc)
+        bad["fx"]["views"][0]["real"]["corePx"] = 10 ** 6  # more core than envelope
+        self.assertTrue(pp.fx_block_problems(bad))
+
+    def test_a_case_with_no_real_effect_warns(self):
+        c = pp.judge_case(_fx_case(real=NO_FX)[0])
+        self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_NO_REAL_EFFECT,)), (c.verdict, c.fx.flags))
+        # Smoke alone is an effect (a stock jet draws no flame).
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(_fx_case(real=dict(REAL_FX, flame=FX_DARK))[0]).verdict)
+
+    def test_unmeasured_structure_lists_warn_and_malformed_ones_are_a_problem(self):
+        lists = {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
+        for key in ("fxMissingOnGhost", "fxExtraOnGhost"):
+            doc = _fx_case(structure=dict(lists, **{key: None}))[0]
+            c = pp.judge_case(doc)
+            self.assertEqual((pp.VERDICT_WARN, (pp.FLAG_FX_STRUCTURE_NOT_MEASURED,)), (c.verdict, c.fx.flags))
+            self.assertEqual([], pp.fx_block_problems(doc))
+            for bad in ({"key": "a"}, 3):
+                self.assertTrue(pp.fx_block_problems(_fx_case(structure=dict(lists, **{key: bad}))[0]))
+        doc = _fx_case()[0]
+        doc["fx"]["structure"].pop("fxExtraOnGhost")
+        self.assertTrue(pp.fx_block_problems(doc))
 
     def test_an_unsettled_case_caps_at_warn(self):
         doc = _fx_case(event=_broken("off"))[0]
@@ -2794,7 +2917,9 @@ class FxJudgeTests(unittest.TestCase):
         self.assertIn("extra-fx:x", c.reasons)
         doc = _fx_case()[0]
         doc["fx"]["structure"] = None
-        self.assertIn(pp.FLAG_FX_STRUCTURE_NOT_MEASURED, pp.judge_case(doc).fx.flags)
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("flag:" + pp.FLAG_FX_STRUCTURE_NOT_MEASURED, c.reasons)
 
     def test_a_case_without_its_entries_is_an_error(self):
         doc = _fx_case()[0]
@@ -2818,7 +2943,7 @@ class FxJudgeTests(unittest.TestCase):
 
     def test_a_lamps_flame_layer_is_reference(self):
         doc = _fx_case(event=_broken("off"))[0]
-        doc["fx"]["family"] = "light"
+        self._as_family(doc, "light", "lit", plate={"litPct": 0.4})
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_PASS, c.verdict, c.reasons)
         self.assertTrue(all(e.reference for e in c.fx.entries))
@@ -3008,6 +3133,39 @@ class FxSweepTests(unittest.TestCase):
         self.assertEqual("strip-missing:b", pp.fx_atlas_problem(doc, ("a",)))
         self.assertIsNone(pp.fx_atlas_problem(doc, ("a", "b")))
 
+    def test_a_row_family_that_is_not_the_sidecars(self):
+        d = self._dir()
+        _build_fx_sweep(d, _fx_cases(1))
+        path = os.path.join(d, pp.MANIFEST_FILE)
+        with open(path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        manifest["cases"][0]["family"] = "rcs"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh)
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertTrue(any("row family=rcs fx.family=plume" in m for m in res.recompute_mismatches))
+
+    def test_a_capture_that_sees_no_puff_is_invalid_instrument(self):
+        kw = dict(family="rcs", state="rcs-fire", rcs=FxJudgeTests.RCS)
+        dark = [_fx_case("rcs%d--default--rcs-fire--0000ccc%d" % (i, i), real=NO_FX, **kw) for i in range(2)]
+        res = self._eval(dark)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertEqual(["rcs: the real side of all 2 captured case(s) drew nothing"], res.recompute_mismatches)
+        res = self._eval(dark + [_fx_case("rcs9--default--rcs-fire--0000ccc9", **kw)])
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(2, res.counts["warn"])
+
+    def test_a_malformed_control_gives_a_verdict(self):
+        for key in ("route", "view", "layer"):
+            for value in ([], {}, None, 3):
+                with self.subTest(key=key, value=value):
+                    doc = _fx_control("ctl-fx-plume-short")[0]
+                    doc["fx"]["views"][2][key] = value
+                    self.assertEqual(pp.CONTROLS_BAD, pp.judge_fx_control("ctl-fx-plume-short", doc)[0])
+        manifest = {"controls": [{"id": ["ctl-empty"], "outcome": "ok"}], "settings": {"fx": "all"}}
+        self.assertFalse(pp.check_completeness(manifest, {}).ok)
+
     def test_no_png_reader_is_an_instrument_problem(self):
         self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND,
                          self._eval(_fx_cases(1), read_png=None).invalid_subkind)
@@ -3181,6 +3339,11 @@ class FxPressGateTests(unittest.TestCase):
         self.assertTrue(pp.fx_press_failed(s, None, {"fx": {"rcs": {"fired": []}}}))
         self.assertFalse(pp.fx_press_failed(s, "fired=[]", {"fx": {"rcs": {"fired": [1]}}}))
         self.assertFalse(pp.fx_press_failed("ok", "fired=[]", None))
+
+    def test_a_lamp_that_never_lights_is_a_dead_press(self):
+        s = pp.SETUP_PLATE_NOT_LIT
+        self.assertFalse(self._run("light", "lit", [s, s, "ok"], "plate").ok)
+        self.assertTrue(self._run("light", "lit", [s, "ok"], "plate").ok)
 
     def test_the_sweep_reads_state_press(self):
         cases = _fx_cases(2)
