@@ -2842,7 +2842,7 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   its `ghost-all` tile).
 - RCS. The dashed block reads `rcs-known-difference` with E.7's caption, per layer and view REAL |
   GHOST all nozzles, the `all` entry's measures and the judged routes' reported-only values beside
-  `rcsPowerRatio`, all greyed. A module whose every nozzle fired at the recorded power (the
+  `rcsPowerRatio`, all greyed; the chip and the caption hang on the case's flag. A module whose every nozzle fired at the recorded power (the
   vernier, whose written flag is `nozzles=1/1,power=1.000`) says so and stays in the filter, which
   lists every case that carries the flag.
 - Verdicts outside the judged four. `reference` has its own counter and filter entry, a dashed
@@ -2850,14 +2850,21 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   "flagged" leaves it out); its trigger reads `reference, would be <verdict>: ...`. An optional
   control's `n/a` is `control-na`: neither ok nor bad, no sidecar expected. A required control's
   `n/a` stays bad, and a control recorded `ok` in an FX run follows `judge_fx_control`.
-- A trigger names what decided: fail-level FX reasons before warn-level ones, the FX half first when
-  it is the worse half.
+- A trigger names what decided: fail-level FX reasons before warn-level ones, the FX half first only
+  when it is worse than everything else that judged the case (`judge_case` without the `fx` block:
+  routes, skin, state flags, setup).
+- A damaged sidecar never costs the page: odd types read as absent, a NaN or an infinity as null, and
+  a writer check that cannot read a value is listed as a problem. A 52k-mutation fuzz of seven real
+  sidecars raises nowhere the pre-F5 viewer did not.
 - Header. The Family and State filters gain the FX words, `Reference` and `FX flags` appear with an
   FX case; the writer checks include `fx_run_problems` and `fx_block_problems`; the sweep box counts
   the effect cases and prints the FX lines. `control_set_kind` knows `fx-orbit` and `fx-air`.
-- Regression. Per entry key: the verdict, a layer that came or went on either side, and each measure
-  that moved by more than its own warn line (`REG_FX_MOVES`; a smaller step is re-run noise); per
-  case the would-be verdict and the FX flags. The `all` route has no key.
+- Regression. Per case: the FX verdict and would-be verdict, the FX flags, the rendered effects the
+  ghost lacks or adds. Per entry key: the verdict, a layer that came or went on either side, and each measure
+  that moved by more than its own warn line (`REG_FX_MOVES`; a smaller step is re-run noise). The
+  `all` route has no key.
+- Tests run the page's own script under node against a small DOM (`FxPageTests`, skipped without
+  node) and read back the strips, rows, crops, chips, block, details, filters and 1:1 dialogs.
 - Seen on F3's acceptance evidence (`2026-11-23_0728`, nine labels as one profile, 25 cases): plumes
   and puffs on every engine and RCS row, both strip rows at one frame in every reading (equal start
   times and background positions), the `RCSBlock.v2` block (9 nozzles at 0.157, stock fired 2,

@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -396,11 +397,12 @@ def trigger_line(reasons: Sequence[str], limit: int = TRIGGER_MAX_PHRASES) -> st
     return head + (" (+%d more)" % (len(phrases) - limit) if len(phrases) > limit else "")
 
 
-def trigger_reasons(cv: "pp.CaseVerdict") -> List[str]:
+def trigger_reasons(cv: "pp.CaseVerdict", sidecar: Dict) -> List[str]:
     """A case's reasons in the order its trigger line reads them: partparity's own order, but
     for an FX case each fail-level FX reason comes before the warn-level ones, and the FX
-    half comes before the body routes when it is the worse half (a trigger must name what
-    decided the verdict)."""
+    half comes first when it is worse than everything else that judged the case (a trigger
+    must name what decided the verdict; what else judged it is ``judge_case`` without the
+    ``fx`` block: the routes, the skin, the state flags, the setup)."""
     reasons = list(cv.reasons)
     if cv.fx is None:
         return reasons
@@ -412,11 +414,10 @@ def trigger_reasons(cv: "pp.CaseVerdict") -> List[str]:
     rest = [r for r in reasons if r not in mine]
     cap = [r for r in rest if r == pp.REASON_FX_UNSETTLED]
     rest = [r for r in rest if r != pp.REASON_FX_UNSETTLED]
-    body = max((pp._RANK[r.verdict] for r in cv.routes), default=0)
-    if pp._RANK[cv.fx.verdict] <= body:
-        return rest + own + cap
-    lead = [r for r in rest if r.startswith(("setup:", "press-proof", "no-views"))]
-    return lead + own + [r for r in rest if r not in lead] + cap
+    other = pp.judge_case(dict(sidecar, fx=None)).verdict
+    if pp._RANK[cv.fx.verdict] > pp._RANK[other]:
+        return own + rest + cap
+    return rest + own + cap
 
 
 def worst(verdicts: Iterable[str]) -> str:
@@ -529,6 +530,24 @@ def _short(value: Any) -> Any:
     return [_short(v) for v in value] if isinstance(value, list) else value
 
 
+def _finite(value: Any) -> Any:
+    """A value ``data.js`` can carry: a NaN or an infinity (no writer emits one; a damaged
+    sidecar can) reads null."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    return [_finite(v) for v in value] if isinstance(value, list) else value
+
+
+def _name(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value else None
+
+
+def _names(value: Any) -> List[str]:
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
 def _fx_half(half: Any) -> Dict[str, Any]:
     h = _dict(half)
     out: Dict[str, Any] = {"samples": h.get("samples")}
@@ -571,7 +590,7 @@ def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
                                                     str(e.get("layer")))),
                             is_control, reference) for e in pp.fx_entries(sc)]
     meta, strip = _dict(sc.get("fxAtlas")), _dict(sc.get("strip"))
-    atlas_file, strip_file = meta.get("file"), strip.get("file")
+    atlas_file, strip_file = _name(meta.get("file")), _name(strip.get("file"))
     frames = strip.get("frames")
     rcs = None
     if fxj.family == pp.FX_FAMILY_RCS:
@@ -586,11 +605,11 @@ def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
                "input": raw.get("input"), "firedNozzles": raw.get("fired"),
                "predicted": raw.get("predicted"),
                # every nozzle fired at the recorded power: the R4 gap is empty on this part
-               "differs": not (fired is not None and fired == total and ratio is not None
-                               and "%.3f" % ratio == "1.000"),
+               "noGap": (fired is not None and fired == total and ratio is not None
+                         and "%.3f" % ratio == "1.000"),
                "reportedOnly": [dict(r) for r in fxj.reported_only]}
     structure = _dict(fx.get("structure"))
-    return {
+    return _finite({
         "family": fxj.family, "refClass": REF_REFERENCE if reference else REF_JUDGED,
         "wouldBe": fxj.would_be, "verdict": fxj.verdict,
         "trigger": trigger_line(list(fxj.reasons)),
@@ -598,13 +617,15 @@ def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
         "flags": list(fxj.flags), "entries": entries, "rcs": rcs,
         "atlas": image_url(atlas_file) if image_url and atlas_file else None,
         "atlasFile": atlas_file, "tile": meta.get("tile"),
-        "atlasRows": list(meta.get("rows") or ()), "atlasCols": list(meta.get("cols") or ()),
+        "atlasRows": _names(meta.get("rows")), "atlasCols": _names(meta.get("cols")),
         "strip": image_url(strip_file) if image_url and strip_file else None,
         "stripFile": strip_file,
         "stripFrames": frames if type(frames) is int and frames > 0 else None,
         "stripRows": list(pp.STRIP_ROWS),
         "structure": {k: tally_lines(structure.get(k)) if isinstance(structure.get(k), list)
                       else None for k in pp.FX_STRUCTURE_KEYS},
+        "missingRendered": tally_lines(fxj.structure["missing"]),
+        "extraRendered": tally_lines(fxj.structure["extra"]),
         "inventory": fx_inventory_diff(fx.get("inventory")),
         "particles": fx.get("particles"), "plate": fx.get("plate"), "drive": fx.get("drive"),
         "hold": fx.get("hold"), "warmupS": fx.get("warmupS"), "plateau": fx.get("plateau"),
@@ -614,7 +635,7 @@ def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
                    for side, names in _dict(fx.get("layers")).items() if isinstance(names, dict)},
         "module": fx.get("module"), "moduleIndex": fx.get("moduleIndex"),
         "engineMode": fx.get("engineMode"), "throttle": fx.get("throttle"),
-    }
+    })
 
 
 def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
@@ -644,7 +665,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     if sc is not None:
         cv = pp.judge_case(sc)
         verdict, reasons = cv.verdict, list(cv.reasons)
-        trigger = trigger_line(trigger_reasons(cv))
+        trigger = trigger_line(trigger_reasons(cv, sc))
         if cv.fx is not None:
             fx = fx_row(case_id, sc, cv.fx, is_control, image_url)
             if verdict == pp.VERDICT_REFERENCE and trigger:
@@ -805,6 +826,26 @@ def sweep_rows(profile: str, manifest: Optional[Dict], sidecars: Dict[str, Any],
     return rows
 
 
+def fx_writer_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """partparity's FX writer cross-checks over a sweep (``fx_run_problems``, and
+    ``fx_block_problems`` of every captured case). A value a check cannot read is itself a
+    problem, so one damaged sidecar never costs the page."""
+    problems: List[str] = []
+
+    def run(prefix: str, check: Callable[[], List[str]]) -> None:
+        try:
+            problems.extend(prefix + p for p in check())
+        except (TypeError, ValueError, ArithmeticError, AttributeError, KeyError) as exc:
+            problems.append("%sfx check unreadable (%s: %s)" % (
+                prefix, type(exc).__name__, str(exc)[:80]))
+    run("", lambda: pp.fx_run_problems(manifest, sidecars))
+    control_set = set(pp.manifest_control_set(manifest))
+    for cid, sc in sidecars.items():
+        if isinstance(sc, dict):
+            run(cid + " ", lambda c=cid, s=sc: pp.fx_block_problems(s, c in control_set))
+    return problems
+
+
 def sweep_header(profile: str, note: Optional[str], dir_label: str,
                  manifest: Optional[Dict], manifest_error: Optional[str],
                  sidecars: Dict[str, Any], rows: Sequence[Dict],
@@ -828,11 +869,7 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
         for p in (pp.run_shape_problem(m, with_unreadable), pp.control_set_disagreement(m)):
             if p:
                 instrument.append(p)
-        instrument.extend(pp.fx_run_problems(m, with_unreadable))
-        ctl_set = set(pp.manifest_control_set(m))
-        for cid, sc in parsed.items():
-            instrument.extend("%s %s" % (cid, p)
-                              for p in pp.fx_block_problems(sc, cid in ctl_set))
+        instrument.extend(fx_writer_problems(m, with_unreadable))
     control_ids = set(_control_index(manifest)) | set(pp.ALL_CONTROL_IDS)
     state_cvs = [pp.judge_case(sc) for cid, sc in parsed.items()
                  if cid not in control_ids and pp.is_state_case(sc.get("state"))]
@@ -1118,8 +1155,8 @@ def _fx_side_core(entry: Dict, side: str) -> int:
 
 
 def fx_changes(cur: Any, base: Any) -> List[str]:
-    """What moved between two FX halves (``fx_row``): the would-be verdict of a reference
-    case, the FX flag kinds (the known difference with its numbers, which are deterministic)
+    """What moved between two FX halves (``fx_row``): its verdict and the would-be verdict of
+    a reference case, the rendered FX assets the ghost lacks or adds, the FX flag kinds (the known difference with its numbers, which are deterministic)
     and, per judged entry keyed ``<caseId>/fx/<view>/<layer>[/start]``, its verdict, a flame
     or smoke that came or went on either side, and each measure past ``REG_FX_MOVES``
     (origin and lateral: past their own warn line at the real plume's length)."""
@@ -1128,8 +1165,15 @@ def fx_changes(cur: Any, base: Any) -> List[str]:
     if not cur or not base:
         return ["fx %s -> %s" % ("present" if base else "absent", "present" if cur else "absent")]
     changes = []
-    if cur.get("wouldBe") != base.get("wouldBe"):
-        changes.append("fx.wouldBe %s -> %s" % (base.get("wouldBe"), cur.get("wouldBe")))
+    for key in ("verdict", "wouldBe"):
+        if cur.get(key) != base.get(key):
+            changes.append("fx.%s %s -> %s" % (key, base.get(key), cur.get(key)))
+    for key in ("missingRendered", "extraRendered"):
+        a, b = dict(base.get(key) or ()), dict(cur.get(key) or ())
+        moved = ["%s %d -> %d" % (k, a.get(k, 0), b.get(k, 0))
+                 for k in list(a) + [k for k in b if k not in a] if a.get(k, 0) != b.get(k, 0)]
+        if moved:
+            changes.append("fx.%s %s" % (key, "; ".join(moved)))
 
     def kinds(row: Dict) -> set:
         return {f if f.startswith(pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX) else f.split(":", 1)[0]
@@ -2084,8 +2128,8 @@ dialog .tile { cursor: default; }
   function knownBlock(c) {
     var x = c.fx.rcs;
     if (!x || c.kind === "control") return null;
-    var cap = x.differs ? "known difference (owner ruling 2026-11-22): the ghost fires all " + fmt(x.total) + " nozzles at the module's mean power " + fmt(x.recordedPower, 3) + "; stock fired " + fmt(x.fired) : "no difference on this part: every nozzle fired (" + fmt(x.fired) + " of " + fmt(x.total) + ") at the recorded power";
-    var box = el("div", {cls: "knownbox"}, [el("div", {cls: "shead"}, [el("span", {cls: "chip known", text: KNOWN_DIFF, title: x.flag}), el("span", {cls: "cap", text: cap})])]);
+    var cap = x.noGap ? "no difference on this part: every nozzle fired (" + fmt(x.fired) + " of " + fmt(x.total) + ") at the recorded power" : !x.flag ? "the nozzles that fired were not recorded, so the difference is not known" : "known difference (owner ruling 2026-11-22): the ghost fires all " + fmt(x.total) + " nozzles at the module's mean power " + fmt(x.recordedPower, 3) + "; stock fired " + fmt(x.fired);
+    var box = el("div", {cls: "knownbox"}, [el("div", {cls: "shead"}, [x.flag ? el("span", {cls: "chip known", text: KNOWN_DIFF, title: x.flag}) : null, el("span", {cls: "cap", text: cap})])]);
     var empty = [];
     fxLayers(c).forEach(function (layer) { fxViews(c).forEach(function (view) {
       var a = fxEntry(c, "all", view, layer);
