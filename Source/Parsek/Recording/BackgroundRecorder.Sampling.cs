@@ -575,6 +575,41 @@ namespace Parsek
             return interval.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s";
         }
 
+        private static double ResolveBackgroundHighFidelityDistance(
+            BackgroundVesselState state,
+            Vessel bgVessel,
+            double distanceToFocusedVessel,
+            bool isActiveVessel)
+        {
+            if (!isActiveVessel)
+                return distanceToFocusedVessel;
+            bool hasAnchor = state != null && state.isRelativeMode && state.hasCurrentAnchorCandidate;
+            return ResolveHighFidelityDistance(
+                isActiveVessel: true,
+                distanceToFocusedVessel: distanceToFocusedVessel,
+                hasRelativeAnchor: hasAnchor,
+                distanceToAnchor: hasAnchor
+                    ? Vector3d.Distance(bgVessel.GetWorldPos3D(), state.currentAnchorCandidate.WorldPos)
+                    : double.NaN);
+        }
+
+        /// <summary>
+        /// The distance the high-fidelity proximity window reads: a non-active vessel's distance
+        /// to the focused one; the active vessel's distance to its Relative anchor, or NaN (no
+        /// window, the ordinary adaptive sampling) when it has none, so an idle visited vessel is
+        /// not sampled densely for being 0 m from itself.
+        /// </summary>
+        internal static double ResolveHighFidelityDistance(
+            bool isActiveVessel,
+            double distanceToFocusedVessel,
+            bool hasRelativeAnchor,
+            double distanceToAnchor)
+        {
+            if (!isActiveVessel)
+                return distanceToFocusedVessel;
+            return hasRelativeAnchor ? distanceToAnchor : double.NaN;
+        }
+
         private static bool IsBackgroundHighFidelitySamplingActive(
             BackgroundVesselState state,
             double currentUT,

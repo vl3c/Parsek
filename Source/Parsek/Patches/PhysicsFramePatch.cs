@@ -121,7 +121,7 @@ namespace Parsek.Patches
                         ParsekLog.VerboseRateLimited("PhysicsPatch", "watched-active-background-sample",
                             $"Background recorder keeps the watched active vessel until promotion: pid={v.persistentId}",
                             30.0);
-                        BackgroundRecorderInstance.OnBackgroundPhysicsFrame(v);
+                        BackgroundRecorderInstance.OnBackgroundPhysicsFrame(v, isActiveVessel: true);
                     }
 
                     flight.OnPostSwitchAutoRecordPhysicsFrame(v);

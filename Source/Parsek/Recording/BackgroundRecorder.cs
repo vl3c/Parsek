@@ -302,8 +302,10 @@ namespace Parsek
         /// Called from PhysicsFramePatch.Postfix for each non-active loaded vessel, and for the
         /// active one while the post-switch watch waits to promote it.
         /// Handles loaded/physics mode recording for background vessels.
+        /// <paramref name="isActiveVessel"/> marks that second case: its distance to the focused
+        /// vessel is zero by definition and says nothing about the density it needs.
         /// </summary>
-        public void OnBackgroundPhysicsFrame(Vessel bgVessel)
+        public void OnBackgroundPhysicsFrame(Vessel bgVessel, bool isActiveVessel = false)
         {
             if (tree == null || bgVessel == null) return;
 
@@ -399,7 +401,8 @@ namespace Parsek
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
             double rawProximityInterval = ProximityRateSelector.GetSampleInterval(distance);
             double proximityInterval = ResolveDebrisAwareSampleInterval(rawProximityInterval, treeRec);
-            bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(state, ut, distance);
+            bool highFidelityActive = IsBackgroundHighFidelitySamplingActive(
+                state, ut, ResolveBackgroundHighFidelityDistance(state, bgVessel, distance, isActiveVessel));
             // Log when sample rate changes for this vessel
             UpdateBackgroundSampleInterval(state, pid, distance, rawProximityInterval, proximityInterval);
 
@@ -544,7 +547,7 @@ namespace Parsek
 
         /// <summary>
         /// The per-tick proximity interval bookkeeping of
-        /// <see cref="OnBackgroundPhysicsFrame(Vessel)"/>: when the interval differs from the
+        /// <see cref="OnBackgroundPhysicsFrame(Vessel, bool)"/>: when the interval differs from the
         /// one the state last used, logs the change (with the debris cap when it moved the raw
         /// tier) and stores it. Allocates only on a change.
         /// </summary>

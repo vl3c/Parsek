@@ -32,7 +32,8 @@ namespace Parsek.Tests
             // The frame whose change promotes the vessel is still the background recorder's:
             // promotion seeds no events for it, so a watch that ran first would lose them.
             string body = PostfixBody();
-            int sample = body.IndexOf("BackgroundRecorderInstance.OnBackgroundPhysicsFrame(v)", StringComparison.Ordinal);
+            int sample = body.IndexOf(
+                "BackgroundRecorderInstance.OnBackgroundPhysicsFrame(v, isActiveVessel: true)", StringComparison.Ordinal);
             int watch = body.IndexOf("flight.OnPostSwitchAutoRecordPhysicsFrame(v)", StringComparison.Ordinal);
             Assert.True(sample >= 0, "the watched active vessel is not handed to the background recorder");
             Assert.True(watch > sample, "the watch runs before the background sample");
@@ -55,14 +56,58 @@ namespace Parsek.Tests
             Assert.Equal(2, Regex.Matches(body, @"\.OnBackgroundPhysicsFrame\(").Count);
         }
 
+        // ---- sampling density: 0 m from itself is not proximity ----
+
+        [Theory]
+        [InlineData(false, 100.0, false, double.NaN, 100.0)]  // non-active: the focused vessel's distance
+        [InlineData(false, 100.0, true, 5.0, 100.0)]
+        [InlineData(true, 0.0, true, 1.5, 1.5)]               // the kerbal beside her ship
+        [InlineData(true, 0.0, true, 1800.0, 1800.0)]
+        [InlineData(true, 0.0, false, double.NaN, double.NaN)] // a lone visited vessel
+        public void HighFidelityDistance_IsTheAnchorsForTheActiveVessel(
+            bool isActive, double toFocused, bool hasAnchor, double toAnchor, double expected)
+        {
+            Assert.Equal(expected, BackgroundRecorder.ResolveHighFidelityDistance(
+                isActive, toFocused, hasAnchor, toAnchor));
+        }
+
+        [Fact]
+        public void LoneVisitedVessel_KeepsTheOrdinaryBackstop()
+        {
+            // 0 m from itself would force the 3 s backstop down to the 0.2 s minimum.
+            double distance = BackgroundRecorder.ResolveHighFidelityDistance(true, 0.0, false, double.NaN);
+            bool highFidelity = FlightRecorder.IsHighFidelitySamplingActive(100.0, double.NaN, distance);
+            BackgroundRecorder.ResolveBackgroundEffectiveSampleIntervals(
+                ProximitySamplingTier.None, highFidelity, ProximityRateSelector.GetSampleInterval(0.0),
+                0.2f, 3.0f, new Recording(), out float min, out float max);
+            Assert.False(highFidelity);
+            Assert.Equal(0.2, (double)min, 3);
+            Assert.Equal(3.0, (double)max, 3);
+        }
+
+        [Fact]
+        public void PhysicsFrame_ReadsTheResolvedDistanceForHighFidelity()
+        {
+            string body = MethodBody(Path.Combine("Recording", "BackgroundRecorder.cs"),
+                "public void OnBackgroundPhysicsFrame(");
+            Assert.Matches(
+                @"IsBackgroundHighFidelitySamplingActive\(\s*state, ut, " +
+                @"ResolveBackgroundHighFidelityDistance\(state, bgVessel, distance, isActiveVessel\)\)", body);
+        }
+
         private static string PostfixBody()
+        {
+            return MethodBody(Path.Combine("Patches", "PhysicsFramePatch.cs"), "static void Postfix(");
+        }
+
+        private static string MethodBody(string relPath, string signature)
         {
             string repo = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(
-                Path.Combine(repo, "Source", "Parsek", "Patches", "PhysicsFramePatch.cs")));
-            int sig = prepared.IndexOf("static void Postfix(", StringComparison.Ordinal);
-            Assert.True(sig >= 0);
+                Path.Combine(repo, "Source", "Parsek", relPath)));
+            int sig = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(sig >= 0, "signature not found: " + signature);
             return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
         }
     }

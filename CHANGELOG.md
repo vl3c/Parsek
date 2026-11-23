@@ -64,6 +64,8 @@ Not released yet.
 
 ### Fixed
 
+- **A kerbal on EVA stays beside the ship on replay.** Before its first move the ghost stayed
+  behind while the ship flew on. (SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER)
 - **Ghost lights and heat glow match stock.** Ghost lamps shine as bright as real ones, engine
   nozzles heat up, and nose cones that never glow stay dark. (GHOST-LAMP-LIGHT-INTENSITY)
 - **Ghost RCS puffs show mid-burn.** A ghost that comes into view while its RCS fires shows the
