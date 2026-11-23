@@ -3320,8 +3320,11 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
   (`fx-structure-not-measured`, `fx-nozzle-not-measured`, `fx-no-real-effect`), is `unmeasured` on a
   baselined case (`fx_unmeasured`), unless the baseline's runs show the same token (its optional
   `fxUnmeasured` list): then, and on a new case, it is the note `fx-unmeasured`. A skip needs the real
-  core weak too, so a baselined one hides no lost plume. Not yet a rule: an FX fail has no band, so
-  one capped in the reading runs and standing later reds; arming an FX lane needs that answered.
+  core weak too, so a baselined one hides no lost plume. To settle before any FX lane is armed: an FX
+  fail has no band, so one capped in the reading runs and standing later reds; a lamp `plate` case
+  reads `unmeasured` against its own baseline (`unmeasured_reason` owes every manifest view, which a
+  plate case does not photograph: 14 on PP-7, 16 on PP-8 and PP-9); and a layer that went empty on
+  BOTH sides, core and envelope, is judged `pass` (E.4).
 - A missing view or route, a null measure, an unmeasured structure or a capture that threw was
   skipped. Each is `unmeasured` now.
 - A ghost renderer that exists but is disabled, a ghost that was not built and a state the ghost did
