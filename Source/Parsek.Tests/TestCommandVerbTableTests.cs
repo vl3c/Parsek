@@ -76,6 +76,7 @@ namespace Parsek.Tests
         [InlineData("DumpMapGeometry")]
         [InlineData("MapCamera")]
         [InlineData("PartParitySweep")]
+        [InlineData("ExitToMainMenu")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -232,7 +233,9 @@ namespace Parsek.Tests
             // unchanged at 4): the map's drawn geometry as JSON, and the map camera framed by value.
             // PartParitySweep is ADDITIVE (62 -> 63; reserved unchanged at 4): one time-boxed step
             // of the part ghost parity capture (real one-part vessels beside their ghosts).
-            Assert.Equal(63, TestCommandVerbs.ImplementedVerbNames.Count);
+            // ExitToMainMenu is ADDITIVE (63 -> 64; reserved unchanged at 4): the flight Esc-menu
+            // Quit to Main Menu (stock saveAndExit(MAINMENU)).
+            Assert.Equal(64, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

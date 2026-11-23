@@ -1,0 +1,95 @@
+schema = 1
+id = "QTM-1-quit-to-main-menu-commits-flight"
+# =====================================================================================
+# QTM-1: STOCK "QUIT TO MAIN MENU" OUT OF A LIVE RECORDING, THEN THE SAVE LOADED BACK FROM THE
+# MAIN MENU. Test-gap list 2026-11-18, Medium "Quit to main menu, or Quit without saving,
+# during a Re-Fly", half (b), the live-recording variant (the Re-Fly variant is RFQ-2). Batch
+# 4, AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+#
+# The first lane of the `ExitToMainMenu` seam verb (stock PauseMenu saveAndExit(MAINMENU):
+# onSceneConfirmExit, the pid dictionaries, SaveGame, LoadScene(MAINMENU)). Owner ruling
+# 2026-11-01 "leaving flight commits": under auto-merge the LoadScene prefix's main-menu
+# branch (SceneExitInterceptor.TryCommitMainMenuExitWithoutDialog) runs the dialog's Merge
+# without the dialog and writes the save before the game unloads, so the next game load reads
+# the flight committed.
+#
+# S0.7's / QWS-1's host and road (`eva2-lko-crewed`, auto-merge on, StartRecording), with the
+# exit to the main menu instead of the Space Center, then `LoadGame persistent` from the main
+# menu (the boot channel): a Cold load with `coldReason=main-menu` that reads ONE committed
+# recording (S0.7's count).
+#
+# PRE-REGISTERED RED READINGS:
+#   - `exittomainmenu refused reason=dialog-required`: the gate predicted a dialog (the live
+#     matrix or the commit predicate moved);
+#   - `main-menu exit commit did not complete`: the commit refused or threw and the prefix
+#     fell back to the dialog (the verb then times out at the main menu wait);
+#   - recordings 0 after the reload: the commit ran but the save the prefix wrote did not
+#     carry it.
+#
+# FAST-LANE CHECKLIST: 1 reuse: S0.7 exits to the Space Center, QWS-1 quits without saving,
+# both different prefix branches; 2 no waits; 3-5 not applicable; 6 retry once (QWS-1's); 7
+# the count is S0.7's measured 1; 8 tier nightly (QWS-1's cost plus one cold load); 9
+# flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Quit to Main Menu out of a live recording under auto-merge (eva2-lko-crewed): the new ExitToMainMenu verb drives stock's saveAndExit(MAINMENU), the LoadScene prefix commits the live tree without the merge dialog and saves, and the save loaded back from the main menu is a Cold load holding the one committed recording."
+instanceProfile = "stock-minimal"
+tags = ["QTM-1", "scene-exit", "auto-merge", "live-recording", "main-menu", "cold-load", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  { cmd = "ExitToMainMenu",                                                          expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "qtm1-at-main-menu" },                 expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c1",           expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "qtm1-reloaded-${c1.count}" },          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "exittomainmenu start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false switchSegmentSession=false reFly=false activeTreeVariant=RegularMerge pendingTreeVariant=None activeCommitsWithoutDialog=true pendingCommitsWithoutDialog=false",
+  "exittomainmenu driving scene-exit dest=MAINMENU persisted=true",
+  "LoadScene prefix: main-menu exit under auto-merge branch=live-tree - committing without the merge dialog \\(leaving flight commits\\)",
+  "LoadScene prefix: main-menu exit committed without the dialog branch=live-tree outcome=Completed",
+  "exittomainmenu complete scene=MAINMENU game-loaded=false elapsed=",
+  "MISSIONMARK label=qtm1-at-main-menu ut=[\\s\\S]*?Load classified: early=Cold refined=Cold scene=[A-Z]+ [^\\r\\n]*\\bcoldReason=main-menu\\b",
+  "MISSIONMARK label=qtm1-reloaded-1 ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "exittomainmenu refused",
+  "showing pre-transition dialog",
+  "main-menu exit commit did not complete",
+  "LoadScene prefix: quit without saving",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

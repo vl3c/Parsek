@@ -1,0 +1,124 @@
+schema = 1
+id = "RFQ-1-refly-quit-without-saving-keeps-dialog"
+# =====================================================================================
+# RFQ-1: STOCK "QUIT WITHOUT SAVING" OUT OF A LIVE RE-FLY. Test-gap list 2026-11-18,
+# Medium "Quit to main menu, or Quit without saving, during a Re-Fly", half (a). Batch 4,
+# AUTHORED 2026-11-23 (branch `b4-refly`), NOT FLOWN. Todo TEST-GAPS-BATCH4-REFLY-2026-11-23.
+#
+# In gameplay terms: the player re-flies the crashed booster of the B9 split, opens the Esc
+# menu and presses "Quit without saving". QWS-1 proves that button drops a plain live flight
+# with the world (owner pick 2026-11-01, "follow the save"); a Re-Fly is the exception the
+# code makes (`NoSaveSceneExit.ShouldFollowTheSave` is false while a Re-Fly marker is live,
+# owner ruling 2026-11-01 "a Re-Fly exit stays a manual decision"): the prefix keeps the usual
+# exit handling, so the Re-Fly merge dialog comes up instead, and its answer is saved.
+#
+# THE ROAD IS RF-16's on the non-Hard host (S4.1's `gloops-airshow` + the injected `rewind-b9`
+# corpus): LoadGame lands in FLIGHT, TimeJump 61 s past rp_b9_root, InvokeRewind slot 1, the
+# recorder live. Then two exits:
+#   1. `ExitToSpaceCenter quitWithoutSaving=true` must be REFUSED pre-exit (`dialog-required
+#      variant=ReFlyAttempt`): the seam's own gate reads the same predicate, and no verb can
+#      answer a dialog it spawned.
+#   2. `AnswerMergeDialog exit=quitWithoutSaving choice=merge` drives stock's no-save exit
+#      (onSceneConfirmExit, then LoadScene(SPACECENTER), no save; decompiled PauseMenu) and
+#      answers the Re-Fly dialog the prefix shows.
+#
+# THE GATE, in order: the refusal; the confirm-exit read as a no-save exit (`noSave=True`);
+# the prefix keeping the usual handling with `reFlyActive=True`; the idle auto-discard refusing
+# for the live Re-Fly; the dialog offered with the Re-Fly labels; Merge committed. Forbidden:
+# every follow-the-save line (QWS-1's own required set), the save-file load intent, and any
+# discard or retry end of the session.
+#
+# PRE-REGISTERED RED READINGS:
+#   - `quit without saving dest=SPACECENTER - following the save`: the Re-Fly was dropped with
+#     the world (the exception lost);
+#   - no `noSave=True`: the driven confirm-exit did not read as stock's no-save exit (a seam
+#     defect, not Parsek's);
+#   - the AnswerMergeDialog `answer-timeout`: the dialog never came up on this exit.
+#
+# FAST-LANE CHECKLIST (harness/README.md): 1 reuse: RF-16 / S4.1 leave by the SAVING exit, a
+# different prefix branch, so this is a new flight; 2 the one wait is RF-16's explicit
+# TimeJump; 3-5 not applicable (no flight); 6 retry once (RF-16's policy); 7 rewind windows
+# report-only until a reading run; 8 tier nightly (RF-16's cost, about 65 s); 9
+# flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Quit without saving out of a live Re-Fly (S4.1's host + rewind-b9): the seam's no-save exit is refused dialog-required, then stock's no-save exit (confirm-exit, LoadScene, no save) keeps the usual exit handling for the live Re-Fly, the Re-Fly merge dialog is offered and Merge commits; nothing follows the save."
+instanceProfile = "stock-minimal"
+tags = ["RFQ-1", "rewind", "refly", "merge", "quit-without-saving", "scene-exit", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },        expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                              expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",      args = { rp = "rp_b9_root", slot = "1" },                      expect = "OK", budget = 300 },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfq1-refly-live" },                          expect = "OK" },
+  { cmd = "ExitToSpaceCenter", args = { quitWithoutSaving = "true" },                         expect = "REJECTED" },
+  { cmd = "MissionMark",       args = { label = "rfq1-seam-exit-refused" },                   expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge", exit = "quitWithoutSaving" },       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r1",                 expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "rfq1-merged-${r1.count}" },                  expect = "OK" },
+  { cmd = "RecordingState",                                                                   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "refly-gate", "merge-journal"]
+D14 = ["sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Invocation complete",
+  "MISSIONMARK label=rfq1-refly-live ut=[\\s\\S]*?exittospacecenter quit-without-saving followsTheSave=false gate=RefusedActiveTreeDialog[\\s\\S]*?MISSIONMARK label=rfq1-seam-exit-refused ut=",
+  "exittospacecenter refused reason=dialog-required variant=ReFlyAttempt gate=RefusedActiveTreeDialog",
+  "MISSIONMARK label=rfq1-seam-exit-refused ut=[\\s\\S]*?answermergedialog driving re-fly conclusion quit-without-saving dest=SPACECENTER \\(sess=",
+  "Quit-without-saving check dest=SPACECENTER: confirmExitFrame=[0-9]+ frame=[0-9]+ savedSinceConfirmExit=False noSave=True",
+  "LoadScene prefix: quit without saving dest=SPACECENTER keeps the usual exit handling \\(rewinding=False reFlyActive=True mergeJournalActive=False\\)",
+  "TryAutoDiscardIdleActiveTree: refusing - refly-active sess=.* dest=SPACECENTER",
+  "Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=rfq1-merged-[0-9]+ ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+  "exittospacecenter driving quit-without-saving",
+  "LoadScene prefix: quit without saving dest=SPACECENTER - following the save",
+  "Quit-without-saving exit armed",
+  "Save-file load intent armed: nodeUT=NaN scene=FLIGHT \\(quit without saving\\)",
+  "Quit-without-saving flight dropped by the reload",
+  "End reason=retry ",
+  "End reason=discardReFly sess=",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+]
+
+[expectations.rewind]
+# Report-only until a reading run (RF-16's armed windows are the prediction).
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

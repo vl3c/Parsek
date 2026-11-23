@@ -1265,7 +1265,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # two: the map / Tracking Station picture instrument and its camera framing.
         # 63 / 4 after PartParitySweep, an ADDITION by one: one time-boxed step of the part
         # ghost parity capture (PP-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 63)
+        # 64 / 4 after ExitToMainMenu, an ADDITION by one: the flight Esc-menu Quit to Main
+        # Menu (QTM-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 64)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -17693,6 +17695,62 @@ class ExitQuitWithoutSavingSourceSyncTests(unittest.TestCase):
                       hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
         self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
             hlib.EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON))
+
+
+class ExitToMainMenuSourceSyncTests(unittest.TestCase):
+    """`ExitToMainMenu`, the flight Esc-menu Quit to Main Menu. Reads OUTSIDE harness/: the
+    verb, its two ERROR reasons in the comment-stripped TestCommandExitToMainMenu.cs and the
+    verb in TestCommandVerbs.cs, and checks the verb sits on every harness axis."""
+
+    def _source(self, name):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", name)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# %s moved; this mirror is vacuous: %s" % (name, path))
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_verb_and_reasons_mirror_the_c_sharp(self):
+        text = self._source("TestCommandExitToMainMenu.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.EXIT_TO_MAIN_MENU_VERB, text)
+        self.assertIn('internal const string TimeoutReason = "%s";'
+                      % hlib.EXIT_TO_MAIN_MENU_TIMEOUT_REASON, text)
+        self.assertIn('internal const string SaveFailedReason = "%s";'
+                      % hlib.EXIT_TO_MAIN_MENU_SAVE_FAILED_REASON, text)
+        self.assertIn('"%s"' % hlib.EXIT_TO_MAIN_MENU_VERB, self._source("TestCommandVerbs.cs"))
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.EXIT_TO_MAIN_MENU_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertEqual(120.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[verb])
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        # Two-phase like ExitToSpaceCenter, and like it NOT a DEFERRED_SEAM_VERB: its
+        # budget is the dispatch budget, under the cap.
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+
+
+class AnswerMergeExitSourceSyncTests(unittest.TestCase):
+    """`AnswerMergeDialog exit=`: the key, its two values and the arg-invalid reason in the
+    comment-stripped TestCommandMergeAnswer.cs."""
+
+    def test_the_key_values_and_reason_mirror_the_c_sharp(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandMergeAnswer.cs")
+        self.assertTrue(os.path.isfile(path), "the C# merge-answer tables moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+        self.assertIn('internal const string ExitArg = "%s";' % hlib.ANSWERMERGE_EXIT_KEY, text)
+        self.assertEqual(("quitWithoutSaving", "mainMenu"), hlib.ANSWERMERGE_EXIT_VALUES)
+        self.assertIn('internal const string ExitQuitWithoutSavingValue = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_VALUES[0], text)
+        self.assertIn('internal const string ExitMainMenuValue = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_VALUES[1], text)
+        self.assertIn('internal const string ExitArgInvalidReason = "%s";'
+                      % hlib.ANSWERMERGE_EXIT_INVALID_REASON, text)
+        self.assertEqual(("AnswerMergeDialog", hlib.ANSWERMERGE_EXIT_VALUES),
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.ANSWERMERGE_EXIT_KEY])
+        self.assertIn(hlib.ANSWERMERGE_EXIT_INVALID_REASON, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(
+            hlib.ANSWERMERGE_EXIT_INVALID_REASON))
 
 
 class RealSpawnRecoverSourceSyncTests(unittest.TestCase):

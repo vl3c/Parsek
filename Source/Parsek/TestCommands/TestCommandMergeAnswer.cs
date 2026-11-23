@@ -68,6 +68,20 @@ namespace Parsek.TestCommands
         DriveUnsettled,
     }
 
+    /// <summary>Which stock flight exit drives the Re-Fly conclusion (the
+    /// <c>AnswerMergeDialog exit=</c> arg).</summary>
+    internal enum ReFlyConclusionExit
+    {
+        /// <summary>The saving Space Center exit (the default).</summary>
+        SpaceCenter,
+
+        /// <summary>Stock's Quit without saving to the Space Center.</summary>
+        QuitWithoutSaving,
+
+        /// <summary>Stock's Quit to Main Menu.</summary>
+        MainMenu,
+    }
+
     /// <summary>
     /// Pure decision + mapping helpers for the folded conclude-and-answer
     /// <c>AnswerMergeDialog</c> seam verb (M-C1). The Unity applier on the addon locates
@@ -118,6 +132,64 @@ namespace Parsek.TestCommands
             if (elapsedSeconds < settleBudgetSeconds)
                 return ConclusionDriveDecision.WaitForResume;
             return ConclusionDriveDecision.DriveUnsettled;
+        }
+
+        /// <summary>The optional closed arg naming WHICH stock exit drives the Re-Fly
+        /// conclusion when the verb itself has to leave the flight (marker live, no dialog
+        /// up yet). Absent: the saving Space Center exit, every spec written before the arg.
+        /// hlib's <c>ANSWERMERGE_EXIT_KEY</c> / <c>_VALUES</c> mirror it.</summary>
+        internal const string ExitArg = "exit";
+
+        /// <summary><c>exit=quitWithoutSaving</c>: stock's Esc-menu Quit without saving to the
+        /// Space Center (<c>onSceneConfirmExit</c>, then <c>LoadScene</c>, no save). A live
+        /// Re-Fly keeps its dialog on that exit (<c>NoSaveSceneExit.ShouldFollowTheSave</c>).</summary>
+        internal const string ExitQuitWithoutSavingValue = "quitWithoutSaving";
+
+        /// <summary><c>exit=mainMenu</c>: stock's Esc-menu Quit to Main Menu
+        /// (<c>saveAndExit(MAINMENU)</c>). A Re-Fly keeps its dialog there too.</summary>
+        internal const string ExitMainMenuValue = "mainMenu";
+
+        /// <summary>REJECTED reason for any other <c>exit=</c> value.</summary>
+        internal const string ExitArgInvalidReason = "answermergedialog-exit-arg-invalid";
+
+        /// <summary>Pure: parse the optional <c>exit=</c> arg. Returns null when it is absent
+        /// (the Space Center exit) or one of the two values; otherwise the arg-invalid reason.</summary>
+        internal static string ParseExit(string raw, out ReFlyConclusionExit exit)
+        {
+            exit = ReFlyConclusionExit.SpaceCenter;
+            if (raw == null)
+                return null;
+            if (string.Equals(raw, ExitQuitWithoutSavingValue, System.StringComparison.Ordinal))
+            {
+                exit = ReFlyConclusionExit.QuitWithoutSaving;
+                return null;
+            }
+            if (string.Equals(raw, ExitMainMenuValue, System.StringComparison.Ordinal))
+            {
+                exit = ReFlyConclusionExit.MainMenu;
+                return null;
+            }
+            return ExitArgInvalidReason;
+        }
+
+        /// <summary>Pure: the scene the driven conclusion exit requests.</summary>
+        internal static GameScenes ExitDestination(ReFlyConclusionExit exit)
+            => exit == ReFlyConclusionExit.MainMenu ? GameScenes.MAINMENU : GameScenes.SPACECENTER;
+
+        /// <summary>Pure: whether the driven exit saves before its <c>LoadScene</c> (the stock
+        /// saving buttons do; Quit without saving fires the confirm-exit and saves nothing).</summary>
+        internal static bool ExitSavesFirst(ReFlyConclusionExit exit)
+            => exit != ReFlyConclusionExit.QuitWithoutSaving;
+
+        /// <summary>The log token of an exit.</summary>
+        internal static string ExitToken(ReFlyConclusionExit exit)
+        {
+            switch (exit)
+            {
+                case ReFlyConclusionExit.QuitWithoutSaving: return ExitQuitWithoutSavingValue;
+                case ReFlyConclusionExit.MainMenu: return ExitMainMenuValue;
+                default: return "spaceCenter";
+            }
         }
 
         /// <summary>Map the wire <c>choice</c> arg to a button role. <c>merge</c> (alias

@@ -38,6 +38,7 @@ namespace Parsek.Tests
             public void PlantFlag(ParsedCommand cmd) => Calls.Add("PlantFlag");
             public void EvaChuteDeploy(ParsedCommand cmd) => Calls.Add("EvaChuteDeploy");
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
+            public void ExitToMainMenu(ParsedCommand cmd) => Calls.Add("ExitToMainMenu");
             public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
             public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
             public void StartLoopPlayback(ParsedCommand cmd) => Calls.Add("StartLoopPlayback");
@@ -119,6 +120,7 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
         [InlineData("EvaGroundScience", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
+        [InlineData("ExitToMainMenu", "RequiresFlight")]
         // SimulateStockSwitchClick: AnyScene plus the per-site scene sub-gate (map FLIGHT,
         // ts TRACKSTATION, ksc SPACECENTER), pinned in TestCommandDispatchTests.
         [InlineData("SimulateStockSwitchClick", "AnyScene")]
@@ -264,6 +266,7 @@ namespace Parsek.Tests
             fake.PlantFlag(cmd);
             fake.EvaChuteDeploy(cmd);
             fake.ExitToSpaceCenter(cmd);
+            fake.ExitToMainMenu(cmd);
             fake.SimulateStockSwitchClick(cmd);
             fake.MissionConfig(cmd);
             fake.StartLoopPlayback(cmd);

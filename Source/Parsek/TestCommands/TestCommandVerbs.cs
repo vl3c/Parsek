@@ -433,6 +433,14 @@ namespace Parsek.TestCommands
             // 540 s (a step time-boxes itself to maxSeconds <= 480). State-mutating (it spawns
             // and removes vessels), so absent from NonMutatingVerbs.
             "PartParitySweep",
+            // ExitToMainMenu. ADDITIVE (63 -> 64 implemented, reserved unchanged at 4): the
+            // flight Esc-menu Quit to Main Menu (stock saveAndExit(MAINMENU): confirm-exit,
+            // save, load), the subject of the prefix's main-menu branch, which commits a live
+            // or pending tree without the dialog under auto-merge. NOT a destination arg on
+            // ExitToSpaceCenter: the game unloads here, so the completion and what a lane can
+            // read afterwards (only a LoadGame back) differ. Contract on
+            // TestCommandExitToMainMenu; TWO-PHASE, RequiresFlight, 120 s. State-mutating.
+            "ExitToMainMenu",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

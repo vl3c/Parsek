@@ -948,6 +948,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
     #     cases= complete= crashed= setupFaults= controls= wall= hostDamaged= hostDamage=`.
     "PartParitySweep",
+    # ADDITIVE (63 -> 64 implemented, reserved unchanged at 4), the flight Esc-menu "Quit to
+    # Main Menu" (stock saveAndExit(MAINMENU): confirm-exit, save, LoadScene(MAINMENU)).
+    #   ExitToMainMenu, FLIGHT, TWO-PHASE, 120 s: refused `dialog-required variant=` when a
+    #     merge modal would block the exit (a live Re-Fly, auto-merge off, an armed switch
+    #     segment session); otherwise the prefix commits a live or pending tree without the
+    #     dialog. OK `scene=MAINMENU persisted=true` once the main menu held for the NewGame
+    #     settle polls. The next boot step is `LoadGame`, which runs from the main menu.
+    "ExitToMainMenu",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1284,6 +1292,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
     # seam TIMEOUT into a terminal KILLED.
     "ExitToSpaceCenter": 120.0,
+    # ExitToMainMenu mirrors the C# ExitToMainMenuSeconds = 120.0: the ExitToSpaceCenter
+    # size, a driven scene exit whose settle is the game unload rather than a save parse.
+    "ExitToMainMenu": 120.0,
     # SimulateStockSwitchClick mirrors the C# SimulateStockSwitchClickSeconds = 300.0 (one
     # budget per verb). Its ts / ksc sites press a stock Fly that saves persistent and loads
     # FLIGHT from it, then wait for Parsek's consume to spend the intent: the LoadGame class.
@@ -1620,6 +1631,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # cannot hold for a verb whose whole step is a sequence of vessel spawns and removals,
     # and the C# NonMutatingVerbs list leaves it out for the same fact.
     "PartParitySweep": TAIL_ROLE_WORLD_MUTATING,
+    # ExitToMainMenu writes the save and unloads the game: ExitToSpaceCenter's role.
+    "ExitToMainMenu": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1860,6 +1873,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # wrote N case files", a statement about instrumentation and Parsek's ghosts, never a
     # kerbal's in-world state.
     "PartParitySweep": POST_MISSION_ROLE_RECORDING,
+    # ExitToMainMenu is `recording` for ExitToSpaceCenter's reason: its OK is a statement
+    # about the commit-on-exit and the scene change, never a kerbal's in-world state.
+    "ExitToMainMenu": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3530,6 +3546,16 @@ UIACTION_PICKER_ARGS: Dict[str, Tuple[str, ...]] = {
 ANSWERMERGE_DIALOG_KEY = "dialog"
 ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 
+# `AnswerMergeDialog exit=`: HOW the Re-Fly conclusion leaves flight before the dialog is
+# answered. Absent = the saving Space Center exit; `quitWithoutSaving` = stock's Esc-menu
+# "Quit without saving" (confirm-exit, LoadScene, no save); `mainMenu` = "Quit to Main
+# Menu" (save, LoadScene(MAINMENU)). A Re-Fly keeps its dialog on every one of them.
+# Closed; a VERB_SCOPED_CLOSED_ARGS row (AnswerMergeExitSourceSyncTests keeps the key,
+# values and reason byte-equal to TestCommandMergeAnswer).
+ANSWERMERGE_EXIT_KEY = "exit"
+ANSWERMERGE_EXIT_VALUES: Tuple[str, ...] = ("quitWithoutSaving", "mainMenu")
+ANSWERMERGE_EXIT_INVALID_REASON = "answermergedialog-exit-arg-invalid"
+
 # `UiAction op=raise` / `op=dismiss`: WHICH Parsek modal, mirroring
 # TestCommandUiDialogRaise's table (TestCommands/TestCommandUiDialogRaise.cs).
 #
@@ -3960,6 +3986,13 @@ EXIT_QUIT_WITHOUT_SAVING_VERB = "ExitToSpaceCenter"
 EXIT_QUIT_WITHOUT_SAVING_KEY = "quitWithoutSaving"
 EXIT_QUIT_WITHOUT_SAVING_VALUES: Tuple[str, ...] = ("true",)
 EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON = "exittospacecenter-quitwithoutsaving-arg-invalid"
+
+# ExitToMainMenu: mirrored from TestCommands/TestCommandExitToMainMenu.cs
+# (ExitToMainMenuSourceSyncTests keeps them byte-equal). No args. A refusal reuses
+# ExitToSpaceCenter's `dialog-required`; the two ERROR reasons are its own.
+EXIT_TO_MAIN_MENU_VERB = "ExitToMainMenu"
+EXIT_TO_MAIN_MENU_TIMEOUT_REASON = "exittomainmenu-timeout"
+EXIT_TO_MAIN_MENU_SAVE_FAILED_REASON = "exittomainmenu-save-failed"
 
 
 # TrackingStationRecover: mirrored from TestCommands/TestCommandTrackingStationRecover.cs
@@ -6347,6 +6380,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_COMMIT_KEY: ("UiAction", UIACTION_COMMIT_VALUES),
     UIACTION_DESCRIBE_KEY: ("UiAction", UIACTION_DESCRIBE_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
+    ANSWERMERGE_EXIT_KEY: ("AnswerMergeDialog", ANSWERMERGE_EXIT_VALUES),
     STOCKSCREEN_SCREEN_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_SCREEN_VALUES),
     STOCKSCREEN_ACT_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_ACT_VALUES),
     STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
@@ -13079,6 +13113,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",
     "exittospacecenter-quitwithoutsaving-arg-invalid": "driver-arg",
+    "answermergedialog-exit-arg-invalid": "driver-arg",
     # The D18 player-action pair (RealSpawn / Recover). The missing / malformed arg and the
     # unknown recording are the SPEC's fault (arg-class); every other refusal is a live
     # state the click would not act in - no row, a greyed or departure button, a vessel
@@ -14116,6 +14151,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "exittospacecenter-quitwithoutsaving-arg-invalid",
+    "answermergedialog-exit-arg-invalid",
     "factor-arg-invalid", "filter-arg-invalid", "find-ctrl-arg-invalid",
     "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
