@@ -11024,8 +11024,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
-        "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`); nothing owed beyond its status row",
-        "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`); nothing owed beyond its status row",
+        "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp5fx`, photographs the 14 held air-breathing engine cases (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): NEVER FLOWN, tag `pending-flight`; owed: that flight",
+        "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp6fx`, photographs the 14 held air-breathing engine cases as Waterfall references (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): NEVER FLOWN, tag `pending-flight`; owed: that flight",
         "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape flew green 2026-11-22 (`2026-11-22_0033`, PASS attempt 1); nothing owed beyond its status row",
         "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. AUTHORED 2026-11-21, LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, after the 2026-11-21 reading runs); nothing owed beyond its status row",
         "PP-3-part-parity-states-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit state reading run on stock-minimal (design-part-ghost-parity.md Appendix D, D.10 row S6; owner rulings R2 / R3): every transforming stock part deployed / open / lit / jettisoned beside its event-route, start-route and stowed ghosts over two `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1656`, PASS attempt 1, after the reading run `2026-11-22_1627`); nothing owed beyond its status row",
@@ -11033,6 +11033,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "PP-7-part-parity-fx-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit visual effects reading run on stock-minimal (design-part-ghost-parity.md Appendix E, E.9 row F6): every working stock part's plume, RCS, heat glow and lamp plate beside its event-route and start-route ghosts over four `fx=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1027`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-8-part-parity-fx-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, where a Waterfall part's plume reads `reference` (never judged); parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1232`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-9-part-parity-fx-restock.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-restock (ReStock and ReStock+ without Waterfall, owner ruling R6; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, every case judged; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1050`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
+        "PP-10-part-parity-fx-air-restock.toml": "tier=operator by PURPOSE, NOT debt: the air half of PP-9 (design-part-ghost-parity.md Appendix E.2 F7 as built, E.6 / E.8, E.9 row F7): every modded-restock air-breathing engine held 1600 m over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route and start-route ghosts over two `contexts=air fx=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED 2026-11-23 (branch `fx-air-lanes`), NEVER FLOWN, tag `pending-flight`; owed: its first flight",
         "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-rover` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, swung +90 / -90 by PartAction servomax / servomin while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away, the recorder's live hinge angle, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. First flight 2026-11-20 red on the old pad host (lane design and todo RECORDER-SERVO-ANGLE-PAW-ONLY), REDESIGNED 2026-11-21, never flown since; owed: its re-flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1151`, runner run b3-flights-4); owed: the ordinary promotion call",
         "SRV-2-rotor-spin-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo RECORDER-ROTOR-RPM-PAW-ONLY's flight lane on the derived fixture `srv-rotor-rover` (stock-tree, SRV-1's install, not in the nightly instance set): an EM-16 rotor carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, engaged by PartAction rotoron, held at 30 RPM and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the recorder's live RPM read and steady-spin moving signal, the ghost's follower plan / bind, first rotor spin and first re-pose pinned. AUTHORED 2026-11-21, NEVER FLOWN; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1227`, its third: a seam fix and a lane fix, runner run b3-flights-6); owed: the ordinary promotion call",
         "SRV-3-mirrored-hinge-pair-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's flight lane on the derived fixture `srv-mirror-hinge-rover` (stock-tree, SRV-1's install, not in the nightly instance set): a symmetry pair of G-11 hinges (the left half mirrorRotation = True) posed to targetAngle 60 before recording plus a locked offset Alligator hinge, each carrying a Z-200, on a landed rover's front 820 m from the runway, swung by PartAction servomin / servomax all=true while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the mirrored snapshot baseline, the Alligator's pose offset, the follower plan / bind and both halves' playback re-poses pinned, then the new ServoMirroredPose cell. AUTHORED 2026-11-21, never flown; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1154`, runner run b3-flights-4); owed: the ordinary promotion call",
@@ -19470,11 +19471,12 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
 
 
 class PartParityAirLaneShapeTests(unittest.TestCase):
-    """The two air lanes (design-part-ghost-parity.md D.4 / D.8 / D.10 row S7; owner ruling
-    R1): a pad host fixture, one `contexts=air states=all` run step over the whole install
-    (no `skins=`, which governs stowed cases only), its own label so it never shares another
-    lane's directory, the air control set, the step inside the S8 cap, no warp (the sweep
-    starts on the pad), report-only verdicts and a budget covering every step."""
+    """The two air lanes' chute label (design-part-ghost-parity.md D.4 / D.8 / D.10 row S7;
+    owner ruling R1): a pad host fixture, one `contexts=air states=all` run step over the whole
+    install (no `skins=`, which governs stowed cases only), its own label so it never shares
+    another lane's directory, the air control set, the step inside the S8 cap, no warp (the
+    sweep starts on the pad), report-only verdicts and a budget covering every step. Their
+    second label is PartParityAirFxLaneShapeTests'."""
 
     LANES = {"PP-5-part-parity-chutes-stock.toml": ("pp5", "stock-minimal"),
              "PP-6-part-parity-chutes-modded.toml": ("pp6", "modded-compat")}
@@ -19490,7 +19492,8 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
                 self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
                 cmds = [s["cmd"] for s in spec["driver"]["steps"]]
                 self.assertNotIn("WarpToUT", cmds)
-                sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB]
+                sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB
+                          and s["args"]["label"] == label]
                 # The reset is admitted by its run kind too: an air reset on the pad host.
                 self.assertEqual({"label": label, "op": "reset", "contexts": "air"}, sweeps[0]["args"])
                 run_steps = sweeps[1:]
@@ -19504,7 +19507,7 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
                 self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, run_steps[0]["budget"])
                 self.assertEqual(partparity.CONTROL_IDS_AIR,
                                  partparity.control_set({"states": a["states"], "contexts": a["contexts"]}))
-                self.assertEqual([label], partparity.sweep_labels(spec))
+                self.assertEqual([label, label + "fx"], partparity.sweep_labels(spec))
                 self.assertFalse(partparity.gating_armed(spec["expectations"]))
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -19515,12 +19518,93 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
         for name, (label, _profile) in self.LANES.items():
             with self.subTest(lane=name):
                 required = load_spec(name)["expectations"]["logContracts"]["required"]
-                pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+                pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p
+                        and "label=%s " % label in p]
                 self.assertEqual(1, len(pins), required)
                 self.assertIn("label=%s op=run ok=true" % label, pins[0])
                 self.assertIn("crashed=0", pins[0])
                 self.assertIn("controls=ok", pins[0])
                 self.assertTrue(any("state cases: states=all contexts=air" in p for p in required), required)
+
+
+class PartParityAirFxLaneShapeTests(unittest.TestCase):
+    """The air FX label (design-part-ghost-parity.md E.8 / E.9 row F7) of PP-5 and PP-6, after
+    their chute label on the same pad host, and of PP-10, the install with no other air lane: its
+    own label, an air FX reset, two resuming `contexts=air fx=all` steps over the whole install,
+    the air FX control set, every step inside the S8 cap, its own log pins, report-only verdicts.
+    Never flown."""
+
+    LANES = {"PP-5-part-parity-chutes-stock.toml": ("pp5fx", "stock-minimal", ["pp5", "pp5fx"]),
+             "PP-6-part-parity-chutes-modded.toml": ("pp6fx", "modded-compat", ["pp6", "pp6fx"]),
+             "PP-10-part-parity-fx-air-restock.toml": ("pp10", "modded-restock", ["pp10"])}
+
+    def test_each_lane_runs_every_air_fx_case_in_two_steps_from_the_pad(self):
+        for name, (label, profile, labels) in self.LANES.items():
+            with self.subTest(lane=name):
+                spec = load_spec(name)
+                self.assertEqual(profile, spec["instanceProfile"])
+                self.assertEqual("operator", spec["tier"])
+                self.assertEqual("fixtures/saves/b1-pad-craft", spec["fixture"]["saveTemplate"])
+                self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+                steps = spec["driver"]["steps"]
+                self.assertNotIn("WarpToUT", [s["cmd"] for s in steps])
+                every = [s for s in steps if s["cmd"] == hlib.PARTPARITY_VERB]
+                sweeps = [s for s in every if s["args"]["label"] == label]
+                # The air FX label is last: nothing of another label follows it.
+                self.assertEqual(sweeps, every[-len(sweeps):])
+                self.assertEqual("FlushAndQuit", steps[-1]["cmd"])
+                # The reset is admitted by its run kind too.
+                self.assertEqual({"label": label, "op": "reset", "contexts": "air", "fx": "all"},
+                                 sweeps[0]["args"])
+                self.assertEqual(2, len(sweeps[1:]))
+                for step in sweeps[1:]:
+                    a = step["args"]
+                    self.assertEqual({"label": label, "op": "run", "contexts": "air", "fx": "all",
+                                      "controls": "true", "maxSeconds": "480"}, a)
+                    self.assertEqual("OK", step["expect"])
+                    self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
+                    self.assertEqual(partparity.CONTROL_IDS_FX_AIR,
+                                     partparity.control_set({"fx": a["fx"], "contexts": a["contexts"]}))
+                # PP-5's setup ahead of the first sweep: no auto-record, verbose lines.
+                pre = steps[:steps.index(every[0])]
+                self.assertEqual(load_spec("PP-5-part-parity-chutes-stock.toml")["driver"]["steps"][:len(pre)], pre)
+                self.assertEqual(labels, partparity.sweep_labels(spec))
+                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                total = sum(int(s.get("budget", 0) or 0) for s in steps)
+                self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+                self.assertEqual("none", spec["retry"]["policy"])
+                self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+                self.assertIn("pending-flight", spec["tags"])
+                # PP-5 / PP-6 flew their chute label; PP-10 has none.
+                self.assertEqual(len(labels) > 1, "flown" in spec["tags"])
+
+    def test_each_lane_pins_its_own_step_line_and_the_air_fx_counts_line(self):
+        for name, (label, _profile, labels) in self.LANES.items():
+            with self.subTest(lane=name):
+                contracts = load_spec(name)["expectations"]["logContracts"]
+                required = contracts["required"]
+                self.assertEqual(["\\[Parsek\\]\\[ERROR\\]"], contracts["forbidden"])
+                self.assertEqual(1, sum("partparitysweep complete label=%s " % label in p for p in required))
+                pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+                self.assertEqual(len(labels), len(pins))
+                (pin,) = [p for p in pins if "label=%s " % label in p]
+                # The line of the F7 acceptance run (2026-11-23_1014), its label replaced.
+                line = ("[Parsek][INFO][PartParity] PartParity step label=%s op=run ok=true label=%s "
+                        "done=true next=14 cases=14 complete=14 crashed=0 setupFaults=0 controls=ok "
+                        "wall=336.0 hostDamaged=false hostDamage=none" % (label, label))
+                self.assertTrue(re.search(pin, line))
+                for bad in (line.replace("label=" + label, "label=pp5"), line.replace("controls=ok", "controls=bad"),
+                            line.replace("crashed=0", "crashed=1")):
+                    self.assertIsNone(re.search(pin, bad))
+                # No pin of the other label is satisfied by this label's line.
+                self.assertEqual([pin], [p for p in pins if re.search(p, line)])
+                (counts,) = [p for p in required if "fx cases:" in p]
+                good = ("[Parsek][INFO][PartParity] fx cases: fx=all contexts=air install=142 "
+                        "(plume=88 rcs=7 heat=32 light=15) planned=14 excluded=0 ()")
+                self.assertTrue(re.search(counts, good))
+                for bad in (good.replace("contexts=air", "contexts=none"), good.replace("fx=all", "fx=plume"),
+                            good.replace("install=142", "install=0"), good.replace("fx cases:", "state cases:")):
+                    self.assertIsNone(re.search(counts, bad))
 
 
 class PartParityLaneShapeTests(unittest.TestCase):
@@ -19718,7 +19802,7 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
             spec = load_spec(name)
             for label in partparity.sweep_labels(spec):
                 labels.setdefault(label, []).append(name)
-        self.assertGreaterEqual(set(labels), {"pp7", "pp8", "pp9"})
+        self.assertGreaterEqual(set(labels), {"pp5", "pp5fx", "pp6", "pp6fx", "pp7", "pp8", "pp9", "pp10"})
         self.assertEqual({}, {k: v for k, v in labels.items() if len(v) > 1})
 
     def test_each_lane_pins_its_own_step_line_and_the_fx_counts_line(self):
