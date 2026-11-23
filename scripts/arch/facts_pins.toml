@@ -72,7 +72,7 @@ keys = [
 ]
 
 [uncalledInAssembly]
-bound = 374
+bound = 377
 keys = [
     "Parsek.BackgroundRecorder::GetOnRailsHasOpenSegment(uint32)",
     "Parsek.BackgroundRecorder::GetOnRailsIsLanded(uint32)",
@@ -135,6 +135,8 @@ keys = [
     "Parsek.GameStateStore::get_OriginalScienceValueCount()",
     "Parsek.GameStateStore::get_UnreadableEventCount()",
     "Parsek.GhostAudioPresets::ResolveEngineAudioClip(Part,int32)",
+    "Parsek.GhostFxFingerprint::BuildEntries(Parsek.EngineGhostInfo)",
+    "Parsek.GhostFxFingerprint::BuildEntries(Parsek.RcsGhostInfo)",
     "Parsek.GhostMapPresence::FindTrackingStationSuppressedRecordingIds(System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,float64,System.Collections.Generic.IReadOnlyList`1<Parsek.RecordingSupersedeRelation>)",
     "Parsek.GhostMapPresence::GetGhostVessel(uint32)",
     "Parsek.GhostMapPresence::GetTrackingStationGhostRemovalReason(Parsek.Recording,bool,bool,float64)",
@@ -323,6 +325,7 @@ keys = [
     "Parsek.PostFlightDialogLog::get_IsFlightResultsShown()",
     "Parsek.PurchaseOwnershipBook::get_Count()",
     "Parsek.QuickloadResumeMatchGuard::EvaluateCandidate(string,uint32,string,uint32)",
+    "Parsek.RcsGhostInfo::TryGetParticleThruster(int32,Parsek.RcsParticleThruster&)",
     "Parsek.ReFlyAnchorSelection::IsActiveRecordingReFlyProvisional(Parsek.RecordingTree)",
     "Parsek.ReFlyAutoSealPreviewResult::FormatHumanReadable()",
     "Parsek.ReFlyInvokeHold::Classify(System.Collections.Generic.IReadOnlyList`1<System.ValueTuple`2<uint32,string>>,System.Collections.Generic.ICollection`1<uint32>,System.Collections.Generic.IReadOnlyList`1<Parsek.Recording>,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>,float64,int32&)",

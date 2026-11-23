@@ -231,9 +231,12 @@ namespace Parsek
                     // directly). If a thrusterTransforms-based path is added in the future,
                     // it would also need variant filtering here.
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    // The unfiltered walk keeps each transform's thruster index (RcsParticleThruster).
+                    List<Transform> allFxTransforms = fxTransforms;
                     // #242c: exclude transforms under disabled variant GameObjects
                     if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
                     {
+                        allFxTransforms = new List<Transform>(fxTransforms);
                         int preFilter = fxTransforms.Count;
                         fxTransforms.RemoveAll(t =>
                             !IsRendererEnabledByVariantRule(
@@ -312,6 +315,11 @@ namespace Parsek
                                         psRenderer.enabled = raiseRcsVisualOnly;
 
                                     info.particleSystems.Add(ps);
+                                    info.particleThrusters.Add(new RcsParticleThruster
+                                    {
+                                        transformName = transformName,
+                                        thrusterIndex = allFxTransforms.IndexOf(srcFxTransform),
+                                    });
                                 }
                                 if (allPs.Length > 0)
                                 {

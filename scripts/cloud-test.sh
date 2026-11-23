@@ -26,8 +26,8 @@ dotnet build "$REPO_ROOT/Source/Parsek.Tests/Parsek.Tests.csproj" -p:SkipKspDepl
 
 OUT="$REPO_ROOT/Source/Parsek.Tests/bin/Debug/net472"
 
-# The Tests csproj copies only 4 referenced DLLs (CoreModule, IMGUIModule,
-# Assembly-CSharp, 0Harmony). Mono resolves field types eagerly where .NET
+# The Tests csproj copies only 5 referenced DLLs (CoreModule, IMGUIModule,
+# ParticleSystemModule, Assembly-CSharp, 0Harmony). Mono resolves field types eagerly where .NET
 # Framework is lazy, so types like ParsekFlight need the remaining KSP-install
 # DLLs (ToolbarControl, ClickThroughBlocker, other UnityEngine modules) present
 # at runtime too. Copy the full reference set into the test output.

@@ -394,7 +394,7 @@ FX_LAYER_KEYS: Tuple[str, ...] = FX_RENDERER_LAYERS
 FX_VIEW_KEYS: Tuple[str, ...] = (
     "view", "route", "layer", "width", "height", "axis", "real", "ghost", "compare", "splitHalf",
 )
-FX_AXIS_KEYS: Tuple[str, ...] = ("originPx", "dirPx")
+FX_AXIS_KEYS: Tuple[str, ...] = ("originPx", "dirPx", "nozzleDiameterPx")
 FX_SIDE_MEASURE_KEYS: Tuple[str, ...] = (
     "corePx", "envelopePx", "saturatedPx", "originPx", "lengthPx", "widthPx", "coreCentroid",
     "meanColor", "chromaticity", "luminance", "hueHistogram",
