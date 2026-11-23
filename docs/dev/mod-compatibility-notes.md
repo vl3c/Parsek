@@ -117,3 +117,14 @@ below was moved here from `.claude/CLAUDE.md` on 2026-09-01; it is the authority
   `GhostFxEmissionProbe.cs` logs the MEASURED mean particle velocity direction of every cloned ghost
   engine FX instance (`[FxEmissionProbe] measured:`) - transform-axis assumptions were proven unreliable
   for smokeTrail prefabs; showroom fixtures stand upright, so angleFromDown ~0 = correct, ~180 = inverted.
+
+## ReStock - engine glow, lamp patterns (and KSPCommunityFixes)
+
+- Engine glow: ReStock drives `ModuleColorChanger` (`heatColor`, `throttleColor`) through stock's
+  `FXModuleThrottleEffects`; `GhostVisualBuilder.BuildThrottleGlows` plays it from the recorded power.
+  Stock shows the module's own ramp (`animRate` per second, on from half throttle). With
+  KSPCommunityFixes' ModuleColorChangerOptimization the module writes only while the ramp moves, so a
+  ramp that stands shows the throttle itself; read from the Harmony owners of
+  `ModuleColorChanger.Update` (`KSPCommunityFixes`), once per process.
+- Lamp patterns: `ModuleRestockEnhancedLight.cookiePath` is applied to the Lights the part's
+  ModuleLight drives, as its `OnStart` does. Read by module and field name, no compile-time reference.

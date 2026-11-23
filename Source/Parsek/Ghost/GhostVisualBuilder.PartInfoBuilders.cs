@@ -780,7 +780,8 @@ namespace Parsek
             // Light of another name is not the module's and keeps what the model authored.
             Color stockColor = ResolveLightOnColor(FindModuleNode(partNode, lightModule.moduleName),
                 lightModule.lightR, lightModule.lightG, lightModule.lightB);
-            int stockDriven = 0;
+            int stockDriven = 0, cookies = 0;
+            Texture moduleCookie = ResolveReStockLightCookie(prefab, partName);
 
             var clonedLights = new List<Light>();
             for (int li = 0; li < prefabLights.Length; li++)
@@ -820,6 +821,9 @@ namespace Parsek
                 ghostLight.range = clonedRange;
                 ghostLight.spotAngle = srcLight.spotAngle;
                 ghostLight.cullingMask = srcLight.cullingMask;
+                ghostLight.cookie = driven && moduleCookie != null ? moduleCookie : srcLight.cookie;
+                ghostLight.cookieSize = srcLight.cookieSize;
+                if (ghostLight.cookie != null) cookies++;
                 ghostLight.shadows = LightShadows.None;
                 ghostLight.renderMode = raiseLightVisualOnly
                     ? LightRenderMode.ForcePixel
@@ -841,11 +845,36 @@ namespace Parsek
                     $"  Light '{partName}' pid={persistentId}: {clonedLights.Count} light(s), " +
                     $"{stockDriven} driven as stock ('{lightModule.lightName}') at intensity " +
                     $"{ModuleLightSettledIntensity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"color {stockColor}", 60.0);
+                    $"color {stockColor} cookies={cookies}", 60.0);
                 return info;
             }
 
             return null;
+        }
+
+        internal const string ReStockEnhancedLightModule = "ModuleRestockEnhancedLight";
+
+        /// <summary>
+        /// The light pattern ReStock's ModuleRestockEnhancedLight puts on every Light its part's
+        /// ModuleLight drives (decompiled OnStart: <c>GameDatabase.GetTexture(cookiePath)</c>,
+        /// wrap mode clamp). The live part gets it at start, so the prefab's Light carries none.
+        /// Null when the part has no such module or the texture is not loaded.
+        /// </summary>
+        private static Texture ResolveReStockLightCookie(Part prefab, string partName)
+        {
+            PartModule module = null;
+            for (int m = 0; m < prefab.Modules.Count && module == null; m++)
+                if (prefab.Modules[m].moduleName == ReStockEnhancedLightModule) module = prefab.Modules[m];
+            if (module == null) return null;
+            string path = module.Fields.GetValue("cookiePath") as string;
+            Texture2D cookie = string.IsNullOrEmpty(path)
+                ? null
+                : GameDatabase.Instance.GetTexture(path, false);
+            if (cookie != null) cookie.wrapMode = TextureWrapMode.Clamp;
+            ParsekLog.VerboseRateLimited("GhostVisual", "light-cookie-" + partName,
+                $"  Light '{partName}': {ReStockEnhancedLightModule} cookie '{path}' " +
+                (cookie != null ? "applied" : "not found, plain light"), 60.0);
+            return cookie;
         }
 
         /// <summary>The intensity stock's ModuleLight settles its lights at (no malfunction, power met).</summary>

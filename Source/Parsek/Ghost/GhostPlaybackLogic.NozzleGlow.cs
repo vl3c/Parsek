@@ -17,7 +17,8 @@ namespace Parsek
     /// <summary>
     /// One FXModuleAnimateThrottle / FXModuleAnimateRCS glow clip of a ghost part: stock moves the
     /// clip's time toward the engine's throttle (or the nozzle's force) a little every physics
-    /// step, so a nozzle heats up slowly and stays warm after the shutdown.
+    /// step, so a nozzle heats up slowly and stays warm after the shutdown. Or one ModuleColorChanger
+    /// an FXModuleThrottleEffects drives, whose colour curves take the clip's place.
     /// </summary>
     internal sealed class NozzleGlowInfo
     {
@@ -39,6 +40,16 @@ namespace Parsek
         // auto-start lights, else 0.
         public float basePower;
         public List<NozzleGlowColor> colors = new List<NozzleGlowColor>();
+
+        // A useRate ModuleColorChanger: SetScalar turns the level into a switch (animState, on from
+        // 0.5) and the module's own Update, which runs after the setter's, shows a ramp toward that
+        // end at rampRate per second. With settledShowsScalar (KSPCommunityFixes) the module writes
+        // only while the ramp moves, so once it stands at its end the setter's level shows.
+        public bool ramps;
+        public float rampRate;
+        public bool settledShowsScalar;
+        public float initialRamp;
+        public float startRamp;
 
         // Playback: the level was startLevel at startUT and approaches targetLevel since.
         public float startLevel;
@@ -84,6 +95,30 @@ namespace Parsek
             if (float.IsPositiveInfinity(ratePerSecond)) return targetLevel;
             double left = (startLevel - targetLevel) * Math.Exp(-ratePerSecond * elapsedSeconds);
             return Math.Abs(left) < NozzleGlowSettledEpsilon ? targetLevel : (float)(targetLevel + left);
+        }
+
+        /// <summary>The level from which stock's <c>ModuleColorChanger.SetScalar</c> switches on.</summary>
+        internal const float NozzleGlowRampThreshold = 0.5f;
+
+        /// <summary>Pure: the end a ramping colour changer moves to for a level.</summary>
+        internal static float NozzleGlowRampEnd(float targetLevel)
+            => targetLevel >= NozzleGlowRampThreshold ? 1f : 0f;
+
+        /// <summary>
+        /// Pure: stock's <c>currentRateState</c> (decompiled ModuleColorChanger.FixedUpdate)
+        /// <paramref name="elapsedSeconds"/> after it was <paramref name="startRamp"/>. The switch is
+        /// taken at once: every FXModuleThrottleEffects ReStock ships answers in two physics steps.
+        /// </summary>
+        internal static float ComputeNozzleGlowRamp(
+            float startRamp, float targetLevel, float ratePerSecond, double elapsedSeconds)
+        {
+            if (double.IsNaN(elapsedSeconds) || elapsedSeconds <= 0.0 || !(ratePerSecond > 0f))
+                return startRamp;
+            float end = NozzleGlowRampEnd(targetLevel);
+            double moved = ratePerSecond * elapsedSeconds;
+            return moved >= Math.Abs(end - startRamp)
+                ? end
+                : (float)(startRamp + (end > startRamp ? moved : -moved));
         }
 
         /// <summary>Pure: the clip time the recorded powers ask for: the strongest module's power
@@ -173,6 +208,7 @@ namespace Parsek
                 if (g.initialUT > startUT + NozzleGlowSnapshotSlackSeconds)
                 {
                     g.initialLevel = 0f;
+                    g.initialRamp = 0f;
                     g.initialUT = double.NaN;
                     continue;
                 }
@@ -198,7 +234,8 @@ namespace Parsek
             {
                 NozzleGlowInfo g = state.nozzleGlows[i];
                 if (double.IsNaN(g.initialUT)) continue;
-                g.initialLevel = NozzleGlowLevelAt(g, startUT);
+                g.initialLevel = NozzleGlowScalarAt(g, startUT);
+                g.initialRamp = NozzleGlowRampAt(g, startUT);
                 g.initialUT = startUT;
             }
             ParsekLog.VerboseRateLimited("GhostFx", "nozzle-glow-history-" + (state.recordingId ?? string.Empty),
@@ -240,6 +277,7 @@ namespace Parsek
                 if (g.modulePowers != null)
                     for (int m = 0; m < g.modulePowers.Length; m++) g.modulePowers[m] = g.basePower;
                 g.startLevel = g.initialLevel;
+                g.startRamp = g.initialRamp;
                 g.startUT = double.IsNaN(g.initialUT) ? state.nozzleGlowStartUT : g.initialUT;
                 g.targetLevel = ResolveNozzleGlowTarget(g.modulePowers, g.powerScale);
                 g.writtenLevel = float.NaN;
@@ -315,7 +353,8 @@ namespace Parsek
                 if (slot < 0) continue;
                 // An event from before the persisted level changes the power, never the level.
                 double at = evt.ut < g.startUT ? g.startUT : evt.ut;
-                g.startLevel = NozzleGlowLevelAt(g, at);
+                g.startLevel = NozzleGlowScalarAt(g, at);
+                g.startRamp = NozzleGlowRampAt(g, at);
                 g.startUT = at;
                 g.modulePowers[slot] = power;
                 g.targetLevel = ResolveNozzleGlowTarget(g.modulePowers, g.powerScale);
@@ -327,15 +366,39 @@ namespace Parsek
                     $"level={g.startLevel.ToString("0.000", CultureInfo.InvariantCulture)} -> " +
                     $"target={g.targetLevel.ToString("0.000", CultureInfo.InvariantCulture)} " +
                     $"rate={g.approachRate.ToString("0.####", CultureInfo.InvariantCulture)}/s " +
+                    (g.ramps
+                        ? $"ramp={g.startRamp.ToString("0.000", CultureInfo.InvariantCulture)} " +
+                          $"rampRate={g.rampRate.ToString("0.####", CultureInfo.InvariantCulture)}/s "
+                        : string.Empty) +
                     $"ut={evt.ut.ToString("0.00", CultureInfo.InvariantCulture)}", 5.0);
             }
         }
 
-        internal static float NozzleGlowLevelAt(NozzleGlowInfo glow, double ut)
+        /// <summary>The level the module is at: the clip time, or what the setter hands a colour changer.</summary>
+        internal static float NozzleGlowScalarAt(NozzleGlowInfo glow, double ut)
             => ComputeNozzleGlowLevel(glow.startLevel, glow.targetLevel, glow.approachRate, ut - glow.startUT);
 
+        internal static float NozzleGlowRampAt(NozzleGlowInfo glow, double ut)
+            => glow.ramps
+                ? ComputeNozzleGlowRamp(glow.startRamp, glow.targetLevel, glow.rampRate, ut - glow.startUT)
+                : 0f;
+
+        /// <summary>The level that shows.</summary>
+        internal static float NozzleGlowLevelAt(NozzleGlowInfo glow, double ut)
+        {
+            if (!glow.ramps) return NozzleGlowScalarAt(glow, ut);
+            float ramp = NozzleGlowRampAt(glow, ut);
+            return glow.settledShowsScalar && ramp == NozzleGlowRampEnd(glow.targetLevel)
+                ? NozzleGlowScalarAt(glow, ut)
+                : ramp;
+        }
+
+        /// <summary>The level that shows once nothing moves any more.</summary>
+        internal static float NozzleGlowRestLevel(NozzleGlowInfo glow)
+            => glow.ramps && !glow.settledShowsScalar ? NozzleGlowRampEnd(glow.targetLevel) : glow.targetLevel;
+
         /// <summary>Per visible frame: writes the glows whose level moved. A settled glow costs
-        /// two compares; a ghost with no glow one null check.</summary>
+        /// a few compares; a ghost with no glow one null check.</summary>
         internal static void UpdateNozzleGlows(GhostPlaybackState state, double currentUT)
         {
             List<NozzleGlowInfo> glows = state?.nozzleGlows;
@@ -343,7 +406,9 @@ namespace Parsek
             for (int i = 0; i < glows.Count; i++)
             {
                 NozzleGlowInfo g = glows[i];
-                if (g.writtenLevel == g.targetLevel && g.startLevel == g.targetLevel) continue;
+                float rest = NozzleGlowRestLevel(g);
+                if (g.writtenLevel == rest && g.startLevel == g.targetLevel
+                    && (!g.ramps || g.startRamp == NozzleGlowRampEnd(g.targetLevel))) continue;
                 if (double.IsNaN(g.startUT))
                 {
                     // Latched on the state, so a restart of the event walk keeps it.
@@ -351,8 +416,10 @@ namespace Parsek
                     g.startUT = state.nozzleGlowStartUT;
                 }
                 float level = NozzleGlowLevelAt(g, currentUT);
-                if (level == g.targetLevel) g.startLevel = level;
-                if (!ShouldWriteNozzleGlow(g.writtenLevel, level, g.targetLevel)) continue;
+                if (NozzleGlowScalarAt(g, currentUT) == g.targetLevel) g.startLevel = g.targetLevel;
+                if (g.ramps && NozzleGlowRampAt(g, currentUT) == NozzleGlowRampEnd(g.targetLevel))
+                    g.startRamp = NozzleGlowRampEnd(g.targetLevel);
+                if (!ShouldWriteNozzleGlow(g.writtenLevel, level, rest)) continue;
                 g.writtenLevel = level;
                 if (g.colors != null && g.colors.Count > 0) WriteNozzleGlowColors(g.colors, level);
             }

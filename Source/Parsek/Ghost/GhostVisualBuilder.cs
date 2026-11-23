@@ -1518,8 +1518,10 @@ namespace Parsek
             // field this builder reads is config-only and so never survives into a persisted
             // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
             // structure hider already uses two calls below.
+            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);
             colorChangerInfos = BuildColorChangerInfos(
-                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
+                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName,
+                ThrottleDrivenModuleIds(throttleGlowDrivers));
 
             // Material / active-state clips the live part holds at rest (the ion engine's glow,
             // ReStock's scanner screen): written after the heat, light and colour-changer infos
@@ -1531,11 +1533,11 @@ namespace Parsek
                 hasStandaloneAnimateGenericDeploy ? standaloneAnimateGenericAnimName : null,
                 ref deployableInfo);
 
-            // Engine / RCS nozzle glow: FXModuleAnimateThrottle / FXModuleAnimateRCS clips, driven
-            // by the recorded engine / RCS power. After the rest-state write, whose material clones
-            // it reuses.
+            // Engine / RCS nozzle glow: FXModuleAnimateThrottle / FXModuleAnimateRCS clips and the
+            // colour changers an FXModuleThrottleEffects names, driven by the recorded engine / RCS
+            // power. After the rest-state write, whose material clones it reuses.
             BuildNozzleGlows(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
-                ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName);
+                ref heatInfo, lightInfo, colorChangerInfos, throttleGlowDrivers, persistentId, partName);
 
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);

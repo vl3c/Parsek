@@ -90,17 +90,17 @@ The headline: ReStock's own plumes match. Over the 58 PP-9 full-thrust plumes wi
 Clusters, each with its entry:
 
 - Stock legacy plumes are the wrong size at every power (GHOST-PLUME-SIZE-BY-POWER).
-- `fx_exhaustFlame_yellow_tiny_Z` flames point sideways and read as a ball (GHOST-FLAME-Z-DIRECTION).
+- `fx_exhaustFlame_yellow_tiny_Z` flames point sideways and read as a ball (GHOST-FLAME-Z-DIRECTION, fixed).
 - Ghosts draw a legacy flame stock does not, on nine stock parts (GHOST-ENGINE-EXTRA-LEGACY-FLAME).
 - The engine's exhaust `Light` is missing on 34 stock cases (GHOST-ENGINE-EXHAUST-LIGHT-MISSING).
-- Effects ignore the model's 0.8 scale (GHOST-FX-MODEL-SCALE).
-- ReStock nozzles do not glow (GHOST-RESTOCK-NOZZLE-GLOW).
-- A lamp's light cookie is not copied (GHOST-LIGHT-COOKIE).
+- Effects ignore the model's 0.8 scale (GHOST-FX-MODEL-SCALE, fixed, not flown).
+- ReStock nozzles do not glow (GHOST-RESTOCK-NOZZLE-GLOW, fixed, not flown).
+- A lamp's light cookie is not copied (GHOST-LIGHT-COOKIE, fixed, not flown).
 - Heat: `heat-hot` fails on colour on 13 of 16 stock parts and 12 of 13 ReStock ones, `heat-medium` passes on all but the JetEngine and (stock) the nuclear engine: the ghost draws the generic emissive where stock plays the part's own clip (PARTPARITY-FX-FIRST-READINGS-2026-11-23, Heat). On the nuclear engine the ghost lights the bell, which stock's clip leaves dark (`nuclearengine--default--heat-medium--6b86bbe4`, bottom 18457 px).
-- RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts.
-- `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum).
+- RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts (the position and the scale are fixed with GHOST-FX-MODEL-SCALE, not flown).
+- `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum; GHOST-FLAME-Z-DIRECTION).
 - ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
-- Stock `LaunchEscapeSystem` draws no particles (by design, `EngineFxBuilder`); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees.
+- Stock `LaunchEscapeSystem` draws no particles (by design, `EngineFxBuilder`); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed, not flown).
 - `sepMotor1` (stock) flame origin 34 px late, width 0.76.
 
 The instrument's own findings: PARTPARITY-FX-INSTRUMENT-2026-11-23.
@@ -111,11 +111,15 @@ What: on the legacy `fx_exhaustFlame_*` engines the ghost's side-view core at fu
 
 Fix (not started here): read stock's `power` curves on each EFFECTS / legacy system (size, speed and emission against the module's throttle) and apply the same; the ghost scales size and speed by its own rule. The PP-7 / PP-9 cases are the acceptance test.
 
-## GHOST-FLAME-Z-DIRECTION: the small `_Z` engine flames point sideways on a ghost and read as a ball at the nozzle [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN; low (visual only)]
+## ~~GHOST-FLAME-Z-DIRECTION~~: the small `_Z` engine flames point sideways on a ghost and read as a ball at the nozzle [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; FIXED 2026-11-23 by GHOST-ENGINE-FX-STOCK-RULES (branch `ghost-fx-3`, flown on two of the four parts) and, for the separation motors, branch `ghost-fx-4`, NOT FLOWN YET; low (visual only)]
 
 What: `smallRadialEngine` and `.v2`, `liquidEngineMini.v2` (Spark) and `LiquidEngineRV-1` draw `fx_exhaustFlame_yellow_tiny_Z`. The inventories differ in the emission direction (and in size, as everywhere): real `dir=(0.0,1.0,0.0)`, ghost `dir=(0.0,0.0,-1.0)` (local to the same parent). In the pictures stock draws a flame 2 to 5 nozzles long and the ghost a round glow at the nozzle: core 12933 / 1565 px (`smallradialengine.v2--orange--burn-full--0fb37a96`, length 0.15), Spark length 0.46, RV-1 0.35. ReStock draws its own plume there and matches.
 
-Fix (not started): read how the ghost parents the prefab. Inferred, not read: the prefab's own rotation (`_Z` prefabs are authored along another axis) is lost there.
+Cause (re-derived against main with #2798): the four parts name the flame in a PREFAB_PARTICLE node with no `localRotation`, which stock (`PrefabParticleFX.OnInitialize`, decompiled) reads as identity. The ghost ran the parent-up heuristic instead (`EngineFxBuilder.ResolvePrefabParticleLocalRotation`), which answers -90 degrees about X when the mount's up is far from world up: (0,1,0) turned to the read (0,0,-1). `ghost-fx-3` loads stock's exact asset for an EFFECTS entry and puts it on stock's identity, and flew it: `2026-11-23_1209` `smallRadialEngine.v2` and `2026-11-23_1225` Spark read dir (0,1,0) on both sides. `smallRadialEngine` and `LiquidEngineRV-1` are the same node and code path. The same change covers the `fx_smokeTrail_veryLarge` axis on the 10 ReStock engines and boosters.
+
+Fix (`ghost-fx-4`): the one legacy direction still off, `Size1p5.Tank.05`'s separation motors (PP-7: real (0,0,-1) on every nozzle, ghost (0,1,0) and (0,0.7,-0.7)). `ModuleEngines.AutoPlaceFXGroup` (decompiled) sets a legacy system to identity and `Rotate(-90,0,0)` under its own thrust transform; the ghost carried the `fx_*` child's part-frame rotation over, which only agrees when the nozzle points down the part. `EngineFxBuilder.LegacyFxLocalRotation`. Every other legacy system of PP-7 already read (0,0,-1). The heuristic stays for the plumes Parsek adds itself (GHOST-ENGINE-ADDED-PLUMES, the owner's question).
+
+To fly: `PPS-12a` (below, GHOST-FX-MODEL-SCALE). Before, PP-7: `smallRadialEngine` side-a length 0.148, side-b lateral -103 px; `.v2` 0.146 / -112; Spark 0.465 / -140; RV-1 0.352 / -65; `Size1p5.Tank.05` far smoke width 0.432, core-iou 0.349.
 
 ## GHOST-ENGINE-EXTRA-LEGACY-FLAME: nine stock engines' ghosts draw a legacy flame stock does not, and two of them miss stock's own [FILED 2026-11-23 from PP-7 `2026-11-23_1027`; OPEN; medium (the wrong plume is plainly visible)]
 
@@ -131,23 +135,39 @@ What: `lightsDiffer` reads `count real=1 ghost=0` on 28 stock cases, `real=3` on
 
 Fix (not started): decide whether a ghost should light its surroundings at all (many ghosts, many lights) before copying it.
 
-## GHOST-FX-MODEL-SCALE: a ghost's engine and RCS effects ignore the model's scale and draw 1.25 times too large [FILED 2026-11-23 from PP-7 `2026-11-23_1027` and PP-9 `2026-11-23_1050`; OPEN; low (visual only)]
+## ~~GHOST-FX-MODEL-SCALE~~: a ghost's engine and RCS effects ignore the model's scale and draw 1.25 times too large [FILED 2026-11-23 from PP-7 `2026-11-23_1027` and PP-9 `2026-11-23_1050`; FIXED 2026-11-23, branch `ghost-fx-4`, NOT FLOWN YET (the engines' first nozzle and the legacy systems came with `ghost-fx-3`); low (visual only)]
 
 What: the real effect system sits under a model scaled 0.8 (0.64 where two nested transforms are), the ghost's under 1.0. Stock: `liquidEngine`, `liquidEngine2`, `RAPIER` (0.80 -> 1.00) and `sepMotor1` (3.53 -> 4.42). ReStock: `RAPIER`, `restock-engine-125-valiant`, `linearRcs`, `RCSBlock.v2` and the `restock-rcs-*` blocks (0.64 or 0.80 -> 1.00). It shows as a larger plume: ReStock RAPIER full core 55234 / 73716 px, width 1.32; `restock-rcs-single-mini-1` length 1.58; Valiant width 1.24.
 
-Fix (not started): read where the ghost takes the effect's scale. Inferred, not read: carry the part model's lossy scale (`MODEL { scale }`, `rescaleFactor`) onto the ghost's effect roots.
+Cause (decompiled `TransformExtension.NestToParent`, `ModelMultiParticleFX.OnInitialize`): stock parents an effect keeping its WORLD scale, so on a part rescaled by 1.25 the instance's local scale is 0.8. 0.64 is not two nested transforms: the second and later mounts get `Instantiate` of the FIRST instance after it was nested, so its local 0.8 becomes the copy's world scale and 0.8 / 1.25 = 0.64 (RAPIER and RCSBlock.v2: one 0.80, the rest 0.64; Poodle's last mount, scaled 0.5, reads 2.00). Other variants' mounts count: stock nests an instance under them too. The ghost parented without keeping the world scale. `ghost-fx-3` already fixed the legacy systems and EFFECTS prefabs (flown: `sepMotor1` 3.53 / 3.53), and gave every model instance 0.8, the later nozzles included.
 
-## GHOST-RESTOCK-NOZZLE-GLOW: a ReStock engine's nozzle and bell do not glow on its ghost [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; OPEN; low (visual only, modded)]
+Fix: `GhostVisualBuilder.NestedModelFxScale` (pure: the mounts' prefab scales and the node's `localScale`), used by the engine and the RCS builder for MODEL_MULTI_PARTICLE nodes; SmokeScreen's `_PERSIST` node keeps what it had. Found with it and fixed: the RCS builder read `localOffset`, a key stock's `ModelMultiParticleFX` has not, and not `localPosition`, which it has (12 ReStock parts sat 0.1 to 0.15 m off, 6 lacked their 0.015 m; the -188 px origin of `restock-rcs-single-mini-1`). Tests: `GhostFxStockPlacementTests`.
+
+To fly (nothing of this branch is flown): `<umbrella>/logs/flights/ghost-fx-4/PPS-12a-ghost-fx-4-stock.toml` (stock-minimal) and `PPS-12b-ghost-fx-4-restock.toml` (modded-restock). Before, PP-9: RAPIER full width 1.316 / 1.344 / far 1.314, bottom area 1.596; Valiant width 1.244 / 1.197, bottom area 1.364; `linearRcs` origin 30 / 24 px, bottom area 1.542; `RCSBlock.v2` origin -23 / -36, bottom area 1.501; `restock-rcs-single-mini-1` origin -187 / -188 / far -86; `restock-rcs-block-quad-mini-1` origin -54 / -60, bottom area 1.576. PP-7: `liquidEngine` / `liquidEngine2` full hue 0.398 / 0.444 (warn), 30 % length 1.549 / 1.481. Expect each structural scale and position equal to the real one's.
+
+## ~~GHOST-RESTOCK-NOZZLE-GLOW~~: a ReStock engine's nozzle and bell do not glow on its ghost [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; FIXED 2026-11-23, branch `ghost-fx-4`, NOT FLOWN YET; low (visual only, modded)]
 
 What: 94 of 102 PP-9 plume cases fail or warn on `color-blob-px` at the bottom view (and about 50 on a side view): the real bell glows orange while it burns, the ghost's stays cold metal (`toroidalaerospike--trussmount--burn-full--fcaf5be7` 123810 px, `liquidenginelv-t91--cap--burn-full--24c349fb` 37868). Stock nozzles now match (`ghost-fx-2`: `FXModuleAnimateThrottle` / `FXModuleAnimateRCS` clips; PP-7 reads 0 to 58 px there), but ReStock drives the glow with `ModuleColorChanger` (`heatColor` / `throttleColor`, 52 modded parts, design E.1), which `GhostVisualBuilder.NozzleGlow` does not read. It is the one thing that keeps most matching ReStock plumes from `pass`.
 
-Fix (not started): drive the same colour curve from the recorded power, like the clips.
+Cause (config and decompile): ReStock replaces FXModuleAnimateThrottle with stock's `FXModuleThrottleEffects` (101 on the install, all responseSpeed 1, dependOnThrottle) that calls `SetScalar` on a `ModuleColorChanger` by `moduleID`: `heatColor` (`_EmissiveColor`, animRate 0.025, 0.05 or 0.1) and `throttleColor` (animRate 1). All are `useRate`, so `SetScalar` is a switch (`animState` from 0.5) and the module's `Update` shows `currentRateState`, a ramp of `animRate` per second: a bell takes 10 to 40 s to heat and as long to cool. KSPCommunityFixes (both modded profiles and stock-minimal carry it) replaces that `Update` with one that writes only while the ramp moves, so once it stands the setter's level shows.
 
-## GHOST-LIGHT-COOKIE: a ghost lamp's light is a plain disc where stock's has a pattern [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; OPEN; low (visual only)]
+Measured on PP-9's own pictures (curves are linear in all four channels, so emission goes with the square): at 30 % the bell reads 0.300 of its full colour curve on 37 of 37 engines whose side view shows the bell, the setter's level; at full it reads the ramp, `toroidalAerospike` 0.621 = 0.05 /s x 12.4 s, SSME 0.275 and `microEngine.v2` 0.312 at 0.025 /s. So the setter's write comes before the module's own (the other order would read 1.0 at full).
+
+Fix: `BuildColorChangerInfos` marks a colour changer an FXModuleThrottleEffects names (`ColorChangerPattern.ThrottleGlow`; a cabin light toggle or a heat shield char keeps its writer) and samples its curves; `GhostVisualBuilder.BuildThrottleGlows` turns it into a `NozzleGlowInfo` on the material clones it already had, driven by the recorded engine power through the nozzle-glow walk (`GhostPlaybackLogic.NozzleGlow`, closed form in the recorded UT, writes only when the level moved). The KSPCommunityFixes rule is read off the Harmony owner of `ModuleColorChanger.Update`, so a ReStock install without it shows stock's ramp. Tests: `GhostNozzleGlowTests` (Throttle glow region).
+
+Known limit: stock does not persist where the ramp stood, only `animState`, so a ghost whose snapshot was taken with the engine running starts at the hot end (as stock's own load does). The start-route ghosts of PP-9 read brighter than the real bell 12 s into its burn for that reason.
+
+To fly: `PPS-12b` (GHOST-FX-MODEL-SCALE). Before, PP-9 event `color-blob-px`: `toroidalAerospike` full side-a 32783, side-b 32782, bottom 101512, 30 % 1504 / 1497 / 688; `LiquidEngineLV-T91` bottom 37868 / 36718; SSME bottom 37620 / 37620; `microEngine.v2` bottom 13312 / 13307; `ionEngine` bottom 36399 / 36086; `Mite` bottom 9607; Poodle bottom 5252 / 5209.
+
+## ~~GHOST-LIGHT-COOKIE~~: a ghost lamp's light is a plain disc where stock's has a pattern [FILED 2026-11-23 from PP-9 `2026-11-23_1050`; FIXED 2026-11-23, branch `ghost-fx-4`, NOT FLOWN YET; low (visual only)]
 
 What: the plate pictures of `GrapplingDevice`, `smallClaw` and `restock-claw-625-1` differ (82804, 55775 and 66661 px) though intensity, colour, range and spot angle agree: the real light has ring-shaped falloff and the ghost's is a uniform disc (mean plate luminance 8.6 against 20.7). Inferred, not read: the light's `cookie` texture is not copied (no `cookie` read in `Source/Parsek/Ghost/`). Every other lamp's plate passes.
 
-Fix (not started): copy `Light.cookie` and `cookieSize` with the other values.
+Cause: it is the cookie, but copying the prefab's would have changed nothing. Exactly these three parts carry ReStock's `ModuleRestockEnhancedLight` with a `cookiePath` (the other lamps' is commented out); its `OnStart` (decompiled Restock.dll) sets `GameDatabase.GetTexture(cookiePath)`, wrap mode clamp, on every Light its ModuleLights drive. A `.mu` light has no cookie, so the prefab the ghost copies has none.
+
+Fix: `GhostVisualBuilder.ResolveReStockLightCookie` reads the module's `cookiePath` off the prefab and the Lights ModuleLight drives get the same texture; every Light also takes the prefab's `cookie` and `cookieSize`.
+
+To fly: `PPS-12b` (GHOST-FX-MODEL-SCALE). Before, PP-9 event plate `color-blob-px`: `GrapplingDevice` 82804, `smallClaw` 55775, `restock-claw-625-1` 66661; `spotLight1` is the control (pass, no cookie).
 
 ## PARTPARITY-FX-INSTRUMENT-2026-11-23: what the FX sweeps found about their own instrument [FILED 2026-11-23 from PP-7, PP-8 and PP-9; OPEN; low (tooling)]
 
