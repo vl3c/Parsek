@@ -2664,7 +2664,7 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   | --- | --- | --- |
   | `ctl-empty` | inside a burning wave, both sides hidden | zero coverage on every layer |
   | `ctl-ghost-absent` | ghost not built | ghost layers zero |
-  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the Flea) | passes every FX measure (the noise floor) |
+  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the separation motor, "F6 as built" in E.8) | passes every FX measure (the noise floor) |
   | `ctl-fx-plume-off` | the same | real vs an event-route ghost built without the polled events: fails presence, while the real core is present and `EngineIgnited` was recorded |
   | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose FX roots are scaled to 0.4 with Hierarchy particle scaling AFTER the visible prime ("F3 as built" in E.2 says why not the particle fields): fails length, passes presence and colour |
   | `ctl-fx-plume-hue` | the same | intact ghost vs a ghost whose rendered `flame` pixels have their channels rotated (r, g, b) -> (b, r, g) in the readback, before accumulation. That leaves max-channel coverage exactly unchanged, so it fails colour and passes presence and length exactly. A material edit cannot do this (E0 U10): every stock flame tint is grey (0.537, 0.779, 1.0 or 0.5 in all channels), so rotating its channels changes nothing, and a (0, max, 0) tint changes coverage (by 46 % on the ion engine, whose colour comes from its particles) |

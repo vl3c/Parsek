@@ -20,7 +20,7 @@ tier = "operator"
 # WHAT THE LANE FLIES. PP-7's host and setup on `eva2-lko-crewed` (auto-record off, verbose
 # logging, WarpToUT 1900), `op=reset`, FIVE time-boxed `op=run fx=all` steps and quit.
 # `controls=true` runs the orbit FX control set on subjects that carry no Waterfall module
-# (the Flea for the plume controls, E.5).
+# (`sepMotor1` for the plume controls, E.5).
 #
 # CASES (design E.1, pinned by `fx-parts-modded-compat.txt`): 102 plume (60 burn-full, 42
 # burn-low), 19 rcs, 26 heat, 18 plate, plus the 11 orbit FX controls. Each step logs the
