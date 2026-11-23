@@ -138,6 +138,13 @@ namespace Parsek.TestCommands
         /// <summary>Four atlas rows (a state case) or two (the stacked stowed context case).</summary>
         internal bool FourRows;
 
+        /// <summary>An FX case's own ghost-reach read (design E.2: the engine, RCS and heat infos),
+        /// instead of P6's family rules; null for every P6 case.</summary>
+        internal Func<GhostPlaybackState, uint, string> GhostOutcomeOverride;
+
+        /// <summary><c>ctl-ghost-absent</c> of an FX run: no ghost of this case is built.</summary>
+        internal bool NoGhosts;
+
         // ----- the air context (D.4, PartParityAirContext) -----
 
         /// <summary>A chute case in the air (context <c>air</c>).</summary>
@@ -237,6 +244,7 @@ namespace Parsek.TestCommands
                 foreach (AttachNode n in prefab.attachNodes)
                     if (n != null && n.nodeType == AttachNode.NodeType.Stack && !string.IsNullOrEmpty(n.id))
                         sp.StackNodes.Add(n.id);
+            sp.LightCount = prefab.GetComponentsInChildren<Light>(true).Length;
             return sp;
         }
 
@@ -539,6 +547,7 @@ namespace Parsek.TestCommands
         {
             PartParityStateRun run = wc.State;
             Part part = wc.Real.rootPart;
+            if (PartParityFxDriver.TryPress(wc)) return;
             run.PressRealtime = Time.realtimeSinceStartup;
             if (run.Option.Action == null)
             {
@@ -710,6 +719,7 @@ namespace Parsek.TestCommands
         /// check, the timeout, and once reached the settle.</summary>
         internal static void Step(WaveCase wc)
         {
+            if (PartParityFxDriver.TryStep(wc)) return;
             PartParityStateRun run = wc.State;
             Part part = wc.Real.rootPart;
             float now = Time.realtimeSinceStartup;
@@ -1064,6 +1074,14 @@ namespace Parsek.TestCommands
                 ParsekLog.Verbose(Tag, $"case {wc.CaseId}: {rehomed.ToString(Ic)} real record path(s) of a reparented shroud read at their prefab path");
 
             uint subjectPid = part.persistentId;
+            if (run.NoGhosts)
+            {
+                // ctl-ghost-absent of an FX run: the real side only.
+                wc.GhostRecords = new List<PartParityRendererRecord>();
+                FrameState(wc, run);
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: no ghost built (ctl-ghost-absent) realRenderers={wc.RealRecords.Count.ToString(Ic)}");
+                return;
+            }
             var events = new List<PartEvent>(run.StowedSeeds);
             var eventUTs = new List<double>();
             if (!run.DropEvents)
@@ -1087,7 +1105,7 @@ namespace Parsek.TestCommands
                 Place(evGhost, partT);
                 wc.SeedEvents = events.Count;
                 foreach (double ut in primes) wc.SeedApplied = GhostCoOrbitalRig.ApplySeedPrefix(evGhost, ut);
-                run.GhostEvent = run.FourRows ? GhostOutcome(run.Option, evGhost.State, subjectPid) : null;
+                run.GhostEvent = run.FourRows ? OutcomeOf(run, evGhost.State, subjectPid) : null;
                 ConfigNode snapPart = evGhost.Snapshot != null ? evGhost.Snapshot.GetNode("PART") : null;
                 PartParityCaseCapture.RecordSkinProof(wc, snapPart, evGhost.Build);
                 SplitGhost(evGhost, run.FillerPids, run.EventShown, run.GhostHidden);
@@ -1133,11 +1151,11 @@ namespace Parsek.TestCommands
             Place(g, partT);
             List<double> primes = PartParityStateWave.StartRoutePrimeUTs(t1, run.SunTracker);
             GhostCoOrbitalRig.ApplySeedPrefix(g, primes[0]);
-            run.StartFirstFrameAtTarget = GhostOutcome(run.Option, g.State, subjectPid) == PartParityStateRules.GhostApplied;
+            run.StartFirstFrameAtTarget = OutcomeOf(run, g.State, subjectPid) == PartParityStateRules.GhostApplied;
             Transform pivot = GhostPivot(g.State, subjectPid);
             if (pivot != null) run.SunStartFirstFrameDeg = PivotAngle(g.State, subjectPid, pivot.localRotation);
             for (int i = 1; i < primes.Count; i++) GhostCoOrbitalRig.ApplySeedPrefix(g, primes[i]);
-            run.GhostStart = GhostOutcome(run.Option, g.State, subjectPid);
+            run.GhostStart = OutcomeOf(run, g.State, subjectPid);
             SplitGhost(g, run.FillerPids, run.StartShown, run.GhostHidden);
             run.StartRecords = PartParityCaseCapture.Records(partT, run.StartShown, run.StartLayers, null);
             run.StructureStart = PartParityStructure.Diff(wc.RealRecords, run.StartRecords);
@@ -1227,6 +1245,9 @@ namespace Parsek.TestCommands
                 return GhostPlaybackLogic.ClampDeployableClipSeconds(d.clipLengthSeconds);
             return GhostPlaybackLogic.ClampDeployableClipSeconds(0f);
         }
+
+        private static string OutcomeOf(PartParityStateRun run, GhostPlaybackState state, uint pid)
+            => run.GhostOutcomeOverride != null ? run.GhostOutcomeOverride(state, pid) : GhostOutcome(run.Option, state, pid);
 
         /// <summary>The ghost's own playback state for the case's family, read-only (D.5).</summary>
         internal static string GhostOutcome(PartParityStateOption opt, GhostPlaybackState state, uint pid)
@@ -1501,7 +1522,7 @@ namespace Parsek.TestCommands
             PartParityStateRun run = wc.State;
             Part part = wc.Real.rootPart;
             var ghostRoots = new List<Transform>();
-            foreach (var g in new[] { wc.Ghost, run.StartGhost, run.StowedGhost })
+            foreach (var g in new[] { wc.Ghost, run.StartGhost, run.StowedGhost, wc.Fx?.BrokenGhost })
                 if (g?.Build?.root != null) ghostRoots.Add(g.Build.root.transform);
             ClassifyReal(wc, ghostRoots, out List<Renderer> realShown, out List<Renderer> realHidden);
             var all = new List<Renderer>(realShown);
@@ -1512,6 +1533,15 @@ namespace Parsek.TestCommands
             all.AddRange(run.GhostHidden);
             var sides = new List<IList<Renderer>> { realShown, run.EventShown };
             if (run.FourRows) { sides.Add(run.StartShown); sides.Add(run.StowedShown); }
+            if (wc.Fx != null)
+            {
+                // The body picture of an FX case: effects hidden (they are measured alone), and
+                // every other renderer in the scene, so no neighbour's plume or host shows (E.3).
+                all.AddRange(PartParityFxDriver.HideSet());
+                bool empty = wc.Fx.Control == TestCommandPartParitySweep.ControlEmpty;
+                for (int i = 0; i < sides.Count; i++)
+                    sides[i] = empty ? new List<Renderer>() : PartParityFxDriver.BodyOnly(sides[i]);
+            }
 
             PartParityViewShot shot = ctx.Capture.CaptureSides(part.transform, wc.Shared, wc.OrthoSize, view,
                 all, sides, wc.CullingMask);

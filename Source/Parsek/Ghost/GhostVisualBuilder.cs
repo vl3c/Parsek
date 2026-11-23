@@ -13,6 +13,8 @@ namespace Parsek
         private const string LightsShowcaseRecordingPrefix = "Part Showcase - Light";
         private const string RcsShowcaseRecordingPrefix = "Part Showcase - RCS";
         private const float LightsShowcaseVisualYOffset = 2f;
+        /// <summary>The TryBuildHeatInfo source whose clip stock plays through ModuleAnimationSetter.</summary>
+        internal const string HeatSourceAnimateHeat = "ModuleAnimateHeat";
         private const float LightMinimumIntensity = 1f;
         private const float LightMinimumRange = 8f;
         private const float LightShowcaseIntensityScale = 2f;
@@ -74,7 +76,8 @@ namespace Parsek
             {
                 { "fx_exhaustFlame_yellow_tiny_Z", new[] { "fx_exhaustFlame_yellow_tiny" } },
                 { "fx_smokeTrail_veryLarge", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } },
-                // RAPIER's smokePoint frame matches stock large-smoke setups more closely.
+                // Parts whose patches name this trail. The RAPIER loads its own trail exactly
+                // (EngineFxBuilder.IsRapierOwnTrail) and never reaches this substitution.
                 { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } }
             };
 
@@ -243,7 +246,10 @@ namespace Parsek
                         if (wheelDamageInfo != null)
                             build.wheelDamageInfos.Add(wheelDamageInfo);
                         if (heatInfo != null)
+                        {
+                            StampPersistedGlowLevels(heatInfo, build.snapshotNode, parseSnapshotBaselines);
                             build.heatInfos.Add(heatInfo);
+                        }
                         if (lightInfo != null)
                             build.lightInfos.Add(lightInfo);
                         if (fairingInfo != null)
@@ -1500,7 +1506,7 @@ namespace Parsek
             {
                 string heatSource = SelectHeatAnimationSourceModule(hasAnimateHeat, hasAnimateThrottle);
                 heatInfo = TryBuildHeatInfo(prefab, heatAnimName, heatSource,
-                    modelNode.transform, partName, persistentId);
+                    modelNode.transform, partName, persistentId, modelRoot, cloneMap);
             }
 
             // Detect light parts and clone Light components for ghost playback
@@ -1512,8 +1518,10 @@ namespace Parsek
             // field this builder reads is config-only and so never survives into a persisted
             // snapshot node - GS6-GHOST-HAS-NO-COLORCHANGER-STATE. Same source the fairing
             // structure hider already uses two calls below.
+            List<ThrottleGlowDriver> throttleGlowDrivers = CollectThrottleGlowDrivers(prefab);
             colorChangerInfos = BuildColorChangerInfos(
-                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
+                partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName,
+                ThrottleDrivenModuleIds(throttleGlowDrivers));
 
             // Material / active-state clips the live part holds at rest (the ion engine's glow,
             // ReStock's scanner screen): written after the heat, light and colour-changer infos
@@ -1524,6 +1532,12 @@ namespace Parsek
                 heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName,
                 hasStandaloneAnimateGenericDeploy ? standaloneAnimateGenericAnimName : null,
                 ref deployableInfo);
+
+            // Engine / RCS nozzle glow: FXModuleAnimateThrottle / FXModuleAnimateRCS clips and the
+            // colour changers an FXModuleThrottleEffects names, driven by the recorded engine / RCS
+            // power. After the rest-state write, whose material clones it reuses.
+            BuildNozzleGlows(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
+                ref heatInfo, lightInfo, colorChangerInfos, throttleGlowDrivers, persistentId, partName);
 
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);

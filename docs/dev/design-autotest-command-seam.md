@@ -5680,18 +5680,22 @@ pair and measures the difference. Full contract (cases, capture, files, measures
 `docs/dev/design-part-ghost-parity.md`, section 7 for the verb.
 
 **Grammar.** `cmd=PartParitySweep label=<label> [op=reset|run] [filter=<glob>] [source=<csv>]
-[skins=default|all] [states=none|all|<csv>] [contexts=none|<csv>] [views=required|all|<csv>]
-[tile=256..1024] [shard=<k>/<n>] [limit=<n>] [controls=true|false] [maxSeconds=60..480]`. `label`
+[skins=default|all] [states=none|all|<csv>] [contexts=none|<csv>] [fx=none|all|<csv>]
+[views=required|all|<csv>] [tile=256..1024] [shard=<k>/<n>] [limit=<n>] [controls=true|false] [maxSeconds=60..480]`. `label`
 is REQUIRED and filename-safe, `CaptureScreenshot`'s rule by delegation. `states=` / `contexts=`
 (both default `none`) select the deployed-state and context cases instead of the stowed sweep
-(part ghost parity design, Appendix D.2; `air` stands alone in `contexts=`). Every present arg
+(part ghost parity design, Appendix D.2; `air` stands alone in `contexts=`). `fx=` (default
+`none`; words `plume`, `rcs`, `heat`, `plate`) selects the visual-effect cases instead (Appendix
+E.5) and names no `states=` and at most `contexts=air` beside it. Every present arg
 that does not parse is REJECTED with its own token, never clamped: `label-arg-missing`,
 `label-arg-invalid`, `op-arg-invalid`, `filter-arg-invalid`, `source-arg-invalid`,
-`skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `views-arg-invalid`,
+`skins-arg-invalid`, `states-arg-invalid`, `contexts-arg-invalid`, `fx-arg-invalid`,
+`views-arg-invalid`,
 `tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
 `maxseconds-arg-invalid` (the parse order). A well-formed `contexts=air` step parses like any
 other (the interim `air-runs-not-built` refusal was dropped when design D.10 S7 built the air
-context).
+context), and so does an `fx=` one, in orbit or with `contexts=air` (the interim
+`fx-runs-not-built` refusal was dropped once Appendix E.9 pieces F3 and F7 built both).
 
 **Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
 arg parse the applier admits the host (`PartParityAirContext.DecideAdmission`, the runner's own

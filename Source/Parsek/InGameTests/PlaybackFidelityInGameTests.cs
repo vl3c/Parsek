@@ -13,9 +13,8 @@ namespace Parsek.InGameTests
     ///     has been instantiated, size-boosted and velocity-floored. Headless cells pin the ratio
     ///     ARITHMETIC; only a live scene proves a captured baseline exists at all and that the write
     ///     lands on the emitter. The suppress/restore cell additionally covers
-    ///     <c>RestoreAllRcsEmissions</c>, the ONE production path that re-enables emitters without
-    ///     going through <c>SetRcsEmission</c> — the whole reason the mechanism had to be persistent
-    ///     fields rather than a per-event computation.
+    ///     <c>RestoreAllRcsEmissions</c>, which re-lights a firing module from its recorded power
+    ///     after an FX suppression; the scaled magnitude must come back exactly as the event wrote it.
     ///   * S2's interpolation writes <c>Transform.localPosition/localRotation/localScale</c> between
     ///     two sampled animation poses. Headless can prove the PROGRESS; only a scene proves the
     ///     pose is strictly between the endpoints, and that a BASELINE application still snaps.
@@ -53,9 +52,10 @@ namespace Parsek.InGameTests
         ///
         /// Measured on the ghost's own particle systems and (when the emitter fields were readable)
         /// on the cloned KSPParticleEmitter, because those are the two surfaces
-        /// <c>ApplyFxMagnitudeScale</c> writes. If this reds while the headless ratio cells stay
-        /// green, the arithmetic is fine and the failure is in CAPTURE — check that
-        /// <c>CaptureFxMagnitudeBaselines</c> still runs after the FX build in
+        /// <c>ApplyFxMagnitudeScale</c> and <c>ApplyEngineFxRules</c> write (a stock-ruled source
+        /// changes rate, lifetime or size, an S1 one speed and size). If this reds while the headless
+        /// cells stay green, the arithmetic is fine and the failure is in CAPTURE — check that
+        /// <c>CaptureFxMagnitudeBaselines</c> and the rules still run over the FX build in
         /// <c>EngineFxBuilder.TryBuildEngineFX</c>.
         /// </summary>
         [InGameTest(Category = "PlaybackFidelity", Scene = GameScenes.FLIGHT,
@@ -98,15 +98,15 @@ namespace Parsek.InGameTests
                 GhostPlaybackLogic.ResetFxMagnitudeWriteFailureCountForTesting();
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
-                float fullSpeed = SumStartSpeed(engine.particleSystems);
+                float fullSpeed = SumEngineMagnitude(engine);
                 float fullEmission = SumEmitterMaxEmission(engine.kspEmitters);
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 0.3f);
-                float lowSpeed = SumStartSpeed(engine.particleSystems);
+                float lowSpeed = SumEngineMagnitude(engine);
                 float lowEmission = SumEmitterMaxEmission(engine.kspEmitters);
 
                 GhostPlaybackLogic.SetEngineEmission(state, evt, 1f);
-                float backToFullSpeed = SumStartSpeed(engine.particleSystems);
+                float backToFullSpeed = SumEngineMagnitude(engine);
 
                 // THE 2026-08-11 REGRESSION GUARD. Every emitter write threw
                 // ("Object of type 'System.Single' cannot be converted to type 'System.Int32'")
@@ -125,12 +125,12 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(fullSpeed > 0f,
                     "fixture is vacuous: '" + usedPart + "' produced a ghost whose particle systems " +
-                    "have zero total startSpeedMultiplier at full throttle, so a 'smaller at 30%' " +
+                    "have zero total magnitude at full throttle, so a 'smaller at 30%' " +
                     "assertion could not fail");
                 InGameAssert.IsLessThan(lowSpeed, fullSpeed,
-                    "S1: at 30% throttle the plume speed/size must be strictly smaller than at " +
+                    "At 30% throttle the plume magnitude must be strictly smaller than at " +
                     "full. '" + usedPart + "' measured " + lowSpeed + " vs " + fullSpeed +
-                    ". Check GhostPlaybackLogic.ApplyFxMagnitudeScale and the captured baselines.");
+                    ". Check GhostPlaybackLogic.ApplyFxMagnitudeScale / ApplyEngineFxRules and their baselines.");
                 InGameAssert.ApproxEqual(fullSpeed, backToFullSpeed, fullSpeed * 0.001f + 0.0001f,
                     "S1 IDEMPOTENCE: returning to full throttle must restore the captured baseline " +
                     "EXACTLY (ratio 1.0), not drift. Drift here means the applier is multiplying the " +
@@ -167,14 +167,14 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// The suppress/restore round trip. <c>RestoreAllRcsEmissions</c> re-enables emitters
-        /// DIRECTLY rather than going back through <c>SetRcsEmission</c>, which is exactly why S1
-        /// mutates persistent emitter fields instead of computing magnitude per event: if the scale
-        /// lived in the event path, every high-warp suppression would restore a full-magnitude plume
-        /// on a quarter-throttle thruster. This cell is that path's only proof.
+        /// The suppress/restore round trip. <c>RestoreAllRcsEmissions</c> re-lights a firing module
+        /// through <c>SetRcsEmission</c> at its recorded power, so the plume that comes back must
+        /// carry the same scaled magnitude the event wrote, never the full-power baseline: a
+        /// high-warp suppression must not restore a full-magnitude plume on a quarter-throttle
+        /// thruster. This cell is that path's only proof.
         /// </summary>
         [InGameTest(Category = "PlaybackFidelity", Scene = GameScenes.FLIGHT,
-            Description = "RCS plume magnitude survives the suppress/restore round trip that bypasses SetRcsEmission")]
+            Description = "RCS plume magnitude survives the suppress/restore round trip")]
         public void RcsPlumeMagnitudeSurvivesSuppressAndRestore()
         {
             GhostBuildResult build = null;
@@ -272,9 +272,8 @@ namespace Parsek.InGameTests
                 // ...and only now does the round trip mean "the SCALED value survived", not "the
                 // baseline survived".
                 InGameAssert.ApproxEqual(scaledSpeed, afterSpeed, scaledSpeed * 0.001f + 0.0001f,
-                    "S1 SUPPRESS/RESTORE: RestoreAllRcsEmissions re-enables emitters without calling " +
-                    "SetRcsEmission, so the scaled magnitude must still be sitting in the persistent " +
-                    "fields. '" + usedPart + "' came back at " + afterSpeed + " instead of " +
+                    "S1 SUPPRESS/RESTORE: RestoreAllRcsEmissions re-lights the module at its recorded " +
+                    "power, so the scaled magnitude must come back unchanged. '" + usedPart + "' came back at " + afterSpeed + " instead of " +
                     scaledSpeed + ".");
                 InGameAssert.ApproxEqual(scaledEmission, afterEmission,
                     scaledEmission * 0.001f + 0.0001f,
@@ -913,6 +912,24 @@ namespace Parsek.InGameTests
                 var main = systems[i].main;
                 total += main.startSpeedMultiplier + main.startSizeMultiplier;
             }
+            return total;
+        }
+
+        /// <summary>Every magnitude a throttle may change on an engine's sources: speed, size,
+        /// lifetime and rate of the particle systems, rate and energy of the emitters.</summary>
+        private static float SumEngineMagnitude(EngineGhostInfo engine)
+        {
+            float total = SumStartSpeed(engine.particleSystems) + SumEmitterMaxEmission(engine.kspEmitters);
+            for (int i = 0; i < engine.particleSystems.Count; i++)
+            {
+                ParticleSystem ps = engine.particleSystems[i];
+                if (ps == null) continue;
+                var emission = ps.emission;
+                total += ps.main.startLifetimeMultiplier + emission.rateOverTimeMultiplier;
+            }
+            for (int i = 0; i < engine.kspEmitters.Count; i++)
+                if (engine.kspEmitters[i].emitter is KSPParticleEmitter emitter && emitter != null)
+                    total += emitter.maxEnergy + emitter.localVelocity.magnitude;
             return total;
         }
 

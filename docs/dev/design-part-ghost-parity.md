@@ -2050,6 +2050,8 @@ Out of P8, each an exclusion reason (`PartParityFxRules.ExclusionReasons`, mirro
 - `fx-ablator-char`: `ModuleAblator`'s char (8 / 12 parts), driven by reentry heating (R1).
 - `fx-needs-air` (orbit runs): an air-breathing module; its cases run in the air context (E.2).
 - `fx-throttle-locked`: `burn-low` of a throttle-locked engine (every solid booster).
+- `fx-no-light`: the plate case of a `ModuleLight` part whose prefab has no `Light` component
+  (ReStock's `telescopicLadderBay`, since 2026-11-23); read live, so the config part lists keep it.
 
 P6 does not change. The FX families and the `plate` context live in `PartParityFxRules`, not in
 `PartParityStateRules`: `Families`, `OrbitContexts` (`alone`, `stacked`, `fgv`) and the D.1
@@ -2063,7 +2065,11 @@ today's for the PP-1 to PP-6 arguments.
 Not separate cases: a lit lamp's lens and flare (P6's `lit` case, with the `lightBrightenSpeed`
 settle handed to the state driver by todo GHOST-LIT-SPOTLIGHT-LENS), engine and RCS glow (the
 plume / rcs case's body atlas), the exhaust `Light` of legacy engines (the case's structural
-`Light` diff).
+`Light` diff). ReStock's engine glow is a `ModuleColorChanger` an `FXModuleThrottleEffects` sets by
+name, ramping at `animRate`; the ghost plays it from the recorded power (todo
+GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
+(`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
+the ramp stood.
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 
@@ -2099,7 +2105,7 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
@@ -2220,26 +2226,32 @@ production brings a ghost onto the screen:
    `UnmuteAllAudio` (or `MuteAllAudio` for a boundary-overlap secondary),
    `RestoreActiveEngineFx` when `ShouldRestartEngineFxAfterSuppression(false, priorSuppressed)`
    (true after step 1, so the engine restarts from the last recorded power), then
-   `UpdateAudioAtmosphere`. F2 extracts exactly that tail as an engine-owned static,
+   `UpdateEngineSmokeTrailFades` (stock's `SmokeTrailControl` air-density fade, which reads
+   `state.lastInterpolatedBodyName` / `lastInterpolatedAltitude`: a part case sets both from the
+   real vessel, or its smoke is left as built), then `UpdateAudioAtmosphere`. F2 extracts that tail up
+   to and including the smoke fade as an engine-owned static,
    `GhostPlaybackEngine.ApplyUnsuppressedFxRestore(state, priorVisualFxSuppressed)`, called by
    `ApplyFrameVisuals` after `UpdateLaunchDust`; inlining it back gives the old body (P2's inline
-   fold proof). `state.visualFxSuppressed` is set false first, as `ApplyFrameVisuals` does.
+   fold proof). The audio update stays outside it, because `ApplyFrameVisuals` runs it after BOTH
+   branches; the part case calls it after the static. `state.visualFxSuppressed` is set false
+   first, as `ApplyFrameVisuals` does.
 
 So the ghost's effects start as on a playing ghost's first visible frame, and its particles then
 simulate in real time beside the real ones (the ghost is active, so `ParticleSystem.Play` is not a
 no-op, 9.3). The ghost's reach is read back read-only per route (`fx.ghostEvent` /
 `fx.ghostStart`: the engine / RCS info holds the power, at least one emitter emits, the
 `GhostPartEventApplyTally` outcome for the `EngineFx` surface), anything else being
-`state-not-modelled:<route>:<outcome>` as in P6. E0 U2: this priming leaves every RCS ghost
-dark (todo GHOST-RCS-DARK-AFTER-FX-SUPPRESSION), so until that fix lands every rcs case fails
-`state-not-modelled` on both routes: the ghost defect, reported as it is.
+`state-not-modelled:<route>:<outcome>` as in P6. E0 U2 found this priming left every RCS ghost
+dark (todo GHOST-RCS-DARK-AFTER-FX-SUPPRESSION); since that fix `RestoreAllRcsEmissions`
+re-lights every module with recorded power, so an rcs case reaches its ghost on both routes.
 
 Warm-up and plateau, on EVERY side. The event-route ghost can only be built once the real side
 has recorded its events, so its particles start from nothing seconds after the real ones. After
 the last ghost of a case is primed, the case waits until every side (real, ghost event, ghost
 start) has (a) run for at least the longest particle lifetime among its own systems
 (`ParticleSystem.main.startLifetime` maximum, or `KSPParticleEmitter.maxEnergy`) since its prime,
-and (b) a stable signal over the last 0.5 s (change under 10 %); cap 8 s, then captured and
+and (b) a stable signal over the last 0.5 s (change under 10 %); cap 8 s, or 1 s past the longest
+lifetime when that is later, at most 20 s ("FX instrument fixes" in E.4), then captured and
 tagged `fx-not-plateaued:<side>`. The signal is the live particle count only for a side whose
 systems report their particles; it is the side's `flame` coverage (one 128 px render per 0.25 s)
 for a side with no particle system (every Waterfall side: the real LV-T45 on modded-compat has
@@ -2249,6 +2261,168 @@ press (the 7 s smoke lifetime dominates), the event-route ghost 4.1 to 7.7 s aft
 `.ghost` / `.ghostStart`). A wave builds and primes all its ghosts first, so the warm-ups overlap,
 then accumulates case by case.
 
+
+F2 as built (2026-11-23, no behaviour change, IL proofs in `<umbrella>/logs/refactor/p8-f2/`):
+
+- `GhostPlaybackEngine.ApplyUnsuppressedFxRestore(state, priorVisualFxSuppressed)`
+  (`GhostPlaybackEngine.InRangeRender.cs`, `internal static`): `UpdateEvaJetpackPlumeForFrame`,
+  `RestoreAllRcsEmissions`, `MuteAllAudio` for a boundary-overlap secondary else
+  `UnmuteAllAudio`, `RestoreActiveEngineFx` when `ShouldRestartEngineFxAfterSuppression(false,
+  prior)`, then `UpdateEngineThrustFractions` (ghost-fx-3, 2026-11-23) and
+  `UpdateEngineSmokeTrailFades`. The smoke fade belongs IN it: it is part of the
+  same unsuppressed branch, it runs after every emission write of the frame (the restore
+  re-enables smoke renderers, and the fade re-hides a vacuum trail), and leaving it out would
+  give a part case a smoke look production never shows. It reads the ghost's
+  `lastInterpolatedBodyName` / `lastInterpolatedAltitude`, so F3 sets both from the held real
+  vessel before the call (absent, the fade returns without a write and the smoke stays as built).
+  So F3's step 3 is: `state.visualFxSuppressed = false`, `ApplyUnsuppressedFxRestore(state,
+  true)`, `GhostPlaybackLogic.UpdateAudioAtmosphere(state)`. Proof: the inline fold of the
+  static back into `ApplyFrameVisuals` equals the old body instruction for instruction and local
+  for local, with one documented operand change (the restart predicate's first argument,
+  `ldarg suppressVisualFx` -> `ldc.i4.0`, which is false on that branch).
+- `GhostFxFingerprint.BuildEntries(EngineGhostInfo)` / `BuildEntries(RcsGhostInfo)`: one
+  `FormatEntry` line per live particle system, in build order, read straight from the info and
+  never rate-limited. `LogInfo` reads its lines through the same loop
+  (`BuildEntries(list, reader, out nullSystems)`, the Unity reads in a `NoInlining`
+  `ReadSystem`). Proof: every operand of the old `LogInfo` body is in the new three bodies; the
+  rest is the reading struct and the cached delegate.
+- `RcsGhostInfo.particleThrusters` (`RcsParticleThruster { transformName, thrusterIndex }`),
+  index-parallel to `particleSystems` as built, read through `TryGetParticleThruster` (false once
+  teardown clears the systems). `thrusterIndex` is the transform's position among every
+  transform of that name under the part prefab, depth-first pre-order, BEFORE the variant
+  filter: stock's `ModuleRCS.thrusterTransforms` walk (`Part.FindHeirarchyTransforms` from the
+  part's `model` child), so it is stock's nozzle index when the EFFECTS transform name equals
+  the module's `thrusterTransformName` and every match sits under `model`. F3 is to check both
+  per case (a mismatch is a setup fault, not a hide). Nothing in the build or playback reads it.
+  Proof: `TryBuildRcsFX` and the `RcsGhostInfo` constructor are their old bodies with
+  instructions inserted only (P3's check).
+- The recorder source pin, `PartParityFxRecorderPinTests`: at every call site of
+  `ShouldRecordEngineAsIgnited`, `ComputeRecordedEnginePower`, `CheckEngineTransition` and
+  `ProcessRcsDebounce` in `FlightRecorder.EngineAndRcs.cs`, `BackgroundRecorder.PartEventPolling.cs`
+  and every `*PartParity*.cs` under `TestCommands/` and `InGameTests/`, the arguments are the
+  recorder's live reads (receiver name free), and `RcsDebounceFrameThreshold` is 8. No sweep file
+  polls yet, so the sweep half binds when F3's driver lands. Correction to the paragraph above:
+  `ParsekFlightPostSwitchAutoRecord` calls only `CheckEngineTransition` and `ProcessRcsDebounce`,
+  and feeds the first `EngineIgnited && isOperational` and the raw throttle (an activity
+  detector), so it is not the sweep's reference; the recorders are.
+
+F3 as built (2026-11-23). The FX half of the sweep: `PartParityFxDriver` (three partials: the
+press and the poll, the capture, the plate), `PartParityFxRun` (one case's state),
+`PartParityFxHold` (the test stand), and the pure `PartParityFxFraming`, `PartParityFxControls`
+(evidence flag, judge) and `PartParityFxStructure` (inventory diff). An FX case is a P6 wave case
+with `WaveCase.Fx` laid over `WaveCase.State`: `TryPress` / `TryStep` hook P6's press and step, its
+ghosts are P6's three routes, and an `fx:<bucket>` wave kind admits up to 4 of them. The
+air run waited for F7 ("F7 as built" below). Decisions:
+
+- Prime. `PrimeVisible` sets `lastInterpolatedBodyName` / `lastInterpolatedAltitude` from the held
+  vessel, then E.2 step 3. Since ghost-fx-3 (2026-11-23) it also sets
+  `lastInterpolatedSurfaceVelocity` (the held vessel's `srf_velocity`, source `Positions`), as
+  playback's `SetInterpolated` does for a playing ghost: a jet's thrust share follows mach, and a
+  ghost whose ground speed is unknown keeps its share. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
+  their smoke draws as built (F4 noted the control could not be met otherwise). A start ghost's
+  "first frame at the target" is read again after the visible prime, which is the frame that lights
+  its engine.
+- A renderer counts as drawn only when its system plays or has particles: stock leaves idle systems
+  enabled (the Hammer's `fx_exhaustSparks_yellow`). An undrawn entry is `{key, rendered: false}` in
+  `fx.structure`. Particle reads and the plateau use drawn systems only, so a vacuum-hidden smoke
+  trail's lifetime no longer sets the wait (LV-T45 real side: 1.3 s, where E0 measured 5.1 to 7.3 s).
+- Controls write the `event` route only: 8 entries, real-vs-real with 8 samples a side (16 split).
+  `warmupS` and `plateau` are written for a plume or rcs case only (a heat or lamp case waits for no
+  plateau, so none reads as missed). `n/a` controls write no sidecar. `fx.plate.litPct` is a
+  fraction; the plate atlas is P6's four rows with one view, `plate`; the ghost-all route is `all`.
+- `ctl-fx-plume-short` shrinks the ghost's FX roots to 0.4 with
+  `ParticleSystemScalingMode.Hierarchy`. E.5's recipe (start speed, lifetime and energy scaled) does
+  not shorten a stock legacy flame, which has no start speed and is a stretched billboard whose
+  length is its size and its velocity over lifetime: scaled by 0.5 the LV-T45 flame measured 0.77 of
+  the intact one, by 0.35 0.73 with a hue failure on the saturated bottom view; shrunk, it measures
+  0.42 with the colour intact.
+- `ctl-fx-plume-shift` moves the roots, across and along, by the larger of 10 % of the body and 12 %
+  of the near box (0.594 m each on the LV-T45). 10 % of the body (0.13 m across, 0.17 m along, about
+  12 and 16 px) is under both lines (5 % and 10 % of a 359 px plume); as built it measures 56 px
+  lateral and 59 px origin.
+- `ctl-heat-events-dropped` skips a subject whose model lacks the clip its `ModuleAnimateHeat` names
+  (`HasHeatClip`, `Part.FindModelAnimators`). Stock's two listed nose cones name `Cone_Heat` and
+  neither carries it, so the real part never glows there. Subject on stock: `noseConeAdapter`
+  (`HeatControlParts` gained it and `avionicsNoseCone`).
+- The nozzle hide maps by index, not by name. Stock plays nozzle i's puff on emitter i of the
+  EFFECTS node (`ModuleRCSFX.UpdatePowerFX(running, idx, power)` -> `Part.Effect(name, power, idx)` ->
+  `ModelMultiParticleFX.OnEvent(power, idx)` over `FindModelTransforms(transformName)`, decompiled),
+  so F2's `thrusterIndex` is the nozzle index whatever the transforms are called. Checked per case:
+  every transform of that name sits under the prefab's model and the module has a nozzle of that
+  index, else `rcs-input-mismatch`. This replaces F2's equal-names condition: on `RCSBlock.v2` the
+  EFFECTS transform is `RCSjet` and the module's `RCSthruster` (9 and 9; 2 fired, 2 hidden), so a
+  name check would fault the case, and a 0.1 m position match faulted it (the jet sits 0.22 m out,
+  the nozzle near the block).
+- A case that throws in warm-up, sample or measure is `crashed`; a control that captured no view
+  writes no evidence flag and is judged `bad`. Strip and coverage tiles are made opaque before the
+  alpha-weighted downsample. `LogHeat` writes a heat case's scalar, animation states and emissive
+  colours at the capture (`states=0` on a part with no clip).
+
+Acceptance (2026-11-23, stock-minimal, throwaway spec, fourth flight `2026-11-23_0728`, a DLL from
+before #2792; evidence `<umbrella>/logs/flights/p8-f3/`). The 11 orbit controls are `ok` and the
+merged F4 judge reads the label REPORT with no problem: every control and the sampled cases
+recompute bit-identical. 0 setup faults, every case complete: `liquidEngine2.v2`, `ionEngine`
+and `RAPIER` (closed cycle) at burn-full and burn-low, `solidBooster.sm.v2` burn-full, `RCSBlock.v2`,
+`vernierEngine`, `standardNoseCone` and `noseConeAdapter` heat-medium and heat-hot, and `spotLight1`
+on the plate (a point light by the optional control: `telescopicLadderBay`). Hold drift at render
+time at most 0.00003 m. Per-side warm-up lines are logged for every plume and rcs case; one side
+(ion burn-low, start route) missed the plateau at the 8 s cap and carries its tag. Teardown:
+`step cleanup` reads `casesDestroyed=0 faults=0` on all 18 steps and the propellant cheat reads
+`restored -> False` after each. Wall: 92 s for the LV-T45 with its 11 controls, 26 s for a pair of
+engine cases, 3 to 20 s elsewhere. U9 re-measured after the light settle: the intensity and colour
+gap is real (todo GHOST-LAMP-LIGHT-INTENSITY). The first readings of the ghosts are todo
+PARTPARITY-FX-FIRST-READINGS-2026-11-23.
+
+Follow-up (2026-11-23, branch `ghost-fx-2`, flight `2026-11-23_1007`): the lamp light, the engine
+and one-nozzle RCS glow and the nose cones without their heat clip now read 0 colour px against the
+real part on both routes (at most 3 px on a view; todo PARTPARITY-FX-FIRST-READINGS-2026-11-23).
+`CaptureCase` brings the ghosts' nozzle glow to the current UT before every body view
+(`AdvanceNozzleGlows`), as a playback frame does: the real nozzle keeps heating through the warm-up
+while a primed ghost stands still. A lamp's `lightBrightenSpeed` is a rate, so a lamp at 0.3 (the
+ladder's) has not settled after the case's `lightBrightenSpeed` + 0.5 s wait; its real intensity
+reads low for about 10 s.
+
+F7 as built, C# half (2026-11-23). An `fx=` run with `contexts=air` is an ordinary air run: its
+reset and run steps are admitted by `host-not-at-pad`, and its FX waves keep F3's flow. The
+`fx-runs-not-built` refusal, its token and its mirrors are gone. Any label works, so the second
+label of PP-5 / PP-6 needs spec steps only (F7's lane half, after F6). Decisions:
+
+- Spawn. `PartParityAirContext.SpawnHeld`: the chutes' band slots (up to 4, 40 m apart), 1600 m
+  above sea level, at rest (0 m/s, `HeldDescentMps`) and not falling at 10 m/s, the exhaust axis
+  straight down, so no plume points along the band.
+- Hold. `HoldReadyCases` attaches the hold on each frame of the spawn wait, so a case never falls
+  while the wave's others load; the first physics step snaps it to its slot. The air hold is a
+  place of the SURFACE frame (`PartParityHeldSlot`: latitude, longitude, altitude and the
+  surface-relative rotation, read through `GetWorldSurfacePosition` in doubles), not a pose
+  relative to the host: a host on its gear sways, and 1.6 km away a 0.01 deg turn is 0.28 m.
+- Air controls. Their subject, the Flea, breathes no air, so its only plume key is an orbit one
+  and F3's `ControlKey` found none in an air run. `PartParityFxRules.ControlPlumeKey` takes that
+  key into the air context.
+- Spool timeout. `SpoolPressTimeoutSeconds`: 45 s, or 1.1 times the time stock's own spool needs to
+  come within 0.01 of the request when that is longer, capped at 120 s. Stock closes on the request
+  at `engineAccelerationSpeed` (decompiled `ModuleEngines.UpdateThrottle`): 0.12 /s is 38 s, but the
+  Goliath's 0.06 /s is 77 s full and 57 s low, so 45 s would always end its two cases
+  `state-timeout`. Every stock orbit engine keeps the 45 s floor.
+
+Acceptance (2026-11-23, stock-minimal, throwaway spec, one flight
+`2026-11-23_1014_PPS-10a-fx-f7-air-stock`, PASS attempt 1, DLL sha256 prefix 5059a943; evidence
+`<umbrella>/logs/flights/p8-f7/`). Label `f7chute` (the Mk16 at semi and full, the P6 air controls)
+ran first and label `f7fx` second on the same host, the PP-5 shape: both controls=ok. `f7fx`: all 14
+jet cases reached, 0 setup faults, both ghost routes `applied` on every case, every side of every
+part case plateaued inside the 8 s cap, and the four air controls `ok` in C# and in F4's judge
+(recompute 10 cases, 0 mismatches, problems none). Spool to within 0.01 of the request: JetEngine
+39.4 s full and 29.0 s low, RAPIER in air mode 23.5 and 17.5 s, Juno 38.8 and 28.8 s, Whiplash 23.5
+and 17.5 s, Panther dry 9.2 and 6.8 s and wet 5.7 and 4.2 s, Goliath 77.0 and 56.9 s (both past 45 s).
+Render-time drift 0.00000 m and 0.000 deg on all 18 cases, controls included; `stepM` at most 0.041 m
+(the Flea). A case fell 1.0 to 3.7 m before its hold took it. The RAPIER's own trail is in the flame
+layer on both sides: `burn-full` smoke core and envelope are 0 on the real, event and start sides in
+all four views, flame core real / event 39344 / 37148 px on `fx-side-a` and 19447 / 27515 on `fx-far`
+(todo GHOST-RAPIER-TRAIL-EXTENT). Teardown: cheat `restored -> False`, `casesDestroyed=0 faults=0`,
+no Parsek ERROR, and the produced save holds the fixture's two vessels with the host's RCS group off,
+as before. Wall: `f7fx` 336 s (waves 29, 84, 77, 114 and 32 s: the slowest spool of a wave sets it),
+over E.8's 210 s estimate, inside one 480 s step. First readings: todo
+PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23.
+
 ### E.3 Capture changes
 
 - Layers. Each side's renderers are split by kind (pure `PartParityFxRules.ClassifyFxRenderer`
@@ -2256,7 +2430,9 @@ then accumulates case by case.
   skinned mesh renderers, the P2 / P6 capture unchanged, effects hidden), `flame` (particle
   renderers with an additive shader, and `Waterfall/` mesh renderers except the
   `Waterfall/Distortion` ones, which refract the frame behind them and emit nothing: 1 or 2 per
-  Waterfall engine, E0 U7), `smoke` (particle renderers with an alpha-blended shader). A renderer
+  Waterfall engine, E0 U7), `smoke` (particle renderers with an alpha-blended shader; a trail with
+  an additive shader, the RAPIER's `fx_smokeTrail_aeroSpike`, is in `flame`, so a smoke core of 0
+  does not mean no trail). A renderer
   that is disabled (`enabled` false) stays in its layer and draws nothing, as stock's vacuum
   smoke does (E0 U8). Each FX layer is rendered alone, so a body difference (judged by
   P2 / P6) never moves an effect measure; the body does not occlude the plume (stated in the
@@ -2326,12 +2502,82 @@ Per route (event, start), FX view and layer:
 | lateral offset | distance of the core centroid from the axis line, ghost minus real | side, far | more than max(4 px, 5 % of the real length) | half that |
 | length | envelope extent along the axis from its origin | side, far | differs by more than 25 % of the real | 12.5 % |
 | width | largest envelope extent across the axis | side, far | 30 % | 15 % |
-| direction | angle between the axis and the origin-to-core-centroid line, ghost minus real | side, far | 10 deg | 5 deg |
+| direction | angle between the axis and the line through the centroids of the core's upstream and downstream halves, ghost minus real (F1b as built; the rev 2 wording was the origin-to-core-centroid line) | side, far | 10 deg | 5 deg |
 | cross-section | core area ratio ghost / real, and the core centroid's offset from the nozzle point over the nozzle box diameter | bottom (the axis view: the axis projects to a point, so length, width and direction are not defined there) | area outside [0.6, 1.6]; offset over 0.1 | area outside [0.8, 1.25] |
 | colour | chromaticity distance of the core's mean colour; L1 distance of the hue histograms over the envelope; both over unsaturated pixels only (no channel at 255, E0 U4) | all | 0.06; 0.5 | a quarter of each |
 | brightness | mean luminance ratio ghost / real over the core's unsaturated pixels, beside each side's saturated share | all | - | outside [0.5, 2.0] |
-| smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256) | all | either | - |
+| smoke | `smoke` layer core px on each side (`smoke-missing` / `smoke-extra` at `SmokeMinPx` = 256); an additive trail is judged in the flame layer | all | either | - |
 | core IoU | of the two cores | all | - | under 0.5 (sorting) |
+
+Weak cores (F6, 2026-11-23). Where neither side's core reaches `PresenceMinPx` (64), on either
+layer, only presence is judged: origin, length and width read the envelope, and the envelope of a
+layer with no core is stray particles. Found by PP-8's first reading flight (`2026-11-23_1112`):
+`ctl-fx-real-vs-real` compared the ReStock Flea's smoke with itself, cores 0 and 0, envelopes 1570
+and 3680 px, and failed origin (-29 px) and length (1.37). One weak core is not enough: there every
+measure stays judged and presence keeps its rule above. Nor do the split halves of such an entry
+tag `fx-unsettled` (its stray particles would cap a fail elsewhere at `warn`). A weak core never
+passes silently: the
+Python flag `fx-weak-core:<route>:<view>:<layer>:real=<n>,ghost=<n>` raises the case to at least
+`warn` on every entry where both cores are weak and anything is drawn (an envelope pixel on either
+side), and on every entry where exactly one is weak and presence does not decide (the weak core is
+1 to 63 px, or a smoke core is under `SmokeMinPx`). `PartParityFxMetrics.BothCoresWeak` is the C#
+half (the control judges read `FailingMeasures`, so they follow the same rule), mirrored by
+`fx_both_cores_weak`. Re-judged offline: PP-7 (`2026-11-23_1027`) carries no such entry and moved no
+verdict; PP-9 (`2026-11-23_1050`) carries it on 18 of 165 cases and moved three from `warn` to `fail`
+(`liquidengine--size1--burn-low`, `liquidengine.v2--trussmount--burn-low`,
+`radialliquidengine1-2--shrouded--burn-full`: only weak smoke halves had capped them).
+
+FX instrument fixes (2026-11-23, todo PARTPARITY-FX-INSTRUMENT-2026-11-23), decided offline on the
+archived F6 sweeps; no fail line and no threshold moved.
+
+- The unsettled cap. The whole-case cap hid 17 fails on PP-7, 67 on PP-9 and 17 judged (53 would-be)
+  on PP-8, and not one of those 154 cases had its only fail in an entry that did not settle: 121
+  failed on the body routes or a missing / extra asset, where no sample is read (PP-9: 54 of 67, the
+  ReStock nozzle glow), the other 33 on entries that had settled. So the cap is per entry. In a case
+  with an unsettled entry a fail stands only if its own entry settled, both sample halves fail on the
+  same side of the same line (`FxFinding.side`), and neither side fails that measure against itself,
+  even against odd samples (`fx_self_failing`); otherwise it counts as `warn` and its finding says
+  `capped`. The smoke of a route is one world-space trail, so smoke unsettled in one view is
+  unsettled in all (PP-9's three boosters whose only fail is the orbit smoke noise stay capped). Body
+  routes, structure and settled cases are judged exactly as before. `REASON_FX_UNSETTLED` is written
+  when only capped fails keep a case from `fail`.
+- Its noise. One thing captured twice (the event ghost against the start ghost at full thrust; the
+  real side, and the ghost, of a reading flight against the full one; PP-8's real side against
+  PP-9's on the parts without Waterfall) must not fail. Cases failing: plumes, 237 pairs: 12 with no
+  cap, 4 under the old cap, 5 under this one; rcs and cross-install, 71 pairs: 24, 8, 11. What is
+  left is the cross-section offset of small RCS puffs and `liquidEngineLV-T91`'s orbit smoke, at
+  fail lines that the old cap let settled cases fail on too.
+- More samples were rejected. A case's 64 sample frames take 5.0 s (PP-7) and 5.3 s (PP-8, PP-9), so
+  32 samples add 442, 694 and 691 s (44 to 52 % of the lane), and two independent captures of the
+  same ghost still disagree past 10 % at 16 against 16 samples on 2.6, 5.3 and 3.7 % of the entries
+  (8 against 8: 2.8, 7.8 and 6.2 %): 4, 16 and 9 cases. Length and width are envelope extents, an
+  extreme of sparse particles, which samples settle slowly.
+- Re-judged: PP-7 (`2026-11-23_1027`) 34 pass / 33 warn / 60 fail / 1 error to 34 / 16 / 77 / 1, PP-9
+  (`_1050`) 28 / 71 / 64 / 2 to 28 / 7 / 128 / 2, PP-8 (`_1232`) 27 / 21 / 20 / 2 to 27 / 7 / 34 / 2,
+  its 95 references from would-be 42 fail / 53 warn to 95 fail. Every move is `warn` to `fail`; no
+  control outcome moved on any archived run.
+- The real-vs-real controls take 32 samples, 16 a side (`SampleRounds`, 5 s more per sweep). They
+  compared 8 against 8 at lines set for sides of 16, and the air one is a coin toss there: the Flea's
+  `fx-far` flame width against itself read 1.264 (`2026-11-23_1014`, ok) and 1.345 (`_1201`, bad,
+  INVALID(parity-controls)), line 1.30, both entries unsettled. Not flown.
+- A skipped entry (weak cores, above) reads `skipped`, not `pass`. It ranks as `pass`; the
+  `fx-weak-core` flag still raises the case.
+- `fx.layers`, the inventories and `fxDiffers` are read when the case is captured, after the
+  warm-up (`DescribeLayers`): in the frame the ghosts are primed their KSPParticleEmitters have no
+  material and no power's size or speed yet. Report-only. `fxMissingOnGhost` / `fxExtraOnGhost`,
+  which are judged, keep their read beside the prime (`ReadStructure`).
+- The plateau cap follows the longest particle lifetime (`PlateauCapFor`: 1 s past it, 8 s at least,
+  20 s at most). Rule (a) of E.2 waits for that lifetime, which a flat 8 s could not meet: 17.5 s on
+  stock's Clydesdale, Pollux and Thoroughbred, 15 s on the Twin-Boar family and the Mammoth, 10 s on
+  ReStock's Pollux and Thoroughbred; 7.5 s left one window. Cost, from the logged waits: 45 s on
+  PP-7 (6 of 23 waves), 4 s on PP-9 (3 of 33), 6 s on PP-8 (7 of 33). The wave bound
+  (`WaveWorstCaseSeconds`) counts the 20 s. The other `fx-not-plateaued` cases (13 to 50 particles,
+  lifetimes of 5 s or less) never hold 10 % for a second: no cap fixes those, and their tag stays.
+- The plate is the light's own footprint (`PlateSizeM`): the smaller of the cone's radius and the
+  range sphere's, not the cone's alone. `stripLight1` (170 degrees, range 15 m stock, 10 m ReStock)
+  goes from an 89 m plate to 38 m and 25 m, so its lit share goes from 1.1 and 0.5 % to 6.0 and
+  6.8 %, over the 2 % floor; ReStock's `domeLight1` from 26.3 to 24.8 m; every other lamp's plate on
+  the three installs is unchanged.
 
 For an rcs case, length, width and brightness are reported only (R4, E.2). Particle statistics
 (count, speed, direction, length and width percentiles; the two-sided form of the existing
@@ -2351,8 +2597,8 @@ How the instrument proves itself:
 - Convergence per case. Every measure is also computed on each half of the samples (from tiles
   of the same 8-bit rule, numbers only, block shape checked by Python). When the halves disagree
   on presence, or by more than `FxSplitHalfPct` (10 %) on length or width, the case is tagged
-  `fx-unsettled` and capped at `warn`: a case that did not converge never fails, and a sweep where
-  many do says N is too small.
+  `fx-unsettled` and the ENTRY (route, view, layer) is capped at `warn`: a measure that did not
+  converge never fails ("FX instrument fixes" below; until then the whole case was capped).
 - Python recompute (6): the sample of FX cases is recomputed from the FX atlas to exact equality
   of every count, extent, origin, offset and histogram bin count (centroids, ratios and
   distances within 1e-9, as P1's centroids).
@@ -2370,6 +2616,88 @@ A case's verdict is the worst of its body routes judged by the P6 judge (D.6: th
 the stowed reference and every P6 flag apply), its FX measures per route, and a rendered FX
 asset missing or extra on the ghost (the structural raise of 6). Each reason names its route,
 view and layer (`event:fx-far:smoke:smoke-missing`).
+
+F1b as built (2026-11-23). The pure measures live in `PartParityFxMetrics.cs`
+(`Source/Parsek/TestCommands/`); they hold no constant of their own (every one is
+`PartParityFxRules`'). The only contract change is one key, `nozzleDiameterPx`, added to the
+existing `axis` table (`PartParityJson.FxAxisKeys`, mirrored by `partparity.FX_AXIS_KEYS`):
+the cross-section offset needs the nozzle box diameter in the view's pixels and nothing else in
+the sidecar carried it. Definitions, which a Python recompute transcribes:
+
+- Accumulation (E.3). `PartParityFxAccumulator` per side, view and layer: a sample is RGBA8,
+  rows top-down, the tile's size (a flame sample the render over black, a smoke sample the
+  straight-alpha matte of its two renders); `SampleCovered` decides each pixel; covered samples'
+  channels are summed as integers; `ToTile` writes `TileChannel` RGB and `TileAlpha(k, N)`,
+  (0, 0, 0, 0) where k = 0. More than `MaxSamples` refuses. `PartParityFxSampleSet` keeps the
+  whole set and the 0-based even (0, 2, ...) and odd samples, so 16 samples split 8 / 8.
+- Coordinates. x is the column, y the row, a pixel's centre (x + 0.5, y + 0.5). With
+  u = dirPx / |dirPx| and o = originPx: `t = (cx - ox) * ux + (cy - oy) * uy` (along the axis
+  from the nozzle), `s = (cy - oy) * ux - (cx - ox) * uy` (across it). The axis view
+  (`fx-bottom`), a null origin or a zero direction has no axis.
+- One side (`MeasureTile`, every key of `FxSideMeasureKeys`), k = `CoveredSamples(alpha, N)`:
+  `corePx` (`IsCore`), `envelopePx` (k at least 1), `saturatedPx` (core pixels whose TILE colour
+  has a channel at 255: the mean of the covered samples, the only colour the file holds);
+  `originPx` = min t, `lengthPx` = max t - min t, `widthPx` = max s - min s, all over the
+  envelope (null with no axis or no envelope); `coreCentroid` = `((Sx + 0.5 n) / n, (Sy + 0.5 n) / n)`
+  over the core's integer index sums; `meanColor`, `luminance` (`Luminance` of the integer channel
+  sums, divided by the count) and `chromaticity` (`[R, G] / (R + G + B)` of the sums) over the
+  core's unsaturated pixels; `hueHistogram`: 12 bins over the envelope's unsaturated, non-grey
+  pixels, each bin `Luminance(sum r, sum g, sum b)` of its pixels. The hue bin is integer
+  arithmetic (`HueBin`): with d = max - min, `hn = g - b` (plus 6d when negative) when r is the
+  max, `b - r + 2d` when g is, else `r - g + 4d`; bin = `12 hn / (6d)` (floor), a grey pixel has
+  none.
+- Compare (`Compare`, every key of `FxCompareKeys`, ghost minus real; null where undefined): on
+  a side view `originDeltaPx`, `lateralOffsetPx` (s of the ghost core centroid minus s of the
+  real one), `lengthRatio`, `widthRatio` (null when the real extent is 0), and `directionDeg`:
+  each core is split at its centroid's t (upstream t < tc, downstream the rest), each half's
+  centroid is taken from its integer index sums, the side's direction is
+  `atan2(s_down - s_up, t_down - t_up)`, and `directionDeg` is ghost minus real wrapped into
+  (-180, 180] (null when a half is empty). That replaces the E.4 table's
+  "origin-to-core-centroid line": a line drawn from a point on the axis moves with a lateral
+  shift (a shifted plume would also fail direction), a line from the plume's first pixels
+  starts at a corner when the plume turns, and the core's principal axis (tried first, rejected
+  in review) is ill-conditioned for a near-round core (a perfect 11 x 10 px puff read up to
+  90 deg between its own sample halves). The half-centroid line is unchanged by a translation or
+  a length change, moved by a turn, and stays well conditioned (worst 6.5 deg, under the 10 deg
+  fail line, for a 9 x 8 px core against itself over 40 seeds; `ARoundCore_AgainstItself_*`),
+  so a compact core can still warn on direction from noise alone, which the reading runs
+  re-pin. On the axis view: `crossSectionAreaRatio` (ghost core / real core) and
+  `crossSectionOffset` (the distance between the two core centroids, which is the difference of
+  their offsets from the nozzle point, over `axis.nozzleDiameterPx`). On every view:
+  `chromaDistance` (Euclidean, chromaticity), `hueL1` (the histograms each normalized to sum 1,
+  0 to 2; null when either sums to 0), `brightnessRatio` (luminance) and `coreIou` (1 when both
+  cores are empty).
+- Fail lines (`FailingMeasures`), for the C# FX control judges only (case verdicts stay
+  Python's, F4): the flame layer judges `presence` and the smoke layer `smoke`
+  (`PresenceReason`: one side's core at `PresenceMinPx` / `SmokeMinPx` or more and the other's
+  0, giving `fx-missing` / `fx-extra` / `smoke-missing` / `smoke-extra`); both layers judge
+  origin, lateral offset, length, width, direction, cross-section and colour at the E.4 fail
+  defaults; brightness and core IoU are warn-only and never listed; an rcs case drops
+  `RcsReportOnlyMeasures`; a null measure never fails.
+- Split halves. `PartParityFxViewResult.Measure` measures the whole set, and each half (the real
+  half against the ghost half), from tiles of the same 8-bit rule; the halves are written as
+  numbers only (`splitHalf.even` / `odd`, `FxHalfKeys`). `SplitHalfDisagreement`: the halves of
+  one side disagree on presence (the presence rule above between the halves) or their lengths or
+  widths differ by more than `SplitHalfPct` of the larger.
+- Particles (`ReduceParticles`, report-only): `count` = mean particles per sample, every
+  particle; over the particles within the near distance of the nozzle (all samples): mean speed,
+  mean velocity angle from the axis (moving particles), mean size, and the nearest-rank
+  `FramingPercentile` of the along-axis position and the across-axis distance. F3's framing can
+  call it with `FramingNearParticleM`.
+- RCS (R4): `FormatRcsReportedOnly` writes the reported-only length, width and brightness ratios
+  beside `rcsPowerRatio`; `AtlasRowFor(side, layer)` names a side's FX atlas row.
+- Exact recompute. Counts and bin sums are integers; t and s (so origin, length and width) are
+  whole or half pixels only along an axis-aligned `dirPx` and otherwise floats; every value is
+  computed from the written tile alone, in one order of operations, so a Python transcription
+  reproduces it (exactly where integral, within 1e-9 otherwise). The committed fixture
+  `Source/Parsek.Tests/Fixtures/PartParity/fx/` (`fxfixtureplume--default--burn-full--aae6c591`:
+  `.fx.png`, 6 rows x 4 views of 64 px, 16 samples, and its `.part.json`, whose `fx.views[]`
+  hold 16 entries) is rebuilt by `PARSEK_WRITE_PART_PARITY_FX_FIXTURE=1 dotnet test --filter
+  WriteFxFixture` and pinned by pixels and by numbers (`Fixture_CommittedFilesMatchTheBuilder`;
+  the PNG's deflate bytes are not the contract); its event ghost is short, its start ghost
+  hue-rotated, shifted and smoke-less, its real core clips. A stdlib transcription of the
+  definitions above reproduced all 528 side and compare values of the fixture bit for bit
+  (2026-11-23); F4's recompute cells are that transcription.
 
 ### E.5 Case identity, controls, sidecar, gates
 
@@ -2399,13 +2727,13 @@ view and layer (`event:fx-far:smoke:smoke-missing`).
   | --- | --- | --- |
   | `ctl-empty` | inside a burning wave, both sides hidden | zero coverage on every layer |
   | `ctl-ghost-absent` | ghost not built | ghost layers zero |
-  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the Flea) | passes every FX measure (the noise floor) |
+  | `ctl-fx-real-vs-real` | `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2` (stock-minimal and modded-restock: the LV-T45; modded-compat: the separation motor, "F6 as built" in E.8) | passes every FX measure (the noise floor) |
   | `ctl-fx-plume-off` | the same | real vs an event-route ghost built without the polled events: fails presence, while the real core is present and `EngineIgnited` was recorded |
-  | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose particle start speed and lifetime and emitter energy and local velocity are scaled by 0.5 AFTER the visible prime (the magnitude scaling rewrites those fields from its baselines at every event): fails length, passes presence and colour |
+  | `ctl-fx-plume-short` | the same | intact ghost vs a ghost whose FX roots are scaled to 0.4 with Hierarchy particle scaling AFTER the visible prime ("F3 as built" in E.2 says why not the particle fields): fails length, passes presence and colour |
   | `ctl-fx-plume-hue` | the same | intact ghost vs a ghost whose rendered `flame` pixels have their channels rotated (r, g, b) -> (b, r, g) in the readback, before accumulation. That leaves max-channel coverage exactly unchanged, so it fails colour and passes presence and length exactly. A material edit cannot do this (E0 U10): every stock flame tint is grey (0.537, 0.779, 1.0 or 0.5 in all channels), so rotating its channels changes nothing, and a (0, max, 0) tint changes coverage (by 46 % on the ion engine, whose colour comes from its particles) |
-  | `ctl-fx-plume-shift` | the same | intact ghost vs a ghost whose FX roots are moved 10 % of the body width across the axis and 10 % of the body length along it: fails origin and lateral offset, passes length and colour |
+  | `ctl-fx-plume-shift` | the same | intact ghost vs a ghost whose FX roots are moved across and along the axis by the larger of 10 % of the body and 12 % of the near box: fails origin and lateral offset, passes length and colour |
   | `ctl-fx-smoke-dropped` | `solidBooster.sm.v2` | intact ghost vs a ghost with its smoke renderers hidden: fails smoke, passes the flame |
-  | `ctl-heat-events-dropped` | `standardNoseCone`, `pointyNoseConeA` | P6's state control at `heat-hot` without the polled event, with a COLOUR requirement instead of shape |
+  | `ctl-heat-events-dropped` | `standardNoseCone`, `pointyNoseConeA`, `noseConeAdapter`, `avionicsNoseCone` (the first whose model carries the heat clip) | P6's state control at `heat-hot` without the polled event, with a COLOUR requirement instead of shape |
   | `ctl-plate-light-off` | a spot light: `spotLight1`, `spotLight2`, ... | the ghost's `Light`s disabled: fails on the plate, and the real side passes the plate floor. |
   | `ctl-plate-light-off-point` | a part whose prefab `Light` is a point light | the same for a point light; recorded `n/a`, never `bad`, when no part on the install has one: the seven light parts E0 U9 checked on both installs (`spotLight1`, `spotLight3`, `domeLight1`, `navLight1`, `stripLight1`, `groundLight1`, `groundLight2`) are all spot lights |
 
@@ -2437,6 +2765,121 @@ view and layer (`event:fx-far:smoke:smoke-missing`).
 - Gates: the press gate (D.6) counts the four families, so an engine that never ignites, an RCS
   that never fires, a heat write that never reaches its level or a lamp that never lights reads
   INVALID(parity-state-press) when more than half a family fails. No new INVALID class.
+- F1 as built (2026-11-23). The contract lives in `PartParityFxRules.cs` (families and
+  predicates, words, the `plate` context, exclusions, the RCS input rule, the control subjects,
+  the renderer layer rule, the timeouts and the wave bound, every E.4 constant and threshold
+  default, the 8-bit tile helpers, the FX control judges), the FX control ids and sets, setup
+  statuses, `fx=` parse and `settings.fx` in `TestCommandPartParitySweep.cs`, and the FX key
+  tables and `FxAtlasRows` in `PartParityJson.cs`; every literal is mirrored in
+  `harness/lib/partparity.py` and hlib's arg table, pinned by `PartParitySourceSyncTests`'
+  `test_the_fx_*` cells and `PartParitySweepSourceSyncTests.test_the_fx_arg_mirrors_the_c_sharp`.
+  Decisions it took:
+  - `fx=` names no `states=` and at most `contexts=air` beside it, else `fx-arg-invalid`
+    (`FxCombinationValid`: a P6 state word or an orbit context would be silently ignored).
+  - Until F3, a well-formed FX run was REJECTED `fx-runs-not-built` (`FxRunsBuilt`, hlib
+    `PARTPARITY_FX_RUNS_BUILT`), the S1 pattern; F3 built the orbit run and F7 the air one, and
+    F7 removed the refusal, its token and its mirrors.
+  - `settings.fx` is written by an FX run only, so every PP-1 to PP-6 manifest keeps its
+    settings byte for byte; `partparity.control_set` reads a missing `fx` as `none`.
+  - The orbit FX run plans the `alone` and `plate` cases, the air FX run the `air` plume cases
+    (`PartParityFxRules.KeySelected`). An air-breathing engine is detected by a `PROPELLANT`
+    named `IntakeAir`; `fx-needs-air` is listed by an orbit run only (`ExclusionApplies`).
+    `fx-reentry-camera` and `fx-blackbody` are in the reason table but no part writes them.
+  - Each FX option carries two indices: `ModuleIndex`, the prefab index the same-word
+    tiebreak and the case id read (`turbojet--default--burn-low-m2--air`), and
+    `RecorderKeyIndex`, the index the recorder keys the case's events by: a plume or rcs
+    module's position among the part's `as ModuleEngines` / `as ModuleRCS` modules (the
+    recorder's engine and RCS caches, `EncodeEngineKey`'s `midx`; `RCSBlock.v2` is prefab 1,
+    key 0), the prefab index for heat and lamps. F3 matches recorded events and builds keys
+    from `RecorderKeyIndex`, never from `ModuleIndex`.
+  - `ChooseRcsInput` ranks by the nozzles at half the strongest or more, then the smallest
+    spread and the largest mean over EVERY nozzle that fires (above 0.01), so a weak extra
+    nozzle counts against a direction. E0 U2 saw the spike's rule predict 3 nozzles on stock
+    `RCSblock.01.small` where stock fired none; the rule does not explain that case, so F3's
+    press check (`rcs-input-mismatch`) stays the authority.
+  - A Waterfall part's plume and rcs cases carry `reference = waterfall`; its heat and plate
+    cases do not (the plate case's flame layer is F4's to treat as reference).
+  - The point-light control is optional: no eligible subject records `n/a`, which
+    `ControlsState` counts as met (`OptionalControlIds`, `ControlsNotApplicable`). The Python
+    controls check learns `n/a` in F4.
+  - The sidecar gains `fx`, `fxAtlas` and `strip` (null on every non-FX case), written through
+    `PartParityJson.KeyedBlock` from per-key JSON fragments, so F3 fills them without editing a
+    mirrored table.
+  - Committed part lists `Source/Parsek.Tests/Fixtures/PartParity/fx-parts-<profile>.txt`
+    (derived from the state-parts fixtures and each install's ConfigCache) pin the E.1 counts:
+    stock-minimal 43 + 31 orbit plume, 14 air plume, 7 rcs, 32 heat, 15 plate, 12
+    throttle-locked, 7 needs-air, 8 ablator; modded-compat 60 + 42, 14, 19, 26, 18, 18, 7, 12,
+    with 109 reference cases.
+- F4 as built (2026-11-23). The judge is one block of `harness/lib/partparity.py` ("P8 F4: the
+  FX judge"), called from the shared functions by name; `run.py` did not change.
+  - Measures and recompute. `fx_measure_tile` / `fx_compare` transcribe "F1b as built"
+    (stdlib); `FxMeasureTests` recomputes the committed fixture: all 528 values are
+    bit-identical, and every tampered one reds. `recompute_fx_case` holds `corePx`,
+    `envelopePx` and `saturatedPx` to exact equality and every other value to 1e-9, checks
+    the atlas layout against `FxAtlasRowsFor` / `Views`, and refuses a pixel the tile rule
+    cannot write (an alpha that is no sample count, a colour on an uncovered pixel). It runs on
+    every control with an FX atlas and on its own seeded 2 % sample of the part cases with one
+    (a run's mixed sample could draw only heat cases); the ids are listed as `<caseId>.fx`. The
+    block shape is checked on EVERY captured FX case, halves included: every key, each
+    expected entry exactly once at the atlas's tile size, a usable axis on every side and far
+    view of a plume or rcs case (without one five measures are undefined, so unjudged), each
+    value null exactly where the C# side defines it null, and every compare value the side
+    blocks determine (all but `coreIou` and `directionDeg`) recomputed from them. So are
+    `fx.family` against the state word, `stateProof.family` and the row family (it decides
+    what is judged), an `ok` rcs case that did not fire exactly the predicted nozzles, an `ok`
+    light case under the plate floor (both also `error`), and an rcs family whose every
+    captured case drew nothing on its real side (no control has an rcs subject). Any of it is
+    INVALID(parity-instrument).
+  - Entries a stochastic case must write, else the case is `error` (`fx-no-entries:`) and the
+    sweep INVALID: the `event` and `start` routes x 4 views x 2 layers (a control: `event`
+    only), and on an rcs part case the route `all` (the `ghost-all` rows, never judged).
+    `fx.samples` is one side's sample count (16 for a real-vs-real control too, which splits 32
+    since 2026-11-23; 8 before).
+  - Verdict. `judge_fx` gives each `event` / `start` entry its E.4 measures at warn and fail,
+    the worst per route, reasons `<route>:<view>:<layer>:<measure>=<value>`; a layer one side
+    lacks is named by its presence reason alone. A null measure never moves a verdict. The case
+    is the worse of its body routes and its FX half; a rendered FX asset in
+    `fxMissingOnGhost` / `fxExtraOnGhost` (a key string, or `{key, rendered}` unless `rendered`
+    is false) raises it to fail. `fxDiffers` and `lightsDiffer` are counted, report-only.
+  - `fx-unsettled` capped the WHOLE case at `warn`, its body routes included; since 2026-11-23 it
+    caps its own entry ("FX instrument fixes" in E.4). Only judged entries of plume and rcs cases
+    can unsettle.
+  - Reference (E.6). A plume or rcs case with `fx.reference = waterfall` reads the verdict
+    `reference` with its `wouldBe` beside it, body routes included, unless it is an `error`; it
+    is counted under `counts.reference`, printed as ` reference=<n>` and never gates. Any other
+    value, or a reference on a heat or light case, is INVALID(parity-instrument) and the case
+    stays judged. The FX entries of a light case (a lamp's `flame` layer) are always reference.
+  - RCS (R4). Length, width and brightness leave the verdict and land in
+    `fx.rcs.reportedOnly` beside `powerRatio`; the flag `rcs-known-difference:*` is the written
+    one, else derived from `fx.rcs`. Flags (`fx.flags`, none moves a verdict but the cap):
+    that one, `fx-not-plateaued:<side>`, `fx-framing-clamped`, `fx-unsettled`, and four that
+    raise to at least `warn` because a check did not run: `fx-structure-not-measured` (a null
+    `fxMissingOnGhost` or `fxExtraOnGhost`), `fx-nozzle-not-measured` (no `nozzleDiameterPx`
+    on the bottom view), `fx-no-real-effect` (an empty real side, as the static `JetEngine`
+    draws) and, since F6, `fx-weak-core:*` (E.4, weak cores).
+  - Controls. In an FX run every control recorded `ok` is re-judged from its sidecar
+    (`judge_fx_control`): evidence = the `event` entries, a measure fails when any entry fails
+    it. Stricter than `JudgeFxControl` in two ways: a plume control whose intact side has no
+    flame core is `bad` (real-vs-real would pass on two empty pictures), and
+    `ctl-fx-plume-off` needs an event of type `EngineIgnited`. `n/a` is met, and owes no
+    sidecar, only for `ctl-plate-light-off-point`.
+  - Press gate. The four families count as P6's do (family from the row, `stateProof`, else
+    `fx.family`). An rcs press that fired NOTHING is `rcs-input-mismatch`, not a timeout (the
+    RCS group books `RCSActivated` at zero input), so that status with an empty `fired` counts
+    too (other fired nozzles than predicted do not), and so does `plate-not-lit` (a lamp that
+    never lights).
+  - Verdicts JSON: each FX case's `fx` block (family, reference, wouldBe, routes, entries,
+    unsettled, flags, structure, rcs) and the document's `fx` (cases per family, reference and
+    would-be counts, flag counts, thresholds). A sweep with no FX case writes what it wrote
+    before.
+  - Open for the first flights: `directionDeg` is noisy on a flat or compact core (2 to 4 px
+    across: the halves' centroids differ by fractions of a pixel); measures on cores below the
+    presence minimum got their guard in F6 (E.4, weak cores). Two
+    orbit controls look unmeetable as E.5 states them: `ctl-fx-smoke-dropped`, because since
+    GHOST-SMOKE-IN-VACUUM the intact ghost draws no smoke in vacuum, unless its two ghosts
+    leave `lastInterpolatedBodyName` unset (smoke as built); and `ctl-fx-plume-shift`, whose
+    shift (10 % of the body) stays under the fail lines (10 % / 5 % of the real PLUME's length)
+    whenever the plume is longer than the body.
 
 ### E.6 Waterfall installs and the Waterfall-free profile
 
@@ -2511,6 +2954,60 @@ The Waterfall-free profile (R6), so ReStock's own particle plumes are judged on 
   flags (`fx-unsettled`, `fx-not-plateaued`, `rcs-known-difference`). Regression keys
   `<caseId>/fx/<view>/<layer>[/start]`.
 
+F5 as built (2026-11-23, `harness/tools/part_parity_view.py`; Python only, no flight). Every FX
+verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the viewer decides none.
+
+- Case rows. A row's `fx` (null on every other case) is `fx_row`: the judgement, every captured
+  entry with both halves (the hue histogram left out, its comparison is `hueL1`; values at six
+  significant digits), the FX atlas and strip, the proof, the inventory diff and the `rcs` block.
+  An FX case joins its skin in `FAMILY_ORDER` / `STATE_ORDER` / `CONTEXT_ORDER`: P6's, then `plume`,
+  `rcs`, `heat`; a lamp keeps P6's family `light`, context `plate`.
+- Rows. Under the body rows: the strip, then one row per layer and FX view. A layer nothing draws on
+  any side (the smoke of most orbit plumes) has no row; one line names those. A control's rows are
+  its `event` pair with the measures that fail, no verdict chip (an altered side is meant to fail).
+  Every FX crop paints its own opaque ground under the picture (black for flame, the matte for
+  smoke), so the difference of two equal, partly covered tiles is black.
+- Strips. The two rows are two layers of one image with the same `steps(K)` keyframes, duration and
+  step count, inserted together and run by one class on `<body>`, so they start, pause and resume in
+  one style change. The Play / Pause button is in the header; with `prefers-reduced-motion` the
+  strips start paused. A click opens a strip enlarged, any FX picture at 1:1 (an rcs case adds
+  its `ghost-all` tile).
+- RCS. The dashed block reads `rcs-known-difference` with E.7's caption, per layer and view REAL |
+  GHOST all nozzles, the `all` entry's measures and the judged routes' reported-only values beside
+  `rcsPowerRatio`, all greyed; the chip and the caption hang on the case's flag. A module whose every nozzle fired at the recorded power (the
+  vernier, whose written flag is `nozzles=1/1,power=1.000`) says so and stays in the filter, which
+  lists every case that carries the flag.
+- Verdicts outside the judged four. `reference` has its own counter and filter entry, a dashed
+  border, and ranks below every judged verdict (a part reads `reference` only when all its cases do;
+  "flagged" leaves it out); its trigger reads `reference, would be <verdict>: ...`. An optional
+  control's `n/a` is `control-na`: neither ok nor bad, no sidecar expected. A required control's
+  `n/a` stays bad, and a control recorded `ok` in an FX run follows `judge_fx_control`.
+- A trigger names what decided: fail-level FX reasons before warn-level ones, the FX half first only
+  when it is worse than everything else that judged the case (`judge_case` without the `fx` block:
+  routes, skin, state flags, setup).
+- A damaged sidecar never costs the page: odd types read as absent, a NaN or an infinity as null, and
+  a writer check that cannot read a value is listed as a problem. A 52k-mutation fuzz of seven real
+  sidecars raises nowhere the pre-F5 viewer did not.
+- Header. The Family and State filters gain the FX words, `Reference` and `FX flags` appear with an
+  FX case; the writer checks include `fx_run_problems` and `fx_block_problems`; the sweep box counts
+  the effect cases and prints the FX lines. `control_set_kind` knows `fx-orbit` and `fx-air`.
+- Regression. Per case: the FX verdict and would-be verdict, the FX flags, the rendered effects the
+  ghost lacks or adds. Per entry key: the verdict, a layer that came or went on either side, and each measure
+  that moved by more than its own warn line (`REG_FX_MOVES`; a smaller step is re-run noise). The
+  `all` route has no key.
+- Tests run the page's own script under node against a small DOM (`FxPageTests`, skipped without
+  node) and read back the strips, rows, crops, chips, block, details, filters and 1:1 dialogs.
+- Seen on F3's acceptance evidence (`2026-11-23_0728`, nine labels as one profile, 25 cases): plumes
+  and puffs on every engine and RCS row, both strip rows at one frame in every reading (equal start
+  times and background positions), the `RCSBlock.v2` block (9 nozzles at 0.157, stock fired 2,
+  ratio 0.222), controls 11/11 ok with each broken plume failing its own measure. The labels after
+  the first ran with `controls=false`, so the sweep box is red for them. Screenshots in
+  `<umbrella>/logs/flights/p8-f5/`.
+- Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
+  `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
+  them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
+  (Read after the warm-up since 2026-11-23, "FX instrument fixes" in E.4.)
+
 ### E.8 Lanes and wall time
 
 Measured basis: P6 orbit state cases ran about 3.3 s per case (D.8); P0 measured about 9.4 ms per
@@ -2541,6 +3038,39 @@ reading flight, the step count set from its `wall=` (D.8). The ids PP-7 to PP-10
 `origin/main` and every remote branch (checked 2026-11-22). Tier `operator`, report-only,
 `[retry] policy = "none"`, one slot each; modded-restock flies on its own slot (port block 50060),
 so it can fly beside the other two installs.
+
+F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stock`,
+`PP-8-part-parity-fx-modded` and `PP-9-part-parity-fx-restock`, and the hlib wiring cells
+(`PartParityFxLaneShapeTests`). No registry value: like PP-3 / PP-4 they claim D14 only.
+
+- As flown: PP-7 `2026-11-23_1027` (1002 s wall, 906 s of sweep: 451.8 + 404.6 + 49.8 + 0.3), PP-9
+  `2026-11-23_1050` (1338 s, 1243 s: 445.5 + 443.5 + 353.1 + 0.8) and PP-8 `2026-11-23_1232` (1350 s,
+  1254 s: 453.7 + 443.4 + 355.8 + 1.2), each PASS attempt 1 after its `limit=20` reading flight (192,
+  203 and 216 s). About 6.5 s per case plus 80 to 90 s of controls, under the table's 1080 / 1470 s.
+  Every lane needs three steps; the step counts of the table stay as margin, at no cost.
+- Verdicts (report-only): PP-7 34 pass / 33 warn / 60 fail / 1 error of 128; PP-9 28 / 74 / 61 / 2 of
+  165 (28 / 71 / 64 / 2 under the weak-core rule); PP-8 27 / 21 / 20 / 2 and 95 reference (would be 42
+  fail, 53 warn) of 165. Triage: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
+- Two instrument changes the reading flights forced: weak cores (E.4), and the plume controls'
+  subject on modded-compat. The Flea's smoke is noise there against itself: a ReStock booster's
+  world-space puffs are sheared 130 to 160 m away in orbit and land in the near box now and then
+  (E.12 U8). `ctl-fx-real-vs-real` on it read 0 / 0 px smoke cores (`2026-11-23_1112`, failing origin
+  and length) and then 0 / 754 px (`_1217`, failing smoke). Measured over PP-9's own split halves
+  (real even samples against real odd ones): `solidBooster.sm.v2`, `solidBooster.v2` and `Shrimp`
+  jump (519 / 0, 53 / 542 and 3976 / 0 px); `sepMotor1`, both escape towers, `restock-srb-anvil-1`,
+  `restock-srb-castor-1`, `Pollux`, `Mite`, `Clydesdale`, `MassiveBooster`, `solidBooster1-1` and
+  the two separation-motor tanks fail nothing measured there. So `PlumeControlParts`
+  is `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2`, in that order, each
+  unmeetable one skipped; stock-minimal and modded-restock keep the LV-T45. All 11 controls (the
+  point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
+  smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+
+F7 lanes as authored (2026-11-23, not flown, tags `pending-flight`): the second labels `pp5fx` /
+`pp6fx` of PP-5 / PP-6 after their chute step (reset and runs carry `contexts=air fx=all`) and
+`PP-10-part-parity-fx-air-restock`, wiring cells `PartParityAirFxLaneShapeTests`. Two steps and not
+the table's one: F7's acceptance sweep took 336 s on stock (the Goliath's 77 s spool sets its wave),
+so 480 s is under D.8's 50 % margin. `budgetSeconds` 2400 for PP-5 / PP-6 and 1800 for PP-10 (the
+step budgets sum to 2160 and 1500). No registry value, as the orbit lanes.
 
 ### E.9 Work breakdown
 
@@ -2647,7 +3177,7 @@ Logs, atlases, strips and the console captures are in `<umbrella>/logs/partparit
 | U5 `GetParticles` reads `KSPParticleEmitter`-driven systems on both sides | Yes: on the RCS puffs and the ion engine (`KSPParticleEmitter` systems) both sides read `GetParticles` equal to `particleCount` (59 and 59 on the ion engine). But the stock legacy flame systems (`fx_exhaustFlame_*`, local space) read 0 particles at every sample while they draw (24148 core px on the LV-T45), and a Waterfall side has no particle system at all. | The plateau signal is the flame coverage for those sides (E.2); particle statistics stay report-only and cover no legacy flame. |
 | U6 render cost per FX layer | 512 px tile: 0.16 to 0.20 ms per layer render (flame 0.17 to 0.20, smoke 0.15 to 0.17, body 0.14 to 0.17); the readback, 1.7 to 2.5 ms per render, dominates. 48 sample frames of 6 renders took 1.2 to 1.7 s (25 to 35 ms per frame). A lone orbit engine case took 11.5 to 12.2 s, most of it the plateau wait. | E.8's basis re-measured: capture is cheap, the warm-up is the cost; 10 s per case stays as the margin. |
 | U7 Waterfall renderers draw in the capture camera | Yes. Modded LV-T45: 16 `Waterfall/` renderers (12 `Additive (Dynamic)`, three `Additive Directional`, one `Distortion (Dynamic)`), real flame core 17378 px; RAPIER 50 Waterfall renderers, core 24140 px; LV-T30 13, nuclear engine 6, ion engine 3. Every Waterfall engine also carries 1 or 2 `Waterfall/Distortion` renderers. No particle system on a Waterfall side. | The shader-name rule holds; distortion renderers leave the flame layer (E.3); Waterfall sides plateau on coverage (E.2). |
-| U8 a world-space smoke trail looks the same on the real and the ghost emitter (no Krakensbane shear) | In the air: yes. Hammer smoke, real vs ghost: the real particles sit on the axis (centroid 0.4 m, 153 of 255 within 200 m), along-axis median 164 m (ghost 90 m), across-axis median 9 m (ghost 4 m): the trails differ in length, not in placement. In orbit (Krakensbane frame velocity 2240 m/s): no. Every stock legacy world-space system on the real side holds a population of particles kilometres from the part (LV-T45 smoke: 3 of 304 within 200 m, across-axis median 10.2 km, centroid 10 km off the axis), while the ghost's stay put (226 of 226 within 200 m, median 2.7 m). Stock hides it: in vacuum the real `fx_smokeTrail_*` renderer is disabled (`enabled` false, no smoke coverage on all four stock legacy engines), while the ghost draws its smoke trail (`fx-far` smoke core 9832 px on the LV-T45, 27120 px on the Hammer). | Framing from near-particle percentiles, never renderer bounds (E.3). Orbit smoke reads `smoke-extra` on every stock legacy engine: new ghost defect GHOST-SMOKE-IN-VACUUM (todo). Smoke is judged where stock draws it, in the air cases. |
+| U8 a world-space smoke trail looks the same on the real and the ghost emitter (no Krakensbane shear) | In the air: yes. Hammer smoke, real vs ghost: the real particles sit on the axis (centroid 0.4 m, 153 of 255 within 200 m), along-axis median 164 m (ghost 90 m), across-axis median 9 m (ghost 4 m): the trails differ in length, not in placement. In orbit (Krakensbane frame velocity 2240 m/s): no. Every stock legacy world-space system on the real side holds a population of particles kilometres from the part (LV-T45 smoke: 3 of 304 within 200 m, across-axis median 10.2 km, centroid 10 km off the axis), while the ghost's stay put (226 of 226 within 200 m, median 2.7 m). Stock hides it: in vacuum the real `fx_smokeTrail_*` renderer is disabled (`enabled` false, no smoke coverage on all four stock legacy engines), while the ghost draws its smoke trail (`fx-far` smoke core 9832 px on the LV-T45, 27120 px on the Hammer). | Framing from near-particle percentiles, never renderer bounds (E.3). Orbit smoke reads `smoke-extra` on every stock legacy engine: new ghost defect GHOST-SMOKE-IN-VACUUM (todo; fixed 2026-11-23, the ghost now runs stock's `SmokeTrailControl` fade from its own altitude). Smoke is judged where stock draws it, in the air cases. |
 | U9 a part `Light`'s `cullingMask` reaches the plate's layer | Yes. Stock `spotLight1` mask 0x828001 (layers 0, 15, 17, 23), ReStock 0xFFFFFB37; the plate on layer 0 (the part's first rendered renderer) was lit on 40.8 % of its pixels at luminance 8 or more (real side, both installs), 0 % with the lights off, and the same on layer 15. The seven light parts checked (`spotLight1`, `spotLight3`, `domeLight1`, `navLight1`, `stripLight1`, `groundLight1`, `groundLight2`) carry only spot lights on both installs. Early parity signal: the stock ghost's spot light has intensity 2.0 against the real 1.0 and a warmer colour, plate mean luminance 49.5 against 23.3; on ReStock 26.8 against 23.4. The real colour was still 0.875 grey 4 s after `LightsOn`, so the stock fade may not have finished. | The plate works with a 2 % floor. The point-light control becomes optional (`n/a` when no part has one, E.5). F3 settles past the fade and re-measures before the intensity gap is filed. |
 | U10 how far the hue rotation moves max-channel coverage | Every flame tint the spike saw is grey: `_TintColor` (0.537, 0.537, 0.537), (0.779, 0.779, 0.779), (1, 1, 1) on the ion engine and the RCS, (0.5, 0.5, 0.5) on the RAPIER. So the channel rotation is an exact no-op (pass C within the intact A / B noise on every engine). A (0, max, 0) tint gives chromaticity (0, 1) but moves core coverage by -4 % (LV-T45), -3 % (Hammer), -5 % (RAPIER) and -46 % (ion engine, whose blue comes from its particle colours). Noise between two intact 16-sample passes, core at threshold 16: real 0.4 to 5.6 %, ghost 0.3 to 7.5 %. | `ctl-fx-plume-hue` rotates the channels of the broken ghost's rendered flame pixels, which keeps coverage exact (E.5). N = 16 stays: the pass-to-pass noise is well under the 25 % length and 30 % width thresholds. |
 
@@ -2655,12 +3185,16 @@ Early parity signals, not judged (P8 judges them once built): the ghost's LV-T45
 about half the real one (12140 against 24148 px) and its nozzle shows no throttle glow in the
 strip; the ghost's `JetEngine` draws no flame, which matches stock (the static jet draws none
 either); the ghost's air-mode RAPIER flame is a fifth of the real one on stock (6256 against
-32426 px) and the ghost RAPIER draws a smoke trail stock never draws, in orbit and in the air;
+32426 px), because the real side's trail (`fx_smokeTrail_aeroSpike`) is additive and so counts as
+flame here, while the ghost drew an alpha-blended substitute in the smoke layer (fixed 2026-11-23,
+todo GHOST-RAPIER-AIR-SMOKE-SUBSTITUTE: with its own trail the ghost reads 38237 px against a real
+32550; the smoke core of 0 px on the real RAPIER was that split, not a missing trail);
 ReStock's Hammer matches to 0.3 % (68641 against 68867 px), so a matching pair reads as one.
 `FlameValueMin`: the envelope at max channel 8 is 10 to 20 % larger than at 16 and the core moves
 less; 16 is the starting value.
 
 Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
 on every stock legacy world-space system; the plan does not depend on it, since it frames from
-near particles and judges smoke in the air); and whether the stock spot light's plate gap is a
-ghost defect or a fade still running (U9).
+near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
+ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
+2026-11-23).

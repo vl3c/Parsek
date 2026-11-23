@@ -164,6 +164,8 @@ namespace Parsek
         // Only ReStock's world-space SRB smoke rigs are affected; every stock FX asset is
         // local-space and this flag stays false.
         public bool baselineUseWorldSpace;
+        // A GhostEngineFxRule writes this emitter; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -178,6 +180,8 @@ namespace Parsek
         public float startSpeedMultiplier;
         public float startSizeMultiplier;
         public bool captured;
+        // A GhostEngineFxRule writes this system; the S1 ratio leaves it alone.
+        public bool stockRuled;
     }
 
     /// <summary>
@@ -213,9 +217,48 @@ namespace Parsek
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>
         public List<GhostFxMagnitudeBaseline> particleBaselines = new List<GhostFxMagnitudeBaseline>();
+        // S1 fallback curves, of sources with no entry in fxRules.
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float currentPower;
+        /// <summary>The sources stock's own power rules size (<see cref="GhostPlaybackLogic.ApplyEngineFxRules"/>).</summary>
+        public List<GhostEngineFxRule> fxRules = new List<GhostEngineFxRule>();
+        /// <summary>The part PREFAB's engine module, read for its thrust curves only.</summary>
+        public ModuleEngines engine;
+        public bool usesThrustFraction;
+        /// <summary><c>finalThrust / maxThrust</c> at full throttle in the ghost's air; 1 until known.</summary>
+        public float thrustFraction = 1f;
+        // The inputs thrustFraction was last computed from.
+        public int thrustAirSerial;
+        public float thrustThrottle = -1f;
+        /// <summary>The stock <c>SmokeTrailControl</c> and <c>FXFadeByPressure</c> fades of this
+        /// engine's cloned FX, captured before the component is stripped (todo
+        /// GHOST-SMOKE-IN-VACUUM). Empty for an engine whose FX carry none.</summary>
+        public List<GhostSmokeTrailFade> smokeTrailFades = new List<GhostSmokeTrailFade>();
+    }
+
+    /// <summary>
+    /// One stock <c>SmokeTrailControl</c> transcribed onto a ghost renderer. Stock fades a smoke
+    /// trail by air density every frame (decompiled <c>SmokeTrailControl.Update</c>, KSP 1.12.5):
+    /// <c>airDensity = InverseLerp(fadeEndDns, fadeStartDns, ship_dns)</c>; above 0.001 it tints
+    /// the material and enables the renderer, otherwise it disables the renderer, which is why no
+    /// smoke draws in vacuum. The ghost keeps the component's own serialized values and drives the
+    /// same rule from its playback altitude (<see cref="GhostPlaybackLogic.UpdateEngineSmokeTrailFades"/>).
+    /// </summary>
+    internal sealed class GhostSmokeTrailFade
+    {
+        public Renderer renderer;
+        public float maxAlpha;
+        public float fadeStartDns;
+        public float fadeEndDns;
+        public string shaderColorName;
+        public Color fadedColor;
+        public bool fadeToColor;
+        /// <summary>The renderer's own material instance, made on the first tint write.</summary>
+        public Material material;
+        /// <summary>The quantized fade level last written (<see cref="GhostPlaybackLogic.QuantizeSmokeTrailAirDensity"/>):
+        /// -1 never written, 0 hidden, 1..N drawn.</summary>
+        public int appliedLevel = -1;
     }
 
     internal struct DeployableTransformState
@@ -516,6 +559,14 @@ namespace Parsek
         public uint partPersistentId;
         public List<HeatTransformState> transforms;
         public List<HeatMaterialState> materialStates;
+        // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
+        public List<NozzleGlowInfo> nozzleGlows;
+        // Created for throttle-driven colour changers alone: no heat visual of its own, so the part
+        // keeps the reentry glow (which leaves a colour changer's property to it).
+        public bool throttleGlowsOnly;
+        // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
+        // heat event draws nothing here and the part counts as any other for the reentry glow.
+        public bool heatClipMissing;
     }
 
     internal class LightGhostInfo
@@ -553,6 +604,20 @@ namespace Parsek
         // will be needed when rewind/scrub support is added.
         public float peakCharIntensity;
         public List<ColorChangerMaterialState> materials;
+        // Set on a colour changer an FXModuleThrottleEffects drives (ReStock's nozzle glow): the
+        // colours BuildNozzleGlows plays by the recorded engine power.
+        public ThrottleGlowCurve throttleGlow;
+    }
+
+    /// <summary>What BuildNozzleGlows needs of a throttle-driven ModuleColorChanger.</summary>
+    internal class ThrottleGlowCurve
+    {
+        public string moduleId;
+        public float animRate;
+        public bool useRate;
+        public bool animState;
+        // The module's colour curves, evenly sampled from 0 to 1.
+        public Color[] samples;
     }
 
     internal class RcsGhostInfo
@@ -568,6 +633,43 @@ namespace Parsek
         public float emissionScale = 1f;
         public float speedScale = 1f;
         public float currentPower;
+        /// <summary>
+        /// Read-only record, index-parallel to <see cref="particleSystems"/> as built: the FX
+        /// transform each system was built under. Nothing in the build or playback reads it
+        /// (the part parity FX sweep hides the systems of the nozzles stock did not fire).
+        /// Teardown clears <see cref="particleSystems"/> but not this list, so read it only
+        /// through <see cref="TryGetParticleThruster"/>.
+        /// </summary>
+        public List<RcsParticleThruster> particleThrusters = new List<RcsParticleThruster>();
+
+        /// <summary>
+        /// The FX transform particle system <paramref name="particleIndex"/> was built under;
+        /// false when the index is out of range or the two lists no longer line up (teardown).
+        /// </summary>
+        internal bool TryGetParticleThruster(int particleIndex, out RcsParticleThruster thruster)
+        {
+            thruster = default(RcsParticleThruster);
+            if (particleSystems == null || particleThrusters == null) return false;
+            if (particleThrusters.Count != particleSystems.Count) return false;
+            if (particleIndex < 0 || particleIndex >= particleThrusters.Count) return false;
+            thruster = particleThrusters[particleIndex];
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Where one ghost RCS particle system came from: the EFFECTS model node's transform name
+    /// and the transform's position among every transform of that name under the part prefab,
+    /// in depth-first pre-order and before the variant filter. Stock builds
+    /// <c>ModuleRCS.thrusterTransforms</c> with the same walk (<c>Part.FindHeirarchyTransforms</c>
+    /// from the part's <c>model</c> child), so when the FX transform name is the module's
+    /// <c>thrusterTransformName</c> and every match sits under <c>model</c>, the index is stock's
+    /// thruster index i (the one <c>thrustForces[i]</c> is read for).
+    /// </summary>
+    internal struct RcsParticleThruster
+    {
+        public string transformName;
+        public int thrusterIndex;
     }
 
     internal enum GhostAudioPriorityClass
@@ -707,6 +809,8 @@ namespace Parsek
         public Vector3 localOffset;
         public Quaternion localRotation;
         public Vector3 localScale;
+        // A stock MODEL_MULTI_PARTICLE node, whose instances take stock's nested scale.
+        public bool stockNested;
     }
 
     internal class FairingGhostInfo

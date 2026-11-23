@@ -16,6 +16,9 @@ namespace Parsek
         AblationChar,
         /// <summary>Any other useRate module: Update writes the curves at its rest state.</summary>
         RestState,
+        /// <summary>An FXModuleThrottleEffects names it (ReStock's nozzle glow): its colour follows
+        /// the engine (<c>BuildNozzleGlows</c>), starting from its rest state.</summary>
+        ThrottleGlow,
     }
 
     /// <summary>The parsed renderer filter of one ModuleColorChanger (stock OnLoad + Start).</summary>
@@ -37,6 +40,7 @@ namespace Parsek
             public Color offColor;
             public Color onColor;
             public ColorChangerRendererFilter filter;
+            public ThrottleGlowCurve throttleGlow;
             public List<ColorChangerMaterialState> materials = new List<ColorChangerMaterialState>();
         }
 
@@ -49,7 +53,8 @@ namespace Parsek
         /// <c>currentRateState</c> from its Update every frame; Start sets that to
         /// <c>animState ? 1 : 0</c> and FixedUpdate ramps it toward animState, so the rest
         /// colour is the curves at that end. ReStock engines replace FXModuleAnimateThrottle with
-        /// two such modules (heatColor, throttleColor) at black / clear at rest.</description></item>
+        /// two such modules (heatColor, throttleColor) at black / clear at rest, which an
+        /// FXModuleThrottleEffects drives by name (<paramref name="throttleDrivenIds"/>).</description></item>
         /// <item><description>A ModuleAblator whose <c>charModuleName</c> names this module
         /// writes the char scalar every Update, whatever the property and after the cabin
         /// light module (the KV pods' window shows the char colour, not the light's).</description></item>
@@ -63,7 +68,7 @@ namespace Parsek
         /// </summary>
         internal static List<ColorChangerGhostInfo> BuildColorChangerInfos(
             ConfigNode partNode, ConfigNode prefabPartConfig, Transform ghostModelNode,
-            uint persistentId, string partName)
+            uint persistentId, string partName, ICollection<string> throttleDrivenIds = null)
         {
             if (partNode == null || ghostModelNode == null)
                 return null;
@@ -77,6 +82,8 @@ namespace Parsek
             var plans = new List<ColorChangerWritePlan>();
             int skippedNoShaderProperty = 0;
             int skippedNeverWritten = 0;
+            // Stock's setter drives the first module of the name (PartModuleList.GetScalarModule).
+            HashSet<string> driven = throttleDrivenIds != null ? new HashSet<string>(throttleDrivenIds) : null;
             for (int m = 0; m < colorChangerNodes.Count; m++)
             {
                 ConfigNode node = colorChangerNodes[m];
@@ -92,8 +99,10 @@ namespace Parsek
                 bool ablatorDriven = TryResolveAblationCharScalars(
                     partNode, prefabPartConfig, node.GetValue("moduleID"),
                     out float currentChar, out float charredChar);
+                string moduleId = ColorChangerModuleId(node);
+                bool throttleDriven = driven != null && driven.Remove(moduleId);
                 ColorChangerPattern pattern = ClassifyColorChangerPattern(
-                    toggleInFlight, shaderProperty, useRate, ablatorDriven);
+                    toggleInFlight, shaderProperty, useRate, ablatorDriven, throttleDriven);
                 if (pattern == ColorChangerPattern.None)
                 {
                     skippedNeverWritten++;
@@ -112,6 +121,16 @@ namespace Parsek
                     offColor = EvaluateColorChangerColor(node, offScalar),
                     onColor = EvaluateColorChangerColor(node, onScalar),
                     filter = ParseColorChangerRendererFilter(node),
+                    throttleGlow = pattern == ColorChangerPattern.ThrottleGlow
+                        ? new ThrottleGlowCurve
+                        {
+                            moduleId = moduleId,
+                            animRate = ParseFloatOr(node.GetValue("animRate"), 1f),
+                            useRate = useRate,
+                            animState = animState,
+                            samples = SampleColorChangerCurves(node),
+                        }
+                        : null,
                 });
             }
 
@@ -208,15 +227,17 @@ namespace Parsek
                         isCabinLight = plan.pattern == ColorChangerPattern.CabinLight,
                         isAblationChar = plan.pattern == ColorChangerPattern.AblationChar,
                         materials = plan.materials,
+                        throttleGlow = plan.throttleGlow,
                     });
                 }
             }
 
-            int cabin = 0, charCount = 0, rest = 0;
+            int cabin = 0, charCount = 0, rest = 0, throttle = 0;
             for (int i = 0; i < plans.Count; i++)
             {
                 if (plans[i].pattern == ColorChangerPattern.CabinLight) cabin++;
                 else if (plans[i].pattern == ColorChangerPattern.AblationChar) charCount++;
+                else if (plans[i].pattern == ColorChangerPattern.ThrottleGlow) throttle++;
                 else rest++;
             }
 
@@ -224,7 +245,7 @@ namespace Parsek
             ParsekLog.VerboseRateLimited("GhostVisual", $"colorchanger-{partName}",
                 $"ColorChanger resolve '{partName}' pid={persistentId}: " +
                 $"modules={colorChangerNodes.Count} built={(results != null ? results.Count : 0)} " +
-                $"cabinLight={cabin} ablationChar={charCount} restState={rest} " +
+                $"cabinLight={cabin} ablationChar={charCount} restState={rest} throttleGlow={throttle} " +
                 $"noShaderProperty={skippedNoShaderProperty} neverWritten={skippedNeverWritten} " +
                 $"renderersWritten={renderersWritten} renderersFiltered={renderersFiltered}", 60.0);
 
@@ -247,18 +268,36 @@ namespace Parsek
         /// <summary>
         /// Which stock writer a ModuleColorChanger has. An ablator-driven module is the char
         /// whatever its property (the KV pods drive _EmissiveColor); an in-flight
-        /// _EmissiveColor toggle is a cabin light; any other module with useRate on (the stock
+        /// _EmissiveColor toggle is a cabin light; one an FXModuleThrottleEffects names is a nozzle
+        /// glow, useRate or not (the setter writes it either way); any other module with useRate on (the stock
         /// default) is written by its own Update at its rest state; useRate off with no ablator
         /// is never written by stock, so the ghost leaves the asset's material alone.
         /// </summary>
         internal static ColorChangerPattern ClassifyColorChangerPattern(
-            bool toggleInFlight, string shaderProperty, bool useRate, bool ablatorDriven)
+            bool toggleInFlight, string shaderProperty, bool useRate, bool ablatorDriven,
+            bool throttleDriven = false)
         {
             if (string.IsNullOrEmpty(shaderProperty)) return ColorChangerPattern.None;
             if (ablatorDriven) return ColorChangerPattern.AblationChar;
             if (toggleInFlight && shaderProperty == "_EmissiveColor") return ColorChangerPattern.CabinLight;
+            if (throttleDriven) return ColorChangerPattern.ThrottleGlow;
             if (useRate) return ColorChangerPattern.RestState;
             return ColorChangerPattern.None;
+        }
+
+        /// <summary>The module's <c>moduleID</c>, or stock's field default.</summary>
+        internal static string ColorChangerModuleId(ConfigNode moduleNode)
+        {
+            string id = moduleNode?.GetValue("moduleID");
+            return string.IsNullOrEmpty(id) ? "colorChanger" : id;
+        }
+
+        internal static Color[] SampleColorChangerCurves(ConfigNode moduleNode)
+        {
+            var samples = new Color[NozzleGlowSampleCount];
+            for (int n = 0; n < samples.Length; n++)
+                samples[n] = EvaluateColorChangerColor(moduleNode, n / (float)(samples.Length - 1));
+            return samples;
         }
 
         /// <summary>

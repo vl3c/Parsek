@@ -640,6 +640,9 @@ namespace Parsek
             // tick; here for the same every-visible-frame reason (a snapshot-baseline canopy can
             // be open in a recording with no part events).
             GhostPlaybackLogic.UpdateParachuteCanopyAim(state, ut);
+
+            // A nozzle keeps heating or cooling between events, and cools in a recording with none.
+            GhostPlaybackLogic.UpdateNozzleGlows(state, ut);
         }
 
         /// <summary>The FX teardown of a suppressed frame in <see cref="ApplyFrameVisuals"/>:
@@ -725,44 +728,69 @@ namespace Parsek
             {
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 UpdateLaunchDust(index, state, traj, warpRate);
-
-                // S4 SELF-HEAL, and it belongs beside launch dust for the same reason dust is here:
-                // a ParticleSystem.Play() only takes on an ACTIVE hierarchy, and a ghost is inactive
-                // for the whole of its spawn-time prefix replay (BuildTimelineGhostFromSnapshot ends
-                // with root.SetActive(false); ActivateGhostVisualsIfNeeded runs later). Dust gets the
-                // retry for free by re-calling Play every frame; the plume is EVENT-driven, so
-                // without this a ghost spawning mid-burst stayed dark for the entire burst. Gated on
-                // the one flag that can want a plume, so every non-EVA ghost pays one bool read.
-                GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
-                GhostPlaybackLogic.RestoreAllRcsEmissions(state);
-                // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
-                // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
-                // this unsuppressed branch runs every visible (within-LOD) frame -- calling UnmuteAllAudio
-                // here would clear audioMuted and let UpdateAudioAtmosphere play the in-SOI ascending
-                // ghost's engine audio. Keep the secondary muted persistently; MuteAllAudio is idempotent
-                // and also covers the deferred-build case (spawn-time mute is guarded by sec.ghost != null).
-                if (state.isBoundaryOverlapSecondary)
-                    GhostPlaybackLogic.MuteAllAudio(state);
-                else
-                    GhostPlaybackLogic.UnmuteAllAudio(state);
-
-                // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
-                // re-applies them per frame. On the suppressed -> unsuppressed transition,
-                // restart them from the last recorded throttle so a ghost re-entering FX
-                // range (canonical case: a looping aircraft that repeatedly crosses the
-                // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
-                // throttle cursor up to this UT, so a throttle-down during the suppressed
-                // window has already cleared currentPower and is not re-ignited here. When the
-                // transition also coincides with a ghost re-activation, RestoreDeferredRuntimeFxState
-                // (in ApplyNonRetiredPostPosition) re-applies the same engines this frame too;
-                // both route through SetEngineEmission and are idempotent.
-                if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
-                    GhostPlaybackLogic.RestoreActiveEngineFx(state);
+                ApplyUnsuppressedFxRestore(state, priorVisualFxSuppressed);
             }
 
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
             // Runs after part events (which may start/stop audio) and after mute/unmute.
             GhostPlaybackLogic.UpdateAudioAtmosphere(state);
+        }
+
+        /// <summary>
+        /// The FX restore of an unsuppressed frame, after reentry FX and launch dust: the EVA
+        /// plume retry, the RCS restore from recorded power, the mute / unmute, the engine
+        /// restart on the suppressed -> unsuppressed edge, then the smoke-trail air-density fade.
+        /// <see cref="ApplyFrameVisuals"/> runs it on every unsuppressed frame and then
+        /// <see cref="GhostPlaybackLogic.UpdateAudioAtmosphere"/>; a caller that brings a primed
+        /// ghost onto the screen outside the engine (the part parity FX sweep) runs the same two
+        /// after clearing <c>state.visualFxSuppressed</c>. Reads no engine instance state: the two
+        /// calls before it (reentry, dust) read the engine's body and trajectory, this tail only
+        /// the ghost state.
+        /// </summary>
+        internal static void ApplyUnsuppressedFxRestore(
+            GhostPlaybackState state, bool priorVisualFxSuppressed)
+        {
+            // S4 SELF-HEAL, and it belongs beside launch dust for the same reason dust is here:
+            // a ParticleSystem.Play() only takes on an ACTIVE hierarchy, and a ghost is inactive
+            // for the whole of its spawn-time prefix replay (BuildTimelineGhostFromSnapshot ends
+            // with root.SetActive(false); ActivateGhostVisualsIfNeeded runs later). Dust gets the
+            // retry for free by re-calling Play every frame; the plume is EVENT-driven, so
+            // without this a ghost spawning mid-burst stayed dark for the entire burst. Gated on
+            // the one flag that can want a plume, so every non-EVA ghost pays one bool read.
+            GhostPlaybackLogic.UpdateEvaJetpackPlumeForFrame(state);
+            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+            // Boundary-overlap secondary gets NO audio (plan invariant 3): it borrows the overlap
+            // STORAGE but must never be audible. The spawn-time MuteAllAudio is a one-shot flag, and
+            // this unsuppressed branch runs every visible (within-LOD) frame -- calling UnmuteAllAudio
+            // here would clear audioMuted and let UpdateAudioAtmosphere play the in-SOI ascending
+            // ghost's engine audio. Keep the secondary muted persistently; MuteAllAudio is idempotent
+            // and also covers the deferred-build case (spawn-time mute is guarded by sec.ghost != null).
+            if (state.isBoundaryOverlapSecondary)
+                GhostPlaybackLogic.MuteAllAudio(state);
+            else
+                GhostPlaybackLogic.UnmuteAllAudio(state);
+
+            // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
+            // re-applies them per frame. On the suppressed -> unsuppressed transition,
+            // restart them from the last recorded throttle so a ghost re-entering FX
+            // range (canonical case: a looping aircraft that repeatedly crosses the
+            // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
+            // throttle cursor up to this UT, so a throttle-down during the suppressed
+            // window has already cleared currentPower and is not re-ignited here. When the
+            // transition also coincides with a ghost re-activation, RestoreDeferredRuntimeFxState
+            // (in ApplyNonRetiredPostPosition) re-applies the same engines this frame too;
+            // both route through SetEngineEmission and are idempotent. This tail runs only on an
+            // unsuppressed frame, so the first argument is false.
+            if (ShouldRestartEngineFxAfterSuppression(false, priorVisualFxSuppressed))
+                GhostPlaybackLogic.RestoreActiveEngineFx(state);
+
+            // The share of full thrust the engines make in the ghost's air, which sizes the plumes
+            // stock sizes by thrust.
+            GhostPlaybackLogic.UpdateEngineThrustFractions(state);
+
+            // Stock fades engine smoke by air density every frame and hides it in vacuum
+            // (SmokeTrailControl). Last, so it sees every emission write of this frame.
+            GhostPlaybackLogic.UpdateEngineSmokeTrailFades(state);
         }
 
         private static GhostRenderTrace.RenderSurface ResolveRenderSurface(

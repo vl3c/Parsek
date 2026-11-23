@@ -111,8 +111,8 @@ namespace Parsek.InGameTests
             HashSet<string> moduleGroups = entry.EngineModuleEffectNames.Count > 0
                 ? entry.EngineModuleEffectNames[0]
                 : null;
-            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanEffects(entry.EffectsNode, moduleGroups, modelFx, prefabFx);
 
             InGameAssert.IsGreaterThan(modelFx.Count, 0,
@@ -202,8 +202,8 @@ namespace Parsek.InGameTests
                     $"RAPIER midx={midx}: expected a named group filter, got all-groups " +
                     $"(source={source}); modes would bleed FX onto each other");
 
-                var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-                var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+                var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+                var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
                 ScanEffects(entry.EffectsNode, names, modelFx, prefabFx);
                 InGameAssert.IsGreaterThan(modelFx.Count + prefabFx.Count, 0,
                     $"RAPIER midx={midx}: ReStock EFFECTS yielded no entries for groups " +
@@ -406,8 +406,8 @@ namespace Parsek.InGameTests
         private static void ScanEffects(
             ConfigNode effectsNode,
             HashSet<string> moduleGroups,
-            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFx,
-            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFx)
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)> modelFx,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)> prefabFx)
         {
             ConfigNode[] allGroups = effectsNode.GetNodes();
             string[] allGroupNames = new string[allGroups.Length];
@@ -439,8 +439,8 @@ namespace Parsek.InGameTests
             if (effectsNode == null)
                 return 0;
 
-            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)>();
-            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)>();
+            var modelFx = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            var prefabFx = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             ScanEffects(effectsNode, moduleGroups, modelFx, prefabFx);
             return modelFx.Count + prefabFx.Count;
         }

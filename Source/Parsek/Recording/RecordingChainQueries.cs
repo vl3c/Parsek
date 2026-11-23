@@ -141,6 +141,13 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>The recording <see cref="GetChainPredecessorIndex"/> names; null when none.</summary>
+        internal static Recording GetChainPredecessor(Recording rec)
+        {
+            int index = GetChainPredecessorIndex(rec);
+            return index < 0 ? null : RecordingStore.CommittedRecordings[index];
+        }
+
         /// <summary>
         /// Returns the EndUT of the last segment in this recording's chain.
         /// Returns rec.EndUT if the recording is not part of a chain.

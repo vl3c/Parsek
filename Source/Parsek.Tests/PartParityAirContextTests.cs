@@ -217,6 +217,9 @@ namespace Parsek.Tests
         {
             string runner = Source("PartParitySweepRunner.cs");
             Assert.Contains("IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);", runner);
+            // An FX wave (design E.2) has its own flow, the air one included (its spawn is the
+            // held one, TheAirFxWave_IsHeldFromItsFirstUnpackedFrame).
+            Assert.Contains("if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);", runner);
             Assert.Contains("air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases", runner);
         }
 
@@ -241,6 +244,52 @@ namespace Parsek.Tests
             int destroy = finish.IndexOf("PartParitySweepRunner.DestroyCase(wc);", StringComparison.Ordinal);
             int check = finish.IndexOf("PartParitySweepRunner.CheckHost(ctx, \"after case \"", StringComparison.Ordinal);
             Assert.True(write >= 0 && destroy > write && check > destroy, $"write={write} destroy={destroy} check={check}");
+        }
+
+        [Fact]
+        public void TheAirFxWave_IsHeldFromItsFirstUnpackedFrame()
+        {
+            string driver = Source("PartParityFxDriver.cs");
+            int spawn = driver.IndexOf("internal static void SpawnCase(", StringComparison.Ordinal);
+            string body = driver.Substring(spawn, driver.IndexOf("private static ConfigNode AuthorVesselNode(", spawn, StringComparison.Ordinal) - spawn);
+            int air = body.IndexOf("if (TestCommandPartParitySweep.IsAirRun(ctx.Args))", StringComparison.Ordinal);
+            int held = body.IndexOf("PartParityAirContext.SpawnHeld(ctx, wc, node, ExhaustAxis(wc), slot, count);", StringComparison.Ordinal);
+            int orbit = body.IndexOf("GhostCoOrbitalRig.SpawnCoOrbital(", StringComparison.Ordinal);
+            Assert.True(air >= 0 && held > air && orbit > held, $"air={air} held={held} orbit={orbit}");
+            // The hold takes each case in the spawn wait, every frame and once after it, before
+            // the settle; the press phase keeps it instead of re-arming on the host frame.
+            string capture = Source("PartParityFxDriver.Capture.cs");
+            int run = capture.IndexOf("internal static IEnumerator RunWave(", StringComparison.Ordinal);
+            string wave = capture.Substring(run, capture.IndexOf("private static bool Ready(", run, StringComparison.Ordinal) - run);
+            int wait = wave.IndexOf("PartParitySweepRunner.WaitReady(ctx, wave)", StringComparison.Ordinal);
+            int first = wave.IndexOf("PartParityAirContext.HoldReadyCases(ctx, wave);", StringComparison.Ordinal);
+            int last = wave.LastIndexOf("PartParityAirContext.HoldReadyCases(ctx, wave);", StringComparison.Ordinal);
+            int settle = wave.IndexOf("PartParitySweepRunner.WaitSettled(ctx, wave)", StringComparison.Ordinal);
+            Assert.True(wait >= 0 && first > wait && last > first && settle > last, $"wait={wait} first={first} last={last} settle={settle}");
+            Assert.Contains("if (fx.Hold == null) fx.Hold = PartParityFxHold.Attach(wc.Real, ctx.Host);", driver);
+            // The held slot: the showcase band's, at the chutes' altitude, at rest.
+            string ctxSource = Source("PartParityAirContext.cs");
+            int sh = ctxSource.IndexOf("internal static void SpawnHeld(", StringComparison.Ordinal);
+            string spawnHeld = ctxSource.Substring(sh, ctxSource.IndexOf("internal static void HoldReadyCases(", sh, StringComparison.Ordinal) - sh);
+            Assert.Contains("PartParityAirPlan.SlotLatLon(slot, count, body.Radius, out double lat, out double lon);", spawnHeld);
+            Assert.Contains("double alt = PartParityStateRules.AirSpawnAltitudeM;", spawnHeld);
+            Assert.Contains("GhostCoOrbitalRig.SpawnInAir(node, body, lat, lon, alt, PartParityAirPlan.HeldDescentMps,", spawnHeld);
+            Assert.Equal(0.0, PartParityAirPlan.HeldDescentMps);
+            // The hold reads the surface frame in doubles, never the pad host's sway.
+            string hold = Source("PartParityFxHold.cs");
+            Assert.Contains("position = slot.Body.GetWorldSurfacePosition(slot.Latitude, slot.Longitude, slot.AltitudeM);", hold);
+        }
+
+        [Fact]
+        public void AWaveOfHeldJets_FitsTheBandAndTheUnpackRange()
+        {
+            // Up to four cases 40 m apart: 60 m from the band centre, inside stock's flying unpack
+            // range (2000 m) of a host anywhere within the admission's pad distance.
+            double reach = Math.Abs(PartParityAirPlan.SlotNorthOffsetM(0, PartParityFxRules.MaxFxWaveCases));
+            Assert.Equal(60.0, reach, 9);
+            Assert.Equal(40.0, PartParityAirPlan.SlotNorthOffsetM(1, 4) - PartParityAirPlan.SlotNorthOffsetM(0, 4), 9);
+            double ground = TestCommandPartParitySweep.AirHostMaxPadDistanceM + PartParityAirPlan.BandEastOfPadM + reach;
+            Assert.True(Math.Sqrt(ground * ground + PartParityStateRules.AirSpawnAltitudeM * PartParityStateRules.AirSpawnAltitudeM) < 2000.0);
         }
 
         [Fact]

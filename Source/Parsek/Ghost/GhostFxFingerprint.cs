@@ -116,35 +116,96 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// One particle system's fingerprint inputs, as <see cref="FormatEntry"/> takes them.
+        /// Filled from Unity by <see cref="ReadSystem"/> at runtime, by a fake in tests.
+        /// </summary>
+        internal struct FxSystemReading
+        {
+            public string objectName;
+            public string parentName;
+            public Vector3 localPos;
+            public Vector3 emissionDir;
+            public Vector3 localScale;
+            public float startSizeMultiplier;
+            public float startSpeedMultiplier;
+        }
+
+        /// <summary>
+        /// The FX inventory of one ghost engine module: one <see cref="FormatEntry"/> line per
+        /// live particle system, in build order (unsorted; <see cref="BuildFingerprint"/> sorts).
+        /// Destroyed or null systems are skipped. Unlike the rate-limited <c>[FxFingerprint]</c>
+        /// line, this reads the info directly, so every ghost of a part is listed every call.
+        /// </summary>
+        internal static List<string> BuildEntries(EngineGhostInfo info)
+        {
+            return BuildEntries(info?.particleSystems, ReadSystem, out _);
+        }
+
+        /// <summary>The RCS twin of <see cref="BuildEntries(EngineGhostInfo)"/>.</summary>
+        internal static List<string> BuildEntries(RcsGhostInfo info)
+        {
+            return BuildEntries(info?.particleSystems, ReadSystem, out _);
+        }
+
+        /// <summary>
+        /// The loop behind both overloads and <see cref="LogInfo"/>: a system that reads as null
+        /// to Unity (never built, or destroyed) is counted in <paramref name="nullSystems"/> and
+        /// skipped; every other one is read through <paramref name="read"/> and formatted.
+        /// </summary>
+        internal static List<string> BuildEntries(
+            List<ParticleSystem> particleSystems,
+            System.Func<ParticleSystem, FxSystemReading> read,
+            out int nullSystems)
+        {
+            var entries = new List<string>();
+            nullSystems = 0;
+            if (particleSystems == null)
+                return entries;
+            for (int p = 0; p < particleSystems.Count; p++)
+            {
+                ParticleSystem ps = particleSystems[p];
+                if (ps == null)
+                {
+                    nullSystems++;
+                    continue;
+                }
+                FxSystemReading r = read(ps);
+                entries.Add(FormatEntry(
+                    r.objectName, r.parentName,
+                    r.localPos, r.emissionDir, r.localScale,
+                    r.startSizeMultiplier, r.startSpeedMultiplier));
+            }
+            return entries;
+        }
+
+        /// <summary>The Unity reads of one particle system. Runtime only (Transform and
+        /// ParticleSystem members are ECalls), kept out of line so the loop above stays
+        /// testable headless.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static FxSystemReading ReadSystem(ParticleSystem ps)
+        {
+            Transform t = ps.transform;
+            var main = ps.main;
+            return new FxSystemReading
+            {
+                objectName = t.gameObject.name,
+                parentName = t.parent != null ? t.parent.name : "(root)",
+                localPos = t.localPosition,
+                emissionDir = t.localRotation * Vector3.up,
+                localScale = t.localScale,
+                startSizeMultiplier = main.startSizeMultiplier,
+                startSpeedMultiplier = main.startSpeedMultiplier,
+            };
+        }
+
         private static void LogInfo(
             string partName, string kind, int moduleIndex,
             List<ParticleSystem> particleSystems,
             FloatCurve emissionCurve, FloatCurve speedCurve)
         {
-            var entries = new List<string>();
-            int nullSystems = 0;
-            if (particleSystems != null)
-            {
-                for (int p = 0; p < particleSystems.Count; p++)
-                {
-                    ParticleSystem ps = particleSystems[p];
-                    if (ps == null)
-                    {
-                        nullSystems++;
-                        continue;
-                    }
-                    Transform t = ps.transform;
-                    var main = ps.main;
-                    entries.Add(FormatEntry(
-                        t.gameObject.name,
-                        t.parent != null ? t.parent.name : "(root)",
-                        t.localPosition,
-                        t.localRotation * Vector3.up,
-                        t.localScale,
-                        main.startSizeMultiplier,
-                        main.startSpeedMultiplier));
-                }
-            }
+            List<string> entries = BuildEntries(particleSystems, ReadSystem, out int nullSystems);
 
             ParsekLog.VerboseRateLimited("FxFingerprint",
                 $"fp-{kind}-{partName}-{moduleIndex}",
