@@ -63,14 +63,13 @@ namespace Parsek.Tests
             GhostFxCurve emission = GhostFxCurve.Read(
                 Node("0.0 0.0", "0.05 0.0", "0.075 0.25", "1.0 1.25"), "emission");
             Assert.Equal(expected, emission.Value(power), 1e-3f);
-            Assert.Equal(4, emission.KeyCount);
         }
 
         [Fact]
         public void Curve_NoValue_IsStocksDefaultOne()
         {
             GhostFxCurve curve = GhostFxCurve.Read(new ConfigNode("X"), "emission");
-            Assert.True(curve.IsConstant);
+            Assert.Equal(1f, curve.Value(0f));
             Assert.Equal(1f, curve.Value(0.1f));
             Assert.Equal(1f, GhostFxCurve.Read(null, "emission").Value(0.5f));
         }
@@ -87,7 +86,6 @@ namespace Parsek.Tests
         {
             GhostFxCurve curve = GhostFxCurve.Read(
                 Node("1.0 4.0", "0.0 2.0", "1.0 9.0", "oops", "x y"), "emission");
-            Assert.Equal(2, curve.KeyCount);
             Assert.Equal(2f, curve.Value(0f));
             Assert.Equal(4f, curve.Value(1f));
             Assert.Equal(3f, curve.Value(0.5f), 1e-6f);
@@ -140,8 +138,8 @@ namespace Parsek.Tests
             var entries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)>();
             EngineFxBuilder.ScanEffectsPrefabParticleEntries(groups, new[] { "running_open" }, entries);
             Assert.True(EngineFxBuilder.TryAddRapierWhiteFlame(entries, 0, _ => true, null, out _));
-            Assert.Equal(2, entries[0].fxCurves.emission.KeyCount);
-            Assert.True(entries[0].fxCurves.energy.IsConstant);
+            Assert.Equal(0.625f, entries[0].fxCurves.emission.Value(0.5f), 1e-5f);
+            Assert.Equal(1f, entries[0].fxCurves.energy.Value(0f));
             Assert.Null(entries[1].fxCurves);
         }
 

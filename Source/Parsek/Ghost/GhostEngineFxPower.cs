@@ -29,10 +29,6 @@ namespace Parsek
             this.values = values;
         }
 
-        internal bool IsConstant => times == null;
-
-        internal int KeyCount => times != null ? times.Length : 0;
-
         internal static GhostFxCurve Read(ConfigNode node, string valueName)
         {
             string[] lines = node != null ? node.GetValues(valueName) : null;
