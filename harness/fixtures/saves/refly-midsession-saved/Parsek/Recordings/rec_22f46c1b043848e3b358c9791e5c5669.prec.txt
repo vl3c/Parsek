@@ -1,0 +1,13 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = rec_22f46c1b043848e3b358c9791e5c5669
+sidecarEpoch = 3
+sectionAuthoritative = False
+TRACK_SECTION
+{
+	env = 4
+	ref = 0
+	startUT = 21.439999999999632
+	endUT = 51.599999999999639
+	sampleRate = 0
+}

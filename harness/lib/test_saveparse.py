@@ -4104,6 +4104,28 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "de6ff31af7ad42368632789e5c9051b0"],
             "schemaGeneration": 4,
         },
+        # --- A SAVE WRITTEN IN THE MIDDLE OF A LIVE RE-FLY -----------------
+        # PROVENANCE: refly-midsession-saved <- FORGE-refly-midsession, run
+        # 2026-11-23_2058, PASS attempt 1 (deployed hash 3f64e8b105ca130b),
+        # --keep-parsek via harness/tools/harvest_bdock_station.py.
+        #
+        # THE SHAPE RFP-1 NEEDS: the injected B9 corpus with a Re-Fly of rp_b9_root
+        # slot 1 in progress: the marker, the committed tree (three recordings) and
+        # its in-flight copy carrying the NotCommitted provisional rec_22f46c1b, so
+        # the parse counts 4 unique recordings and no supersede row yet.
+        #   rewind_points 1 (rp_b9_root, its quicksave under Parsek/RewindPoints).
+        #   12 authoritative sidecars over 4 recordings (no _ghost.craft files).
+        "refly-midsession-saved": {
+            "trees": 1, "committedTrees": 1, "recordings": 4,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1, "Destroyed": 1},
+            "branchPoints": {"JointBreak": 1},
+            "minAuthoritativeSidecars": 12,
+            "recordingIds": ["b9-booster-a", "b9-stack-root", "b9-upper-b",
+                             "rec_22f46c1b043848e3b358c9791e5c5669"],
+            "schemaGeneration": 4,
+        },
         # --- THE RP-SPLIT RE-FLY, MERGED -----------------------------------
         # PROVENANCE: refly-split-crewed-merged <- RF-13-refly-split-crew-survives-
         # reload, run 2026-09-23_1503 (deployed hash 1fa18b029522e6d8, the post-#1770

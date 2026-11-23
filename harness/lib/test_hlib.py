@@ -26868,9 +26868,9 @@ class SharedShipsManifestTests(unittest.TestCase):
     # FORGE-refly-midsession is authored, not flown, and RFP-1 (a Re-Fly saved
     # mid-session, resumed in a new process) names the fixture its harvest becomes,
     # tier "pending-fixture", the hand-over in the forge's header.
-    PENDING_FIXTURE_LANES: dict = {
-        "RFP-1-refly-resumed-in-new-process.toml": "refly-midsession-saved",
-    }
+    # RETIRED 2026-11-23: the forge flew green (`2026-11-23_2058`) and
+    # `refly-midsession-saved` is committed.
+    PENDING_FIXTURE_LANES: dict = {}
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture

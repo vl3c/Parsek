@@ -10,10 +10,9 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 |---|---|
 | lanes | 702 |
 | tier daily | 34 |
-| tier nightly | 310 |
+| tier nightly | 311 |
 | tier operator | 352 |
 | tier longhaul | 5 |
-| tier (other) | 1 |
 | profile stock-minimal | 634 |
 | profile stock-tree | 56 |
 | profile modded-compat | 10 |
@@ -111,7 +110,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RF | 32 | - | 2 | 30 | - | 15 | 30 |
 | RFK | 2 | - | - | 2 | - | - | - |
 | RFN | 2 | - | - | 2 | - | - | - |
-| RFP | 1 | - | - | - | - | - | - |
+| RFP | 1 | - | 1 | - | - | - | - |
 | RFQ | 2 | - | 2 | - | - | - | - |
 | RH | 1 | - | - | 1 | - | - | - |
 | RL | 1 | - | 1 | - | - | - | 1 |
@@ -1752,7 +1751,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RFP-1-refly-resumed-in-new-process | pending-fixture | refly-midsession-saved | seam | Kerbin | - | - | AUTHORED 2026-11-23, NEVER FLOWN; PENDING... |
+| RFP-1-refly-resumed-in-new-process | nightly | refly-midsession-saved | seam | Kerbin | - | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
 
 ### RFQ (2)
 
