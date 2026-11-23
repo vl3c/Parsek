@@ -800,6 +800,72 @@ Fix: `Object.DestroyImmediate(tempClone)`, like the siblings. `GhostTempCloneDes
 
 Proof: PP-1 `2026-11-21_2111` and every later PP-1 / PP-2 flight answered every step with the host in one piece and in orbit, through the final pair `2026-11-22_0033` / `_0045` (GHOST-PARITY-RESIDUALS-2026-11-22).
 
+## TEST-GAPS-BATCH4-CAREER: test-gap list batch 4, career and logistics: CPR-1, IR-6T and SSC-1 authored, two in-game cells added [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed; branch `b4-career`; in-game cells only (no production C# change); OPEN: the five first flights]
+
+From the 2026-11-18 test-gap list, five career / logistics gaps. None was covered on main (grep of
+`harness/scenarios`, the in-game tests and the open PRs on 2026-11-23).
+
+1. A contract parameter's own reward across a rewind (RW-17's header held it to the unit tests).
+   Lane `CPR-1-contract-parameter-paid-once-after-rewind` (operator, stock-tree, `cs-career-new`).
+   FIRSTLAUNCH `a5a1f217`'s one parameter pays 3200 funds / 1 science / 1 rep on its own, and stock
+   completes it at liftoff, so a Flea hop is enough (CS-4's REACHSPACE needs the MechJeb orbit
+   mission for the same walk). Two hops straddle a Rewind-to-Launch. Gates: G's parameter row
+   `effective=true`, F's `effective=false (already credited), rewards zeroed`, RW-17's contract
+   pair, no take-back, LedgerGroundTruth `hardFailures=0`.
+2. Routes while warping in the Tracking Station (IR-6's owed half, roadmap IR-6 row). Lane
+   `IR-6T-route-warp-in-tracking-station` (operator, stock-minimal, `rover-route-recorded` with
+   `trackingStationIntroDone = true`). IR-6's arithmetic, every delivery and the high-warp collapse
+   in the Tracking Station, entered through a save reload before cycle-0.
+3. SEAL-SPLIT-CHAIN-LANE-OWED. Lane `SSC-1-sealed-split-chain-route-gate` (operator,
+   stock-minimal, `rover-route-recorded`): a decoupled CS Flea Probe pod hops, lands and is
+   exploded, so its open slot's recording is split at the landing by the commit's optimizer;
+   SealSlot (tree mode), the through-tip line and the create gate `sealed=True` (refused only as
+   ineligible: a Flea tree is no route).
+4. The facility "Rebuild lvl N" block and mark, never run live. In-game cell
+   `FacilityRebuildRefusedWithTheMenusReason` (StockUiOverlay, SPACECENTER, host H45, which is
+   re-pinned `total=13` with the split regexed). It reads the Rebuild decoration
+   (`ForFacilityMenuRebuild` / `DecideRebuild`) and clicks Rebuild through stock's private
+   `SpaceCenterBuilding.DowngradeFacility(true)` with the Harmony prefix installed, on a level-0
+   facility (where stock itself changes nothing), and asserts one blocked dialog with the
+   decoration's text and no level or funds change. Not covered: the greyed button on a really
+   shown Rebuild (it needs a destroyed facility above level 1 and Left Ctrl held when the menu
+   opens; a lane would need a destroyed-facility fixture and a seam key press).
+5. A stock rescue's completion. In-game cell `RescuedKerbalFlipBooksAKerbalRescueRow` (Ledger,
+   SPACECENTER, host H48, re-pinned `total=5` with the split regexed): the stock
+   `ProtoCrewMember.type` flip Unowned -> Crew on a fresh Unowned kerbal is captured as one
+   KerbalRescued event with its trait, converts into a KerbalRescue row, and the kerbals walk keeps
+   the kerbal. Reading the walk found REWOUND-RESCUE-KERBAL-NEVER-JOINS-ROSTER (below), filed
+   without a red test. Later option (L): a full rescue rendezvous lane (accept a RecoverAsset
+   rescue, fly to the stranded pod, EVA transfer, recover, then rewind and cross the row).
+
+Owed (flight prompt): CPR-1, IR-6T, SSC-1, H45, H48. No new fixture; none moves the mouse.
+
+## REWOUND-RESCUE-KERBAL-NEVER-JOINS-ROSTER: after a rewind past a committed rescue, the rescued kerbal never becomes crew when the clock reaches the rescue [FILED 2026-11-23 by code reading (test-gap list batch 4, branch `b4-career`); no red test, no flight; medium (a kerbal the committed timeline rescued stays Unowned, stranded or unlisted, for good)]
+
+What the design says: "Rescued kerbals exist from the recovery UT of the recording that rescued
+them" (parsek-game-actions-and-resources-recorder-design.md, the kerbals section).
+
+What the code does (main 0003b8107). A completed rescue flips the stranded kerbal from Unowned to
+Crew (`ProtoCrewMember.type`), `GameStateRecorder.OnKerbalTypeChange` books KerbalRescued, and
+the commit converter makes a KerbalRescue row. In the kerbals walk that row only adds the name to
+`ledgerCreatedKerbals` (`KerbalsModule.ProcessAction`), a deletion guard. Nothing acts when the
+clock reaches it: `KerbalsModule.PromoteReachedCommittedHires` promotes reached KerbalHire rows
+(Applicant -> Crew), and no counterpart exists for KerbalRescue. So after a Rewind-to-Launch (or
+any load) to before the rescue, the loaded save holds the kerbal as Unowned (aboard the stranded
+vessel when the accept is before the load, or not at all), and when the clock passes the committed
+rescue's recovery he stays that way: he never appears on the crew list.
+
+Second gap seen on the way, also unproven: KerbalRescued is never forwarded to the ledger directly
+(no `ShouldForwardDirectLedgerEvent` call in `OnKerbalTypeChange`), so a rescue flipped while no
+recorder claims the event (filed untagged, e.g. a recovery from the Tracking Station) reaches no
+ledger row at all.
+
+Fix (not narrow, owner questions first): promote a reached KerbalRescue row's kerbal to Crew the
+way reached hires are promoted, and decide what happens to the stranded copy (the Unowned kerbal
+aboard the regenerated stranded vessel, todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): remove
+him from that vessel, or keep the vessel and treat it as the committed flight's ghost target. A
+lane would be the full rescue rendezvous noted in TEST-GAPS-BATCH4-CAREER item 5.
+
 ## TEST-GAPS-BATCH3-FLIGHTS-2026-11-21: the batch 3 re-flights, every owed lane green, 14 report-only save blocks armed [FILED 2026-11-21, branch `test-gaps-batch3`; one seam fix (C#, automation-only `PartAction`); OPEN: nothing; the operator / nightly promotion calls of the new lanes are the ordinary ones]
 
 Flown: runner runs `b3-flights-4` / `b3-flights-5` / `b3-flights-6` on V's PC, 3 slots. `b3-flights-4`: 19 lanes on the Debug automation DLL sha256 prefix 4dd8a0d9 built from 87ce236fb; `b3-flights-5`: 12 lanes on prefix b5179f97 (the `rotoron` torque fix below); `b3-flights-6`: 3 lanes on prefix b5d5ae14 (plus `rotorbrake`). Every install carried one hash per run, verified by size, sha256 and markers in both encodings (`ServoMirroredPose`, `RescueAcceptDeferrals`, `PatchCrossedBuildingRows`, `Rotor spin applied in playback`, `Flight clock reached a committed ledger row`, `Rewind point file deleted on revert`, later `partaction rotor torque raised: button=`, `rotorbrake`).
@@ -3427,7 +3493,7 @@ green reading run: pin the batch split whole, leave `INTERIM_PIN_IDS`, tighten t
 
 Flown 2026-11-20 (`2026-11-20_2310_SOI-3-bg-probe-mun-exit-on-rails`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(results) attempt 1. The crossing recorded as designed (one seam at UT 1317.090; two of the three cells passed), but the continuity cell measured a 9.1 km gap: filed as BG-SOI-SEAM-WORLD-GAP (top of this file), settled 2026-11-21 as the cell comparing two instants 1 s apart in the Sun-anchored world frame (the probe's 9127.7 m/s heliocentric speed); the cell now evaluates both sides at the seam UT within 1 km. Owed: the re-flight.
 
-## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only, no lane yet; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
+## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only; LANE AUTHORED 2026-11-23, `SSC-1-sealed-split-chain-route-gate` (TEST-GAPS-BATCH4-CAREER), never flown; OPEN: its first flight; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
 
 The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane
 that seals in tree mode or creates a route flew green on it, but none of them reached the shape it
@@ -3443,6 +3509,12 @@ kept open as an Unfinished Flight, then sealed (`SealSlot` in tree mode), then m
 rate-limited Verbose line, so confirm the lane's verbose setting before pinning it), and the
 create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
 flight (`harness/README.md` -> "Authoring a fast lane").
+
+Authored 2026-11-23: `SSC-1-sealed-split-chain-route-gate` on `rover-route-recorded`, IR-3's CS
+Flea Probe pad decouple (a Rewind Point), RW-11's hop, a 30 s landed dwell and the pod exploded:
+the slot commits open and the landing is a SurfaceInvolved split (the air run is over 120 s). The
+create is expected REJECTED as `candidate-ineligible`, with the gate line pinned at `sealed=True`;
+verbose logging is on for the through-tip line.
 
 ## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 read green on their first flights 2026-11-17 (runs `2026-11-17_2320` / `_2322`, runner run `spawn-flight-2026-11-18`), the fix's live proof]
 

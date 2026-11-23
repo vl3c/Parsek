@@ -85,7 +85,11 @@ count = { min = 0, max = 0 }
 #  - scene=SPACECENTER is where a vessel-less career save boots, and it is LOAD-BEARING:
 #    at FLIGHT all four scene-skip and the line reads `passed=0 skipped=4`, which this
 #    pin rejects.
-required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Ledger scene=SPACECENTER"]
+#  - 2026-11-23 (test-gap list batch 4, todo TEST-GAPS-BATCH4-CAREER): total=5, the rescued
+#    kerbal cell `RescuedKerbalFlipBooksAKerbalRescueRow` (`InGameTests/RescuedKerbalLedgerTests.cs`)
+#    added. Its guards are a loaded roster and no crew suppression, so predicted 5 / 0; the
+#    split is regexed (INTERIM_PIN_IDS) until its first flight.
+required  = ["BATCH_COMPLETE v1 total=5 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Ledger scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
