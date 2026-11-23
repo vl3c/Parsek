@@ -82,8 +82,9 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  "\\[ReFlySession\\] Marker loaded: none",
-  "\\[LoadSweep\\] Marker valid=False",
+  # Scoped to the boot load: the Space Center load after the merge has no session by design.
+  "Load classified: early=Cold (?:(?!MISSIONMARK label=rfp1-resumed-)[\\s\\S])*\\[ReFlySession\\] Marker loaded: none",
+  "Load classified: early=Cold (?:(?!MISSIONMARK label=rfp1-resumed-)[\\s\\S])*\\[LoadSweep\\] Marker valid=False",
   "Zombie discarded",
   "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
   "MISSIONMARK label=rfp1-resumed-(?!1-rp_b9_root-true )",

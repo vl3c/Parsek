@@ -156,7 +156,8 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
-  "\\[LoadSweep\\] Marker valid=False",
+  # Scoped to the F9: every load outside the session sweeps with no marker by design.
+  "loadgame player-load: firing (?:(?!MISSIONMARK label=rfn1-after-f9-)[\\s\\S])*\\[LoadSweep\\] Marker valid=False",
   "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
   "Discard removed session provisional RP",
   "MISSIONMARK label=rfn1-nested-(?!2-true )",

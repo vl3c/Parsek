@@ -384,8 +384,8 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | rewind-to-launch | 129 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
 | re-fly | 71 | RF 24, QL 6, RB 5, RW 5, S 5, CI 3, VN 3, LAB 2, RFK 2, RFN 2 +13 |
 | revert | 23 | QL 4, RW 4, IR 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1 +2 |
-| reload | 192 | V 30, QL 21, RF 17, LAB 10, EVA 9, SPW 9, MINE 7, RW 6, VN 6, RB 5 +43 |
-| save | 304 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +68 |
+| reload | 194 | V 30, QL 21, RF 17, LAB 10, EVA 9, SPW 9, MINE 7, RW 6, VN 6, RB 5 +44 |
+| save | 306 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +69 |
 | warp | 289 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
 | physics-warp | 20 | QL 5, ASR 4, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 133 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
@@ -400,7 +400,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 449 | 116 | 57 | 17 | 157 | 229 | 237 | 18 | 53 | 171 | 22 | - |
+| Kerbin | 449 | 116 | 57 | 17 | 159 | 231 | 237 | 18 | 53 | 171 | 22 | - |
 | Mun | 72 | 33 | 11 | 6 | 21 | 50 | 51 | - | 13 | 46 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -531,7 +531,7 @@ Lanes per family (rows) per timeline operation (columns).
 | STR | 4 | 2 | 1 | 1 | 3 | 4 | 3 | 1 | - | 3 | - | - |
 | SUB | 3 | 2 | - | - | - | 3 | 2 | - | - | 1 | - | - |
 | SURV | 2 | - | - | - | - | - | 2 | - | - | 2 | - | - |
-| SWC | 2 | - | - | - | - | - | 2 | - | - | 2 | 2 | - |
+| SWC | 2 | - | - | - | 2 | 2 | 2 | - | - | 2 | 2 | - |
 | SWS | 1 | - | - | - | 1 | 1 | - | - | - | 1 | - | 1 |
 | TL | 1 | - | - | - | - | 1 | - | - | - | - | - | - |
 | TOUR | 1 | 1 | - | - | - | 1 | 1 | - | - | - | - | - |
@@ -621,7 +621,7 @@ Lanes per family (rows) per timeline operation (columns).
 | LoadGame | 702 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +112 |
 | SetSetting | 692 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +111 |
 | StopRecording | 395 | V 65, RF 25, RW 24, RVR 19, EVA 17, LAB 17, H 15, B 14, MINE 14 +73 |
-| SaveGame | 304 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +68 |
+| SaveGame | 306 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +69 |
 | WarpToUT | 289 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
 | RecordingState | 266 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +59 |
 | DiscardTree | 262 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 12, SPW 9, TP 9 +45 |
@@ -648,7 +648,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SealSlot | 43 | RVR 15, IR 7, H 5, GUI 3, RF 3, MINE 2, AST 1, QL 1, RB 1, RCN 1 +4 |
 | ExportRenderManifest | 42 | V 39, B 1, FAR 1, H 1 |
 | RouteCommand | 40 | RVR 15, IR 8, H 5, GUI 4, MINE 2, AST 1, RCN 1, RS 1, RSF 1, SSC 1 +1 |
-| KscMarkerRecover | 29 | RW 16, RSQ 4, CT 2, WTT 2, CI 1, CPR 1, EVA 1, RS 1, STR 1 |
+| KscMarkerRecover | 30 | RW 16, RSQ 4, CT 2, WTT 2, CI 1, CPR 1, EVA 1, RS 1, SSC 1, STR 1 |
 | DumpGuiTree | 27 | GUI 26, RSC 1 |
 | ReadVesselResources | 24 | MINE 13, IR 5, LAB 3, AST 1, RC 1, RCN 1 |
 | EnterWatchMode | 20 | V 11, AP 1, FAR 1, GUI 1, LX 1, MC 1, MINE 1, RF 1, W 1, WDK 1 |
@@ -672,9 +672,9 @@ Lanes per family (rows) per timeline operation (columns).
 | EvaSeatBoard | 5 | SEAT 4, CX 1 |
 | CrewTransfer | 4 | CX 3, KB 1 |
 | PlantFlag | 4 | CX 1, EVA 1, FLG 1, WF 1 |
-| CycleVessel | 3 | SWC 2, GC 1 |
 | EvaSeatLeave | 3 | SEAT 3 |
 | NewGame | 3 | CS 2, SWS 1 |
+| CycleVessel | 2 | GC 1, SWC 1 |
 | EvaChuteDeploy | 2 | EVA 1, GPOS 1 |
 | ExitToMainMenu | 2 | QTM 1, RFQ 1 |
 | EvaMove | 1 | EVA 1 |
@@ -2026,8 +2026,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SWC-1-map-switch-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | warp, scene-change, vessel-switch | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
-| SWC-2-cycle-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | warp, scene-change, vessel-switch | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| SWC-1-map-switch-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
+| SWC-2-cycle-own-committed-case-c | operator | eva2-lko-crewed | seam | Kerbin | reload, save, warp, scene-change +1 | - | AUTHORED 2026-11-23, NEVER FLOWN; tag pen... |
 
 ### SWS (1)
 

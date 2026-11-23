@@ -16,8 +16,7 @@ id = "SWC-2-cycle-own-committed-case-c"
 # 16 m away, both in the physics bubble, nothing committed.
 #   (a) Record Kerbal X for a few seconds and commit it (T1); the auto-resumed recorder is
 #       stopped and dropped (DiscardTree), so nothing is live.
-#   (b) CycleVessel prev to the probe (GC-4 measured that `[` from Kerbal X lands on the
-#       probe); no recording is live, so this is a plain stock switch.
+#   (b) The save reloaded with the probe focused (LoadGame focusPid); no recording is live.
 #   (c) StartRecording on the probe: a second, separate tree (T2) is live.
 #   (d) THE SUBJECT: CycleVessel next (`]`, GC-4 measured that it lands on Kerbal X from
 #       the probe) while T2 records. The cycle fix (todo CYCLE-SWITCH-PRESWITCH-BYPASS)
@@ -62,8 +61,15 @@ steps = [
   { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                           expect = "OK" },
   { cmd = "DiscardTree",                                                             expect = "OK" },
-  # (b) To the probe with nothing live.
-  { cmd = "CycleVessel",    args = { direction = "prev" },                            expect = "OK" },
+  # (b) To the probe with nothing live: the save reloaded with the probe focused (the seam's
+  # CycleVessel leaves a cycle Parsek has no reason to take to stock, `outcome=left-to-stock`,
+  # which switches nothing: the first flight).
+  { cmd = "SaveGame",       args = { name = "swc2-t1" },                                expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "swc2-t1", focusPid = "2614652043" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   # (c) T2 on the probe.
   { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "440", maxRate = "1" },                     expect = "OK", budget = 120 },
@@ -89,7 +95,6 @@ count = { min = 2, max = 3 }
 
 [expectations.logContracts]
 required = [
-  "cyclevessel result direction=prev outcome=switched [^\\r\\n]*before=3620499050 after=2614652043 switched=true",
   # THE SUBJECT: Case C detected on the loaded, separately committed Kerbal X ...
   "MISSIONMARK label=swc2-switch [\\s\\S]*?pre-switch Case C: loaded target is separate committed vessel targetPid=3620499050 matchedTreeId=[0-9a-f]+ activeTreeId=[0-9a-f]+",
   # ... decided without asking (merged, or discarded as a no-op) ...

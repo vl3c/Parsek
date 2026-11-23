@@ -148,7 +148,9 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # F and G, one recording each (the Flea has no decoupler); the check launch is unrecorded.
-count = { min = 2, max = 2 }
+# Two hops, each split by the commit's optimizer at its landing (measured 4 on the first flight,
+# `2026-11-23_2138`).
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 required = [

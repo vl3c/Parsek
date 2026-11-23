@@ -116,8 +116,8 @@ steps = [
   { cmd = "WarpToUT",       args = { ut = "186000", maxRate = "100" },                     expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "rfk1-crossed" },                             expect = "OK" },
 
-  # ---- the check ----
-  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  # ---- the check, from the runway: G's vessels still stand on the pad ----
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
   { cmd = "WarpToUT",       args = { ut = "186030" },                                      expect = "OK", budget = 120 },
   { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },

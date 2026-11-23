@@ -25,17 +25,21 @@ tier = "operator"
 # THE FLIGHT (host `rover-route-recorded`, stock-minimal sandbox, clock 979.48; IR-3's recipe):
 #   * the kill triple; autoMerge on (the scene exit commits, SURV-2's shape); verbose on (the
 #     through-tip line is Verbose).
-#   * ExitToSpaceCenter, the VAB, `CS Flea Probe` onto the pad, StartRecording, `PartAction
+#   * the practice hop, unrecorded (added after the first flight, `2026-11-23_2110`: FirstLaunch
+#     and two record rows on the pod's recording sealed its slot, reason
+#     `recordingAction:MilestoneAchievement`): ExitToSpaceCenter, the same craft and profile to
+#     UT 1047, the pod exploded, the stand recovered from its Space Center marker.
+#   * the VAB, `CS Flea Probe` onto the pad, StartRecording, `PartAction
 #     decouple part=radialDecoupler`: the pod and the TT-38K probe stand are both controllable, so
 #     the split authors a Rewind Point with two slots (IR-3 / RW-25 measured `slots=2
 #     controllablePids=2`). The pod stays the active vessel (its Mk1 pod is the craft's root).
-#   * the hop, RW-11's measured profile: activate the Flea at 1000, the chute at 1047, landed on
-#     KSC grass by 1190, all at 1x. The atmospheric run lasts well over 120 s
+#   * the hop, RW-11's measured profile: activate the Flea at 1120, the chute at 1167, landed on
+#     KSC grass by 1310, all at 1x. The atmospheric run lasts well over 120 s
 #     (`BriefSectionMaxSeconds`), so it is not a surface graze, and the landing boundary is not the
 #     launch-site departure, so the commit's optimizer pass splits the pod's recording there
-#     (`Split candidate (SurfaceInvolved)`). The pod then sits landed until 1220, so the second
+#     (`Split candidate (SurfaceInvolved)`). The pod then sits landed until 1340, so the second
 #     half clears the optimizer's 5 s minimum.
-#   * `PartAction explode part=mk1pod.v2` at ~1220: the pod's slot ends Destroyed, an open
+#   * `PartAction explode part=mk1pod.v2` at ~1340: the pod's slot ends Destroyed, an open
 #     Unfinished Flight. The stand is still alive on the pad, so no post-destruction dialog
 #     (`not all leaves terminal`, SURV-2's line).
 #   * ExitToSpaceCenter: the silent scene-exit auto-commit, the commit promotion, then the
@@ -87,6 +91,20 @@ steps = [
   { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   # ---- the Flea Probe decoupled on the pad: a Rewind Point with two slots ----
   { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  # ---- the practice hop, unrecorded: the same craft and profile first reaches FirstLaunch and
+  # the speed / altitude record bands, so the recorded hop files no milestone row (one, even at
+  # zero value, seals the pod's slot: design section 2.12, measured on the first flight) ----
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g0",   expect = "OK", budget = 180 },
+  { cmd = "PartAction",   args = { button = "decouple", part = "radialDecoupler" }, label = "dec0", expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "activate", part = "solidBooster.sm.v2" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1047", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "explode", part = "mk1pod.v2" },    expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1055", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${dec0.newPid}" },                expect = "OK", budget = 60 },
+  { cmd = "MissionMark",  args = { label = "ssc1-practice-done" },              expect = "OK" },
   { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
   { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
   { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
@@ -94,17 +112,17 @@ steps = [
   { cmd = "ListHandles",  args = { kind = "active" }, label = "a",              expect = "OK" },
   { cmd = "MissionMark",  args = { label = "ssc1-decoupled-${a.tree}" },        expect = "OK" },
   # ---- the hop: RW-11's profile, landed on KSC grass ----
-  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",     args = { ut = "1120", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "PartAction",   args = { button = "activate", part = "solidBooster.sm.v2" }, expect = "OK" },
-  { cmd = "WarpToUT",     args = { ut = "1047", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",     args = { ut = "1167", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "PartAction",   args = { button = "chute", part = "parachuteSingle" }, expect = "OK" },
-  { cmd = "WarpToUT",     args = { ut = "1190", maxRate = "1" },                expect = "OK", budget = 240 },
+  { cmd = "WarpToUT",     args = { ut = "1310", maxRate = "1" },                expect = "OK", budget = 240 },
   { cmd = "PartAction",   args = { button = "inspect", part = "mk1pod.v2" }, label = "landed", expect = "OK" },
-  { cmd = "WarpToUT",     args = { ut = "1220", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",     args = { ut = "1340", maxRate = "1" },                expect = "OK", budget = 120 },
   # ---- the pod destroyed on the ground: an open Unfinished Flight ----
   { cmd = "MissionMark",  args = { label = "ssc1-before-explode" },             expect = "OK" },
   { cmd = "PartAction",   args = { button = "explode", part = "mk1pod.v2" },    expect = "OK" },
-  { cmd = "WarpToUT",     args = { ut = "1230", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",     args = { ut = "1350", maxRate = "1" },                expect = "OK", budget = 120 },
   { cmd = "PartAction",   args = { button = "inspect", part = "mk1pod.v2" },    expect = "REJECTED" },
   { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "r",        expect = "OK" },
   { cmd = "MissionMark",  args = { label = "ssc1-after-crash-${r.count}" },     expect = "OK" },
@@ -160,7 +178,8 @@ forbidden = [
   "sealslot rejected ",
   "routecommand create gate [^\\r\\n]*sealed=False",
   "refusal=TreeNotSealed",
-  "Single-controllable split: no RP",
+  # The decouple only: the exploded pod's breakup logs it with controllable=0 by design.
+  "MISSIONMARK label=ssc1-practice-done (?:(?!MISSIONMARK label=ssc1-before-explode )[\\s\\S])*Single-controllable split: no RP",
   "warptout refused",
   "listhandles rejected",
   "ShowPostDestructionTreeMergeDialog: all leaves terminal",

@@ -10196,7 +10196,8 @@ def spec_expects_live_recording(spec: Dict) -> bool:
     driver = spec.get("driver", {}) or {}
     for step in driver.get("steps", []) or []:
         cmd = (step.get("cmd") or "")
-        if cmd == "StartRecording":
+        # A StartRecording the spec expects refused (GM-1: an inert game mode) records nothing.
+        if cmd == "StartRecording" and (step.get("expect") or "OK") == "OK":
             return True
         if cmd == "SetSetting":
             name = (step.get("args", {}) or {}).get("name", "")

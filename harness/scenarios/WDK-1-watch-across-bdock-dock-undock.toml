@@ -15,12 +15,16 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 # THE HOST is `bdock-recorded`, tree 2 (8c677bba0ec04e558c6ebec4ad8c3c9f, Kerbal X #2):
 # the recorded Dock merge 4fe5e39e at UT 8949.268 and the Undock 857e997a 1.32 s later at
 # UT 8950.588, both in low Kerbin orbit beside the station. WL-3's instant (open PR #2782,
-# its reading flight 2026-11-22_2128): loop playback of the tree with the jump to 73477
-# puts the recorded dock at about 73597.5 and the undock at about 73598.8.
+# its reading flight 2026-11-22_2128) was 73477, taken as 120 s before the dock. The first
+# flight here (`2026-11-23_2118`) measured that it is not: the phasing knob keeps 12 parking
+# revolutions on cycle 0 where the flight recorded 3 (`knob window: launch#0 k=3 d=9
+# keptRevs=12`, T=1915.9 s), so at 73477 the replay read loopUT 6912.87, 1915.86 s behind the
+# uncompressed clock, and the rest of the cycle plays 9 x 1915.86 = 17242.8 s later: the
+# recorded dock at about 90840.3 and the undock at about 90841.6.
 #
 # THE FLIGHT: WL-3's setup verbatim (StopRecording / DiscardTree, MissionConfig loop,
-# StartLoopPlayback, TimeJump 73477, WarpToUT 73482 at 1x, EnterWatchMode on the tree),
-# then WarpToUT 73610 at 1x: the watched ghost docks, the watch transfers to the merged
+# StartLoopPlayback, TimeJump 90720, WarpToUT 90725 at 1x, EnterWatchMode on the tree),
+# then WarpToUT 90860 at 1x: the watched ghost docks, the watch transfers to the merged
 # recording, and at its undock the identity rule decides which child to follow.
 #
 # PRE-REGISTERED READING: `Watch session identity:` at session start; one undock decision
@@ -39,7 +43,7 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 #   Takes the flight camera (watch mode) but no mouse: keep it off a shared desktop focus.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-23, NEVER FLOWN (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: loop playback of tree 2 (Kerbal X #2), WL-3's jump to UT 73477, watch mode entered on the tree, then a 1x warp across the replayed dock (about 73597.5) and undock (about 73598.8). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity line and the undock decision line."
+description = "AUTHORED 2026-11-23, NEVER FLOWN (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: loop playback of tree 2 (Kerbal X #2), a jump to UT 90720, watch mode entered on the tree, then a 1x warp across the replayed dock (about 90840.3) and undock (about 90841.6). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity line and the undock decision line."
 instanceProfile = "stock-minimal"
 tags = ["WDK1", "watch", "docking", "loop-playback", "flight-view", "pending-flight"]
 
@@ -60,12 +64,12 @@ steps = [
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },            expect = "OK" },
   { cmd = "MissionConfig",     args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" }, label = "slp", expect = "OK", budget = 300 },
-  { cmd = "TimeJump",          args = { ut = "73477" },                                       expect = "OK", budget = 300 },
-  { cmd = "WarpToUT",          args = { ut = "73482", maxRate = "1" },                        expect = "OK", budget = 120 },
+  { cmd = "TimeJump",          args = { ut = "90720" },                                       expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",          args = { ut = "90725", maxRate = "1" },                        expect = "OK", budget = 120 },
   { cmd = "EnterWatchMode",    args = { tree = "8c677bba0ec04e558c6ebec4ad8c3c9f" },          expect = "OK", budget = 120 },
   { cmd = "MissionMark",       args = { label = "wdk1-watching" },                            expect = "OK" },
-  # Across the dock (about 73597.5) and the undock (about 73598.8), at 1x.
-  { cmd = "WarpToUT",          args = { ut = "73610", maxRate = "1" },                        expect = "OK", budget = 240 },
+  # Across the dock (about 90840.3) and the undock (about 90841.6), at 1x.
+  { cmd = "WarpToUT",          args = { ut = "90860", maxRate = "1" },                        expect = "OK", budget = 240 },
   { cmd = "MissionMark",       args = { label = "wdk1-past-undock" },                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                                     expect = "OK" },
 ]

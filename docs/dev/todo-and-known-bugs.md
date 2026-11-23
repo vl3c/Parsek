@@ -20,7 +20,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
+## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING (branch `b4-eva`); test gap, medium]
+
+FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
+bursts, effect=true, the last stowed with one press, boarded); the two failed pins are the entries
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER and EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION below. The batch
+read `total=3 passed=1 failed=0 skipped=2`, pinned whole.
 
 Every committed EVA lane exits, floats, plants, boards or chutes. New seam verb `EvaMove
 mode=jetpack|walk dir=forward|back|left|right|up|down seconds=<0.1..30> [stow=true]`
@@ -34,6 +39,60 @@ distance and relative speed; ERROR on kerbal lost, ragdoll, no effect, a refused
 Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s bursts, board,
 commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
 walks yet (a landed EVA host is needed); a walk lane is the follow-up.
+
+## SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); OPEN; visual, orbit EVA]
+
+What happens. Recording Kerbal X in a 100 km orbit, Valentina steps out (423.83). Her child
+recording 9cee0a67 starts as a background recording (`DeferredEvaBranch: ship still active`,
+TrackSection Absolute then `RELATIVE mode entered ... dist=1.5m` at 423.89), stock makes her the
+active vessel, and the post-switch watch waits for a trigger. From that moment nothing samples her:
+`PhysicsFramePatch.Postfix` hands only non-active vessels to
+`BackgroundRecorder.OnBackgroundPhysicsFrame` (`bgVessel != v`) and no active recorder exists until
+the trigger. The first jetpack burst triggers `PromoteTrackedRecording` at 435.09 and the background
+section closes `env=ExoBallistic ref=Relative frames=2 ... duration=11.20s`: both frames are the
+same sample (UT 423.893), while the section claims 423.89..435.09.
+
+What the player sees. After a Rewind-to-Launch the replayed kerbal is right at 423.99 (187 m from
+the camera, offset (0.00,0.74,-1.29)) and then stays where the anchor was at 423.89 while the ship
+flies on: `Zone transition: ghost=#2 "Valentina Kerman" Physics->Visual dist=10036m` about 5 s in and
+`appearance ... ut=435.05 ... dist=22690m activeFrame=Relative sectionUT=423.89-435.09` at the end
+(22690 m / 11.16 s = 2033 m/s, orbital speed), beside its ship's ghost at 19 m. From 435.11 the
+active recorder's own Relative section draws her correctly. So the Relative path holds the last
+frame at that frame's UT (anchor pose included) instead of the playback UT, the case CLAUDE.md
+forbids for body-fixed samples ("never clamp a single or out-of-range sample into a stale ghost").
+
+Two halves, either of which removes the visible defect:
+- Recorder: a tree member that is active but not yet promoted is sampled by the background recorder
+  (or the closing section gets a sample at its end UT).
+- Playback: a Relative section whose playback UT is past its last frame resolves the anchor at the
+  playback UT with the last local offset (hold the pose beside the moving anchor), or hides.
+
+Gate: EVA-17 stays red on the plume pin until this and the next entry are fixed. Its in-game cells
+do not see it: `RelativeSectionGhostsLandOnTheirRecordedShadow` skips (`ghosts=0`), the batch reads
+`total=3 passed=1 failed=0 skipped=2`.
+
+## EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; OPEN; visual]
+
+What happens. The player (or the seam) deploys the pack on a kerbal who is not yet promoted: no
+recorder polls her (previous entry), and the thrust that follows is the trigger. The promoted
+recorder seeds its tracking set without an event (`PartStateSeeder.SeedEvaState`, `Seeded
+already-deployed EVA jetpack: 'kerbalEVAfemale' pid=723310870`) and `ResetPartEventTrackingState`
+skips every non-engine, non-converter seed on a promotion (the bug A / #263 rule), on the premise
+that the background recorder already wrote the state. Here nobody did, so the recording holds
+EvaJetpackThrustStarted (435.25, 435.77, 436.33, 436.89), ThrustStopped and the final Stowed, and
+no EvaJetpackDeployed.
+
+What the player sees. The replay applies the thrust edges (`[GhostPartEvents] apply
+family=EvaJetpackThrustStarted ... applied=1` at 23:13:44.859, .381, .936) but the plume gate needs
+`deployed && thrusting && !ragdoll` (`GhostPlaybackLogic.SynthesizedMotion`), so no `EVA jetpack
+plume emitting` line is ever written and no plume is drawn. The normal in-game order (press R, then
+thrust) is exactly this one.
+
+Fix idea: on a promotion, emit EvaJetpackDeployed (and the ragdoll state) at the seed UT when the
+recording's own event list does not already say deployed, the way the converter seeds do
+(`PromotionConverterSeedInGameTest`); a deploy event is not an interesting-UT poison if it is
+classified inert for the tail trim. Gate: EVA-17's two required lines (`Part event:
+EvaJetpackDeployed` after the hops mark, and the plume line after the replay mark).
 
 ## SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; AUTHORED, flight owed (branch `b4-eva`); test gap, medium]
 

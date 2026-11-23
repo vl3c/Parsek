@@ -16709,6 +16709,14 @@ class SpecExpectsLiveRecordingTests(unittest.TestCase):
         spec = self._spec([{"cmd": "StartRecording", "args": {}}])
         self.assertTrue(hlib.spec_expects_live_recording(spec))
 
+    def test_start_recording_expected_refused_is_not_live(self):
+        # GM-1: an inert game mode answers StartRecording ERROR, so the run records nothing.
+        for expect in ("ERROR", "REJECTED"):
+            spec = self._spec([{"cmd": "StartRecording", "expect": expect}])
+            self.assertFalse(hlib.spec_expects_live_recording(spec))
+        spec = self._spec([{"cmd": "StartRecording", "expect": "OK"}])
+        self.assertTrue(hlib.spec_expects_live_recording(spec))
+
     def test_autorecord_pin_true_expects_live(self):
         spec = self._spec([{"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"}}])
         self.assertTrue(hlib.spec_expects_live_recording(spec))
