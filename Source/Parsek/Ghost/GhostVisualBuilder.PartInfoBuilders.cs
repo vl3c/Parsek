@@ -337,12 +337,24 @@ namespace Parsek
         /// Samples heat animation states and builds material states for ModuleAnimateHeat,
         /// FXModuleAnimateThrottle, or FXModuleAnimateRCS. Resolves sampled transforms onto
         /// the ghost model node and initializes materials to cold state.
-        /// Returns null if no heat transforms or materials were resolved.
+        /// Returns null if no heat transforms or materials were resolved. A ModuleAnimateHeat whose
+        /// clip no Animation of the model holds gets an info that draws nothing: stock's
+        /// AnimStartup (decompiled ModuleAnimationSetter) then finds no animation state, so the
+        /// recorded heat levels move nothing on the real part (stock's plain nose cones, whose
+        /// cfg names 'Cone_Heat').
         /// </summary>
         private static HeatGhostInfo TryBuildHeatInfo(
             Part prefab, string heatAnimName, string heatSource,
-            Transform modelNodeTransform, string partName, uint persistentId)
+            Transform modelNodeTransform, string partName, uint persistentId, Transform modelRoot)
         {
+            if (IsHeatClipMissing(heatSource, ModelHoldsClip(modelRoot, heatAnimName)))
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"heat-clip-missing-{partName}",
+                    $"Part '{partName}' pid={persistentId}: {heatSource} names clip '{heatAnimName}', " +
+                    "which the model lacks; heat events draw nothing, as in stock", 60.0);
+                return new HeatGhostInfo { partPersistentId = persistentId, heatClipMissing = true };
+            }
+
             List<HeatTransformState> resolvedHeatTransforms = null;
             var sampledHeatStates = SampleAnimateHeatStates(prefab, heatAnimName);
             if (sampledHeatStates != null && sampledHeatStates.Count > 0)
@@ -409,6 +421,19 @@ namespace Parsek
                 return heatInfo;
             }
             return null;
+        }
+
+        /// <summary>Pure: a ModuleAnimateHeat clip the model lacks plays nothing in stock.</summary>
+        internal static bool IsHeatClipMissing(string heatSource, bool modelHoldsClip)
+            => heatSource == HeatSourceAnimateHeat && !modelHoldsClip;
+
+        private static bool ModelHoldsClip(Transform modelRoot, string clipName)
+        {
+            if (modelRoot == null || string.IsNullOrEmpty(clipName)) return false;
+            Animation[] animations = modelRoot.GetComponentsInChildren<Animation>(true);
+            for (int i = 0; i < animations.Length; i++)
+                if (animations[i] != null && animations[i][clipName] != null) return true;
+            return false;
         }
 
         /// <summary>
@@ -741,6 +766,14 @@ namespace Parsek
             if (prefabLights == null || prefabLights.Length == 0)
                 return null;
 
+            // Stock (ModuleLight, decompiled): OnStart colours every Light named lightName with the
+            // persisted colour, and its FixedUpdate brings their intensity to 1 (useAutoDim, which
+            // its own first SetLightState turns on; the model's authored 1.2 to 2 never shows). A
+            // Light of another name is not the module's and keeps what the model authored.
+            Color stockColor = ResolveLightOnColor(FindModuleNode(partNode, lightModule.moduleName),
+                lightModule.lightR, lightModule.lightG, lightModule.lightB);
+            int stockDriven = 0;
+
             var clonedLights = new List<Light>();
             for (int li = 0; li < prefabLights.Length; li++)
             {
@@ -751,7 +784,10 @@ namespace Parsek
                 Transform ghostParent = MirrorTransformChain(
                     srcLight.transform, modelRoot, modelNodeTransform, cloneMap);
 
-                float clonedIntensity = srcLight.intensity;
+                bool driven = IsModuleLightDriven(srcLight.gameObject.name, lightModule.lightName);
+                if (driven) stockDriven++;
+                Color clonedColor = driven ? stockColor : srcLight.color;
+                float clonedIntensity = driven ? ModuleLightSettledIntensity : srcLight.intensity;
                 float clonedRange = srcLight.range;
                 if (clonedIntensity <= 0.001f)
                     clonedIntensity = LightMinimumIntensity;
@@ -771,7 +807,7 @@ namespace Parsek
                 // Create a new Light component on the ghost transform
                 Light ghostLight = ghostParent.gameObject.AddComponent<Light>();
                 ghostLight.type = srcLight.type;
-                ghostLight.color = srcLight.color;
+                ghostLight.color = clonedColor;
                 ghostLight.intensity = clonedIntensity;
                 ghostLight.range = clonedRange;
                 ghostLight.spotAngle = srcLight.spotAngle;
@@ -793,11 +829,27 @@ namespace Parsek
                 };
                 AttachLightLensAndFlare(info, lightModule, partNode, modelRoot, cloneMap,
                     persistentId, partName);
+                ParsekLog.VerboseRateLimited("GhostVisual", "light-values-" + partName,
+                    $"  Light '{partName}' pid={persistentId}: {clonedLights.Count} light(s), " +
+                    $"{stockDriven} driven as stock ('{lightModule.lightName}') at intensity " +
+                    $"{ModuleLightSettledIntensity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"color {stockColor}", 60.0);
                 return info;
             }
 
             return null;
         }
+
+        /// <summary>The intensity stock's ModuleLight settles its lights at (no malfunction, power met).</summary>
+        internal const float ModuleLightSettledIntensity = 1f;
+
+        /// <summary>
+        /// Pure: whether a Light is one of ModuleLight's own, per
+        /// <c>Part.FindModelComponents&lt;Light&gt;(lightName)</c> (decompiled): the exact object
+        /// name, any object when the name is empty.
+        /// </summary>
+        internal static bool IsModuleLightDriven(string lightObjectName, string moduleLightName)
+            => moduleLightName != null && (moduleLightName.Length == 0 || lightObjectName == moduleLightName);
 
         /// <summary>
         /// Stock <c>ModuleLight.GetAngleVector</c> (KSP 1.12.5, decompiled): the first character
@@ -992,15 +1044,18 @@ namespace Parsek
         /// <summary>
         /// Pure: the colour stock ModuleLight lights with, <c>new Color(lightR, lightG,
         /// lightB)</c> from the persisted fields in the snapshot module, each falling back to
-        /// the prefab's value.
+        /// the prefab's value. Black is stock's default grey: SetLightState lights a black lamp
+        /// with it (decompiled <c>defaultColor</c>).
         /// </summary>
         internal static Color ResolveLightOnColor(
             ConfigNode snapshotLightModule, float prefabR, float prefabG, float prefabB)
         {
-            return new Color(
-                ReadFloatOr(snapshotLightModule, "lightR", prefabR),
-                ReadFloatOr(snapshotLightModule, "lightG", prefabG),
-                ReadFloatOr(snapshotLightModule, "lightB", prefabB));
+            float r = ReadFloatOr(snapshotLightModule, "lightR", prefabR);
+            float g = ReadFloatOr(snapshotLightModule, "lightG", prefabG);
+            float b = ReadFloatOr(snapshotLightModule, "lightB", prefabB);
+            return r == 0f && g == 0f && b == 0f
+                ? new Color(0.875f, 0.875f, 0.875f)
+                : new Color(r, g, b);
         }
 
         private static float ReadFloatOr(ConfigNode node, string key, float fallback)

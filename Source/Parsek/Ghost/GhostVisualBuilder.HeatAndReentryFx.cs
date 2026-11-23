@@ -18,6 +18,7 @@ namespace Parsek
             animationClipLengthCache.Clear();
             converterLoopSampleCache.Clear();
             animationRestSampleCache.Clear();
+            nozzleGlowSampleCache.Clear();
         }
 
         private static bool TryGetAnimateHeatAnimation(
@@ -709,6 +710,15 @@ namespace Parsek
         /// Populates the provided glowMaterials and allClonedMaterials lists in place.
         /// Returns the count of renderers skipped due to HeatGhostInfo management.
         /// </summary>
+        /// <summary>
+        /// Pure: whether the reentry glow leaves the part alone. It does for every heat-managed
+        /// part, but not for one whose heat clip is missing: nothing drives that part's materials,
+        /// and stock lights it through its blackbody like any other.
+        /// </summary>
+        internal static bool HeatInfoOwnsPartMaterials(HeatGhostInfo info)
+            => info != null && (!info.heatClipMissing
+                || (info.nozzleGlows != null && info.nozzleGlows.Count > 0));
+
         private static int CollectReentryGlowMaterials(
             GameObject ghostRoot,
             Dictionary<uint, HeatGhostInfo> heatInfos,
@@ -723,7 +733,7 @@ namespace Parsek
             if (heatInfos != null)
             {
                 foreach (var kvp in heatInfos)
-                    heatPartIds.Add(kvp.Key);
+                    if (HeatInfoOwnsPartMaterials(kvp.Value)) heatPartIds.Add(kvp.Key);
             }
 
             if (renderers == null)

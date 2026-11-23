@@ -133,7 +133,8 @@ namespace Parsek
         /// A (material, property) a colour changer or light lens / flare drives is left to it.
         /// For the FXModuleAnimateThrottle clip that is also the part's heat animation, each
         /// animated colour joins the heat info (cold / medium / hot = the clip at 0 / 0.5 / 1),
-        /// so a running engine's ghost still lights the way the real one does.
+        /// so its cold baseline is the clip's; a running engine's glow is
+        /// <see cref="BuildNozzleGlows"/>'s.
         /// </summary>
         internal static void ApplyAnimationRestStates(
             Part prefab, ConfigNode partNode, Transform modelRoot, Transform ghostModelNode,
