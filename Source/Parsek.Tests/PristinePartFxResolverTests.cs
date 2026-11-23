@@ -92,8 +92,8 @@ namespace Parsek.Tests
         private static void ScanAllGroups(
             ConfigNode effectsNode,
             HashSet<string> moduleGroups,
-            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName)> modelFxEntries,
-            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName)> prefabFxEntries)
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)> modelFxEntries,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation, string groupName, GhostEngineFxCurves fxCurves)> prefabFxEntries)
         {
             ConfigNode[] allGroups = effectsNode.GetNodes();
             string[] allGroupNames = new string[allGroups.Length];
@@ -403,8 +403,8 @@ namespace Parsek.Tests
         [Fact]
         public void SweShapedPostMmEffects_YieldsZeroParticleEntries()
         {
-            var modelFx = new List<(string, string, string, Vector3, Quaternion, string)>();
-            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string)>();
+            var modelFx = new List<(string, string, string, Vector3, Quaternion, string, GhostEngineFxCurves)>();
+            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string, GhostEngineFxCurves)>();
             var liveModuleGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "fx-swivel-running", "power", "spool", "directThrottle" };
 
@@ -420,8 +420,8 @@ namespace Parsek.Tests
             var root = WrapInFileRoot(BuildPristineEffectsEnginePartNode());
             PristinePartFxResolver.TryExtract(root, "effectsEngine.v2", "fixture.cfg", out var data);
 
-            var modelFx = new List<(string, string, string, Vector3, Quaternion, string)>();
-            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string)>();
+            var modelFx = new List<(string, string, string, Vector3, Quaternion, string, GhostEngineFxCurves)>();
+            var prefabFx = new List<(string, string, Vector3, Quaternion, bool, string, GhostEngineFxCurves)>();
             ScanAllGroups(data.EffectsNode, data.EngineModuleEffectNames[0], modelFx, prefabFx);
 
             Assert.Single(modelFx);

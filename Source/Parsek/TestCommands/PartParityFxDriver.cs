@@ -692,8 +692,8 @@ namespace Parsek.TestCommands
             fx.LastPrimeRealtime = now;
         }
 
-        /// <summary>One ghost: the body name and altitude (the smoke fade's inputs), the
-        /// suppression lifted, the unsuppressed restore and the audio pass.</summary>
+        /// <summary>One ghost: the body name, altitude and ground speed (the smoke fade's and the
+        /// thrust share's inputs), the suppression lifted, the unsuppressed restore and the audio pass.</summary>
         private static void PrimeVisible(WaveCase wc, GhostCoOrbitalRig.LiveGhost g)
         {
             GhostPlaybackState state = g.State;
@@ -702,6 +702,10 @@ namespace Parsek.TestCommands
             bool leaveFade = wc.Fx.Control == TestCommandPartParitySweep.ControlFxSmokeDropped;
             state.lastInterpolatedBodyName = leaveFade || wc.Real.mainBody == null ? null : wc.Real.mainBody.name;
             state.lastInterpolatedAltitude = wc.Real.altitude;
+            // The held vessel's own ground speed, which playback's SetInterpolated gives a ghost:
+            // a jet's thrust share follows mach.
+            state.lastInterpolatedSurfaceVelocity = (Vector3)wc.Real.srf_velocity;
+            state.lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.Positions;
             state.visualFxSuppressed = false;
             GhostPlaybackEngine.ApplyUnsuppressedFxRestore(state, true);
             GhostPlaybackLogic.UpdateAudioAtmosphere(state);

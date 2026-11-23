@@ -88,6 +88,7 @@ namespace Parsek.Tests
             "GhostPlaybackLogic.UnmuteAllAudio(state);",
             "if (ShouldRestartEngineFxAfterSuppression(false, priorVisualFxSuppressed))",
             "GhostPlaybackLogic.RestoreActiveEngineFx(state);",
+            "GhostPlaybackLogic.UpdateEngineThrustFractions(state);",
             "GhostPlaybackLogic.UpdateEngineSmokeTrailFades(state);",
         };
 
@@ -105,7 +106,7 @@ namespace Parsek.Tests
                 Assert.DoesNotContain(absent, body);
             int calls = Regex.Matches(body, @"\b\w+\s*\(").Cast<Match>()
                 .Count(m => !m.Value.StartsWith("if", StringComparison.Ordinal));
-            Assert.Equal(7, calls);
+            Assert.Equal(8, calls);
         }
 
         [Fact]

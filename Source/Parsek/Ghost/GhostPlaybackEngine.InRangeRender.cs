@@ -784,6 +784,10 @@ namespace Parsek
             if (ShouldRestartEngineFxAfterSuppression(false, priorVisualFxSuppressed))
                 GhostPlaybackLogic.RestoreActiveEngineFx(state);
 
+            // The share of full thrust the engines make in the ghost's air, which sizes the plumes
+            // stock sizes by thrust.
+            GhostPlaybackLogic.UpdateEngineThrustFractions(state);
+
             // Stock fades engine smoke by air density every frame and hides it in vacuum
             // (SmokeTrailControl). Last, so it sees every emission write of this frame.
             GhostPlaybackLogic.UpdateEngineSmokeTrailFades(state);
