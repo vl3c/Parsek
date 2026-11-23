@@ -659,6 +659,55 @@ namespace Parsek.Tests
                 Vector3.zero, out Quaternion _));
         }
 
+        // Stock LaunchEscapeSystem.cfg's EFFECTS: one plume model, by the thrust, dark below 5 %.
+        [Fact]
+        public void LaunchEscapeTower_DrawsStocksPlumeByItsThrust()
+        {
+            var running = new ConfigNode("running_closed");
+            running.AddNode("AUDIO").AddValue("clip", "sound_rocket_spurts");
+            ConfigNode node = running.AddNode("MODEL_MULTI_PARTICLE");
+            node.AddValue("modelName", "Squad/FX/LES_Thruster");
+            node.AddValue("transformName", "thrustTransform");
+            foreach (string key in new[] { "0.0 0.0", "0.05 0.0", "0.075 0.25", "1.0 1.25" }) node.AddValue("emission", key);
+            foreach (string key in new[] { "0.0 0.5", "1.0 1.2" }) node.AddValue("speed", key);
+            EngineFxBuilder.FilterEffectGroups(
+                new[] { running, new ConfigNode("engage"), new ConfigNode("flameout") },
+                new[] { "running_closed", "engage", "flameout" },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "running_closed" },
+                out ConfigNode[] groups, out string[] names);
+            var entries = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot, string groupName, GhostEngineFxCurves fxCurves)>();
+            FloatCurve emission = null, speed = null;
+            EngineFxBuilder.ScanEffectsModelFxEntries(groups, names, entries, ref emission, ref speed);
+
+            var entry = Assert.Single(entries);
+            Assert.Equal("Squad/FX/LES_Thruster", entry.modelName);
+            Assert.Equal("thrustTransform", entry.transformName);
+            Assert.Equal(GhostEngineFxChannel.Thrust,
+                GhostEngineFxPower.ResolveChannel(entry.groupName, "running_closed", "", ""));
+            Assert.Equal(0f, entry.fxCurves.emission.Value(0f));
+            Assert.Equal(0f, entry.fxCurves.emission.Value(0.05f));
+            Assert.Equal(1.25f, entry.fxCurves.emission.Value(1f));
+            Assert.Equal(1.2f, entry.fxCurves.speed.Value(1f), 1e-6f);
+            // Unlit (shut down, or never lit): no particle, whatever the asset emits.
+            Assert.Equal(0, GhostEngineFxPower.EmissionRate(500f, entry.fxCurves.emission.Value(0f)));
+        }
+
+        // No part is left out of the engine FX by its name: the tower was, so its ghost burned
+        // with no plume at all (it has no nozzle glow either). The RAPIER's is an addition.
+        [Fact]
+        public void TryBuildEngineFx_NamesNoPartButTheRapier()
+        {
+            string source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "Ghost", "EngineFxBuilder.cs"));
+            var comparisons = System.Text.RegularExpressions.Regex.Matches(
+                source, @"string\.Equals\(\s*partName,\s*""([^""]+)""");
+            Assert.NotEmpty(comparisons);
+            foreach (System.Text.RegularExpressions.Match m in comparisons)
+                Assert.Equal("RAPIER", m.Groups[1].Value);
+            Assert.DoesNotContain("LaunchEscapeSystem", source);
+        }
+
         private static void AssertVector3Close(Vector3 expected, Vector3 actual, float epsilon = 1e-4f)
         {
             Assert.InRange(Mathf.Abs(expected.x - actual.x), 0f, epsilon);

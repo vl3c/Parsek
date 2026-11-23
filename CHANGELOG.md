@@ -92,6 +92,10 @@ Not released yet.
   large, the Mainsail's side flames are in place, ReStock claw lamps show their pattern.
 - **Ghost nozzles heat up as the real ones do.** ReStock engine bells and RCS ports glow; jets and
   boosters that stay dark or heat slowly do too. (GHOST-NOZZLE-GLOW-WRONG-SOURCE)
+- **The launch escape tower's ghost burns with its plume.** It drew no flame at all on stock.
+  (GHOST-LES-NO-PLUME)
+- **A dropped stage's ReStock engine bell stays warm on its ghost.** It starts as hot as its burn
+  left it and cools, instead of starting cold. (GHOST-NOZZLE-GLOW-SPLIT-RAMP)
 - **A heated nose cone's ghost glows in the part's own colours.** Parts with a heat glow no longer
   all turn the same orange. (PARTPARITY-FX-FIRST-READINGS-2026-11-23)
 - **Deployed scanners work on their ghosts.** The M4435 scanner's ghost spins once deployed, and

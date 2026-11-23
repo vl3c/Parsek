@@ -2071,9 +2071,8 @@ packs patch every liquid, nuclear, ion and monopropellant engine, every jet and 
 checked (46 engine and 13 RCS parts carry `ModuleWaterfallFX`), and 7 lamps (`spotLight1..3`,
 `spotLight1.v2`, `spotLight2.v2`, `groundLight1`, `groundLight2`); the solid boosters
 (`solidBooster.sm.v2`, `solidBooster.v2`, `Shrimp`, `Mite`, `sepMotor1`, `LaunchEscapeSystem`)
-and the nav, dome and strip lights are not patched. `LaunchEscapeSystem`'s ghost skips its
-particles by design (nozzle glow only, `EngineFxBuilder.TryBuildEngineFX`): judged like any
-other case, its expected fail is an entry of P5's accepted list, not a special case in code.
+and the nav, dome and strip lights are not patched. `LaunchEscapeSystem`'s stock ghost skipped its
+particles until GHOST-LES-NO-PLUME; it is judged like any other case.
 
 Out of P8, each an exclusion reason (`PartParityFxRules.ExclusionReasons`, mirrored as
 `partparity.FX_EXCLUSION_REASONS`):
@@ -2108,7 +2107,9 @@ plume / rcs case's body atlas), the exhaust `Light` of legacy engines (the case'
 name, ramping at `animRate`; the ghost plays it from the recorded power (todo
 GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
 (`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
-the ramp stood.
+the ramp stood and starts it at `animState`'s end when it loads the part, so the start-route ghost
+shows what a load would and the real part, which was not loaded, does not
+(PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the instrument's case, not the ghost's).
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 

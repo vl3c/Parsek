@@ -188,6 +188,9 @@ namespace Parsek
         /// is the copy a row cut hands the later row); this much newer, it is a later state.</summary>
         internal const double NozzleGlowSnapshotSlackSeconds = 5.0;
         private const int NozzleGlowHistoryMaxRows = 64;
+        /// <summary>A row's engine seeds are stamped up to this long after its start (a dock's or a
+        /// board's by up to 0.2 s).</summary>
+        internal const double NozzleGlowSeedSlackSeconds = 0.5;
 
         /// <summary>
         /// Binds the ghost's glows at spawn and puts each at its level when the recording starts.
@@ -195,10 +198,11 @@ namespace Parsek
         /// that row's snapshot, so the recorded powers in between are replayed first.
         /// </summary>
         internal static void BindNozzleGlows(GhostPlaybackState state, IPlaybackTrajectory traj)
-            => BindNozzleGlows(state, traj, RecordingChainQueries.GetChainPredecessor);
+            => BindNozzleGlows(state, traj, RecordingChainQueries.GetChainPredecessor, GetNozzleGlowSplitParent);
 
         internal static void BindNozzleGlows(
-            GhostPlaybackState state, IPlaybackTrajectory traj, Func<Recording, Recording> predecessorOf)
+            GhostPlaybackState state, IPlaybackTrajectory traj, Func<Recording, Recording> predecessorOf,
+            Func<Recording, Recording> splitParentOf = null)
         {
             if (state == null) return;
             state.nozzleGlows = null;
@@ -212,7 +216,7 @@ namespace Parsek
                 state.nozzleGlows.AddRange(glows);
             }
             if (state.nozzleGlows == null) return;
-            SettlePersistedGlowLevels(state, traj, predecessorOf);
+            SettlePersistedGlowLevels(state, traj, predecessorOf, splitParentOf);
             RestartNozzleGlows(state);
             UpdateNozzleGlows(state, state.nozzleGlowStartUT);
         }
@@ -222,7 +226,8 @@ namespace Parsek
         /// later state, replayed through the earlier rows when the snapshot is an earlier row's.
         /// </summary>
         private static void SettlePersistedGlowLevels(
-            GhostPlaybackState state, IPlaybackTrajectory traj, Func<Recording, Recording> predecessorOf)
+            GhostPlaybackState state, IPlaybackTrajectory traj, Func<Recording, Recording> predecessorOf,
+            Func<Recording, Recording> splitParentOf)
         {
             double startUT = state.nozzleGlowStartUT;
             if (double.IsNaN(startUT)) return;
@@ -240,10 +245,16 @@ namespace Parsek
                 }
                 snapshotUT = g.initialUT;
             }
-            if (double.IsNaN(snapshotUT) || snapshotUT >= startUT - NozzleGlowSnapshotSlackSeconds) return;
+            if (double.IsNaN(snapshotUT) || snapshotUT >= startUT - NozzleGlowSnapshotSlackSeconds)
+            {
+                SettleRampsAtSplit(state, traj as Recording, predecessorOf, splitParentOf);
+                return;
+            }
 
             List<Recording> rows = CollectNozzleGlowHistory(traj as Recording, snapshotUT, predecessorOf);
             if (rows.Count == 0) return;
+            if (rows[0].StartUT <= snapshotUT + NozzleGlowSnapshotSlackSeconds)
+                SettleRampsAtSplit(state, rows[0], predecessorOf, splitParentOf);
             RestartNozzleGlows(state);
             int events = 0;
             for (int r = 0; r < rows.Count; r++)
@@ -286,6 +297,112 @@ namespace Parsek
             }
             rows.Reverse();
             return rows;
+        }
+
+        /// <summary>
+        /// The ramps of a row that begins at a split. A snapshot holds a ramp's switch, not where it
+        /// stood, and stock starts it at the switch's end when it LOADS the part; a split loads
+        /// nothing, so a dropped stage's bell is still warm and a running one may be half hot. Where
+        /// it stood is in the engine events recorded before the split (a part keeps its
+        /// persistentId), replayed from the first row of the line; a ramp whose engine has none
+        /// keeps the snapshot's end.
+        /// </summary>
+        private static void SettleRampsAtSplit(
+            GhostPlaybackState state, Recording row,
+            Func<Recording, Recording> predecessorOf, Func<Recording, Recording> splitParentOf)
+        {
+            List<NozzleGlowInfo> glows = state.nozzleGlows;
+            bool anyRamp = false;
+            for (int i = 0; i < glows.Count && !anyRamp; i++) anyRamp = glows[i].ramps;
+            if (!anyRamp || row == null) return;
+            List<Recording> line = CollectNozzleGlowSplitLine(row, predecessorOf, splitParentOf);
+            if (line.Count == 0) return;
+
+            double headUT = line[0].StartUT;
+            double splitUT = row.StartUT;
+            var seen = new bool[glows.Count];
+            for (int i = 0; i < glows.Count; i++)
+            {
+                NozzleGlowInfo g = glows[i];
+                for (int m = 0; g.modulePowers != null && m < g.modulePowers.Length; m++) g.modulePowers[m] = 0f;
+                g.startLevel = 0f;
+                g.targetLevel = 0f;
+                g.startRamp = 0f;
+                g.startUT = headUT;
+            }
+            for (int r = 0; r < line.Count; r++)
+            {
+                List<PartEvent> rowEvents = line[r].PartEvents;
+                for (int e = 0; rowEvents != null && e < rowEvents.Count && rowEvents[e].ut <= splitUT; e++)
+                {
+                    if (!TryReadGlowPower(rowEvents[e], out float power, out bool rcs)) continue;
+                    ApplyNozzleGlowPower(state, rowEvents[e], power, rcs, log: false);
+                    ulong key = FlightRecorder.EncodeEngineKey(rowEvents[e].partPersistentId, rowEvents[e].moduleIndex);
+                    for (int i = 0; i < glows.Count; i++)
+                    {
+                        NozzleGlowInfo g = glows[i];
+                        if (seen[i] || g.isRcs != rcs || g.moduleKeys == null || Array.IndexOf(g.moduleKeys, key) < 0)
+                            continue;
+                        seen[i] = true;
+                        // Running already when the line's first row began (an idle engine is seeded
+                        // off): that row's snapshot puts the ramp at its end.
+                        if (r == 0 && rowEvents[e].ut <= headUT + NozzleGlowSeedSlackSeconds)
+                            g.startRamp = NozzleGlowRampEnd(g.targetLevel);
+                    }
+                }
+            }
+            int settled = 0;
+            float hottest = 0f;
+            for (int i = 0; i < glows.Count; i++)
+            {
+                NozzleGlowInfo g = glows[i];
+                if (!g.ramps || !seen[i]) continue;
+                g.initialRamp = NozzleGlowRampAt(g, double.IsNaN(g.initialUT) ? splitUT : g.initialUT);
+                if (g.initialRamp > hottest) hottest = g.initialRamp;
+                settled++;
+            }
+            ParsekLog.VerboseRateLimited("GhostFx", "nozzle-glow-split-" + (state.recordingId ?? string.Empty),
+                $"Nozzle glow at a split: vessel='{state.vesselName ?? "unknown"}' rows={line.Count} " +
+                $"ramps={settled}/{glows.Count} " +
+                $"hottest={hottest.ToString("0.000", CultureInfo.InvariantCulture)} headUT={headUT.ToString("0.0", CultureInfo.InvariantCulture)} " +
+                $"splitUT={splitUT.ToString("0.0", CultureInfo.InvariantCulture)}", 5.0);
+        }
+
+        /// <summary>
+        /// Pure: the rows a row's parts were recorded in before the split it begins at, oldest
+        /// first; empty when it does not begin at one.
+        /// </summary>
+        internal static List<Recording> CollectNozzleGlowSplitLine(
+            Recording row, Func<Recording, Recording> predecessorOf, Func<Recording, Recording> splitParentOf)
+        {
+            var line = new List<Recording>();
+            Recording next = row != null && splitParentOf != null ? splitParentOf(row) : null;
+            while (next != null && next != row && line.Count < NozzleGlowHistoryMaxRows && !line.Contains(next))
+            {
+                line.Add(next);
+                next = predecessorOf?.Invoke(next) ?? splitParentOf(next);
+            }
+            line.Reverse();
+            return line;
+        }
+
+        private static Recording GetNozzleGlowSplitParent(Recording rec)
+            => ResolveNozzleGlowSplitParent(rec, FindTreeById(RecordingStore.CommittedTrees, rec?.TreeId));
+
+        /// <summary>
+        /// Pure: the row a recording's parts came out of at the split that began it. Null when it
+        /// began some other way (a launch, a dock, a switch) or stock loaded its vessel there: a
+        /// Re-Fly attempt flies a vessel loaded from a rewind point's save.
+        /// </summary>
+        internal static Recording ResolveNozzleGlowSplitParent(Recording rec, RecordingTree tree)
+        {
+            if (rec == null || tree?.Recordings == null || !string.IsNullOrEmpty(rec.CreatingSessionId)) return null;
+            BranchPoint split = FindBranchPointById(tree, rec.ParentBranchPointId);
+            if (split?.ParentRecordingIds == null || split.ParentRecordingIds.Count != 1) return null;
+            if (split.Type != BranchPointType.Undock && split.Type != BranchPointType.EVA
+                && split.Type != BranchPointType.JointBreak && split.Type != BranchPointType.Breakup)
+                return null;
+            return tree.Recordings.TryGetValue(split.ParentRecordingIds[0], out Recording parent) ? parent : null;
         }
 
         /// <summary>

@@ -234,9 +234,9 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // HasAuthoredEffectsFor(true) is exactly the condition that stands the RAPIER and LES
-            // tunings down in TryBuildEngineFX. The other parts have no tuning: on an install whose
-            // Waterfall pack strips them, the index is the only source of their ReStock plume.
+            // HasAuthoredEffectsFor(true) is exactly the condition that stands the RAPIER tuning down
+            // in TryBuildEngineFX. The other parts have no tuning: on an install whose Waterfall pack
+            // strips them, the index is the only source of their ReStock plume.
             string[] coveredTunedParts =
             {
                 "microEngine.v2", "radialEngineMini.v2",
@@ -246,7 +246,7 @@ namespace Parsek.InGameTests
                 "Size2LFB.v2", "Size2LFB",
                 "SSME",
                 "RAPIER",                      // RAPIER plume forcing
-                "LaunchEscapeSystem"           // LES particle-FX skip
+                "LaunchEscapeSystem"
             };
             var missing = new List<string>();
             for (int i = 0; i < coveredTunedParts.Length; i++)
