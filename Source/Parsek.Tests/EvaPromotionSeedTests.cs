@@ -118,6 +118,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SwitchSegmentOntoAKerbalWithHisPackOut_IsSeededAtTheSegmentStart()
+        {
+            // The background recorder's deploy is in the PARENT recording; the segment is a new
+            // recording with only its boundary point, so only the promotion seed can say it.
+            const double switchUT = 900.0;
+            var segment = new Recording { RecordingId = "segment", ExplicitStartUT = switchUT };
+            segment.Points.Add(new TrajectoryPoint { ut = switchUT, bodyName = "Kerbin" });
+            var sets = new PartTrackingSets();
+            sets.jetpackDeployedParts.Add(Pid);
+
+            PartStateSeeder.EmitEvaStateSeedEvents(
+                sets, new[] { Pid }, segment.PartEvents.ToList(), segment.PartEvents,
+                FlightRecorder.ResolveChainPromotionSeedUT(segment, switchUT), "Recorder", null);
+
+            PartEvent seed = Assert.Single(segment.PartEvents);
+            Assert.Equal(PartEventType.EvaJetpackDeployed, seed.eventType);
+            Assert.Equal(switchUT, seed.ut);
+            segment.Points.Add(new TrajectoryPoint { ut = switchUT + 60, bodyName = "Kerbin" });
+            Assert.True(SwitchSegmentNoOpClassifier.IsNoOpSegment(segment, false, out _));
+            segment.PartEvents.Add(Ev(switchUT + 5, PartEventType.EvaJetpackThrustStarted));
+            Assert.True(PlumeEverOpens(segment.PartEvents));
+            Assert.False(SwitchSegmentNoOpClassifier.IsNoOpSegment(segment, false, out string reason));
+            Assert.Equal("part-event:EvaJetpackThrustStarted", reason);
+        }
+
+        [Fact]
+        public void InPlaceResume_SeedsWhatChangedAfterTheCommit()
+        {
+            // Committed with the pack stowed and the kerbal ragdolled; deployed and upright since.
+            var committed = new[]
+            {
+                Ev(424, PartEventType.EvaJetpackDeployed),
+                Ev(426, PartEventType.EvaJetpackStowed),
+                Ev(428, PartEventType.EvaRagdollStarted),
+            };
+            List<PartEvent> seeds = Seed(true, false, committed);
+            Assert.Equal(new[] { PartEventType.EvaJetpackDeployed, PartEventType.EvaRagdollEnded },
+                seeds.Select(s => s.eventType).ToArray());
+            Assert.All(seeds, s => Assert.Equal(428, s.ut));
+            Assert.True(PlumeEverOpens(committed.Concat(seeds)
+                .Concat(new[] { Ev(436, PartEventType.EvaJetpackThrustStarted) })));
+        }
+
+        [Fact]
         public void StowedNowWhileTheRecordingSaysDeployed_EmitsNothing()
         {
             Assert.Empty(Seed(false, false, Ev(424, PartEventType.EvaJetpackDeployed)));

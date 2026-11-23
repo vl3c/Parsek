@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 164 |
 | seam-only lanes | 538 |
-| LIVE-PROVEN date in status row | 582 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 583 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -56,7 +56,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CT | 3 | - | - | 3 | - | - | 3 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
 | CX | 6 | - | 6 | - | - | - | 6 |
-| EVA | 17 | 1 | 15 | 1 | - | 1 | 15 |
+| EVA | 17 | 1 | 15 | 1 | - | 1 | 16 |
 | EX | 2 | - | 2 | - | - | - | 2 |
 | FAR | 6 | - | - | 6 | - | - | 6 |
 | FFC | 1 | - | - | 1 | - | - | 1 |
@@ -356,7 +356,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 449 | 133 | 378 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +95 |
+| Kerbin | 449 | 133 | 379 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +95 |
 | Mun | 72 | 15 | 62 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +15 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1130,7 +1130,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | EVA-14-foreign-board-claim-rewind | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-10-25 |
 | EVA-15-orbiting-eva-deferred-spawn | nightly | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-10-24 |
 | EVA-16-construction-drop-foreign-part | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-01 |
-| EVA-17-orbit-jetpack-hop-rewind | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | FlightGhostPosition | RED BY FINDING 2026-11-23: 2026-11-23_211... |
+| EVA-17-orbit-jetpack-hop-rewind | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | FlightGhostPosition | LIVE-PROVEN 2026-11-24 |
 | EVA-2-orbital-board | daily | eva2-lko-crewed | seam | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
 | EVA-3-multi-kerbal | nightly | eva3-pad-3crew | seam | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
 | EVA-4-atmo-chute | nightly | b1-pad-craft | eva4_atmo_chute | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |

@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING (branch `b4-eva`); test gap, medium]
+## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
 bursts, effect=true, the last stowed with one press, boarded); the two failed pins are the entries
@@ -100,6 +100,29 @@ a do-nothing visit to the kerbal is still discarded (the resumed-tail check read
 the visit began; the switch-segment check ignores an EvaJetpackDeployed at the segment's start).
 Existing recordings are untouched; no format change. Tests: `EvaPromotionSeedTests`. Gate: EVA-17's
 required deploy line accepts the seed or either recorder's polled edge.
+
+Live proof: EVA-17 PASS attempt 1 on run `2026-11-23_2244` (Debug automation DLL sha256
+0cc3af4e0c6a7e5e, built from 39d07200f; `logs/flights/eva-jetpack/`): `Seed event:
+EvaJetpackDeployed pid=2527420064 part='kerbalEVAfemale' ut=423.85 (promotion)` at the promotion
+(`currentUT=434.71`), then on the replay `EVA jetpack plume emitting (vessel='Valentina Kerman'
+deployed=True thrusting=True ragdoll=False)`. Before, on `2026-11-23_2112`, both lines were missing.
+
+What the seed is for once the background recorder samples the watched kerbal (the fix of
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: it then writes the deploy itself before the promotion
+EVA-17 flies, and the seed writes nothing there). The other recorder starts with no such writer:
+- a switch segment (`BindLiveRecorderToSwitchSegment`: committed clone, background-member
+  continuation, ended-recording takeover, standalone, resumed spawn) starts a NEW recording with no
+  events; the background recorder wrote into another one. Stock keeps the pack out across a save
+  (`KerbalEVA.OnLoad` reads `packExt`), so flying or switching to a kerbal left floating with his
+  pack out is this case every time, and its bursts would draw no plume;
+- an in-place resume of a committed recording (`TryRestoreCommittedTreeForSpawnedActiveVessel`):
+  no tree was live, so nothing recorded a pack deployed or a ragdoll begun or ended after the commit;
+- an F9 restore (`RestoreActiveTreeFromPending`) whose kerbal does not come back in the recorded
+  state (a ragdoll is not a saved field): only the ragdoll edges matter here.
+- a split whose active half is the kerbal (leaving a command seat) starts a new recording too.
+By reading the callers only; none of these has its own lane. The two promotions that fix does make
+redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
+Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
 
 ## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
 
