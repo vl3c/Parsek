@@ -1487,14 +1487,17 @@ def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
     view, axis = entry.get("view"), entry.get("axis")
     if _fx_axis_problem(view, axis, False) is not None:
         return frozenset()
-    has_axis = fx_axis(view, axis) is not None
     out: set = set()
     for side in ("real", "ghost"):
         even, odd = [h.get(side) for h in halves]
-        if any(_fx_side_problems("", m, has_axis) for m in (even, odd)):
-            continue  # malformed: fx_block_problems is the finding
-        compare = fx_compare(view, axis, FxTile(even, frozenset(), None, []),
-                             FxTile(odd, frozenset(), None, []))
+        try:
+            has_axis = fx_axis(view, axis) is not None
+            if any(_fx_side_problems("", m, has_axis) for m in (even, odd)):
+                continue  # malformed: fx_block_problems is the finding
+            compare = fx_compare(view, axis, FxTile(even, frozenset(), None, []),
+                                 FxTile(odd, frozenset(), None, []))
+        except ArithmeticError:
+            continue  # an integer no double's square can hold: malformed too
         out.update(fx_failing_measures(dict(entry, real=even, ghost=odd, compare=compare),
                                        rcs_case))
     return frozenset(out)

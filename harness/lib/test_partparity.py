@@ -3121,6 +3121,17 @@ class FxJudgeTests(unittest.TestCase):
         self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
         e["axis"] = {"originPx": [0, 0], "dirPx": None, "nozzleDiameterPx": "x"}
         self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
+        # Nor does an integer whose square no double holds, and the judge does not raise on it.
+        big = 10 ** 200
+        for spoil in (lambda x: x["axis"].update(dirPx=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["real"].update(coreCentroid=[big, 0]),
+                      lambda x: x["splitHalf"]["odd"]["ghost"].update(chromaticity=[big, 0])):
+            doc = doc_of("real", 0.0)
+            for x in doc["fx"]["views"]:
+                if x["axis"] is not None:
+                    x["axis"] = dict(x["axis"])
+                spoil(x)
+            self.assertEqual("engine--default--burn-full--0000aaaa", pp.judge_case(doc).case_id)
 
     def test_an_unsettled_case_lowers_nothing_else(self):
         doc = _fx_case()[0]
