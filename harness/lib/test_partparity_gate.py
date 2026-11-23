@@ -1,5 +1,5 @@
 """P5 of the part ghost parity tool: the committed baseline, the accepted list and the
-regression gate (design-part-ghost-parity.md section 10, Appendix E), plus the writer tool
+regression gate (design-part-ghost-parity.md section 10, Appendix F), plus the writer tool
 ``harness/tools/part_parity_baseline.py`` and the viewer's ``--pinned`` mode.
 
 The last class reads the COMMITTED files: ``harness/partparity/accepted.toml`` must parse

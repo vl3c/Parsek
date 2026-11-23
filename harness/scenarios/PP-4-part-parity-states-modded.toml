@@ -69,7 +69,7 @@ tier = "operator"
 # cap as `2026-11-22_1718` PASS attempt 1 (652 s wall, 452.2 s + 105.5 s + 0.2 s of sweep, 225
 # cases, controls ok, press ok, complete, recompute 14 / 0 mismatches; report-only verdicts 176
 # pass / 21 warn / 28 fail / 0 error, no tracker still moving).
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S6, `2026-11-22_1718`): every transforming modded-compat part (ReStock, ReStock+, Waterfall, B9PartSwitch) in its deployed / open / lit / jettisoned state beside its Parsek ghosts (event route, start route, stowed reference) in LKO over three PartParitySweep states=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S6, `2026-11-22_1718`): every transforming modded-compat part (ReStock, ReStock+, Waterfall, B9PartSwitch) in its deployed / open / lit / jettisoned state beside its Parsek ghosts (event route, start route, stowed reference) in LKO over three PartParitySweep states=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts ARMED 2026-11-23 (P5): the regression gate against harness/partparity/ reds PARSEK-FAIL(part-parity))."
 instanceProfile = "modded-compat"
 tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-4"]
 
@@ -111,8 +111,12 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.partParity]
-# Report-only part verdicts (design D.6); the instrument gates regardless.
-gating = false
+# ARMED 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
+# (2026-11-22_2359 / 2026-11-23_0016): the regression gate against harness/partparity/baseline-<profile>.json
+# and harness/partparity/accepted.toml reds PARSEK-FAIL(part-parity) on a measure past its
+# drift tolerance, an unaccepted fail, a gone case or a missing baseline. The instrument
+# gates (controls, completeness, recompute, host, press) gate regardless.
+gating = true
 
 [expectations.logContracts]
 required = [

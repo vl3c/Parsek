@@ -2026,7 +2026,7 @@ KNOWN_VIEWS: Tuple[str, ...] = ("side-a", "side-b", "top", "bottom", "side-c", "
 
 # Drift tolerances (a measure is worse when it leaves its band by more than these). A
 # blob's limit is hi + max(abs, rel * hi); an IoU's is lo - abs. Pinned from the measured
-# run-to-run spread of matching reading runs on one build (design Appendix E): edge
+# run-to-run spread of matching reading runs on one build (design Appendix F): edge
 # shading and seam-line pixels move a stable case's blobs by tens of pixels, and a
 # blob that already reads hundreds of pixels moves by a fraction of itself.
 DRIFT_SHAPE_ABS_PX = 48

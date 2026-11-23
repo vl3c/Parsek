@@ -816,7 +816,7 @@ The armed `partParity` row compares each sweep with the committed baseline
 reading runs that pinned it) and the accepted list `partparity/accepted.toml` (case / view /
 measure, reason, todo id; `noisy = true` also waives the drift rule for a measure that moves run
 to run). Rules, tolerances and their measured basis: `docs/dev/design-part-ghost-parity.md`
-section 10 and Appendix E. A fix that removes a difference removes its accepted entry and
+section 10 and Appendix F. A fix that removes a difference removes its accepted entry and
 re-pins the label in the same commit. The tool reads only manifests and sidecars, so the
 results archive's copy of a run serves as well as `results/`:
 
