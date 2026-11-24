@@ -30,6 +30,8 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Why the runs differ (no commit found):** frame phase. At 63-100x the window is a few frames wide; the kerbal's ghost is built only if a frame lands in the recording's SurfaceStationary section (UT 64.3 / 65.4 to 69 / 71). 2026-11-24 had frames at 62.45, 65.07 and 67.77; 2026-11-15 went 63.56 -> about 69 in one frame. The walk code is unchanged since 5f5e7c0aa (2026-11-05), which the 11-06 and 11-15 runs carry.
 
+**No lane gates it:** WF-1 was reshaped on 2026-11-24 to pick each flag up again (both outcomes of this entry leave its pad clear), so the fix needs its own check: plant a flag, rewind, warp past it above 50x, require the flag.
+
 **Proposed fix:** run the state-less walk (`SpawnFlagVesselsUpToUT` to `ResolveTimelineEndFlagWalkUT`) from the ghost-less completion in both hosts. To settle first: completions fire for every past recording at every scene load, so the walk needs the same replay-scope / timeline-active gate the end spawn has, or it plants flags in old saves removed before tombstones existed (2026-11-04).
 
 ## FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision]

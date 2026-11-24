@@ -679,9 +679,9 @@ Lanes per family (rows) per timeline operation (columns).
 | CycleVessel | 2 | GC 1, SWC 1 |
 | EvaChuteDeploy | 2 | EVA 1, GPOS 1 |
 | ExitToMainMenu | 2 | QTM 1, RFQ 1 |
+| PickUpFlag | 2 | FLG 1, WF 1 |
 | EvaMove | 1 | EVA 1 |
 | LaunchSiteProbe | 1 | LS 1 |
-| PickUpFlag | 1 | FLG 1 |
 | SafeWriteCrash | 1 | ST 1 |
 | SpinVessel | 1 | MC 1 |
 
