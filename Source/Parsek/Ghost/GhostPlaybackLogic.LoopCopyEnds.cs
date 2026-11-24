@@ -39,7 +39,8 @@ namespace Parsek
             /// self-overlapping mission names one; every other path keeps its own camera events.</summary>
             internal readonly long WatchedCycle;
 
-            /// <summary>The watched cycle's launch has another row of the same vessel to follow.</summary>
+            /// <summary>The watched cycle's launch has another row of the same vessel to follow, with a copy
+            /// the camera can be handed (<see cref="IsFollowable"/>).</summary>
             internal readonly bool WatchedRowContinues;
 
             internal OverlapCopyEnds(
@@ -63,12 +64,14 @@ namespace Parsek
             /// <summary>The camera is not on this copy.</summary>
             NotWatched,
 
-            /// <summary>The same vessel's next row of the same launch carries on: the ended copy stays as
-            /// an invisible camera target until the handoff lands on that row.</summary>
+            /// <summary>The same vessel's next row of the same launch carries on, with a copy to follow or
+            /// one about to start (<see cref="NextRowCopy"/>): the ended copy stays as an invisible camera
+            /// target until the handoff lands on that row.</summary>
             HoldForNextRow,
 
-            /// <summary>Nothing carries on (a landing, a trim, the end of the launch): the camera holds at
-            /// the end for a moment, then picks up the mission's running launch.</summary>
+            /// <summary>Nothing to follow carries on (a landing, a trim, the end of the launch, a next row
+            /// with no copy of it): the camera holds at the end for a moment, then picks up the mission's
+            /// running launch.</summary>
             HoldThenRestart,
 
             /// <summary>The copy explodes: the explosion hold, then the mission's running launch.</summary>
@@ -150,39 +153,83 @@ namespace Parsek
                 + (currentUT - (unit.PhaseAnchorUT + cycle * UnitLaunchCadenceSeconds(unit)));
         }
 
-        /// <summary>
-        /// True when the watched vessel carries on in launch <paramref name="cycle"/> past the member the
-        /// camera follows: another row of the same vessel (<see cref="IsSameWatchedVessel"/>) is drawn now
-        /// or starts within <see cref="NextRowLookAheadSeconds"/>. Reads the same trimmed windows the
-        /// handoff picks its target from, so a held copy always waits for a row the handoff can choose.
-        /// Pure.
-        /// </summary>
-        internal static bool HasContinuingRow(
-            in LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
-            int watchedIndex, long cycle, double currentUT)
+        /// <summary>Whether the camera can be handed the watched launch's own copy of one row. The last
+        /// two can; the others never will be in this launch, so nothing waits for them.</summary>
+        internal enum NextRowCopy
         {
-            if (cycle < 0 || trajectories == null || unit.MemberIndices == null
-                || watchedIndex < 0 || watchedIndex >= trajectories.Count || trajectories[watchedIndex] == null)
-                return false;
-            IPlaybackTrajectory watched = trajectories[watchedIndex];
-            double loopUT = UnitInstanceLoopUT(unit, cycle, currentUT);
-            if (loopUT > unit.SpanEndUT + LoopTiming.BoundaryEpsilon)
-                return false;
-            foreach (int idx in unit.MemberIndices)
+            /// <summary>The row is over for that launch, or starts later than the look-ahead.</summary>
+            OutOfReach,
+
+            /// <summary>The row draws no ghost: unticked, suppressed, no data, its anchor not loaded.</summary>
+            NotDrawn,
+
+            /// <summary>High warp hides the row now, and nothing says when that ends.</summary>
+            WarpHidden,
+
+            /// <summary>The copy cap drops that launch's copy.</summary>
+            PastCopyCap,
+
+            /// <summary>The row started without it (a warp went over its start): the engine builds only
+            /// the newest launch's copy, so this one is never built.</summary>
+            SkippedAtStart,
+
+            /// <summary>Its ended copy waited long enough for a copy that does not become ready.</summary>
+            WaitedTooLong,
+
+            /// <summary>The row starts within the look-ahead.</summary>
+            NotStarted,
+
+            /// <summary>The copy exists, or is the newest one and is built this frame.</summary>
+            Live
+        }
+
+        /// <summary>True when an ended watched copy may wait for this one. Pure.</summary>
+        internal static bool IsFollowable(NextRowCopy copy)
+        {
+            return copy == NextRowCopy.NotStarted || copy == NextRowCopy.Live;
+        }
+
+        /// <summary>
+        /// The single decision of <see cref="NextRowCopy"/> for one row of a self-overlapping mission: what
+        /// the engine does with launch <paramref name="cycle"/>'s copy of it, in the engine's own terms (the
+        /// trimmed window, the spacing the row is drawn with, only the newest launch spawned).
+        /// <paramref name="inSlot"/> / <paramref name="inOverlapList"/> say where that copy is now, if
+        /// anywhere. Pure.
+        /// </summary>
+        internal static NextRowCopy DecideNextRowCopy(
+            in LoopUnit unit, int memberIndex, IPlaybackTrajectory member, long cycle, double currentUT,
+            bool rowDrawn, bool suppressGhosts, float warpRate, bool inSlot, bool inOverlapList)
+        {
+            double start = unit.MemberStartUT(memberIndex, member.StartUT);
+            double end = unit.MemberEndUT(memberIndex, member.EndUT);
+            double duration = end - start;
+            if (cycle < 0 || duration <= 0)
+                return NextRowCopy.OutOfReach;
+            bool hasFall = MemberHasLoopFall(unit, end);
+            double spacing = MemberOverlapCycleSeconds(unit, duration, hasFall);
+            double scheduleStartUT = ComputeMemberOverlapScheduleStartUT(unit.PhaseAnchorUT, unit.SpanStartUT, start);
+            double phase = OverlapCopyPhaseSeconds(currentUT, cycle, scheduleStartUT, spacing, start);
+            if (phase > duration || phase < -NextRowLookAheadSeconds)
+                return NextRowCopy.OutOfReach;
+            if (!rowDrawn)
+                return NextRowCopy.NotDrawn;
+            if (!TryComputeNewestOverlapPlaybackUT(
+                    currentUT, UnitLaunchCadenceSeconds(unit), duration, start, scheduleStartUT,
+                    out double newestUT, out long newest, hasFall))
             {
-                if (idx == watchedIndex || idx < 0 || idx >= trajectories.Count || trajectories[idx] == null)
-                    continue;
-                IPlaybackTrajectory member = trajectories[idx];
-                double start = unit.MemberStartUT(idx, member.StartUT);
-                double end = unit.MemberEndUT(idx, member.EndUT);
-                if (end > start && start <= loopUT + NextRowLookAheadSeconds
-                    && end >= loopUT - LoopTiming.BoundaryEpsilon
-                    && IsSameWatchedVessel(
-                        watched.RecordedVesselGuid, watched.VesselName,
-                        member.RecordedVesselGuid, member.VesselName))
-                    return true;
+                newest = -1;
+                newestUT = start;
             }
-            return false;
+            if (suppressGhosts && ShouldSuppressGhostMeshAtWarp(warpRate, member, newestUT))
+                return NextRowCopy.WarpHidden;
+            if (cycle > newest)
+                return NextRowCopy.NotStarted;
+            if (hasFall && IsFallCopyPastCap(cycle, OldestDrawnFallCycle(newest)))
+                return NextRowCopy.PastCopyCap;
+            // At high warp a row keeps the newest copy alone.
+            return cycle == newest || inSlot || (inOverlapList && !suppressGhosts)
+                ? NextRowCopy.Live
+                : NextRowCopy.SkippedAtStart;
         }
     }
 }

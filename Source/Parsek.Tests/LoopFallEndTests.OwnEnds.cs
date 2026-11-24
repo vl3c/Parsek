@@ -127,9 +127,9 @@ namespace Parsek.Tests
             Assert.Contains("#2 \"Booster\" cycle=0", Assert.Single(EndLines()));
         }
 
-        // Two copies found past their ends (a time jump): each ends once, each with its own line.
+        // Two copies found past their ends (a time jump): each ends once.
         [Fact]
-        public void OwnEnd_OlderCopy_EndsWithTheSameLine()
+        public void OwnEnd_OlderCopy_EndsToo_AndTheLineIsRateLimited()
         {
             GhostPlaybackLogic.LoopUnit unit = ShortMemberUnit();
             var probe = new ZoneProbe();
@@ -141,9 +141,8 @@ namespace Parsek.Tests
             Seed(engine, 1).fallClockOffsetUT = 329 - 60;
             Assert.True(double.IsNaN(SelfOverlapFrame(engine, probe, unit, CoreIndex, all, Ctx(390))));
             Assert.Equal(new[] { "cycle=0", "cycle=1" }, destroyed.OrderBy(d => d, StringComparer.Ordinal));
-            Assert.Equal(2, EndLines().Count());
-            Assert.Contains(EndLines(), l => l.Contains("cycle=0 loopUT=221.00 endUT=117.00"));
-            Assert.Contains(EndLines(), l => l.Contains("cycle=1 loopUT=121.00 endUT=117.00"));
+            // the line is rate-limited per index: a short loop ends a copy every few seconds
+            Assert.Contains("endUT=117.00 reason=recorded-end watch=NotWatched", Assert.Single(EndLines()));
         }
 
         // ---- trim ----
@@ -524,6 +523,9 @@ namespace Parsek.Tests
                 Assert.True(ascent.endedCopyHeld);
                 Assert.Empty(destroyed);
             }
+            // the retarget line is written once, however long the handoff stays pending
+            Assert.Contains("owner=0 member #0->#1 at loopUT=81.10",
+                Assert.Single(logLines, l => l.Contains("unit watch retarget owner=")));
             string line = Assert.Single(EndLines());
             Assert.Contains("#0 \"Ship\" cycle=0 loopUT=81.10 endUT=81.00 reason=recorded-end watch=HoldForNextRow", line);
             Assert.Contains(logLines, l => l.Contains("[CameraFollow]")
@@ -564,7 +566,7 @@ namespace Parsek.Tests
         public void Watch_RowChange_OfAnOlderLaunch_NeverNamesTheNewerOne()
         {
             GhostPlaybackLogic.LoopUnit unit = TwoRows(period: 30);
-            var probe = new ZoneProbe();
+            var probe = new ZoneProbe { HideByZone = true };
             GhostPlaybackEngine engine = WatchEngine(unit, probe);
             List<IPlaybackTrajectory> all = TwoRowTrajectories();
             var older = new GhostPlaybackState { vesselName = "Ship", loopCycleIndex = 0, fallClockOffsetUT = 200 - SpanStart };
@@ -581,6 +583,22 @@ namespace Parsek.Tests
             Assert.True(engine.TryGetCopyOfCycle(0, 1, out copy));
             Assert.Equal(1, copy.loopCycleIndex);
             Assert.False(engine.TryGetCopyOfCycle(CoreIndex, 0, out _));
+
+            // The copy never comes (its spawn fails in this host): the wait ends by itself.
+            int frames = 0;
+            for (double now = 250.12; !events.Contains("camera EndHoldStart cycle=0"); now += 0.02)
+            {
+                events.Clear();
+                SelfOverlapFrame(engine, probe, unit, 0, all, Watching(now, 0, 0));
+                Assert.True(++frames <= GhostPlaybackEngine.MaxEndedCopyWaitFrames + 2, "the hold never ends");
+            }
+            Assert.Equal(GhostPlaybackEngine.MaxEndedCopyWaitFrames + 1, frames);
+            Assert.Equal(new[] { "camera EndHoldStart cycle=0", "expired cycle=0 explosion=False" }, events);
+            Assert.Contains("cycle=0", destroyed);
+            Assert.Contains(logLines, l => l.Contains("[CameraFollow]") && l.Contains(
+                "unit watch: no copy of the next row to follow: #0 \"Ship\" cycle=0 reason=WaitedTooLong waitedFrames="
+                    + GhostPlaybackEngine.MaxEndedCopyWaitFrames));
+            Assert.Single(logLines, l => l.Contains("unit watch retarget owner="));
         }
 
         // Crash of the watched row, with the launch's other rows still flying: the explosion hold, no
@@ -708,26 +726,6 @@ namespace Parsek.Tests
             SelfOverlapFrame(engine, probe, grown, 0, all, Watching(239.2, 0, 0));
             Assert.Equal(new[] { "cycle=0" }, destroyed);
             Assert.Contains(logLines, l => l.Contains("Overlap: SpawnGhost failed for #0 cycle=0"));
-        }
-
-        [Theory]
-        [InlineData(0L, 249.9, true)]    // the next row starts within the look-ahead
-        [InlineData(0L, 246.0, false)]
-        [InlineData(0L, 250.1, true)]
-        [InlineData(0L, 309.4, true)]
-        [InlineData(0L, 309.6, false)]   // the launch is over
-        [InlineData(1L, 350.1, true)]    // each launch on its own clock
-        [InlineData(1L, 250.1, false)]
-        [InlineData(-1L, 250.1, false)]
-        public void ContinuingRow_ReadsTheWatchedLaunchsOwnClock(long cycle, double now, bool continues)
-        {
-            GhostPlaybackLogic.LoopUnit unit = TwoRows();
-            Assert.Equal(continues, GhostPlaybackLogic.HasContinuingRow(unit, TwoRowTrajectories(), 0, cycle, now));
-            // another vessel's row never continues it
-            Assert.False(GhostPlaybackLogic.HasContinuingRow(
-                unit, TwoRowTrajectories(secondGuid: "22222222222222222222222222222222"), 0, cycle, now));
-            Assert.False(GhostPlaybackLogic.HasContinuingRow(unit, null, 0, cycle, now));
-            Assert.False(GhostPlaybackLogic.HasContinuingRow(unit, TwoRowTrajectories(), 7, cycle, now));
         }
 
         // After a hold: the first row's live copy, else the newest launch's live row, else any row's slot.
@@ -858,18 +856,17 @@ namespace Parsek.Tests
             }
         }
 
-        // The camera side that needs the game, pinned in the source: the hold sentinel, the restart that
-        // replaces the old root-only retarget, and the bridge that becomes a hold instead of an exit.
+        // The camera side that needs the game, pinned in the source: the handoff that names its launch, the
+        // restart that replaces the old root-only retarget, and the camera kept in place for a copy whose
+        // anchor is gone. The hold switch and the hold's own cycle guard run (LoopFallEndTests.NextRow.cs).
         [Fact]
         public void Watch_ControllerWiring()
         {
             string watch = ReadSource("Controllers", "WatchModeController.cs");
             Assert.Contains("TransferWatchToNextSegment(evt.Index, evt.RequiredCycleIndex)", watch);
             Assert.Contains("if (requiredCycle.HasValue && !TryPrepareTransferCopy(nextIndex, committed[nextIndex], requiredCycle.Value, out cycleCopy)) { LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId); return false; }", watch);
-            Assert.Contains("case CameraActionType.EndHoldStart: if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex)) break;", watch);
-            Assert.Contains("watchedOverlapCycleIndex = GhostPlaybackEngine.WatchHoldCycleIndex; watchNoTargetFrames = 0;", watch);
+            Assert.Contains("if (keepCameraPlace && cameraParent != null) position = cameraParent.position;", watch);
             Assert.Contains("if (host.Engine.IsSelfOverlapUnitMember(watchedRecordingIndex)) return !TryRestartMissionWatchAfterHold();", watch);
-            Assert.Contains("if (bridgeState == OverlapBridgeRetargetState.ExitWatch && host.Engine.IsSelfOverlapUnitMember(watchedRecordingIndex))", watch);
         }
     }
 }

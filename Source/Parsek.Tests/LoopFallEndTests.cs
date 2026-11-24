@@ -39,11 +39,13 @@ namespace Parsek.Tests
         private sealed class ZoneProbe : IGhostPositioner
         {
             public readonly List<double> PlaybackUTs = new List<double>();
+            public bool HideByZone; // the copy is far away: the frame goes on to the next copy
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
                 IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 PlaybackUTs.Add(playbackUT);
+                if (HideByZone) return new ZoneRenderingResult { hiddenByZone = true };
                 throw new OperationCanceledException();
             }
 

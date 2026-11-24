@@ -395,6 +395,10 @@ namespace Parsek
         /// <summary>World position for ExplosionHoldStart anchor.</summary>
         public Vector3 AnchorPosition;
 
+        /// <summary>EndHoldStart: <see cref="AnchorPosition"/> is not the copy's place (its anchor is gone,
+        /// or it has no mesh), so the camera holds where it is.</summary>
+        public bool AnchorUnresolved;
+
         /// <summary>Ghost camera pivot transform for RetargetToNewGhost.</summary>
         public Transform GhostPivot;
 

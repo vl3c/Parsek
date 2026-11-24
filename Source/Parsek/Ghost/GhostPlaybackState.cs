@@ -39,6 +39,10 @@ namespace Parsek
         // True once a watched copy reached its own end and stays only as the camera's invisible target
         // until the watch moves to the same vessel's next row. Never persisted.
         public bool endedCopyHeld;
+        // Frames a held copy has waited for a next row that already started, and the mesh it hid (one built
+        // later is hidden too). Never persisted.
+        public int endedCopyWaitFrames;
+        public GameObject endedCopyHiddenMesh;
         // True once this state's MeshSpawned trace line was written. An overlap copy writes its
         // MeshDestroyed line only when this is set, so a boundary-overlap secondary or a primary
         // demoted before its build finished (neither ever wrote MeshSpawned) cannot unbalance the

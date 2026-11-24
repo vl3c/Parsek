@@ -320,11 +320,14 @@ The watch camera at an end (`WatchedCopyEnd`, decided by `DecideWatchedCopyEnd` 
 
 | What ended under the camera | What the camera does |
 | --- | --- |
-| A row, and the same vessel's next row of the SAME launch is drawn or starts within 3 s | The ended copy turns invisible and stays as the camera's target, at its end, until the handoff lands on that launch's own copy of the next row (never another launch's). The copy is built for the transfer, so this is normally one frame. High warp keeps the target |
+| A row, and the same vessel's next row of the SAME launch has a copy to follow or starts within 3 s | The ended copy turns invisible and stays as the camera's target, at its end, until the handoff lands on that launch's own copy of the next row (never another launch's). The copy is built for the transfer, so this is normally one frame; after 120 frames with the row started it counts as none. High warp keeps the target |
+| A row whose next row has no copy of that launch | As "anything else" below |
 | A Destroyed row | The explosion hold (3 s of game time), and no row handoff while it lasts; then the restart below |
 | Anything else (the launch's last row, a trim, a trimmed-out stretch ahead) | A quiet hold of the same 3 s, then the restart below |
 
-The restart after a hold picks a copy that is drawn now: the mission's first row, else the newest launch's live row (the watched vessel first), else any row's copy. While there is none the hold goes on: a self-overlapping mission always relaunches, so the watch session is not ended there. An edit of the loop that ends the watched copy does the same once its bridge finds no copy of the row.
+Whether the next row has a copy to follow is `DecideNextRowCopy`, in the engine's own terms, never from the row windows alone. The engine builds only each row's newest launch, so the copy exists, or is the newest one and is built now, or the row has not started. There is none when a warp went over the row's start (`SkippedAtStart`), the row draws no ghost (`NotDrawn`: unticked, suppressed, no data, its anchor not loaded), high warp hides the row (`WarpHidden`), the copy cap dropped it (`PastCopyCap`), or the wait ran out (`WaitedTooLong`). With several rows of the vessel the handoff names the latest to start that has one. An end whose anchor is gone raises the same quiet hold, where the camera is.
+
+The restart after a hold picks a copy that is drawn now: the mission's first row, else the newest launch's live row (the watched vessel first), else any row's copy. While there is none the hold goes on: a self-overlapping mission always relaunches, so the watch session is not ended there (no distance or time limit on that hold yet: 1.0.4 camera work). An edit of the loop that ends the watched copy does the same once its bridge finds no copy of the row.
 
 ### 7.3 The build pipeline
 

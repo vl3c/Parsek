@@ -17,6 +17,14 @@ namespace Parsek
         // a time jump skipped it, so its last part events replay with no puffs or sounds.
         internal const double EndEventEffectsMaxOvershootSeconds = 2.0;
 
+        // How many frames an ended watched copy waits for a next row that has already started: its copy
+        // is built for the handoff, so one frame is normal and a copy not ready after these never is.
+        internal const int MaxEndedCopyWaitFrames = 120;
+
+        // This frame's per-recording flags (UpdatePlayback's), for what a member decides about another
+        // row. Null outside the frame: no flag is then read.
+        internal TrajectoryPlaybackFlags[] frameFlags;
+
         /// <summary>
         /// Runs the part events up to the copy's end once, after the copy was placed there: the last drawn
         /// frame stops a step short of the end, and nothing draws the copy again. No mesh, no events.
@@ -34,9 +42,10 @@ namespace Parsek
 
         /// <summary>
         /// The watched copy ended and its vessel's next row carries on: the copy disappears at its end and
-        /// stays there only as the camera's target, re-placed every frame, until the watch is handed over.
-        /// The frame after that it is no longer watched and goes. False when the copy cannot be placed at
-        /// its end (its anchor is gone): it then ends as any copy there.
+        /// stays there only as the camera's target, re-placed every frame, until the watch is handed over
+        /// or the row turns out to have no copy to follow. The frame after the handover it is no longer
+        /// watched and goes. False when the copy cannot be placed at its end (its anchor is gone): it then
+        /// ends as any copy there.
         /// </summary>
         private bool TryHoldEndedWatchedCopy(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
@@ -49,10 +58,7 @@ namespace Parsek
                 state.anchorRetiredThisFrame = false;
                 PositionGhostAtLoopEndUT(index, traj, state, endUT);
                 if (RelativeAnchorResolution.ShouldSkipPostPositionPipeline(state.anchorRetiredThisFrame))
-                {
-                    state.endedCopyHeld = false;
                     return false;
-                }
                 ApplyEndPartEvents(index, traj, state, endUT, phase - duration, suppressVisualFx);
                 HideHeldCopy(index, state);
             }
@@ -71,15 +77,17 @@ namespace Parsek
         }
 
         // Every part hidden, every emitter and sound stopped, the root left active: an inactive camera
-        // target makes the stock camera snap back to the active vessel.
+        // target makes the stock camera snap back to the active vessel. Once per mesh: a copy held before
+        // its mesh was built hides it when it comes.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void HideHeldCopy(int index, GhostPlaybackState state)
         {
             if (!state.ghost.activeSelf)
                 state.ghost.SetActive(true);
             state.deferVisibilityUntilPlaybackSync = false;
-            if (state.endedCopyHeld)
+            if (ReferenceEquals(state.endedCopyHiddenMesh, state.ghost))
                 return;
+            state.endedCopyHiddenMesh = state.ghost;
             StopVisualFxForFrame(state, index);
             state.visualFxSuppressed = true;
             GhostPlaybackLogic.HideAllGhostParts(state);
@@ -96,14 +104,16 @@ namespace Parsek
         }
 
         /// <summary>The one line of a copy that ended at its recorded or trimmed end (a fall's copy has
-        /// its own lines).</summary>
+        /// its own lines). Rate-limited per index and watch outcome: a short loop ends a copy every few
+        /// seconds.</summary>
         private static void WriteRecordedCopyEnd(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state, double phase,
             double playbackStartUT, double endUT, bool recorded, GhostPlaybackLogic.WatchedCopyEnd watchedEnd)
         {
             if (!recorded)
                 return;
-            ParsekLog.Verbose("Engine",
+            ParsekLog.VerboseRateLimited("Engine",
+                "loop-copy-ended-" + index.ToString(CultureInfo.InvariantCulture) + "-" + watchedEnd,
                 "Loop copy ended at its own end: #" + index.ToString(CultureInfo.InvariantCulture)
                     + " \"" + (traj?.VesselName ?? "?") + "\" cycle="
                     + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
@@ -111,6 +121,97 @@ namespace Parsek
                     + " endUT=" + endUT.ToString("F2", CultureInfo.InvariantCulture)
                     + " reason=" + GhostPlaybackLogic.DescribeOverlapCopyEnd(traj, endUT)
                     + " watch=" + watchedEnd);
+        }
+
+        /// <summary>
+        /// The row the watch moves to when the watched row of launch
+        /// <see cref="FrameContext.protectedLoopCycleIndex"/> is over: another row of the same vessel
+        /// (<see cref="GhostPlaybackLogic.IsSameWatchedVessel"/>) whose copy of that launch the camera can be
+        /// handed (<see cref="GhostPlaybackLogic.DecideNextRowCopy"/>), the latest one to start first.
+        /// <paramref name="liveRow"/> is that row once it started, else -1. The return value is the best of
+        /// the vessel's rows; only a followable one is worth waiting for.
+        /// </summary>
+        private GhostPlaybackLogic.NextRowCopy FindWatchedNextRow(
+            in GhostPlaybackLogic.LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
+            FrameContext ctx, bool suppressGhosts, out int liveRow)
+        {
+            liveRow = -1;
+            int watchedIndex = ctx.protectedIndex;
+            long cycle = ctx.protectedLoopCycleIndex;
+            GhostPlaybackLogic.NextRowCopy best = GhostPlaybackLogic.NextRowCopy.OutOfReach;
+            if (cycle < 0 || trajectories == null || unit.MemberIndices == null
+                || watchedIndex < 0 || watchedIndex >= trajectories.Count || trajectories[watchedIndex] == null
+                || GhostPlaybackLogic.UnitInstanceLoopUT(unit, cycle, ctx.currentUT)
+                    > unit.SpanEndUT + LoopTiming.BoundaryEpsilon)
+                return best;
+            IPlaybackTrajectory watched = trajectories[watchedIndex];
+            double liveStart = double.NegativeInfinity;
+            foreach (int idx in unit.MemberIndices)
+            {
+                if (idx == watchedIndex || idx < 0 || idx >= trajectories.Count || trajectories[idx] == null)
+                    continue;
+                IPlaybackTrajectory member = trajectories[idx];
+                if (!GhostPlaybackLogic.IsSameWatchedVessel(
+                        watched.RecordedVesselGuid, watched.VesselName,
+                        member.RecordedVesselGuid, member.VesselName))
+                    continue;
+                bool hasCopy = TryGetCopyOfCycle(idx, cycle, out GhostPlaybackState copy) && !copy.endedCopyHeld;
+                bool inSlot = hasCopy && ghostStates.TryGetValue(idx, out GhostPlaybackState slot)
+                    && ReferenceEquals(slot, copy);
+                GhostPlaybackLogic.NextRowCopy next = GhostPlaybackLogic.DecideNextRowCopy(
+                    unit, idx, member, cycle, ctx.currentUT, IsRowDrawn(idx, member, ctx),
+                    suppressGhosts, ctx.warpRate, inSlot, hasCopy && !inSlot);
+                if (next > best)
+                    best = next;
+                double start = unit.MemberStartUT(idx, member.StartUT);
+                if (next == GhostPlaybackLogic.NextRowCopy.Live && start > liveStart)
+                {
+                    liveRow = idx;
+                    liveStart = start;
+                }
+            }
+            if (best == GhostPlaybackLogic.NextRowCopy.Live
+                && TryGetCopyOfCycle(watchedIndex, cycle, out GhostPlaybackState held)
+                && held.endedCopyHeld && held.endedCopyWaitFrames >= MaxEndedCopyWaitFrames)
+            {
+                liveRow = -1;
+                return GhostPlaybackLogic.NextRowCopy.WaitedTooLong;
+            }
+            return best;
+        }
+
+        // The guards that stop UpdatePlaybackEntry / UpdateUnitMemberPlayback before they draw the row.
+        private bool IsRowDrawn(int index, IPlaybackTrajectory member, FrameContext ctx)
+        {
+            if (!HasRenderableGhostData(member)
+                || (member.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(member.LoopAnchorVesselId)))
+                return false;
+            if (frameFlags == null || index >= frameFlags.Length)
+                return true;
+            TrajectoryPlaybackFlags f = frameFlags[index];
+            return !f.skipGhost && !f.anchorReFlyUnstable
+                && !(ctx.activeReFlyMarker != null && f.sessionSuppressed);
+        }
+
+        /// <summary>Counts the frames a held copy waits for a started row, and says why a watched copy that
+        /// ended has none to follow. Called for the watched member, once a frame.</summary>
+        private void TrackEndedCopyWait(
+            int index, IPlaybackTrajectory traj, long cycle, GhostPlaybackLogic.NextRowCopy next, bool rowOver)
+        {
+            if (!TryGetCopyOfCycle(index, cycle, out GhostPlaybackState copy))
+                return;
+            if (copy.endedCopyHeld && next == GhostPlaybackLogic.NextRowCopy.Live)
+                copy.endedCopyWaitFrames++;
+            else if (!GhostPlaybackLogic.IsFollowable(next)
+                && (copy.endedCopyHeld || (rowOver && next != GhostPlaybackLogic.NextRowCopy.OutOfReach)))
+                ParsekLog.InfoRateLimited("CameraFollow",
+                    "unit-watch-no-next-row-" + index.ToString(CultureInfo.InvariantCulture) + "-" + next,
+                    "unit watch: no copy of the next row to follow: #"
+                        + index.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?") + "\" cycle="
+                        + cycle.ToString(CultureInfo.InvariantCulture)
+                        + " reason=" + next
+                        + " waitedFrames=" + copy.endedCopyWaitFrames.ToString(CultureInfo.InvariantCulture));
         }
 
         /// <summary>True when the index is a member of a mission that overlaps itself.</summary>

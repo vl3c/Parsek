@@ -825,11 +825,7 @@ namespace Parsek
                     watchedOverlapCycleIndex = -2;
                     watchNoTargetFrames = 0;
                     overlapBridgeLastRetryFrame = -1;
-                    DestroyOverlapCameraAnchor();
-                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraAnchor");
-                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
-                    if (FlightCamera.fetch != null)
-                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+                    PlaceOverlapCameraAnchor("ParsekOverlapCameraAnchor", evt.AnchorPosition);
                     ParsekLog.Info("CameraFollow",
                         $"Overlap: camera holding at explosion for #{evt.Index} cycle={evt.NewCycleIndex}");
                     break;
@@ -848,11 +844,7 @@ namespace Parsek
                     overlapRetargetAfterUT = -1;
                     watchNoTargetFrames = 0;
                     overlapBridgeLastRetryFrame = -1;
-                    DestroyOverlapCameraAnchor();
-                    overlapCameraAnchor = new UnityEngine.GameObject("ParsekOverlapCameraBridge");
-                    overlapCameraAnchor.transform.position = evt.AnchorPosition;
-                    if (FlightCamera.fetch != null)
-                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+                    PlaceOverlapCameraAnchor("ParsekOverlapCameraBridge", evt.AnchorPosition);
                     if (TryResolveOverlapBridgeRetarget())
                     {
                         ParsekLog.Info("CameraFollow",
@@ -867,9 +859,11 @@ namespace Parsek
                     watchedOverlapCycleIndex = GhostPlaybackEngine.WatchHoldCycleIndex;
                     watchNoTargetFrames = 0;
                     overlapBridgeLastRetryFrame = -1;
-                    PlaceOverlapCameraAnchor("ParsekOverlapCameraAnchor", evt.AnchorPosition);
                     ParsekLog.Info("CameraFollow",
-                        $"Overlap: camera holding at the end of #{evt.Index} cycle={evt.NewCycleIndex}");
+                        $"Overlap: camera holding at the end of #{evt.Index} cycle={evt.NewCycleIndex}"
+                            + (evt.AnchorUnresolved ? " (its place is unknown, holding where the camera is)" : ""));
+                    PlaceOverlapCameraAnchor(
+                        "ParsekOverlapCameraAnchor", evt.AnchorPosition, keepCameraPlace: evt.AnchorUnresolved);
                     break;
             }
         }
@@ -3400,8 +3394,11 @@ namespace Parsek
 
         // Not inlined: creates the anchor object and points the stock camera at it.
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private void PlaceOverlapCameraAnchor(string anchorName, Vector3 position)
+        private void PlaceOverlapCameraAnchor(string anchorName, Vector3 position, bool keepCameraPlace = false)
         {
+            Transform cameraParent = FlightCamera.fetch != null ? FlightCamera.fetch.transform.parent : null;
+            if (keepCameraPlace && cameraParent != null)
+                position = cameraParent.position;
             DestroyOverlapCameraAnchor();
             overlapCameraAnchor = new UnityEngine.GameObject(anchorName);
             overlapCameraAnchor.transform.position = position;
@@ -3529,12 +3526,7 @@ namespace Parsek
             {
                 try
                 {
-                    flightCamera.pivotTranslateSharpness = 0f;
-                    if (IsUnityObjectAvailable(overlapCameraAnchor)
-                        && flightCamera.Target != overlapCameraAnchor.transform)
-                    {
-                        flightCamera.SetTargetTransform(overlapCameraAnchor.transform);
-                    }
+                    KeepCameraOnOverlapAnchor(flightCamera);
                 }
                 catch (System.Security.SecurityException)
                 {
@@ -3549,6 +3541,18 @@ namespace Parsek
 
             watchNoTargetFrames = bridgeWaitFrames;
             return true;
+        }
+
+        // Not inlined: the anchor's transform is a Unity call.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void KeepCameraOnOverlapAnchor(FlightCamera flightCamera)
+        {
+            flightCamera.pivotTranslateSharpness = 0f;
+            if (IsUnityObjectAvailable(overlapCameraAnchor)
+                && flightCamera.Target != overlapCameraAnchor.transform)
+            {
+                flightCamera.SetTargetTransform(overlapCameraAnchor.transform);
+            }
         }
 
         private void LogWatchTargetMismatch(GhostPlaybackState state)

@@ -620,12 +620,16 @@ namespace Parsek
             // carries on (owner ruling 2026-11-24). The copy the camera follows ends for the camera too:
             // see WatchedCopyEnd.
             long watchedCycleHere = ctx.protectedIndex == i ? ctx.protectedLoopCycleIndex : -1;
+            var nextRow = GhostPlaybackLogic.NextRowCopy.OutOfReach;
+            int nextLiveRow = -1;
+            if (ctx.protectedLoopCycleIndex >= 0
+                && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0)
+                nextRow = FindWatchedNextRow(unit, trajectories, ctx, suppressGhosts, out nextLiveRow);
             var ends = new GhostPlaybackLogic.OverlapCopyEnds(
                 memberEndUT,
                 recorded: !memberHasFall && !GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT),
                 watchedCycle: watchedCycleHere,
-                watchedRowContinues: watchedCycleHere >= 0 && GhostPlaybackLogic.HasContinuingRow(
-                    unit, trajectories, i, watchedCycleHere, ctx.currentUT));
+                watchedRowContinues: GhostPlaybackLogic.IsFollowable(nextRow));
 
             // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
             // overlap meshes at high warp but keep the stationary newest primary visible.
@@ -689,20 +693,19 @@ namespace Parsek
             // picks the next target.
             bool watchHolding = ctx.protectedLoopCycleIndex == WatchHoldCycleIndex
                 && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0;
-            // The watched member's own window is over and the same vessel's next row carries on: the
-            // handoff stays pending every frame until it lands, whatever the last frame's edge read.
-            bool watchedRowContinues = false;
+            // The watched member's own window is over. With a next row whose copy can be followed, the
+            // handoff to it stays pending every frame until it lands, whatever the last frame's edge read;
+            // with none nothing is handed over, and the copy's own end moves the camera.
+            bool watchedRowOver = false;
             if (watchPinnedToInstance)
             {
                 handoffLoopUT = watchedInstLoopUT;
                 handoffCycle = ctx.protectedLoopCycleIndex;
                 IPlaybackTrajectory watched = ctx.protectedIndex < trajectories.Count
                     ? trajectories[ctx.protectedIndex] : null;
-                watchedRowContinues = watched != null
+                watchedRowOver = watched != null
                     && watchedInstLoopUT > unit.MemberEndUT(ctx.protectedIndex, watched.EndUT)
-                        + LoopTiming.BoundaryEpsilon
-                    && GhostPlaybackLogic.HasContinuingRow(
-                        unit, trajectories, ctx.protectedIndex, ctx.protectedLoopCycleIndex, ctx.currentUT);
+                        + LoopTiming.BoundaryEpsilon;
             }
             else
             {
@@ -710,11 +713,16 @@ namespace Parsek
                     unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
                     ctx.currentUT, out handoffLoopUT, out handoffCycle);
             }
+            bool watchedRowContinues = watchedRowOver && GhostPlaybackLogic.IsFollowable(nextRow);
+            if (watchedCycleHere >= 0)
+                TrackEndedCopyWait(i, traj, watchedCycleHere, nextRow, watchedRowOver);
             LogUnitTransitionIfChanged(
                 unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,
                 isInInterCycleTail: false, watchedIndex: ctx.protectedIndex,
-                suppressWatchRetarget: watchedInstanceEnded || watchHolding,
-                handoffCycle: handoffCycle, watchedRowContinues: watchedRowContinues);
+                suppressWatchRetarget: watchedInstanceEnded || watchHolding
+                    || (watchedRowOver && !watchedRowContinues),
+                handoffCycle: handoffCycle, watchedRowContinues: watchedRowContinues,
+                continuingRow: watchedRowContinues ? nextLiveRow : (int?)null);
 
             ParsekLog.VerboseRateLimited(
                 "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
@@ -1338,7 +1346,8 @@ namespace Parsek
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
-            bool suppressWatchRetarget, long? handoffCycle = null, bool watchedRowContinues = false)
+            bool suppressWatchRetarget, long? handoffCycle = null, bool watchedRowContinues = false,
+            int? continuingRow = null)
         {
             // Live camera member = the in-window member to point the watch camera at. -1 in the
             // inter-cycle wait or before the span. Selection is two-tier so a structural fork
@@ -1426,13 +1435,17 @@ namespace Parsek
                     "Engine", unitKey + "-first",
                     FormatUnitFirstEvaluation("Chain-loop", unit.OwnerIndex, liveMemberIdx, spanLoopUT, cycle),
                     5.0);
-                lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering);
+                lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering, -1, -1);
                 return;
             }
             bool watchedWasRendering = prev.watchedRendering || watchedRowContinues;
             if (prev.cycle == cycle && prev.liveMemberIdx == liveMemberIdx
                 && watchedWasRendering == watchedIsRendering)
+            {
+                if (prev.handoffTo >= 0)
+                    lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, prev.watchedRendering, -1, -1);
                 return;
+            }
 
             if (cycle != prev.cycle)
             {
@@ -1494,9 +1507,12 @@ namespace Parsek
             // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
             // the ending member so its terminal explosion hold applies and the post-hold retarget
             // restarts on the through-line root.
+            // An overlapping mission names the row itself (continuingRow): the picker reads windows alone,
+            // and the row it picks may have no copy of the watched launch.
             int retargetMemberIdx = suppressWatchRetarget
                 ? -1
-                : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+                : continuingRow
+                    ?? GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
             if (suppressWatchRetarget && watchedIndex >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-instance-ended",
@@ -1522,8 +1538,10 @@ namespace Parsek
                 watchedIndex, watchedWasRendering, watchedIsRendering, retargetMemberIdx, unit);
             if (retargetFired)
             {
-                ParsekLog.Info("CameraFollow",
-                    "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                // Once per handoff: the event itself re-fires every frame while the transfer is pending.
+                if (prev.handoffFrom != watchedIndex || prev.handoffTo != retargetMemberIdx || prev.cycle != cycle)
+                    ParsekLog.Info("CameraFollow",
+                        "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
                         + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
                         + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
@@ -1554,7 +1572,8 @@ namespace Parsek
             bool storedWatchedRendering = GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
                 retargetFired, watchedIndex, retargetMemberIdx, watchedIsRendering);
 
-            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
+            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering,
+                retargetFired ? watchedIndex : -1, retargetFired ? retargetMemberIdx : -1);
         }
     }
 }

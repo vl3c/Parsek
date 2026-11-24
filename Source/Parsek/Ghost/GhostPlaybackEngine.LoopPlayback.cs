@@ -1208,23 +1208,29 @@ namespace Parsek
                     }
 
                     // Fire camera event for overlap expiry (never for the first run's kept fall: no
-                    // watch cycle names it, so the camera is not on it)
-                    if (!overlapExpiryRetired && cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
-                    {
+                    // watch cycle names it, so the camera is not on it). A retired anchor leaves the copy
+                    // at no usable position; the watch of a mission copy still holds, where the camera is.
+                    bool anchorUnresolved = overlapExpiryRetired || ovState.ghost == null;
+                    if (cycle != GhostPlaybackLogic.FirstRunFallCycleIndex
+                        && (!overlapExpiryRetired
+                            || watchedEnd != GhostPlaybackLogic.WatchedCopyEnd.NotWatched))
                         OnOverlapCameraAction?.Invoke(new CameraActionEvent
                         {
                             Index = index,
                             Action = triggerExplosionAtExpiry
                                 ? CameraActionType.ExplosionHoldStart
-                                : watchedEnd == GhostPlaybackLogic.WatchedCopyEnd.HoldThenRestart
+                                : watchedEnd != GhostPlaybackLogic.WatchedCopyEnd.NotWatched
                                     ? CameraActionType.EndHoldStart
                                     : CameraActionType.ExplosionHoldEnd,
                             NewCycleIndex = cycle,
-                            AnchorPosition = ovState.ghost != null ? ReadGhostWorldPosition(ovState) : Vector3.zero,
+                            AnchorPosition = anchorUnresolved ? Vector3.zero : ReadGhostWorldPosition(ovState),
+                            AnchorUnresolved = anchorUnresolved,
                             HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
                             Trajectory = traj, Flags = flags
                         });
 
+                    if (!overlapExpiryRetired && cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
+                    {
                         // Fire overlap expired event
                         OnOverlapExpired?.Invoke(new OverlapExpiredEvent
                         {

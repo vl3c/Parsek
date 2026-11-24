@@ -1568,7 +1568,8 @@ namespace Parsek
                         TriggerExplosionIfDestroyed(ovState, rec, recIdx);
                     }
                     if (ends.AtOwnEnd && ends.Recorded)
-                        ParsekLog.Verbose("KSCGhost",
+                        ParsekLog.VerboseRateLimited("KSCGhost",
+                            "loop-copy-ended-" + recIdx.ToString(CultureInfo.InvariantCulture),
                             "Loop copy ended at its own end: #" + recIdx.ToString(CultureInfo.InvariantCulture)
                                 + " \"" + (rec.VesselName ?? "?") + "\" cycle="
                                 + cycle.ToString(CultureInfo.InvariantCulture)
