@@ -493,10 +493,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Applies the world-space emitter velocity floor to every KSPParticleEmitter
-        /// under a freshly cloned engine FX instance. Call AFTER StripKspFxControllers
-        /// (the clone is ghost-owned by then). No-op for local-space emitters, i.e.
-        /// every stock FX asset.
+        /// Marks every KSPParticleEmitter under a freshly cloned engine FX instance that takes the
+        /// world-space emitter velocity floor; the floor itself is applied while the ghost stands
+        /// still (<see cref="GhostWorldSpaceEmitter.StandingFlow"/>), never written to the emitter's
+        /// own velocity. Call AFTER StripKspFxControllers, which attaches the component. No-op for
+        /// local-space emitters, i.e. every stock FX asset.
         /// </summary>
         internal static void ApplyWorldSpaceEmitterVelocityFloor(
             GameObject fxInstance, string partName, int moduleIndex, Vector3 exhaustAxisEmitterLocal)
@@ -521,9 +522,10 @@ namespace Parsek
                     $"world-space emitter velocity floor: '{partName}' midx={moduleIndex} " +
                     $"fx='{fxInstance.name}' localVelocity {emitters[i].localVelocity} -> {floored} " +
                     $"(exhaust axis, emitter-local: {exhaustAxisEmitterLocal}; trail-by-motion " +
-                    "asset would pool particles at the nozzle on a static ghost)",
+                    "asset would pool particles at the nozzle on a static ghost); standing ghosts only",
                     5.0);
-                emitters[i].localVelocity = floored;
+                var origin = emitters[i].GetComponent<GhostWorldSpaceEmitter>();
+                if (origin != null) origin.standingAxis = floored / WorldSpaceEmitterFloorSpeed;
             }
         }
 
@@ -567,10 +569,9 @@ namespace Parsek
         /// <c>baseline * throttleRatio</c> instead of an absolute value.
         ///
         /// ONE capture point per info, called after the whole FX build for that module has run.
-        /// That placement is load-bearing: <c>ApplyGhostEngineFxSizeBoost</c> (#383) and
-        /// <c>ApplyWorldSpaceEmitterVelocityFloor</c> both mutate exactly the fields captured here
-        /// and both run AFTER <c>StripKspFxControllers</c>, so capturing at strip time would pin a
-        /// pre-fix baseline and runtime scaling would quietly undo those fixes.
+        /// That placement is load-bearing: <c>ApplyGhostEngineFxSizeBoost</c> (#383) mutates exactly
+        /// the fields captured here and runs AFTER <c>StripKspFxControllers</c>, so capturing at
+        /// strip time would pin a pre-fix baseline and runtime scaling would quietly undo it.
         ///
         /// The three emitter fields are resolved reflectively even though <c>KSPParticleEmitter</c>
         /// is compile-time reachable: a KSP build that renames one then degrades that emitter to
@@ -602,12 +603,6 @@ namespace Parsek
                     r.minEmissionField = ResolveScalarMagnitudeField(t, "minEmission", partName, moduleIndex);
                     r.maxEmissionField = ResolveScalarMagnitudeField(t, "maxEmission", partName, moduleIndex);
                     r.localVelocityField = ResolveVectorMagnitudeField(t, "localVelocity", partName, moduleIndex);
-
-                    // World-space-ness rides along with the baseline: the captured localVelocity may
-                    // BE the minimum-flow floor applied just above, and the playback scaler has to
-                    // know not to scale it back under the pooling threshold the floor cleared.
-                    r.baselineUseWorldSpace =
-                        r.emitter is KSPParticleEmitter kspEmitter && kspEmitter.useWorldSpace;
 
                     try
                     {
@@ -725,10 +720,12 @@ namespace Parsek
                         // Keep alive — any NREs are caught by Unity and don't crash.
                         break;
                     case "FXPrefab":
+                        // GhostWorldSpaceEmitter moves the system instead; both would move it twice.
                         Object.Destroy(behaviours[i]);
                         break;
                 }
             }
+            GhostWorldSpaceEmitter.AttachAll(fxClone);
         }
 
         private static void CaptureSmokeTrailFade(SmokeTrailControl control, List<GhostSmokeTrailFade> sink)
