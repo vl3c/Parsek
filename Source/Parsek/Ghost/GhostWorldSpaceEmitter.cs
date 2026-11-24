@@ -30,10 +30,15 @@ namespace Parsek
         /// <summary>Set for a plain particle system (a legacy <c>fx_*</c> clone, a PREFAB_PARTICLE).</summary>
         internal ParticleSystem system;
 
+        /// <summary>The emitter-local exhaust axis of a smoke that flows on a standing ghost; zero: none.</summary>
+        internal Vector3 standingAxis;
+
+        private Vector3 ownWorldVelocity;
         private bool drifts;
         private static bool? plainSystemsDrift;
 
         private bool hasSample;
+        private int velocitySamples;
         private Vector3 lastPosition;
         private Vector3d lastTotalShift;
         private double lastUT;
@@ -64,6 +69,7 @@ namespace Parsek
                 if (!emitter.useWorldSpace) continue;
                 GhostWorldSpaceEmitter e = emitter.gameObject.AddComponent<GhostWorldSpaceEmitter>();
                 e.emitter = emitter;
+                e.ownWorldVelocity = emitter.worldVelocity;
                 e.drifts = true;
                 added++;
             }
@@ -104,6 +110,7 @@ namespace Parsek
         private void OnEnable()
         {
             hasSample = false;
+            velocitySamples = 0;
             lastVelocity = Vector3.zero;
             driftVelocity = Vector3.zero;
             registered.Add(this);
@@ -136,11 +143,35 @@ namespace Parsek
                 Vector3 velocity = WorldVelocity(position - lastPosition, totalShift - lastTotalShift, ut - lastUT);
                 driftVelocity = Slower(lastVelocity, velocity);
                 lastVelocity = velocity;
+                if (velocitySamples < 2) velocitySamples++;
+                // One reading is not a speed yet: Slower compares two.
+                if (velocitySamples == 2) ApplyStandingFlow();
             }
             hasSample = true;
             lastPosition = position;
             lastTotalShift = totalShift;
             lastUT = ut;
+        }
+
+        private void ApplyStandingFlow()
+        {
+            if (emitter == null || standingAxis == Vector3.zero) return;
+            Vector3 extra = StandingFlow(emitter.localVelocity, standingAxis,
+                GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, driftVelocity.magnitude);
+            emitter.worldVelocity = extra == Vector3.zero
+                ? ownWorldVelocity
+                : ownWorldVelocity + transform.TransformDirection(extra);
+        }
+
+        /// <summary>
+        /// What a standing ghost's smoke gets on top of its own velocity (emitter-local): enough to
+        /// leave the nozzle at <paramref name="floorSpeed"/>, counting the ghost's own speed. Zero
+        /// as soon as the ghost moves that fast, so a launched flight plays the asset as stock does.
+        /// </summary>
+        internal static Vector3 StandingFlow(Vector3 ownVelocity, Vector3 axis, float floorSpeed, float ghostSpeed)
+        {
+            float flow = floorSpeed - ghostSpeed;
+            return flow > ownVelocity.magnitude ? axis * flow - ownVelocity : Vector3.zero;
         }
 
         /// <summary>

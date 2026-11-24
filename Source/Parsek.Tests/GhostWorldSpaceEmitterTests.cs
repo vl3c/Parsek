@@ -119,6 +119,58 @@ namespace Parsek.Tests
             Assert.Equal(0, GhostWorldSpaceEmitter.RegisteredCountForTesting);
         }
 
+        // ---- the standing ghost's smoke flow (owner ruling 2026-11-24: the floor stays)
+
+        [Fact]
+        public void StandingFlow_AStandingGhostsSmokeLeavesAtTheFloorSpeed()
+        {
+            // restock-fx-srb-smoke-1: 1 m/s down the emitter's own -Y; the exhaust axis is -Y.
+            Vector3 own = new Vector3(0f, -1f, 0f);
+            Vector3 extra = GhostWorldSpaceEmitter.StandingFlow(
+                own, Vector3.down, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 0f);
+            AssertClose(new Vector3(0f, -6f, 0f), own + extra);
+        }
+
+        [Theory]
+        [InlineData(5f)]     // 6 - 5 = the asset's own 1 m/s: nothing to add
+        [InlineData(6f)]
+        [InlineData(27f)]
+        [InlineData(104f)]
+        [InlineData(2240f)]
+        [InlineData(float.NaN)]
+        public void StandingFlow_NeverTouchesAMovingGhost(float ghostSpeed)
+        {
+            Vector3 extra = GhostWorldSpaceEmitter.StandingFlow(
+                new Vector3(0f, -1f, 0f), Vector3.down, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, ghostSpeed);
+            Assert.True(extra == Vector3.zero, extra.ToString());
+        }
+
+        [Fact]
+        public void StandingFlow_FadesOutAsTheGhostGathersSpeed()
+        {
+            Vector3 own = new Vector3(0f, -1f, 0f);
+            Vector3 extra = GhostWorldSpaceEmitter.StandingFlow(
+                own, Vector3.down, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 2f);
+            AssertClose(new Vector3(0f, -4f, 0f), own + extra);
+        }
+
+        [Fact]
+        public void StandingFlow_FollowsTheExhaustAxisNotTheAssetsOwn()
+        {
+            Vector3 own = new Vector3(0f, -1f, 0f);
+            Vector3 extra = GhostWorldSpaceEmitter.StandingFlow(
+                own, Vector3.right, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 0f);
+            AssertClose(new Vector3(6f, 0f, 0f), own + extra);
+        }
+
+        [Fact]
+        public void Wiring_TheFloorIsAStandingFlowAndNeverTheEmittersOwnVelocity()
+        {
+            string source = Source(Path.Combine("Ghost", "GhostVisualBuilder.FxSetup.cs"));
+            Assert.Contains("origin.standingAxis = floored / WorldSpaceEmitterFloorSpeed;", source);
+            Assert.DoesNotContain("localVelocity = floored", source);
+        }
+
         private static string Source(string relative)
             => File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "Source", "Parsek", relative));
