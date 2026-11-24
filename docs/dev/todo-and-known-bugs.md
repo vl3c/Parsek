@@ -20,6 +20,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; OPEN; product, medium: a committed flag is silently lost]
+
+**Seen:** WF-1 plants a flag in flight 1 (the EVA kerbal's recording, plant UT about 69-71, terminal Boarded), rewinds and warps the pad from UT 46 to 900 in flight 2. Every earlier WF-1 log that got that far (seven, 2026-10-26 to 2026-11-15) has no `Spawned flag vessel` line after the rewind: the kerbal's recording reads `PlaybackCompleted index=2 ... ghostWasActive=False` at the warp-down and again at every later scene load, and the flag is never planted. `2026-11-24_0504` is the first with a ghost for that recording, and the flag was planted at its timeline end (UT 652).
+
+**Expected:** flight recorder design 4.13: the plant happens whatever the ghost's zone or build state; owner ruling 2026-11-04, "plant once". The new run is the correct one.
+
+**Cause:** the flag walk runs only (1) in range and not warp-hidden (`RenderInRangeGhost`; above 50x `UpdatePlaybackEntry` returns at the warp gate first, except in a SurfaceStationary section), (2) at the timeline end of a ghost that EXISTS (`HandlePastEndGhost`, inside `if (ghostActive)`), (3) in the deferred flush, only for a recording queued for an end SPAWN (#463; nothing queues a recording for flags alone, `pendingFlagReplayRecordingIds` only re-queues a failed plant). A recording with no end spawn (Boarded, Recovered, Destroyed, mid-chain) whose window passed with no ghost gets none of the three: `completedEventFired` is set and no later walk runs. The Space Center has the same hole (`ParsekKSC`, the `!inRange && currentUT > rec.EndUT` branch spawns the vessel only; named "Not covered" in the archived FLAG-EVENT-PAST-RECORDING-END and never filed), and the Tracking Station, a time jump and a load past the end run no walk at all.
+
+**Why the runs differ (no commit found):** frame phase. At 63-100x the window is a few frames wide; the kerbal's ghost is built only if a frame lands in the recording's SurfaceStationary section (UT 64.3 / 65.4 to 69 / 71). 2026-11-24 had frames at 62.45, 65.07 and 67.77; 2026-11-15 went 63.56 -> about 69 in one frame. The walk code is unchanged since 5f5e7c0aa (2026-11-05), which the 11-06 and 11-15 runs carry.
+
+**Proposed fix:** run the state-less walk (`SpawnFlagVesselsUpToUT` to `ResolveTimelineEndFlagWalkUT`) from the ghost-less completion in both hosts. To settle first: completions fire for every past recording at every scene load, so the walk needs the same replay-scope / timeline-active gate the end spawn has, or it plants flags in old saves removed before tombstones existed (2026-11-04).
+
+## FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision]
+
+**Seen:** flight 2's pod stands on the pad at flight 1's pose. Flight 1's flag was planted under the hatch, so the replayed flag (UT 652) stands against flight 2's pod: at the warp exit stock logs `[Flag]: ground contact from a Part! Moving upwards 0.500m`, and the next EVA is refused (`FlightEVA.spawnEVA` returned null). Decompiled (1.12.5): with the kerbal aboard and an airlock present, null means stock's hatch checks found every hatch obstructed (a screen message and no log line), and flight 1 left the same pod by the same hatch before the flag stood there.
+
+**What a player meets:** rewind, relaunch the same craft from the same pad and wait there past the flag's moment: a real flag appears against the craft, the hatch reads obstructed until the craft moves or the flag is removed in the Tracking Station. The flag takes no damage and deals none (`HardenGhostVesselPartPhysics`). `GhostVisualBuilder.SpawnFlagVessel` has no overlap check; a vessel end spawn holds until its spot is clear.
+
+**Options:** (1) leave it, the committed timeline puts the flag there; (2) hold the plant while a live vessel's bounds cover the spot and retry, as the end spawn does. Not a data problem either way. FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST makes it more frequent once fixed.
+
 ## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
