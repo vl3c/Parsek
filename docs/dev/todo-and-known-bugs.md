@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-3 on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
+## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-4 (0.040 s read 3 frames in `2026-11-24_1627`, two of them at one UT) on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
 
 **The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
 
@@ -90,7 +90,7 @@ six mutations, all red.
 
 Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vesselName ?? "unknown")`, at `GhostPlaybackLogic.SynthesizedMotion.cs` (the `VerboseRateLimited` call in `DriveConverterLoops`). Then `S1.9` can name the three vessels again. MINE-6 reads the line for `Mining Rover RC` and is exposed if another loop drives in the 5 s before it.
 
-## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused]
+## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused; FLOWN 2026-11-24: S1.7 `2026-11-24_1630` PASS (22 / 21 / 0 / 1, IconRevealDrive stale 1472037 m, placed 0.000 m), TP-6 `2026-11-24_1625` PASS]
 
 **Seen:** right after a time jump (1,258,921 -> 1,268,401, into the Mun approach) the probe reported `TELEPORT dPos=448726384m ... frame=11069`, same orbit on both sides (Mun, sma -512034, ecc 1.6642), `dPosWorld` equal to `dPos`.
 
@@ -110,7 +110,7 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 
 **Gates:** `IconRevealDriveTests` (xUnit) and the in-game `IconRevealDriveInGameTest` (category `MapRender`, lane S1.7), which runs hide, stock step, seed and Postfix inside one frame, so no frame rate decides the outcome; S1.7 requires its `IconRevealDrive:` line. TP-6's zero `icon-teleport` allowance stays the flown check of the real handoff. Owed: one flight of S1.7 (its tally is a prediction until then) and one of TP-6.
 
-## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 authored, never flown]
+## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 LIVE-PROVEN `2026-11-24_1641` (planted 1 at the first Space Center visit, alreadyPresent 1 at the next), WF-1 `2026-11-24_1624` and FLG-1 `2026-11-24_1630` green on the same build]
 
 **Seen:** WF-1 plants a flag in flight 1 (the EVA kerbal's recording, plant UT about 69-71, terminal Boarded), rewinds and warps the pad from UT 46 to 900 in flight 2. Every earlier WF-1 log that got that far (seven, 2026-10-26 to 2026-11-15) has no `Spawned flag vessel` line after the rewind: the kerbal's recording reads `PlaybackCompleted index=2 ... ghostWasActive=False` at the warp-down and again at every later scene load, and the flag is never planted. `2026-11-24_0504` is the first with a ghost for that recording, and the flag was planted at its timeline end (UT 652).
 
@@ -129,7 +129,7 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 **Log:** `[FlagReplay] Flag catch-up: rec=... host=flight|ksc currentUT= endUT= eligible= planted= alreadyPresent= removedByPlayer= failed=` (Info when it planted, else Verbose), once per recording with flags per scene.
 **Proof:** each of seven mutations (walk off, gate dropped, due UT dropped, once-per-scene dropped, 3 m match dropped, Space Center unwired, flight history gate dropped) reds the tests. FLG-2 (never flown) passes the window in the Tracking Station between two Cold save-file loads (`playerLoad=true`, gated), so the replay scope comes back from the save, and requires the plant on the next Space Center visit and none on the one after.
 
-## FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision]
+## ~~FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24~~: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision; RULED 2026-11-24 (owner): option 1, leave it; no code; design 4.13]
 
 **Seen:** flight 2's pod stands on the pad at flight 1's pose. Flight 1's flag was planted under the hatch, so the replayed flag (UT 652) stands against flight 2's pod: at the warp exit stock logs `[Flag]: ground contact from a Part! Moving upwards 0.500m`, and the next EVA is refused (`FlightEVA.spawnEVA` returned null). Decompiled (1.12.5): with the kerbal aboard and an airlock present, null means stock's hatch checks found every hatch obstructed (a screen message and no log line), and flight 1 left the same pod by the same hatch before the flag stood there.
 
@@ -292,7 +292,7 @@ recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
 Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
-(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 3 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
+(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 4 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
 
 SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
 New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
@@ -813,7 +813,7 @@ New persisted markers, all additive (no format or generation bump, absent = fals
 
 **Not changed (product questions, not decided here):** a copy whose end is recorded is still held at it between launches (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END); the map and Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost), and a span-clock copy at KSC that ends inside the wait still ends with no explosion, as every span-clock member's end did.
 
-## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; OPEN, owner question; low]
+## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; OPEN, owner question; low; RULED 2026-11-24 (owner): every copy ends at its own recorded end, as falls do, no parked landed copy; built on branch `loop-own-end`, HELD for 1.0.4, not in 1.0.3]
 
 **Cause:** `UpdateOverlapPlayback` (and `ParsekKSC.UpdateOverlapKsc`) clamps its newest cycle's playback UT to the recording's end and only expires OLDER cycles, so a member, debris or standalone loop whose own length is shorter than the launch cadence stays drawn at its last frame until the next launch; in flight its explosion comes only then, the watch clock stays on it, and the flight map lists no copy meanwhile. Reachable in a self-overlapping mission for every stage or debris shorter than the period (GS-12 stage 1's shape before R4c: 57 s debris at a 150 s cadence). The code is the same on main before the branch (9559614ea); the archived GS-12 log starts its loop lines at stage 2 (cadence 30, under the debris' 57 s), so it shows none.
 **Done:** recordings whose end is PREDICTED no longer do this (LOOP-TIMING-READ-THE-PREDICTED-FALL). Nothing changed for a recording without a predicted tail: R4c promises those stay as they were, so `SelfOverlappingDebris_EndsWhenPredicted_IsHeldWhenRecorded` / `SelfOverlappingMember_...` (`LoopFallEndTests`) pin the hold.
