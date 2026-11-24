@@ -25179,17 +25179,16 @@ S17_FLOWN_BATCH_LINE = (
 S17_FLOWN_BATCH_LINE_2026_11_12 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-# PREDICTED 2026-11-24: IconRevealDriveInGameTest (todo
+# READ 2026-11-24: IconRevealDriveInGameTest (todo
 # MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24) moved the category to total=22. Both lines
-# below are predictions until S1.7 flies: the tally is the attribute derivation with the
-# one batch-disabled canary as its skip, the cell line is what the cell prints when the
-# reveal places the icon. Replace them with the read lines at the next flight.
+# below are the ones `2026-11-24_1630_S1.7-maprender-parity` (PASS attempt 1) printed: the
+# predicted tally held, with the one batch-disabled canary as its skip.
 S17_EXPECTED_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
 S17_EXPECTED_ICON_REVEAL_LINE = (
-    "[Parsek][INFO][TestRunner] IconRevealDrive: pid=2361972787 frame=4211"
-    " staleMeters=1534221 placedMeters=0.031 drawIcons=OBJ suppressed=False"
+    "[Parsek][INFO][TestRunner] IconRevealDrive: pid=3794203339 frame=10021"
+    " staleMeters=1472037 placedMeters=0.000 drawIcons=OBJ suppressed=False"
     " lineActive=True testFrameUnchanged=True")
 S17_MEASURED_BATCH_LINE = S17_EXPECTED_BATCH_LINE
 # The runner's accounting for the single skip.
@@ -25276,9 +25275,9 @@ class MapRenderParityScenarioTests(unittest.TestCase):
         good = S17_EXPECTED_ICON_REVEAL_LINE
         self.assertIsNotNone(re.search(pat, good))
         for repl, why in (
-                (("placedMeters=0.031", "placedMeters=1534221.000"),
+                (("placedMeters=0.000", "placedMeters=1472037.000"),
                  "the icon shown where stock left it"),
-                (("staleMeters=1534221", "staleMeters=12"),
+                (("staleMeters=1472037", "staleMeters=12"),
                  "a hide that never moved the icon (the cell proves nothing)"),
                 (("drawIcons=OBJ", "drawIcons=NONE"), "an icon never shown"),
                 (("suppressed=False", "suppressed=True"),
