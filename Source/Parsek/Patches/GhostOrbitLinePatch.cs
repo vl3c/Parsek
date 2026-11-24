@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 
@@ -809,7 +810,69 @@ namespace Parsek.Patches
                     endUT));
         }
 
-        static void Postfix(OrbitRendererBase __instance)
+        /// <summary>
+        /// Asked before a branch shows the proto icon of a ghost the icon drive places: true when the
+        /// icon may be shown, i.e. the drive's last placement was a visible one.
+        ///
+        /// <para>The drive (the OrbitDriver patch above) runs once per FixedUpdate (stock
+        /// <c>VesselPrecalculate.MainPhysics</c>), this Postfix once per render frame. While the polyline
+        /// owns the leg the drive defers to stock, which propagates the raw recorded epoch at the live
+        /// clock: for a loop-shifted ghost that is nowhere near its orbit. A render frame with no
+        /// FixedUpdate (above the physics rate, or for as long as the game is paused) must therefore not
+        /// show the icon where stock left it.
+        /// Membership in <see cref="GhostMapPresence.ghostsWithSuppressedIcon"/> IS that fact: the drive
+        /// adds the pid whenever it clamps the icon or defers a Director-tracked ghost to stock, and for
+        /// a ghost with bounds only a visible drive placement removes it, so a pid still in the set here
+        /// has not been placed since it was hidden. Place it now, on this frame.</para>
+        ///
+        /// <para>False when the drive refused (a degenerate orbit, a missing driver): the pid
+        /// is still in the set, so the caller keeps the proto icon off and the non-proto marker decision
+        /// (<see cref="GhostMapPresence.ResolveMarkerDrawDecision"/>, which reads the same set) draws
+        /// instead. One set membership test when nothing is hidden.</para>
+        /// </summary>
+        internal static bool EnsurePlacedForReveal(
+            OrbitRendererBase renderer, uint pid, string branch, double currentUT)
+        {
+            return !GhostMapPresence.IsIconSuppressed(pid)
+                || DriveHiddenIconOnRenderFrame(renderer, pid, branch, currentUT);
+        }
+
+        // NoInlining: the Unity reads stay out of the headless-tested caller.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool DriveHiddenIconOnRenderFrame(
+            OrbitRendererBase renderer, uint pid, string branch, double currentUT)
+        {
+            OrbitDriver driver = renderer != null ? renderer.driver : null;
+            System.Action drive = null;
+            if (driver != null && driver.orbit != null)
+                drive = driver.updateFromParameters;
+            return DriveHiddenIconForReveal(pid, branch, drive, Time.frameCount, currentUT);
+        }
+
+        /// <summary>
+        /// The Unity-free core of <see cref="EnsurePlacedForReveal"/> for a pid that IS hidden: runs
+        /// <paramref name="drive"/> (the patched <c>updateFromParameters</c>; null when the driver cannot
+        /// run) and reports whether it placed the icon visibly, read off the set the drive itself writes.
+        /// </summary>
+        internal static bool DriveHiddenIconForReveal(
+            uint pid, string branch, System.Action drive, int frame, double currentUT)
+        {
+            drive?.Invoke();
+            bool placed = !GhostMapPresence.IsIconSuppressed(pid);
+            ParsekLog.VerboseRateLimited("GhostOrbitIcon",
+                (placed ? "reveal-drive-" : "reveal-refused-")
+                    + pid.ToString(CultureInfo.InvariantCulture),
+                string.Format(CultureInfo.InvariantCulture,
+                    "Icon reveal {0} pid={1} frame={2} branch={3} liveUT={4:F1} hasDriver={5}",
+                    placed
+                        ? "drove the icon (no physics step placed it since it was hidden)"
+                        : "refused (the drive did not place the icon visibly)",
+                    pid, frame, branch, currentUT, drive != null),
+                1.0);
+            return placed;
+        }
+
+        internal static void Postfix(OrbitRendererBase __instance)
         {
             if (__instance.vessel == null)
                 return;
@@ -983,9 +1046,15 @@ namespace Parsek.Patches
             if (appliedBoundsCoverHead
                 && Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount))
             {
+                // The icon shows only where the drive put it: a fresh seed says which conic the Director
+                // wants, not that this frame had a physics step to place the icon on it. The reveal drives
+                // it here when none did, and the drive itself takes the pid out of the suppressed set.
+                bool iconPlaced = EnsurePlacedForReveal(
+                    __instance, pid, "director-stockconic-visible", currentUT);
                 line.active = true;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                __instance.drawIcons = iconPlaced
+                    ? OrbitRendererBase.DrawIcons.OBJ
+                    : OrbitRendererBase.DrawIcons.NONE;
                 LogOrbitLineDecision(
                     pid,
                     "director-stockconic-visible",
@@ -1038,6 +1107,12 @@ namespace Parsek.Patches
                             pastEnd, belowAtmosphere: false, beforeStart, holdActive,
                             IsOrbitFiniteElliptical(__instance.vessel?.orbit)))
                     {
+                        // Place a hidden icon before showing it, as in the director branch. The result
+                        // is not read: the hold shows the icon whatever the drive decides (in the
+                        // Tracking Station the drive has no loop units and clamps it to the parking
+                        // conic's end), so only the stale stock placement is ruled out here.
+                        EnsurePlacedForReveal(
+                            __instance, pid, "parking-conic-loiter-hold", currentUT);
                         line.active = true;
                         __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                         GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
@@ -1119,9 +1194,20 @@ namespace Parsek.Patches
                 // via GhostOrbitArcPatch, so the visible line continuously redraws when
                 // the orbit driver retargets at each segment transition — but line.active
                 // stays True, so the user never sees the line blink off mid-body-frame.
+                //
+                // The icon shows only where the drive put it (see the director branch). Without applied
+                // bounds the drive defers to stock every step and never takes the pid out of the
+                // suppressed set, so that population keeps stock's placement.
+                bool iconPlaced = true;
+                if (haveAppliedBounds)
+                    iconPlaced = EnsurePlacedForReveal(
+                        __instance, pid, "visible-body-frame", currentUT);
+                else
+                    GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 line.active = true;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                __instance.drawIcons = iconPlaced
+                    ? OrbitRendererBase.DrawIcons.OBJ
+                    : OrbitRendererBase.DrawIcons.NONE;
                 LogOrbitLineDecision(
                     pid,
                     "visible-body-frame",
@@ -1208,7 +1294,9 @@ namespace Parsek.Patches
             // Terminal-orbit population (not spine-modeled): a proto parked on its recording's
             // terminal ellipse past the recorded window. The Director emits Hidden for it
             // (OutsideWindow), but the parked ellipse must keep rendering - the tracking-station
-            // fleet ghosts. Full stock icon set (ALL) as before.
+            // fleet ghosts. Full stock icon set (ALL) as before. No reveal drive: without bounds the
+            // drive defers to stock every step, hidden or shown, so stock's placement is the one the
+            // icon always has here.
             line.active = true;
             __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
             GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
