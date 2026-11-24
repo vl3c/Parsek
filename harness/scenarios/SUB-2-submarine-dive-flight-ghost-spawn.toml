@@ -145,9 +145,10 @@ required = [
   "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   # GhostPlaybackEngine.SpawnDestroy.cs + GhostPlaybackEngine.Diagnostics.cs
   # (EmitMeshLifecycleTrace, gated by ghostRenderTracing): the flight ghost of PSUB-1 is
-  # built after the observer is on the pad, then destroyed.
+  # built after the observer is on the pad, then destroyed by its own end (the quit's
+  # `engine teardown` does not count, todo GHOST-ENDING-TOKENS-MET-BY-THE-QUIT).
   "MISSIONMARK label=sub2-observer-on-pad ut=[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=PSUB-1 reason=ghost-created",
-  "phase=MeshDestroyed [^\\r\\n]*vessel=PSUB-1 reason=",
+  "phase=MeshDestroyed [^\\r\\n]*vessel=PSUB-1 reason=(?!engine teardown)",
   # VesselSpawner.EndOfRecording.cs (ResolveSplashedSpawnAltitude at the endpoint, then
   # the flight end spawn's line from the snapshot strings), tied by the index.
   "Splashed spawn #([0-9]+) \\(PSUB-1\\) keeps its recorded depth alt=-[0-9.]+ \\(seaFloor=(-[0-9.]+|unknown), site=endpoint\\)[\\s\\S]*?Vessel spawn for #\\1 \\(PSUB-1\\) pid=[0-9]+ sit=SPLASHED lat=\\S+ lon=\\S+ alt=-[0-9]",

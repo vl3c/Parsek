@@ -1484,7 +1484,8 @@ namespace Parsek
                     $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
                     $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped} " +
                     $"reconciledEmptySections={stats.ReconciledEmptySections} " +
-                    $"resorted={stats.Resorted} markDirty={(markDirty ? "on" : "off")} " +
+                    $"resorted={stats.Resorted} flatOrbitsChanged={stats.FlatOrbitCacheChanged} " +
+                    $"markDirty={(markDirty ? "on" : "off")} " +
                     $"reconcile={(reconcileEmptySections ? "on" : "off")}");
             }
 

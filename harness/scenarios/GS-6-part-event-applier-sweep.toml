@@ -381,6 +381,15 @@ count = { min = 8 }
 #   RCSActivated       - the sweep's rcs-on.
 #   DeployableExtended - the sweep's deployables-out (the mediumDishAntenna).
 #
+# GHOST ENDINGS (2026-11-24, todo GHOST-ENDING-TOKENS-MET-BY-THE-QUIT). Quitting destroys
+# every live ghost mesh (`reason=engine teardown`, GhostPlaybackEngine.SpawnDestroy.cs), so a
+# destroy token with an open reason is met by the quit alone. The Probe token wants, for the
+# recording its own spawn line names and before the quit line, either the ghost's own end
+# (`playback completed`) or the ghost on screen past its last track section
+# (`parent-anchored predicted tail ... active=T`: `2026-11-23_1129` and `_2004`;
+# `_0842`, green on the old token, hid that fall and misses this one).
+# The Debris token excludes the teardown.
+#
 # EVERYTHING ELSE IS OBSERVED, NOT REQUIRED, on this first flight: the matching
 # retract/stop/shutdown members, the `engine-audio` surface, and every `reason=` token.
 # A never-flown lane pins what it is sure of and reads the rest.
@@ -398,8 +407,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Sweep Debris",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep reason=(?:watch hold expired|playback completed|auto-followed)",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Debris",
+             "phase=MeshSpawned rec=([0-9a-f]+) [^\\r\\n]*vessel=Kerbal X Sweep Probe reason=ghost-created[\\s\\S]*?(?:phase=MeshDestroyed rec=\\1 [^\\r\\n]*reason=playback completed|\\[Anchor\\] parent-anchored predicted tail: recording=#[0-9]+ vessel=\"Kerbal X Sweep Probe\" recordingId=\\1[0-9a-f]* active=T )[\\s\\S]*flushandquit: Application\\.Quit",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Sweep Debris reason=(?!engine teardown)",
              "\\[GhostPartEvents\\] apply family=Decoupled surface=visibility rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-audio rec=[0-9]+ pid=[0-9]+ applied=[1-9]",

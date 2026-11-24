@@ -20,13 +20,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-3 on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
+
+**The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
+
+**What a player sees:** the seated kerbal disappears at the event and the EVA ghost is first drawn at 44.96 (red, about 0.10 s) / 45.12 (green, about 0.06 s): the event-to-end span, then the frame that destroys #3 and builds #4 (#4 starts at the first sample after the branch), then the two-frame activation settle. SEAT-4's cell counts only frames where a live ghost carries him, so it sees the first part alone.
+
+**Possible fix (not done, small visual gain):** skip the activation settle for an EVA ghost whose parent recording ended on this kerbal's dismount, as chain seams already do (`state.spawnedAtChainSeam`), and keep a `kerbalEVA*` part drawn on the parent ghost until its end when the Decoupled event is within the last frames of the recording. The recorded event UT must not move (recordings are immutable).
+
+## ~~GHOST-ENDING-TOKENS-MET-BY-THE-QUIT~~: five lanes required a ghost's destroy line that quitting the game writes by itself [FOUND 2026-11-24 on MC-4 `2026-11-24_0422` (release flights). FIXED 2026-11-24, branch mc4-chute-gate; specs only, offline over the archive, not re-flown; test gate, low]
+
+`GhostPlaybackEngine.DestroyAllGhosts` writes `phase=MeshDestroyed ... reason=engine teardown` for
+every ghost still alive, so a required token `MeshDestroyed ... vessel=<v> reason=` (or with no reason
+at all) is met by the quit. On MC-4 `_0422` that was the only Probe destroy line (after
+`flushandquit: Application.Quit`): since the predicted falls (owner rulings Q1a / Q2) the dropped core
+is still falling at the quit (its recording ends at UT 329.74, the quit is at 169.44). Unity's quit order
+is not fixed either (GS-8 `_1119` against `_0840`), so the old token could also red a good flight.
+
+What the line was for: the GS-4 clone's derender half, the dropped core's ghost has its own ending.
+Fix: the MC-4 and GS-6 Probe token names the recording off its spawn line and wants, before the quit
+line, either `MeshDestroyed rec=<it> ... reason=playback completed` (its own end) or
+`[Anchor] parent-anchored predicted tail: ... recordingId=<it>... active=T` (on screen past its last
+track section). The debris tokens of MC-4, GS-6, GS-7 and GS-12, GS-7's Probe and SUB-2's PSUB-1 read
+`reason=(?!engine teardown)`, the GS-8 form: their ghosts all end before the quit.
+
+Checked offline over every archived flight: all PASS flights meet the new tokens (MC-4 7, GS-6 11 of 12,
+GS-7 17, GS-12 8, SUB-2 2); GS-6 `2026-11-23_0842` misses, and should: it passed while the core's fall
+was hidden (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT). The same logs with every ending cut and the quit's
+destroys written instead meet every old token and miss every new one. Left as they are: GS-8 and GS-9's
+open `Kerbal X Debris` token (exact explosion counts and per-cycle destroy counts stand behind it) and
+GS-9's `Kerbal X Probe reason=engine teardown` (the second rewind's teardown, pinned by the census).
+Guard: `harness/lib/test_ghost_ending_tokens.py` reds on any other required destroy token a quit-only
+log meets (it reds on all eight old tokens).
+
+## ~~CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE~~: an unchanged orbital recording was rewritten on every cold load and commit, and a supply route flown from it paused for good [FOUND 2026-11-24 from the `normalization Ensure mutated` lines repeating in the release flights, by log and code. FIXED 2026-11-24, branch bridge-changed; xUnit; not flown; medium]
+
+`OrbitSegmentCheckpointBridgeStats.Changed` counted `SkippedCovered` ("this flat segment lies inside
+closed checkpoint sections and matches none exactly"), which only asks for the flat orbit rebuild. The
+recorded shape that never settles: a coast that crosses a section boundary on rails, so the later
+checkpoint section holds the whole coast and its checkpoint starts before the section does
+(`cs-career-mun2` recording 23e74057: section 60838.63-61194.70, checkpoint 60612.65-61194.70). The
+exact match compares the checkpoint with the SECTION's span, so it misses on every pass; the rebuild
+puts the same list back and the pass says it changed something. Read over the committed fixtures: 50 of
+610 `.prec` files never settled, all 50 with a byte-equal flat list after the pass.
+
+Cost, per affected recording: `FindSplitCandidatesForOptimizer` (`markDirty: true`) runs on every cold
+load, tree commit and Re-Fly merge, so `FlushDirtyFiles` rewrote its sidecars, refitted its smoothing
+and left the epoch advance pending, and the next OnSave rewrote it again at epoch N+1. A supply route
+compares that epoch (`RouteStore.FirstDifferingField`, `sidecar-epoch`), so a route on such a source
+read `SourceChanged` after the load and never recovered (reproduced in xUnit on the old count; the note in
+ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW's side question, "the specific case cannot fire in practice", was wrong).
+`SessionMerger.MergeTree` dirtied it the same way. The archived flight logs through 2026-11-24 hold 6295
+such optimizer passes; merge / split convergence never read the stats (`RunMergeSplitToFixedPoint`
+counts merges, splits and role re-reads).
+
+Fix: the rebuild returns whether the list differs, field by field (exact, NaN equal to NaN; an unchanged
+list keeps its instance), and `Changed` counts that (`FlatOrbitCacheChanged`) in place of
+`SkippedCovered`. A covered envelope the rebuild drops or replaces still counts, once. Other readers:
+`AnyMutation` (the dirty mark, the cached-stats reset, the two log lines), `SplitAtUT`'s restore line
+(text only); `SectionOrdinalsShifted` never read it. Nothing needed the over-report. No recorded data is
+changed by this: the wide checkpoint stays as recorded. Tests: `CheckpointBridgeChangedTests` (the wide
+checkpoint, a NaN conic, the two mirror cells, the optimizer pass, every committed fixture settles after
+one pass), `RouteSourceEpochMetadataRewriteTests.OptimizationPass_OverAWideCheckpointSource_LeavesItClean_RouteStaysActive`;
+six mutations, all red.
+
 ## CONVERTER-LOOP-DRIVE-LOG-SHARED-KEY-2026-11-24: one rate-limit key covers every ghost's "Converter loops driven" line, so it names only the first loop to drive [FILED 2026-11-24 from S1.9 `2026-11-24_0640`; OPEN; low, log only]
 
 `GhostPlaybackLogic.DriveConverterLoops` logs `Converter loops driven: N (vessel='X')` under the single key `converter-loop-drive` (5 s). Since 6d9bd2732 a deploy-driven loop (the Orbital Scanner's) runs whenever it is deployed and spends the key, so the line a lane reads for a drill or ISRU is suppressed (`S1.9` had 1.5 s between them). The drive itself is per loop and unaffected: the drills' events applied and their loops were on at the same frame as before.
 
 Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vesselName ?? "unknown")`, at `GhostPlaybackLogic.SynthesizedMotion.cs` (the `VerboseRateLimited` call in `DriveConverterLoops`). Then `S1.9` can name the three vessels again. MINE-6 reads the line for `Mining Rover RC` and is exposed if another loop drives in the 5 s before it.
 
-## MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; OPEN; product, low: one frame, looped ghosts, above 50 fps]
+## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused]
 
 **Seen:** right after a time jump (1,258,921 -> 1,268,401, into the Mun approach) the probe reported `TELEPORT dPos=448726384m ... frame=11069`, same orbit on both sides (Mun, sma -512034, ecc 1.6642), `dPosWorld` equal to `dPos`.
 
@@ -36,9 +100,17 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 
 **When:** any suppress-to-StockConic handoff of a ghost with a loop shift (burn seams of a looped mission too, not only a time jump) that lands on a frame without a physics step: 16 % of frames in all three runs (about 60 fps), more at a higher rate. A ghost with shift 0 is safe (stock's live propagation is right). TP-6 has one such handoff per flight, so it fails about one flight in six.
 
-**Proposed fix:** in the Postfix, keep the icon suppressed until the drive has placed it since the handoff (a per-pid drive-frame stamp at or after the un-suppressing seed frame; `RecordIconDrivePropagateUT` holds one but writes only under `mapRenderTracing`; the non-proto marker already covers the suppressed frame, so no gap), or run the drive from the Postfix on that frame. The line stamps are source-gated (`LineBlinkWindowExitExemptionTests`). Then narrow the probe's lift-frame skip to a suppressed-to-visible frame with no fresh drive. No detector change before the fix.
+**Fix** (`GhostOrbitLinePatch.EnsurePlacedForReveal`, called by the `director-stockconic-visible` and `visible-body-frame` branches of the line Postfix before they show the icon, and by `parking-conic-loiter-hold`): when the pid is still in `ghostsWithSuppressedIcon`, the Postfix runs the drive on that render frame. The set itself is the record the entry asked for: the drive adds the pid whenever it clamps the icon or leaves a tracked ghost to stock, and for a ghost with bounds only a visible placement takes it out, so no stamp and no new per-pid state is needed. If the drive refuses (degenerate orbit, no driver) the icon stays off and stays in the set, so the marker decision, which reads the same set, draws: never both, never neither by decision. Driving beats holding because the marker cannot always stand in: in FLIGHT it has no position where the recording has no points (a conic coast), and a paused game has no physics step to end the hold. Paused, the first render frame places the icon and it then stays. Logged `Icon reveal drove ...` / `Icon reveal refused ...` (`GhostOrbitIcon`, rate limited per pid).
 
-## FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; OPEN; product, medium: a committed flag is silently lost]
+**Other paths checked:** `terminal-visible` needs nothing (no bounds: the drive leaves the ghost to stock hidden or shown, shift 0); the Tracking Station runs the same Postfix and drive; the line the next frame draws is right too, because the drive bakes the epoch the arc clip reads.
+
+**Correction to "Seen":** stock draws the map node (`DrawNodes`, inside `OrbitRendererBase.LateUpdate`) before the Postfix sets `drawIcons`, so an icon revealed on frame N is drawn from N + 1. One frame with no physics step (11068) therefore left the probe's end-of-frame state wrong but reached the screen only when the next frame had none either (about 100 fps and up, or a pause).
+
+**Detector:** the probe no longer skips a lift frame the drive did not place: `CheckUndrivenLift` compares the icon with the Director's seed conic (epoch baked, live clock) and raises `icon-teleport` `LIFT-UNDRIVEN misplaced=` past the jump threshold (`MapRenderTrace.IsUndrivenLiftMisplaced`). A lift the drive placed on that frame, and a ghost with no seed, stay skipped.
+
+**Gates:** `IconRevealDriveTests` (xUnit) and the in-game `IconRevealDriveInGameTest` (category `MapRender`, lane S1.7), which runs hide, stock step, seed and Postfix inside one frame, so no frame rate decides the outcome; S1.7 requires its `IconRevealDrive:` line. TP-6's zero `icon-teleport` allowance stays the flown check of the real handoff. Owed: one flight of S1.7 (its tally is a prediction until then) and one of TP-6.
+
+## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 authored, never flown]
 
 **Seen:** WF-1 plants a flag in flight 1 (the EVA kerbal's recording, plant UT about 69-71, terminal Boarded), rewinds and warps the pad from UT 46 to 900 in flight 2. Every earlier WF-1 log that got that far (seven, 2026-10-26 to 2026-11-15) has no `Spawned flag vessel` line after the rewind: the kerbal's recording reads `PlaybackCompleted index=2 ... ghostWasActive=False` at the warp-down and again at every later scene load, and the flag is never planted. `2026-11-24_0504` is the first with a ghost for that recording, and the flag was planted at its timeline end (UT 652).
 
@@ -48,9 +120,14 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 
 **Why the runs differ (no commit found):** frame phase. At 63-100x the window is a few frames wide; the kerbal's ghost is built only if a frame lands in the recording's SurfaceStationary section (UT 64.3 / 65.4 to 69 / 71). 2026-11-24 had frames at 62.45, 65.07 and 67.77; 2026-11-15 went 63.56 -> about 69 in one frame. The walk code is unchanged since 5f5e7c0aa (2026-11-05), which the 11-06 and 11-15 runs carry.
 
-**No lane gates it:** WF-1 was reshaped on 2026-11-24 to pick each flag up again (both outcomes of this entry leave its pad clear), so the fix needs its own check: plant a flag, rewind, warp past it above 50x, require the flag.
+**No lane gated it:** WF-1 is reshaped on branch `lane-repins3-1124` (981df6769) to pick each flag up again, so both outcomes of this entry leave its pad clear. That branch lands BEFORE this fix: on the old WF-1 the replayed flag stands against flight 2's hatch and the lane reads driver-INVALID.
 
-**Proposed fix:** run the state-less walk (`SpawnFlagVesselsUpToUT` to `ResolveTimelineEndFlagWalkUT`) from the ghost-less completion in both hosts. To settle first: completions fire for every past recording at every scene load, so the walk needs the same replay-scope / timeline-active gate the end spawn has, or it plants flags in old saves removed before tombstones existed (2026-11-04).
+**Fix:** `Ghost/ReplayedFlagCatchUp.cs`, one per scene host (flight after the engine pass, the Space Center ahead of every draw decision), walks a recording's flags once per scene when the clock is past its end AND past its last flag plant or pick-up, ghost or no ghost, so a window passed under warp, in the Tracking Station, by a jump or by a load is made up for at the next frame in flight or at the Space Center (off-Kerbin, hidden and looping recordings included; the Space Center never drew the first). The completion-event hook the filing proposed is not used: it misses looping members and recordings with no drawable data, and a KSC walk has no event.
+**Gate:** the end spawn's own, without its vessel half: `IsHistoricalNeverReplayed` (a recording the playhead was never wound back before is not walked; the active Re-Fly session's tree is exempt), timeline-active, not session-suppressed, not the recording being flown. The tombstones (`RemovedReplayFlags`) block a flag the player removed. So a flag removed in a save from before the tombstones comes back only if its recording is in replay scope there.
+**Dedup:** this walk runs again at every scene load, so a flag of the same name within the tombstones' 3 m also counts as standing (`IsStandingFlagOfEvent`): a flag that toppled, or that stock lifted off a craft (`Moving upwards 0.500m`), is not planted a second time. The ghost walks keep the 1 m rule. Accepted: of two flags of one name planted within 3 m, a window with no ghost brings back the first only.
+**Also covered:** the in-range cursor walk advances past a plant that failed (`ApplyFlagEvents`); the catch-up retries it, at most 3 walks per scene, then one Warn and the next scene load. The Tracking Station itself plants nothing: the flag stands from the next flight or Space Center visit.
+**Log:** `[FlagReplay] Flag catch-up: rec=... host=flight|ksc currentUT= endUT= eligible= planted= alreadyPresent= removedByPlayer= failed=` (Info when it planted, else Verbose), once per recording with flags per scene.
+**Proof:** each of seven mutations (walk off, gate dropped, due UT dropped, once-per-scene dropped, 3 m match dropped, Space Center unwired, flight history gate dropped) reds the tests. FLG-2 (never flown) passes the window in the Tracking Station between two Cold save-file loads (`playerLoad=true`, gated), so the replay scope comes back from the save, and requires the plant on the next Space Center visit and none on the one after.
 
 ## FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision]
 
@@ -215,7 +292,7 @@ recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
 Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
-(one frame drawn on neither ghost at the handoff; the pin allows 0 or 1).
+(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 3 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
 
 SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
 New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
@@ -6644,8 +6721,9 @@ Side question (sidecar flush -> SourceChanged): the mechanism is real and by des
 reads as `SourceChanged/sidecar-epoch-drift` and never auto-recovers. The specific case named
 above cannot fire in practice: `FindSplitCandidatesForOptimizer`'s
 `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` dirties a recording only on
-an actual mutation, Ensure is idempotent (pinned by `EnsurePassIntegrityTests
-.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
+an actual mutation (true only since 2026-11-24, CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE: until
+then a checkpoint wider than its section dirtied on every pass), Ensure is idempotent (pinned by
+`EnsurePassIntegrityTests.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
 its own commit before a route can name it, and the route captures the pending advance of that
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.

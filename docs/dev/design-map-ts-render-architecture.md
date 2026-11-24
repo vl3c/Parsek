@@ -928,6 +928,30 @@ or `TracedPathTreatment`.
   when a leg drew, else the trajectory head. The `IsIconSuppressed` / `ghostsWithSuppressedIcon`
   disjunct is the KEPT PERMANENT no-conic / suppressed-icon fallback (see the polyline entry).
 
+### `Patches/GhostOrbitLinePatch.cs`: the icon is placed before it is shown (2026-11-24)
+
+- Two clocks: `GhostOrbitIconDrivePatch` runs once per FixedUpdate (stock
+  `VesselPrecalculate.MainPhysics` -> `OrbitDriver.UpdateOrbit`; the `Update` path skips packed
+  vessels), the line Postfix once per render frame. Render frames with no FixedUpdate are ordinary
+  (above the physics rate) and, in a paused game, every frame.
+- While the polyline owns the leg the drive defers to stock, which propagates the raw recorded epoch
+  at the live clock: the hidden icon of a loop-shifted ghost is far from its orbit. A fresh
+  StockConic seed (`IsDirectorDriveActive`) says which conic the Director wants, never that the
+  icon has been placed on it.
+- `EnsurePlacedForReveal` is the gate, before `drawIcons`, in `director-stockconic-visible` and
+  `visible-body-frame` (with applied bounds). Membership in `ghostsWithSuppressedIcon` is the record
+  of "not placed since it was hidden": the drive adds the pid when it clamps or defers a tracked
+  ghost, and only its own visible placement removes it. Those two branches therefore never remove
+  the pid themselves. Still a member -> the Postfix runs the drive on this frame.
+- A drive that refuses (degenerate orbit, no driver) leaves the pid in the set: `drawIcons=NONE` and
+  the marker decision draws. Holding instead of driving would be wrong as the rule: the FLIGHT marker
+  has no position on a conic stretch without points, and a pause would hold the icon until it ends.
+- `parking-conic-loiter-hold` drives but does not read the result (in the Tracking Station the drive
+  has no loop units and clamps). `terminal-visible` has no reveal: without bounds stock places the
+  ghost hidden or shown.
+- Stock draws the map node (`DrawNodes`) before the Postfix in the same `LateUpdate`, so `drawIcons`
+  set on frame N shows from N + 1.
+
 ### The playback tick box is a whole-presence gate (GUI-P1, 2026-09-14)
 
 A recording whose per-recording playback tick box (Recordings tab, column 0) is UNTICKED has
