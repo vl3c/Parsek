@@ -3102,8 +3102,10 @@ F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stoc
   the two separation-motor tanks fail nothing measured there. So `PlumeControlParts`
   is `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2`, in that order, each
   unmeetable one skipped; stock-minimal and modded-restock keep the LV-T45. All 11 controls (the
-  point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
-  smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+  point-light one `n/a` on both modded installs) read ok on all three full flights. The real side was
+  right: stock leaves that smoke behind, and the ghost's `smoke-extra` was a defect (todo
+  GHOST-SMOKE-RIDES-ACTIVE-VESSEL, fixed 2026-11-24). What is left is a puff or two of the newest
+  frame on either side, which is why the Flea's smoke stays a poor real-vs-real control.
 
 F7 lanes as authored (2026-11-23): the second labels `pp5fx` /
 `pp6fx` of PP-5 / PP-6 after their chute step (reset and runs carry `contexts=air fx=all`) and
@@ -3250,9 +3252,10 @@ ReStock's Hammer matches to 0.3 % (68641 against 68867 px), so a matching pair r
 `FlameValueMin`: the envelope at max channel 8 is 10 to 20 % larger than at 16 and the core moves
 less; 16 is the starting value.
 
-Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
-on every stock legacy world-space system; the plan does not depend on it, since it frames from
-near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
+Answered 2026-11-24: the real world-space particles in orbit drift kilometres away because stock
+moves them back by the Krakensbane frame velocity every physics step (45 m at orbital speed, with
+drift up to twice that), so the smoke stays where it was emitted; the ghost's was moved by nothing
+(todo GHOST-SMOKE-RIDES-ACTIVE-VESSEL). Answered by F3: the stock spot light's plate gap is a
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 

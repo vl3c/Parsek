@@ -70,6 +70,8 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost smoke stays behind in the air, not around the rocket.** A ghost beside your vessel, in
+  the air or in orbit, hid in a ball of its own smoke. (GHOST-SMOKE-RIDES-ACTIVE-VESSEL)
 - **A planted flag always comes back after a rewind.** It was lost when time warp or the Tracking
   Station passed its moment. (FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24)
 - **A looped ghost's map icon no longer flashes far from its orbit.** It is placed on the orbit
