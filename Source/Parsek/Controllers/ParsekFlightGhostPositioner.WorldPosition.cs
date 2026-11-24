@@ -394,50 +394,8 @@ namespace Parsek
             out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            if (frames == null || frames.Count == 0)
+            if (!TrySelectRelativeOffset(frames, targetUT, out double dx, out double dy, out double dz))
                 return false;
-            if (frames.Count == 1)
-            {
-                return TryResolveRelativeOffsetWorldPosition(
-                    frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    target, targetUT,
-                    recordingFormatVersion, out worldPos);
-            }
-
-            int cachedIndex = 0;
-            int indexBefore = TrajectoryMath.FindWaypointIndex(frames, ref cachedIndex, targetUT);
-            if (indexBefore < 0)
-                return TryResolveRelativeOffsetWorldPosition(
-                    frames[0].latitude, frames[0].longitude, frames[0].altitude,
-                    target, frames[0].ut,
-                    recordingFormatVersion, out worldPos);
-            if (indexBefore >= frames.Count - 1)
-            {
-                return TryResolveRelativeOffsetWorldPosition(
-                    frames[frames.Count - 1].latitude,
-                    frames[frames.Count - 1].longitude,
-                    frames[frames.Count - 1].altitude,
-                    target, frames[frames.Count - 1].ut,
-                    recordingFormatVersion, out worldPos);
-            }
-
-            TrajectoryPoint before = frames[indexBefore];
-            TrajectoryPoint after = frames[indexBefore + 1];
-            double segmentDuration = after.ut - before.ut;
-            if (segmentDuration <= 0.0001)
-            {
-                return TryResolveRelativeOffsetWorldPosition(
-                    before.latitude, before.longitude, before.altitude,
-                    target, before.ut,
-                    recordingFormatVersion, out worldPos);
-            }
-
-            float t = (float)((targetUT - before.ut) / segmentDuration);
-            t = Mathf.Clamp01(t);
-
-            double dx = before.latitude + (after.latitude - before.latitude) * t;
-            double dy = before.longitude + (after.longitude - before.longitude) * t;
-            double dz = before.altitude + (after.altitude - before.altitude) * t;
             return TryResolveRelativeOffsetWorldPosition(
                 dx,
                 dy,
@@ -446,6 +404,40 @@ namespace Parsek
                 targetUT,
                 recordingFormatVersion,
                 out worldPos);
+        }
+
+        /// <summary>
+        /// The anchor-local offset of RELATIVE <paramref name="frames"/> at
+        /// <paramref name="targetUT"/>: interpolated inside the samples, held at the first or
+        /// last one outside them. The caller applies it to the pose the anchor has at
+        /// <paramref name="targetUT"/>, never at the UT of the held sample.
+        /// </summary>
+        internal static bool TrySelectRelativeOffset(
+            List<TrajectoryPoint> frames,
+            double targetUT,
+            out double dx,
+            out double dy,
+            out double dz)
+        {
+            dx = dy = dz = 0.0;
+            if (frames == null || frames.Count == 0)
+                return false;
+
+            int cachedIndex = 0;
+            int indexBefore = frames.Count < 2
+                ? -1
+                : TrajectoryMath.FindWaypointIndex(frames, ref cachedIndex, targetUT);
+            TrajectoryPoint before = frames[indexBefore < 0 ? 0 : indexBefore];
+            TrajectoryPoint after = indexBefore < 0 ? before : frames[indexBefore + 1];
+            double segmentDuration = after.ut - before.ut;
+            float t = segmentDuration <= 0.0001
+                ? 0f
+                : Mathf.Clamp01((float)((targetUT - before.ut) / segmentDuration));
+
+            dx = before.latitude + (after.latitude - before.latitude) * t;
+            dy = before.longitude + (after.longitude - before.longitude) * t;
+            dz = before.altitude + (after.altitude - before.altitude) * t;
+            return true;
         }
 
         bool TryResolveRelativeOffsetWorldPosition(

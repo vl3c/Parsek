@@ -65,7 +65,7 @@ Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s b
 commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
 walks yet (a landed EVA host is needed); a walk lane is the follow-up.
 
-## SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); OPEN; visual, orbit EVA]
+## ~~SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER~~: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); FIXED 2026-11-24 (branch `eva-ghost-behind`); visual, orbit EVA]
 
 What happens. Recording Kerbal X in a 100 km orbit, Valentina steps out (423.83). Her child
 recording 9cee0a67 starts as a background recording (`DeferredEvaBranch: ship still active`,
@@ -86,15 +86,46 @@ active recorder's own Relative section draws her correctly. So the Relative path
 frame at that frame's UT (anchor pose included) instead of the playback UT, the case CLAUDE.md
 forbids for body-fixed samples ("never clamp a single or out-of-range sample into a stale ghost").
 
-Two halves, either of which removes the visible defect:
-- Recorder: a tree member that is active but not yet promoted is sampled by the background recorder
-  (or the closing section gets a sample at its end UT).
-- Playback: a Relative section whose playback UT is past its last frame resolves the anchor at the
-  playback UT with the last local offset (hold the pose beside the moving anchor), or hides.
+Fix: both halves. The recorder half alone leaves every recording already made wrong (recorded
+files are immutable); the playback half alone leaves the span without data, so a kerbal who drifts
+or a ship switched to for minutes is drawn at one frozen offset.
 
-Gate: EVA-17 stays red on the plume pin until this and the next entry are fixed. Its in-game cells
-do not see it: `RelativeSectionGhostsLandOnTheirRecordedShadow` skips (`ghosts=0`), the batch reads
-`total=3 passed=1 failed=0 skipped=2`.
+- Recorder. `PhysicsFramePatch` hands the ACTIVE vessel to
+  `BackgroundRecorder.OnBackgroundPhysicsFrame` while the post-switch watch is armed on it and no
+  active recorder is attached (`ShouldSampleActiveVesselInBackground`), before the watch runs. A
+  tracked member is a background recording until its promotion, so it keeps its sampling (dense
+  beside its Relative anchor, the ordinary 3 s backstop when alone: 0 m from itself is not proximity,
+  `ResolveHighFidelityDistance`) and its part-event polling; the frame whose change promotes it is still polled, which the promotion
+  (it seeds no events, the bug A / #263 rule) relies on. An outsider is in no BackgroundMap, so an
+  idle visited vessel stays unrecorded; a switch segment is bound to an active recorder at once, so
+  the no-op segment discard never sees the state; every other vessel takes the path it took.
+- Playback. A RELATIVE sample drawn at a playback UT other than its own (one sample, two at one UT,
+  before the first) holds its offset beside the pose the anchor has at the playback UT; an anchor
+  with no pose there hides the ghost. Readers: the flight positioner
+  (`TryPositionGhostRecordedRelativeAt`, also the LateUpdate re-apply UT), the flight world
+  position (`TrySelectRelativeOffset`), KSC (`TryResolveKscPointPose`, and `TryResolveKscSegmentPose`,
+  whose clamped sample UT was stale past ANY section's last frame), and the map state-vector seed
+  (`ResolveStateVectorWorldPosition`, which seeds the orbit at the playback UT). The loop path reads
+  the live anchor and the Tracking Station marker refuses an uncovered Relative section: both were
+  right. The parent-anchored and loop-anchored contracts are untouched.
+
+Tests: `RelativeSampleHoldTests`, `WatchedActiveVesselBackgroundSampleTests`. Gate: EVA-17 pins her
+background section's frame count, her ghost's distance at the end of it and no `Physics->Visual`
+transition; all three red on the `2026-11-23_2112` log.
+
+Live proof (Debug automation DLL sha256 dc06f145a0d78d99): `2026-11-23_2251_EVA-17-orbit-jetpack-hop-rewind`
+PASS attempt 1 (her section closed `frames=52 duration=11.14s avgGap=0.216s`; her ghost 17 m from the
+viewer at 423.99 and 19 m at 434.99, beside the ship's 19 m). `2026-11-23_2254_GPOS-2-eva-chute-relative-ghost-position`
+PASS attempt 1 (Relative placement unchanged against its body-fixed shadow). The defective recording itself,
+the save of `2026-11-23_2112` loaded on the fixed build by a scratch spec (not committed,
+`2026-11-23_2302_ZZ-eva17-held-old_run2`, log in `logs/flights/eva17-held-old-2026-11-24/`): the two-frame
+section replays held beside the ship for 10.08 s, first seen at 17 m, with no `Physics->Visual` transition
+(`RELATIVE sample held beside its anchor: ... heldSeconds=10.08`). With EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION
+and main merged in, `2026-11-24_0225_EVA-17-orbit-jetpack-hop-rewind` PASS attempt 1 (DLL sha256 93c231434b0cc850).
+
+Left as is: on an OLD held recording the map seeds its orbit at the right position with the held
+sample's velocity, so the orbit line can tilt by the arc flown since (about 2 degrees for 11 s in LKO);
+the Relative branch's seed velocity was already approximate.
 
 ## ~~EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION~~: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; FIXED 2026-11-24, branch `eva-jetpack-promotion`; visual]
 
@@ -158,7 +189,10 @@ ladders, fairings, animation groups and aero surfaces are post-switch triggers
 trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
 lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
 way. The fix shape is the same (compare the live state with the recording's last word); it needs its
-own pass because deployables are exactly the family bug A / #263 is about. A kerbal's helmet and
+own pass because deployables are exactly the family bug A / #263 is about. Since
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
+polled by the background recorder up to and including the trigger frame, so its changes are recorded;
+what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
 headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
 mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
 recorder clears `thrustingJetpackParts`. No flight has shown any of these.
