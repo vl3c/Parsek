@@ -3024,8 +3024,28 @@ class FxJudgeTests(unittest.TestCase):
                 else:
                     m["lengthPx"] *= 0.89
 
+    def test_the_cap_never_holds_a_missing_effect(self):
+        # size1p5.tank.05 draws smoke alone, and its real halves' width (79 / 88 px) unsettle all
+        # of it: the whole ghost smoke could go without a fail.
+        for layer, reason in (("flame", "fx-missing"), ("smoke", "smoke-missing")):
+            for side in ("real", "ghost"):
+                doc = _fx_case(event={layer: FX_DARK})[0]
+                self._loosen(doc, layer=layer, side=side)
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+                standing = {f.reason for e in c.fx.entries for f in e.findings if not f.capped}
+                self.assertEqual({reason}, standing)
+        # Shown by one half of the real side alone, it is that half's noise.
+        doc = _fx_case(event={"flame": FX_DARK})[0]
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["real"]["corePx"] = 0
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("capped:event:fx-far:flame:fx-missing", pp.fx_unmeasured(c))
+
     def test_an_unsettled_entry_caps_its_own_fails_at_warn(self):
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
         self._loosen(doc)
         c = pp.judge_case(doc)
@@ -3034,20 +3054,20 @@ class FxJudgeTests(unittest.TestCase):
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertTrue(c.fx.unsettled[0].startswith("event:fx-side-a:flame:real length even="))
         capped = [f for e in c.fx.entries if e.layer == "flame" and e.route == "event" for f in e.findings]
-        self.assertEqual({("presence", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
+        self.assertEqual({("direction", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
         self.assertEqual({True}, {r["capped"] for e in c.to_dict()["fx"]["entries"] for r in e["reasons"]})
-        # One unsettled entry says nothing about the others: the plume is missing in three views.
-        doc = _fx_case(event=_broken("off"))[0]
+        # One unsettled entry says nothing about the others: the plume is turned in two more views.
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc, views=("fx-side-a",))
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertEqual({"fx-side-a": pp.VERDICT_WARN, "fx-side-b": pp.VERDICT_FAIL,
-                          "fx-bottom": pp.VERDICT_FAIL, "fx-far": pp.VERDICT_FAIL},
+                          "fx-bottom": pp.VERDICT_PASS, "fx-far": pp.VERDICT_FAIL},
                          {e.view: e.verdict for e in c.fx.entries if (e.route, e.layer) == ("event", "flame")})
         # The other route's fails are not this one's.
-        doc = _fx_case(event=_broken("off"), start=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"), start=_broken("turned"))[0]
         self._loosen(doc)
         self.assertEqual((("event", pp.VERDICT_WARN), ("start", pp.VERDICT_FAIL)), pp.judge_case(doc).fx.routes)
 
@@ -3057,7 +3077,7 @@ class FxJudgeTests(unittest.TestCase):
         self._loosen(doc)
         c = pp.judge_case(doc)  # a rendered asset the ghost lacks
         self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_FAIL), (c.verdict, c.fx.verdict))
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc)
         doc["views"][0]["colorBlobPx"] = 10 ** 6  # the body route (PP-9's nozzle glow)
         c = pp.judge_case(doc)
@@ -3076,6 +3096,9 @@ class FxJudgeTests(unittest.TestCase):
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, c.verdict)
         self.assertEqual({"smoke-extra"}, {f.reason for e in c.fx.entries for f in e.findings if f.capped})
+        # Held, but said: the gate asks whether the baseline runs show it too.
+        self.assertEqual({"capped:%s:%s:smoke:smoke-extra" % (r, v) for r in ("event", "start") for v in pp.FX_VIEWS},
+                         set(pp.fx_unmeasured(c)))
         # A flame's views are judged apart (above), and smoke never caps a flame.
         doc = _fx_case(event=_broken("off"))[0]
         self._loosen(doc, layer="smoke")
@@ -3137,7 +3160,27 @@ class FxJudgeTests(unittest.TestCase):
             self.assertEqual(pp.VERDICT_WARN, c.verdict)
             e = next(e for e in doc_of(side, 20.0)["fx"]["views"]
                      if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
-            self.assertEqual({"cross-section"}, set(pp.fx_self_failing(e, False)))
+            self.assertEqual({"crossSectionOffset"}, set(pp.fx_self_failing(e, False)))
+            # A centre that jitters against itself says nothing about the area, nor a hue that
+            # does about the chromaticity.
+            doc = _fx_case(event=_broken("thin-section"))[0]
+            for e in doc["fx"]["views"]:
+                if e["view"] == "fx-bottom" and e["layer"] == "flame":
+                    e["splitHalf"]["odd"][side]["coreCentroid"][0] += 20.0
+            self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        doc = _fx_case(event=_broken("hue"))[0]
+        for e in doc["fx"]["views"]:
+            for h in pp.FX_SPLIT_HALF_KEYS:
+                if e["layer"] == "flame":
+                    e["splitHalf"][h]["real"]["hueHistogram"] = [1.0 if i == (h == "odd") else 0.0 for i in range(12)]
+        c = pp.judge_case(doc)
+        standing = {f.key for e in c.fx.entries for f in e.findings if f.level == pp.VERDICT_FAIL}
+        self.assertEqual({"chromaDistance"}, standing)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"):
+                self.assertEqual({"hueL1"}, set(pp.fx_self_failing(e, False)))
+        e = next(e for e in doc_of("ghost", 20.0)["fx"]["views"]
+                 if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
         # A malformed half proves no noise (fx_block_problems is the finding).
         e["splitHalf"]["odd"]["ghost"]["hueHistogram"] = "x"
         self.assertEqual(frozenset(), pp.fx_self_failing(e, False))

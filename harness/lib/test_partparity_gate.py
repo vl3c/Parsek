@@ -618,27 +618,104 @@ class FxGateTests(unittest.TestCase):
         # E.4: the unsettled entry's own fail is a warn; the same plume missing in the settled
         # views still reds, and nothing names the capped view.
         loosen = tp.FxJudgeTests._loosen
-        doc = self._case(event=tp._broken("off"))
+        doc = self._case(event=tp._broken("short"))
         loosen(doc, views=("fx-side-a",))
         cv = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
         # The reason TEXT still holds the capped finding: only the judgement says it is capped.
-        self.assertIn("event:fx-side-a:flame:fx-missing", cv.reasons)
-        self.assertEqual({"event:%s" % v for v in pp.FX_VIEWS if v != "fx-side-a"},
-                         {f.view for f in pp.fail_reasons(cv)})
+        self.assertIn("event:fx-side-a:flame:length=0.576", cv.reasons)
+        self.assertEqual({"event:fx-side-b", "event:fx-far"}, {f.view for f in pp.fail_reasons(cv)})
         g = self._gate_of(doc, self._case())
-        self.assertEqual(len(pp.FX_VIEWS) - 1, len(g.reds), [f.text() for f in g.reds])
-        # Every entry of the missing plume unsettled: a warn, so no reason and no red.
-        doc = self._case(event=tp._broken("off"))
+        self.assertEqual(2, len(g.reds), [f.text() for f in g.reds])
+        # Every entry of it unsettled: a warn (1.70 fail lines, under FX_FAR), so no red.
+        doc = self._case(event=tp._broken("short"))
         loosen(doc)
         cv = pp.judge_case(doc)
         self.assertEqual((pp.VERDICT_WARN, []), (cv.verdict, pp.fail_reasons(cv)))
         g = self._gate_of(doc, self._case())
         self.assertEqual(([], []), (g.reds, g.unmeasured))
+        # A missing plume is missing, settled or not.
+        doc = self._case(event=tp._broken("off"))
+        loosen(doc)
+        g = self._gate_of(doc, self._case())
+        # Three views: _loosen left the bottom's real core to one half alone (held, and said).
+        self.assertEqual(({pp.GATE_UNACCEPTED_FAIL}, 3), (set(_kinds(g.reds)), len(g.reds)))
+        self.assertIn("capped:event:fx-bottom:flame:fx-missing", g.unmeasured[0].detail)
+
+    def test_a_capped_fail_far_past_its_band_is_unmeasured(self):
+        # A plume that shrank unsettles itself (the same stray pixels are more than 10 % of it).
+        def short(ratio, **kw):
+            doc = self._measured("lengthRatio", ratio, **kw)
+            tp.FxJudgeTests._loosen(doc, views=("fx-side-a",))
+            return doc
+        doc = short(0.5)  # 2 fail lines off
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertIn("event:fx-side-a:flame:length=0.500 is 2.00 fail lines off", g.unmeasured[0].detail)
+        # Under FX_FAR of its limit it is the noise the cap is for; its band moves the limit.
+        self.assertEqual([], self._gate_of(short(0.6), self._case()).unmeasured)  # 1.6
+        self.assertEqual([], self._gate_of(doc, short(0.55)).unmeasured)  # limit 2.7
+        self.assertTrue(self._gate_of(doc, short(1.6)).unmeasured)  # the other side
+        # A noisy entry stretches it once more, and no further; another measure's does nothing.
+        noisy = [_entry(self.ID, "*", "fx:length", noisy=True)]
+        self.assertEqual([], self._gate_of(doc, self._case(), noisy).unmeasured)
+        self.assertTrue(self._gate_of(short(0.2), self._case(), noisy).unmeasured)  # 3.2 > 3.06
+        for entry in (_entry(self.ID, "*", "fx:length"), _entry(self.ID, "*", "fx:width", noisy=True)):
+            self.assertTrue(self._gate_of(doc, self._case(), [entry]).unmeasured)
+        # A new case and a reference one owe nothing.
+        section = _section([{self.ID: doc}])
+        section["cases"] = {}
+        self.assertEqual([], _gate({self.ID: doc}, section).unmeasured)
+
+    def test_a_noisy_entry_does_not_lift_the_line(self):
+        noisy = [_entry(self.ID, "*", "fx:colour", noisy=True)]
+        for value, reds in ((0.8, 0), (0.86, 0), (0.9, 1), (2.0, 1)):  # 1.6, 1.72, 1.8, 4 lines
+            g = self._gate_of(self._measured("hueL1", value), self._case(), noisy)
+            self.assertEqual([pp.GATE_DRIFT] * reds, _kinds(g.reds), value)
+
+    def test_a_value_that_is_null_is_not_judged(self):
+        # A ghost whose core clips everywhere has no colour to compare.
+        for key, view in (("chromaDistance", "fx-side-a"), ("hueL1", "fx-bottom"),
+                          ("lengthRatio", "fx-far"), ("crossSectionAreaRatio", "fx-bottom")):
+            with self.subTest(key):
+                doc = self._measured(key, None, view)
+                self.assertEqual(("null:event:%s:flame:%s" % (view, key),), pp.fx_unmeasured(pp.judge_case(doc)))
+                g = self._gate_of(doc, self._case())
+                self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+                self.assertTrue(self._gate_of(doc, doc).ok)
+        # Owed: what E.4 judges in that view, never what an rcs case only reports.
+        side, axis = (tp._fx_entry("event", v, "flame", tp._fx_side(tp.REAL_FX, "flame", v),
+                                   tp._fx_side(tp.REAL_FX, "flame", v)) for v in ("fx-side-a", "fx-bottom"))
+        for e, keys in ((side, pp.FX_SIDE_VIEW_KEYS), (axis, pp.FX_AXIS_VIEW_KEYS)):
+            self.assertEqual((), pp.fx_entry_nulls(e, False))
+            e["compare"] = {k: None for k in pp.FX_COMPARE_KEYS}
+            self.assertEqual(keys, pp.fx_entry_nulls(e, False))
+            self.assertEqual(tuple(k for k in keys if k not in ("lengthRatio", "widthRatio")),
+                             pp.fx_entry_nulls(e, True))
+        # Faint new smoke (one core 64 to 255 px, the other 0) is neither extra nor comparable.
+        dark = dict(tp.REAL_FX, smoke=tp.FX_DARK)
+        puff = (tp._plume(length=20, width=12, rgb=tp.GREY), tp._disc(7, rgb=tp.GREY))
+        doc = self._case(real=dark, event={"smoke": puff})
+        self.assertNotIn("smoke-extra", " ".join(pp.judge_case(doc).reasons))
+        g = self._gate_of(doc, self._case(real=dark))
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        self.assertIn("null:event:fx-side-a:smoke:lengthRatio", g.unmeasured[0].detail)
+
+    def test_an_extra_effect_held_at_warn_is_not_silent(self):
+        dark = dict(tp.REAL_FX, smoke=tp.FX_DARK)
+        doc = self._case(real=dark, event={"smoke": tp.REAL_FX["smoke"]})
+        self.assertTrue(self._gate_of(doc, self._case(real=dark)).reds)
+        tp.FxJudgeTests._loosen(doc, layer="smoke", side="ghost")
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        g = self._gate_of(doc, self._case(real=dark))
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertIn("capped:event:fx-far:smoke:smoke-extra", g.unmeasured[0].detail)
+        self.assertTrue(self._gate_of(doc, doc).ok)
 
     def test_a_body_fail_beside_capped_fx_fails_is_gated_by_its_body_reasons(self):
         # No unsettled sample is in a body route, so the cap never holds it.
-        doc = self._case(event=tp._broken("off"))
+        doc = self._case(event=tp._broken("turned"))
         tp.FxJudgeTests._loosen(doc)
         doc["views"][0]["colorBlobPx"] = 10 ** 6
         cv = pp.judge_case(doc)
@@ -726,13 +803,18 @@ class FxGateTests(unittest.TestCase):
         g = self._gate_of(self._case(event={"smoke": tp.FX_DARK}), self._case())
         self.assertEqual({pp.GATE_UNACCEPTED_FAIL}, set(_kinds(g.reds)))
 
-    def test_an_empty_and_a_skipped_layer_are_one_state(self):
-        # A stray particle decides which of two weak cores reads skipped and which empty.
+    def test_a_skipped_layer_may_go_empty_and_never_the_reverse(self):
+        # The strays the runs skipped may not be there; faint new smoke is not a stray.
         empty = self._case(real=dict(tp.REAL_FX, smoke=tp.FX_DARK))
-        for now, base in ((empty, self._weak_smoke()), (self._weak_smoke(), empty)):
-            g = self._gate_of(now, base)
-            self.assertEqual(([], []), (g.reds, g.unmeasured))
+        g = self._gate_of(empty, self._weak_smoke())
+        self.assertEqual(([], []), (g.reds, g.unmeasured))
+        smear = tp._fx_tile({(x, 0): (1, tp.GREY) for x in range(tp.FTILE)})
+        for now in (self._weak_smoke(), self._case(real=dict(tp.REAL_FX, smoke=tp.FX_DARK),
+                                                   event={"smoke": (smear, smear)})):
+            g = self._gate_of(now, empty)
+            self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
         self.assertEqual({"skipped:a", "empty:a", "fx-x"}, pp.fx_known_tokens(["skipped:a", "fx-x"]))
+        self.assertEqual({"empty:a"}, pp.fx_known_tokens(["empty:a"]))
 
     def _measured(self, key, value, view="fx-side-a", route="event", half=None, **kw):
         """A clean case with one compare value set, in both sample halves too (``half`` there)."""
@@ -778,13 +860,15 @@ class FxGateTests(unittest.TestCase):
                 self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(moved, capped).reds))
                 if other is not None:
                     self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(case(other), capped).reds))
-                # Far past it: red, accepted or not, unless the entry is noisy.
-                gone = case(same + 4 * (far - same))
-                group = "fx:" + pp.fail_reasons(pp.judge_case(gone))[0].fx[1].measure
-                self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(gone, capped).reds))
-                self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(
-                    gone, capped, [_entry(self.ID, "*", group)]).reds))
-                self.assertEqual([], self._gate_of(gone, capped, [_entry(self.ID, "*", group, noisy=True)]).reds)
+                # Past it: red, accepted or not, unless the entry is noisy; far past it, always.
+                for scale, noisy_reds in ((2, 0), (4, 1)):
+                    gone = case(same + scale * (far - same))
+                    group = "fx:" + pp.fail_reasons(pp.judge_case(gone))[0].fx[1].measure
+                    self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(gone, capped).reds))
+                    self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(
+                        gone, capped, [_entry(self.ID, "*", group)]).reds))
+                    self.assertEqual([pp.GATE_DRIFT] * noisy_reds, _kinds(self._gate_of(
+                        gone, capped, [_entry(self.ID, "*", group, noisy=True)]).reds), scale)
                 # A new case has no band: an uncovered fail reds as one.
                 section = _section([{self.ID: capped}])
                 section["cases"] = {}

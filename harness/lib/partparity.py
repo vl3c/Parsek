@@ -432,10 +432,17 @@ FX_MEASURES: Tuple[str, ...] = (
     "brightness", "smoke", "core-iou",
 )
 FX_RCS_REPORT_ONLY_MEASURES: Tuple[str, ...] = ("length", "width", "brightness")
+# The compare keys E.4 judges at a fail line, per kind of view.
+FX_SIDE_VIEW_KEYS: Tuple[str, ...] = (
+    "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
+    "chromaDistance", "hueL1")
+FX_AXIS_VIEW_KEYS: Tuple[str, ...] = (
+    "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1")
 FX_REASON_FX_MISSING = "fx-missing"
 FX_REASON_FX_EXTRA = "fx-extra"
 FX_REASON_SMOKE_MISSING = "smoke-missing"
 FX_REASON_SMOKE_EXTRA = "smoke-extra"
+FX_MISSING_REASONS: Tuple[str, ...] = (FX_REASON_FX_MISSING, FX_REASON_SMOKE_MISSING)
 TAG_FX_NOT_PLATEAUED_PREFIX = "fx-not-plateaued:"
 CAP_FX_UNSETTLED = "fx-unsettled"
 FLAG_FX_FRAMING_CLAMPED = "fx-framing-clamped"
@@ -1502,7 +1509,7 @@ def fx_unsettled_entries(entries: Sequence[Dict]) -> Dict[FxEntryKey, str]:
 
 
 def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
-    """Whether every fail of this entry is held at ``warn``: its own halves disagree, or it
+    """Whether the fails of this entry are held at ``warn`` (a missing effect's aside): its own halves disagree, or it
     is a smoke entry and another view of its route's smoke disagrees. Smoke is one
     world-space trail seen from four views (in orbit a few stray puffs, E.12 U8): a trail
     that did not settle in one view settled in none. A flame's views are judged apart."""
@@ -1513,9 +1520,11 @@ def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
 
 
 def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
-    """The measures one side of an entry fails against ITSELF, its even samples against its
-    odd ones: noise at that size is in the picture, so a fail of that measure says nothing
-    about the ghost. Direction needs the pixels and is not read here."""
+    """The compare keys (``FxFinding.key``; a presence measure by its name) one side of an entry
+    fails against ITSELF, its even samples against its odd ones: noise at that size is in the
+    picture, so a fail of that value says nothing about the ghost. By key and not by measure: a
+    puff whose centre jitters says nothing about its area. Direction needs the pixels and is
+    not read here."""
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves = [split.get(h) if isinstance(split.get(h), dict) else {} for h in FX_SPLIT_HALF_KEYS]
     view, axis = entry.get("view"), entry.get("axis")
@@ -1532,17 +1541,22 @@ def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
                                  FxTile(odd, frozenset(), None, []))
         except ArithmeticError:
             continue  # an integer no double's square can hold: malformed too
-        out.update(fx_failing_measures(dict(entry, real=even, ghost=odd, compare=compare),
-                                       rcs_case))
+        out.update(f.key or f.measure for f in fx_entry_findings(
+            dict(entry, real=even, ghost=odd, compare=compare), rcs_case)
+            if f.level == VERDICT_FAIL)
     return frozenset(out)
 
 
 def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
                     capped: bool) -> Tuple[FxFinding, ...]:
-    """The findings of one entry: a fail stands only in an entry that is not ``capped``, when
-    each sample half fails on the same side of the same line, and when neither side fails that
-    measure against itself (``fx_self_failing``); every other fail counts as ``warn``. The rule
-    holds in every case, settled or not: a fail its own samples do not repeat is their noise."""
+    """The findings of one entry: a fail stands only when each sample half fails on the same
+    side of the same line, when neither side fails that value against itself
+    (``fx_self_failing``), and in an entry that is not ``capped``; every other fail counts as
+    ``warn``. The rule holds in every case, settled or not: a fail its own samples do not repeat
+    is their noise. ``capped`` does not hold a MISSING effect: an unsettled length or width says
+    nothing about a layer the real part shows in both halves and the ghost in neither. An extra
+    one stays held (the orbit smoke noise, E.4), and the gate asks the baseline
+    (``fx_unmeasured``)."""
     if not any(f.level == VERDICT_FAIL for f in findings):
         return tuple(findings)
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
@@ -1556,7 +1570,9 @@ def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
     noisy = fx_self_failing(entry, rcs_case)
 
     def stands(f: FxFinding) -> bool:
-        return not capped and all(f.side in h for h in halves) and f.measure not in noisy
+        held = capped and f.reason not in FX_MISSING_REASONS
+        return not held and all(f.side in h for h in halves) \
+            and (f.key or f.measure) not in noisy
 
     return tuple(replace(f, level=VERDICT_WARN, capped=True)
                  if f.level == VERDICT_FAIL and not stands(f) else f for f in findings)
@@ -1578,19 +1594,34 @@ def fx_entry_empty(entry: Dict) -> bool:
     return not any(_fx_count(s, k) for s in sides for k in ("corePx", "envelopePx"))
 
 
+def fx_entry_nulls(entry: Dict, rcs_case: bool) -> Tuple[str, ...]:
+    """The compare keys E.4 judges in this view that are null: checks that did not run (a core
+    with no unsaturated pixel has no colour, one side with no core has no shape). None for an
+    entry that presence decides, that is ``skipped`` or ``empty``: their own words say it."""
+    sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    cores = tuple(_fx_count(s, "corePx") for s in sides)
+    if fx_both_cores_weak(*cores) or fx_presence_reason(entry.get("layer"), *cores) is not None:
+        return ()
+    compare = entry.get("compare") if isinstance(entry.get("compare"), dict) else {}
+    keys = FX_AXIS_VIEW_KEYS if entry.get("view") == FX_VIEW_AXIS else FX_SIDE_VIEW_KEYS
+    skip = {m + "Ratio" for m in FX_RCS_REPORT_ONLY_MEASURES} if rcs_case else set()
+    return tuple(k for k in keys if k not in skip and _num(compare.get(k)) is None)
+
+
 @dataclass(frozen=True)
 class FxEntryVerdict:
     """One judged entry. ``reference``: shown with its would-be verdict, moves nothing (a
     heat or light case's FX entry). Its verdict is the one it counts with: a capped fail is a
     ``warn``; an entry whose measures were skipped (``fx_entry_skipped``) is ``skipped`` and one
     with nothing drawn on either side (``fx_entry_empty``) is ``empty``, which move nothing (a
-    skipped one's case is raised by its ``fx-weak-core`` flag)."""
+    skipped one's case is raised by its ``fx-weak-core`` flag). ``nulls``: ``fx_entry_nulls``."""
     route: str
     view: str
     layer: str
     verdict: str
     findings: Tuple[FxFinding, ...]
     reference: bool
+    nulls: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         return {"route": self.route, "view": self.view, "layer": self.layer,
@@ -1616,7 +1647,8 @@ def judge_fx_entry(entry: Dict, rcs_case: bool, reference: bool = False,
         if _RANK[f.level] > _RANK[verdict]:
             verdict = f.level
     return FxEntryVerdict(str(entry.get("route")), str(entry.get("view")),
-                          str(entry.get("layer")), verdict, findings, reference)
+                          str(entry.get("layer")), verdict, findings, reference,
+                          fx_entry_nulls(entry, rcs_case))
 
 
 @dataclass(frozen=True)
@@ -3386,10 +3418,13 @@ def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
 # every measure some run read at FX_BAND_MIN of its fail line or more, capped or not). A fail
 # that stands on a baselined case is judged by its band as a body measure is
 # (``fx_drift_limit``): inside, it is a note; past it, the case reds. Presence, smoke and a
-# missing or extra FX asset have no band: each reds unless an entry names it.
+# missing or extra FX asset have no band: each reds unless an entry names it. A waiver (a noisy
+# entry, the split-half cap) holds up to FX_FAR times the limit.
 # A baselined case the sweep could NOT measure any more (another setup fault, a view or a
 # route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or
-# ``empty`` on both sides, an FX check that did not run, ``fx_unmeasured``) is ``unmeasured``:
+# ``empty`` on both sides, an FX check that did not run, an FX value that is null, a missing or
+# extra effect held at ``warn``, ``fx_unmeasured``, a capped FX fail far past its band) is
+# ``unmeasured``:
 # the armed row is INVALID(parity-incomplete), because silence is neither a pass nor a ghost
 # defect. A fault or an FX check the baseline itself recorded for that case is a note (an
 # empty layer, what most cases' smoke is, not even that). Moves to the BETTER side, new
@@ -3457,10 +3492,13 @@ DRIFT_IOU_ABS = 0.01
 DRIFT_FX_ABS = 0.5
 DRIFT_FX_REL = 0.5
 FX_BAND_MIN = 0.5
-FX_BAND_KEYS: Tuple[str, ...] = (
-    "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
-    "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1")
+FX_BAND_KEYS: Tuple[str, ...] = tuple(dict.fromkeys(FX_SIDE_VIEW_KEYS + FX_AXIS_VIEW_KEYS))
 FX_BAND_DIGITS = 4
+# A waiver stretches that limit, it does not lift it: a noisy entry's fail still reds past
+# FX_FAR of the limit, and a fail the split-half rule caps is ``unmeasured`` past it (a plume
+# half as long is 2 fail lines off and unsettles itself; the worst capped reading of the clean
+# runs is 1.66, the Spark's).
+FX_FAR = 1.75
 # A noisy entry waives the drift rule, not a picture that is gone: an IoU under this
 # fraction of its band's low end reds on a noisy case too (a blank ghost reads IoU 0).
 NOISY_IOU_FLOOR = 0.5
@@ -3928,28 +3966,32 @@ def fx_unmeasured(verdict: CaseVerdict) -> Tuple[str, ...]:
     """What the FX half of a judged case did not judge, sorted (empty for any other case, an
     ``error`` and a ``reference`` one): ``skipped:<route>:<view>:<layer>`` per judged entry
     whose two weak cores left only presence (``fx_entry_skipped``), ``empty:...`` per judged
-    entry with nothing drawn on either side (``fx_entry_empty``), and each flag of a check that
-    did not run. Both need the real side weak or dark too, so one the baseline runs also show
-    is the part's own effect, never a plume the ghost lost."""
+    entry with nothing drawn on either side (``fx_entry_empty``), ``null:...:<key>`` per value of
+    a judged entry that was not measured (``fx_entry_nulls``), ``capped:...:<reason>`` per
+    missing or extra effect the split-half rule holds at ``warn``, and each flag of a check that
+    did not run. One the baseline runs also show is the part's own effect."""
     fx = verdict.fx
     if fx is None or verdict.verdict in (VERDICT_ERROR, VERDICT_REFERENCE):
         return ()
     out = {"%s:%s:%s:%s" % (e.verdict, e.route, e.view, e.layer) for e in fx.entries
            if e.verdict in (VERDICT_SKIPPED, VERDICT_EMPTY) and not e.reference}
+    out.update("null:%s:%s:%s:%s" % (e.route, e.view, e.layer, k) for e in fx.entries
+               if not e.reference for k in e.nulls)
+    out.update("capped:%s:%s:%s:%s" % (e.route, e.view, e.layer, f.reason) for e in fx.entries
+               if not e.reference for f in e.findings if f.capped and not f.key)
     out.update(f for f in fx.flags if f in _FX_NOT_RUN_FLAGS)
     return tuple(sorted(out))
 
 
 def fx_known_tokens(tokens: Sequence[str]) -> FrozenSet[str]:
-    """The baseline's ``fxUnmeasured`` tokens, where an entry the runs read ``skipped`` may read
-    ``empty`` and the reverse: both say the two cores are weak, and a stray particle decides
-    which."""
+    """The baseline's ``fxUnmeasured`` tokens, where an entry the runs read ``skipped`` (stray
+    particles, two weak cores) may read ``empty``: the strays are not there. Never the reverse:
+    in a layer no run drew, a ghost's faint new smoke is not a stray."""
     out = set(tokens)
-    pair = (VERDICT_SKIPPED, VERDICT_EMPTY)
     for t in tokens:
         word, _, rest = t.partition(":")
-        if word in pair:
-            out.update("%s:%s" % (w, rest) for w in pair)
+        if word == VERDICT_SKIPPED:
+            out.add("%s:%s" % (VERDICT_EMPTY, rest))
     return frozenset(out)
 
 
@@ -4100,20 +4142,40 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
     return None
 
 
-def fx_drift_text(fr: FailReason, base: Dict, sidecar: Optional[Dict]) -> Optional[str]:
-    """How an FX fail reason left its band (None: not a numeric FX reason, or inside)."""
-    if fr.fx is None:
+def fx_drift_text(at: str, f: FxFinding, reason: str, base: Dict, sidecar: Optional[Dict],
+                  waivers: int = 0) -> Optional[str]:
+    """How one numeric FX finding of the entry ``at`` left its band (None: inside, or not a
+    value). ``waivers``: how often FX_FAR stretches the limit."""
+    if not f.key:
         return None
-    at, f = fr.fx
     bands = base.get("fx") if isinstance(base.get("fx"), dict) else {}
     band = (bands.get(at) or {}).get(f.key)
     entry = next((e for e in fx_entries(sidecar) if fx_entry_label(fx_entry_key(e)) == at), {})
     real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
-    limit = fx_drift_limit(band, f.key, f.side, _num(real.get("lengthPx")) or 0.0)
+    limit = fx_drift_limit(band, f.key, f.side, _num(real.get("lengthPx")) or 0.0) \
+        * FX_FAR ** waivers
     if f.severity <= limit:
         return None
     return "%s is %.2f fail lines off, band %s (limit %.2f)" % (
-        fr.reason, f.severity, "[%g, %g]" % tuple(band) if band else "under half its line", limit)
+        reason, f.severity, "[%g, %g]" % tuple(band) if band else "under half its line", limit)
+
+
+def fx_capped_far(verdict: CaseVerdict, base: Dict, entries: Sequence[AcceptedEntry],
+                  profile: Optional[str], sidecar: Optional[Dict]) -> List[str]:
+    """The FX fails of a baselined case that the split-half rule caps and that lie far past
+    their band: the picture did not converge, and what it reads is no noise the runs saw."""
+    out = []
+    for j in verdict.fx.entries if verdict.fx is not None else ():
+        for f in j.findings:
+            if not f.capped or j.reference:
+                continue
+            noisy = any(e.noisy and e.covers(verdict.case_id, profile, view_key(j.view, j.route),
+                                             GROUP_FX_PREFIX + f.measure) for e in entries)
+            text = fx_drift_text(fx_entry_label((j.route, j.view, j.layer)), f, fx_reason(
+                j.route, j.view, j.layer, f.reason), base, sidecar, 1 + noisy)
+            if text is not None:
+                out.append(text)
+    return out
 
 
 def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
@@ -4168,10 +4230,15 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                 notes.append(GateFinding(NOTE_REFERENCE, cid, "reference (Waterfall), not gated"))
             continue
         for fr in fail_reasons(cv) + (qualitative_differences(side) if isinstance(side, dict) else []):
-            over = fx_drift_text(fr, base, side) if baselined else None
-            # Drift past an FX band is waived by a noisy entry alone, as a body measure's is.
+            over = far = None
+            if baselined and fr.fx is not None:
+                over = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side)
+                far = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side, 1)
+            # Drift past an FX band is waived by a noisy entry alone, as a body measure's is,
+            # and by no entry far past it.
             cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)
-                          and (over is None or e.noisy)), None)
+                          and (over is None or e.noisy and far is None)), None)
+            over = far or over
             if cover is not None:
                 matched_entries.add(cover)
                 used.append("%s <- %s" % (fr.reason, cover.label()))
@@ -4191,6 +4258,9 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
         fx_lost = fx_unmeasured(cv)
         fx_new = [t for t in fx_lost if t not in known] if baselined else []
         fx_noted = [t for t in fx_lost if t not in fx_new]
+        if baselined:
+            unmeasured.extend(GateFinding(GATE_UNMEASURED, cid, "fx not settled: %s" % t)
+                              for t in fx_capped_far(cv, base, entries, profile, side))
         if fx_new:
             unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_new)))
         # A layer drawn by neither side is the usual state of it, not a note.
