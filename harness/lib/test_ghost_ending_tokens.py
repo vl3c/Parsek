@@ -24,6 +24,19 @@ BACKED = {
     ("GS-9-kerbalx-repeat-rewind", "Kerbal X Probe"),
 }
 
+# Required destroy tokens whose vessel VESSEL_RE cannot read (an escaped or captured name, a
+# vessel not before the reason), per spec: read by hand, each closes its reason or is bound to
+# an earlier line. A new one must be read and counted here, never skipped in silence.
+UNREAD = {
+    "GS-6-part-event-applier-sweep": 1,
+    "GS-8-kerbalx-zone-round-trip": 1,
+    "GS-9-kerbalx-repeat-rewind": 2,
+    "MC-4-making-history-desert": 1,
+    "S1.9-part-showcase-render": 1,
+    "V22M-kerbin-splashdown-player-loop": 1,
+    "V23M-mun-landing-player-loop": 1,
+}
+
 VESSEL_RE = re.compile(r"phase=MeshDestroyed [^\"]*?vessel=([A-Za-z0-9 \-]+?)(?: reason=|$)")
 
 
@@ -48,6 +61,7 @@ class GhostEndingTokenTests(unittest.TestCase):
     def test_no_required_destroy_token_is_met_by_the_quit_alone(self):
         tokens = 0
         offenders = set()
+        unread = {}
         for path in sorted(glob.glob(os.path.join(SCENARIOS, "*.toml"))):
             with open(path, "rb") as f:
                 spec = tomllib.load(f)
@@ -56,11 +70,14 @@ class GhostEndingTokenTests(unittest.TestCase):
                 if "phase=MeshDestroyed " not in token:
                     continue
                 tokens += 1
+                if VESSEL_RE.search(token) is None:
+                    unread[spec["id"]] = unread.get(spec["id"], 0) + 1
                 vessel = met_by_the_quit(token)
                 if vessel is not None:
                     offenders.add((spec["id"], vessel))
         self.assertGreater(tokens, 20)
         self.assertEqual(BACKED, offenders)
+        self.assertEqual(UNREAD, unread)
 
     def test_the_old_token_shapes_are_caught(self):
         self.assertEqual("Kerbal X Probe", met_by_the_quit(
