@@ -255,6 +255,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Arms the engines a background rails exit relit by event. The active recorder relights
+        /// through <see cref="CheckEngineTransition"/> and arms there; the background one seeds its
+        /// sets and writes the relight from the rails-span diff.
+        /// </summary>
+        internal static void ArmEngineSettleFromEvents(
+            List<PartEvent> written, Dictionary<ulong, EngineThrottleStill> stillMap)
+        {
+            if (written == null || stillMap == null) return;
+            for (int i = 0; i < written.Count; i++)
+            {
+                PartEvent e = written[i];
+                if (e.eventType != PartEventType.EngineIgnited
+                    && e.eventType != PartEventType.EngineThrottle) continue;
+                stillMap[EncodeEngineKey(e.partPersistentId, e.moduleIndex)] =
+                    new EngineThrottleStill { reference = e.value, sinceUT = e.ut };
+            }
+        }
+
+        /// <summary>
         /// Moves an armed engine's still window to this frame's power. Returns true when the power
         /// has stayed within <see cref="EngineThrottleStillNoise"/> of one value for
         /// <see cref="EngineThrottleSettleSeconds"/>. The comparison is against the value the window

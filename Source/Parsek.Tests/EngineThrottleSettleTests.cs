@@ -307,6 +307,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ABackgroundRailsExit_ArmsLikeTheActiveRelight()
+        {
+            // Active: the first poll after rails writes EngineIgnited itself.
+            var active = new Feed();
+            active.Hold(0.50f, 1.5);
+            active.Hold(0.53f, 5.0);
+
+            // Background: seeded sets, EngineIgnited written by the rails-span diff.
+            var background = new Feed();
+            background.Active.Add(Key);
+            background.Last[Key] = 0.50f;
+            var diff = new List<PartEvent>
+            {
+                new PartEvent { ut = background.Ut, partPersistentId = Pid, eventType = PartEventType.LightOn },
+                new PartEvent
+                {
+                    ut = background.Ut, partPersistentId = Pid, eventType = PartEventType.EngineIgnited,
+                    partName = "engine", value = 0.50f,
+                },
+            };
+            background.Events.Add(diff[1]);
+            FlightRecorder.ArmEngineSettleFromEvents(diff, background.Still);
+            Assert.Equal(Key, Assert.Single(background.Still).Key);
+            background.Hold(0.50f, 1.5);
+            background.Hold(0.53f, 5.0);
+
+            Assert.Equal(2, active.Events.Count);
+            Assert.Equal(
+                active.Events.Select(e => e.ut + "|" + e.eventType + "|" + e.value),
+                background.Events.Select(e => e.ut + "|" + e.eventType + "|" + e.value));
+            Assert.Matches(@"PartEvents\.AddRange\(diffEvents\);[^}]*ArmEngineSettleFromEvents\(diffEvents, state\.engineThrottleStill\)",
+                Source("Recording", "BackgroundRecorder.StateInitialization.cs"));
+        }
+
+        [Fact]
         public void ANonPositiveValueOnEitherSide_WritesNoSettledEvent()
         {
             // Ignited with power 0 is reachable (finalThrust with a zero maxThrust); a settled
