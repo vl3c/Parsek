@@ -19,11 +19,13 @@ id = "FLG-2-flag-window-passed-without-ghost"
 # PlantFlag (about UT 32), EvaBoard, StopRecording, CommitTree, StopRecording.
 # ACT 2: InvokeRewindToLaunch lands at the Space Center about UT 7.8, 24 s before the plant;
 # SaveGame + LoadGame scene=trackstation at once, so the Space Center never sees the kerbal's
-# window. Both loads are cold, so the replay scope must also come back from the save
-# (PLAYBACK_REPLAY_SCOPE): a lost scope reads as historical and plants nothing.
+# window. This load and ACT 4's carry playerLoad=true (Cold save-file loads, gated below), so
+# the replay scope must also come back from the save (PLAYBACK_REPLAY_SCOPE): a lost scope
+# reads as historical and plants nothing.
 # ACT 3: rails warp in the Tracking Station to UT 300, past every recording's end, SaveGame.
 # ACT 4: LoadGame scene=spacecenter, a 1x wait: the catch-up plants the flag.
-# ACT 5: SaveGame, LoadGame scene=spacecenter again: the second visit finds it standing.
+# ACT 5: SaveGame, LoadGame scene=spacecenter again (a plain in-session load): the second
+# visit finds it standing, read back from the save.
 #
 # PRE-REGISTERED READINGS (first flight):
 #   - no "Flag catch-up" line after flg2-ts-past: the replay scope was lost across the cold
@@ -69,15 +71,16 @@ steps = [
   { cmd = "StopRecording",                                                        expect = "OK" },
   # ACT 2: back to before the plant, then straight into the Tracking Station.
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },     expect = "OK" },
   { cmd = "MissionMark",    args = { label = "flg2-rewound" },                    expect = "OK" },
   { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation", playerLoad = "true" }, expect = "OK", budget = 300 },
   # ACT 3: the whole flight passes with no ghost and no flag walk.
   { cmd = "WarpToUT",       args = { ut = "300", maxRate = "50" },                expect = "OK", budget = 300 },
   { cmd = "MissionMark",    args = { label = "flg2-ts-past" },                    expect = "OK" },
   { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
   # ACT 4: the Space Center plants it.
-  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT",       args = { ut = "305", maxRate = "1" },                 expect = "OK", budget = 120 },
   { cmd = "MissionMark",    args = { label = "flg2-ksc" },                        expect = "OK" },
   { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
@@ -109,6 +112,8 @@ required = [
   "detected boarding from EVA",
   "committree committed=true",
   "Rewind-to-Launch initiated to UT",
+  # Both loads around the passed window are Cold save-file loads.
+  "MISSIONMARK label=flg2-rewound [\\s\\S]*Load classified: early=Cold refined=Cold scene=TRACKSTATION [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*MISSIONMARK label=flg2-ts-past [\\s\\S]*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*MISSIONMARK label=flg2-ksc ",
   # THE CLAIM: the first Space Center visit after the window plants it, once.
   "MISSIONMARK label=flg2-ts-past [\\s\\S]*Spawned flag vessel: '[^'\\r\\n]*' by 'Jebediah Kerman' [\\s\\S]*Flag catch-up: rec=[0-9a-f]+ host=ksc currentUT=[0-9.]+ endUT=[0-9.]+ eligible=1 planted=1 alreadyPresent=0 removedByPlayer=0 failed=0[\\s\\S]*MISSIONMARK label=flg2-ksc ",
   # The next visit finds it standing.
