@@ -1410,6 +1410,21 @@ class HeldAtQuitTests(unittest.TestCase):
             self.spawn(), self.census("54.017", self.LIVE), self.QUIT,
             self.TEARDOWN % "55.300", self.destroy(reason="engine teardown")))
 
+    def test_a_written_teardown_closes_every_ghost_it_held_or_reds(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.spawn(self.OTHER),
+            self.census("54.017", self.LIVE, self.OTHER), self.QUIT,
+            self.TEARDOWN % "55.300", self.destroy(self.OTHER, reason="engine teardown")))
+        # An ordinary ending after the quit line is not the teardown.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(), self.spawn(self.OTHER),
+            self.census("54.017", self.LIVE, self.OTHER), self.QUIT,
+            self.destroy(self.OTHER)))
+        # A teardown before the quit (a rewind) is not the quit's.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(self.OTHER), self.destroy(self.OTHER, reason="engine teardown"),
+            self.spawn(), self.census("54.017", self.LIVE), self.QUIT))
+
     def test_a_mesh_the_engine_lost_during_the_run_is_a_leak(self):
         self.assertEqual(([self.LIVE], [self.OTHER]), self.balance(
             self.spawn(), self.spawn(self.OTHER),
@@ -1484,8 +1499,10 @@ class HeldAtQuitTests(unittest.TestCase):
                       engine)
         # The census is written whenever the tracer is on.
         self.assertIn("ParsekSettings.Current?.ghostRenderTracing == true", engine)
-        self.assertIn(ghostlife.ENGINE_TEARDOWN_TOKEN, guard._method_body(
-            read("GhostPlaybackEngine.SpawnDestroy.cs"), "internal void DestroyAllGhosts("))
+        teardown = guard._method_body(
+            read("GhostPlaybackEngine.SpawnDestroy.cs"), "internal void DestroyAllGhosts(")
+        self.assertIn(ghostlife.ENGINE_TEARDOWN_TOKEN, teardown)
+        self.assertIn('"%s"' % ghostlife.ENGINE_TEARDOWN_REASON, teardown)
 
 
 if __name__ == "__main__":  # pragma: no cover

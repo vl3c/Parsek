@@ -325,6 +325,9 @@ class GhostLifecycleSnapshot:
 ENGINE_SUBSYSTEM_TAG = "[Engine]"
 ENGINE_CENSUS_TOKEN = "engine-frame-iter"
 ENGINE_TEARDOWN_TOKEN = "DestroyAllGhosts: clearing "
+# The reason that teardown writes on each ghost it closes, one synchronous loop: one such
+# line after the quit means every ghost still held had its chance to write one.
+ENGINE_TEARDOWN_REASON = "engine teardown"
 _ENGINE_CENSUS_ENTRY_RE = re.compile(r"\[i=\d+ rec=(?P<rec>\S+) [^\]]*?\bhs=T\b")
 _LOG_TIME_RE = re.compile(r"^\[LOG (\d+):(\d+):(\d+(?:\.\d+)?)\]")
 # The census must be the running engine's last word, not a leftover of a scene that is
@@ -343,7 +346,8 @@ class _EngineCensusReader:
     """Walks the log in order up to the first quit marker (pure). The census line
     REPLACES the held set, a spawn line adds to it (a ghost spawned after the last
     census is held: its spawn line is the later word) and `DestroyAllGhosts` empties
-    it. Destroy lines are not read here: the ledger pairs them by itself."""
+    it. A destroy line is read for one thing only, the quit's own teardown: the ledger
+    pairs the rest by itself."""
 
     def __init__(self) -> None:
         import hlib  # at call time: hlib imports this module
@@ -351,6 +355,7 @@ class _EngineCensusReader:
         self._held: set = set()
         self._census_at: Optional[float] = None
         self._quit = False
+        self._closed_after_quit = False
         self._age: Optional[float] = None
 
     def line(self, raw: str) -> None:
@@ -373,17 +378,23 @@ class _EngineCensusReader:
         if not self._quit:
             self._held.add(rec)
 
+    def destroyed(self, reason: str) -> None:
+        if self._quit and reason == ENGINE_TEARDOWN_REASON:
+            self._closed_after_quit = True
+
     def result(self) -> EngineCensus:
         fresh = self._age is not None and self._age <= ENGINE_CENSUS_MAX_AGE_SECONDS
         return EngineCensus(quit_seen=self._quit,
-                            held=tuple(sorted(self._held)) if fresh else (),
+                            held=tuple(sorted(self._held))
+                            if fresh and not self._closed_after_quit else (),
                             age_seconds=self._age)
 
 
 def held_at_quit(snapshot: Optional[GhostLifecycleSnapshot]) -> Tuple[str, ...]:
     """The ``rec=`` ids of the ghosts the engine still held at the quit line, or
     ``()`` when that cannot be shown: no quit marker (a killed run), no census, or
-    one older than ``ENGINE_CENSUS_MAX_AGE_SECONDS``. A mesh the engine lost track
+    one older than ``ENGINE_CENSUS_MAX_AGE_SECONDS``; and when the log does carry
+    the quit's own teardown lines, which then close every ghost it held. A mesh the engine lost track
     of is absent from its census, so a leak during the run is never in here."""
     return snapshot.census.held if snapshot is not None else ()
 
@@ -465,6 +476,8 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
             reason=tail[cut + len(_REASON_SEP):]))
         if head == PHASE_SPAWNED:
             engine.spawned(out[-1].rec)
+        else:
+            engine.destroyed(out[-1].reason)
     return GhostLifecycleSnapshot(lines=tuple(out), malformed=malformed,
                                   cycles=tuple(cycles), attitude=tuple(attitude),
                                   census=engine.result())
