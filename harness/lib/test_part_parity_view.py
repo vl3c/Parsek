@@ -1580,6 +1580,7 @@ body.all().filter(n => n._c.has('state') || n._c.has('skin')).forEach(b => {
   const known = box ? box.children.filter(c => c._c.has('knownbox'))[0] : null;
   out.cases[id] = {cls: b.className, head: b.children[0].children.map(node), headChips: b.children[0].cls('vc').map(node), text: b.textContent,
     strip: rows.filter(r => r.cls('film').length).map(row), rows: rows.filter(r => !r.cls('film').length).map(row),
+    body: b.children.filter(c => c._c.has('vrow')).map(row),
     notes: box ? box.children.filter(c => c._c.has('note')).map(c => c.textContent) : null, box: !!box,
     known: known ? {chips: known.cls('chip').map(node), cap: known.cls('cap')[0].textContent, rows: known.cls('vrow').map(row), all: known.all().map(c => c.className), text: known.textContent} : null,
     tables: b.all().filter(n => n.tagName === 'TABLE').map(t => t.all().filter(n => n.tagName === 'TR').map(r => r.children.map(c => c.textContent))),
@@ -1674,11 +1675,17 @@ class FxPageTests(unittest.TestCase):
         self.assertEqual(["owner-flagged:smoke-extra"],
                          [h["text"] for h in burn["head"] if "owner" in h["cls"].split()])
         self.assertNotIn("quiet", burn["cls"].split())
-        # A known-only part leaves the flagged filter; an owner-flagged one never does.
+        # A known-only part leaves the flagged filter; an owner-flagged one is at least a warn.
         self.assertNotIn("engineShort", page["flagged"])
-        caps = page["cases"][ids[FX_JET]]["text"]
-        self.assertIn("REAL as a load leaves it", caps)
-        self.assertNotIn("REAL as a load leaves it", short["text"])
+        self.assertIn([c["part"] for c in data["cases"] if c["caseId"] == FX_BURN][0], page["flagged"])
+        # The loaded real part crops atlas row 5 of 5, the start ghost row 3, the burning one row 1.
+        figs = {f["cap"]: f["layers"][0]["style"] for f in page["cases"][ids[FX_JET]]["body"][0]["figs"]}
+        at = lambda cap: re.search(r"background-size:\d+% (\d+)%;background-position:[\d.]+% ([\d.]+)%", figs[cap]).groups()
+        loaded = "REAL as a load leaves it (the start route's real side)"
+        self.assertEqual(("500", "100"), at(loaded))
+        self.assertEqual(("500", "50"), at("GHOST start route"))
+        self.assertEqual([("500", "0")], [at(c) for c in figs if c.startswith("REAL ") and c != loaded])
+        self.assertNotIn(loaded, {f["cap"] for f in short["body"][0]["figs"]})
 
     def crops(self, figure, case_id):
         """The (atlas row, view) each layer of a figure crops."""

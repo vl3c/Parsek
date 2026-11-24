@@ -2597,7 +2597,7 @@ dialog .tile { cursor: default; }
     host.appendChild(frag);
   }
   function matches(g) {
-    if (state.verdict === "flagged" && !(g.ownerFlags || []).length && (g.verdict === "pass" || g.verdict === "reference" || PAGE_STATES.indexOf(g.verdict) >= 0)) return false;
+    if (state.verdict === "flagged" && (g.verdict === "pass" || g.verdict === "reference" || PAGE_STATES.indexOf(g.verdict) >= 0)) return false;
     if (state.verdict && state.verdict !== "flagged" && !g.cases.some(function (id) { return CASE[id].verdict === state.verdict; })) return false;
     if (state.source && (g.source || "(none)") !== state.source) return false;
     if (state.regression && g.regression !== state.regression) return false;

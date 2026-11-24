@@ -3097,7 +3097,7 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   is counted and filtered apart, and it ranks under warn. It stays red when a reason is structural
   (missing, extra or hidden mesh, skin, a missing or extra effect, an unexplained fail), when the gate
   reds or could not measure it, or when it carries an `owner-flagged:*` mark, which has its own chip,
-  counter, filter and button and is never left out of "flagged". A reloaded start route shows one more
+  counter, filter and button. A reloaded start route shows one more
   picture, "REAL as a load leaves it", and its DIFF st is against that. Verdicts, counts and
   `partparity-verdicts.json`'s cases are unchanged; the file adds `pageStates` and `ownerFlagged`, the
   summary line `pageKnown=` / `pageAccepted=` / `ownerFlagged=` when not 0.
