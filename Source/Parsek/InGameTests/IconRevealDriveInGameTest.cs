@@ -89,7 +89,10 @@ namespace Parsek.InGameTests
                 // 1. The polyline owns the leg. The Prefix hides the icon and defers to stock.
                 int frame = Time.frameCount;
                 ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, frame);
+                // Stock's MainPhysics refreshes the vessel's world position after the step; without it the
+                // position read below would still be the one ghost creation placed.
                 ghost.orbitDriver.updateFromParameters();
+                ghost.precalc.CalculatePhysicsStats();
                 GhostOrbitLinePatch.Postfix(renderer);
                 InGameAssert.IsTrue(GhostMapPresence.IsIconSuppressed(pid),
                     "while the polyline owns the leg the icon must be hidden");
@@ -98,7 +101,7 @@ namespace Parsek.InGameTests
 
                 Vector3d expected = MapRenderProbe.OrbitRelativePositionYup(
                     MapRenderProbe.BuildPhaseMatchedReferenceOrbit(seg, kerbin, shift), liveUT);
-                double staleMeters = ((Vector3d)ghost.orbitDriver.pos - expected).magnitude;
+                double staleMeters = (ghost.GetWorldPos3D() - kerbin.position - expected).magnitude;
                 InGameAssert.IsGreaterThan(staleMeters, MinStaleMeters,
                     "stock must have left the hidden icon far from its orbit, or the handoff proves nothing");
 
