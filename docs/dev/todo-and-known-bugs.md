@@ -20,6 +20,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GHOST-ENDING-TOKENS-MET-BY-THE-QUIT~~: five lanes required a ghost's destroy line that quitting the game writes by itself [FOUND 2026-11-24 on MC-4 `2026-11-24_0422` (release flights). FIXED 2026-11-24, branch mc4-chute-gate; specs only, offline over the archive, not re-flown; test gate, low]
+
+`GhostPlaybackEngine.DestroyAllGhosts` writes `phase=MeshDestroyed ... reason=engine teardown` for
+every ghost still alive, so a required token `MeshDestroyed ... vessel=<v> reason=` (or with no reason
+at all) is met by the quit. On MC-4 `_0422` that was the only Probe destroy line (after
+`flushandquit: Application.Quit`): since the predicted falls (owner rulings Q1a / Q2) the dropped core
+is still falling at the quit (its recording ends at UT 329.74, the quit is at 169.44). Unity's quit order
+is not fixed either (GS-8 `_1119` against `_0840`), so the old token could also red a good flight.
+
+What the line was for: the GS-4 clone's derender half, the dropped core's ghost has its own ending.
+Fix: the MC-4 and GS-6 Probe token names the recording off its spawn line and wants, before the quit
+line, either `MeshDestroyed rec=<it> ... reason=playback completed` (its own end) or
+`[Anchor] parent-anchored predicted tail: ... recordingId=<it>... active=T` (on screen past its last
+track section). The debris tokens of MC-4, GS-6, GS-7 and GS-12, GS-7's Probe and SUB-2's PSUB-1 read
+`reason=(?!engine teardown)`, the GS-8 form: their ghosts all end before the quit.
+
+Checked offline over every archived flight: all PASS flights meet the new tokens (MC-4 7, GS-6 11 of 12,
+GS-7 17, GS-12 8, SUB-2 2); GS-6 `2026-11-23_0842` misses, and should: it passed while the core's fall
+was hidden (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT). The same logs with every ending cut and the quit's
+destroys written instead meet every old token and miss every new one. Left as they are: GS-8 and GS-9's
+open `Kerbal X Debris` token (exact explosion counts and per-cycle destroy counts stand behind it) and
+GS-9's `Kerbal X Probe reason=engine teardown` (the second rewind's teardown, pinned by the census).
+Guard: `harness/lib/test_ghost_ending_tokens.py` reds on any other required destroy token a quit-only
+log meets (it reds on all eight old tokens).
+
 ## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
