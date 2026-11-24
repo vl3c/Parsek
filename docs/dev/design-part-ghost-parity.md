@@ -2359,7 +2359,9 @@ air run waited for F7 ("F7 as built" below). Decisions:
   `lastInterpolatedSurfaceVelocity` (the held vessel's `srf_velocity`, source `Positions`), as
   playback's `SetInterpolated` does for a playing ghost: a jet's thrust share follows mach, and a
   ghost whose ground speed is unknown keeps its share. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
-  their smoke draws as built (F4 noted the control could not be met otherwise). A start ghost's
+  their smoke draws as built (F4 noted the control could not be met otherwise), and since 2026-11-24
+  switches `GhostWorldSpaceEmitter` off on them, or the smoke is left behind in orbit as a real
+  part's is and there is none to drop (PP-9 `2026-11-24_2040` read the control bad). A start ghost's
   "first frame at the target" is read again after the visible prime, which is the frame that lights
   its engine.
 - A renderer counts as drawn only when its system plays or has particles: stock leaves idle systems
