@@ -1925,10 +1925,12 @@ namespace Parsek
         /// </summary>
         internal const float EvaJetpackPlumeEmissionRate = 45f;
 
-        /// <summary>
-        /// Builds a ghost GameObject for a planted flag from the flag part prefab.
-        /// Returns the ghost (initially inactive). Applies flag texture to the mesh_flag quad.
-        /// </summary>
+        /// <summary>Pure: the vessel name a replayed flag is planted under.</summary>
+        internal static string FlagVesselNameOf(FlagEvent evt)
+        {
+            return !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+        }
+
         /// <summary>
         /// Spawns a real KSP flag vessel at the recorded position via ProtoVessel.
         /// Returns the flag vessel's root GameObject, or null on failure.
@@ -1965,7 +1967,7 @@ namespace Parsek
                 Orbit orbit = new Orbit(0, 0, body.Radius + evt.altitude, 0, 0, 0, 0, body);
                 ConfigNode[] partNodes = new ConfigNode[] { partNode };
 
-                string vesselName = !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+                string vesselName = FlagVesselNameOf(evt);
                 ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
                     vesselName, VesselType.Flag, orbit, 0, partNodes);
 
