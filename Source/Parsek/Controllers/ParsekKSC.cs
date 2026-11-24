@@ -1628,19 +1628,17 @@ namespace Parsek
 
         /// <summary>
         /// The part events and the flag walk up to an own-end copy's end: its last drawn frame stopped a
-        /// step short of it and nothing draws the copy again. The flag walk is not culled by distance,
-        /// like the timeline-end walk (flags are world objects, placed once).
+        /// step short of it and nothing draws the copy again. The gates are the drawn frame's own.
         /// </summary>
         void ApplyKscEndEvents(
             int recIdx, Recording rec, GhostPlaybackState state, double endUT, double overshootSeconds,
             bool suppressVisualFx)
         {
-            if (pauseMenuOpen)
+            if (!ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost)))
                 return;
-            if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost)))
-                GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, endUT, state,
-                    allowTransientEffects: !suppressVisualFx
-                        && overshootSeconds <= GhostPlaybackEngine.EndEventEffectsMaxOvershootSeconds);
+            GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, endUT, state,
+                allowTransientEffects: !suppressVisualFx
+                    && overshootSeconds <= GhostPlaybackEngine.EndEventEffectsMaxOvershootSeconds);
             GhostPlaybackLogic.ApplyFlagEvents(state, rec, endUT);
         }
 

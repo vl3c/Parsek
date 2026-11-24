@@ -605,6 +605,23 @@ namespace Parsek.Tests
             Assert.Empty(events);
         }
 
+        // The newest launch crosses the same row change while the camera holds at an end: no handoff.
+        [Theory]
+        [InlineData(GhostPlaybackEngine.WatchHoldCycleIndex, false)]
+        [InlineData(-1L, true)]   // the control: an unpinned camera does follow it
+        public void Watch_Hold_IsNotPulledAway_ByTheNewestLaunch(long cycle, bool handsOver)
+        {
+            GhostPlaybackLogic.LoopUnit unit = TwoRows();
+            var probe = new ZoneProbe();
+            GhostPlaybackEngine engine = WatchEngine(unit, probe);
+            List<IPlaybackTrajectory> all = TwoRowTrajectories();
+            Seed(engine, 0, 0);
+            SelfOverlapFrame(engine, probe, unit, 0, all, Watching(248, 0, cycle));
+            SelfOverlapFrame(engine, probe, unit, 0, all, Watching(249, 0, cycle));
+            SelfOverlapFrame(engine, probe, unit, 0, all, Watching(250.1, 0, cycle));
+            Assert.Equal(handsOver, events.Contains("handoff UnitHandoffRetarget #1 cycle=0"));
+        }
+
         // Even if the rows look like one vessel, a crash is never left for another row in the same frame.
         [Fact]
         public void Watch_ExplosionWinsOverANextRow()
