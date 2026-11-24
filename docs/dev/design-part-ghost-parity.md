@@ -875,7 +875,9 @@ reference lane. The concrete P8 plan is Appendix E.
   the raw values over the runs, kept when some run read half the measure's fail line or more. A
   standing numeric FX fail of a baselined case is a `near-line-fail` note inside that band's
   tolerance and a `drift` red past it; presence, smoke and a missing or extra asset red unless an
-  entry names them. `fxUnmeasured` holds what the runs could not judge, an empty layer included.
+  entry names them. `fxUnmeasured` holds what the runs could not judge (a skipped or empty layer, a
+  null value, an extra effect held at `warn`); anything else of that kind is `unmeasured`. A
+  waiver stretches an FX limit by `FX_FAR`, it lifts none.
 
 ## 11. Code layout
 
@@ -2635,20 +2637,31 @@ as the picture measures.
 
 Split halves in every case (2026-11-24, branch `pp7-arm`, Appendix F). The rule above (a fail
 stands only if both sample halves fail on the same side of the same line and neither side fails
-that measure against itself) was applied only in a case that had an unsettled entry; a settled
-case's fail stood unexamined. It now holds in every case. Why: the only standing fails of PP-7
-that came and went between two runs of one ghost were settled ones their own halves deny, all
-three hue L1 of a near-red flame on the bottom view. The 12 hue bins have an edge at 0 degrees,
-and a red flame straddles it, so a small shift moves much of its light between bins 11 and 0: the bare RK-7 at full
-0.59 (halves 0.24 / 0.43) and 0.21 in the next run, at 30 % 0.33 and then 0.54 (0.56 / 0.30), the
-separation motor 0.38 and then 0.66 (0.64 / 0.33, and the real side failed colour against itself,
-its own halves). Merging neighbouring bins instead was tried and rejected: it also lost five real
-hue defects of `2026-11-23_1027` (0.53 to 0.56, repeated by both halves). Re-judged on every
-archived FX sweep: six cases move, all `fail` to `warn`, no control outcome moves. Four are such
-flips (PP-7 `2026-11-23_1732` and `2026-11-24_0735`, PP-9 `2026-11-23_1749`'s memLander RCS puff at
-10.55 of 10 degrees); the two on ghosts that did have defects are near-line readings whose halves
-disagree (PP-7 `2026-11-23_1027` `radialLiquidEngine1-2` bottom hue 0.553, PP-9 `_1050`'s tower
-10.31 degrees); the other 60 of 61 failing PP-7 cases of `_1027` still fail.
+it against itself) was applied only in a case that had an unsettled entry; a settled case's fail
+stood unexamined. It now holds in every case, and three details of it changed:
+
+- Self-noise is matched by compare value, not by measure. A puff whose centre jitters against
+  itself (offset) says nothing about its area, nor a hue that does about the chromaticity. By
+  measure, an rcs ghost with 6 % of the real area passed.
+- A MISSING effect is not held by an unsettled entry: both halves show it on the real side and
+  neither on the ghost, whatever the length and width do. `Size1p5.Tank.05` draws smoke alone, and
+  its real far width (79 / 88 px between the halves) capped the loss of all of it. An extra
+  effect stays held (the orbit smoke noise); the gate asks the baseline about it (Appendix F).
+- An entry nothing is drawn in on either side reads `empty`, not `pass`.
+
+Why in every case: the only settled fails of PP-7 that came and went between two runs of one ghost
+are ones their own halves deny, all three hue L1 of a near-red flame on the bottom view. The 12
+hue bins have an edge at 0 degrees and a red flame straddles it, so a small shift moves much of
+its light between bins 11 and 0: the bare RK-7 at full 0.59 (halves 0.24 / 0.43) and 0.21 in the
+next run, at 30 % 0.33 and then 0.54 (0.56 / 0.30), the separation motor 0.38 and then 0.66
+(0.64 / 0.33, and the real side failed its own halves). Merging neighbouring bins instead was
+tried and rejected: it also lost five real hue defects of `2026-11-23_1027` (0.53 to 0.56), four of
+which both halves repeat. Re-judged on every archived FX sweep, eight verdicts move and no control
+outcome does. Six go `fail` to `warn`: four such flips (PP-7 `2026-11-23_1732` and
+`2026-11-24_0735`, PP-9 `2026-11-23_1749`'s memLander puff at 10.55 of 10 degrees) and two near-line
+readings of ghosts that did have defects (PP-7 `_1027` `radialLiquidEngine1-2` bottom hue 0.553,
+PP-9 `_1050`'s tower 10.31 degrees); the other 60 of 61 failing PP-7 cases of `_1027` still fail.
+Two go `warn` to `fail` (PP-9's Spark at 30 %, `_1749` and `2026-11-24_0735`).
 
 How the instrument proves itself:
 

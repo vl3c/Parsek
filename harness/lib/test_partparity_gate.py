@@ -673,6 +673,7 @@ class FxGateTests(unittest.TestCase):
         for value, reds in ((0.8, 0), (0.86, 0), (0.9, 1), (2.0, 1)):  # 1.6, 1.72, 1.8, 4 lines
             g = self._gate_of(self._measured("hueL1", value), self._case(), noisy)
             self.assertEqual([pp.GATE_DRIFT] * reds, _kinds(g.reds), value)
+            self.assertEqual([], g.unmeasured)  # it stands: a red, not an open reading
 
     def test_a_value_that_is_null_is_not_judged(self):
         # A ghost whose core clips everywhere has no colour to compare.
