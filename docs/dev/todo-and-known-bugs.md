@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING (branch `b4-eva`); test gap, medium]
+## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
 bursts, effect=true, the last stowed with one press, boarded); the two failed pins are the entries
@@ -40,7 +40,7 @@ Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s b
 commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
 walks yet (a landed EVA host is needed); a walk lane is the follow-up.
 
-## ~~SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship~~ [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); FIXED 2026-11-24 (branch `eva-ghost-behind`); visual, orbit EVA]
+## ~~SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER~~: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); FIXED 2026-11-24 (branch `eva-ghost-behind`); visual, orbit EVA]
 
 What happens. Recording Kerbal X in a 100 km orbit, Valentina steps out (423.83). Her child
 recording 9cee0a67 starts as a background recording (`DeferredEvaBranch: ship still active`,
@@ -101,7 +101,7 @@ Left as is: on an OLD held recording the map seeds its orbit at the right positi
 sample's velocity, so the orbit line can tilt by the arc flown since (about 2 degrees for 11 s in LKO);
 the Relative branch's seed velocity was already approximate.
 
-## EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; OPEN; visual]
+## ~~EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION~~: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; FIXED 2026-11-24, branch `eva-jetpack-promotion`; visual]
 
 What happens. The player (or the seam) deploys the pack on a kerbal who is not yet promoted: no
 recorder polls her (previous entry), and the thrust that follows is the trigger. The promoted
@@ -118,11 +118,58 @@ family=EvaJetpackThrustStarted ... applied=1` at 23:13:44.859, .381, .936) but t
 plume emitting` line is ever written and no plume is drawn. The normal in-game order (press R, then
 thrust) is exactly this one.
 
-Fix idea: on a promotion, emit EvaJetpackDeployed (and the ragdoll state) at the seed UT when the
-recording's own event list does not already say deployed, the way the converter seeds do
-(`PromotionConverterSeedInGameTest`); a deploy event is not an interesting-UT poison if it is
-classified inert for the tail trim. Gate: EVA-17's two required lines (`Part event:
-EvaJetpackDeployed` after the hops mark, and the plume line after the replay mark).
+Fix (`PartStateSeeder.EmitEvaStateSeedEvents`, called on the EVA promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): per part, the live jetpack and ragdoll state is
+compared with the last word of the recording's own events. Pack out and not recorded out writes
+EvaJetpackDeployed; ragdoll and not recorded ragdoll writes EvaRagdollStarted; the mirror that keeps
+a plume dark, recorded ragdoll but upright now, writes EvaRagdollEnded. Already recorded, or stowed
+now, writes nothing. UT: a part with no EVA event yet is seeded at the promotion seed UT (the
+recording's start, like the engine and converter seeds), a part that has some at the UT of its last
+one, after it. So the tail trim's last interesting UT does not move, no recorded plume changes, and
+a do-nothing visit to the kerbal is still discarded (the resumed-tail check reads only events after
+the visit began; the switch-segment check ignores an EvaJetpackDeployed at the segment's start).
+Existing recordings are untouched; no format change. Tests: `EvaPromotionSeedTests`. Gate: EVA-17's
+required deploy line accepts the seed or either recorder's polled edge.
+
+Live proof: EVA-17 PASS attempt 1 on run `2026-11-23_2244` (Debug automation DLL sha256
+0cc3af4e0c6a7e5e, built from 39d07200f; `logs/flights/eva-jetpack/`): `Seed event:
+EvaJetpackDeployed pid=2527420064 part='kerbalEVAfemale' ut=423.85 (promotion)` at the promotion
+(`currentUT=434.71`), then on the replay `EVA jetpack plume emitting (vessel='Valentina Kerman'
+deployed=True thrusting=True ragdoll=False)`. Before, on `2026-11-23_2112`, both lines were missing.
+
+What the seed is for once the background recorder samples the watched kerbal (the fix of
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: it then writes the deploy itself before the promotion
+EVA-17 flies, and the seed writes nothing there). The other recorder starts with no such writer:
+- a switch segment (`BindLiveRecorderToSwitchSegment`: committed clone, background-member
+  continuation, ended-recording takeover, standalone, resumed spawn) starts a NEW recording with no
+  events; the background recorder wrote into another one. Stock keeps the pack out across a save
+  (`KerbalEVA.OnLoad` reads `packExt`), so flying or switching to a kerbal left floating with his
+  pack out is this case every time, and its bursts would draw no plume;
+- an in-place resume of a committed recording (`TryRestoreCommittedTreeForSpawnedActiveVessel`):
+  no tree was live, so nothing recorded a pack deployed or a ragdoll begun or ended after the commit;
+- an F9 restore (`RestoreActiveTreeFromPending`) whose kerbal does not come back in the recorded
+  state (a ragdoll is not a saved field): only the ragdoll edges matter here.
+- a split whose active half is the kerbal (leaving a command seat) starts a new recording too.
+By reading the callers only; none of these has its own lane. The two promotions that fix does make
+redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
+Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
+
+## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
+engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
+ladders, fairings, animation groups and aero surfaces are post-switch triggers
+(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
+trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
+lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
+way. The fix shape is the same (compare the live state with the recording's last word); it needs its
+own pass because deployables are exactly the family bug A / #263 is about. Since
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
+polled by the background recorder up to and including the trigger frame, so its changes are recorded;
+what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
+headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
+mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
+recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
