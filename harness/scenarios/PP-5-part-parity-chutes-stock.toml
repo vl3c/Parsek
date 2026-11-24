@@ -82,7 +82,7 @@ tier = "operator"
 # spec): 10 cases, every chute reached semi and full for real with its events recorded and was
 # captured inside the canopy window, controls ok, complete, recompute 0 mismatches; the 10
 # report-only fails are todo GHOST-CHUTE-CANOPY-AIM.
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 14 held air-breathing engine cases over two contexts=air fx=all steps."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 18 held air-breathing engine cases (14 before 2026-11-24) over two contexts=air fx=all steps."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-5"]
 

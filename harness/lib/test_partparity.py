@@ -1133,6 +1133,10 @@ class PartParitySourceSyncTests(unittest.TestCase):
         pairs = re.findall(r"case (\w+): return (\w+);", body)
         self.assertEqual(len(pp.FX_ARG_KNOWN_WORDS), len(pairs))
         self.assertEqual(pp.FX_MAIN_STATES, (consts["StateMainFull"], consts["StateMainLow"]))
+        self.assertEqual({"main-full": self._num_const(text, "BurnFullThrottle"),
+                          "main-low": self._num_const(text, "BurnLowThrottle")}, pp.FX_MAIN_THROTTLES)
+        self.assertIn("PlumeOption(m, StateMainFull, BurnFullThrottle, ", text)
+        self.assertIn("PlumeOption(m, StateMainLow, BurnLowThrottle, ", text)
         for arg, family in pairs:
             with self.subTest(arg=arg):
                 self.assertEqual(consts[family], pp.fx_family_for_arg(consts[arg]))
@@ -2916,7 +2920,8 @@ class FxJudgeTests(unittest.TestCase):
                 ("main-low", 0.3, 0.295, False, True),
                 ("main-full", 1.0, 0.0, False, False), ("main-full", 1.0, 1.0, True, False),
                 ("main-full", 1.0, 1.0, None, False), ("main-full", 1.0, None, False, False),
-                ("main-low", 0.3, 1.0, False, False),
+                ("main-low", 0.3, 1.0, False, False), ("main-low", 1.0, 1.0, False, False),
+                ("main-low", None, 0.3, False, False),
                 ("burn-full", 1.0, 0.0, True, True), ("burn-low-m1", 0.3, 0.0, True, True),
                 ("burn-full", 1.0, None, None, True),  # a sidecar from before the keys
                 ("burn-full", 1.0, 1.0, True, False), ("burn-low", 0.3, 0.0, False, False)):

@@ -716,15 +716,22 @@ namespace Parsek.TestCommands
         {
             if (part?.Modules == null) return false;
             var engineIds = new List<string>();
+            bool multiMode = false;
             foreach (PartParityStateModule m in part.Modules)
-                if (m != null && m.Implements(TypeEngines)) engineIds.Add(m.Value(KeyEngineId) ?? string.Empty);
+            {
+                if (m == null) continue;
+                if (m.Implements(TypeEngines)) engineIds.Add(m.Value(KeyEngineId) ?? string.Empty);
+                if (m.Named(ModuleMultiModeEngine)) multiMode = true;
+            }
             foreach (PartParityStateModule m in part.Modules)
             {
                 if (m?.Config == null || (!m.Implements(TypeThrottleGlow) && !m.Implements(TypeThrottleEffects))) continue;
                 if (!PartParityStateRules.ParseBool(m.Value(KeyDependOnEngineState), false)) return true;
                 if (PartParityStateRules.ParseBool(m.Value(KeyDependOnOutput), false)
                     || PartParityStateRules.ParseBool(m.Value(KeyDependOnThrottle), false)) continue;
-                if (PartParityStateRules.ParseBool(m.Value(KeyPreferMultiMode), false)) return true;
+                // The part's MultiModeEngine is whichever of its engines runs; with none, stock's
+                // lookup (PartModuleList.FindEngineInterface) goes on to the name, then the index.
+                if (multiMode && PartParityStateRules.ParseBool(m.Value(KeyPreferMultiMode), false)) return true;
                 string named = m.Value(KeyEngineName);
                 int engine = string.IsNullOrEmpty(named)
                     ? (int.TryParse(m.Value(KeyEngineIndex), NumberStyles.Integer, Ic, out int i) ? i : 0)

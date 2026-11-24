@@ -182,7 +182,9 @@ namespace Parsek.Tests
             // The engine it names, by id, else by index.
             Assert.Equal(new[] { false, true }, Glow(Part("x", Engine(0), Engine(1), Clip(2, "dependOnEngineState=True", "engineIndex=1")), 2));
             Assert.Equal(new[] { false }, Glow(Part("x", Engine(0, "A"), Clip(1, "dependOnEngineState=True", "engineName=Other")), 1));
-            Assert.Equal(new[] { true, true }, Glow(Part("x", Engine(0, "A"), Engine(1, "B"), Clip(2, "dependOnEngineState=True", "preferMultiMode=True")), 2));
+            Assert.Equal(new[] { true, false }, Glow(Part("x", Engine(0, "A"), Engine(1, "B"), Clip(2, "dependOnEngineState=True", "preferMultiMode=True")), 2));
+            Assert.Equal(new[] { true, true }, Glow(Part("x", Mod(0, "MultiModeEngine"), Engine(1, "A"), Engine(2, "B"),
+                Clip(3, "dependOnEngineState=True", "preferMultiMode=True")), 2));
             // ReStock's setter reads the same fields; every one it ships names dependOnThrottle.
             Assert.Equal(new[] { true }, Glow(Part("x", Engine(0),
                 Mod(1, "FXModuleThrottleEffects", "FXModuleThrottleEffects,PartModuleFXSetter,PartModule", "dependOnEngineState=True")), 1));

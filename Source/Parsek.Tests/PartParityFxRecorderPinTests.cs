@@ -75,6 +75,18 @@ namespace Parsek.Tests
             Assert.Contains("v.OnPreAutopilotUpdate += fx.MainThrottleInput;", arm);
             Assert.Contains("if (fx.Option.MainThrottle) ArmMainThrottle(wc, fx);", Body(driver, "private static void PressPlume("));
             Assert.Equal(2, Regex.Matches(driver, @"\bArmMainThrottle\(").Count);
+            // What makes it a main-throttle case, and what its done signal and its proof read.
+            string author = Body(driver, "private static ConfigNode AuthorVesselNode(");
+            Assert.Contains("mn.SetValue(\"independentThrottle\", o.MainThrottle ? \"False\" : \"True\", true);", author);
+            Assert.Contains("st.mainThrottle = throttle;", arm);
+            Assert.Contains("float throttle = (float)fx.Option.Throttle;", arm);
+            string observe = Body(driver, "private static bool Observe(");
+            Assert.Contains("if (fx.Option.MainThrottle && (e == null || !PartParityFxRules.MainThrottleHeld(", observe);
+            string step = Body(driver, "internal static bool TryStep(WaveCase wc)");
+            Assert.Contains("ReadThrottle(wc);", step);
+            Assert.Contains("&& now - run.PressRealtime >= PartParityFxRules.MinBurnSeconds(fx.Option)) run.Done = true;", step);
+            Assert.Equal(1, Regex.Matches(step, @"run\.Done = true;").Count - 1);
+            Assert.Contains("ReadThrottle(wc);", Body(Read("TestCommands", "PartParityFxDriver.Capture.cs"), "internal static void FillSidecar("));
             string release = Body(driver, "internal static void Release(WaveCase wc)");
             Assert.Contains("v.OnPreAutopilotUpdate -= fx.MainThrottleInput;", release);
             Assert.Contains("v.ctrlState.mainThrottle = 0f;", release);

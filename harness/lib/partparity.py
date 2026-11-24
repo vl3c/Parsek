@@ -402,8 +402,10 @@ FX_KEYS: Tuple[str, ...] = (
 FX_DRIVE_KEYS: Tuple[str, ...] = (
     "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat", "mainThrottle", "independentThrottle",
 )
-# PartParityFxRules.ThrottleDoneTolerance.
+# PartParityFxRules.ThrottleDoneTolerance, and the throttle each main-throttle word burns at
+# (BurnFullThrottle, BurnLowThrottle).
 FX_THROTTLE_DONE_TOLERANCE = 0.01
+FX_MAIN_THROTTLES: Dict[str, float] = {"main-full": 1.0, "main-low": 0.3}
 FX_SIDE_KEYS: Tuple[str, ...] = FX_SIDES
 FX_PLATEAU_KEYS: Tuple[str, ...] = ("signal", "settled", "waitS")
 FX_HOLD_KEYS: Tuple[str, ...] = ("maxDriftM", "stepM", "steps")
@@ -1174,16 +1176,16 @@ def fx_contradictions(sidecar: Optional[Dict]) -> List[str]:
 
 def fx_throttle_problem(word: str, fx: Dict) -> Optional[str]:
     """The throttle a plume case says drove it against its state word: a ``main-*`` case's
-    vessel held the requested main throttle and its engine followed it; any other plume case's
+    vessel held the word's main throttle and its engine followed it; any other plume case's
     engine ran on the independent throttle with the vessel's at 0 (a main-throttle case never
     reaches another one). A sidecar written before the two drive keys is not asked, except for
     a ``main-*`` case, which no such build could write."""
     drive = fx.get("drive") if isinstance(fx.get("drive"), dict) else {}
     main, independent = _num(drive.get("mainThrottle")), drive.get("independentThrottle")
     if word in FX_MAIN_STATES:
-        request = _num(fx.get("throttle"))
-        if (main is None or request is None or independent is not False
-                or abs(main - request) > FX_THROTTLE_DONE_TOLERANCE):
+        want = FX_MAIN_THROTTLES[word]
+        if (main is None or independent is not False or _num(fx.get("throttle")) != want
+                or abs(main - want) > FX_THROTTLE_DONE_TOLERANCE):
             return ("drive mainThrottle=%s independentThrottle=%s throttle=%s on a %s case"
                     % (drive.get("mainThrottle"), independent, fx.get("throttle"), word))
         return None
