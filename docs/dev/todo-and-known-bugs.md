@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-3 on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
+
+**The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
+
+**What a player sees:** the seated kerbal disappears at the event and the EVA ghost is first drawn at 44.96 (red, about 0.10 s) / 45.12 (green, about 0.06 s): the event-to-end span, then the frame that destroys #3 and builds #4 (#4 starts at the first sample after the branch), then the two-frame activation settle. SEAT-4's cell counts only frames where a live ghost carries him, so it sees the first part alone.
+
+**Possible fix (not done, small visual gain):** skip the activation settle for an EVA ghost whose parent recording ended on this kerbal's dismount, as chain seams already do (`state.spawnedAtChainSeam`), and keep a `kerbalEVA*` part drawn on the parent ghost until its end when the Decoupled event is within the last frames of the recording. The recorded event UT must not move (recordings are immutable).
+
 ## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
@@ -175,7 +183,7 @@ recorder clears `thrustingJetpackParts`. No flight has shown any of these.
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
 Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
-(one frame drawn on neither ghost at the handoff; the pin allows 0 or 1).
+(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 3 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
 
 SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
 New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
