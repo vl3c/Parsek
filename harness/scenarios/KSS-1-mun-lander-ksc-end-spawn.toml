@@ -32,8 +32,8 @@ tier = "operator"
 #
 # FIRST-FLIGHT RISKS: the whole B13 mission (its own retry budget); the commit UT (the warp
 # target leaves 4x margin); the SpawnOnly reason token (regexed); the recording count
-# (B13 pins 11; the post-commit recorder is dropped by the rewind, EVA-15 / EX-1's shape,
-# so the window is 11-12 until read).
+# (B13's, exact 13 since split rule version 3; the post-commit recorder is dropped by the
+# rewind, EVA-15 / EX-1's shape).
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: B13's flight verbatim, extended
 # after MISSION-OK, rather than a new flight; a fixture harvest of B13's committed tree
@@ -41,7 +41,7 @@ tier = "operator"
 # finding), so none is taken. (2) mission waits are B13's own; the post-mission wait is
 # one explicit-UT WarpToUT. (3) no new dwell keys (B13's 120 s landed dwell IS the
 # recorded surface coverage). (4) burns are B13's at 1x. (5) b5 coasts do not apply. (6)
-# B13 fails fast on every named phase timeout. (7) count window 11-12 until read. (8) tier
+# B13 fails fast on every named phase timeout. (7) count 13 exact, B13's. (8) tier
 # operator: B13 alone is the most expensive lane in the suite. (9) flight_efficiency.py
 # owed after the first green flight.
 # =============================================================================
@@ -144,8 +144,20 @@ D14 = ["kerbin", "mun", "warp-rails", "warp-high", "scene-flight", "scene-ksc", 
 allowedAnomalies = []
 
 [expectations.recordings]
-# B13 pins 11; open to 12 until the reading run (header).
-count = { min = 11, max = 12 }
+# RE-PINNED 13 (2026-11-24, run 2026-11-24_0029_KSS-1-mun-lander-ksc-end-spawn): split rule
+# version 3 adds the circularization and parking-orbit rows to this flight (burn cuts at
+# orbit-kind changes, design section 14.1), as on B13 (exact 13 since 2026-11-22). Six
+# Kerbal X rows (ascent / circularization / orbit / transfer / approach / surface) + 7
+# debris; the debris population is unchanged; this was `count = { min = 11, max = 12 }`.
+# The KSP.log carries exactly five splits (8 -> 11 under version 2):
+#   Split candidate (PersistedPhaseChange) splitUT=213.14     (ascent exit)
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=300.83
+#   Split candidate (DepartureBurnStart) splitUT=1872.85
+#   Split candidate (PersistedPhaseChange) splitUT=22831.43   (Mun approach)
+#   Split candidate (SurfaceInvolved) splitUT=23003.71        (touchdown)
+#   CommitTreeFlight: optimization pass ran committed=8->13
+# The post-commit recorder is dropped by the rewind. Exact: 12 and 14 both red.
+count = { min = 13, max = 13 }
 
 [expectations.logContracts]
 required = [

@@ -209,6 +209,17 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
+        /// Test-only seam: records the per-pid StockConic seed the Unity-coupled <see cref="RunFrame"/>
+        /// records, so an in-game test can stage a TracedPath -> StockConic handoff inside one frame.
+        /// Cleared by <see cref="Reset"/>.
+        /// </summary>
+        internal static void SetStockConicSeedForTesting(
+            uint pid, int frame, OrbitSegment seg, string bodyName)
+        {
+            seedByPid[pid] = new StockConicSeed { Frame = frame, Seg = seg, BodyName = bodyName };
+        }
+
+        /// <summary>
         /// True when the Director is TRACKING <paramref name="pid"/> this frame -
         /// i.e. it has a fresh StockConic seed OR a fresh TracedPath stamp (8e S4: the gate was dropped).
         /// Used to plug the no-bounds

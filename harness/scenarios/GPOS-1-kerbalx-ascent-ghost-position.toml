@@ -56,8 +56,7 @@ id = "GPOS-1-kerbalx-ascent-ghost-position"
 # flies this prefix and stops inside the replay. (2) every wait is the mission's own gate
 # or an explicit-UT WarpToUT. (3) no dwell keys. (4) the replay wait is 10x rails warp.
 # (5) b5 coast keys do not apply (kx machine). (6) RF-9's profile already fails fast with
-# named flakes. (7) the count window is GS-4's measured 8 widened by one each way until
-# the reading run (this lane commits in flight, GS-9 at scene exit). (8) operator by the
+# named flakes. (7) the count is exact, measured 9 (the recordings block). (8) operator by the
 # calibration discipline. (9) flight_efficiency.py owed after the first green flight.
 # =====================================================================================
 tier = "operator"
@@ -121,9 +120,22 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# GS-4's 8 (parent, six boosters, the probe core), measured 8 here too on
-# `2026-11-20_2302` (this lane commits in flight where GS-9 commits at scene exit).
-count = { min = 8, max = 8 }
+# RE-PINNED 9 (2026-11-24, NOT RE-FLOWN, run
+# 2026-11-24_0433_GPOS-1-kerbalx-ascent-ghost-position, red on this count alone): the parent,
+# six boosters and the probe core in TWO rows, atmosphere and space; this was
+# `count = { min = 8, max = 8 }` (GS-4's 8, measured on `2026-11-20_2302`). The one split:
+#   Split candidate (PersistedPhaseChange) splitUT=173.90 prev=Atmospheric next=ExoBallistic
+#   CommitTreeFlight: optimization pass ran committed=8->9
+# The probe's recorded sections are the same on both runs (Atmospheric 41 s, ExoBallistic
+# 2.5 / 2.7 s, sampled 4-51 m from the pod). The change is its ending: an in-flight commit
+# now runs the lifetime finalizer for a live non-active leaf (todo ABANDONED-STAGE-B4), so
+# the space row carries the predicted fall to its impact (UT 427.2) and clears the 5 s
+# half-row floor that refused the cut while the probe ended at the commit (UT 176.9,
+# `splittableButRejected=1`). The cut is the atmosphere exit, the one RF-9 takes on this
+# profile at a scene exit. Not a split-rule change and not the far-range sampling. The pod
+# keeps one row: a plain CommitTree leaves the active vessel's end at the commit, 2.7 s past
+# its exit. Exact: 8 and 10 both red.
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 required = [

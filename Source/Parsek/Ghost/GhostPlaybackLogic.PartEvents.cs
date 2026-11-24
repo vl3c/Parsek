@@ -1291,11 +1291,16 @@ namespace Parsek
         /// a per-recording flag cursor (for example deferred spawn flushes at warp end).
         /// Returns how many flag events were eligible at the requested UT, and how many
         /// actually spawned new flag vessels after dedup, were already present, or failed.
+        /// <paramref name="settledFlagMatch"/> widens the world dedup to
+        /// <see cref="RemovedReplayFlags.MatchToleranceMeters"/> for a flag of the same name
+        /// (<see cref="IsStandingFlagOfEvent"/>): a walk that runs at every scene load
+        /// (<see cref="ReplayedFlagCatchUp"/>) must not plant again next to a flag that toppled
+        /// or that stock lifted off a craft since it was planted.
         /// </summary>
         internal static (int eligibleCount, int spawnedCount, int alreadyPresentCount, int failedCount,
             int removedByPlayerCount)
             SpawnFlagVesselsUpToUT(
-            IPlaybackTrajectory rec, double currentUT)
+            IPlaybackTrajectory rec, double currentUT, bool settledFlagMatch = false)
         {
             if (rec == null)
                 return (0, 0, 0, 0, 0);
@@ -1315,7 +1320,7 @@ namespace Parsek
                     break;
 
                 eligibleCount++;
-                switch (TrySpawnFlagVessel(evt))
+                switch (TrySpawnFlagVessel(evt, settledFlagMatch))
                 {
                     case FlagReplayOutcome.Spawned:
                         spawnedCount++;
@@ -1534,7 +1539,7 @@ namespace Parsek
             Failed
         }
 
-        private static FlagReplayOutcome TrySpawnFlagVessel(FlagEvent evt)
+        private static FlagReplayOutcome TrySpawnFlagVessel(FlagEvent evt, bool settledFlagMatch = false)
         {
             // A flag is planted once, at its moment; once the player removed it, no later walk
             // over the event (a loop cycle, an overlap ghost, a fresh playback state after a
@@ -1553,7 +1558,7 @@ namespace Parsek
                 return FlagReplayOutcome.RemovedByPlayer;
             }
 
-            if (FlagExistsAtPosition(evt))
+            if (FlagExistsAtPosition(evt, settledFlagMatch))
                 return FlagReplayOutcome.AlreadyPresent;
 
             if (spawnFlagOverrideForTesting != null)
@@ -1567,10 +1572,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a flag vessel already exists within 1m of the event position (prevents duplicates on loop).
+        /// Pure: is a standing flag of the given name, at the given squared distance from the event's
+        /// spot, the flag the event plants? Within 1 m always; with <paramref name="settledFlagMatch"/>
+        /// also within <see cref="RemovedReplayFlags.MatchToleranceMeters"/> when it carries the name
+        /// the event plants it under.
+        /// </summary>
+        internal static bool IsStandingFlagOfEvent(
+            double distanceSquaredMeters, string standingName, FlagEvent evt, bool settledFlagMatch)
+        {
+            if (distanceSquaredMeters < 1.0)
+                return true;
+            return settledFlagMatch
+                && distanceSquaredMeters
+                    <= RemovedReplayFlags.MatchToleranceMeters * RemovedReplayFlags.MatchToleranceMeters
+                && string.Equals(standingName, GhostVisualBuilder.FlagVesselNameOf(evt), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Checks if a flag vessel already exists at the event position (<see cref="IsStandingFlagOfEvent"/>;
+        /// prevents duplicates on loop).
         /// Uses world-space 3D distance rather than lat/lon to handle high-latitude and small-body cases correctly.
         /// </summary>
-        private static bool FlagExistsAtPosition(FlagEvent evt)
+        private static bool FlagExistsAtPosition(FlagEvent evt, bool settledFlagMatch)
         {
             if (flagExistsOverrideForTesting != null)
                 return flagExistsOverrideForTesting(evt);
@@ -1591,7 +1614,7 @@ namespace Parsek
                 double dx = flagPos.x - eventPos.x;
                 double dy = flagPos.y - eventPos.y;
                 double dz = flagPos.z - eventPos.z;
-                if (dx * dx + dy * dy + dz * dz < 1.0) // within 1m
+                if (IsStandingFlagOfEvent(dx * dx + dy * dy + dz * dz, v.vesselName, evt, settledFlagMatch))
                     return true;
             }
             return false;
