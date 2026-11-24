@@ -95,7 +95,8 @@ PASS attempt 1 (Relative placement unchanged against its body-fixed shadow). The
 the save of `2026-11-23_2112` loaded on the fixed build by a scratch spec (not committed,
 `2026-11-23_2302_ZZ-eva17-held-old_run2`, log in `logs/flights/eva17-held-old-2026-11-24/`): the two-frame
 section replays held beside the ship for 10.08 s, first seen at 17 m, with no `Physics->Visual` transition
-(`RELATIVE sample held beside its anchor: ... heldSeconds=10.08`).
+(`RELATIVE sample held beside its anchor: ... heldSeconds=10.08`). With EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION
+and main merged in, `2026-11-24_0225_EVA-17-orbit-jetpack-hop-rewind` PASS attempt 1 (DLL sha256 93c231434b0cc850).
 
 Left as is: on an OLD held recording the map seeds its orbit at the right position with the held
 sample's velocity, so the orbit line can tilt by the arc flown since (about 2 degrees for 11 s in LKO);
