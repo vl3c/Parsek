@@ -1,0 +1,121 @@
+schema = 1
+id = "GM-1-scenario-saves-inert"
+# =====================================================================================
+# GM-1: PARSEK STAYS INERT IN A STOCK SCENARIO SAVE AND A STOCK TRAINING SAVE (todo
+# TEST-GAPS-B4-INERT-GAME-MODES; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
+#
+# WHY. ParsekGameModeGate (owner ruling S9) holds Parsek inert in every game mode but
+# SANDBOX, CAREER and SCIENCE_SANDBOX: no recording, ghosts, map presence, rewind, ledger
+# capture or stock-control blocks, and a ParsekScenario node a save carries round-trips
+# verbatim (ParsekScenario.InertPassthrough). xUnit pins the predicate and the pass-through
+# bodies headless; no lane ever loaded a SCENARIO or SCENARIO_NON_RESUMABLE save in KSP, and
+# no committed fixture had either mode.
+#
+# THE HOST. `gm-scenario-modes` (harness/tools/build_gm_scenario_modes.py), two saves derived
+# from `b1-pad-craft` (active vessel 1 is a PRELAUNCH pad craft, so LoadGame takes the FLIGHT
+# route):
+#   training.sfs    Mode = SCENARIO_NON_RESUMABLE, no ParsekScenario node, no ParsekSettings:
+#                   a stock training save's shape. No Parsek module is instantiated at all.
+#   persistent.sfs  Mode = SCENARIO, the donor's ParsekScenario node kept (4 values: name,
+#                   scene, missionHideArchived, gameStateEventCount). Stock never adds the
+#                   node to a scenario game, but a file that carries it instantiates the
+#                   module, so this save drives the inert OnLoad stash and OnSave write-back.
+# Making History MISSION / MISSION_BUILDER games cannot be built as a plain .sfs (a mission
+# loads from Missions/<name>/ through the Mission Builder); they stay pinned headless only.
+#
+# THE STEPS. The scenario save first, a named save of it and a reload of that save (the round
+# trip), then the training save LAST: every FLIGHT start rewrites persistent.sfs (stock
+# FlightDriver.PostInit), so a training FLIGHT before the scenario load would overwrite the
+# scenario save. FlushAndQuit then saves the training game as persistent.sfs, so the produced
+# save is the training game, and its saveParse row (report-only) must read no Parsek node:
+# the "writes no PARSEK node" half of the lane.
+# StartRecording in each FLIGHT must answer ERROR no-flight-instance: ParsekFlight.Start
+# destroys itself in an inert game.
+#
+# PRE-REGISTERED READINGS:
+#   - `startrecording recordingId=` or `Parsek Flight loaded.`: the flight controller ran.
+#   - `Load classified:` / `OnSave: saving N committed recordings`: ParsekScenario took the
+#     normal load / save path in an inert game.
+#   - `First-contact backup` / `Captured pre-Parsek backup`: the backup ran in an inert game.
+#   - an OnLoad stash line between the training load and the scenario load: a module was
+#     instantiated for a save with no node (a stock change, or the fixture kept its node).
+#   - `(3 value(s)` or fewer on the reload: the write-back lost a value (the round trip).
+#   - LoadGame ERROR / TIMEOUT: stock could not start FLIGHT in that mode from this save
+#     (fixture shape; a driver-INVALID, not a Parsek reading).
+#
+# FAST-LANE CHECKLIST: no warps, no burns; three loads and two saves. retry `once` for a new
+# fixture. operator until measured; daily candidate after its first green flight (cheap).
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23: a stock training save (SCENARIO_NON_RESUMABLE, no Parsek node) and a stock scenario save (SCENARIO, carrying a Parsek node) loaded into FLIGHT; Parsek must log the inert game mode for each, refuse to record, run no ParsekScenario load or save logic and no backup, and write the scenario save's Parsek node back verbatim across a save and a reload."
+instanceProfile = "stock-minimal"
+tags = ["GM-1", "game-mode-gate", "inert", "scenario-save", "training-save", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gm-scenario-modes"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ---- the scenario save: the module loads inert and passes its node through ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "gm1-scenario" },                              expect = "OK" },
+  { cmd = "StartRecording",                                                                  expect = "ERROR" },
+  { cmd = "SaveGame",       args = { name = "gm1-scenario-saved" },                         expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "gm1-scenario-saved" },    expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "gm1-reloaded" },                              expect = "OK" },
+  # ---- the training save: no Parsek module at all; FlushAndQuit saves it as persistent ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "training" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "gm1-training" },                              expect = "OK" },
+  { cmd = "StartRecording",                                                                  expect = "ERROR" },
+  { cmd = "FlushAndQuit",                                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D14 game-mode value: the registry names the three active modes only, and a claim must
+# match the fixture's Mode (test_d14_game_mode), which here is SCENARIO.
+D14 = ["scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# EXACT ZERO: an inert game records nothing, and nothing was injected.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  "Parsek inert: game mode SCENARIO \\(stock scenario save\\) scene=FLIGHT site=",
+  "Parsek inert: game mode SCENARIO_NON_RESUMABLE \\(stock training / non-resumable scenario\\) scene=FLIGHT site=",
+  "MISSIONMARK label=gm1-scenario ut=[\\s\\S]*?startrecording no-flight-instance[\\s\\S]*?MISSIONMARK label=gm1-reloaded ut=",
+  "MISSIONMARK label=gm1-training ut=[\\s\\S]*?startrecording no-flight-instance[\\s\\S]*?flushandquit: saved=true",
+  # The scenario save: stashed on load, written back on the named save, stashed again whole.
+  "loadgame start save=[^ ]* name=persistent [\\s\\S]*?OnLoad: inert game mode - Parsek node kept verbatim for save pass-through \\(4 value\\(s\\), 0 node\\(s\\)\\); nothing loaded[\\s\\S]*?MISSIONMARK label=gm1-scenario ut=",
+  "MISSIONMARK label=gm1-scenario ut=[\\s\\S]*?OnSave: inert game mode - wrote the loaded Parsek node back verbatim \\(2 entries\\); no Parsek state saved[\\s\\S]*?loadgame start save=[^ ]* name=gm1-scenario-saved ",
+  "loadgame start save=[^ ]* name=gm1-scenario-saved [\\s\\S]*?OnLoad: inert game mode - Parsek node kept verbatim for save pass-through \\(4 value\\(s\\), 0 node\\(s\\)\\); nothing loaded[\\s\\S]*?MISSIONMARK label=gm1-reloaded ut=",
+  # The training save instantiates no Parsek scenario: no stash after its load starts (the
+  # scenario game's own module may still save once on the scene request), and no write-back
+  # once its FLIGHT is up, through the quit's save.
+  "loadgame start save=[^ ]* name=training (?:(?!OnLoad: inert game mode)[\\s\\S])*?flushandquit: saved=true",
+  "MISSIONMARK label=gm1-training ut=(?:(?!OnSave: inert game mode)[\\s\\S])*?flushandquit: saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=",
+  "Parsek Flight loaded\\.",
+  "Load classified: early=",
+  "OnSave: saving [0-9]+ committed recordings",
+  "First-contact backup",
+  "Captured pre-Parsek backup",
+]
+
+[runtime]
+# 3 x 300 LoadGame plus the inert steps and the quit.
+budgetSeconds = 1200
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

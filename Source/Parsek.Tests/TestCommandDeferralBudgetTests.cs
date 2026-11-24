@@ -81,6 +81,9 @@ namespace Parsek.Tests
                 DeferralBudget.BudgetSeconds("EvaChuteDeploy"));
             Assert.True(DeferralBudget.EvaChuteDeploySeconds <= 540.0,
                 "EvaChuteDeploy budget must stay under the harness deferred-step cap");
+            // EvaMove: the held input (at most 30 game seconds) plus a minute.
+            Assert.Equal(90.0, DeferralBudget.BudgetSeconds("EvaMove"));
+            Assert.Equal(TestCommandEvaMove.MaxSeconds + 60.0, DeferralBudget.EvaMoveSeconds);
             Assert.Equal(DeferralBudget.EvaGroundScienceSeconds,
                 DeferralBudget.BudgetSeconds("EvaGroundScience"));
         }

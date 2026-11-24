@@ -515,6 +515,8 @@ namespace Parsek
         /// or power runs out).</item>
         /// <item>An EVA ragdoll start / end is a physics outcome; a kerbal that
         /// actually moved is caught by the surface-motion or environment gates.</item>
+        /// <item>An EvaJetpackDeployed at the owner's start UT is the promotion seed of a pack
+        /// that was already out, so it does not count; a later one is the player's.</item>
         /// <item>Cosmetic light / thermal-animation events never count.</item>
         /// </list>
         /// </summary>
@@ -560,6 +562,16 @@ namespace Parsek
                 case PartEventType.EvaRagdollEnded:
                     passive.Ragdoll++;
                     return false;
+
+                // The promotion seed (PartStateSeeder.EmitEvaStateSeedEvents) of a pack the
+                // kerbal already had out when the segment began.
+                case PartEventType.EvaJetpackDeployed:
+                    if (owner != null && evt.ut <= owner.StartUT)
+                    {
+                        passive.JetpackSeeds++;
+                        return false;
+                    }
+                    return true;
 
                 // Engine / RCS firing - meaningful only at positive throttle.
                 case PartEventType.EngineIgnited:
@@ -859,13 +871,14 @@ namespace Parsek
             public int WheelRobotic;
             public int StopTransitions;
             public int Ragdoll;
+            public int JetpackSeeds;
             public int SurfaceSettleSections;
             public bool DisplacementMeasured;
             public bool DisplacementKnown;
             public double DisplacementMeters;
 
             public bool Any => WheelRobotic > 0 || StopTransitions > 0 || Ragdoll > 0
-                || SurfaceSettleSections > 0;
+                || JetpackSeeds > 0 || SurfaceSettleSections > 0;
         }
 
         private static void LogPassiveSignalsIgnored(
@@ -877,7 +890,7 @@ namespace Parsek
                 $"{check}: no-op despite passive signals rec={rec?.RecordingId ?? "<null>"} " +
                 $"sinceUT={(double.IsNaN(sinceUT) ? "none" : sinceUT.ToString("R", CultureInfo.InvariantCulture))} " +
                 $"wheelRobotic={passive.WheelRobotic} stopTransitions={passive.StopTransitions} " +
-                $"ragdoll={passive.Ragdoll} settleSections={passive.SurfaceSettleSections} " +
+                $"ragdoll={passive.Ragdoll} jetpackSeeds={passive.JetpackSeeds} settleSections={passive.SurfaceSettleSections} " +
                 $"surfaceMoveM={(passive.DisplacementKnown ? passive.DisplacementMeters.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}");
         }
 

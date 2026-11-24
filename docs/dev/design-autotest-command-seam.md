@@ -1168,6 +1168,50 @@ commit / auto-commit log lines, not through this verb's payload.
   "exittospacecenter failed-returned-to-menu ...", or `Error` "exittospacecenter timeout
   ...".
 
+#### R12/A3 - `ExitToMainMenu` (2026-11-23, lanes QTM-1 / RFQ-2)
+
+**Contract.** FLIGHT-only (`RequiresFlight`), two-phase, budget 120 s (the
+`ExitToSpaceCenter` size). Drives stock's flight Esc-menu Quit to Main Menu
+(`saveAndExit(MAINMENU)`): `SceneExitInterceptor.SafeWritePersistent(MAINMENU)` (confirm-exit,
+the pid dictionaries, the save), then `HighLogic.LoadScene(MAINMENU)`, so the LoadScene
+prefix's main-menu branch runs. Terminal `OK scene=MAINMENU persisted=true` once the scene is
+MAINMENU with no game loaded and the `MainMenu` object present for
+`TestCommandNewGame.MinMenuSettlePolls` consecutive polls; `ERROR msg=exittomainmenu-timeout`
+at the budget; `ERROR msg=exittomainmenu-save-failed` when the pre-exit save threw (the
+prefix hard-blocks that exit, so no load is requested). The addon is `DontDestroyOnLoad` and
+its pump runs at the main menu, so the two-phase state crosses the game unload; the next
+step is typically `LoadGame` (a Cold load, `coldReason=main-menu`).
+
+**Wedge gate.** The same shape as `ExitToSpaceCenter`'s, read for MAINMENU
+(`TestCommandExitToMainMenu.DecideExitGate`): the session branch first (an armed
+`SwitchSegmentSession` refuses unless `ShouldSessionExitFollowAutoMerge`), then the live tree,
+then the pending tree; a tree proceeds only when
+`SceneExitInterceptor.ShouldCommitMainMenuExitWithoutDialog` is true for its variant (auto-merge
+on, a RegularMerge, no merge journal), since that is the branch that commits without the
+dialog. Everything else is `REJECTED msg=dialog-required variant=<token>`; a live Re-Fly
+always refuses (`ReFlyAttempt` keeps its dialog at the main menu too) and a lane concludes it
+with `AnswerMergeDialog exit=mainMenu`. Dispatch-level rejects: `load-in-flight`,
+`merge-journal-in-flight`; no `recording-active` reject.
+
+**Logging.** `Info` "exittomainmenu start scene= autoMerge= hasActiveTree= hasPendingTree=
+switchSegmentSession= reFly= activeTreeVariant= pendingTreeVariant=
+activeCommitsWithoutDialog= pendingCommitsWithoutDialog=", then `Warn` "exittomainmenu
+refused reason=dialog-required variant= gate= ..." or `Info` "exittomainmenu driving
+scene-exit dest=MAINMENU persisted=true ...", closing `Info` "exittomainmenu complete
+scene=MAINMENU game-loaded=false elapsed=<n>s" or `Error` "exittomainmenu timeout ...".
+
+**`AnswerMergeDialog exit=quitWithoutSaving|mainMenu`.** The Re-Fly conclusion's exit (the
+route that LEAVES flight so the prefix shows the Re-Fly dialog) is the saving exit to the
+Space Center by default. `exit=quitWithoutSaving` takes stock's no-save exit instead
+(`onSceneConfirmExit`, then `LoadScene(SPACECENTER)`, no save); `exit=mainMenu` takes the
+saving exit to MAINMENU. Completion is OK on any settled non-FLIGHT, non-LOADING scene, so
+MAINMENU qualifies. Closed arg (`VERB_SCOPED_CLOSED_ARGS`); any other value is `REJECTED
+msg=answermergedialog-exit-arg-invalid`. The drive lines are "answermergedialog driving
+re-fly conclusion quit-without-saving dest=<d> (sess=<s>) ..." and "answermergedialog
+driving re-fly conclusion scene-exit (persisted=<bool> sess=<s> exit=<token> dest=<d>) ...".
+hlib gates both verbs' literals (`ExitToMainMenuSourceSyncTests`,
+`AnswerMergeExitSourceSyncTests`).
+
 #### R12/B - `SimulateStockSwitchClick` (the promoted reserved verb)
 
 **What it closes.** kRPC's `active_vessel` setter calls `FlightGlobals.SetActiveVessel`
@@ -4844,7 +4888,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer|servomax|servomin|rotoron|rotoroff|rotorbrake> [part=<part name>]
+transfer|servomax|servomin|rotoron|rotoroff|rotorbrake|breakpanel|breakwheel> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4909,6 +4953,19 @@ action=MotorPowerAction servoMotorLimit=0.00->100.00` (a limit above 0 is kept: 
 (stock holds it with a drive of 1 toward zero speed, so SRV-2 read 30 RPM three seconds after
 `rotoroff`), the brake drives it to zero with `brakeTorque * brakePercentage` (60 on the EM-16) and
 it stops. Candidates and refusals are the rotor pair's.
+`button=breakpanel|breakwheel part=<name>` (2026-11-23, test-gap batch 4, lane PBR-1) breaks a part
+the way physics does, since no player control and no other verb can break a panel or a wheel on a
+parked craft: candidates are the named parts' `ModuleDeployablePart` modules not already
+`deployState = BROKEN` (solar panels, antennas, deployable radiators) or `ModuleWheelDamage`
+modules not yet `isDamaged`; the press calls stock's own `ModuleDeployablePart.breakPanels()` /
+`ModuleWheelDamage.DamageWheel()` (KSP 1.12.5 decompiled: the methods the collision, aero-load and
+stress checks call; `DamageWheel` is `SetDamaged(true)`), `event=breakPanels` / `DamageWheel`.
+Named parts carrying no such module refuse `partaction-deployable-not-found` /
+`partaction-wheel-not-found` (driver-arg); an already broken one is `event-unavailable`. For these
+two buttons only, `state=` adds `deployable:state=<deployState>` / `wheel:damaged=0|1`, so every
+other button's state string is unchanged. `breakPanels()` returns without breaking on a PACKED part,
+with the NoCrashDamage cheat on, or on a module with neither a pivot nor a break transform, so a
+lane pins `state='deployable:state=BROKEN'` rather than trusting the OK.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
@@ -5580,6 +5637,46 @@ scene settled: `pickupflag complete kerbal='..' flag='..' flagPid= fires=`, payl
 kerbal dist fires`. ERROR `pickupflag-threw`, `pickupflag-flag-lost` (the flag went before any
 press) or `pickupflag-timeout`. Pure half `TestCommandPickUpFlag`, applier
 `ParsekTestCommandAddon.PickUpFlag.cs`, mirrored by `PickUpFlagSourceSyncTests`.
+
+#### EvaMove (additive; an EVA kerbal moved by the player's own input, jetpack or walk)
+
+**Why.** No seam verb could fly a jetpack or walk a kerbal, so the recorder's EVA poll
+(`EvaJetpackDeployed` / `EvaJetpackThrustStarted` / `Stopped`) and the ghost's jetpack plume had
+no lane (todo EVA-JETPACK-LIVE-LANES-2026-11-23).
+
+**Stock ground truth (decompiled `KerbalEVA`, KSP 1.12.5).** `FixedUpdate` zeroes the movement
+targets, calls the protected virtual `HandleMovementInput()` (where the `EVA_Pack_*` keys write
+the protected `packTgtRPos`) and then runs the state machine, so a value written after that call
+is the one the FSM reads that frame. `ToggleJetpack()` is a silent no-op outside `st_idle_gr`,
+`st_idle_b_gr`, `st_idle_fl` and `st_weldAcquireHeading`. `SetWaypoint(Vector3)` drives the walk.
+`JetpackIsThrusting` is recomputed every frame.
+
+**Grammar.** `cmd=EvaMove mode=jetpack|walk dir=forward|back|left|right|up|down
+seconds=<0.1..30> [stow=true|false]`, issued in FLIGHT. `walk` takes no `up` / `down`.
+Arg-class refusals: `evamove-mode-invalid`, `evamove-dir-invalid`, `evamove-seconds-invalid`,
+`evamove-stow-invalid`.
+
+**Behavior.** Dispatch defers `not-eva` until the active vessel is an EVA kerbal. REJECTED
+(gate-class, nothing moved): `evamove-not-eva`, `evamove-no-jetpack`, `evamove-no-fuel`,
+`evamove-ragdoll`, `evamove-not-on-ground` (a walk off the ground), `evamove-pack-refused` (the
+jetpack toggle left the pack stowed). The direction is frozen in world space at the arm, from the
+kerbal's own axes, so paired bursts cancel. The drive is `EvaMoveInputPatch`, a Harmony postfix
+on `HandleMovementInput` whose `Prepare` reads `PARSEK_TEST_COMMANDS`, so a player build never
+patches; it acts only on the armed kerbal's part flight id. Logs `evamove start kerbal='..'
+evaPid= mode= dir= seconds= stow= startUT= packBefore= ` and the nearest loaded non-ghost vessel
+as the reference.
+
+**Phases.** TWO-PHASE, `RequiresFlight`, 90 s budget (30 s cap plus 60), world-mutating tail role,
+`outcome` post-mission role (the EVA verbs'). It owns its kerbal-lost terminal, so it is not in the
+active-vessel-loss watched set. After `seconds` the drive is released (`evamove released ...`);
+with `stow=true` the pack is toggled off, re-pressed at most three times 30 polls apart (`evamove
+stow press ...`). OK: `evamove complete kerbal='..' evaPid= mode= dir= effect= deployed= moved=
+refPid= refDistEnd= refSpeed= stowFires=`, payload `kerbal evaPid mode dir seconds startUT endUT
+effect deployed refPid refDistStart refDistEnd refSpeed` (handles: `${label.startUT}` is the
+burst's start, the replay target). ERROR `evamove-threw`, `evamove-kerbal-lost`,
+`evamove-ragdolled`, `evamove-no-effect` (no thrust frame for a jetpack, under 0.2 m for a walk),
+`evamove-stow-refused` or `evamove-timeout`. Pure half `TestCommandEvaMove`, applier
+`ParsekTestCommandAddon.EvaMove.cs`, mirrored by `EvaMoveSourceSyncTests`.
 
 #### DumpMapGeometry (additive; the map's drawn geometry, one frame, to a json)
 

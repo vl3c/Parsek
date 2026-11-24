@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera + PartParitySweep): 63 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera + PartParitySweep + ExitToMainMenu + EvaMove): 65 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -433,6 +433,21 @@ namespace Parsek.TestCommands
             // 540 s (a step time-boxes itself to maxSeconds <= 480). State-mutating (it spawns
             // and removes vessels), so absent from NonMutatingVerbs.
             "PartParitySweep",
+            // ExitToMainMenu. ADDITIVE (63 -> 64 implemented, reserved unchanged at 4): the
+            // flight Esc-menu Quit to Main Menu (stock saveAndExit(MAINMENU): confirm-exit,
+            // save, load), the subject of the prefix's main-menu branch, which commits a live
+            // or pending tree without the dialog under auto-merge. NOT a destination arg on
+            // ExitToSpaceCenter: the game unloads here, so the completion and what a lane can
+            // read afterwards (only a LoadGame back) differ. Contract on
+            // TestCommandExitToMainMenu; TWO-PHASE, RequiresFlight, 120 s. State-mutating.
+            "ExitToMainMenu",
+            // EvaMove. ADDITIVE (64 -> 65 implemented, reserved unchanged at 4): the active
+            // EVA kerbal driven by jetpack or on foot with the player's own movement input
+            // (EvaMoveInputPatch feeds the fields the stock EVA keys write) for a set number of
+            // game seconds, so the recorder captures a live jetpack flight or walk. Contract on
+            // TestCommandEvaMove; TWO-PHASE, RequiresFlight (the not-eva defer PlantFlag /
+            // EvaBoard use), 90 s. State-mutating (it moves the kerbal and burns propellant).
+            "EvaMove",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

@@ -38,6 +38,7 @@ namespace Parsek.Tests
             public void PlantFlag(ParsedCommand cmd) => Calls.Add("PlantFlag");
             public void EvaChuteDeploy(ParsedCommand cmd) => Calls.Add("EvaChuteDeploy");
             public void ExitToSpaceCenter(ParsedCommand cmd) => Calls.Add("ExitToSpaceCenter");
+            public void ExitToMainMenu(ParsedCommand cmd) => Calls.Add("ExitToMainMenu");
             public void SimulateStockSwitchClick(ParsedCommand cmd) => Calls.Add("SimulateStockSwitchClick");
             public void MissionConfig(ParsedCommand cmd) => Calls.Add("MissionConfig");
             public void StartLoopPlayback(ParsedCommand cmd) => Calls.Add("StartLoopPlayback");
@@ -78,6 +79,7 @@ namespace Parsek.Tests
             public void AlarmJump(ParsedCommand cmd) => Calls.Add("AlarmJump");
             public void LaunchSiteProbe(ParsedCommand cmd) => Calls.Add("LaunchSiteProbe");
             public void PickUpFlag(ParsedCommand cmd) => Calls.Add("PickUpFlag");
+            public void EvaMove(ParsedCommand cmd) => Calls.Add("EvaMove");
             public void DumpMapGeometry(ParsedCommand cmd) => Calls.Add("DumpMapGeometry");
             public void MapCamera(ParsedCommand cmd) => Calls.Add("MapCamera");
             public void PartParitySweep(ParsedCommand cmd) => Calls.Add("PartParitySweep");
@@ -119,6 +121,7 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
         [InlineData("EvaGroundScience", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
+        [InlineData("ExitToMainMenu", "RequiresFlight")]
         // SimulateStockSwitchClick: AnyScene plus the per-site scene sub-gate (map FLIGHT,
         // ts TRACKSTATION, ksc SPACECENTER), pinned in TestCommandDispatchTests.
         [InlineData("SimulateStockSwitchClick", "AnyScene")]
@@ -228,6 +231,7 @@ namespace Parsek.Tests
         [InlineData("LaunchSiteProbe", "RequiresGameLoaded")]
         // PickUpFlag: a live kerbal and a live flag vessel (the EVA family row).
         [InlineData("PickUpFlag", "RequiresFlight")]
+        [InlineData("EvaMove", "RequiresFlight")]
         // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); FLIGHT with
         // the map closed is the executor's typed REJECTED (map-view-closed).
         [InlineData("DumpMapGeometry", "RequiresMapScene")]
@@ -264,6 +268,7 @@ namespace Parsek.Tests
             fake.PlantFlag(cmd);
             fake.EvaChuteDeploy(cmd);
             fake.ExitToSpaceCenter(cmd);
+            fake.ExitToMainMenu(cmd);
             fake.SimulateStockSwitchClick(cmd);
             fake.MissionConfig(cmd);
             fake.StartLoopPlayback(cmd);
@@ -307,6 +312,7 @@ namespace Parsek.Tests
             fake.DumpMapGeometry(cmd);
             fake.MapCamera(cmd);
             fake.PartParitySweep(cmd);
+            fake.EvaMove(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

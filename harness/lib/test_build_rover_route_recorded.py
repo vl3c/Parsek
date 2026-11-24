@@ -308,6 +308,9 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # IR-13 (2026-11-06) boots H58's route rows and Rewind-to-Launch, then IR-2's
              # Kerbal X launch and stock revert, inside the go-back's 15 s window.
              "IR-13-route-window-revert-retires-window-row.toml",
+             # IR-6T (2026-11-23, test-gap batch 4) is IR-6's Tracking Station half: the
+             # same route warped across cycles with the Tracking Station open.
+             "IR-6T-route-warp-in-tracking-station.toml",
              # LX-1 (2026-11-16, test-gap audit B7) boots these bytes for IR-3's Flea
              # Re-Fly chain and loops tree A (the fixture's rover A recording) under it;
              # it reads no route.
@@ -362,7 +365,12 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # motors, so `DriveVessel` can move it on the surface for the D4
              # `hysteresis` token. It reads none of the recorded corpus; the corpus's
              # only role is the `recordings.count` window and the kill triple.
-             "RVR-21-rover-drive-surface-hysteresis.toml")
+             "RVR-21-rover-drive-surface-hysteresis.toml",
+             # SSC-1 (2026-11-23, test-gap batch 4, SEAL-SPLIT-CHAIN-LANE-OWED) boots these
+             # bytes only as a career-free stock-minimal host with the kill triple: it flies
+             # a fresh Flea from the pad and reads none of the recorded corpus; the corpus's
+             # only role is the `recordings.count` window.
+             "SSC-1-sealed-split-chain-route-gate.toml")
 
     FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
     FIXTURE_LITERAL = '"%s"' % FIXTURE_PATH

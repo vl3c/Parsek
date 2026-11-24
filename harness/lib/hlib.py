@@ -799,7 +799,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake
+    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake|
+    #     breakpanel|breakwheel (stock's breakPanels() / DamageWheel(), the physics path's break;
+    #     refusals deployable-not-found / wheel-not-found)
     #     [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
     #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
@@ -948,6 +950,24 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
     #     cases= complete= crashed= setupFaults= controls= wall= hostDamaged= hostDamage=`.
     "PartParitySweep",
+    # ADDITIVE (63 -> 64 implemented, reserved unchanged at 4), the flight Esc-menu "Quit to
+    # Main Menu" (stock saveAndExit(MAINMENU): confirm-exit, save, LoadScene(MAINMENU)).
+    #   ExitToMainMenu, FLIGHT, TWO-PHASE, 120 s: refused `dialog-required variant=` when a
+    #     merge modal would block the exit (a live Re-Fly, auto-merge off, an armed switch
+    #     segment session); otherwise the prefix commits a live or pending tree without the
+    #     dialog. OK `scene=MAINMENU persisted=true` once the main menu held for the NewGame
+    #     settle polls. The next boot step is `LoadGame`, which runs from the main menu.
+    "ExitToMainMenu",
+    # ADDITIVE (64 -> 65 implemented, reserved unchanged at 4), the EVA-17 host (a live
+    # jetpack flight recorded and replayed after a rewind).
+    #   EvaMove mode=jetpack|walk dir=forward|back|left|right|up|down seconds=<0.1..30>
+    #     [stow=true|false], FLIGHT, TWO-PHASE, 90 s: drives the active EVA kerbal with the
+    #     player's own movement input (the jetpack deployed through stock's ToggleJetpack
+    #     first) for `seconds` game seconds, the direction frozen in world space at the arm;
+    #     up / down and stow are jetpack only. OK `kerbal= evaPid= mode= dir= seconds=
+    #     startUT= endUT= effect= deployed= refPid= refDistStart= refDistEnd= refSpeed=` once
+    #     the input was released, a requested stow took and the scene settled.
+    "EvaMove",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1284,6 +1304,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
     # seam TIMEOUT into a terminal KILLED.
     "ExitToSpaceCenter": 120.0,
+    # ExitToMainMenu mirrors the C# ExitToMainMenuSeconds = 120.0: the ExitToSpaceCenter
+    # size, a driven scene exit whose settle is the game unload rather than a save parse.
+    "ExitToMainMenu": 120.0,
     # SimulateStockSwitchClick mirrors the C# SimulateStockSwitchClickSeconds = 300.0 (one
     # budget per verb). Its ts / ksc sites press a stock Fly that saves persistent and loads
     # FLIGHT from it, then wait for Parsek's consume to spend the intent: the LoadGame class.
@@ -1343,6 +1366,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # 480 s) plus the last wave's teardown and the case files' write. The WarpToUT size, at
     # MAX_DEFERRED_STEP_BUDGET_SECONDS.
     "PartParitySweep": 540.0,
+    # DeferralBudget.EvaMoveSeconds: the held input (at most 30 game seconds at 1x) plus a
+    # minute for the pack toggle, the stow presses and the settle. Unmeasured (never flown).
+    "EvaMove": 90.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1620,6 +1646,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # cannot hold for a verb whose whole step is a sequence of vessel spawns and removals,
     # and the C# NonMutatingVerbs list leaves it out for the same fact.
     "PartParitySweep": TAIL_ROLE_WORLD_MUTATING,
+    # ExitToMainMenu writes the save and unloads the game: ExitToSpaceCenter's role.
+    "ExitToMainMenu": TAIL_ROLE_WORLD_MUTATING,
+    # EvaMove moves the kerbal and burns its jetpack propellant (stock state a save captures).
+    "EvaMove": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1648,10 +1678,10 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
 # analyzer / expectations / ledger chain already owns.
 #   outcome   -> gates. Its failure means the FLIGHT failed after the handoff.
 #   recording -> non-gating, exactly as before. Preserves the original carve-out.
-# The four M-C2 EVA verbs, EvaGroundScience and PickUpFlag are the whole outcome set
-# today: each one's OK/ERROR is a claim about a kerbal's in-world state (left the pod /
+# The four M-C2 EVA verbs, EvaGroundScience, PickUpFlag and EvaMove are the whole outcome
+# set today: each one's OK/ERROR is a claim about a kerbal's in-world state (left the pod /
 # boarded / flag planted / canopy opened and landed alive / part placed or picked up /
-# flag taken down). Everything else is Parsek or plumbing.
+# flag taken down / flew or walked under its own input). Everything else is Parsek or plumbing.
 #
 # The pairing is gated by a unit cell, so promoting a RESERVED verb or adding a new
 # one forces an explicit decision here instead of inheriting a default silently.
@@ -1860,6 +1890,12 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # wrote N case files", a statement about instrumentation and Parsek's ghosts, never a
     # kerbal's in-world state.
     "PartParitySweep": POST_MISSION_ROLE_RECORDING,
+    # ExitToMainMenu is `recording` for ExitToSpaceCenter's reason: its OK is a statement
+    # about the commit-on-exit and the scene change, never a kerbal's in-world state.
+    "ExitToMainMenu": POST_MISSION_ROLE_RECORDING,
+    # EvaMove is `outcome` for PlantFlag's reason: "the kerbal flew or walked under its own
+    # input" is a kerbal's in-world state no verifier re-derives.
+    "EvaMove": POST_MISSION_ROLE_OUTCOME,
 }
 
 
@@ -3533,6 +3569,16 @@ UIACTION_PICKER_ARGS: Dict[str, Tuple[str, ...]] = {
 ANSWERMERGE_DIALOG_KEY = "dialog"
 ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 
+# `AnswerMergeDialog exit=`: HOW the Re-Fly conclusion leaves flight before the dialog is
+# answered. Absent = the saving Space Center exit; `quitWithoutSaving` = stock's Esc-menu
+# "Quit without saving" (confirm-exit, LoadScene, no save); `mainMenu` = "Quit to Main
+# Menu" (save, LoadScene(MAINMENU)). A Re-Fly keeps its dialog on every one of them.
+# Closed; a VERB_SCOPED_CLOSED_ARGS row (AnswerMergeExitSourceSyncTests keeps the key,
+# values and reason byte-equal to TestCommandMergeAnswer).
+ANSWERMERGE_EXIT_KEY = "exit"
+ANSWERMERGE_EXIT_VALUES: Tuple[str, ...] = ("quitWithoutSaving", "mainMenu")
+ANSWERMERGE_EXIT_INVALID_REASON = "answermergedialog-exit-arg-invalid"
+
 # `UiAction op=raise` / `op=dismiss`: WHICH Parsek modal, mirroring
 # TestCommandUiDialogRaise's table (TestCommands/TestCommandUiDialogRaise.cs).
 #
@@ -3964,6 +4010,13 @@ EXIT_QUIT_WITHOUT_SAVING_KEY = "quitWithoutSaving"
 EXIT_QUIT_WITHOUT_SAVING_VALUES: Tuple[str, ...] = ("true",)
 EXIT_QUIT_WITHOUT_SAVING_INVALID_REASON = "exittospacecenter-quitwithoutsaving-arg-invalid"
 
+# ExitToMainMenu: mirrored from TestCommands/TestCommandExitToMainMenu.cs
+# (ExitToMainMenuSourceSyncTests keeps them byte-equal). No args. A refusal reuses
+# ExitToSpaceCenter's `dialog-required`; the two ERROR reasons are its own.
+EXIT_TO_MAIN_MENU_VERB = "ExitToMainMenu"
+EXIT_TO_MAIN_MENU_TIMEOUT_REASON = "exittomainmenu-timeout"
+EXIT_TO_MAIN_MENU_SAVE_FAILED_REASON = "exittomainmenu-save-failed"
+
 
 # TrackingStationRecover: mirrored from TestCommands/TestCommandTrackingStationRecover.cs
 # (TrackingStationRecoverSourceSyncTests keeps them byte-equal). One required pid= arg,
@@ -4145,7 +4198,7 @@ PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
     "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
-    "servomin", "rotoron", "rotoroff", "rotorbrake",
+    "servomin", "rotoron", "rotoroff", "rotorbrake", "breakpanel", "breakwheel",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -4174,7 +4227,8 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-radiator-not-found", "partaction-engine-not-found",
     "partaction-parachute-not-found", "partaction-resource-not-found",
     "partaction-transfer-nothing-moved", "partaction-servo-not-found",
-    "partaction-rotor-not-found",
+    "partaction-rotor-not-found", "partaction-deployable-not-found",
+    "partaction-wheel-not-found",
 )
 
 
@@ -4670,6 +4724,32 @@ PICKUPFLAG_ERROR_REASONS: Tuple[str, ...] = (
 )
 
 
+# EvaMove: mirrored from TestCommands/TestCommandEvaMove.cs (EvaMoveSourceSyncTests).
+EVAMOVE_VERB = "EvaMove"
+EVAMOVE_MODE_KEY = "mode"
+EVAMOVE_DIR_KEY = "dir"
+EVAMOVE_SECONDS_KEY = "seconds"
+EVAMOVE_STOW_KEY = "stow"
+EVAMOVE_ARG_KEYS: Tuple[str, ...] = ("mode", "dir", "seconds", "stow")
+EVAMOVE_MODES: Tuple[str, ...] = ("jetpack", "walk")
+EVAMOVE_DIRS: Tuple[str, ...] = ("forward", "back", "left", "right", "up", "down")
+EVAMOVE_JETPACK_ONLY_DIRS: Tuple[str, ...] = ("up", "down")
+EVAMOVE_MIN_SECONDS = 0.1
+EVAMOVE_MAX_SECONDS = 30.0
+EVAMOVE_ARG_REASONS: Tuple[str, ...] = (
+    "evamove-mode-invalid", "evamove-dir-invalid", "evamove-seconds-invalid",
+    "evamove-stow-invalid",
+)
+EVAMOVE_REASONS: Tuple[str, ...] = (
+    "evamove-not-eva", "evamove-no-jetpack", "evamove-no-fuel", "evamove-ragdoll",
+    "evamove-not-on-ground", "evamove-pack-refused",
+)
+EVAMOVE_ERROR_REASONS: Tuple[str, ...] = (
+    "evamove-threw", "evamove-kerbal-lost", "evamove-ragdolled", "evamove-no-effect",
+    "evamove-stow-refused", "evamove-timeout",
+)
+
+
 # NewGame: mirrored from TestCommands/TestCommandNewGame.cs (NewGameSourceSyncTests). All
 # three args are REQUIRED. `mode` CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table keys one
 # verb per arg name and UiAction already owns `mode` (the interface mode), so validate_spec
@@ -4839,6 +4919,49 @@ def validate_pick_up_flag_step(index: int, step_args: Dict) -> List[str]:
         return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
                 % (index, PICKUPFLAG_VERB, ", ".join(extra))]
     return []
+
+
+def validate_eva_move_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``EvaMove`` step, the C# TryParseArgs rules: mode and
+    dir from their closed sets (up / down jetpack only), seconds a number in [0.1, 30],
+    stow true / false and jetpack only, no other key."""
+    errors: List[str] = []
+    where = "driver.steps[%d].args" % index
+    mode = step_args.get(EVAMOVE_MODE_KEY)
+    if str(mode) not in EVAMOVE_MODES:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse "
+                      "evamove-mode-invalid)" % (where, EVAMOVE_MODE_KEY, mode, "/".join(EVAMOVE_MODES)))
+    direction = step_args.get(EVAMOVE_DIR_KEY)
+    if str(direction) not in EVAMOVE_DIRS:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse "
+                      "evamove-dir-invalid)" % (where, EVAMOVE_DIR_KEY, direction, "/".join(EVAMOVE_DIRS)))
+    elif str(mode) == "walk" and str(direction) in EVAMOVE_JETPACK_ONLY_DIRS:
+        errors.append("%s.%s: %r is jetpack only (the seam would refuse "
+                      "evamove-dir-invalid)" % (where, EVAMOVE_DIR_KEY, direction))
+    seconds = step_args.get(EVAMOVE_SECONDS_KEY)
+    if not value_is_handle_templated(seconds):
+        try:
+            value = float(str(seconds)) if not isinstance(seconds, bool) else float("nan")
+        except (TypeError, ValueError):
+            value = float("nan")
+        if not (EVAMOVE_MIN_SECONDS <= value <= EVAMOVE_MAX_SECONDS):
+            errors.append("%s.%s: %r is not a number in [%s, %s] (the seam would refuse "
+                          "evamove-seconds-invalid)" % (where, EVAMOVE_SECONDS_KEY, seconds,
+                                                        EVAMOVE_MIN_SECONDS, EVAMOVE_MAX_SECONDS))
+    if EVAMOVE_STOW_KEY in step_args:
+        stow = step_args.get(EVAMOVE_STOW_KEY)
+        stow_text = ("true" if stow else "false") if isinstance(stow, bool) else str(stow)
+        if stow_text not in ("true", "false"):
+            errors.append("%s.%s: %r is not true/false (the seam would refuse "
+                          "evamove-stow-invalid)" % (where, EVAMOVE_STOW_KEY, stow))
+        elif stow_text == "true" and str(mode) != "jetpack":
+            errors.append("%s.%s: stow is jetpack only (the seam would refuse "
+                          "evamove-stow-invalid)" % (where, EVAMOVE_STOW_KEY))
+    extra = sorted(str(k) for k in step_args if k not in EVAMOVE_ARG_KEYS)
+    if extra:
+        errors.append("%s: %s reads only %s, so %s would be silently ignored"
+                      % (where, EVAMOVE_VERB, ", ".join(EVAMOVE_ARG_KEYS), ", ".join(extra)))
+    return errors
 
 
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
@@ -6353,6 +6476,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_COMMIT_KEY: ("UiAction", UIACTION_COMMIT_VALUES),
     UIACTION_DESCRIBE_KEY: ("UiAction", UIACTION_DESCRIBE_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
+    ANSWERMERGE_EXIT_KEY: ("AnswerMergeDialog", ANSWERMERGE_EXIT_VALUES),
     STOCKSCREEN_SCREEN_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_SCREEN_VALUES),
     STOCKSCREEN_ACT_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_ACT_VALUES),
     STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
@@ -8611,6 +8735,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # validate_part_parity_sweep_step checks it.
             if cmd == PARTPARITY_VERB and arg_key in PARTPARITY_ARG_KEYS:
                 continue
+            # EvaMove reads its own `mode=` (jetpack|walk) and `dir=` (an axis; UiAction
+            # owns both table rows); validate_eva_move_step checks them.
+            if cmd == EVAMOVE_VERB and arg_key in EVAMOVE_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8682,6 +8810,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_eva_seat_step(i, cmd, step_args))
         elif cmd == PICKUPFLAG_VERB:
             errors.extend(validate_pick_up_flag_step(i, step_args))
+        elif cmd == EVAMOVE_VERB:
+            errors.extend(validate_eva_move_step(i, step_args))
         elif cmd == NEWGAME_VERB:
             errors.extend(validate_new_game_step(i, step_args, run_save_name))
         elif cmd == ALARMJUMP_VERB:
@@ -10072,7 +10202,8 @@ def spec_expects_live_recording(spec: Dict) -> bool:
     driver = spec.get("driver", {}) or {}
     for step in driver.get("steps", []) or []:
         cmd = (step.get("cmd") or "")
-        if cmd == "StartRecording":
+        # A StartRecording the spec expects refused (GM-1: an inert game mode) records nothing.
+        if cmd == "StartRecording" and (step.get("expect") or "OK") == "OK":
             return True
         if cmd == "SetSetting":
             name = (step.get("args", {}) or {}).get("name", "")
@@ -13085,6 +13216,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",
     "exittospacecenter-quitwithoutsaving-arg-invalid": "driver-arg",
+    "answermergedialog-exit-arg-invalid": "driver-arg",
     # The D18 player-action pair (RealSpawn / Recover). The missing / malformed arg and the
     # unknown recording are the SPEC's fault (arg-class); every other refusal is a live
     # state the click would not act in - no row, a greyed or departure button, a vessel
@@ -13230,6 +13362,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "partaction-servo-not-found": "driver-arg",
     # The rotor buttons on a part carrying no Breaking Ground rotor: the same spec typo.
     "partaction-rotor-not-found": "driver-arg",
+    # breakpanel / breakwheel on a named part carrying no ModuleDeployablePart /
+    # ModuleWheelDamage: a spec fault, like the other typed-module refusals.
+    "partaction-deployable-not-found": "driver-arg",
+    "partaction-wheel-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-target-arg-invalid": "driver-arg",
@@ -13310,6 +13446,20 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "pickupflag-not-eva": "driver-gate",
     "pickupflag-no-flag": "driver-gate",
     "pickupflag-not-near-flag": "driver-gate",
+    # EvaMove: an arg spelling or range is the SPEC's fault; every other refusal is a live
+    # state the move would not act in (no EVA kerbal, no jetpack or propellant, a ragdoll,
+    # a walk off the ground, stock's toggle refusing in the kerbal's FSM state)
+    # (EvaMoveSourceSyncTests).
+    "evamove-mode-invalid": "driver-arg",
+    "evamove-dir-invalid": "driver-arg",
+    "evamove-seconds-invalid": "driver-arg",
+    "evamove-stow-invalid": "driver-arg",
+    "evamove-not-eva": "driver-gate",
+    "evamove-no-jetpack": "driver-gate",
+    "evamove-no-fuel": "driver-gate",
+    "evamove-ragdoll": "driver-gate",
+    "evamove-not-on-ground": "driver-gate",
+    "evamove-pack-refused": "driver-gate",
     # The map-geometry pair (MapGeometrySeamVerbSourceSyncTests). MapCamera's arg
     # spellings, ranges and a body the game does not have are the SPEC's fault; a map that
     # is not open (FLIGHT) or a scene with no map is a live state the verb does not drive
@@ -14122,6 +14272,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "exittospacecenter-quitwithoutsaving-arg-invalid",
+    "answermergedialog-exit-arg-invalid",
     "factor-arg-invalid", "filter-arg-invalid", "find-ctrl-arg-invalid",
     "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
