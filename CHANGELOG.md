@@ -76,6 +76,8 @@ Not released yet.
   before it shows, also while paused. (MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24)
 - **A dropped stage's fall no longer slows a looped mission.** The loop keeps its period and the
   fall plays to its impact beside the next launches. (LOOP-TIMING-READ-THE-PREDICTED-FALL)
+- **Some orbital flights no longer count as changed on every load.** They were rewritten each time,
+  and a supply route flown from one could stop. (CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE)
 - **A kerbal's jetpack plume shows on the replay.** A pack deployed before the recording picked the
   kerbal up is now recorded. (EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION)
 - **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a
