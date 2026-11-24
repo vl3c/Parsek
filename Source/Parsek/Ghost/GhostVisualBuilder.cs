@@ -639,7 +639,7 @@ namespace Parsek
         // (GhostWorldSpaceEmitter.StandingFlow counts the ghost's own speed). Do not remove it, and
         // do not let it reach a launched flight, without asking.
         internal const float WorldSpaceEmitterSlowSpeedThreshold = 4f;
-        internal const float WorldSpaceEmitterFloorSpeed = 6f;
+        internal const float WorldSpaceEmitterFloorSpeed = GhostWorldSpaceEmitter.StandingFlowSpeed;
 
         // #383: Ghost engine flames render undersized vs live stock because Parsek's FX
         // pipeline never applies stock's per-frame FXGroup.SetPower runPower multiplier

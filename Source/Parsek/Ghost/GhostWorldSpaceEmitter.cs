@@ -30,6 +30,9 @@ namespace Parsek
         /// <summary>Set for a plain particle system (a legacy <c>fx_*</c> clone, a PREFAB_PARTICLE).</summary>
         internal ParticleSystem system;
 
+        /// <summary>What a standing ghost's smoke leaves the nozzle at, m/s.</summary>
+        internal const float StandingFlowSpeed = 6f;
+
         /// <summary>The emitter-local exhaust axis of a smoke that flows on a standing ghost; zero: none.</summary>
         internal Vector3 standingAxis;
 
@@ -157,7 +160,7 @@ namespace Parsek
         {
             if (emitter == null || standingAxis == Vector3.zero) return;
             Vector3 extra = StandingFlow(emitter.localVelocity, standingAxis,
-                GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, driftVelocity.magnitude);
+                StandingFlowSpeed, driftVelocity.magnitude);
             emitter.worldVelocity = extra == Vector3.zero
                 ? ownWorldVelocity
                 : ownWorldVelocity + transform.TransformDirection(extra);
