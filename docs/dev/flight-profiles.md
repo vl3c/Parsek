@@ -1260,25 +1260,25 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GUI-10-census-dialogs | operator | bdock-recorded | seam | Kerbin | - | - | LIVE-PROVEN 2026-09-15 |
 | GUI-11-census-kerbals-crewed | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-22 |
 | GUI-12-census-testrunners | operator | career-earned-ksc | seam | Kerbin | - | - | FLOWN PASS 2026-09-15 |
-| GUI-13-census-logistics-candidates | operator | rover-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-21 |
+| GUI-13-census-logistics-candidates | operator | rover-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0722... |
 | GUI-14-census-settings-and-facility | operator | fresh-career | seam | Kerbin | - | - | SPEC CHANGED 2026-09-26, RE-READ 2026-09-27: |
 | GUI-15-census-career-contracts | operator | career-contract-pad | seam | Kerbin | - | - | REPOINTED 2026-09-27 TO THE TIMELINE'S CO... |
-| GUI-17-census-missions-loop-mun | operator | mun-orbit-recorded | seam | Mun | - | - | FLOWN PASS 2026-09-21 |
-| GUI-18-census-missions-loop-duna | operator | duna-direct-recorded | seam | Duna | - | - | FLOWN PASS 2026-09-21 |
+| GUI-17-census-missions-loop-mun | operator | mun-orbit-recorded | seam | Mun | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0722... |
+| GUI-18-census-missions-loop-duna | operator | duna-direct-recorded | seam | Duna | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0724... |
 | GUI-19-census-timeline-supersede | operator | refly-a-recorded | seam | - | - | - | FLOWN PASS 2026-09-21 |
 | GUI-2-census-flight | operator | c1-gui | seam | - | - | - | LIVE-PROVEN 2026-10-06 |
 | GUI-20-census-logistics-hold-second-cycle | operator | rover-relay-c-recorded | seam | - | time-jump | - | RE-FLOWN GREEN 2026-09-27 ON THE ENDPOINT... |
 | GUI-21-census-logistics-hold-origin-empty | operator | rover-relay-c-recorded | seam | - | time-jump | - | FLOWN PASS 2026-09-21 |
 | GUI-22-census-logistics-hold-destination-full | operator | rover-relay-c-recorded | seam | - | time-jump | - | FLOWN PASS 2026-09-21 |
 | GUI-24-census-timeline-filters | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 for the three-ro... |
-| GUI-25-census-missions-state-sort-edit | operator | interbody-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
+| GUI-25-census-missions-state-sort-edit | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0646... |
 | GUI-26-census-createroute-and-running-batch | operator | rover-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
-| GUI-27-census-missions-include | operator | bdock-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
+| GUI-27-census-missions-include | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0723... |
 | GUI-28-census-stock-screens | operator | stock-screen-census | seam | Kerbin | scene-change | - | RE-FLOWN PASS 2026-09-29 |
 | GUI-29-census-wide-windows-1280 | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 on main after #1... |
 | GUI-3-census-logistics-routes | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
 | GUI-30-census-stock-screens-sandbox | operator | fresh-sandbox | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-29 on the post-main... |
-| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RESHAPED 2026-11-23 FOR THE MISSION PROFI... |
+| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24 ON THE TIGHTENED... |
 | GUI-5-census-career-ksc | operator | career-earned-ksc | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 for the Career w... |
 | GUI-6-census-flight-playback | operator | gloops-airshow +inj part-showcase | seam | - | time-jump | - | RESHAPED AND RE-FLOWN PASS 2026-10-06 |
 | GUI-7-census-flight-recording | operator | b1-pad-craft | seam | Kerbin | - | - | RE-FLOWN PASS 2026-10-04 |
