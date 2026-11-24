@@ -20063,10 +20063,12 @@ class PartParityArmedRosterTests(unittest.TestCase):
     # Armed 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
     # each: PP-1 2026-11-22_2159 / _2317, PP-2 _2236 / _2343, PP-3 _2220 / _2328, PP-4
     # 2026-11-22_2359 / 2026-11-23_0016. PP-5 / PP-6 stay report-only: a canopy follows the
-    # airflow, so no measure band holds run to run.
+    # airflow, so no measure band holds run to run. PP-7 alone of the effects lanes armed
+    # 2026-11-24 (owner ruling; design Appendix F).
     PARTPARITY_ARMED_SPECS = {"PP-1-part-parity-stock.toml", "PP-2-part-parity-modded.toml",
                               "PP-3-part-parity-states-stock.toml",
-                              "PP-4-part-parity-states-modded.toml"}
+                              "PP-4-part-parity-states-modded.toml",
+                              "PP-7-part-parity-fx-stock.toml"}
 
     def test_no_committed_spec_arms_part_parity_gating(self):
         armed = []

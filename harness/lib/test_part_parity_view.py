@@ -1374,6 +1374,8 @@ class FxRegressionTests(_FxSetMixin, unittest.TestCase):
             e["compare"]["widthRatio"] = 1.01  # under its warn line: noise
             e["compare"]["originDeltaPx"] = 1.0
             e["compare"]["lateralOffsetPx"] = -9.0
+            for half in pp.FX_SPLIT_HALF_KEYS:  # a fail both sample halves show
+                e["splitHalf"][half]["compare"] = dict(e["compare"])
         self._edit(FX_BURN, longer)
         self._edit(FX_REF, lambda d: d["fx"].update(
             views=json.loads(json.dumps(self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]))))

@@ -121,6 +121,19 @@ def spread_table(a: Dict[str, Optional[Dict]], b: Dict[str, Optional[Dict]],
                         continue
                     x, y = ma[vk][m], mb[vk][m]
                     rows[m].append((abs(x - y), cid, vk, x, y))
+    fx_rows: List[Tuple[float, str, str, float, float]] = []
+    for cid in sorted(set(a) & set(b)):
+        if cid in pp.ALL_CONTROL_IDS or not all(
+                isinstance(s, dict) and not pp.is_setup_fault((s.get("setup") or {}).get("status"))
+                for s in (a[cid], b[cid])):
+            continue
+        fa, fb = pp.fx_case_measures(a[cid]), pp.fx_case_measures(b[cid])
+        for at in sorted(set(fa) & set(fb)):
+            for k in sorted(set(fa[at]) & set(fb[at])):
+                # One signed axis, in fail lines: "+" and "-" are the two sides of one measure.
+                x, y = [-sev if sev and pp.fx_severity(k, v, 0.0)[0].endswith("-") else sev
+                        for v, sev in (fa[at][k], fb[at][k])]
+                fx_rows.append((abs(x - y), cid, "%s %s" % (at, k), x, y))
     out = []
     for m in pp.BASELINE_MEASURES:
         r = sorted(rows[m], key=lambda t: (-t[0], t[1], t[2]))
@@ -142,6 +155,12 @@ def spread_table(a: Dict[str, Optional[Dict]], b: Dict[str, Optional[Dict]],
             out.append("    d=%-10s %s %s %s -> %s (pinned on the better run: %s)"
                        % (("%.4f" % d) if m == "iou" else "%d" % d, cid, vk,
                           pp._fmt(m, x), pp._fmt(m, y), verdict))
+    if fx_rows:
+        r = sorted(fx_rows, key=lambda t: (-t[0], t[1], t[2]))
+        out.append("fx (fail lines): n=%d over0.5=%d over1=%d max=%.2f" % (
+            len(r), sum(1 for t in r if t[0] > 0.5), sum(1 for t in r if t[0] > 1.0), r[0][0]))
+        out.extend("    d=%-10.2f %s %s %.2f -> %.2f" % (d, cid, what, x, y)
+                   for d, cid, what, x, y in r[:top] if d > 0)
     return out
 
 
@@ -236,8 +255,8 @@ def cmd_write(args) -> int:
         verdicts = _judge(sidecars, manifest)
         problems = list(pp.check_controls(manifest, sidecars).problems)
         # The archive keeps no atlases, so completeness is checked as if they were present.
-        atlases = tuple((s.get("atlas") or {}).get("file") or "" for s in sidecars.values()
-                        if isinstance(s, dict))
+        atlases = tuple((s.get(key) or {}).get("file") or "" for s in sidecars.values()
+                        if isinstance(s, dict) for key in ("atlas", "fxAtlas", "strip"))
         problems += pp.check_completeness(manifest, sidecars, (), (), atlases).problems
         if problems:
             print("part_parity_baseline: %s cannot be pinned: %s" % (d, "; ".join(problems[:5])),
@@ -272,8 +291,19 @@ def cmd_write(args) -> int:
         fh.write(render_baseline(doc))
     os.replace(tmp, path)
     banded = sum(1 for e in section["cases"].values() if e["views"])
-    print("part_parity_baseline: wrote %s label=%s runs=%s cases=%d banded=%d"
-          % (path, args.label, ",".join(section["runs"]), len(section["cases"]), banded))
+    print("part_parity_baseline: wrote %s label=%s runs=%s cases=%d banded=%d fxBanded=%d"
+          % (path, args.label, ",".join(section["runs"]), len(section["cases"]), banded,
+             sum(1 for e in section["cases"].values() if e.get("fx"))))
+    # A band past its fail line, so none is pinned unseen: capped in every run, or accepted.
+    for cid, entry in sorted(section["cases"].items()):
+        for at, rec in sorted((entry.get("fx") or {}).items()):
+            for k, band in sorted(rec.items()):
+                far = max(v for _r, _m, s in runs if isinstance(s.get(cid), dict)
+                          for label, got in pp.fx_case_measures(s[cid]).items() if label == at
+                          for key, (_x, v) in got.items() if key == k)
+                if far > 1.0:
+                    print("  fx band past its line: %s %s %s [%g, %g] (%.2f lines)"
+                          % (cid, at, k, band[0], band[1], far))
     return 0
 
 

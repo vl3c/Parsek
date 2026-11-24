@@ -1126,6 +1126,9 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("FlagRcsKnownDifferencePrefix", pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX)):
             with self.subTest(const=name):
                 self.assertEqual(mirror, consts[name])
+        # The one view a plate case photographs (the gate owes it and no other).
+        plate = self._source("PartParityFxDriver.Plate.cs")
+        self.assertIn('internal const string ViewPlate = "%s";' % pp.PLATE_VIEW, plate)
         # FamilyForArg's switch, case by case: plate selects the lamps.
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
@@ -2781,13 +2784,15 @@ class FxJudgeTests(unittest.TestCase):
         # It counts as a pass: the flag raises the case, the routes read pass.
         self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
         self.assertNotIn(pp.VERDICT_SKIPPED, pp.VERDICTS)
-        # Two empty pictures agree, and are judged.
+        # Two empty pictures agree: nothing to compare, and the entry says so.
         smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
         for real, ghost, skipped in ((FX_DARK, FX_DARK, False), ((smear, smear), FX_DARK, True),
                                      (FX_DARK, (smear, smear), True)):
             e = pp.judge_case(_fx_case(real=dict(REAL_FX, smoke=real), event={"smoke": ghost})[0])
             got = {x.verdict for x in e.fx.entries if x.layer == "smoke" and x.route == "event"}
-            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_PASS}, got)
+            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_EMPTY}, got)
+            self.assertEqual((("event", "pass"), ("start", "pass")), e.fx.routes)
+        self.assertNotIn(pp.VERDICT_EMPTY, pp.VERDICTS)
         gone = pp.judge_case(_fx_case(event=_broken("off"))[0])
         self.assertIn(pp.VERDICT_FAIL, {x.verdict for x in gone.fx.entries if x.layer == "flame"})
 
@@ -3076,10 +3081,13 @@ class FxJudgeTests(unittest.TestCase):
         self._loosen(doc, layer="smoke")
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
 
-    def test_beside_an_unsettled_entry_a_fail_stands_only_when_both_halves_show_it(self):
-        def judged(name, spoil):
+    def test_a_fail_stands_only_when_both_halves_show_it(self):
+        # In every case, settled or not: whether the halves of another entry agree says nothing
+        # about this one.
+        def judged(name, spoil, loose):
             doc = _fx_case(event=_broken(name))[0]
-            self._loosen(doc, layer="smoke")  # the case has an unsettled entry
+            if loose:
+                self._loosen(doc, layer="smoke")  # the case has an unsettled entry
             for e in doc["fx"]["views"]:
                 if (e["route"], e["layer"]) == ("event", "flame"):
                     spoil(e)
@@ -3089,21 +3097,35 @@ class FxJudgeTests(unittest.TestCase):
                 ("wide", "widthRatio", 1.0, 0.5), ("shifted-along", "originDeltaPx", 0.0, -30.0),
                 ("shifted-across", "lateralOffsetPx", 0.0, -30.0), ("turned", "directionDeg", 0.0, -60.0)):
             with self.subTest(name):
-                self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None).verdict)
-                for value in (agree, other):  # one half passes, or fails the other way
-                    c = judged(name, lambda e: e["splitHalf"]["odd"]["compare"].update({key: value}))
-                    self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value))
-                    self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
-        # Without an unsettled entry the same halves decide nothing: no settled fail is lowered.
+                for loose in (True, False):
+                    self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None, loose).verdict)
+                    for value in (agree, other):  # one half passes, or fails the other way
+                        for half in pp.FX_SPLIT_HALF_KEYS:
+                            c = judged(name, lambda e: e["splitHalf"][half]["compare"].update({key: value}),
+                                       loose)
+                            self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value, half, loose))
+                            self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+                            self.assertEqual(loose, pp.CAP_FX_UNSETTLED in c.fx.flags)
+        # Presence too: an effect one half of the samples alone drew is not an extra one.
+        doc = _fx_case(real=dict(REAL_FX, flame=FX_DARK), event={"flame": REAL_FX["flame"]})[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["ghost"]["corePx"] = 0
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+
+    def test_the_half_rule_needs_the_halves(self):
+        # A fail whose halves were not written does not stand, and fx_block_problems
+        # (INVALID parity-instrument, every captured case) is what that sweep reads.
         doc = _fx_case(event=_broken("wide"))[0]
         for e in doc["fx"]["views"]:
-            e["splitHalf"]["odd"]["compare"]["widthRatio"] = 1.0
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+            e["splitHalf"] = None
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        self.assertTrue(pp.fx_block_problems(doc))
 
-    def test_beside_an_unsettled_entry_a_measure_noisy_against_itself_is_capped(self):
+    def test_a_measure_noisy_against_itself_is_capped(self):
         def doc_of(side, dx):
             doc = _fx_case(event=_broken("offset-section"))[0]
-            self._loosen(doc, layer="smoke")
             for e in doc["fx"]["views"]:
                 if e["view"] == "fx-bottom" and e["layer"] == "flame":
                     e["splitHalf"]["odd"][side]["coreCentroid"][0] += dx
