@@ -692,7 +692,7 @@ Fix: `Source/Parsek/Ghost/GhostWorldSpaceEmitter.cs`, one component on every wor
 
 Proof (throwaway lanes SMK-1 to SMK-6, kept with their rig in `<umbrella>/logs/flights/srb-smoke/`): free burns recorded by the real recorder, the ghost replayed from the same recording at the same UT and camera, before (registration removed) and after. Orbit, 9 ReStock boosters, smoke within 20 m of the nozzle of about 280 particles: real 2 to 4 on all 27 shots, before 34 to 294, after 2 to 4; spread across the plume real 2.9 to 3.4 km, after 2.9 to 3.3 km. Air, a real booster of the same kind 42 m beside the ghost (mean distance behind the nozzle): Hammer +5 s before 6.3 m, after 73.1 m, real in the same instant 67.9 m; Flea +7 s 6.5 / 136.6 / 138.0 m. Stock `fx_smokeTrail_medium` beside a Flea +7 s: before 165 m, after 473 m, real 466 m.
 
-Floor removed with it (own commit): `WorldSpaceEmitterFloorSpeed` gave a ghost's slow world-space emitter 6 m/s exhaust-ward (commit d75cf8f27, 2026-06-12, for a static showcase ghost whose smoke "gathers in one point"). The asset's own 0 to 1 m/s is what stock plays: a real Hammer held still in the air reads 1.0 m mean, 4.6 m at most, the floored ghost 5.8 / 15.7 m. A ReStock booster that burns while standing still gathers its smoke at the nozzle, real and ghost alike (owner ruling 2026-11-24).
+The standing flow STAYS (owner ruling 2026-11-24; do not remove it without asking). `WorldSpaceEmitterFloorSpeed` gives a ReStock booster ghost's smoke 6 m/s exhaust-ward (commit d75cf8f27, 2026-06-12, made for the static showcase, where the asset's own 0 to 1 m/s "gathers in one point"). The real part does gather: a real Hammer held still in the air reads 1.0 m mean behind the nozzle (4.8 m at most), the flowing ghost 5.8 m (15.7 m); without the flow the ghost reads 1.0 / 4.9 m and the showcase shows a ball of smoke at each booster (both photographed, `showcase/` and `air-restock-nofloor/` in the flight folder; removal 97e052a12, reverted). Its limit, tightened with the ruling: the flow counts the ghost's own speed (`GhostWorldSpaceEmitter.StandingFlow`, smoke leaves at 6 m/s minus the ghost's speed when that is above its own), so only a booster that burns standing still differs from the real one and nothing from 6 m/s up is touched. Before that it reached launched flights too: Hammer +3 / +5 / +7 s 30.9 / 73.1 / 118.5 m with it, 25.3 / 68.7 / 114.6 m without, real beside it 25.0 / 67.9 / 114.5 m.
 
 Not changed: a ghost watched from a parked vessel draws its trail without the drift (as stock draws a real vessel from there), so it is denser than the one its pilot saw.
 
@@ -12163,8 +12163,8 @@ Open items, highest leverage first:
   their showcase visibility floors intact. Degradation is one-directional: an unreadable
   baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
   untouched (it already consumed the magnitude; touching it would double-apply). The special case
-  for world-space emitters (a 6 m/s minimum flow) was removed 2026-11-24
-  (GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
+  for world-space emitters (a 6 m/s minimum flow held through a throttle ratio) was removed
+  2026-11-24: the flow is now a standing ghost's only (GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
   **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
   until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
   midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to
