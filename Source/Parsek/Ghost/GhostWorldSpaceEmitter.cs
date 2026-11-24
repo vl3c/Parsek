@@ -121,6 +121,13 @@ namespace Parsek
         /// </summary>
         private void LateUpdate()
         {
+            if (transform.parent == null)
+            {
+                // Detached to fade out after its ghost went (DetachAndLingerParticleSystems): it
+                // stands still in Unity space, so its "motion" would be the active vessel's.
+                driftVelocity = Vector3.zero;
+                return;
+            }
             double ut = Planetarium.GetUniversalTime();
             if (hasSample && ut == lastUT) return;
             Vector3 position = transform.position;
