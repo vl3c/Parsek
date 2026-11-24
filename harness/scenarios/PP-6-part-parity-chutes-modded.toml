@@ -42,7 +42,8 @@ tier = "operator"
 # label `pp6fx` (its own directory, manifest and control set). Each jet is held 1600 m up on a
 # surface-frame test stand, exhaust straight down, spooled to the request (Goliath: 77 s) and
 # compared with its event-route and start-route ghosts as a distribution over 16 samples per
-# view. The 14 jet cases in their ReStock models and the four air FX controls; every jet there
+# view. The 14 jet cases in their ReStock models, the Whiplash and the wet Panther on the vessel's
+# main throttle (design E.2, 4 cases, never flown here) and the four air FX controls; every jet there
 # carries Waterfall, so each reads `reference` (E.6): captured and measured, never judged.
 #
 # STEP SIZING (design D.8). About 1 minute of chute sweep: waves of up to five chutes, each about

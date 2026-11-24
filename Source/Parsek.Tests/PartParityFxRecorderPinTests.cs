@@ -35,6 +35,60 @@ namespace Parsek.Tests
             => PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
                 new[] { Root(), "Source", "Parsek" }.Concat(parts).ToArray())));
 
+        /// <summary>The whole text of one method, its signature through the brace that balances.</summary>
+        private static string Body(string text, string signature)
+        {
+            int start = text.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(start >= 0, signature);
+            int depth = 0, i = text.IndexOf('{', start);
+            for (; i < text.Length; i++)
+            {
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}' && --depth == 0) break;
+            }
+            return text.Substring(start, i - start + 1);
+        }
+
+        /// <summary>
+        /// The rig drives one vessel's main throttle and nothing else's: every write of a main
+        /// throttle in the sweep's files is the armed callback's <c>st</c> (the case vessel's own
+        /// <c>ctrlState</c>, handed to it by stock) or the release back to 0; the player's input and
+        /// the host are only read. The release is in <c>Release</c>, which every teardown path runs,
+        /// and the step's cleanup logs what it left.
+        /// </summary>
+        [Fact]
+        public void TheMainThrottle_IsWrittenOnTheCaseVesselOnly_AndReleasedToZero()
+        {
+            var writes = new List<string>();
+            foreach (string file in Directory.GetFiles(Path.Combine(Root(), "Source", "Parsek", "TestCommands"), "PartParity*.cs"))
+                foreach (Match m in Regex.Matches(PartParityStateRulesTests.StripComments(File.ReadAllText(file)),
+                    @"[\w.]+\.mainThrottle\s*(?:[-+*/]?=)(?!=)[^;]*;"))
+                    writes.Add(Path.GetFileName(file) + ": " + m.Value);
+            Assert.Equal(new[]
+            {
+                "PartParityFxDriver.cs: st.mainThrottle = throttle;",
+                "PartParityFxDriver.cs: v.ctrlState.mainThrottle = 0f;",
+            }, writes.OrderBy(s => s, StringComparer.Ordinal));
+            string driver = Read("TestCommands", "PartParityFxDriver.cs");
+            string arm = Body(driver, "private static void ArmMainThrottle(");
+            Assert.Contains("Vessel v = wc.Real;", arm);
+            Assert.Contains("v.OnPreAutopilotUpdate += fx.MainThrottleInput;", arm);
+            Assert.Contains("if (fx.Option.MainThrottle) ArmMainThrottle(wc, fx);", Body(driver, "private static void PressPlume("));
+            Assert.Equal(2, Regex.Matches(driver, @"\bArmMainThrottle\(").Count);
+            string release = Body(driver, "internal static void Release(WaveCase wc)");
+            Assert.Contains("v.OnPreAutopilotUpdate -= fx.MainThrottleInput;", release);
+            Assert.Contains("v.ctrlState.mainThrottle = 0f;", release);
+            Assert.Contains("fx.MainThrottleInput = null;", release);
+            string runner = Read("TestCommands", "PartParitySweepRunner.cs");
+            Assert.Contains("PartParityFxDriver.Release(wc);", Body(runner, "internal static void DestroyCase(WaveCase wc)"));
+            string cleanup = Body(runner, "internal string Cleanup()");
+            Assert.True(cleanup.IndexOf("DestroyCase(wc)", StringComparison.Ordinal)
+                        < cleanup.IndexOf("PartParityFxDriver.DescribeMainThrottles(this)", StringComparison.Ordinal));
+            // The engine is handed stock's own value, and only where stock would not hand it on.
+            Assert.Contains("if (e != null && e.EngineIgnited && !e.part.isControllable)", arm);
+            Assert.Contains("e.requestedThrottle = PartParityFxRules.RequestedThrottleFor(throttle, e.thrustPercentage);", arm);
+        }
+
         /// <summary>Every call of <paramref name="name"/> in <paramref name="text"/>, as the call's
         /// whole text (name through the balancing close paren). A declaration is skipped.</summary>
         internal static List<string> CallSites(string text, string name)

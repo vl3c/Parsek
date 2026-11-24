@@ -1385,6 +1385,12 @@ namespace Parsek.TestCommands
             /// case (design E.2), restored in <see cref="Cleanup"/>; null while never changed.</summary>
             internal bool? FxCheatBefore;
 
+            /// <summary>The step's main-throttle cases, and the host's and the player's throttle
+            /// before the first of them.</summary>
+            internal readonly List<PartParityFxRun> FxMainThrottleRuns = new List<PartParityFxRun>();
+            internal float? FxHostThrottleBefore;
+            internal float FxInputThrottleBefore = float.NaN;
+
             /// <summary>The run's control set (design D.2), a function of the args.</summary>
             internal string[] ControlSet;
             internal List<PartParityPlannedCase> Planned = new List<PartParityPlannedCase>();
@@ -1477,6 +1483,8 @@ namespace Parsek.TestCommands
                         }
                     }
                 }
+                string throttles = PartParityFxDriver.DescribeMainThrottles(this);
+                if (throttles != null) ParsekLog.Info(Tag, throttles);
                 if (Capture != null)
                 {
                     PartParityCapture capture = Capture;

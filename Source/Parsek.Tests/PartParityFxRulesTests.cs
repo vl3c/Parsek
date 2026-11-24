@@ -58,7 +58,10 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "plume", "rcs", "heat", "light" }, PartParityFxRules.Families);
             Assert.Equal(new[] { "plume", "rcs", "heat", "plate" }, PartParityFxRules.ArgWords);
-            Assert.Equal(new[] { "burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit" }, PartParityFxRules.States);
+            Assert.Equal(new[] { "plume", "rcs", "heat", "plate", "plume-main" }, PartParityFxRules.ArgKnownWords);
+            Assert.Equal(new[] { "burn-full", "burn-low", "main-full", "main-low", "rcs-fire", "heat-medium", "heat-hot", "lit" },
+                PartParityFxRules.States);
+            Assert.Equal("plume", PartParityFxRules.FamilyForArg("plume-main"));
             Assert.Equal(new[] { "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked", "fx-no-light" },
                 PartParityFxRules.ExclusionReasons);
             Assert.Equal(new[] { "fx-side-a", "fx-side-b", "fx-bottom", "fx-far" }, PartParityFxRules.Views);
@@ -79,7 +82,7 @@ namespace Parsek.Tests
         {
             var r = Enumerate(Part("liquidEngine2.v2", Mod(0, "ModulePartVariants"),
                 Mod(2, "ModuleEngines", null, "PROPELLANT.name=LiquidFuel", "PROPELLANT.name=Oxidizer")));
-            Assert.Equal(new[] { "burn-full/alone", "burn-low/alone" }, Words(r));
+            Assert.Equal(new[] { "burn-full/alone", "burn-low/alone", "main-full/alone", "main-low/alone" }, Words(r));
             Assert.Equal(1.0, r.Cases[0].FxOption.Throttle);
             Assert.Equal(0.3, r.Cases[1].FxOption.Throttle);
             Assert.Equal(100, PartParityFxRules.IndependentThrottlePercentageFor(r.Cases[0].FxOption));
@@ -103,19 +106,23 @@ namespace Parsek.Tests
                     "useEngineResponseTime=True", "PROPELLANT.name=IntakeAir", "PROPELLANT.name=LiquidFuel"),
                 Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=Wet",
                     "useEngineResponseTime=True", "PROPELLANT.name=IntakeAir", "PROPELLANT.name=LiquidFuel")));
-            Assert.Equal(new[] { "burn-full-m1/air", "burn-low-m1/air", "burn-full-m2/air", "burn-low-m2/air" }, Words(r));
+            Assert.Equal(new[]
+            {
+                "burn-full-m1/air", "burn-low-m1/air", "main-full-m1/air", "main-low-m1/air",
+                "burn-full-m2/air", "burn-low-m2/air", "main-full-m2/air", "main-low-m2/air",
+            }, Words(r));
             Assert.All(r.Cases, k => Assert.True(k.FxOption.AirBreathing && k.FxOption.MultiMode));
-            Assert.Equal("Wet", r.Cases[2].FxOption.EngineId);
+            Assert.Equal("Wet", r.Cases[4].FxOption.EngineId);
             // The recorder keys engines by their position among the part's engine modules
             // (FlightRecorder's engine cache, EncodeEngineKey's midx), not the prefab index the
             // case id's tiebreak reads.
-            Assert.Equal(new[] { 0, 0, 1, 1 }, r.Cases.Select(k => k.FxOption.RecorderKeyIndex));
-            Assert.Equal(new[] { 1, 1, 2, 2 }, r.Cases.Select(k => k.FxOption.ModuleIndex));
+            Assert.Equal(new[] { 0, 0, 0, 0, 1, 1, 1, 1 }, r.Cases.Select(k => k.FxOption.RecorderKeyIndex));
+            Assert.Equal(new[] { 1, 1, 1, 1, 2, 2, 2, 2 }, r.Cases.Select(k => k.FxOption.ModuleIndex));
             Assert.Equal(new[] { "fx-needs-air", "fx-needs-air" }, r.Exclusions.Select(e => e.Reason));
             // fx-needs-air belongs to an orbit run's list only.
             Assert.All(r.Exclusions, e => Assert.True(PartParityFxRules.ExclusionApplies(e, false)));
             Assert.All(r.Exclusions, e => Assert.False(PartParityFxRules.ExclusionApplies(e, true)));
-            string id = TestCommandPartParitySweep.CaseId(r.Cases[3]);
+            string id = TestCommandPartParitySweep.CaseId(r.Cases[5]);
             Assert.StartsWith("turbojet--default--burn-low-m2--air--", id);
         }
 
@@ -127,8 +134,135 @@ namespace Parsek.Tests
                     "PROPELLANT.name=IntakeAir", "PROPELLANT.name=LiquidFuel"),
                 Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=ClosedCycle",
                     "PROPELLANT.name=LiquidFuel", "PROPELLANT.name=Oxidizer")));
-            Assert.Equal(new[] { "burn-full/air", "burn-low/air", "burn-full/alone", "burn-low/alone" }, Words(r));
-            Assert.Equal("ClosedCycle", r.Cases[2].FxOption.EngineId);
+            Assert.Equal(new[]
+            {
+                "burn-full/air", "burn-low/air", "main-full/air", "main-low/air",
+                "burn-full/alone", "burn-low/alone", "main-full/alone", "main-low/alone",
+            }, Words(r));
+            Assert.Equal("ClosedCycle", r.Cases[4].FxOption.EngineId);
+        }
+
+        // ----- the main throttle (E.2, "Main-throttle cases as built") -----
+
+        private static PartParityStateModule Engine(int index, string id = null)
+            => Mod(index, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                id == null ? "PROPELLANT.name=LiquidFuel" : "engineID=" + id);
+
+        private static PartParityStateModule Clip(int index, params string[] kv)
+            => Mod(index, "FXModuleAnimateThrottle", "FXModuleAnimateThrottle,PartModule", kv);
+
+        private static bool[] Glow(PartParityStatePart p, int engines)
+            => Enumerable.Range(0, engines).Select(i => PartParityFxRules.GlowReadsMainThrottle(p, i)).ToArray();
+
+        /// <summary>The two stock clips with neither dependOnOutput nor dependOnThrottle, as their
+        /// part configs write them.</summary>
+        private static PartParityStatePart Whiplash()
+            => Part("turboFanEngine", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",
+                    "useEngineResponseTime=True", "PROPELLANT.name=IntakeAir", "PROPELLANT.name=LiquidFuel"),
+                Clip(1, "animationName=TF_Spin", "dependOnEngineState=True", "dependOnThrottle=True"),
+                Clip(2, "animationName=TRJ_Heat", "responseSpeed=0.0005", "dependOnEngineState=True", "layer=2"));
+
+        private static PartParityStatePart Panther()
+            => Part("turboJet", Mod(0, "MultiModeEngine"),
+                Mod(1, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=Dry", "PROPELLANT.name=IntakeAir"),
+                Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=Wet", "PROPELLANT.name=IntakeAir"),
+                Clip(3, "engineName=Dry", "dependOnEngineState=True", "dependOnThrottle=True"),
+                Clip(4, "engineName=Wet", "dependOnEngineState=True", "dependOnThrottle=True"),
+                Clip(5, "animationName=TurboJetHeat", "engineName=Wet", "dependOnEngineState=True", "responseSpeed=0.0005"));
+
+        [Fact]
+        public void TheGlowsThatReadTheMainThrottle_AreTheWhiplashAndTheWetPanther()
+        {
+            Assert.Equal(new[] { true }, Glow(Whiplash(), 1));
+            Assert.Equal(new[] { false, true }, Glow(Panther(), 2));
+            // On its engine's own throttle or output: no. Not gated on an engine: always the main throttle.
+            Assert.Equal(new[] { false }, Glow(Part("x", Engine(0), Clip(1, "dependOnEngineState=True", "dependOnThrottle=True")), 1));
+            Assert.Equal(new[] { false }, Glow(Part("x", Engine(0), Clip(1, "dependOnEngineState=True", "dependOnOutput=True")), 1));
+            Assert.Equal(new[] { true, true }, Glow(Part("x", Engine(0, "A"), Engine(1, "B"), Clip(2, "animationName=a")), 2));
+            // The engine it names, by id, else by index.
+            Assert.Equal(new[] { false, true }, Glow(Part("x", Engine(0), Engine(1), Clip(2, "dependOnEngineState=True", "engineIndex=1")), 2));
+            Assert.Equal(new[] { false }, Glow(Part("x", Engine(0, "A"), Clip(1, "dependOnEngineState=True", "engineName=Other")), 1));
+            Assert.Equal(new[] { true, true }, Glow(Part("x", Engine(0, "A"), Engine(1, "B"), Clip(2, "dependOnEngineState=True", "preferMultiMode=True")), 2));
+            // ReStock's setter reads the same fields; every one it ships names dependOnThrottle.
+            Assert.Equal(new[] { true }, Glow(Part("x", Engine(0),
+                Mod(1, "FXModuleThrottleEffects", "FXModuleThrottleEffects,PartModuleFXSetter,PartModule", "dependOnEngineState=True")), 1));
+            // No clip, or a clip whose config nothing read (the committed part lists).
+            Assert.Equal(new[] { false }, Glow(Part("x", Engine(0)), 1));
+            Assert.Equal(new[] { false }, Glow(Part("x", Engine(0), Clip(1)), 1));
+            Assert.False(PartParityFxRules.GlowReadsMainThrottle(null, 0));
+        }
+
+        private static string[] Selected(PartParityStatePart p, string[] fx, bool air = true)
+            => Enumerate(p).Cases.Where(k => PartParityFxRules.KeySelected(k, fx, air)).Select(k => k.State).ToArray();
+
+        [Fact]
+        public void TheMainThrottleCases_AreAnAllRunsOnlyWhereAGlowReadsIt_AndEveryEnginesByName()
+        {
+            string[] all = PartParityFxRules.ArgWords;
+            Assert.Equal(new[] { "burn-full", "burn-low", "main-full", "main-low" }, Selected(Whiplash(), all));
+            Assert.Equal(new[] { "burn-full-m1", "burn-low-m1", "burn-full-m2", "burn-low-m2", "main-full-m2", "main-low-m2" },
+                Selected(Panther(), all));
+            // A run of every family but the plume plans neither.
+            Assert.Empty(Selected(Whiplash(), new[] { "rcs", "heat", "plate" }));
+            // The controls: an engine whose glow follows its own throttle, by name only.
+            var rocket = Part("liquidEngine2.v2", Engine(0), Clip(1, "dependOnEngineState=True", "dependOnThrottle=True"));
+            Assert.Equal(new[] { "burn-full", "burn-low" }, Selected(rocket, all, air: false));
+            Assert.Equal(new[] { "main-full", "main-low" }, Selected(rocket, new[] { "plume-main" }, air: false));
+            Assert.Equal(new[] { "burn-full", "burn-low", "main-full", "main-low" }, Selected(rocket, new[] { "plume", "plume-main" }, air: false));
+            Assert.Empty(Selected(rocket, new[] { "plume-main" }, air: true));
+            Assert.Equal(new[] { "main-full", "main-low" }, Selected(Whiplash(), new[] { "plume-main" }));
+            // The words parse; `all` stays the four.
+            Assert.True(TestCommandPartParitySweep.TryParseFx("all", out var words, out bool isAll));
+            Assert.True(isAll);
+            Assert.Equal(all, words);
+            Assert.True(TestCommandPartParitySweep.TryParseFx("plume-main,plume", out words, out isAll));
+            Assert.Equal(new[] { "plume", "plume-main" }, words);
+            Assert.False(TestCommandPartParitySweep.TryParseFx("main", out _, out _));
+        }
+
+        [Fact]
+        public void TheMainThrottleOption_AndTheExistingCasesIds()
+        {
+            var r = Enumerate(Whiplash());
+            PartParityFxOption full = r.Cases.Single(k => k.State == "main-full").FxOption, low = r.Cases.Single(k => k.State == "main-low").FxOption;
+            Assert.True(full.MainThrottle && full.MainThrottleGlow && low.MainThrottle && low.MainThrottleGlow);
+            Assert.Equal(1.0, full.Throttle);
+            Assert.Equal(0.3, low.Throttle);
+            Assert.Equal("plume", full.Family);
+            Assert.Equal(0, full.RecorderKeyIndex);
+            Assert.All(r.Cases.Where(k => k.State.StartsWith("burn")), k => Assert.False(k.FxOption.MainThrottle || k.FxOption.MainThrottleGlow));
+            // The independent-throttle cases keep the ids PP-5 flew (2026-11-23_1718): the new
+            // words are states of their own.
+            Assert.Equal(new[] { "turbofanengine--default--burn-full--air--d210f2a5", "turbofanengine--default--burn-low--air--1b7841c8" },
+                r.Cases.Where(k => k.State.StartsWith("burn")).Select(TestCommandPartParitySweep.CaseId));
+            Assert.StartsWith("turbojet--default--main-full-m2--air--",
+                TestCommandPartParitySweep.CaseId(Enumerate(Panther()).Cases.Single(k => k.State == "main-full-m2")));
+            // A control still stands for the independent-throttle burn.
+            Assert.Equal("burn-full", PartParityFxRules.ControlPlumeKey(r.Cases, true).State);
+        }
+
+        [Fact]
+        public void TheMainThrottleDrive()
+        {
+            // Stock's own line (decompiled ModuleEngines.UpdateThrottle).
+            Assert.Equal(1f, PartParityFxRules.RequestedThrottleFor(1f, 100f));
+            Assert.Equal(0.3f * (50f * 0.01f), PartParityFxRules.RequestedThrottleFor(0.3f, 50f));
+            Assert.True(PartParityFxRules.MainThrottleHeld(0.995, false, 1.0));
+            Assert.False(PartParityFxRules.MainThrottleHeld(1.0, true, 1.0));
+            Assert.False(PartParityFxRules.MainThrottleHeld(0.0, false, 1.0));
+            Assert.False(PartParityFxRules.MainThrottleHeld(double.NaN, false, 1.0));
+            // Only a case whose glow reads the throttle burns on past its spool.
+            PartParityFxOption hot = Enumerate(Whiplash()).Cases.Single(k => k.State == "main-full").FxOption;
+            Assert.Equal(60.0, PartParityFxRules.MinBurnSeconds(hot));
+            Assert.Equal(0.0, PartParityFxRules.MinBurnSeconds(new PartParityFxOption { Family = "plume", MainThrottle = true }));
+            Assert.Equal(0.0, PartParityFxRules.MinBurnSeconds(new PartParityFxOption { Family = "plume", MainThrottleGlow = true }));
+            Assert.Equal(0.0, PartParityFxRules.MinBurnSeconds(null));
+            // The bell's glow closes on the throttle by 0.0005 * 25 * 0.02 a physics step: half way at 60 s.
+            double level = 0.0;
+            for (int i = 0; i < 3000; i++) level += (1.0 - level) * 0.0005 * 25.0 * 0.02;
+            Assert.InRange(level, 0.52, 0.54);
+            // The wave bound covers it: 20 spawn + 60 burn + 20 plateau + 3 capture + 5 teardown.
+            Assert.Equal(20 + 60 + 20 + 3 + 5, PartParityFxRules.WaveWorstCaseSeconds(new List<PartParityFxOption> { hot }), 9);
         }
 
         [Fact]
@@ -231,6 +365,7 @@ namespace Parsek.Tests
 
         [Theory]
         // profile, orbit burn-full, orbit burn-low, air plume, rcs, heat, plate, throttle-locked, needs-air, ablator, reference
+        // (the independent-throttle cases; every engine that plans a burn-low plans two main-throttle cases)
         [InlineData("stock-minimal", 43, 31, 14, 7, 32, 15, 12, 7, 8, 0)]
         [InlineData("modded-compat", 60, 42, 14, 19, 26, 18, 18, 7, 12, 109)]
         public void TheFixtures_EnumerateTheE1Counts(string profile, int full, int low, int air, int rcs, int heat,
@@ -239,7 +374,11 @@ namespace Parsek.Tests
             var r = EnumerateFixture(profile);
             Assert.Equal(full, Count(r, "plume", "alone", "burn-full"));
             Assert.Equal(low, Count(r, "plume", "alone", "burn-low"));
-            Assert.Equal(air, Count(r, "plume", "air"));
+            Assert.Equal(air, Count(r, "plume", "air", "burn-full") + Count(r, "plume", "air", "burn-low"));
+            int main = r.Cases.Count(k => k.FxOption.MainThrottle);
+            Assert.Equal(2 * (low + Count(r, "plume", "air", "burn-low")), main);
+            // The part lists carry no clip config, so no case of theirs is an `fx=all` run's by its glow.
+            Assert.All(r.Cases, k => Assert.False(k.FxOption.MainThrottleGlow));
             Assert.Equal(rcs, Count(r, "rcs"));
             Assert.Equal(heat, Count(r, "heat"));
             Assert.Equal(plate, Count(r, "light", "plate"));
@@ -248,11 +387,11 @@ namespace Parsek.Tests
             Assert.Equal(ablator, Reasons(r, "fx-ablator-char"));
             // The config part lists carry no Light count, so no lamp is left out of them.
             Assert.Equal(0, Reasons(r, "fx-reentry-camera") + Reasons(r, "fx-blackbody") + Reasons(r, "fx-no-light"));
-            Assert.Equal(reference, r.Cases.Count(k => k.FxOption.Reference != null));
+            Assert.Equal(reference, r.Cases.Count(k => k.FxOption.Reference != null && !k.FxOption.MainThrottle));
             Assert.Equal(r.Cases.Count, r.Cases.Select(TestCommandPartParitySweep.CaseId).Distinct().Count());
             Assert.All(r.Cases, k => Assert.True(TestCommandCaptureScreenshot.IsValidLabel(TestCommandPartParitySweep.CaseId(k))));
             string line = PartParityFxRules.FormatCounts("all", "none", r.Cases, 3, r.Exclusions);
-            Assert.StartsWith("fx cases: fx=all contexts=none install=" + r.Cases.Count + " (plume=" + (full + low + air)
+            Assert.StartsWith("fx cases: fx=all contexts=none install=" + r.Cases.Count + " (plume=" + (full + low + air + main)
                 + " rcs=" + rcs + " heat=" + heat + " light=" + plate + ") planned=3", line);
         }
 
@@ -305,7 +444,7 @@ namespace Parsek.Tests
             Assert.Equal(0.06, r.Cases[0].FxOption.EngineAccelerationSpeed);
             Assert.Equal(1.1 * Math.Log(100.0) / 0.06, PartParityFxRules.PressTimeoutSeconds(r.Cases[0].FxOption), 9);
             Assert.Equal(20 + 1.1 * Math.Log(100.0) / 0.06 + 20 + 6 + 5,
-                PartParityFxRules.WaveWorstCaseSeconds(r.Cases.Select(k => k.FxOption).ToList()), 9);
+                PartParityFxRules.WaveWorstCaseSeconds(r.Cases.Select(k => k.FxOption).Where(o => !o.MainThrottle).ToList()), 9);
         }
 
         [Fact]
@@ -619,7 +758,7 @@ namespace Parsek.Tests
                 Mod(1, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=AirBreathing", "PROPELLANT.name=IntakeAir"),
                 Mod(2, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule", "engineID=ClosedCycle", "PROPELLANT.name=LiquidFuel"))).Cases;
             Assert.Same(rapier[0], PartParityFxRules.ControlPlumeKey(rapier, true));
-            Assert.Same(rapier[2], PartParityFxRules.ControlPlumeKey(rapier, false));
+            Assert.Same(rapier[4], PartParityFxRules.ControlPlumeKey(rapier, false));
             // The air controls' Flea breathes no air: its one plume is an orbit case, held in the
             // air. Its own key and option stay orbit ones.
             var flea = Enumerate(Part("solidBooster.sm.v2", Mod(0, "ModuleEnginesFX", "ModuleEnginesFX,ModuleEngines,PartModule",

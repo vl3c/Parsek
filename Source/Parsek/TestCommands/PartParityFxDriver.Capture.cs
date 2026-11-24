@@ -33,7 +33,10 @@ namespace Parsek.TestCommands
             bool solo = wave.Count == 1 && wave[0].Solo;
             PartParitySweepRunner.WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
             foreach (var wc in wave)
+            {
                 if (wc.Fx != null && wc.Fx.Stochastic) EnsureCheat(ctx, wc);
+                if (wc.Fx != null) NoteMainThrottle(ctx, wc);
+            }
             for (int i = 0; i < wave.Count; i++)
             {
                 WaveCase wc = wave[i];
@@ -1063,6 +1066,7 @@ namespace Parsek.TestCommands
                 { "cullingMask", PartParityJson.Int(fx.CullingMask) },
                 { "reference", o.Reference == null ? "null" : PartParityJson.Str(o.Reference) },
             };
+            ReadThrottle(wc);
             if (fx.Engine != null || fx.Rcs != null)
                 d["drive"] = PartParityJson.KeyedBlock(PartParityJson.FxDriveKeys, new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -1071,6 +1075,8 @@ namespace Parsek.TestCommands
                     { "currentThrottle", PartParityJson.Num(fx.DriveCurrentThrottle) },
                     { "recordedPower", PartParityJson.Num(fx.DriveRecordedPower) },
                     { "cheat", PartParityJson.Bool(ctx.FxCheatBefore.HasValue) },
+                    { "mainThrottle", PartParityJson.Num(fx.DriveMainThrottle) },
+                    { "independentThrottle", fx.DriveIndependentThrottle.HasValue ? PartParityJson.Bool(fx.DriveIndependentThrottle.Value) : "null" },
                 });
             if (fx.Hold != null)
                 d["hold"] = PartParityJson.KeyedBlock(PartParityJson.FxHoldKeys, new Dictionary<string, string>(StringComparer.Ordinal)

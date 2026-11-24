@@ -41,7 +41,8 @@ tier = "operator"
 # surface-frame test stand, exhaust straight down, spooled to the request (Goliath: 77 s) and
 # compared with its event-route and start-route ghosts as a distribution over 16 samples per
 # view. The 14 stock jet cases (Wheesley, Juno, Whiplash, Panther in both modes, Goliath, RAPIER
-# in air mode, at full and at 30 %) and the four air FX controls.
+# in air mode, at full and at 30 %), the Whiplash and the wet Panther on the vessel's main
+# throttle (design E.2, 4 cases, never flown here) and the four air FX controls.
 #
 # STEP SIZING (design D.8). About 1 minute of chute sweep: waves of up to five chutes, each about
 # 20 s (spawn, settle, semi, full, the canopy window, capture), plus the controls. One
