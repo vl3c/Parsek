@@ -1107,6 +1107,9 @@ class GhostlifeV2EmitterSourceGuardTests(unittest.TestCase):
         self.assertIn('"%s");' % ghostlife.OVERLAP_EXPIRED_REASON, src)
         self.assertIn('EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason)',
                       src)
+        # The reason the ghost-ending tokens exclude (test_ghost_ending_tokens).
+        self.assertIn('EmitMeshLifecycleTrace("MeshDestroyed", key, null, state, "engine teardown")',
+                      src)
 
 
 def after_update(rec_id="rec00001aaaabbbbccccddddeeeeffff", playback_ut="100.000",

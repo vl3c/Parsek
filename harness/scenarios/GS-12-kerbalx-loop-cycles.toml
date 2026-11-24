@@ -220,6 +220,8 @@ count = { min = 8, max = 8 }
 #   (100, 150): 150 (stage 1's own period), 30 (the global Auto interval, a multiple of
 #   P) and 10 (span/20 rounded up to P).
 #   "reason=overlap expired"       ghostlife v2 (tracing-gated).
+#   "Kerbal X Debris reason=(?!engine teardown)": the quit destroys every live copy, so an
+#   open reason is met by quitting (todo GHOST-ENDING-TOKENS-MET-BY-THE-QUIT).
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
              "Rewind-to-Launch initiated to UT",
@@ -229,7 +231,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=(?!engine teardown)",
              "missionconfig seeded 1 default mission\\(s\\) before resolving tree=",
              "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=150 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=150 ",
              "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=150 overlapCadence=150 overlaps=no [^\\r\\n]*fallMembers=1 fallOverlaps=yes",
