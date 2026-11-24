@@ -19957,7 +19957,7 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
     `fx=all` orbit run over the whole install (no `states=` and no `contexts=`, so the air
     cases stay F7's; no `skins=`, which governs stowed cases only), its own label so it never
     shares another lane's directory, the orbit FX control set, every step inside the S8 cap,
-    report-only verdicts and a budget covering every step. PP-9 flies PP-8's parts on the
+    the armed roster's verdict for it and a budget covering every step. PP-9 flies PP-8's parts on the
     Waterfall-free install, so its case list is the same and its steps are too."""
 
     LANES = {"PP-7-part-parity-fx-stock.toml": ("pp7", "stock-minimal", 4),
@@ -19992,7 +19992,8 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
                 self.assertEqual(load_spec("PP-3-part-parity-states-stock.toml")["driver"]["steps"][:len(pre)], pre)
                 self.assertEqual("WarpToUT", pre[-1]["cmd"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
