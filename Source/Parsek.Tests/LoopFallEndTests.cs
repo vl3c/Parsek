@@ -12,7 +12,7 @@ namespace Parsek.Tests
     /// behind, and a copy whose end is recorded keeps the overlap path's hold until the next launch.
     /// </summary>
     [Collection("Sequential")]
-    public class LoopFallEndTests : IDisposable
+    public partial class LoopFallEndTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
         private readonly List<string> destroyed = new List<string>();
@@ -348,6 +348,7 @@ namespace Parsek.Tests
             GhostPlaybackEngine engine = Engine(unit, probe);
             MockTrajectory traj = Traj(CoreStart, CoreEnd, predictedEnd: true);
             Seed(engine, 0);
+            MemberFrame(engine, probe, unit, traj, Ctx(400, watched: CoreIndex));
             MemberFrame(engine, probe, unit, traj, Ctx(600, 1000f, watched: CoreIndex), suppress: true);
             Assert.True(engine.ghostStates.ContainsKey(CoreIndex));
             MemberFrame(engine, probe, unit, traj, Ctx(700, watched: CoreIndex));
@@ -501,9 +502,11 @@ namespace Parsek.Tests
             var all = new List<IPlaybackTrajectory> { traj, traj };
             GhostPlaybackState state = Seed(engine, 0);
             bool active = false;
-            double ut = Frame(probe, () => engine.UpdateUnitMemberSelfOverlap(
-                CoreIndex, traj, default(TrajectoryPlaybackFlags), Ctx(300), all, unit, "unit-0",
+            double At(double now) => Frame(probe, () => engine.UpdateUnitMemberSelfOverlap(
+                CoreIndex, traj, default(TrajectoryPlaybackFlags), Ctx(now), all, unit, "unit-0",
                 SpanEnd - SpanStart, 60, 117, false, false, ref state, ref active));
+            Assert.Equal(116, At(285), 9);
+            double ut = At(300);
             Assert.Equal(predictedEnd ? double.NaN : 117, ut);
             Assert.Equal(!predictedEnd, engine.ghostStates.ContainsKey(CoreIndex));
             Assert.Equal(predictedEnd ? Cycle0Ending : new string[0], events);
@@ -516,7 +519,7 @@ namespace Parsek.Tests
             GhostPlaybackEngine engine = Engine(CutUnit(900), probe);
             MockTrajectory debris = Traj(90, 250, predictedEnd: true, name: "Booster");
             // The cut puts cycle 0's span end at 289.5; the fall ends 109.5 s later, at 399.
-            Seed(engine, 0, DebrisIndex);
+            Seed(engine, 0, DebrisIndex).fallClockOffsetUT = 289.5 - SpanEnd;
             DebrisFrame(engine, probe, debris, Ctx(420));
             Assert.False(engine.ghostStates.ContainsKey(DebrisIndex));
             Assert.Equal(0, Copies(engine, DebrisIndex));

@@ -230,6 +230,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// How far (seconds) a fall copy's clock may move under a rebuilt loop unit and still be the
+        /// same copy: below the recorded sampling, far below any edit of a loop's period.
+        /// </summary>
+        internal const double FallClockShiftToleranceSeconds = 0.5;
+
+        /// <summary>
+        /// True when a fall copy belongs to a schedule its unit no longer flies, which an edit leaves
+        /// behind (a raised or shortened period, a moved anchor, another relaunch schedule): its cycle is
+        /// newer than the newest launch, or an overlap copy's cycle IS the newest (the slot draws that
+        /// one), or its clock moved. A copy with no clock yet (the path never drove it) is stale when it
+        /// would be read before its start or past its end. Such a copy ends quietly: read on the new
+        /// schedule it would hang at its start for hours, or explode on the frame of the edit. The first
+        /// run's fall and a ghost of no cycle are never stale. Pure.
+        /// </summary>
+        internal static bool IsStaleFallCopy(
+            long cycle, long newestCycle, bool inSlot, double stampedOffsetUT, double offsetUT,
+            double phaseSeconds, double durationSeconds)
+        {
+            if (cycle < 0)
+                return false;
+            if (cycle > newestCycle || (!inSlot && cycle == newestCycle))
+                return true;
+            if (double.IsInfinity(phaseSeconds))
+                return !(inSlot && cycle == newestCycle);
+            if (double.IsNaN(stampedOffsetUT))
+                return phaseSeconds < 0.0 || phaseSeconds > durationSeconds;
+            return FallClockMoved(stampedOffsetUT, offsetUT);
+        }
+
+        /// <summary>True when a stamped fall clock and the current one are not the same clock. Pure.</summary>
+        internal static bool FallClockMoved(double stampedOffsetUT, double offsetUT)
+        {
+            return !double.IsNaN(stampedOffsetUT)
+                && !(Math.Abs(stampedOffsetUT - offsetUT) <= FallClockShiftToleranceSeconds);
+        }
+
+        /// <summary>
         /// How close to its window end predicted data must reach to be what ends it: an explicit end
         /// stamped with the prediction may sit a sample step past the last predicted segment.
         /// </summary>

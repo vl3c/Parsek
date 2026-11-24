@@ -1332,6 +1332,29 @@ namespace Parsek
                 kscOverlapGhosts[recIdx] = overlaps;
             }
 
+            // A loop edit renumbers the launches: a fall copy of the schedule before it ends quietly.
+            if (endAtOwnEnd && !suppressGhosts)
+            {
+                if (primaryActive && IsStaleFallCopyKsc(
+                        currentUT, primaryState, lastCycle, true, duration, cycleDuration,
+                        playbackStartUT, scheduleStartUT))
+                {
+                    DestroyStaleFallCopyKsc(recIdx, primaryState);
+                    kscGhosts.Remove(recIdx);
+                    loggedGhostSpawn.Remove(recIdx);
+                    primaryState = null;
+                    primaryActive = false;
+                }
+                for (int j = overlaps.Count - 1; j >= 0; j--)
+                    if (overlaps[j] != null && IsStaleFallCopyKsc(
+                            currentUT, overlaps[j], lastCycle, false, duration, cycleDuration,
+                            playbackStartUT, scheduleStartUT))
+                    {
+                        DestroyStaleFallCopyKsc(recIdx, overlaps[j]);
+                        overlaps.RemoveAt(j);
+                    }
+            }
+
             // A fall whose period is longer than its window ends at its own end (the overlap loop below
             // expires it there) and its cycle is not drawn again before the next launch.
             if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
@@ -1410,6 +1433,9 @@ namespace Parsek
                 primaryState = SpawnKscGhost(rec, recIdx);
                 if (primaryState == null) return;
                 primaryState.loopCycleIndex = lastCycle;
+                if (endAtOwnEnd)
+                    primaryState.fallClockOffsetUT =
+                        scheduleStartUT + lastCycle * cycleDuration - playbackStartUT;
                 kscGhosts[recIdx] = primaryState;
                 PauseGhostAudioIfMenuOpen(primaryState);
                 ParsekLog.Verbose("KSCGhost",
@@ -1455,6 +1481,33 @@ namespace Parsek
                 recIdx, rec, currentUT, overlaps, duration, cycleDuration,
                 playbackStartUT, scheduleStartUT, suppressVisualFx,
                 keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+        }
+
+        void DestroyStaleFallCopyKsc(int recIdx, GhostPlaybackState copy)
+        {
+            ParsekLog.VerboseRateLimited("KSCGhost",
+                "fall-stale-" + recIdx.ToString(CultureInfo.InvariantCulture),
+                $"Ghost #{recIdx} fall copy cycle={copy.loopCycleIndex} ended quietly: "
+                    + "the loop's schedule changed under it");
+            DestroyKscGhost(copy, recIdx);
+        }
+
+        // Whether one fall copy is of a schedule the unit no longer flies; stamps the clock of one that
+        // is not (the flight engine's rule, GhostPlaybackLogic.IsStaleFallCopy).
+        static bool IsStaleFallCopyKsc(
+            double currentUT, GhostPlaybackState copy, long newestCycle, bool inSlot, double duration,
+            double cycleDuration, double playbackStartUT, double scheduleStartUT)
+        {
+            if (copy.loopCycleIndex < 0)
+                return false;
+            double offsetUT = scheduleStartUT + copy.loopCycleIndex * cycleDuration - playbackStartUT;
+            if (GhostPlaybackLogic.IsStaleFallCopy(
+                    copy.loopCycleIndex, newestCycle, inSlot, copy.fallClockOffsetUT, offsetUT,
+                    currentUT - offsetUT - playbackStartUT, duration))
+                return true;
+            if (double.IsNaN(copy.fallClockOffsetUT))
+                copy.fallClockOffsetUT = offsetUT;
+            return false;
         }
 
         /// <summary>The overlap ghosts of <see cref="UpdateOverlapKsc"/> (older cycles, reverse iterate):

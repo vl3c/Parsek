@@ -238,6 +238,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: $"unit member anchor {traj.LoopAnchorVesselId} unloaded");
                     DestroyAllOverlapGhosts(i);
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
                 return;
             }
@@ -300,6 +301,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: "unit span clock unresolved");
                     DestroyAllOverlapGhosts(i);
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
@@ -331,6 +333,11 @@ namespace Parsek
                 keepFallCopies = UpdateNonUniformFall(
                     i, traj, f, ctx, unit, unitCycle, memberStartUT, memberEndUT,
                     suppressGhosts, suppressVisualFx, ref decision, ref spanLoopUT, ref state, ref ghostActive);
+            }
+            else
+            {
+                // An edit can end the fall's outlasting of the span under its copies.
+                DropUndrivenFallCopies(i, traj, f, ctx);
             }
 
             // DESCENT TRIGGER (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the FLIGHT

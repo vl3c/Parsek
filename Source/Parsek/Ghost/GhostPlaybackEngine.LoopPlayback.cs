@@ -193,6 +193,9 @@ namespace Parsek
                             return true;
                         }
 
+                        // Copies of a fall drawn per launch, before an edit took those cycles away.
+                        DropUndrivenFallCopies(i, traj, f, ctx);
+
                         // Pass parentUnit.RelaunchSchedule so ride-along debris rides its scheduled
                         // parent's non-uniform launches (NOT the debris's own); null for a non-scheduled
                         // parent keeps the uniform path. With a scheduled parent (or any unit whose
@@ -231,6 +234,13 @@ namespace Parsek
                             parentLoopUT = debrisFallUT;
                             parentPaused = false;
                             debrisFallEnded = debrisFallUT > traj.EndUT;
+                        }
+                        if (debrisHasFall && TryDropStaleDebrisFall(
+                                i, traj, f, parentUnit, parentCycle, parentInInterCycleTail,
+                                debrisFallEnded, state))
+                        {
+                            state = null;
+                            ghostActive = false;
                         }
                         ParsekLog.VerboseOnChange(
                             "Engine",
@@ -882,6 +892,15 @@ namespace Parsek
             if (suppressOverlapGhosts && stopAfterSuppressOverlapGhostsForTesting)
                 return;
 
+            // A loop edit renumbers the launches: a fall copy of the schedule before it is never read on
+            // this one (nor a fall's copy on a path that draws no fall).
+            if (endAtOwnEnd)
+                primaryState = DropStaleFallCopies(
+                    index, traj, flags, ctx, primaryState, lastCycle, duration, cycleDuration,
+                    playbackStartUT, scheduleStartUT);
+            else
+                DropUndrivenFallCopies(index, traj, flags, ctx);
+
             // A fall whose period is longer than its window: the newest copy ends at its own end and
             // its cycle is not drawn again. (A copy whose end is recorded is held there, below.)
             if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
@@ -951,6 +970,9 @@ namespace Parsek
                     primaryState = CreatePendingSpawnState(
                         traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
                     primaryState.loopCycleIndex = lastCycle;
+                    if (endAtOwnEnd)
+                        primaryState.fallClockOffsetUT =
+                            scheduleStartUT + lastCycle * cycleDuration - playbackStartUT;
                     ghostStates[index] = primaryState;
                     GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
                         index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
@@ -1122,7 +1144,9 @@ namespace Parsek
                 long cycle = ovState.loopCycleIndex;
                 if (GhostPlaybackLogic.IsFallCopyPastCap(cycle, oldestDrawnCycle))
                 {
-                    EndFallCopyQuietly(index, traj, flags, ctx, ovState, cycle);
+                    EndFallCopyQuietly(
+                        index, traj, flags, ctx, ovState, cycle, "at the copy cap", "fall copy cap",
+                        " cap=" + GhostPlayback.MaxOverlapGhostsPerRecording.ToString(CultureInfo.InvariantCulture));
                     overlaps.RemoveAt(i);
                     continue;
                 }
