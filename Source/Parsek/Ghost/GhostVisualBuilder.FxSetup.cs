@@ -702,6 +702,7 @@ namespace Parsek
                                 emitField = emitField
                             });
                         }
+                        RegisterWorldSpaceEmitter(behaviours[i] as KSPParticleEmitter);
                         break;
                     case "SmokeTrailControl":
                         // Stripped: stock's Update reads FlightGlobals.ship_dns, the ACTIVE
@@ -724,11 +725,26 @@ namespace Parsek
                         // pre-audit and smoke trails worked. Stripping kills smoke.
                         // Keep alive — any NREs are caught by Unity and don't crash.
                         break;
-                    case "FXPrefab":
-                        Object.Destroy(behaviours[i]);
-                        break;
+                    // FXPrefab stays: it registers a world-space system with FloatingOrigin while it
+                    // is enabled, and an unregistered one rides along with the active vessel.
                 }
             }
+        }
+
+        /// <summary>
+        /// Gives a world-space emitter of a ghost clone the origin shift stock gives a part's
+        /// (<see cref="GhostWorldSpaceEmitter"/>). An emitter whose system carries stock's
+        /// <c>FXPrefab</c> is already shifted by it.
+        /// </summary>
+        private static void RegisterWorldSpaceEmitter(KSPParticleEmitter emitter)
+        {
+            if (emitter == null || !emitter.useWorldSpace) return;
+            if (emitter.GetComponent<FXPrefab>() != null) return;
+            if (emitter.GetComponent<GhostWorldSpaceEmitter>() != null) return;
+            emitter.gameObject.AddComponent<GhostWorldSpaceEmitter>().emitter = emitter;
+            ParsekLog.VerboseRateLimited("GhostVisual", $"world-space-emitter-{emitter.gameObject.name}",
+                $"World-space emitter follows the floating origin: fx='{emitter.gameObject.name}' " +
+                $"registered={GhostWorldSpaceEmitter.RegisteredCount}", 60.0);
         }
 
         private static void CaptureSmokeTrailFade(SmokeTrailControl control, List<GhostSmokeTrailFade> sink)
