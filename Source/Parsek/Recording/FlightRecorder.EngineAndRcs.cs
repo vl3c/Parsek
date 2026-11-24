@@ -8,6 +8,16 @@ using UnityEngine;
 
 namespace Parsek
 {
+    /// <summary>
+    /// One armed engine of the settled-throttle rule: the power it last moved to and since when
+    /// it has stayed there.
+    /// </summary>
+    internal struct EngineThrottleStill
+    {
+        internal float reference;
+        internal double sinceUT;
+    }
+
     // Engine and RCS module caching, key encoding, power, debounce, state polling and terminal
     // events.
     public partial class FlightRecorder
@@ -227,13 +237,65 @@ namespace Parsek
             return 0f;
         }
 
+        /// <summary>
+        /// True when an armed engine's power is off its last recorded value by more than
+        /// <see cref="EngineThrottleSettleEpsilon"/>, so standing still would write an event. Both
+        /// values must be positive: a settled event refines a burn, it never starts or ends one.
+        /// </summary>
+        internal static bool IsEngineSettlePending(
+            ulong key, float throttle,
+            Dictionary<ulong, float> lastThrottleMap,
+            Dictionary<ulong, EngineThrottleStill> stillMap)
+        {
+            if (stillMap == null || !stillMap.ContainsKey(key)) return false;
+            if (lastThrottleMap == null || !lastThrottleMap.TryGetValue(key, out float last)) return false;
+            if (!(throttle > 0f) || !(last > 0f)) return false;
+            float delta = throttle - last;
+            return delta > EngineThrottleSettleEpsilon || delta < -EngineThrottleSettleEpsilon;
+        }
+
+        /// <summary>
+        /// Moves an armed engine's still window to this frame's power. Returns true when the power
+        /// has stayed within <see cref="EngineThrottleStillNoise"/> of one value for
+        /// <see cref="EngineThrottleSettleSeconds"/>. The comparison is against the value the window
+        /// started at, never the previous frame, so a slow drift restarts the window.
+        /// </summary>
+        internal static bool AdvanceEngineThrottleStill(
+            ulong key, float throttle, double ut,
+            Dictionary<ulong, EngineThrottleStill> stillMap)
+        {
+            if (stillMap == null || !stillMap.TryGetValue(key, out EngineThrottleStill still)) return false;
+            float moved = throttle - still.reference;
+            if (moved > EngineThrottleStillNoise || moved < -EngineThrottleStillNoise || ut < still.sinceUT)
+            {
+                stillMap[key] = new EngineThrottleStill { reference = throttle, sinceUT = ut };
+                return false;
+            }
+            return ut - still.sinceUT >= EngineThrottleSettleSeconds;
+        }
+
+        /// <summary>
+        /// The one engine event rule both recorders run every physics frame. While the power moves
+        /// it writes one <see cref="PartEventType.EngineThrottle"/> per
+        /// <see cref="EngineThrottleDeadband"/>; when it stops moving it writes one more, at the
+        /// settled value (stamped when the window closes, so events stay in time order).
+        ///
+        /// <para><paramref name="stillMap"/> holds the ARMED engines only: a key enters with an
+        /// EngineIgnited or EngineThrottle written here and leaves with the engine. A seeded engine
+        /// is therefore not armed until it writes its own event, so a settled event always follows a
+        /// recorded event of the same engine in the same session, and the tail trim, the no-op
+        /// classifiers and the phase analyzer read it like the event before it. Null turns the
+        /// settled rule off.</para>
+        /// </summary>
         internal static void CheckEngineTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool ignited, float throttle,
             HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut,
-            List<PartEvent> events)
+            List<PartEvent> events,
+            Dictionary<ulong, EngineThrottleStill> stillMap = null)
         {
             bool wasActive = activeSet.Contains(key);
+            if (!ignited) stillMap?.Remove(key);
 
             if (ignited && !wasActive)
             {
@@ -258,6 +320,8 @@ namespace Parsek
                     moduleIndex = moduleIndex
                 });
                 lastThrottleMap[key] = throttle;
+                if (stillMap != null)
+                    stillMap[key] = new EngineThrottleStill { reference = throttle, sinceUT = ut };
             }
             else if (!ignited && wasActive)
             {
@@ -278,8 +342,12 @@ namespace Parsek
                 if (!lastThrottleMap.TryGetValue(key, out lastT))
                     lastT = 0f;
 
+                bool still = AdvanceEngineThrottleStill(key, throttle, ut, stillMap);
                 float delta = throttle - lastT;
-                if (delta > EngineThrottleDeadband || delta < -EngineThrottleDeadband)
+                bool stepped = delta > EngineThrottleDeadband || delta < -EngineThrottleDeadband;
+                bool settled = !stepped && still
+                    && IsEngineSettlePending(key, throttle, lastThrottleMap, stillMap);
+                if (stepped || settled)
                 {
                     lastThrottleMap[key] = throttle;
                     events.Add(new PartEvent
@@ -291,6 +359,14 @@ namespace Parsek
                         value = throttle,
                         moduleIndex = moduleIndex
                     });
+                    if (stepped && stillMap != null && !stillMap.ContainsKey(key))
+                        stillMap[key] = new EngineThrottleStill { reference = throttle, sinceUT = ut };
+                    if (settled)
+                        ParsekLog.Verbose("Recorder",
+                            $"Engine throttle settled: pid={pid} midx={moduleIndex} part='{partName}' " +
+                            $"last={lastT.ToString("F4", CultureInfo.InvariantCulture)} " +
+                            $"settled={throttle.ToString("F4", CultureInfo.InvariantCulture)} " +
+                            $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
                 }
             }
         }
@@ -378,7 +454,7 @@ namespace Parsek
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
                     ignited, recordedPower,
-                    activeEngineKeys, lastThrottle, ut, reusableEventBuffer);
+                    activeEngineKeys, lastThrottle, ut, reusableEventBuffer, engineThrottleStill);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {

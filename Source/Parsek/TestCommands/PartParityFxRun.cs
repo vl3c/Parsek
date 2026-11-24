@@ -110,6 +110,9 @@ namespace Parsek.TestCommands
         internal readonly Dictionary<ulong, int> RcsFrameCounts = new Dictionary<ulong, int>();
         internal readonly List<PartEvent> EventBuffer = new List<PartEvent>();
 
+        /// <summary>The engine poll's own settled-throttle state (the recorder's <c>engineThrottleStill</c>).</summary>
+        internal readonly Dictionary<ulong, EngineThrottleStill> EngineStill = new Dictionary<ulong, EngineThrottleStill>();
+
         internal FlightInputCallback RcsInput;
         internal PartParityRcsChoice RcsChoice;
         internal readonly List<int> RcsFired = new List<int>();
