@@ -1153,8 +1153,8 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     # the new number was re-derived from the scan, not shifted by arithmetic.
     # It moved 2376 -> 2445 on 2026-11-22: the faithful-seed PhaseLock tolerance
     # (todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS) landed above it.
-    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445"),
+    ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:737"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2506"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS

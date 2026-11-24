@@ -79,6 +79,16 @@ tier = "daily"
 #   after `Batch execution skipped 1 single-run-only test(s)`, so the pin is literal
 #   again and the one skip is still the batch-disabled canary.
 #
+#   INTERIM 2026-11-24: IconRevealDriveInGameTest was added (todo
+#   MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24), so the source derives total=22 = 0
+#   scene-skipped + 1 batch-skipped + 21 executable. Not flown yet: the pinned 21 / 1 is
+#   the prediction, not a reading. It is pinned as a literal all the same because the
+#   cell's own line is required below, so the one way to read another split (the cell
+#   standing down) reds the lane anyway. That line is the live gate of the fix: the cell
+#   stages the hide, stock's step, the seed and the Postfix inside one frame, so it does
+#   not depend on the frame rate the way TP-6's handoff does. It prints after the reveal,
+#   with the distance the icon was at before (`staleMeters`) and after it.
+#
 #   PredictedTailMapRender: body=Kerbin radius=600000 atm=70000 sma=840500
 #     ecc=0.296847 tail=[3811.9,5022.0] entry=4853.3 legs=2 arcs=1 hole=0.0s
 #     tailPts=26 worstBelowSurface=0.000m tol=0.457m
@@ -292,7 +302,8 @@ count = { min = 274, max = 274 }
 # All are ParsekLog.Info, so they survive with verbose off.
 required = [
   "BATCH_COMPLETE v1 .* failed=0\\b",
-  "BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1 category=MapRender scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] IconRevealDrive: pid=\\d+ frame=\\d+ staleMeters=[1-9][0-9]{5,} placedMeters=[0-9]\\.\\d+ drawIcons=OBJ suppressed=False lineActive=True testFrameUnchanged=True",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Kerbin: pid=\\d+ body=Kerbin sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Mun: pid=\\d+ body=Mun sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ReaimedLoop_SynthOracle: pid=\\d+ recordedLAN=\\d+ reaimedLAN=\\d+ \\| synthDev=\\d+m synthTol=\\d+m \\(ZERO\\) \\| faithfulDev=\\d+m faithfulTol=\\d+m \\(FLAGGED\\)",
