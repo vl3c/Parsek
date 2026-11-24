@@ -459,7 +459,7 @@ namespace Parsek
         /// snapshot carries no persisted key that reflects actual spin:
         /// <c>ModuleRoboticServoRotor.currentRPM</c> is not persistent, and the persisted
         /// <c>rpmLimit</c> is a SETTING (230 by default, 460 on every stock Breaking Ground
-        /// helicopter). <see cref="GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey"/>
+        /// helicopter). <see cref="PartStateSeeder.TryResolveSnapshotRoboticPoseKey"/>
         /// therefore refuses to give a rotor a baseline at all, so
         /// <c>hasSnapshotBaseline</c> is false for every rotor and this parks
         /// unconditionally — the pre-M1 behaviour. If a persisted spin-state key ever
