@@ -20,6 +20,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE~~: an unchanged orbital recording was rewritten on every cold load and commit, and a supply route flown from it paused for good [FOUND 2026-11-24 from the `normalization Ensure mutated` lines repeating in the release flights, by log and code. FIXED 2026-11-24, branch bridge-changed; xUnit; not flown; medium]
+
+`OrbitSegmentCheckpointBridgeStats.Changed` counted `SkippedCovered` ("this flat segment lies inside
+closed checkpoint sections and matches none exactly"), which only asks for the flat orbit rebuild. The
+recorded shape that never settles: a coast that crosses a section boundary on rails, so the later
+checkpoint section holds the whole coast and its checkpoint starts before the section does
+(`cs-career-mun2` recording 23e74057: section 60838.63-61194.70, checkpoint 60612.65-61194.70). The
+exact match compares the checkpoint with the SECTION's span, so it misses on every pass; the rebuild
+puts the same list back and the pass says it changed something. Read over the committed fixtures: 50 of
+610 `.prec` files never settled, all 50 with a byte-equal flat list after the pass.
+
+Cost, per affected recording: `FindSplitCandidatesForOptimizer` (`markDirty: true`) runs on every cold
+load, tree commit and Re-Fly merge, so `FlushDirtyFiles` rewrote its sidecars, refitted its smoothing
+and left the epoch advance pending, and the next OnSave rewrote it again at epoch N+1. A supply route
+compares that epoch (`RouteStore.FirstDifferingField`, `sidecar-epoch`), so a route on such a source
+read `SourceChanged` after the load and never recovered (reproduced in xUnit on the old count; the note in
+ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW's side question, "the specific case cannot fire in practice", was wrong).
+`SessionMerger.MergeTree` dirtied it the same way. The archived flight logs through 2026-11-24 hold 6295
+such optimizer passes; merge / split convergence never read the stats (`RunMergeSplitToFixedPoint`
+counts merges, splits and role re-reads).
+
+Fix: the rebuild returns whether the list differs, field by field (exact, NaN equal to NaN; an unchanged
+list keeps its instance), and `Changed` counts that (`FlatOrbitCacheChanged`) in place of
+`SkippedCovered`. A covered envelope the rebuild drops or replaces still counts, once. Other readers:
+`AnyMutation` (the dirty mark, the cached-stats reset, the two log lines), `SplitAtUT`'s restore line
+(text only); `SectionOrdinalsShifted` never read it. Nothing needed the over-report. No recorded data is
+changed by this: the wide checkpoint stays as recorded. Tests: `CheckpointBridgeChangedTests` (the wide
+checkpoint, a NaN conic, the two mirror cells, the optimizer pass, every committed fixture settles after
+one pass), `RouteSourceEpochMetadataRewriteTests.OptimizationPass_OverAWideCheckpointSource_LeavesItClean_RouteStaysActive`;
+six mutations, all red.
+
 ## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
 
 FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
@@ -6560,8 +6591,9 @@ Side question (sidecar flush -> SourceChanged): the mechanism is real and by des
 reads as `SourceChanged/sidecar-epoch-drift` and never auto-recovers. The specific case named
 above cannot fire in practice: `FindSplitCandidatesForOptimizer`'s
 `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` dirties a recording only on
-an actual mutation, Ensure is idempotent (pinned by `EnsurePassIntegrityTests
-.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
+an actual mutation (true only since 2026-11-24, CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE: until
+then a checkpoint wider than its section dirtied on every pass), Ensure is idempotent (pinned by
+`EnsurePassIntegrityTests.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
 its own commit before a route can name it, and the route captures the pending advance of that
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
