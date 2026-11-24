@@ -35,6 +35,14 @@ namespace Parsek
 
         internal static int RegisteredCount => registered.Count;
 
+        internal static Vector3d TotalShiftForTesting => totalShift;
+
+        internal static void ResetForTesting()
+        {
+            registered.Clear();
+            totalShift = Vector3d.zero;
+        }
+
         private void OnEnable()
         {
             hasSample = false;
