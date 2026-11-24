@@ -1,0 +1,153 @@
+schema = 1
+id = "FLG-2-flag-window-passed-without-ghost"
+# =====================================================================================
+# FLG-2: A COMMITTED FLAG IS PLANTED AFTER A REWIND EVEN WHEN ITS RECORDING'S WINDOW PASSES
+# WITH NO GHOST ON SCREEN (todo FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24; flight
+# recorder design 4.13).
+# AUTHORED 2026-11-24 (branch `flag-no-ghost`). NOT FLOWN YET.
+#
+# WHAT IT PROVES. The ghost walks (GhostPlaybackLogic.ApplyFlagEvents) need a ghost or a
+# rendered frame inside the recording's window. The Tracking Station draws no ghost mesh and
+# runs no flag walk at all, so a window that passes there is the deterministic form of the
+# loss WF-1 met under high warp (whether a ghost exists there depends on the frame phase).
+# The next Space Center visit must plant the flag (ReplayedFlagCatchUp, host=ksc), and the
+# visit after that must find it standing and plant nothing.
+# On a build without the fix nothing plants it: no "Spawned flag vessel" after the rewind.
+#
+# THE HOST AND ACT 1 are FLG-1's without the pick-up: gloops-airshow, Jeb in a mk1pod.v2
+# PRELAUNCH on the pad at UT 21.16; StartRecording (captures the rewind save), EvaExit,
+# PlantFlag (about UT 32), EvaBoard, StopRecording, CommitTree, StopRecording.
+# ACT 2: InvokeRewindToLaunch lands at the Space Center about UT 7.8, 24 s before the plant;
+# SaveGame + LoadGame scene=trackstation at once, so the Space Center never sees the kerbal's
+# window. This load and ACT 4's carry playerLoad=true (Cold save-file loads, gated below), so
+# the replay scope must also come back from the save (PLAYBACK_REPLAY_SCOPE): a lost scope
+# reads as historical and plants nothing.
+# ACT 3: rails warp in the Tracking Station to UT 300, past every recording's end, SaveGame.
+# ACT 4: LoadGame scene=spacecenter, a 1x wait: the catch-up plants the flag.
+# ACT 5: SaveGame, LoadGame scene=spacecenter again (a plain in-session load): the second
+# visit finds it standing, read back from the save.
+#
+# PRE-REGISTERED READINGS (first flight):
+#   - no "Flag catch-up" line after flg2-ts-past: the replay scope was lost across the cold
+#     loads, or the walk is not wired. "planted=0 alreadyPresent=1" on the first visit: a
+#     flag stood there already, so the rewind world still held it (read the rewind load).
+#   - "Spawned flag vessel" between flg2-rewound and flg2-ts-past: a ghost got in first (the
+#     Space Center stayed past the plant UT): the hop to the Tracking Station was late.
+#   - a second plant on the second visit: the dedup missed the standing flag.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: FLG-1's host and prefix; its own claim
+# is the 1x ghost replay with a pick-up, so the two cannot share a flight; (2) explicit-UT
+# WarpToUT waits only; (3)-(5) no dwell, burn or coast; (6) retry once (the EVA verbs have a
+# ragdoll flake history); (7) count pinned 4..4 (FLG-1's and EVA-1's four); (8) nightly,
+# expected ~4 min; (9) flight_efficiency.py owed on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A flag planted on a committed flight comes back after a rewind even when its recording's window passes without a ghost: on gloops-airshow Jeb steps out of the pad pod with a recording live, plants a flag and re-boards, the tree commits, Rewind-to-Launch goes back before the plant, the window passes under rails warp in the Tracking Station, and the next Space Center visit plants the flag once (the visit after finds it standing)"
+instanceProfile = "stock-minimal"
+tags = ["FLG-2", "eva", "flag-plant", "rewind-to-launch", "scene-ksc", "scene-ts",
+        "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft              = []
+# gloops-airshow carries stock's new-game intro with `tsComplete = False`: the first
+# Tracking Station visit sets the `intro_TS` lock, which holds TIMEWARP and makes
+# WarpToUT refuse above 1x there (`warptout refused reason=warp-locked
+# holders=intro_TS`, runs `2026-11-24_1628` / `_1629`). kscComplete and editorComplete
+# are True, so the stage step removes the intro node (savepatch.apply_ts_intro_done).
+trackingStationIntroDone = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # LOAD-BEARING: "Spawned flag vessel" and the second visit's catch-up line are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # ACT 1: the recorded flight. Its start captures the rewind save.
+  { cmd = "StartRecording",                                                       expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "flg2-exit" },                       expect = "OK" },
+  { cmd = "EvaExit",        args = { release = "true" },                          expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                            expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "flg2-planted" },                    expect = "OK" },
+  { cmd = "EvaBoard",                                                             expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  # ACT 2: back to before the plant, then straight into the Tracking Station.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "flg2-rewound" },                    expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation", playerLoad = "true" }, expect = "OK", budget = 300 },
+  # ACT 3: the whole flight passes with no ghost and no flag walk.
+  { cmd = "WarpToUT",       args = { ut = "300", maxRate = "50" },                expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "flg2-ts-past" },                    expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
+  # ACT 4: the Space Center plants it.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "305", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "flg2-ksc" },                        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                       expect = "OK", budget = 120 },
+  # ACT 5: a later visit plants nothing.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "310", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "flg2-ksc-again" },                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["eva-branch"]
+D7  = ["flag-plant"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-ts", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# FLG-1's and EVA-1's four (pod root, pod continuation, Jeb's EVA, the board merge).
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required = [
+  "Captured rewind save at UT",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "MISSIONMARK label=flg2-exit[\\s\\S]*Flag event captured \\(foreground recorder pid=[0-9]+\\)[\\s\\S]*MISSIONMARK label=flg2-planted ",
+  "detected boarding from EVA",
+  "committree committed=true",
+  "Rewind-to-Launch initiated to UT",
+  # Both loads around the passed window are Cold save-file loads.
+  "MISSIONMARK label=flg2-rewound [\\s\\S]*Load classified: early=Cold refined=Cold scene=TRACKSTATION [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*MISSIONMARK label=flg2-ts-past [\\s\\S]*Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*MISSIONMARK label=flg2-ksc ",
+  # THE CLAIM: the first Space Center visit after the window plants it, once.
+  "MISSIONMARK label=flg2-ts-past [\\s\\S]*Spawned flag vessel: '[^'\\r\\n]*' by 'Jebediah Kerman' [\\s\\S]*Flag catch-up: rec=[0-9a-f]+ host=ksc currentUT=[0-9.]+ endUT=[0-9.]+ eligible=1 planted=1 alreadyPresent=0 removedByPlayer=0 failed=0[\\s\\S]*MISSIONMARK label=flg2-ksc ",
+  # The next visit finds it standing.
+  "MISSIONMARK label=flg2-ksc [\\s\\S]*Flag catch-up: rec=[0-9a-f]+ host=ksc currentUT=[0-9.]+ endUT=[0-9.]+ eligible=1 planted=0 alreadyPresent=1 removedByPlayer=0 failed=0[\\s\\S]*MISSIONMARK label=flg2-ksc-again ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording start-refused",
+  "evaexit refused",
+  "evaexit timeout",
+  "plantflag refused",
+  "plantflag failed",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Flag catch-up gave up",
+  # Nothing planted it before the Space Center visit (PRE-REGISTERED READINGS).
+  "MISSIONMARK label=flg2-rewound (?:(?!MISSIONMARK label=flg2-ts-past )[\\s\\S])*Spawned flag vessel",
+  "MISSIONMARK label=flg2-rewound [\\s\\S]*Flag replay skipped",
+  # Planted once.
+  "MISSIONMARK label=flg2-rewound [\\s\\S]*Spawned flag vessel[\\s\\S]*Spawned flag vessel",
+]
+
+[runtime]
+# Four loads at 300, the EVA verbs, the rewind 300, the warps, plus margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
