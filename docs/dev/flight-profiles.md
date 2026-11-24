@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 540 |
-| LIVE-PROVEN date in status row | 585 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 587 |
+| no LIVE-PROVEN date | 118 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -62,7 +62,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FAR | 6 | - | - | 6 | - | - | 6 |
 | FFC | 1 | - | - | 1 | - | - | 1 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
-| FLG | 2 | - | 2 | - | - | - | 1 |
+| FLG | 2 | - | 2 | - | - | - | 2 |
 | FLY | 5 | - | 5 | - | - | - | 5 |
 | FORGE | 10 | - | - | 10 | - | 9 | 5 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
@@ -82,7 +82,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | LAB | 18 | - | 1 | 17 | - | 1 | 18 |
 | LABX | 1 | - | - | 1 | - | 1 | 1 |
 | LAY | 1 | - | - | 1 | - | 1 | 1 |
-| LF | 3 | - | 2 | 1 | - | - | 2 |
+| LF | 3 | - | 2 | 1 | - | - | 3 |
 | LS | 1 | - | 1 | - | - | - | 1 |
 | LT | 5 | - | 5 | - | - | - | 4 |
 | LX | 2 | - | - | 2 | - | - | 2 |
@@ -357,7 +357,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 452 | 134 | 381 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +96 |
+| Kerbin | 452 | 134 | 383 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +96 |
 | Mun | 72 | 15 | 62 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +15 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1183,7 +1183,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | FLG-1-pickup-rewind | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, warp | - | LIVE-PROVEN 2026-11-04 |
-| FLG-2-flag-window-passed-without-ghost | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | AUTHORED 2026-11-24 (branch flag-no-ghost... |
+| FLG-2-flag-window-passed-without-ghost | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-24 |
 
 ### FLY (5)
 
@@ -1249,7 +1249,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GS-3-switch-nudge-deployed | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | scene-change, vessel-switch | - | RE-CUT AND RE-FLOWN 2026-10-24 (branch cl... |
 | GS-6-part-event-applier-sweep | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-02 |
 | GS-7-kerbalx-crash-watch-hold | operator | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-08 |
-| GS-8-kerbalx-zone-round-trip | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | RE-PINNED 2026-11-23, not re-flown |
+| GS-8-kerbalx-zone-round-trip | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | JUMP GATE ADDED 2026-11-23, RE-FLOWN GREE... |
 | GS-9-kerbalx-repeat-rewind | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | - | - | LIVE-PROVEN 2026-09-11 |
 
 ### GUI (28)
@@ -1483,7 +1483,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | LF-1-loop-first-run-real | nightly | pad-runway-pair | seam | Kerbin | rewind-to-launch, reload, save, warp +2 | - | LIVE-PROVEN 2026-09-23 |
 | LF-2-loop-armed-rewind-first-run-real | nightly | pad-runway-pair | seam | Kerbin | rewind-to-launch, reload, save, warp +2 | - | LIVE-PROVEN 2026-09-23 |
-| LF-3-predicted-fall-outlasts-loop-period | operator | gs1-armed-chute-drop | seam | Kerbin | warp, scene-change | - | AUTHORED 2026-11-24 (branch loop-timing-p... |
+| LF-3-predicted-fall-outlasts-loop-period | operator | gs1-armed-chute-drop | seam | Kerbin | warp, scene-change | - | LIVE-PROVEN 2026-11-24 |
 
 ### LS (1)
 
@@ -1896,7 +1896,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | S1.6-render-parity | daily | gloops-airshow +inj all-synthetic | seam | - | - | GhostMap | LIVE-PROVEN 2026-07-26 |
 | S1.7-maprender-parity | daily | gloops-airshow +inj all-synthetic | seam | - | - | MapRender | LIVE-PROVEN 2026-07-26 |
 | S1.8-soi-crossing-playback | daily | gloops-airshow +inj looped-inte... | seam | - | - | SoiCrossingPlayback | LIVE-PROVEN 2026-08-06 |
-| S1.9-part-showcase-render | operator | gloops-airshow +inj part-showcase | seam | Kerbin | reload, save, warp, time-jump | - | RE-PINNED 2026-11-24, not re-flown |
+| S1.9-part-showcase-render | operator | gloops-airshow +inj part-showcase | seam | Kerbin | reload, save, warp, time-jump | - | RE-PINNED 2026-11-24, RE-FLOWN GREEN 2026... |
 | S4.1-rewind-merge | nightly | gloops-airshow +inj rewind-b9 | seam | - | re-fly, time-jump | - | LIVE-PROVEN 2026-07-31 |
 | S4.2-refly-world-preservation | nightly | gloops-airshow +inj refly-world... | seam | - | re-fly, time-jump | ReFlyWorldPreservation | SPEC CHANGED 2026-10-25 (branch claude/pr... |
 | S4.3-refly-discard-with-ghosts | operator | gloops-airshow +inj refly-world... | seam | - | re-fly, time-jump | - | 2026-10-07: _2241 PARSEK-FAIL on a stale... |
