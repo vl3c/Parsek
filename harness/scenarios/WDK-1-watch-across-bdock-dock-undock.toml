@@ -34,7 +34,9 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 # #10 -> #18` at the dock (the merged recording f049901e, the only place the ship went); one
 # undock decision line for 857e997a. The fixture predates the dock-absorb link rows and the
 # ship's leaving half carries no guid, so the expected outcome is `no child continues the
-# watched vessel identity=`, which keeps the same-pid rule; the pin regexes the outcome.
+# watched vessel identity=`, which keeps the same-pid rule.
+# READ on `2026-11-24_1821` (red only on this spec's own warp-arrival literal): all three as
+# registered, and the same-pid rule then moved the watch #18 -> #19 (the station's half).
 # Proving the FOLLOW outcome needs a BDOCK re-harvest that records the dock-absorb rows.
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
@@ -97,16 +99,20 @@ allowedAnomalies = []
 required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_f4edbb9721bc43649a6c1727dca67b1e",
   "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
-  "warptout complete reachedUT=892[5-9]",
+  # The warp ends about 0.2 s before its target (8924.806), so the target is what is pinned.
+  "warptout complete reachedUT=892[45][^\\r\\n]* ut=8925 [^\\r\\n]*ladder=auto",
   "enterwatchmode complete: index=10 recId=",
   # THE SUBJECT (WatchModeController.TryCommitWatchSessionStart): the docking ship's own guid,
   # so a split that moved the index cannot pass on another vessel.
   "\\[Watch\\] Watch session identity: #10 \"Kerbal X\" id=[0-9a-f]{32} identity=270d1da540774c93926d6193080883a6",
-  # THE SUBJECT (the dock): the watch moves to the merged vessel, #18 = f049901e.
-  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[CameraFollow\\] Auto-following: #10 \"Kerbal X\" -> #18 \"Kerbal X\"",
+  # THE SUBJECT (the dock): the watch LANDED on the merged vessel, #18 = f049901e. The
+  # `Auto-following` line alone also prints for a transfer that is deferred, so the landing is
+  # read off the watch session being on #18 when that ghost ends.
+  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[CameraFollow\\] Auto-following: #10 \"Kerbal X\" -> #18 \"Kerbal X\"[\\s\\S]*?\\[CameraFollow\\] Watch hold timer set: [^\\r\\n]*\\(watched #18\\)",
   # THE SUBJECT (GhostPlaybackLogic.FindWatchedIdentityChild): the replayed undock decided by
-  # the watched identity, after the watch began. The outcome is regexed (header).
-  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[Watch\\] [^\\r\\n]*: undock 857e997acb43492ca4d7635e47e7b698 for rec '[^']+': (?:following the watched vessel identity=|no child continues the watched vessel identity=|[0-9]+ children continue the watched vessel identity=|watched identity unknown)",
+  # the watched identity, after the watch began; the outcome is the pre-registered one, read
+  # on `2026-11-24_1821` (header). A BDOCK re-harvest with link rows moves it to `following`.
+  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[Watch\\] [^\\r\\n]*: undock 857e997acb43492ca4d7635e47e7b698 for rec '[^']+': no child continues the watched vessel identity=270d1da540774c93926d6193080883a6 - keeping the same-PID rule",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
