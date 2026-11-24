@@ -79,12 +79,11 @@ tier = "daily"
 #   after `Batch execution skipped 1 single-run-only test(s)`, so the pin is literal
 #   again and the one skip is still the batch-disabled canary.
 #
-#   INTERIM 2026-11-24: IconRevealDriveInGameTest was added (todo
+#   2026-11-24: IconRevealDriveInGameTest was added (todo
 #   MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24), so the source derives total=22 = 0
-#   scene-skipped + 1 batch-skipped + 21 executable. Not flown yet: the pinned 21 / 1 is
-#   the prediction, not a reading. It is pinned as a literal all the same because the
-#   cell's own line is required below, so the one way to read another split (the cell
-#   standing down) reds the lane anyway. That line is the live gate of the fix: the cell
+#   scene-skipped + 1 batch-skipped + 21 executable. READ 2026-11-24_1630 (PASS): 22 / 21 /
+#   0 / 1, the predicted split. The cell's own line is required below, so the one way to
+#   read another split (the cell standing down) reds the lane. That line is the live gate of the fix: the cell
 #   stages the hide, stock's step, the seed and the Postfix inside one frame, so it does
 #   not depend on the frame rate the way TP-6's handoff does. It prints after the reveal,
 #   with the distance the icon was at before (`staleMeters`) and after it.
