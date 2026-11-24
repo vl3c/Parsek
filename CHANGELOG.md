@@ -80,8 +80,6 @@ Not released yet.
   and a supply route flown from one could stop. (CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE)
 - **A kerbal's jetpack plume shows on the replay.** A pack deployed before the recording picked the
   kerbal up is now recorded. (EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION)
-- **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
-  while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 - **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a
   minute and then jump kilometres down. (DEBRIS-GHOST-HANGS-PAST-THE-SAMPLING-RANGE)
 - **A craft the game unloads far away keeps its parts.** A stage left flying, or a pod landed over

@@ -290,6 +290,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Heat_OfAPartTheStartSnapshotDoesNotHold_IsComparedWithItsEventsOnly()
+        {
+            var live = new PartTrackingSets();
+            live.animateHeatLevels[Key()] = HeatLevel.Hot;
+            var fact = new PromotionPartFacts { pid = Pid, partName = "part", absentFromStartSnapshot = true };
+            Assert.Empty(Reconcile(live, fact));
+            Assert.Equal(PartEventType.ThermalAnimationHot, Assert.Single(Reconcile(live, fact,
+                Ev(200, PartEventType.ThermalAnimationMedium, ModuleIndex))).eventType);
+        }
+
+        [Fact]
         public void Heat_OfAnotherPart_IsLeftAlone()
         {
             var live = new PartTrackingSets();
@@ -400,6 +411,24 @@ namespace Parsek.Tests
             var broken = new PartTrackingSets();
             broken.brokenDeployables.Add(Pid);
             Assert.Equal(PartEventType.DeployableBroken, Assert.Single(Reconcile(broken, fact)).eventType);
+        }
+
+        [Fact]
+        public void Panel_RecordedExtendedThenBroken_RepairedToRetractedNow_WritesOneRetracted()
+        {
+            Assert.Equal(PartEventType.DeployableRetracted, Assert.Single(Reconcile(
+                new PartTrackingSets(), Fact(Named("panel"), false),
+                Ev(200, PartEventType.DeployableExtended),
+                Ev(210, PartEventType.DeployableBroken))).eventType);
+        }
+
+        [Fact]
+        public void Chute_RecordedCutAndRepacked_StowedNow_WritesNothing()
+        {
+            Assert.Empty(Reconcile(new PartTrackingSets(), Fact(Named("chute"), false),
+                Ev(200, PartEventType.ParachuteDeployed),
+                Ev(210, PartEventType.ParachuteCut),
+                Ev(220, PartEventType.ParachuteRepacked)));
         }
 
         [Fact]
@@ -540,6 +569,7 @@ namespace Parsek.Tests
         [InlineData(double.NaN, 250.0, 250.0)]
         [InlineData(200.0, 250.0, 250.0)]
         [InlineData(250.0, 250.0, 250.0)]
+        [InlineData(260.0, 250.0, 260.0)]
         // The recording is interesting up to the promotion: never inside the visit that starts now.
         [InlineData(200.0, NowUT, 200.0)]
         [InlineData(200.0, NowUT + 1, 200.0)]
