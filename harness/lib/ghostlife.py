@@ -87,6 +87,15 @@ frame conventions). Those lines never enter ``lines`` / ``cycles``; they feed th
 ``attitude`` facet and the optional ``attitude`` sub-table of the block. A log
 from a DLL older than the residual carries AfterUpdate lines with no
 ``dRotDeg=`` (counted as ``legacyLines``, never as resolved).
+
+v5 (2026-11-24, todo GHOST-BALANCE-CUT-BY-THE-QUIT) reads a FOURTH line shape, the
+engine's 1 Hz ``engine-frame-iter`` census, for one purpose: to know which ghosts
+the engine still held when the game was told to quit. Their ``engine teardown``
+destroy line is written from ``ParsekFlight.OnDestroy`` during Unity's quit, whose
+order is not fixed: KSP's own log writer can be gone by then, and so can
+``HighLogic`` (with it the tracer setting), so the line may reach KSP.log or not.
+A ghost held at the quit is therefore neither leaked nor balanced; it rides the
+``aliveAtQuit`` facet. See ``held_at_quit``.
 """
 
 from __future__ import annotations
@@ -258,6 +267,21 @@ class AttitudeSample:
 
 
 @dataclass(frozen=True)
+class EngineCensus:
+    """What the log says the engine held when the game was told to quit (v5).
+
+    ``held`` is the 8-char ``rec=`` ids of the ghosts in the engine's primary
+    ``ghostStates`` map (see ``_EngineCensusReader`` for how it is read);
+    ``quit_seen`` says a quit marker was found at all, ``age_seconds`` how long
+    before it the last census line was written (``None``: no census, or no readable
+    log time)."""
+
+    quit_seen: bool = False
+    held: Tuple[str, ...] = ()
+    age_seconds: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class GhostLifecycleSnapshot:
     """Every lifecycle line found in one log, plus the parse's own health.
 
@@ -281,6 +305,8 @@ class GhostLifecycleSnapshot:
     cycles: Tuple[LoopCycleLine, ...] = ()
     # v3 AfterUpdate attitude samples, kept apart for the same reason.
     attitude: Tuple[AttitudeSample, ...] = ()
+    # v5: the engine's own holdings at the quit line.
+    census: EngineCensus = EngineCensus()
 
     @property
     def spawns(self) -> Tuple[MeshLifecycleLine, ...]:
@@ -289,6 +315,77 @@ class GhostLifecycleSnapshot:
     @property
     def destroys(self) -> Tuple[MeshLifecycleLine, ...]:
         return tuple(l for l in self.lines if l.phase == PHASE_DESTROYED)
+
+
+# The engine census (GhostPlaybackEngine.Diagnostics.cs `EmitEngineIterTraceForFrame`):
+# `[Engine] engine-frame-iter [i=<n> rec=<8> skip=.. aru=.. hd=.. hs=<T|F> endUT=..][out:..],...`,
+# one entry per trajectory, `hs` = `ghostStates.ContainsKey(i)`, written after the frame's
+# spawns and destroys, rate-limited to 1 Hz, on whenever the tracer is. The teardown line
+# is `DestroyAllGhosts`'s own, which empties that map.
+ENGINE_SUBSYSTEM_TAG = "[Engine]"
+ENGINE_CENSUS_TOKEN = "engine-frame-iter"
+ENGINE_TEARDOWN_TOKEN = "DestroyAllGhosts: clearing "
+_ENGINE_CENSUS_ENTRY_RE = re.compile(r"\[i=\d+ rec=(?P<rec>\S+) [^\]]*?\bhs=T\b")
+_LOG_TIME_RE = re.compile(r"^\[LOG (\d+):(\d+):(\d+(?:\.\d+)?)\]")
+# The census must be the running engine's last word, not a leftover of a scene that is
+# gone: at 1 Hz it is at most a second old (410 archived runs: 1.00 s at most).
+ENGINE_CENSUS_MAX_AGE_SECONDS = 5.0
+
+
+def _log_seconds(raw: str) -> Optional[float]:
+    m = _LOG_TIME_RE.match(raw)
+    if m is None:
+        return None
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+
+
+class _EngineCensusReader:
+    """Walks the log in order up to the first quit marker (pure). The census line
+    REPLACES the held set, a spawn line adds to it (a ghost spawned after the last
+    census is held: its spawn line is the later word) and `DestroyAllGhosts` empties
+    it. Destroy lines are not read here: the ledger pairs them by itself."""
+
+    def __init__(self) -> None:
+        import hlib  # at call time: hlib imports this module
+        self._markers: Tuple[str, ...] = hlib.UNITY_QUIT_MARKERS
+        self._held: set = set()
+        self._census_at: Optional[float] = None
+        self._quit = False
+        self._age: Optional[float] = None
+
+    def line(self, raw: str) -> None:
+        if self._quit or "[Parsek]" not in raw:
+            return
+        if ENGINE_SUBSYSTEM_TAG in raw:
+            if ENGINE_CENSUS_TOKEN in raw:
+                self._held = {m.group("rec")
+                              for m in _ENGINE_CENSUS_ENTRY_RE.finditer(raw)}
+                self._census_at = _log_seconds(raw)
+            elif ENGINE_TEARDOWN_TOKEN in raw:
+                self._held = set()
+        elif any(marker in raw for marker in self._markers):
+            self._quit = True
+            now = _log_seconds(raw)
+            if now is not None and self._census_at is not None:
+                self._age = (now - self._census_at) % 86400.0
+
+    def spawned(self, rec: str) -> None:
+        if not self._quit:
+            self._held.add(rec)
+
+    def result(self) -> EngineCensus:
+        fresh = self._age is not None and self._age <= ENGINE_CENSUS_MAX_AGE_SECONDS
+        return EngineCensus(quit_seen=self._quit,
+                            held=tuple(sorted(self._held)) if fresh else (),
+                            age_seconds=self._age)
+
+
+def held_at_quit(snapshot: Optional[GhostLifecycleSnapshot]) -> Tuple[str, ...]:
+    """The ``rec=`` ids of the ghosts the engine still held at the quit line, or
+    ``()`` when that cannot be shown: no quit marker (a killed run), no census, or
+    one older than ``ENGINE_CENSUS_MAX_AGE_SECONDS``. A mesh the engine lost track
+    of is absent from its census, so a leak during the run is never in here."""
+    return snapshot.census.held if snapshot is not None else ()
 
 
 def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
@@ -304,8 +401,10 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
     cycles: List[LoopCycleLine] = []
     attitude: List[AttitudeSample] = []
     malformed = 0
+    engine = _EngineCensusReader()
     for raw in log_text.splitlines():
         if TRACE_SUBSYSTEM_TAG not in raw:
+            engine.line(raw)
             continue
         if ("phase=" + PHASE_AFTER_UPDATE + " ") in raw:
             sample = _parse_attitude_sample(raw)
@@ -364,8 +463,11 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
             playback_ut=m.group("playback_ut"),
             vessel=tail[:cut],
             reason=tail[cut + len(_REASON_SEP):]))
+        if head == PHASE_SPAWNED:
+            engine.spawned(out[-1].rec)
     return GhostLifecycleSnapshot(lines=tuple(out), malformed=malformed,
-                                  cycles=tuple(cycles), attitude=tuple(attitude))
+                                  cycles=tuple(cycles), attitude=tuple(attitude),
+                                  census=engine.result())
 
 
 def _finite_float(text: str) -> Optional[float]:
@@ -498,9 +600,10 @@ GHOST_LIFECYCLE_BLOCK_KEYS: Tuple[str, ...] = (
 DESTROYED_REASONS_BLOCK_KEYS: Tuple[str, ...] = (FORBIDDEN_KEY, REQUIRED_KEY)
 
 # `requireBalanced` DEFAULTS ON when the block is present. Every ghost that
-# entered the scene must eventually leave it; a spawn with no matching destroy is
-# either a leaked mesh or a run that ended mid-playback, and both are worth a
-# reader's attention. Opting OUT is a positive `requireBalanced = false`.
+# entered the scene must eventually leave it or still be held by the engine at the
+# quit line (`held_at_quit`); a spawn with neither is a leaked mesh or a run that was
+# killed mid-playback, and both are worth a reader's attention. Opting OUT is a
+# positive `requireBalanced = false`.
 REQUIRE_BALANCED_DEFAULT = True
 
 STATUS_REPORT = saveparse.STATUS_REPORT
@@ -876,8 +979,9 @@ def _census(values: Sequence[str]) -> Dict[str, int]:
 
 def unbalanced_recordings(snapshot: Optional[GhostLifecycleSnapshot]
                           ) -> Tuple[Dict[str, str], ...]:
-    """Recordings that spawned a mesh and never destroyed one, in first-spawn
-    order, each carrying the VESSEL NAME off its first spawn line.
+    """Recordings that spawned a mesh, never destroyed one and were not held by
+    the engine at the quit line (those are ``alive_at_quit``), in first-spawn order,
+    each carrying the VESSEL NAME off its first spawn line.
 
     The vessel name is the point of carrying a dict rather than a bare id: an
     8-char ``rec=`` prefix and a 32-hex ``recId=`` name nothing a reader can act
@@ -892,6 +996,21 @@ def unbalanced_recordings(snapshot: Optional[GhostLifecycleSnapshot]
     is the claim that survives loop playback, overlap retarget and zone
     transitions - which is the population this row exists to watch.
     """
+    held = set(held_at_quit(snapshot))
+    return tuple(row for row in _unpaired_recordings(snapshot)
+                 if row["rec"] not in held)
+
+
+def alive_at_quit(snapshot: Optional[GhostLifecycleSnapshot]
+                  ) -> Tuple[Dict[str, str], ...]:
+    """The recordings with no destroy line that the engine still held at the quit
+    line, same row shape as ``unbalanced_recordings``."""
+    held = set(held_at_quit(snapshot))
+    return tuple(row for row in _unpaired_recordings(snapshot) if row["rec"] in held)
+
+
+def _unpaired_recordings(snapshot: Optional[GhostLifecycleSnapshot]
+                         ) -> Tuple[Dict[str, str], ...]:
     if snapshot is None or not snapshot.parsed:
         return ()
     destroyed = {l.rec_id for l in snapshot.destroys}
@@ -954,6 +1073,9 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             DESTROY_LINES_KEY: len(snapshot.destroys),
             "destroyedRecordings": len(destroy_ids),
             "unbalanced": [dict(u) for u in unbalanced],
+            # v5: no destroy line, but held by the engine at the quit line. Whether
+            # its teardown line reaches KSP.log is chance, so it is neither.
+            "aliveAtQuit": [dict(u) for u in alive_at_quit(snapshot)],
             "spawnedRecordingIds": list(spawn_ids),
             # The reason censuses. `destroyedReasons` is what a `forbidden`
             # pattern is written against, so an operator sizing a first clause

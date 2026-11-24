@@ -28,6 +28,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Possible fix (not done, small visual gain):** skip the activation settle for an EVA ghost whose parent recording ended on this kerbal's dismount, as chain seams already do (`state.spawnedAtChainSeam`), and keep a `kerbalEVA*` part drawn on the parent ghost until its end when the Decoupled event is within the last frames of the recording. The recorded event UT must not move (recordings are immutable).
 
+## ~~GHOST-BALANCE-CUT-BY-THE-QUIT~~: a ghost still playing at the quit reads as a leaked mesh when its teardown line does not reach KSP.log [FOUND 2026-11-24 on GS-6 `2026-11-24_1654` (release flights, PARSEK-FAIL(ghost-lifecycle), spawned 8 destroyed 7 unbalanced 1). FIXED 2026-11-24, branch `gs6-quit-balance`; harness evaluator only, checked over the archive; test gate, low]
+
+Not a Parsek defect: the teardown ran. GS-6's dropped core is still falling at the quit (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT),
+so only `ParsekFlight.OnDestroy` -> `DestroyAllGhosts` closes its ghost. In `_1654` KSP.log ends at
+`GhostTrajectoryPolylineRenderer.Driver destroyed`, one object before ParsekFlight, while Player.log goes on:
+`OnDestroy: cleaning up ParsekFlight`, `DestroyAllGhosts: clearing 1 primary`. Player.log has no `MeshDestroyed`
+line either: `HighLogic` was already gone, so `ParsekSettings.Current` was null and the tracer read as off. Unity's quit
+order is not fixed, and it decides both halves. Of the 268 archived November runs that drew a ghost and quit from flight,
+132 carry the teardown in KSP.log and 136 end before it.
+
+Fix (`harness/lib/ghostlife.py`): the engine's own 1 Hz census (`[Engine] engine-frame-iter ... rec=<8> ... hs=T|F`, `hs` =
+`ghostStates` holds the ghost) says what it held when it was told to quit. The last census before the
+`flushandquit: Application.Quit` line, plus spawns after it, minus a `DestroyAllGhosts` after it, and at most 5 s old
+(1.00 s at most over 410 runs), is the held set; a recording with no destroy line that is in it rides the new
+`aliveAtQuit` facet instead of `unbalanced`. A mesh the engine lost during the run is not in its census and still reds; no
+quit line (a killed run), no census or a stale one excuse nothing. Blind spot: a ghost whose destroy goes missing
+inside the last second before the quit.
+
+Checked over the archive: on all 141 archived flights of the lanes with the block, the new evaluator's mismatches are the same with
+the log whole and cut at the quit line (the old one differed on 4), and only GS-6 `_1654` and two size-elided GS-12 logs
+change verdict, all to no mismatch. Cutting one ghost's destroy lines out of 114 GS / S1.9 / OC / RVC logs reds 698 of 704
+times; the six are GS-12 overlap copies the last census still listed, the blind spot above. No `logContracts.required` token of any lane's two
+latest flights is met only after the quit line. Guards: `test_ghostlife.HeldAtQuitTests` (13 mutations of the reader, all
+caught; its last cell holds the census line to the C# writers).
+
 ## ~~GHOST-ENDING-TOKENS-MET-BY-THE-QUIT~~: five lanes required a ghost's destroy line that quitting the game writes by itself [FOUND 2026-11-24 on MC-4 `2026-11-24_0422` (release flights). FIXED 2026-11-24, branch mc4-chute-gate; specs only, offline over the archive, not re-flown; test gate, low]
 
 `GhostPlaybackEngine.DestroyAllGhosts` writes `phase=MeshDestroyed ... reason=engine teardown` for
