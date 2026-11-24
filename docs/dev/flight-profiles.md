@@ -8,19 +8,19 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 704 |
+| lanes | 705 |
 | tier daily | 34 |
-| tier nightly | 312 |
+| tier nightly | 313 |
 | tier operator | 353 |
 | tier longhaul | 5 |
-| profile stock-minimal | 636 |
+| profile stock-minimal | 637 |
 | profile stock-tree | 56 |
 | profile modded-compat | 10 |
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
-| seam-only lanes | 539 |
+| seam-only lanes | 540 |
 | LIVE-PROVEN date in status row | 585 |
-| no LIVE-PROVEN date | 119 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -62,7 +62,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FAR | 6 | - | - | 6 | - | - | 6 |
 | FFC | 1 | - | - | 1 | - | - | 1 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
-| FLG | 1 | - | 1 | - | - | - | 1 |
+| FLG | 2 | - | 2 | - | - | - | 1 |
 | FLY | 5 | - | 5 | - | - | - | 5 |
 | FORGE | 10 | - | - | 10 | - | 9 | 5 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
@@ -160,11 +160,11 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 154 hosts serve 704 lanes.
+The host is the leaf of `fixture.saveTemplate`. 154 hosts serve 705 lanes.
 
 | host save | lanes | families |
 |---|---|---|
-| gloops-airshow | 91 | H 40, S 12, QL 7, CI 5, CN 5, MC 4, VN 3, EVA 2, GUI 2, LT 2, RFQ 2 +7 |
+| gloops-airshow | 92 | H 40, S 12, QL 7, CI 5, CN 5, MC 4, VN 3, EVA 2, FLG 2, GUI 2, LT 2 +7 |
 | eva2-lko-crewed | 44 | PP 7, SPW 7, S 6, CI 3, EVA 3, FLY 3, RSC 2, SWC 2, VN 2, ASR 1 +8 |
 | gs1-two-stage-pad | 41 | GS 8, VN 7, RF 6, ASR 4, QL 4, AIR 3, H 3, RB 2, BAY 1, CA 1 +2 |
 | cs-career-mun4 | 32 | RW 20, RSQ 4, RFK 2, RFN 2, CS 1, REV 1, SWS 1, WTT 1 |
@@ -357,7 +357,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 451 | 134 | 381 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +96 |
+| Kerbin | 452 | 134 | 381 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +96 |
 | Mun | 72 | 15 | 62 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +15 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -382,15 +382,15 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 
 | operation | lanes | families |
 |---|---|---|
-| rewind-to-launch | 129 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
+| rewind-to-launch | 130 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
 | re-fly | 71 | RF 24, QL 6, RB 5, RW 5, S 5, CI 3, VN 3, LAB 2, RFK 2, RFN 2 +13 |
 | revert | 23 | QL 4, RW 4, IR 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1 +2 |
-| reload | 194 | V 30, QL 21, RF 17, LAB 10, EVA 9, SPW 9, MINE 7, RW 6, VN 6, RB 5 +44 |
-| save | 307 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +70 |
-| warp | 290 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
+| reload | 195 | V 30, QL 21, RF 17, LAB 10, EVA 9, SPW 9, MINE 7, RW 6, VN 6, RB 5 +45 |
+| save | 308 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +71 |
+| warp | 291 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
 | physics-warp | 20 | QL 5, ASR 4, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 133 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
-| scene-change | 212 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, IR 5, S 5, ASR 4, CI 4 +60 |
+| scene-change | 213 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, IR 5, S 5, ASR 4, CI 4 +61 |
 | vessel-switch | 27 | FLY 5, S 5, ASR 2, CI 2, EVA 2, MINE 2, SWC 2, AJ 1, FAR 1, GC 1 +4 |
 | new-game | 3 | CS 2, SWS 1 |
 | (none) | 224 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, MC 5, EVA 4, LT 4 +22 |
@@ -401,7 +401,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 451 | 116 | 57 | 17 | 159 | 232 | 238 | 18 | 53 | 173 | 22 | - |
+| Kerbin | 452 | 117 | 57 | 17 | 160 | 233 | 239 | 18 | 53 | 174 | 22 | - |
 | Mun | 72 | 33 | 11 | 6 | 21 | 50 | 51 | - | 13 | 46 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -454,7 +454,7 @@ Lanes per family (rows) per timeline operation (columns).
 | FAR | 6 | 2 | - | 1 | 3 | 4 | 4 | 1 | - | 3 | 1 | - |
 | FFC | 1 | 1 | - | - | - | 1 | 1 | - | 1 | 1 | - | - |
 | FGV | 1 | - | - | - | - | - | 1 | - | - | - | - | - |
-| FLG | 1 | 1 | - | - | - | - | 1 | - | - | - | - | - |
+| FLG | 2 | 2 | - | - | 1 | 1 | 2 | - | - | 1 | - | - |
 | FLY | 5 | - | - | - | - | - | - | - | - | - | 5 | - |
 | FORGE | 10 | - | 1 | - | - | 10 | - | - | 1 | - | - | - |
 | FXR | 1 | - | 1 | 1 | 1 | 1 | 1 | - | - | - | - | - |
@@ -619,21 +619,21 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 704 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +113 |
-| LoadGame | 704 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +113 |
-| SetSetting | 694 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +112 |
-| StopRecording | 395 | V 65, RF 25, RW 24, RVR 19, EVA 17, LAB 17, H 15, B 14, MINE 14 +73 |
-| SaveGame | 307 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +70 |
-| WarpToUT | 290 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
+| FlushAndQuit | 705 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +113 |
+| LoadGame | 705 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +113 |
+| SetSetting | 695 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +112 |
+| StopRecording | 396 | V 65, RF 25, RW 24, RVR 19, EVA 17, LAB 17, H 15, B 14, MINE 14 +73 |
+| SaveGame | 308 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +71 |
+| WarpToUT | 291 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
 | RecordingState | 267 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +60 |
 | DiscardTree | 262 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 12, SPW 9, TP 9 +45 |
 | RunTests | 236 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +47 |
-| MissionMark | 228 | RW 25, LAB 17, EVA 14, MINE 12, SPW 11, CS 10, QL 8, IR 7, L 6 +66 |
-| StartRecording | 226 | B 23, RW 23, EVA 15, LAB 14, MINE 12, SPW 9, VN 8, S 7, FAR 6 +58 |
-| CommitTree | 207 | RW 24, EVA 15, MINE 11, QL 9, SPW 9, VN 9, CS 8, L 8, LAB 8, B 7 +55 |
+| MissionMark | 229 | RW 25, LAB 17, EVA 14, MINE 12, SPW 11, CS 10, QL 8, IR 7, L 6 +66 |
+| StartRecording | 227 | B 23, RW 23, EVA 15, LAB 14, MINE 12, SPW 9, VN 8, S 7, FAR 6 +58 |
+| CommitTree | 208 | RW 24, EVA 15, MINE 11, QL 9, SPW 9, VN 9, CS 8, L 8, LAB 8, B 7 +55 |
 | ListHandles | 186 | RF 23, QL 16, EVA 12, MINE 12, CI 11, SPW 11, VN 10, LAB 9, IR 7 +46 |
 | TimeJump | 133 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
-| InvokeRewindToLaunch | 129 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
+| InvokeRewindToLaunch | 130 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
 | ExitToSpaceCenter | 108 | RW 16, QL 10, RF 10, LAB 7, S 5, ASR 4, IR 4, RSQ 4, GS 3, LF 3 +29 |
 | GoToEditor | 96 | RW 25, CS 11, CI 4, RSQ 4, IR 3, LAB 3, STR 3, CT 2, FAR 2, GPOS 2 +31 |
 | LaunchFromEditor | 94 | RW 25, CS 11, CI 4, RSQ 4, IR 3, LAB 3, STR 3, CT 2, FAR 2, GPOS 2 +29 |
@@ -645,7 +645,7 @@ Lanes per family (rows) per timeline operation (columns).
 | UiAction | 67 | GUI 28, VN 10, RW 7, KB 4, L 3, RSC 3, LF 2, WTT 2, EVA 1, KD 1 +6 |
 | AnswerMergeDialog | 56 | RF 17, S 5, QL 4, RW 4, CI 3, RB 2, RFK 2, RFN 2, RFQ 2, AJ 1 +14 |
 | CaptureScreenshot | 52 | GUI 28, TP 9, KB 4, RSC 3, L 2, RW 2, KD 1, LAB 1, SH 1, UIS 1 |
-| EvaExit | 45 | EVA 17, CX 4, RW 4, SEAT 4, RF 3, QL 2, CI 1, FAR 1, FLG 1, GPOS 1 +7 |
+| EvaExit | 46 | EVA 17, CX 4, RW 4, SEAT 4, RF 3, FLG 2, QL 2, CI 1, FAR 1, GPOS 1 +7 |
 | Recover | 44 | RW 11, CS 10, L 4, PADX 3, QL 3, CX 2, CI 1, CPR 1, FFC 1, LAB 1 +7 |
 | SealSlot | 43 | RVR 15, IR 7, H 5, GUI 3, RF 3, MINE 2, AST 1, QL 1, RB 1, RCN 1 +4 |
 | ExportRenderManifest | 42 | V 39, B 1, FAR 1, H 1 |
@@ -656,8 +656,8 @@ Lanes per family (rows) per timeline operation (columns).
 | EnterWatchMode | 20 | V 11, AP 1, FAR 1, GUI 1, LX 1, MC 1, MINE 1, RF 1, W 1, WDK 1 |
 | SimulateStockSwitchClick | 20 | S 4, FLY 3, CI 2, EVA 2, MINE 2, ASR 1, FAR 1, GS 1, KB 1, RF 1 +2 |
 | EnterMapView | 19 | TP 7, V 3, GUI 2, RF 2, SLM 2, GS 1, H 1, SPW 1 |
+| EvaBoard | 17 | EVA 6, RF 3, RW 3, FLG 2, CX 1, LAB 1, WF 1 |
 | StashSlot | 17 | RW 5, RF 3, LAB 2, RFK 2, RFN 2, IR 1, LX 1, RSQ 1 |
-| EvaBoard | 16 | EVA 6, RF 3, RW 3, CX 1, FLG 1, LAB 1, WF 1 |
 | StockScreen | 16 | RW 5, GUI 3, KB 3, L 2, KD 1, LS 1, SH 1 |
 | EvaGroundScience | 15 | EVA 10, SEAT 2, CX 1, PADG 1, RC 1 |
 | ReFlyRevert | 15 | QL 4, RW 3, VN 2, FXR 1, IR 1, LAB 1, LX 1, RF 1, RSQ 1 |
@@ -672,8 +672,8 @@ Lanes per family (rows) per timeline operation (columns).
 | DriveVessel | 6 | MINE 2, RSF 1, RVC 1, RVR 1, TSS 1 |
 | AlarmJump | 5 | FLY 2, AJ 1, ASR 1, S 1 |
 | EvaSeatBoard | 5 | SEAT 4, CX 1 |
+| PlantFlag | 5 | FLG 2, CX 1, EVA 1, WF 1 |
 | CrewTransfer | 4 | CX 3, KB 1 |
-| PlantFlag | 4 | CX 1, EVA 1, FLG 1, WF 1 |
 | EvaSeatLeave | 3 | SEAT 3 |
 | NewGame | 3 | CS 2, SWS 1 |
 | CycleVessel | 2 | GC 1, SWC 1 |
@@ -847,8 +847,8 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 236 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 703 |
-| recordings | 689 |
+| logContracts | 704 |
+| recordings | 690 |
 | rewind | 175 |
 | renderComposition | 42 |
 | routes | 29 |
@@ -1178,11 +1178,12 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | FGV-1-fairing-ghost-visual | operator | eva2-lko-crewed | seam | Kerbin | warp | FairingGhostVisual | LIVE-PROVEN 2026-11-07 |
 
-### FLG (1)
+### FLG (2)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | FLG-1-pickup-rewind | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, warp | - | LIVE-PROVEN 2026-11-04 |
+| FLG-2-flag-window-passed-without-ghost | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | AUTHORED 2026-11-24 (branch flag-no-ghost... |
 
 ### FLY (5)
 
@@ -1259,25 +1260,25 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GUI-10-census-dialogs | operator | bdock-recorded | seam | Kerbin | - | - | LIVE-PROVEN 2026-09-15 |
 | GUI-11-census-kerbals-crewed | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-22 |
 | GUI-12-census-testrunners | operator | career-earned-ksc | seam | Kerbin | - | - | FLOWN PASS 2026-09-15 |
-| GUI-13-census-logistics-candidates | operator | rover-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-21 |
+| GUI-13-census-logistics-candidates | operator | rover-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0722... |
 | GUI-14-census-settings-and-facility | operator | fresh-career | seam | Kerbin | - | - | SPEC CHANGED 2026-09-26, RE-READ 2026-09-27: |
 | GUI-15-census-career-contracts | operator | career-contract-pad | seam | Kerbin | - | - | REPOINTED 2026-09-27 TO THE TIMELINE'S CO... |
-| GUI-17-census-missions-loop-mun | operator | mun-orbit-recorded | seam | Mun | - | - | FLOWN PASS 2026-09-21 |
-| GUI-18-census-missions-loop-duna | operator | duna-direct-recorded | seam | Duna | - | - | FLOWN PASS 2026-09-21 |
+| GUI-17-census-missions-loop-mun | operator | mun-orbit-recorded | seam | Mun | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0722... |
+| GUI-18-census-missions-loop-duna | operator | duna-direct-recorded | seam | Duna | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0724... |
 | GUI-19-census-timeline-supersede | operator | refly-a-recorded | seam | - | - | - | FLOWN PASS 2026-09-21 |
 | GUI-2-census-flight | operator | c1-gui | seam | - | - | - | LIVE-PROVEN 2026-10-06 |
 | GUI-20-census-logistics-hold-second-cycle | operator | rover-relay-c-recorded | seam | - | time-jump | - | RE-FLOWN GREEN 2026-09-27 ON THE ENDPOINT... |
 | GUI-21-census-logistics-hold-origin-empty | operator | rover-relay-c-recorded | seam | - | time-jump | - | FLOWN PASS 2026-09-21 |
 | GUI-22-census-logistics-hold-destination-full | operator | rover-relay-c-recorded | seam | - | time-jump | - | FLOWN PASS 2026-09-21 |
 | GUI-24-census-timeline-filters | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 for the three-ro... |
-| GUI-25-census-missions-state-sort-edit | operator | interbody-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
+| GUI-25-census-missions-state-sort-edit | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0646... |
 | GUI-26-census-createroute-and-running-batch | operator | rover-route-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
-| GUI-27-census-missions-include | operator | bdock-recorded | seam | Kerbin | - | - | FLOWN PASS 2026-09-22 |
+| GUI-27-census-missions-include | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24: 2026-11-24_0723... |
 | GUI-28-census-stock-screens | operator | stock-screen-census | seam | Kerbin | scene-change | - | RE-FLOWN PASS 2026-09-29 |
 | GUI-29-census-wide-windows-1280 | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 on main after #1... |
 | GUI-3-census-logistics-routes | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
 | GUI-30-census-stock-screens-sandbox | operator | fresh-sandbox | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-29 on the post-main... |
-| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RESHAPED 2026-11-23 FOR THE MISSION PROFI... |
+| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-11-24 ON THE TIGHTENED... |
 | GUI-5-census-career-ksc | operator | career-earned-ksc | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 for the Career w... |
 | GUI-6-census-flight-playback | operator | gloops-airshow +inj part-showcase | seam | - | time-jump | - | RESHAPED AND RE-FLOWN PASS 2026-10-06 |
 | GUI-7-census-flight-recording | operator | b1-pad-craft | seam | Kerbin | - | - | RE-FLOWN PASS 2026-10-04 |

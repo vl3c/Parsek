@@ -99,7 +99,14 @@ required = [
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
   "launchfromeditor complete scene=FLIGHT vessel=Mallard pid=[0-9]+ site=Runway situation=PRELAUNCH ",
   # THE SUBJECT (GhostKerbalVisibility.FormatSummary): Jeb drawn once across the handoff.
-  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?SeatGhostKerbal summary scene=FLIGHT frames=[0-9]+ framesWithKerbal=[1-9][0-9]* once=[1-9][0-9]* twice=[0-9]+ missing=[0-9]+ longestTwice=0 longestMissing=[01] kerbals=Jebediah Kerman",
+  # longestMissing is the recorded span from the dismount's undock event to the parent
+  # recording's end (DeferredEvaBranch waits one frame), not a replay defect: the pod ghost
+  # hides the seated part at the event and lives on to its end. One recorded frame is one or
+  # two 0.02 s physics steps (PHYSICS_FRAME_DT_LIMIT 0.03), so up to 0.04 s, which a 60 fps
+  # replay draws as at most 3 frames. MEASURED: 0.020 s = 1 frame (`2026-11-23_2114`),
+  # 0.040 s = 2 frames (`2026-11-24_0806`, 3 slots). The settle frames of the EVA ghost are
+  # not in it (no ghost carries him then). The cell itself fails at 10.
+  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?SeatGhostKerbal summary scene=FLIGHT frames=[0-9]+ framesWithKerbal=[1-9][0-9]* once=[1-9][0-9]* twice=[0-9]+ missing=[0-9]+ longestTwice=0 longestMissing=[0-3] kerbals=Jebediah Kerman",
   # Pinned WHOLE off the first flight `2026-11-23_2114`, whose summary read frames=359
   # framesWithKerbal=354 once=353 twice=0 missing=1 longestTwice=0 longestMissing=1 (one frame at
   # the handoff, the pre-registered reading was 0).

@@ -698,8 +698,14 @@ standing flag IS recorded (below).
 **A replayed flag is a real flag, planted once.** A ghost exists only while its recording plays, but
 a flag stays, so replay plants a real flag vessel when it reaches the event's UT
 (`GhostPlaybackLogic.ApplyFlagEvents` / `SpawnFlagVesselsUpToUT`), whatever the ghost's zone or build
-state (#249, #414). The world dedup (a flag already standing within 1 m) keeps a walk from planting a
-second copy. That dedup reads the world, so on its own every later walk over the event (each loop
+state (#249, #414). A recording whose window passed with no ghost at all (high warp, the Tracking
+Station, a time jump, a load, the Space Center for anything off Kerbin) gets its walk from
+`ReplayedFlagCatchUp`, in flight and at the Space Center, once per scene, when the clock is past the
+recording's end and its last flag plant or pick-up. It runs under the end spawn's gates (in replay
+scope, timeline-active, not session-suppressed, not being flown), so plain forward play never replants
+the live flight's own flags. The Tracking Station plants nothing itself; the flag stands from the next
+flight or Space Center visit. The world dedup (a flag already standing within 1 m; for the catch-up walk also one of the same name within 3 m, since
+it runs at every scene load and a flag may have toppled) keeps a walk from planting a second copy. That dedup reads the world, so on its own every later walk over the event (each loop
 cycle, overlap ghost and chain-loop unit cycle, each fresh playback state after a scene change, each
 deferred flush) planted the flag again once the player had removed it (replay-theory audit R5, todo
 LOOP-REPLAY-REPLANTS-REMOVED-FLAG), against section 12.7's "subsequent loops are purely visual".

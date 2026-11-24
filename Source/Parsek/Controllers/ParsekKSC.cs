@@ -106,6 +106,7 @@ namespace Parsek
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
+        private readonly ReplayedFlagCatchUp flagCatchUp = new ReplayedFlagCatchUp("ksc");
         private KscStructuralPassCounts lastLoggedStructuralPass;
         private Dictionary<uint, GhostChain> passGhostChains;
         private bool passGhostChainsBuilt;
@@ -403,6 +404,15 @@ namespace Parsek
                     DestroyAllKscOverlapGhosts(i);
                     continue;
                 }
+
+                // Ahead of every draw decision: a recording's flags replay whether or not the
+                // Space Center draws it (off Kerbin, hidden, warped through, a loop member).
+                // With a ghost still up, its own timeline-complete exit walks them this frame.
+                if (!kscGhosts.ContainsKey(i))
+                    flagCatchUp.Tick(rec, currentUT,
+                        replays: !historicalNeverReplayed
+                            && (SessionSuppressionState.ActiveMarker == null
+                                || !SessionSuppressionState.IsSuppressedRecordingIndex(i)));
 
                 // Structural split: a recording the Space Center cannot draw (off Kerbin)
                 // still runs its end spawn; one with no usable trajectory runs neither.
@@ -2958,6 +2968,7 @@ namespace Parsek
             loggedReshow.Clear();
             loggedKscRelativeAnchorNotFound.Clear();
             kscSpawnAttempted.Clear();
+            flagCatchUp.Reset();
             loggedPlaybackDisabledPastEndSpawnAttempts.Clear();
             lastLoggedKscCadence.Clear();
             lastUnitSelection.Clear();
