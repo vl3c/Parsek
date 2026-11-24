@@ -828,6 +828,12 @@ class FxGateTests(unittest.TestCase):
             return _section([{self.ID: d} for d in docs])["cases"][self.ID].get("fx")
         self.assertIsNone(bands(self._case()))
         self.assertIsNone(bands(self._measured("lengthRatio", 1.12)))
+        # From half the line: a case near it in the runs may cross it by the tolerance.
+        near = self._measured("lengthRatio", 1.2)
+        self.assertEqual({"event:fx-side-a:flame": {"lengthRatio": [1.2, 1.2]}}, bands(near))
+        for value, kind in ((1.32, pp.NOTE_NEAR_LINE_FAIL), (1.34, pp.GATE_DRIFT)):
+            g = self._gate_of(self._measured("lengthRatio", value), near)
+            self.assertEqual([kind], _kinds(g.reds + g.notes))
         self.assertEqual({"event:fx-side-a:flame": {"lengthRatio": [1.0, 1.3]}},
                          bands(self._case(), self._measured("lengthRatio", 1.3)))
         # A layer presence decides, or with two weak cores, has no measure to band.

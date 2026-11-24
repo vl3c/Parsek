@@ -870,6 +870,12 @@ reference lane. The concrete P8 plan is Appendix E.
   `harness/tools/part_parity_baseline.py` (`write` refuses while a reading run holds an unaccepted
   fail, printing a TOML block per reason with the reason and todo left empty; `check`, `spread`,
   `accepted`).
+- FX cases (2026-11-24, "PP-7 armed" in Appendix F). A plate case owes its one view, `plate`. A case
+  entry may hold `fx`: per judged FX entry (`<route>:<view>:<layer>`) and compare key, the band of
+  the raw values over the runs, kept when some run read half the measure's fail line or more. A
+  standing numeric FX fail of a baselined case is a `near-line-fail` note inside that band's
+  tolerance and a `drift` red past it; presence, smoke and a missing or extra asset red unless an
+  entry names them. `fxUnmeasured` holds what the runs could not judge, an empty layer included.
 
 ## 11. Code layout
 
@@ -2601,7 +2607,9 @@ archived F6 sweeps; no fail line and no threshold moved.
   `fx-far` flame width against itself read 1.264 (`2026-11-23_1014`, ok) and 1.345 (`_1201`, bad,
   INVALID(parity-controls)), line 1.30, both entries unsettled. Not flown.
 - A skipped entry (weak cores, above) reads `skipped`, not `pass`. It ranks as `pass`; the
-  `fx-weak-core` flag still raises the case.
+  `fx-weak-core` flag still raises the case. An entry nothing is drawn in on either side (core and
+  envelope 0) reads `empty` since 2026-11-24 and ranks as `pass` too; what the gate makes of it:
+  Appendix F.
 - `fx.layers`, the inventories and `fxDiffers` are read when the case is captured, after the
   warm-up (`DescribeLayers`): in the frame the ghosts are primed their KSPParticleEmitters have no
   material and no power's size or speed yet. Report-only. `fxMissingOnGhost` / `fxExtraOnGhost`,
@@ -2624,6 +2632,23 @@ For an rcs case, length, width and brightness are reported only (R4, E.2). Parti
 ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-only in P8: they are
 not recomputable from the files, and become judged only after a reading run shows them as tight
 as the picture measures.
+
+Split halves in every case (2026-11-24, branch `pp7-arm`, Appendix F). The rule above (a fail
+stands only if both sample halves fail on the same side of the same line and neither side fails
+that measure against itself) was applied only in a case that had an unsettled entry; a settled
+case's fail stood unexamined. It now holds in every case. Why: the only standing fails of PP-7
+that came and went between two runs of one ghost were settled ones their own halves deny, all
+three hue L1 of a near-red flame on the bottom view. The 12 hue bins have an edge at 0 degrees,
+and a red flame straddles it, so a small shift moves much of its light between bins 11 and 0: the bare RK-7 at full
+0.59 (halves 0.24 / 0.43) and 0.21 in the next run, at 30 % 0.33 and then 0.54 (0.56 / 0.30), the
+separation motor 0.38 and then 0.66 (0.64 / 0.33, and the real side failed colour against itself,
+its own halves). Merging neighbouring bins instead was tried and rejected: it also lost five real
+hue defects of `2026-11-23_1027` (0.53 to 0.56, repeated by both halves). Re-judged on every
+archived FX sweep: six cases move, all `fail` to `warn`, no control outcome moves. Four are such
+flips (PP-7 `2026-11-23_1732` and `2026-11-24_0735`, PP-9 `2026-11-23_1749`'s memLander RCS puff at
+10.55 of 10 degrees); the two on ghosts that did have defects are near-line readings whose halves
+disagree (PP-7 `2026-11-23_1027` `radialLiquidEngine1-2` bottom hue 0.553, PP-9 `_1050`'s tower
+10.31 degrees); the other 60 of 61 failing PP-7 cases of `_1027` still fail.
 
 How the instrument proves itself:
 
@@ -3330,7 +3355,7 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
 - A case that reads `reference` (a Waterfall FX case, E.6) is never gated; one whose baseline was
   judged and that now reads `reference` is `unmeasured`. FX findings over their fail line (groups
   `fx:<measure>` and `fx:structure`) red unless an entry names them, and a body fail never hides
-  them. No FX lane is armed.
+  them.
 - FX after the per-entry cap (merge of #2802, 2026-11-23). The gate reads a case's FX fails from its
   judgement (`CaseVerdict.fx`), where a fail the split-half rule caps is `warn`, never from the reason
   text, which still prints it; a body fail the old whole-case cap held at `warn` is gated like any
@@ -3338,11 +3363,9 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
   (`fx-structure-not-measured`, `fx-nozzle-not-measured`, `fx-no-real-effect`), is `unmeasured` on a
   baselined case (`fx_unmeasured`), unless the baseline's runs show the same token (its optional
   `fxUnmeasured` list): then, and on a new case, it is the note `fx-unmeasured`. A skip needs the real
-  core weak too, so a baselined one hides no lost plume. To settle before any FX lane is armed: an FX
-  fail has no band, so one capped in the reading runs and standing later reds; a lamp `plate` case
-  reads `unmeasured` against its own baseline (`unmeasured_reason` owes every manifest view, which a
-  plate case does not photograph: 14 on PP-7, 16 on PP-8 and PP-9); and a layer that went empty on
-  BOTH sides, core and envelope, is judged `pass` (E.4).
+  core weak too, so a baselined one hides no lost plume. Three points were left to settle before any
+  FX lane was armed (no band for an FX fail, plate cases `unmeasured` against their own baseline, a
+  layer empty on both sides judged `pass`): settled 2026-11-24, "PP-7 armed" below.
 - A missing view or route, a null measure, an unmeasured structure or a capture that threw was
   skipped. Each is `unmeasured` now.
 - A ghost renderer that exists but is disabled, a ghost that was not built and a state the ghost did
