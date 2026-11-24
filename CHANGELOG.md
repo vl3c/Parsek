@@ -70,6 +70,8 @@ Not released yet.
 
 ### Fixed
 
+- **A planted flag always comes back after a rewind.** It was lost when time warp or the Tracking
+  Station passed its moment. (FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24)
 - **A looped ghost's map icon no longer flashes far from its orbit.** It is placed on the orbit
   before it shows, also while paused. (MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24)
 - **A dropped stage's fall no longer slows a looped mission.** The loop keeps its period and the

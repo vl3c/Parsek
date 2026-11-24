@@ -90,7 +90,8 @@ id = "CS-6-career-mun-orbit"
 # periapsis 29.9 km, in window), HOME-FALL, HOME-REENTRY, HOME-SPLASHDOWN (SPLASHED, canopy).
 # Measured and pinned: rollout -11612; Mun/Orbit 24960/4/2 and Mun/ReturnFromOrbit 24960/4/2
 # (funds/rep/sci), body-qualified, zero bare 'Orbit' lines (the live proof of #2301); pod
-# recovery +949 (left a regex: distance-scaled); 21 recordings; batch passed=3 skipped=0; end
+# recovery +949 (left a regex: distance-scaled); 21 recordings (25 on split rule
+# version 3); batch passed=3 skipped=0; end
 # pools funds 214041.01, science 50.5, rep 111.0; LedgerGroundTruth hardFailures=0 reportOnly=2
 # (the same two facets as CS-4b / CS-5); zero ERROR / GUARDED / leak / ContractFailed.
 # Original note, before the first flight. Owed off the first
@@ -240,11 +241,20 @@ returnFallTimeoutSeconds   = 200000
 allowedAnomalies = []
 
 [expectations.recordings]
-# A WINDOW until the first flight measures it: the host's fourteen + the flyer's root
-# chain (CS-5's flyby added seven: its legs plus the dropped groups past
-# ShouldRecordDebris; the capture and departure burns inside the Mun SOI may split the
-# chain once or twice more). The ground-truth launch is unrecorded.
-count = { min = 20, max = 22 }
+# RE-PINNED 25 (2026-11-24, run 2026-11-24_0113_CS-6-career-mun-orbit): split rule version 3
+# adds four rows to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# host's fourteen + seven CS Mun Flyby rows (ascent / circularization / orbit / transfer /
+# Mun orbit / return transfer / reentry) + four debris rows (unchanged, 2026-10-27_2202
+# measured 21); this was `count = { min = 20, max = 22 }`. The KSP.log carries exactly six
+# splits (`Optimization pass: split 6 recording(s)`, 19 -> 25; 21 under version 2):
+#   Split candidate (PersistedPhaseChange) splitUT=60193.62   (ascent exit)
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=60300.40
+#   Split candidate (DepartureBurnStart) splitUT=61200.76     (Kerbin)
+#   Split candidate (CaptureBurnEnd) splitUT=88345.86         (Mun)
+#   Split candidate (DepartureBurnStart) splitUT=94199.60     (Mun)
+#   Split candidate (FinalDescentEntry) splitUT=119266.15     (reentry)
+# The ground-truth launch is unrecorded. Exact: 24 and 26 both red.
+count = { min = 25, max = 25 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
