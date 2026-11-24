@@ -428,10 +428,19 @@ namespace Parsek.TestCommands
         /// the start-route ghost, the stowed reference ghost.</summary>
         internal static readonly string[] StateAtlasRows = { "real", "ghost", "ghost-start", "ghost-stowed" };
 
+        /// <summary>The atlas rows of a state case whose start route was compared with the loaded
+        /// real part (<see cref="PartParityRampHold"/>): the four, then that real part, which the
+        /// views' <c>start</c> blocks are measured against.</summary>
+        internal static readonly string[] ReloadedStateAtlasRows = { "real", "ghost", "ghost-start", "ghost-stowed", "real-start" };
+
         /// <summary>The atlas rows of a case (a fresh copy): four for a state case, two for a
         /// stowed one. The live capture reads its rows here, so it holds no literal of its own.</summary>
         internal static string[] AtlasRowsFor(bool isStateCase)
             => (string[])(isStateCase ? StateAtlasRows : StowedAtlasRows).Clone();
+
+        /// <summary>As <see cref="AtlasRowsFor(bool)"/>, with the fifth row of a reloaded start route.</summary>
+        internal static string[] AtlasRowsFor(bool isStateCase, bool startReloaded)
+            => isStateCase && startReloaded ? (string[])ReloadedStateAtlasRows.Clone() : AtlasRowsFor(isStateCase);
 
         /// <summary>An FX case's FX atlas rows, top-down (design E.5); its columns are
         /// <see cref="PartParityFxRules.Views"/>.</summary>

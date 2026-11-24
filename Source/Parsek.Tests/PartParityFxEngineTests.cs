@@ -71,6 +71,62 @@ namespace Parsek.Tests
             Assert.Equal("[]", PartParityFxStructure.Json(new List<PartParityFxStructureEntry>()));
         }
 
+        private const string Jet = "restock-fx-rcs-1<RCSjet pos=(0.00,0.00,0.00) dir=(0.0,1.0,0.0) scale=(0.64,0.64,0.64) size=1.00 speed=5.00";
+        private const string JetWeak = "restock-fx-rcs-1<RCSjet pos=(0.00,0.00,0.00) dir=(0.0,1.0,0.0) scale=(0.64,0.64,0.64) size=0.20 speed=1.00";
+
+        /// <summary>RCSBlock.v2 on PP-9 <c>2026-11-24_0735</c>: 36 real systems, ten hidden ones of
+        /// other variants, the eight drawn ones, eighteen hidden; eight on the ghost.</summary>
+        private static (string[] real, bool[] drawn) VariantBlock(int hiddenBefore, int drawnCount, int hiddenAfter)
+        {
+            int n = hiddenBefore + drawnCount + hiddenAfter;
+            var real = new string[n];
+            var drawn = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                real[i] = Jet;
+                drawn[i] = i >= hiddenBefore && i < hiddenBefore + drawnCount;
+            }
+            return (real, drawn);
+        }
+
+        [Fact]
+        public void Structure_AHiddenVariantsSystem_NeverUsesUpADrawnOnesGhost()
+        {
+            (string[] real, bool[] drawn) = VariantBlock(18, 8, 10);
+            var ghost = Enumerable.Repeat(JetWeak, 8).ToArray();
+            var r = Diff(real, drawn, ghost, Enumerable.Repeat(true, 8).ToArray());
+            Assert.Equal(28, r.missing.Count);
+            Assert.DoesNotContain(r.missing, m => m.Rendered);
+            Assert.Empty(r.extra);
+            Assert.Equal(8, r.differs.Count);
+            // The ghost's systems not playing yet (their prime): the drawn ones still pair first.
+            r = Diff(real, drawn, ghost, new bool[8]);
+            Assert.DoesNotContain(r.missing, m => m.Rendered);
+        }
+
+        [Theory]
+        [InlineData(7, 1)]
+        [InlineData(4, 4)]
+        [InlineData(0, 8)]
+        public void Structure_ADrawnSystemTheGhostLacks_StillReadsMissing(int ghostSystems, int expectedMissing)
+        {
+            (string[] real, bool[] drawn) = VariantBlock(18, 8, 10);
+            var r = Diff(real, drawn, Enumerable.Repeat(JetWeak, ghostSystems).ToArray(), Enumerable.Repeat(true, ghostSystems).ToArray());
+            Assert.Equal(expectedMissing, r.missing.Count(m => m.Rendered));
+            Assert.Equal(36 - ghostSystems, r.missing.Count);
+        }
+
+        [Fact]
+        public void Structure_AGhostWithTwoVariantsWorth_ReadsExtraOnTheDrawnOnes()
+        {
+            (string[] real, bool[] drawn) = VariantBlock(0, 8, 0);
+            var r = Diff(real, drawn, Enumerable.Repeat(Jet, 10).ToArray(),
+                Enumerable.Range(0, 10).Select(i => i != 3).ToArray());
+            Assert.Equal(2, r.extra.Count);
+            Assert.Single(r.extra, e => e.Rendered);   // nine drawn for eight: one too many
+            Assert.Single(r.extra, e => !e.Rendered);  // the hidden one stays behind the drawn ones
+        }
+
         // ----- control evidence and its judge -----
 
         private static PartParityCaseSidecar SidecarWith(PartParityFxControlEvidence e, string status = "ok")

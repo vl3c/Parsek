@@ -764,6 +764,9 @@ namespace Parsek.TestCommands
                         PartParitySweepRunner.Guard(ctx, wc, "capture-" + view, () => PartParityCaseCapture.CaptureView(ctx, wc, view));
                     }
                 }
+                IEnumerator reload = CaptureStartReload(ctx, wc);
+                try { while (reload.MoveNext()) yield return reload.Current; }
+                finally { PartParitySweepRunner.DisposeNested(reload); }
                 if (wc.Status == null) PartParitySweepRunner.Guard(ctx, wc, "fx-lights", () => CompareLights(wc));
                 if (wc.Fx.Stochastic && wc.Status == null && wc.Fx.Exhaust != null)
                 {

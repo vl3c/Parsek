@@ -850,7 +850,7 @@ reference lane. The concrete P8 plan is Appendix E.
   the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
   `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
   (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `hidden`, `drawn`, `flag:<flag>` with an optional
-  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy`) names every known difference; a
+  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy` and `kind`) names every known difference; a
   placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
   The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
   `PARSEK-FAIL(part-parity)` on: a measure that left its band past its tolerance on the WORSE side
@@ -2108,8 +2108,8 @@ name, ramping at `animRate`; the ghost plays it from the recorded power (todo
 GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
 (`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
 the ramp stood and starts it at `animState`'s end when it loads the part, so the start-route ghost
-shows what a load would and the real part, which was not loaded, does not
-(PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the instrument's case, not the ghost's).
+shows what a load would and the real part, which was not loaded, does not. Since 2026-11-24 the start
+route is compared with the real part as a load leaves it (E.4, "Start-route reload").
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 
@@ -2625,6 +2625,62 @@ ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-onl
 not recomputable from the files, and become judged only after a reading run shows them as tight
 as the picture measures.
 
+Start-route reload (2026-11-24, branch `parity-noise`, todo PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED;
+not flown). The start-route ghost is built from a snapshot of the burning part, so it shows what
+stock shows after a load; a ReStock bell on the stand is mid-ramp. 46 PP-9 and 8 PP-8 plume cases of
+`2026-11-24_0735` failed on the start route's `color-blob-px`, the event route right. The real side of
+the start route is now the part as a load leaves it.
+
+- What a load changes, from the decompile (KSP 1.12.5): `ModuleColorChanger.animState` and
+  `FXModuleThrottleEffects.state` are the persisted fields; `currentRateState`, the ramp, is a
+  protected field that `Start()` sets to `animState ? 1 : 0`, and nothing else of the two modules is
+  lost (`PartParityStartReloadTests` reads the KSPField attributes of the game's own types). What
+  shows each frame is written by the modules' own `Update` (`SetScalar` from the setter, then the
+  ramp; KSPCommunityFixes' replacement writes only while the ramp moves).
+- So (`PartParityRampHold`, `PartParityFxDriver.StartReload.cs`): after a case's body views, on an
+  engine part case with a start ghost, each colour changer whose ramp a load would move
+  (`useRate`, more than 0.001 from its end) gets `currentRateState` set to that end and shown once (KSPCF's `Start` postfix), the game runs its
+  own frame (so the module order, a KSPCF install and a bare one all show what they show), and each
+  view's start pair, real and start ghost, is photographed again. The ramp is put back where it would
+  stand by then (in a `finally`), and one whole frame runs before the light and FX reads. No ramp to
+  move: the case is captured as before.
+- The files: a FIFTH body atlas row `real-start`, the flag `start-route-reloaded:<ramps>`, and the
+  views' `start` blocks measured from that row; event route, stowed reference and FX atlas unchanged.
+  Flag and row go together or the sweep is INVALID(parity-instrument) (`start_reload_problem`, every
+  case), and the recompute reads row 2 against row 5. About 0.2 s a case. An unload and reload of the
+  vessel was the alternative: it destroys the parts the ghosts are parented to and needs the engine
+  to spool again (4 to 6 s a case, about 4 min on PP-9) and shows no more.
+- What it measures. A player who keeps flying sees the bell mid-ramp; a load (F9, a scene change, a
+  switch) jumps it to the hot end at once, which is stock's own jump. The start route judges the ghost
+  against that. A recording that starts at a split loads nothing and takes its ramp from the recorded
+  events (GHOST-NOZZLE-GLOW-SPLIT-RAMP), which this rig does not fly.
+
+Grey flames (2026-11-24). A hue fail (`hueL1`) of the flame layer reads `warn`, with ` (grey)` on its
+reason, where BOTH sides are near grey (`fx_near_grey`: the core's mean channels under 2 levels and
+under 10 % of their maximum apart, and the core at least half of the envelope, so no coloured fringe
+hides behind it). The pixels are stored at 8 bits, so there the hue is the rounding: ReStock's
+`omsEngine` at 30 % reads mean colours (25.3, 25.0, 24.4) and (25.1, 24.7, 23.9), chromaticity 0.003
+apart (line 0.06) and hue L1 0.71 to 0.85 on every view. The chromaticity line is untouched. Over
+every archived sweep two verdicts move (`fail` to `warn`: that case in PP-9 `2026-11-23_1749` and
+`2026-11-24_0735`), none the other way, and no control. With every ghost flame's channels rotated
+(r,g,b) -> (b,r,g) on the newest PP-7 to PP-10, PP-5 and PP-6 and the `2026-11-23_17xx` / `_18xx`
+sweeps, 514 of 523 cases that failed before still fail; the 9 left are grey white flames whose
+rotated chromaticity moved 0.016 or less. Python only: the C# control judge has no such rule, its
+subject's flame is coloured. The smoke layer keeps its line.
+
+Drawn systems pair first (2026-11-24, `PartParityFxStructure.Diff`, C#, not flown). The inventory
+diff paired a real system with the first unpaired ghost one of its key. A part with variants keeps
+the hidden variants' systems (ReStock `RCSBlock.v2`: 36 on the real side, 8 of them drawn, 8 on the
+ghost), so ten hidden ones used the ghost's up and the 8 drawn ones read `missing-fx`, a fail, on
+`RCSBlock.v2`, `RCSblock.01.small` and the two ReStock+ multi blocks of PP-9. Drawn real systems now
+pair first, each with a drawn ghost system before a hidden one; a drawn system the ghost really
+lacks still reads missing, and one it draws too many extra.
+
+The owner's mark (2026-11-24). A finding the owner wants kept in sight until its todo is settled
+(`OWNER_FLAGGED_REASONS`, today `smoke-extra`: PARTPARITY-ORBIT-SRB-SMOKE-NOISE) puts
+`owner-flagged:<reason>` on its case, capped or not, judged cases only; it moves no verdict, no cap and
+no rule, and `test_the_todo_that_owns_the_flag_is_open` reds once that todo is closed.
+
 How the instrument proves itself:
 
 - Noise floor. `ctl-fx-real-vs-real` compares the real plume with ITSELF in alternate samples
@@ -3043,6 +3099,18 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   ratio 0.222), controls 11/11 ok with each broken plume failing its own measure. The labels after
   the first ran with `controls=false`, so the sweep box is red for them. Screenshots in
   `<umbrella>/logs/flights/p8-f5/`.
+- Page states (2026-11-24, `parity-noise`). The page always reads the committed accepted list (and,
+  where the label has one, its baseline). A `fail` case shows `known` or `accepted` instead
+  (`partparity.page_state`) when every fail reason and qualitative difference of it is covered by an
+  entry whose `kind` says so: `known` when the owner ruled on each by name, else `accepted` (Appendix F).
+  It keeps the judged verdict beside it (`judged fail: <todos>`), its red chips are drawn unfilled, it
+  is counted and filtered apart, and it ranks under warn. It stays red when a reason is structural
+  (missing, extra or hidden mesh, skin, a missing or extra effect, an unexplained fail), when the gate
+  reds or could not measure it, or when it carries an `owner-flagged:*` mark, which has its own chip,
+  counter, filter and button and is never left out of "flagged". A reloaded start route shows one more
+  picture, "REAL as a load leaves it", and its DIFF st is against that. Verdicts, counts and
+  `partparity-verdicts.json`'s cases are unchanged; the file adds `pageStates` and `ownerFlagged`, the
+  summary line `pageKnown=` / `pageAccepted=` / `ownerFlagged=` when not 0.
 - Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
   `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
   them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
@@ -3373,6 +3441,18 @@ RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
 owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
+
+**Kinds** (2026-11-24). Every entry names what it is, in `kind`, read by the page (E.7, "Page states")
+and by nothing else: no red, note, drift or verdict moves with it. `ruled`: the owner ruled on it by
+name and its todo records the ruling (16 entries, GHOST-PARITY-RESIDUALS-2026-11-22; the parser asks
+for "owner ruling" in the reason). `accepted`: a known cause that is not the ghost's (41: sun trackers,
+lights stock does not show, spin phase, the LV-1 z-fight, the three edge rows, the four Waterfall lamps,
+which no ruling names). `defect`: a real or unexplained difference, red on the page (16: the small
+deploy and colour residuals, the open-top fairing, the KE-1 rods, the stowed canopies). An entry
+without a kind reads as a defect. Re-judged over the 54 archived PP-1 to PP-6 sweeps with the
+committed files, the gate's reds, notes and unmeasured list are identical before and after (the
+mutation run `2026-11-23_0607` 27 reds, every clean run 0); a rendered missing, extra or hidden mesh
+injected into each of 5472 cases of their newest runs is never shown as anything but a fail.
 
 **Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
 PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to

@@ -26,6 +26,7 @@ import sys
 import tempfile
 import unittest
 import zlib
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _TOOLS = os.path.join(os.path.dirname(_HERE), "tools")
@@ -1440,6 +1441,78 @@ class FxSiteTests(_FxSetMixin, unittest.TestCase):
         self.assertEqual(set(), set(re.findall(r"\be\.([A-Za-z]+)", body)) - entry)
 
 
+class PageStateTests(_FxSetMixin, unittest.TestCase):
+    """``known`` / ``accepted`` and the owner's mark on the page (design section 8)."""
+
+    def _lists(self, kind, case_id=FX_SHORT):
+        cv = pp.judge_case(self.sweep["sidecars"][case_id])
+        entries = [pp.AcceptedEntry(case_id, "*", g, "owner ruling 2026-11-22: cosmetic", "SOME-TODO-1",
+                                    kind=kind) for g in sorted({f.group for f in pp.fail_reasons(cv)})]
+        return {"accepted": entries, "baselines": {}, "errors": []}
+
+    def _build(self, lists, **kw):
+        return ppv.build_site_data([self.sweep], lists=lists, **kw)
+
+    def test_a_ruled_fail_reads_known_and_is_counted_apart(self):
+        before = self.data["counts"]["cases"]["fail"]
+        for kind, state in (("ruled", pp.PAGE_KNOWN), ("accepted", pp.PAGE_ACCEPTED)):
+            data = self._build(self._lists(kind))
+            c = {c["caseId"]: c for c in data["cases"]}[FX_SHORT]
+            self.assertEqual((state, pp.VERDICT_FAIL), (c["verdict"], c["partVerdict"]))
+            self.assertEqual(["SOME-TODO-1"], c["accepted"]["todos"])
+            self.assertTrue(c["trigger"].startswith("%s (SOME-TODO-1): " % state))
+            counts = data["counts"]
+            self.assertEqual(before - 1, counts["cases"]["fail"])
+            self.assertEqual({"cases": 1, "parts": 1}, counts["page"][state])
+            head = data["sweeps"][0]["counts"]
+            self.assertEqual((before - 1, 1), (head[pp.VERDICT_FAIL], head[state]))
+            g = [g for g in data["groups"] if g["part"] == "engineShort"][0]
+            self.assertEqual(state, g["verdict"])
+            self.assertIn([state, 1], data["facets"]["verdict"])
+
+    def test_a_defect_no_list_and_a_wrong_case_show_the_fail(self):
+        for lists in (None, self._lists("defect"), self._lists(None),
+                      {"accepted": [], "baselines": {}, "errors": []}):
+            c = {c["caseId"]: c for c in self._build(lists)["cases"]}[FX_SHORT]
+            self.assertEqual((pp.VERDICT_FAIL, None), (c["verdict"], c["accepted"]))
+
+    def test_the_states_rank_under_every_finding_and_over_pass(self):
+        order = (pp.VERDICT_FAIL, pp.VERDICT_WARN, pp.VERDICT_ERROR, pp.PAGE_ACCEPTED,
+                 pp.PAGE_KNOWN, pp.VERDICT_PASS, pp.VERDICT_REFERENCE)
+        sev = [ppv.SEVERITY[v] for v in order]
+        self.assertEqual(sorted(sev, reverse=True), sev)
+        self.assertEqual(len(set(sev)), len(sev))
+        self.assertEqual(pp.VERDICT_WARN, ppv.worst([pp.PAGE_KNOWN, pp.VERDICT_WARN, pp.PAGE_ACCEPTED]))
+
+    def test_the_regression_compares_judged_verdicts(self):
+        data = self._build(self._lists("ruled"), baseline=[self.sweep])
+        self.assertEqual(0, data["regression"]["counts"][ppv.REG_MOVED])
+
+    def test_an_owner_flagged_case_is_marked_whatever_its_verdict_and_never_known(self):
+        def flag(doc):
+            for e in doc["fx"]["views"]:
+                if e["layer"] == "smoke" and e["route"] == "event":
+                    for half in [e] + [e["splitHalf"][h] for h in ("even", "odd")]:
+                        half["real"]["corePx"] = 0
+        self._edit(FX_BURN, flag)
+        self.sweep = dict(ppv.load_sweep(self.dir), imageUrl=self.sweep["imageUrl"])
+        data = self._build(self._lists("ruled", FX_BURN))
+        c = {c["caseId"]: c for c in data["cases"]}[FX_BURN]
+        self.assertEqual((["smoke-extra"], pp.VERDICT_FAIL), (c["ownerFlags"], c["verdict"]))
+        self.assertEqual(1, data["counts"]["ownerFlagged"])
+        self.assertIn([ppv.FX_FLAG_OWNER_FLAGGED, 1], data["facets"]["fxFlag"])
+        g = [g for g in data["groups"] if FX_BURN in "".join(g["cases"])][0]
+        self.assertEqual(["smoke-extra"], g["ownerFlags"])
+
+    def test_the_committed_lists_are_read_without_pinned(self):
+        out = os.path.join(self.tmp, "site2")
+        with mock.patch.object(ppv, "load_pinned", wraps=ppv.load_pinned) as lp:
+            self.assertEqual(0, ppv.main([self.dir, "--out", out]))
+        self.assertEqual(ppv.DEFAULT_PINNED_DIR, lp.call_args[0][0])
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            self.assertIsNone(ppv.parse_data_js(fh.read())["regression"])
+
+
 # A DOM small enough to run the page's own script under node: every body is built at once
 # (no IntersectionObserver), then the harness below opens everything and reads it back.
 PAGE_RUNNER = r"""
@@ -1553,6 +1626,46 @@ class FxPageTests(unittest.TestCase):
 
     def case(self, case_id):
         return self.page["cases"][self.ids[case_id]]
+
+    def test_the_known_accepted_owner_and_loaded_states_read_on_the_page(self):
+        tmp = tempfile.mkdtemp(prefix="ppv-states-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        sweep = ppv.load_sweep(fx_sweep_copy(tmp))
+        sweep["imageUrl"] = lambda n: n
+        docs = sweep["sidecars"]
+        for e in docs[FX_BURN]["fx"]["views"]:
+            if e["layer"] == "smoke" and e["route"] == "event":
+                for half in [e] + [e["splitHalf"][h] for h in ("even", "odd")]:
+                    half["real"]["corePx"] = 0
+        docs[FX_JET]["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE_RELOADED)
+        docs[FX_JET]["flags"] = [pp.FLAG_START_RELOADED_PREFIX + "1"]
+        cv = pp.judge_case(docs[FX_SHORT])
+        lists = {"baselines": {}, "errors": [], "accepted": [
+            pp.AcceptedEntry(FX_SHORT, "*", g, "owner ruling: fine", "SOME-TODO-1", kind="ruled")
+            for g in {f.group for f in pp.fail_reasons(cv)}]}
+        data = ppv.build_site_data([sweep], lists=lists)
+        path = os.path.join(tmp, "data.js")
+        with open(path, "w", encoding="ascii") as fh:
+            fh.write(ppv.render_data_js(data))
+        page = self.run_page(path)
+        ids = {c["caseId"]: c["id"] for c in data["cases"]}
+        counters = [c["text"] for c in page["counters"]]
+        self.assertIn("known 1", counters)
+        self.assertIn("owner-flagged 1", counters)
+        self.assertNotIn("accepted", " ".join(counters))
+        short = page["cases"][ids[FX_SHORT]]
+        self.assertEqual({"state", "known", "quiet"}, set(short["cls"].split()))
+        self.assertIn("judged fail: SOME-TODO-1", [h["text"] for h in short["head"]])
+        self.assertEqual("vc known", short["headChips"][0]["cls"])
+        burn = page["cases"][ids[FX_BURN]]
+        self.assertEqual(["owner-flagged:smoke-extra"],
+                         [h["text"] for h in burn["head"] if "owner" in h["cls"].split()])
+        self.assertNotIn("quiet", burn["cls"].split())
+        # A known-only part leaves the flagged filter; an owner-flagged one never does.
+        self.assertNotIn("engineShort", page["flagged"])
+        caps = page["cases"][ids[FX_JET]]["text"]
+        self.assertIn("REAL as a load leaves it", caps)
+        self.assertNotIn("REAL as a load leaves it", short["text"])
 
     def crops(self, figure, case_id):
         """The (atlas row, view) each layer of a figure crops."""
