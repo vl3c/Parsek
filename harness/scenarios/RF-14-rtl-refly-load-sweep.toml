@@ -238,7 +238,13 @@ count = { min = 9, max = 9 }
 # merge ends it.
 required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
-  "CommitTree promoted rec=\\S+ vessel='Kerbal X Probe' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # RE-PINNED 2026-11-24, NOT RE-FLOWN, off `2026-11-24_0416` (this token its only miss, every
+  # later token met): the dropped core now ends Destroyed at its predicted impact (UT 332.9;
+  # todo ABANDONED-STAGE-D1, ruling Q1b), so the classifier's Destroyed branch answers
+  # `crashed`, ahead of the SubOrbital `stableLeafUnconcluded` it read before. Either way the
+  # slot is open: promoted here, re-flown and merged below. Slot 0 (the pod stack the commit
+  # leaves live) still reads `stableLeafUnconcluded`. Ordered before the re-fly's StartInvoke.
+  "CommitTree promoted rec=\\S+ vessel='Kerbal X Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "Rewind-to-Launch initiated to UT",
   # Whole counter tuple pinned (known-gate 17): the launch save predates the RP
   # (loadedFromSave=0), the one carried RP is restored, and none is dropped as stale;
@@ -283,8 +289,9 @@ forbidden = [
 
 # ARMED 2026-09-24 off the reading run `2026-09-23_2147` (saveParse rewindPoints 1,
 # supersedeRows 1, tombstones 0), each number the derivation predicted:
-#   rewindPoints  {1,1}: the merge closes slot 1 only; slot 0 (the pod stack) stays open,
-#                 so the reaper keeps the point the rewind carried.
+#   rewindPoints  {1,1}: slot 0 (the pod stack) stays open, so the reaper keeps the point
+#                 the rewind carried (slot 1 too: the fork merges `terminalKind=Crashed
+#                 mergeState=CommittedProvisional`, `2026-11-22_0358` and `2026-11-24_0416`).
 #   supersedeRows {1,1}: the re-fly's in-place fork supersedes the core's priorTip, one
 #                 row, and nothing rolls it back (no rewind follows the merge).
 #   tombstones    nobody dies: the re-flown core is unmanned and the pod never lands.
