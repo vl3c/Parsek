@@ -1031,9 +1031,19 @@ namespace Parsek
                 // Suppression-lift edge: while suppressed the proto is parked at a clamped endpoint UT and
                 // HIDDEN, so the first VISIBLE frame after suppression lifts re-propagates it to its live
                 // phase - a position delta (teleport) and an icon-vs-orbit angle (off-orbit) the user never
-                // saw. Skip both checks on that single lift frame (mirrors justReset / bodyChanged).
+                // saw. Skip both checks on that single lift frame (mirrors justReset / bodyChanged). That
+                // reasoning holds only for a lift the drive placed THIS frame: one it did not place is
+                // compared with the Director's seed below instead of being skipped.
                 bool iconSuppressedNow = GhostMapPresence.IsIconSuppressed(pid);
                 bool suppressionLifted = suppressedLastSample.Contains(pid) && !iconSuppressedNow;
+                if (suppressionLifted
+                    && !GhostMapPresence.TryGetFreshIconDrivePropagateUT(
+                        pid, frame, 0, out _))
+                {
+                    CheckUndrivenLift(
+                        pid, pidKey, recId, frame, currentUT, realtime, worldPos, driver, body,
+                        justReset, lineActive, drawIcons);
+                }
 
                 Vector3d prevBodyRel;
                 if (prevBodyRelPos.TryGetValue(pid, out prevBodyRel))
@@ -1116,9 +1126,9 @@ namespace Parsek
                 // order-10000 probe, so IsIconSuppressed is current. Only the actively
                 // driven (on-arc, line-shown) icon is checked - the genuine bug case.
                 // suppressionLifted additionally skips the FIRST visible frame after the
-                // icon un-suppresses: the per-frame drive has not re-propagated the icon
-                // onto the (often just-rebound) orbit yet, so the icon sits at its stale
-                // pre-suppression position for one frame - a transient the user never saw.
+                // icon un-suppresses: the drive record and the (often just-rebound) orbit can
+                // belong to different sides of the handoff there. A lift frame the drive did not
+                // place is measured against the Director's seed above (CheckUndrivenLift).
                 if (offOrbit != null && !iconSuppressedNow && !suppressionLifted)
                 {
                     // Compare against the UT the icon-drive ACTUALLY propagated the icon to this frame
@@ -1377,6 +1387,57 @@ namespace Parsek
             if (double.IsNaN(maxSpeed) || double.IsInfinity(maxSpeed))
                 return 0.0;
             return maxSpeed * deltaUT;
+        }
+
+        /// <summary>
+        /// The lift frame of an icon the drive did not place: measures the icon against the conic the
+        /// Director's fresh seed puts it on (epoch baked with the loop shift, sampled at the live clock,
+        /// the placement <c>StockConicTreatment.SeedAndDriveLive</c> makes) and raises
+        /// <c>icon-teleport</c> when it sits elsewhere. The driver's own orbit is no reference here:
+        /// stock propagated it at the raw epoch, so the icon sits on it exactly.
+        /// </summary>
+        private void CheckUndrivenLift(
+            uint pid, string pidKey, string recId, int frame, double currentUT, double realtime,
+            Vector3d worldPos, OrbitDriver driver, CelestialBody body, bool justReset,
+            string lineActive, string drawIcons)
+        {
+            if (!Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, frame, out OrbitSegment seed, out string seedBodyName))
+                return;
+            CelestialBody seedBody = ResolveBodyByName(seedBodyName);
+            if (seedBody == null)
+                return;
+            double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+            Orbit reference = BuildPhaseMatchedReferenceOrbit(seed, seedBody, shift);
+            if (reference == null)
+                return;
+            Vector3d expectedPos = seedBody.position + OrbitRelativePositionYup(reference, currentUT);
+            double misplaced = (worldPos - expectedPos).magnitude;
+            double deltaUT = prevSampleUT.TryGetValue(pid, out double prevUT) ? currentUT - prevUT : 0.0;
+            double expectedMotion = ComputeExpectedMotionMeters(driver, body, deltaUT);
+            if (!MapRenderTrace.IsUndrivenLiftMisplaced(
+                    suppressionLifted: true,
+                    drivenThisFrame: false,
+                    hasReference: true,
+                    justReset: justReset,
+                    misplacedMeters: misplaced,
+                    expectedMotionMeters: expectedMotion)
+                || !PassesJumpRateLimit(pid, realtime))
+                return;
+            MapRenderTrace.EmitAnomaly(
+                MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT, currentUT,
+                "icon-teleport",
+                string.Format(ic,
+                    "LIFT-UNDRIVEN misplaced={0}m expected={1}m loopShift={2} body={3} sma={4} ecc={5} "
+                    + "frame={6} lineActive={7} drawIcons={8}",
+                    MapRenderTrace.FormatDouble(misplaced, "F0"),
+                    MapRenderTrace.FormatDouble(expectedMotion, "F0"),
+                    MapRenderTrace.FormatDouble(shift, "F1"),
+                    seedBodyName,
+                    MapRenderTrace.FormatDouble(seed.semiMajorAxis, "F0"),
+                    MapRenderTrace.FormatDouble(seed.eccentricity, "F4"),
+                    frame, lineActive, drawIcons),
+                recId);
         }
 
         private bool PassesJumpRateLimit(uint pid, double realtime)
