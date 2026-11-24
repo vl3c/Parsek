@@ -241,9 +241,9 @@ namespace Parsek
         /// <summary>
         /// The share of its baseline emission an RCS nozzle draws. One nozzle: stock's curve, the
         /// power is its own. Of several, the recording holds the mean: one nozzle of four at full
-        /// reads 0.25, where stock's curve (0 up to 0.1, then a smoothstep to 1) gives 0.07 and the
-        /// block would all but stop puffing. The mean itself keeps the total of nozzles that fire
-        /// hard; the curve is above it from 0.55, where most of them must be firing.
+        /// reads 0.25, where stock's usual curve (0 up to 0.1, then a smoothstep to 1) gives 0.07 and
+        /// the block would all but stop puffing. The mean itself keeps the total of nozzles that fire
+        /// hard; the curve is above it from about 0.63, where most of them must be firing.
         /// </summary>
         internal static float RcsEmission(float curveEmission, float nozzlePower, int activeNozzles)
             => activeNozzles > 1 ? Math.Max(curveEmission, nozzlePower) : curveEmission;

@@ -7,7 +7,7 @@ namespace Parsek.Tests
     /// <summary>Stock's ModelMultiParticleFX rule on a ghost's RCS puffs.</summary>
     public class GhostRcsFxPowerTests
     {
-        // Every stock and ReStock RCS node: emission 0 up to 0.1, then to 1; speed 0.8 to 1.
+        // Every stock RCS node: emission 0 up to 0.1, then to 1; speed 0.8 to 1.
         private static GhostEngineFxCurves StockCurves()
         {
             var node = new ConfigNode("MODEL_MULTI_PARTICLE");

@@ -3263,7 +3263,7 @@ What the sweeps of 2026-11-24 read as real ghost differences, and what the next 
 - RCS (GHOST-RCS-FX-STOCK-RULES). The ghost runs stock's EFFECTS rule. A one-nozzle module is judged
   as before; a block's nozzle power is the recorded mean without the transforms of other variants, so
   `rcsPowerRatio` (recorded mean over the fired nozzles' mean) understates what its puffs run at, and
-  the puffs' speed is stock's at the mean (0.8 to 1 of full whatever the power). R4 stands.
+  the puffs' speed is the node's own curve at the mean (0.8 to 1 of full, or 1). R4 stands.
 - Variable nozzles (GHOST-JET-THROTTLE-CLIP). `AdvanceNozzleGlows` brings the petals to the capture's
   time too (they are part of `UpdateNozzleGlows`).
 - The Goliath's fan (GHOST-GOLIATH-FAN-STATIC) turns on the ghost at stock's rate; its phase is its
