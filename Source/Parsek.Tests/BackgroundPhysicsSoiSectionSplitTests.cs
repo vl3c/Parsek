@@ -331,7 +331,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnBackgroundPhysicsFrame_ChecksTheBodyBeforeTheRelativeRewriteAndTheAppend()
         {
-            string body = MethodBody("Recording/BackgroundRecorder.cs", "public void OnBackgroundPhysicsFrame(Vessel bgVessel)");
+            string body = MethodBody("Recording/BackgroundRecorder.cs", "public void OnBackgroundPhysicsFrame(Vessel bgVessel, bool isActiveVessel = false)");
             int packed = body.IndexOf("if (bgVessel.packed)", StringComparison.Ordinal);
             int gate = body.IndexOf("!state.physicsSoiSamplePending", StringComparison.Ordinal);
             int split = body.IndexOf("SplitBackgroundSectionIfPhysicsBodyChanged(state, treeRec, bgVessel, point)", StringComparison.Ordinal);
