@@ -37,6 +37,7 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 # watched vessel identity=`, which keeps the same-pid rule.
 # READ on `2026-11-24_1821` (red only on this spec's own warp-arrival literal): all three as
 # registered, and the same-pid rule then moved the watch #18 -> #19 (the station's half).
+# LIVE-PROVEN `2026-11-24_1828` PASS attempt 1.
 # Proving the FOLLOW outcome needs a BDOCK re-harvest that records the dock-absorb rows.
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
@@ -49,7 +50,7 @@ id = "WDK-1-watch-across-bdock-dock-undock"
 #   Takes the flight camera (watch mode) but no mouse: keep it off a shared desktop focus.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED AND FLOWN 2026-11-23, RESHAPED 2026-11-24 (todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: rewind to the Interceptor separation (rp1, slot 1), a rails warp to shortly before the recorded dock, watch mode entered on the docking ship's ghost by index, then a 1x warp across the replayed dock (UT 8949.27) and undock (8950.59). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity, the camera transfer to the merged vessel and the undock decision line."
+description = "AUTHORED AND FLOWN 2026-11-23, RESHAPED AND LIVE-PROVEN 2026-11-24 (`2026-11-24_1828`, todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: rewind to the Interceptor separation (rp1, slot 1), a rails warp to shortly before the recorded dock, watch mode entered on the docking ship's ghost by index, then a 1x warp across the replayed dock (UT 8949.27) and undock (8950.59). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity, the camera transfer to the merged vessel and the undock decision line."
 instanceProfile = "stock-minimal"
 tags = ["WDK1", "watch", "docking", "rewind", "refly", "flight-view", "flown"]
 

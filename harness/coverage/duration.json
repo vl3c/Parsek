@@ -5091,6 +5091,16 @@
         "2026-08-28T16:26:42Z": 147.0
       }
     },
+    "WDK-1-watch-across-bdock-dock-undock": {
+      "last": 274.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 274.0,
+      "p95": 274.0,
+      "samples": {
+        "2026-11-24T18:33:03Z": 274.0
+      }
+    },
     "WTT-1-timeline-warp-across-committed-rows": {
       "last": 151.0,
       "lastVsP50": 1.0,

@@ -317,7 +317,7 @@ the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchCl
 (`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
 committed-clone route; recordings 2..3 is a reading window until the first flight.
 
-## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`; xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
+## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`, for 1.0.4 (owner ruling 2026-11-24); xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
 
 A looped mission moves the watch camera by the loop unit's own handoff
 (`GhostPlaybackEngine.LogUnitTransitionIfChanged`): when the watched member's window ends it goes only to a
@@ -337,7 +337,7 @@ it is asked about, not only the current one: every unit member asks with the fra
 first answer caused has already landed when the others ask. The retarget line gains
 ` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
 
-## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; WDK-1 RESHAPED 2026-11-24 (branch `wdk1-watch-dock`), flight owed; test gap, low]
+## ~~WATCH-ACROSS-DOCK-LANE-2026-11-23~~: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; RESHAPED AND LIVE-PROVEN 2026-11-24 (branch `wdk1-watch-dock`, WDK-1 `2026-11-24_1828` PASS attempt 1); test gap, low]
 
 The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the dock: the phasing knob keeps
 12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
@@ -353,9 +353,13 @@ LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
 Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a rails
 warp to UT 8925 (a TimeJump would leave the probe about 1084 km off; coasting, it is 82 km from the dock by both
 recorded orbits), watch mode on the ship's ghost by `index=10` (the identity pin names its launch guid), then 1x
-across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line with the outcome regexed. The fixture
+across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line. The fixture
 predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
-(flight work, not filed as a defect). Left: a live lane for the loop handoff, which needs an active vessel
+(flight work, not filed as a defect). First flight of the reshape, `2026-11-24_1821`: PARSEK-FAIL(expectation) on one setup token
+this reshape wrote wrong (`warptout complete reachedUT=892[5-9]`; the verb ends about 0.2 s before its target, 8924.806),
+every subject token matched and every other verifier green. The spec then pins the warp's target (`ut=8925`), the landed
+transfer (`Watch hold timer set ... (watched #18)`: `Auto-following` also prints for a deferred one) and the undock
+outcome that run read, the pre-registered `no child continues`; `2026-11-24_1828` PASS attempt 1. Left: a live lane for the loop handoff, which needs an active vessel
 within 300 km of the looped dock.
 
 ## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
