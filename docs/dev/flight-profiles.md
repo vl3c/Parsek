@@ -389,7 +389,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | save | 308 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +71 |
 | warp | 291 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +73 |
 | physics-warp | 20 | QL 5, ASR 4, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
-| time-jump | 133 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
+| time-jump | 132 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +21 |
 | scene-change | 213 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, IR 5, S 5, ASR 4, CI 4 +61 |
 | vessel-switch | 27 | FLY 5, S 5, ASR 2, CI 2, EVA 2, MINE 2, SWC 2, AJ 1, FAR 1, GC 1 +4 |
 | new-game | 3 | CS 2, SWS 1 |
@@ -401,7 +401,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 452 | 117 | 58 | 17 | 160 | 233 | 239 | 18 | 53 | 174 | 22 | - |
+| Kerbin | 452 | 117 | 58 | 17 | 160 | 233 | 239 | 18 | 52 | 174 | 22 | - |
 | Mun | 72 | 33 | 11 | 6 | 21 | 50 | 51 | - | 13 | 46 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -544,7 +544,7 @@ Lanes per family (rows) per timeline operation (columns).
 | VB | 1 | - | - | - | - | 1 | 1 | - | - | - | - | - |
 | VN | 14 | 2 | 3 | 3 | 6 | 8 | 8 | - | - | 3 | - | - |
 | W | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
-| WDK | 1 | - | 1 | - | - | - | 1 | - | 1 | - | - | - |
+| WDK | 1 | - | 1 | - | - | - | 1 | - | - | - | - | - |
 | WF | 1 | 1 | - | - | - | 1 | 1 | - | - | 1 | - | - |
 | WR | 1 | - | - | - | - | 1 | - | - | - | 1 | - | - |
 | WTT | 2 | - | - | - | - | 2 | 2 | - | - | 2 | - | - |
@@ -632,7 +632,7 @@ Lanes per family (rows) per timeline operation (columns).
 | StartRecording | 227 | B 23, RW 23, EVA 15, LAB 14, MINE 12, SPW 9, VN 8, S 7, FAR 6 +58 |
 | CommitTree | 208 | RW 24, EVA 15, MINE 11, QL 9, SPW 9, VN 9, CS 8, L 8, LAB 8, B 7 +55 |
 | ListHandles | 187 | RF 23, QL 16, EVA 12, MINE 12, CI 11, SPW 11, VN 10, LAB 9, IR 7 +47 |
-| TimeJump | 133 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
+| TimeJump | 132 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +21 |
 | InvokeRewindToLaunch | 130 | RW 24, EVA 11, MINE 10, SPW 9, L 4, RSQ 4, PADX 3, SEAT 3, SRV 3 +41 |
 | ExitToSpaceCenter | 108 | RW 16, QL 10, RF 10, LAB 7, S 5, ASR 4, IR 4, RSQ 4, GS 3, LF 3 +29 |
 | GoToEditor | 96 | RW 25, CS 11, CI 4, RSQ 4, IR 3, LAB 3, STR 3, CT 2, FAR 2, GPOS 2 +31 |
@@ -2192,7 +2192,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| WDK-1-watch-across-bdock-dock-undock | operator | bdock-recorded | seam | Kerbin | re-fly, warp, time-jump | - | RESHAPED 2026-11-24, not re-flown |
+| WDK-1-watch-across-bdock-dock-undock | operator | bdock-recorded | seam | Kerbin | re-fly, warp | - | RESHAPED 2026-11-24, not re-flown |
 
 ### WF (1)
 

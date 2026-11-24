@@ -332,7 +332,9 @@ Fix: when the watched member's window ends, the engine first asks its host
 (`ResolveWatchedBranchContinuation` -> `WatchModeController.FindWatchedBranchContinuation` ->
 `GhostPlaybackLogic.FindUnitBranchWatchTarget`), which applies the ordinary rules with the session's watched
 identity, only at a Dock, Board or Undock branch point and only to members the unit clock is in. -1 keeps the
-guid handoff: every other split still refuses its peeled-off siblings. The retarget line gains
+guid handoff: every other split still refuses its peeled-off siblings. The host answers for the index
+it is asked about, not only the current one: every unit member asks with the frame's index, and a transfer the
+first answer caused has already landed when the others ask. The retarget line gains
 ` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
 
 ## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; WDK-1 RESHAPED 2026-11-24 (branch `wdk1-watch-dock`), flight owed; test gap, low]
@@ -342,15 +344,16 @@ The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the
 keptRevs=12`; WL-3's instant, PR #2782, has the same error), `2026-11-23_2205` and `2026-11-24_0808` (the dock
 and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
 line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10), which it
-had to: #10 was 1047 km from the active vessel and the watch entry cutoff is 300 km; and in a looped mission
+had to: #10 was 1047 km from the active vessel (the two jumps shift the live vessel's epoch and leave it where
+it is) and the watch entry cutoff is 300 km; and in a looped mission
 the camera moves by the loop unit's own handoff, which never asks `FindNextWatchTarget` /
 `FindWatchedIdentityChild`, the code this lane pins (and which lost the ship at a dock:
 LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
 
-Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a
-TimeJump to UT 8935, watch mode on the ship's ghost by `index=10` (82 km away by both recorded orbits, the
-identity pin names its launch guid), then 1x across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the
-camera transfer to the merged vessel and the undock decision line with the outcome regexed. The fixture
+Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a rails
+warp to UT 8925 (a TimeJump would leave the probe about 1084 km off; coasting, it is 82 km from the dock by both
+recorded orbits), watch mode on the ship's ghost by `index=10` (the identity pin names its launch guid), then 1x
+across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line with the outcome regexed. The fixture
 predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
 (flight work, not filed as a defect). Left: a live lane for the loop handoff, which needs an active vessel
 within 300 km of the looped dock.

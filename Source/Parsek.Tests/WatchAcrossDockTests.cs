@@ -542,6 +542,73 @@ namespace Parsek.Tests
                 && l.Contains("unit watch retarget owner=0 member #0->#2 at loopUT=201.00 via=branch"));
         }
 
+        // The live shape: the engine asks once per unit member with the frame's watched index,
+        // and the host lands the transfer inside the event, mid-frame. Host side is the real
+        // WatchModeController method over the real store.
+        // Fails if: the later members of the undock frame are answered by the guid tier and
+        // move the camera on to the station.
+        [Theory]
+        [InlineData(0)]
+        [InlineData(2)]
+        [InlineData(4)]
+        public void LoopUnit_Undock_EveryMemberAsks_StaysOnTheShip(int readyAfterMember)
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                var tree = DockUndockTree(out var recs, shipAfterGuid: ShipGuid)[0];
+                foreach (Recording r in recs)
+                    tree.Recordings[r.RecordingId] = r;
+                RecordingStore.AddCommittedTreeForTesting(tree);
+                if (RecordingStore.CommittedRecordings.Count == 0)
+                    foreach (Recording r in recs)
+                        RecordingStore.AddCommittedInternal(r);
+                Assert.Equal(recs.Count, RecordingStore.CommittedRecordings.Count);
+
+                var host = (ParsekFlight)System.Runtime.Serialization.FormatterServices
+                    .GetUninitializedObject(typeof(ParsekFlight));
+                var watch = new WatchModeController(host);
+                void SetWatch(string field, object value) => typeof(WatchModeController).GetField(field,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .SetValue(watch, value);
+                SetWatch("watchedRecordingIndex", 2);
+                SetWatch("watchedIdentityGuid", ShipGuid);
+
+                var engine = new GhostPlaybackEngine(null);
+                int memberInFrame = 0;
+                var moves = new List<int>();
+                engine.ResolveWatchedBranchContinuation = watch.FindWatchedBranchContinuation;
+                engine.OnLoopCameraAction += e =>
+                {
+                    if (watch.WatchedRecordingIndex == e.Index || memberInFrame < readyAfterMember) return;
+                    moves.Add(e.Index);
+                    SetWatch("watchedRecordingIndex", e.Index);
+                };
+                var unit = new GhostPlaybackLogic.LoopUnit(
+                    ownerIndex: 0, memberIndices: new[] { 0, 1, 2, 3, 4 },
+                    spanStartUT: 0, spanEndUT: 600, cadenceSeconds: 1000, phaseAnchorUT: 0);
+                foreach (double ut in new[] { 300.0, 401.0, 402.0, 403.0 })
+                {
+                    int frozen = watch.WatchedRecordingIndex;
+                    for (memberInFrame = 0; memberInFrame < 5; memberInFrame++)
+                        engine.LogUnitTransitionIfChanged(
+                            unit, "unit-live", RecordingStore.CommittedRecordings, ut, 0, 5000 + ut,
+                            false, frozen, false);
+                }
+                Assert.Equal(new List<int> { 4 }, moves);
+
+                // Not watching: no answer.
+                SetWatch("watchedRecordingIndex", -1);
+                Assert.Equal(-1, watch.FindWatchedBranchContinuation(2, idx => true));
+                SetWatch("watchedRecordingIndex", 2);
+                Assert.Equal(-1, watch.FindWatchedBranchContinuation(99, idx => true));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
         // Source gate: the flight host hands its watch controller to the engine.
         [Fact]
         public void LoopUnit_HostWiresTheBranchResolver()

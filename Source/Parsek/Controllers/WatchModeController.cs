@@ -2540,13 +2540,16 @@ namespace Parsek
 
         /// <summary>
         /// Host side of <see cref="GhostPlaybackEngine.ResolveWatchedBranchContinuation"/>: where
-        /// the watched vessel of a looped mission went at a dock, boarding or undock. -1 when
-        /// <paramref name="watchedIndex"/> is not the recording being watched.
+        /// the watched vessel of a looped mission went at a dock, boarding or undock. Answers for the
+        /// index the engine asks about, never only for the current one: the engine asks once per
+        /// unit member with the frame's watched index, and a transfer the first answer caused has
+        /// already moved <see cref="WatchedRecordingIndex"/> when the later members ask. The
+        /// session's identity survives that transfer, so every answer of the frame is the same.
         /// </summary>
         internal int FindWatchedBranchContinuation(int watchedIndex, Func<int, bool> isLive)
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (watchedIndex < 0 || watchedIndex != watchedRecordingIndex || watchedIndex >= committed.Count)
+            if (watchedIndex < 0 || watchedIndex >= committed.Count || watchedRecordingIndex < 0)
                 return -1;
 
             var scenario = ParsekScenario.Instance;
