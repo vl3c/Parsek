@@ -2,7 +2,7 @@ schema = 1
 id = "EVA-17-orbit-jetpack-hop-rewind"
 # =====================================================================================
 # EVA-17: A LIVE JETPACK FLIGHT RECORDED IN ORBIT AND READ BACK FROM THE GHOST.
-# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4, "Walking and jetpack
+# AUTHORED 2026-11-23, LIVE-PROVEN 2026-11-24 (test-gap list 2026-11-18 batch 4, "Walking and jetpack
 # EVA recorded live"; todo EVA-JETPACK-LIVE-LANES-2026-11-23).
 #
 # WHY. Every committed EVA lane exits, floats, plants, boards or chutes; none flies the
@@ -48,7 +48,7 @@ id = "EVA-17-orbit-jetpack-hop-rewind"
 #   Takes no mouse and no focus: it can share a runner with other lanes.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED AND FLOWN 2026-11-23 (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
+description = "LIVE-PROVEN 2026-11-24 (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
 instanceProfile = "stock-minimal"
 tags = ["EVA17", "eva", "jetpack", "eva-move", "rewind-to-launch", "ghost-render",
         "ingame-batch", "flown"]
@@ -142,9 +142,11 @@ required = [
   "evamove start kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up seconds=0.5 stow=false startUT=[0-9.]+ packBefore=false ",
   "evamove complete kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up effect=true ",
   "evamove complete kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up effect=true deployed=false [^\\r\\n]*stowFires=[1-3]",
-  # THE SUBJECT, recorder side (FlightRecorder.PartModuleStates.cs CheckEvaState): the live
-  # deploy and the debounced thrust start, after the hops began.
-  "MISSIONMARK label=eva17-hops [\\s\\S]*?\\[Recorder\\] Part event: EvaJetpackDeployed 'kerbalEVA[A-Za-z]*' pid=[0-9]+ \\(eva\\)",
+  # THE SUBJECT, recorder side: the deploy, after the hops began, and the debounced thrust start
+  # (FlightRecorder.PartModuleStates.cs CheckEvaState). The seam deploys the pack before the
+  # kerbal's recording is promoted, so the deploy is written by the promotion seed
+  # (PartStateSeeder.EmitEvaStateSeedEvents), or by a recorder's poll when one sees the edge first.
+  "MISSIONMARK label=eva17-hops [\\s\\S]*?(?:\\[Recorder\\] Seed event: EvaJetpackDeployed pid=[0-9]+ part='kerbalEVA[A-Za-z]*' ut=[0-9.]+ \\(promotion\\)|\\[(?:Recorder|BgRecorder)\\] Part event: EvaJetpackDeployed 'kerbalEVA[A-Za-z]*' pid=[0-9]+ \\((?:bg vessel [0-9]+, )?eva\\))",
   "MISSIONMARK label=eva17-hops [\\s\\S]*?\\[Recorder\\] Part event: EvaJetpackThrustStarted 'kerbalEVA[A-Za-z]*' ",
   "detected boarding from EVA",
   "committree committed=true",
