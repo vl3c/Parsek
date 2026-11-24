@@ -764,6 +764,8 @@ namespace Parsek.TestCommands
                         yield return new WaitForEndOfFrame();
                         if (PartParitySweepRunner.CaseVesselLost(wc)) { LoseVessel(wc); yield break; }
                         PartParitySweepRunner.Guard(ctx, wc, "fx-nozzle-glow", () => AdvanceNozzleGlows(wc));
+                        if (wc.Fx.Engine != null && view == wc.Views[0])
+                            PartParitySweepRunner.Guard(ctx, wc, "fx-glow-log", () => LogGlow(wc));
                         PartParitySweepRunner.Guard(ctx, wc, "capture-" + view, () => PartParityCaseCapture.CaptureView(ctx, wc, view));
                     }
                 }
@@ -811,6 +813,30 @@ namespace Parsek.TestCommands
             GhostPlaybackLogic.UpdateNozzleGlows(wc.Ghost?.State, ut);
             GhostPlaybackLogic.UpdateNozzleGlows(wc.State?.StartGhost?.State, ut);
             GhostPlaybackLogic.UpdateNozzleGlows(wc.Fx?.BrokenGhost?.State, ut);
+        }
+
+        /// <summary>One line on an engine case's glow at its first body view: how far each of the real
+        /// part's throttle clips stands and how far each ghost's glows do, with the throttle they follow.</summary>
+        private static void LogGlow(WaveCase wc)
+        {
+            double ut = Planetarium.GetUniversalTime();
+            var sb = new StringBuilder();
+            foreach (PartModule m in wc.Real.rootPart.Modules)
+                if (m is FXModuleAnimateThrottle clip)
+                    sb.Append(" real[").Append(clip.animationName).Append("]=").Append(clip.animState.ToString("0.000", Ic));
+            AppendGlows(sb, "event", wc.Ghost?.State, ut);
+            AppendGlows(sb, "start", wc.State?.StartGhost?.State, ut);
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: glow burnS={(Time.realtimeSinceStartup - wc.State.PressRealtime).ToString("0.0", Ic)} " +
+                $"mainThrottle={wc.Real.ctrlState.mainThrottle.ToString("0.000", Ic)} currentThrottle={wc.Fx.Engine.currentThrottle.ToString("0.000", Ic)}{sb}");
+        }
+
+        private static void AppendGlows(StringBuilder sb, string route, GhostPlaybackState state, double ut)
+        {
+            if (state?.nozzleGlows == null) return;
+            foreach (NozzleGlowInfo g in state.nozzleGlows)
+                sb.Append(' ').Append(route).Append('[').Append(g.animationName ?? g.moduleName).Append("]=")
+                    .Append(GhostPlaybackLogic.NozzleGlowScalarAt(g, ut).ToString("0.000", Ic)).Append("->")
+                    .Append(g.targetLevel.ToString("0.000", Ic));
         }
 
         private static void LoseVessel(WaveCase wc)
