@@ -51,6 +51,12 @@ tags = ["FLG-2", "eva", "flag-plant", "rewind-to-launch", "scene-ksc", "scene-ts
 saveTemplate       = "fixtures/saves/gloops-airshow"
 injectedRecordings = "none"
 craft              = []
+# gloops-airshow carries stock's new-game intro with `tsComplete = False`: the first
+# Tracking Station visit sets the `intro_TS` lock, which holds TIMEWARP and makes
+# WarpToUT refuse above 1x there (`warptout refused reason=warp-locked
+# holders=intro_TS`, runs `2026-11-24_1628` / `_1629`). kscComplete and editorComplete
+# are True, so the stage step removes the intro node (savepatch.apply_ts_intro_done).
+trackingStationIntroDone = true
 
 [driver]
 kind = "seam"
