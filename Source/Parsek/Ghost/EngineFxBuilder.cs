@@ -593,7 +593,6 @@ namespace Parsek
             rule.minEnergy = emitter.minEnergy;
             rule.maxEnergy = emitter.maxEnergy;
             rule.localVelocity = emitter.localVelocity;
-            rule.useWorldSpace = emitter.useWorldSpace;
             info.fxRules.Add(rule);
             return true;
         }
@@ -674,7 +673,7 @@ namespace Parsek
         /// <summary>
         /// Resolves the engine's exhaust direction in prefab world space: the exhaust
         /// anchor's forward (+Z; KSP convention points exhaust-ward). Used to aim
-        /// the world-space emitter velocity floor in each FX transform's local frame.
+        /// prefab FX in each FX transform's local frame.
         /// </summary>
         private static bool TryResolvePrefabExhaustDirection(
             Part prefab, ModuleEngines engine, out Vector3 worldDir)
@@ -715,14 +714,6 @@ namespace Parsek
             Dictionary<Transform, Transform> cloneMap,
             Dictionary<string, bool> selectedVariantGameObjects)
         {
-            bool hasExhaustDir = TryResolvePrefabExhaustDirection(prefab, engine, out Vector3 exhaustWorldDir);
-            if (!hasExhaustDir && modelFxEntries.Count > 0)
-            {
-                LogHotPathVerbose($"exhaust-dir-miss-{partName}-{moduleIndex}",
-                    $"'{partName}' midx={moduleIndex}: no thrust transform resolvable; " +
-                    "world-space emitter velocity floor unavailable for model FX");
-            }
-
             float modelSizeBoost = ResolveModelFxSizeBoost(
                 ReStockPatchFxIndex.HasAuthoredEffectsFor(prefab.partInfo?.name ?? partName),
                 partName);
@@ -789,17 +780,6 @@ namespace Parsek
                             }
 
                             GhostVisualBuilder.StripKspFxControllers(fxInstance, info.kspEmitters, info.smokeTrailFades);
-
-                            if (hasExhaustDir)
-                            {
-                                // Exhaust axis in the emitter's local frame: undo the
-                                // instance's cfg rotation and the source FX transform's
-                                // prefab-space rotation (the ghost mirrors both).
-                                Vector3 exhaustLocal = Quaternion.Inverse(mmpLocalRot) *
-                                    (Quaternion.Inverse(srcFxTransform.rotation) * exhaustWorldDir);
-                                GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor(
-                                    fxInstance, partName, moduleIndex, exhaustLocal);
-                            }
 
                             int addedSystems = GhostVisualBuilder.ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)

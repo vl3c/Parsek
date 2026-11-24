@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Parsek
 {
-    // FX prefab lookup and cache, FX parenting and placement diagnostics, the world-space emitter velocity floor, FX magnitude baselines, KSP FX controller stripping and engine particle configuration.
+    // FX prefab lookup and cache, FX parenting and placement diagnostics, FX magnitude baselines, KSP FX controller stripping and engine particle configuration.
     internal static partial class GhostVisualBuilder
     {
         /// <summary>
@@ -464,69 +464,6 @@ namespace Parsek
                 $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})", 60.0);
         }
 
-        /// <summary>
-        /// Decides the minimum-flow velocity for a world-space, near-static particle
-        /// emitter on a ghost. Returns false (velocity unchanged) for local-space
-        /// emitters and for world-space emitters that already carry real velocity.
-        /// The flow axis is the ENGINE'S EXHAUST AXIS expressed in the emitter's
-        /// local frame, NOT the asset's authored axis: ReStock's per-part FX rigs
-        /// orient fxTransformSmoke differently across SRBs (Clydesdale/Thoroughbred
-        /// vs Hammer/Flea), so an assumed asset axis squirts sideways on some parts
-        /// (same lesson as the legacy fx_* thrust-anchor-local rotation fix).
-        /// </summary>
-        internal static bool TryComputeWorldSpaceEmitterVelocityFloor(
-            bool useWorldSpace, Vector3 localVelocity, Vector3 exhaustAxisEmitterLocal,
-            out Vector3 flooredVelocity)
-        {
-            flooredVelocity = localVelocity;
-            if (!useWorldSpace)
-                return false;
-
-            if (localVelocity.magnitude >= WorldSpaceEmitterSlowSpeedThreshold)
-                return false;
-
-            Vector3 axis = exhaustAxisEmitterLocal.magnitude > 0.001f
-                ? exhaustAxisEmitterLocal.normalized
-                : Vector3.down;
-            flooredVelocity = axis * WorldSpaceEmitterFloorSpeed;
-            return true;
-        }
-
-        /// <summary>
-        /// Applies the world-space emitter velocity floor to every KSPParticleEmitter
-        /// under a freshly cloned engine FX instance. Call AFTER StripKspFxControllers
-        /// (the clone is ghost-owned by then). No-op for local-space emitters, i.e.
-        /// every stock FX asset.
-        /// </summary>
-        internal static void ApplyWorldSpaceEmitterVelocityFloor(
-            GameObject fxInstance, string partName, int moduleIndex, Vector3 exhaustAxisEmitterLocal)
-        {
-            if (fxInstance == null)
-                return;
-
-            var emitters = fxInstance.GetComponentsInChildren<KSPParticleEmitter>(true);
-            for (int i = 0; i < emitters.Length; i++)
-            {
-                if (emitters[i] == null)
-                    continue;
-                if (!TryComputeWorldSpaceEmitterVelocityFloor(
-                    emitters[i].useWorldSpace, emitters[i].localVelocity,
-                    exhaustAxisEmitterLocal, out Vector3 floored))
-                {
-                    continue;
-                }
-
-                ParsekLog.VerboseRateLimited("GhostVisual",
-                    $"ws-emitter-floor-{partName}-{moduleIndex}-{fxInstance.name}",
-                    $"world-space emitter velocity floor: '{partName}' midx={moduleIndex} " +
-                    $"fx='{fxInstance.name}' localVelocity {emitters[i].localVelocity} -> {floored} " +
-                    $"(exhaust axis, emitter-local: {exhaustAxisEmitterLocal}; trail-by-motion " +
-                    "asset would pool particles at the nozzle on a static ghost)",
-                    5.0);
-                emitters[i].localVelocity = floored;
-            }
-        }
-
         /// <summary>A named emitter field, but only if <c>GhostPlaybackLogic</c> can actually WRITE a
         /// scaled scalar back into it. A field of an unexpressible type answers null (no scaling for
         /// that field) instead of being cached for the applier to fail on every frame.</summary>
@@ -567,10 +504,9 @@ namespace Parsek
         /// <c>baseline * throttleRatio</c> instead of an absolute value.
         ///
         /// ONE capture point per info, called after the whole FX build for that module has run.
-        /// That placement is load-bearing: <c>ApplyGhostEngineFxSizeBoost</c> (#383) and
-        /// <c>ApplyWorldSpaceEmitterVelocityFloor</c> both mutate exactly the fields captured here
-        /// and both run AFTER <c>StripKspFxControllers</c>, so capturing at strip time would pin a
-        /// pre-fix baseline and runtime scaling would quietly undo those fixes.
+        /// That placement is load-bearing: <c>ApplyGhostEngineFxSizeBoost</c> (#383) mutates exactly
+        /// the fields captured here and runs AFTER <c>StripKspFxControllers</c>, so capturing at
+        /// strip time would pin a pre-fix baseline and runtime scaling would quietly undo it.
         ///
         /// The three emitter fields are resolved reflectively even though <c>KSPParticleEmitter</c>
         /// is compile-time reachable: a KSP build that renames one then degrades that emitter to
@@ -602,12 +538,6 @@ namespace Parsek
                     r.minEmissionField = ResolveScalarMagnitudeField(t, "minEmission", partName, moduleIndex);
                     r.maxEmissionField = ResolveScalarMagnitudeField(t, "maxEmission", partName, moduleIndex);
                     r.localVelocityField = ResolveVectorMagnitudeField(t, "localVelocity", partName, moduleIndex);
-
-                    // World-space-ness rides along with the baseline: the captured localVelocity may
-                    // BE the minimum-flow floor applied just above, and the playback scaler has to
-                    // know not to scale it back under the pooling threshold the floor cleared.
-                    r.baselineUseWorldSpace =
-                        r.emitter is KSPParticleEmitter kspEmitter && kspEmitter.useWorldSpace;
 
                     try
                     {

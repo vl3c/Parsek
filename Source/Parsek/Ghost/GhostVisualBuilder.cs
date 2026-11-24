@@ -630,24 +630,6 @@ namespace Parsek
         /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
         /// design principle.
         /// </summary>
-        // ReStock's SRB smoke models (restock-fx-srb-smoke-1/2/3) are world-space
-        // TRAIL assets: live, the plume column comes from the EMITTER (the flying
-        // vessel) moving away from emitted particles; the baked particle velocity is
-        // near zero (smoke-3 is exactly zero; in modern KSP both damping and
-        // emitterVelocityScale are dead fields, and the cfg speed curve maxes at 1.0,
-        // so live full-power velocity equals the baked value). A stationary ghost
-        // (static showcase fixture, hover) never moves, so every particle pools at
-        // the nozzle point. Give such emitters a minimum exhaust-ward flow so the
-        // smoke flows instead of gathering. Provably a no-op on non-ReStock installs:
-        // a 2026-06-12 scan of every Squad/SquadExpansion/ReStock/ReStockPlus .mu
-        // found ZERO stock world-space emitters; only ReStock's three srb-smoke
-        // models (and drill FX outside the engine FX path) are world-space.
-        // Accepted deviation for MOVING ghosts: the smoke column drifts a few m/s
-        // exhaust-ward on top of the motion-painted trail, visually minor next to
-        // vessel speed and physically plausible for exhaust flow.
-        internal const float WorldSpaceEmitterSlowSpeedThreshold = 4f;
-        internal const float WorldSpaceEmitterFloorSpeed = 6f;
-
         // #383: Ghost engine flames render undersized vs live stock because Parsek's FX
         // pipeline never applies stock's per-frame FXGroup.SetPower runPower multiplier
         // (up to 1.75x at full thrust for legacy engines). Instead of replicating per-frame
