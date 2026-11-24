@@ -198,6 +198,7 @@ namespace Parsek
                 return TryResolveKscPointPose(
                     rec,
                     before,
+                    targetUT,
                     pointSection,
                     surfaceLookup,
                     anchorLookup,
@@ -210,6 +211,7 @@ namespace Parsek
                 return TryResolveKscPointPose(
                     rec,
                     before,
+                    targetUT,
                     pointSection,
                     surfaceLookup,
                     anchorLookup,
@@ -222,6 +224,7 @@ namespace Parsek
                 before,
                 after,
                 t,
+                targetUT,
                 section,
                 surfaceLookup,
                 anchorLookup,
@@ -514,9 +517,15 @@ namespace Parsek
             return sectionIdx;
         }
 
+        /// <summary>
+        /// The pose of one sample drawn at <paramref name="playbackUT"/>. A RELATIVE sample holds
+        /// its offset beside the pose the anchor has at <paramref name="playbackUT"/>, never at
+        /// the UT of the sample.
+        /// </summary>
         private static bool TryResolveKscPointPose(
             Recording rec,
             TrajectoryPoint point,
+            double playbackUT,
             TrackSection? section,
             KscSurfaceLookup surfaceLookup,
             KscRecordedAnchorLookup anchorLookup,
@@ -549,7 +558,7 @@ namespace Parsek
                     storedRot,
                     section.Value,
                     FindKscTrackSectionIndex(rec, point.ut),
-                    point.ut,
+                    playbackUT,
                     anchorLookup,
                     out pose);
             }
@@ -595,11 +604,17 @@ namespace Parsek
             return value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        /// The pose between two samples, <paramref name="t"/> clamped to them. A RELATIVE pose
+        /// resolves its anchor at <paramref name="playbackUT"/>: past the last sample the clamped
+        /// sample UT stops there while the anchor moves on.
+        /// </summary>
         private static bool TryResolveKscSegmentPose(
             Recording rec,
             TrajectoryPoint before,
             TrajectoryPoint after,
             float t,
+            double playbackUT,
             TrackSection? section,
             KscSurfaceLookup surfaceLookup,
             KscRecordedAnchorLookup anchorLookup,
@@ -637,7 +652,7 @@ namespace Parsek
                     storedRot,
                     section.Value,
                     FindKscTrackSectionIndex(rec, targetUT),
-                    targetUT,
+                    playbackUT,
                     anchorLookup,
                     out pose);
             }
