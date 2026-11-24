@@ -224,6 +224,30 @@ namespace Parsek
             return (int)Math.Floor(rate);
         }
 
+        /// <summary>
+        /// The power of an RCS module's active nozzles. The recorded one is the mean force share over
+        /// every thruster transform, those of the other part variants included (RCSBlock.v2: 4 of 9
+        /// can fire). Stock's floor of 0.1 (<c>ModuleRCS.FixedUpdate</c>) applies.
+        /// </summary>
+        internal static float RcsNozzlePower(float recordedPower, int recordedNozzles, int activeNozzles)
+        {
+            if (!(recordedPower > 0f)) return 0f;
+            float power = activeNozzles > 0 && activeNozzles < recordedNozzles
+                ? recordedPower * recordedNozzles / activeNozzles
+                : recordedPower;
+            return Math.Min(Math.Max(power, 0.1f), 1f);
+        }
+
+        /// <summary>
+        /// The share of its baseline emission an RCS nozzle draws. One nozzle: stock's curve, the
+        /// power is its own. Of several, the recording holds the mean: one nozzle of four at full
+        /// reads 0.25, where stock's curve (0 up to 0.1, then a smoothstep to 1) gives 0.07 and the
+        /// block would all but stop puffing. The mean itself keeps the total of nozzles that fire
+        /// hard; the curve is above it from 0.55, where most of them must be firing.
+        /// </summary>
+        internal static float RcsEmission(float curveEmission, float nozzlePower, int activeNozzles)
+            => activeNozzles > 1 ? Math.Max(curveEmission, nozzlePower) : curveEmission;
+
         /// <summary><c>ModuleEngines.FXUpdate</c>'s running-group power, which
         /// <c>FXGroup.SetPower</c> multiplies particle size and lifetime by.</summary>
         internal static float LegacyRunningPower(float thrustOverMax)

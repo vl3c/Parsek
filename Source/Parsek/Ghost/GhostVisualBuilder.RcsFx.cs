@@ -52,7 +52,10 @@ namespace Parsek
                         localOffset = localOffset,
                         localRotation = localRotation,
                         localScale = localScale,
-                        stockNested = stockNodes
+                        stockNested = stockNodes,
+                        curves = stockNodes
+                            ? GhostEngineFxCurves.ForNode("MODEL_MULTI_PARTICLE", mmpNodes[mp])
+                            : null
                     });
 
                     if (emissionCurve == null)
@@ -227,6 +230,7 @@ namespace Parsek
 
                 info.emissionCurve = emissionCurve;
                 info.speedCurve = speedCurve;
+                CountRcsNozzles(prefab, rcs, modelRoot, selectedVariantGameObjects, info);
 
                 for (int f = 0; f < fxDefinitions.Count; f++)
                 {
@@ -296,6 +300,7 @@ namespace Parsek
                                     : fxDefinitions[f].localScale;
 
                                 StripKspFxControllers(fxInstance, info.kspEmitters);
+                                AddRcsFxRule(info, fxInstance, fxDefinitions[f].curves);
 
                                 // Configure ALL particle systems in the FX hierarchy (not just the first).
                                 // KSP RCS FX models have multiple child systems (plume + glow/smoke).
@@ -367,9 +372,84 @@ namespace Parsek
                 CaptureFxMagnitudeBaselines(
                     result[i].kspEmitters, result[i].particleSystems, result[i].particleBaselines,
                     partName, result[i].moduleIndex);
+                MarkStockRuledRcsFx(result[i], partName);
             }
 
             return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// The nozzles the recorded power is the mean over (stock's <c>thrusterTransforms</c> walk,
+        /// other part variants' included) and those the selected variant leaves active.
+        /// </summary>
+        private static void CountRcsNozzles(
+            Part prefab, ModuleRCS rcs, Transform modelRoot,
+            Dictionary<string, bool> selectedVariantGameObjects, RcsGhostInfo info)
+        {
+            Transform[] nozzles = prefab.FindModelTransforms(rcs.thrusterTransformName);
+            if (nozzles == null || nozzles.Length == 0) return;
+            int active = nozzles.Length;
+            if (selectedVariantGameObjects != null && selectedVariantGameObjects.Count > 0)
+                for (int i = 0; i < nozzles.Length; i++)
+                    if (!IsRendererEnabledByVariantRule(
+                            nozzles[i], modelRoot, selectedVariantGameObjects, out _, out _))
+                        active--;
+            info.recordedNozzles = nozzles.Length;
+            info.activeNozzles = active > 0 ? active : nozzles.Length;
+        }
+
+        /// <summary>
+        /// The rule of one nozzle's model instance: stock drives the first <c>KSPParticleEmitter</c>
+        /// of the model. None without the node's stock curves (a SmokeScreen node).
+        /// </summary>
+        private static void AddRcsFxRule(RcsGhostInfo info, GameObject fxInstance, GhostEngineFxCurves curves)
+        {
+            KSPParticleEmitter emitter = curves != null
+                ? fxInstance.GetComponentInChildren<KSPParticleEmitter>(true)
+                : null;
+            if (emitter == null) return;
+            info.fxRules.Add(new GhostEngineFxRule
+            {
+                kind = GhostEngineFxRuleKind.ModelEmitter,
+                curves = curves,
+                emitter = emitter,
+                minEmission = emitter.minEmission,
+                maxEmission = emitter.maxEmission,
+                minEnergy = emitter.minEnergy,
+                maxEnergy = emitter.maxEnergy,
+                localVelocity = emitter.localVelocity,
+                useWorldSpace = emitter.useWorldSpace,
+            });
+        }
+
+        /// <summary>
+        /// Takes every emitter a stock rule drives, and its particle system, out of the S1 ratio,
+        /// which would write over it.
+        /// </summary>
+        private static void MarkStockRuledRcsFx(RcsGhostInfo info, string partName)
+        {
+            for (int r = 0; r < info.fxRules.Count; r++)
+            {
+                KSPParticleEmitter emitter = info.fxRules[r].emitter;
+                for (int e = 0; e < info.kspEmitters.Count; e++)
+                {
+                    KspEmitterRef emitterRef = info.kspEmitters[e];
+                    if (emitterRef.emitter != emitter) continue;
+                    emitterRef.stockRuled = true;
+                    info.kspEmitters[e] = emitterRef;
+                }
+                ParticleSystem ruled = emitter.GetComponent<ParticleSystem>();
+                for (int s = 0; s < info.particleBaselines.Count && s < info.particleSystems.Count; s++)
+                {
+                    if (ruled == null || info.particleSystems[s] != ruled) continue;
+                    GhostFxMagnitudeBaseline baseline = info.particleBaselines[s];
+                    baseline.stockRuled = true;
+                    info.particleBaselines[s] = baseline;
+                }
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"rcs-stock-rules-{partName}-{info.moduleIndex}",
+                $"RCS '{partName}' midx={info.moduleIndex}: {info.fxRules.Count} of {info.particleSystems.Count} " +
+                $"particle systems follow stock's power rule, nozzles={info.activeNozzles}/{info.recordedNozzles}", 60.0);
         }
     }
 }

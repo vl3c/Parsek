@@ -502,6 +502,48 @@ What: the start-route ghost is built from a snapshot of the real part while it b
 
 Fix (not started), either: let the real bell arrive (hold until the ramp stands, up to 40 s a case at 0.025 /s) before the start snapshot; or save and reload the real vessel before the start-route picture; or report the start route's bell on a ramping part as a known difference. No ghost change makes these right: the only data that says where a ramp stood is the engine events before the snapshot, and the rig's start route has none.
 
+## ~~GHOST-RCS-FX-STOCK-RULES~~: a ghost's RCS puffs follow the old linear power rule, not stock's effect curves [FOUND 2026-11-24 while triaging PP-7 / PP-8 / PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4); NOT FLOWN; low (visual only)]
+
+What: GHOST-ENGINE-FX-STOCK-RULES gave engine effects stock's own curves; RCS kept the S1 rule: particle rate and velocity times the recorded power, floored at 0.2 (`GhostPlaybackLogic.SetRcsEmissionWithOutcome` -> `ComputeFxMagnitudeRatio`). The scan looked for the EFFECTS curves as sub-nodes, which a stock node writes as values, so they were never read (`curves=em0/sp0`). PP-9 `restock-rcs-block-triple-angled-1` (all three nozzles firing, recorded 0.569, ratio 1.000): particle speed real 6.78, ghost 4.08 (0.569 x 7).
+
+Stock (decompiled `ModuleRCS.FixedUpdate` -> `ModuleRCSFX.UpdatePowerFX` -> `ModelMultiParticleFX.OnEvent(power, nozzle)`): power = clamp(force / thrusterPower, 0.1, 1); rate = floor(asset * emission(power)), energy and velocity by their curves, size untouched. Every stock and ReStock RCS node authors `emission 0.1 -> 0, 1 -> 1` and `speed 0 -> 0.8, 1 -> 1`.
+
+Fix: each RCS model instance takes that rule (`GhostVisualBuilder.AddRcsFxRule`, `GhostPlaybackLogic.ApplyRcsFxRules`) and leaves the S1 ratio, which stays for SmokeScreen nodes. Two things the recording's mean power forces, neither touching recorded data:
+- The mean is over every thruster transform, those of other part variants included (RCSBlock.v2 4 of 9, ReStock's 4 of 18), which never fire. The ghost takes them out (`RcsNozzlePower`).
+- Stock's emission curve at a mean would all but switch a block off (one nozzle of four at full: 0.25 -> 0.07, and 0 below 0.1). A module of several active nozzles emits max(curve, mean) (`RcsEmission`): the mean keeps the total of nozzles that fire hard, the curve is above it from 0.55, where most must be firing. A one-nozzle module is exactly stock's. Which nozzles fire is still RCS-PER-NOZZLE-RECORDING (R4).
+
+Tests: `GhostRcsFxPowerTests`; in-game `RcsPlumeMagnitudeSurvivesSuppressAndRestore` now sums the emitters.
+
+## ~~GHOST-JET-THROTTLE-CLIP~~: a jet's variable nozzle never moves on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4); NOT FLOWN; low to medium (visible on every Panther and Whiplash)]
+
+What: `FXModuleAnimateThrottle` plays `TurboRamJetNozzle` (Whiplash, 3 bones) and `TurboJetNozzleDry` / `TurboJetNozzleWet` (Panther, 6 bones), clips that move the petals, at the engine's throttle. The ghost sampled such a clip for its colours only (`GhostVisualBuilder.SampleNozzleGlowClip`; a clip with none was skipped whole). Seen on both installs, both routes alike (PP-5 `2026-11-24_0628`, PP-10 `_0758`): `turboJet` dry full side blob 1971 / 1973 px, bottom colour 12986; dry 30 % 625; wet 30 % 310; `turboFanEngine` 30 % 763.
+
+Fix: the same sampling also reads the transforms (33 poses a clip, only the channels that move, cached per part type) and `GhostPlaybackLogic.UpdateNozzlePoses` drives them from the glow's level, so recorded power, the main-throttle rule, response speed, persisted state, rewinds and loops are the glow's own. Two clips on one part blend as Unity's layers do with stock's `weightOnOperational` weights (3 x responseSpeed); the engine that runs owns the pose, and while none runs the last one keeps it (the recording does not tell an idle engine from a shut-down one). Writes only while a level or weight moves: a settled part costs one flag read a frame. Nothing new is recorded. Not covered: the clips' `Point light` intensity (a ghost's engine lights nothing) and `FXModuleAnimateRCS` poses.
+
+Tests: `GhostNozzlePoseTests` (Pose_*, Blend_*).
+
+## ~~GHOST-GOLIATH-FAN-STATIC~~: the Goliath's fan does not turn on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4); NOT FLOWN; low (visual only)]
+
+What: `turboFanSize2`'s `FXModuleAnimateThrottle` plays `TF2FanSpin` with `affectTime = false`, `animWrapMode = 2` (loop); `CollectNozzleGlowPlans` skipped any module with `affectTime` off, so `FanCone` and `FanBlades` stood still on both routes (top view colour 405 to 10654 px: the real fan's phase at that moment).
+
+Stock (decompiled): the clip's speed moves toward `baseAnimSpeed + throttle * baseAnimSpeedMult` (0.01 + 100 x) by `responseSpeed * dt` a step and is capped at 1, the clip's own rate: one turn a second from 0.2 s after a full-throttle start, 20 s time constant on the way down.
+
+Fix: `GhostVisualBuilder.BuildEngineSpin` samples the loop (the converter loops' sampler) and `GhostPlaybackLogic.EngineSpinPhaseAt` is that law in closed form over the recorded power; one transform write a frame while it turns. An engine shut down while spinning coasts as an idle one does (stock freezes a shut-down fan after 1.8 s, when its weight reaches 0; the recording reads both as a shutdown). The phase is not the real fan's, so a still picture of it stays noise (PARTPARITY-SPIN-PHASE).
+
+Tests: `GhostNozzlePoseTests` (Spin*).
+
+## ~~GHOST-NOZZLE-GLOW-EVENT-RAMP~~: the Caravel's bell is hot at once on the real part and ramps on its ghost [FOUND 2026-11-24 while triaging PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4); NOT FLOWN; low (visual only, ReStock+)]
+
+What: `restock-engine-caravel-1` at full, event route `color-blob-px` bottom 3113, side-a 198; start route 4: the real bell stands at the hot end while the event ghost plays `heatColor`'s 0.025 /s ramp.
+
+Cause (cfg and decompile): `FXModuleThrottleEffects` sets its modules in `Update`, as `ModuleColorChanger` shows its ramp (and KSPCommunityFixes' replacement too), so the later module of the part wins. The Caravel is the one part of ReStock / ReStock+ whose `heatColor` changer stands before its setter: its bell shows the throttle, hot at once. The ghost assumed the ramp writes last.
+
+Fix: the ghost compares the two modules' places in the part (`ThrottleGlowSetterOrder`, `ThrottleGlowRampOrder`; `ShownNozzleGlow` takes the last write of the frame).
+
+Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 0 to 2. Both ramps are done there and the settled bell shows the setter's level: real 0.991, ghost 0.96, the last recorded `EngineThrottle` (PP-9 log, 5 % step). ENGINE-THROTTLE-EVENT-STEP (PR #2821); nothing to change in the ghost.
+
+Tests: `GhostNozzleGlowTests` (WriteOrder_*).
+
 ## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, flown `2026-11-23_2149`; low (visual only, stock)]
 
 What: stock draws five `Squad/FX/LES_Thruster` emitters (one per `thrustTransform`) by the engine's thrust (`powerEffectName = running_closed`), dark below 5 %, so it burns on abort and on jettison. The ghost drew nothing; ReStock's tower passed.
