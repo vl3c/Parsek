@@ -3341,83 +3341,8 @@ class FxJudgeTests(unittest.TestCase):
         self.assertEqual([], pp.fx_block_problems(bad))
 
 
-GREY_A, GREY_B = (25, 25, 24), (25, 24, 24)
-
-
 def _flame_of(rgb):
     return {"flame": (_plume(rgb=rgb), _disc(rgb=rgb))}
-
-
-class GreyHueTests(unittest.TestCase):
-    """A hue fail between two grey flames is a warn; everything around it still fails."""
-
-    def _case(self, real_rgb, ghost_rgb):
-        doc, _masks, _tiles = _fx_case(real=dict(REAL_FX, **_flame_of(real_rgb)),
-                                       event=_flame_of(ghost_rgb), start=_flame_of(ghost_rgb))
-        return doc
-
-    def _fails(self, doc):
-        fxj = pp.judge_case(doc).fx
-        return sorted({f.reason.split(" ")[0] for e in fxj.entries for f in e.findings
-                       if f.level == pp.VERDICT_FAIL})
-
-    def test_two_grey_flames_whose_rounding_flips_the_hue_warn(self):
-        doc = self._case(GREY_A, GREY_B)
-        entry = next(e for e in pp.fx_entries(doc) if e["layer"] == "flame")
-        self.assertGreater(entry["compare"]["hueL1"], pp.FX_THRESHOLDS["hueL1Fail"])
-        cv = pp.judge_case(doc)
-        self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
-        hue = [f for e in cv.fx.entries for f in e.findings if f.side == "colour:hueL1"]
-        self.assertTrue(hue)
-        for f in hue:
-            self.assertEqual((pp.VERDICT_WARN, False), (f.level, f.capped))
-            self.assertTrue(f.reason.endswith(pp.GREY_NOTE))
-
-    def test_a_coloured_flame_of_another_hue_still_fails(self):
-        self.assertEqual(["colour=chromaDistance", "colour=hueL1"],
-                         self._fails(self._case(ORANGE, (90, 170, 250))))
-        # The same hue change at a hair of chromaticity: orange to red, dark.
-        self.assertIn("colour=hueL1", self._fails(self._case((25, 20, 20), (20, 25, 20))))
-
-    def test_one_grey_side_is_not_enough(self):
-        for pair in ((GREY_A, (20, 25, 25)), ((20, 25, 25), GREY_A)):
-            self.assertIn("colour=hueL1", self._fails(self._case(*pair)), pair)
-
-    def test_a_coloured_ghost_beside_a_grey_part_fails_on_chroma_too(self):
-        self.assertIn("colour=chromaDistance", self._fails(self._case(GREY_A, (25, 12, 4))))
-
-    def test_bright_and_dark_colours_with_a_small_spread_are_not_grey(self):
-        # Two levels apart at brightness 10 is a colour (saturation 0.2), and so are four at 200.
-        self.assertFalse(pp.fx_near_grey({"meanColor": [10, 8.5, 8.5], "corePx": 9, "envelopePx": 9}))
-        self.assertFalse(pp.fx_near_grey({"meanColor": [200, 196, 196], "corePx": 9, "envelopePx": 9}))
-        self.assertTrue(pp.fx_near_grey({"meanColor": [25.3, 25.0, 24.4], "corePx": 9, "envelopePx": 9}))
-
-    def test_a_coloured_fringe_larger_than_the_core_is_never_excused(self):
-        side = {"meanColor": [25.3, 25.0, 24.4], "corePx": 9, "envelopePx": 18}
-        self.assertTrue(pp.fx_near_grey(side))
-        self.assertFalse(pp.fx_near_grey(dict(side, envelopePx=19)))
-        # Nothing measured, nothing drawn: not grey.
-        for bad in ({}, dict(side, meanColor=None), dict(side, meanColor=[1, 2]), dict(side, envelopePx=0, corePx=0),
-                    dict(side, meanColor=[0, 0, 0]), None):
-            self.assertFalse(pp.fx_near_grey(bad), bad)
-
-    def test_the_smoke_layer_keeps_its_hue_line(self):
-        entry = dict(_fx_entry("event", "fx-side-a", "flame", _plume(rgb=GREY_A), _plume(rgb=GREY_B)))
-        self.assertEqual([], [f for f in pp.fx_entry_findings(entry, False) if f.level == pp.VERDICT_FAIL])
-        entry["layer"] = "smoke"
-        self.assertIn("colour", pp.fx_failing_measures(entry))
-
-    def test_a_lost_flame_still_fails_whatever_its_colour(self):
-        doc, _masks, _tiles = _fx_case(real=dict(REAL_FX, **_flame_of(GREY_A)),
-                                       event={"flame": FX_DARK}, start=_flame_of(GREY_B))
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
-        self.assertIn("fx-missing", self._fails(doc))
-
-    def test_the_hue_control_is_judged_as_before(self):
-        # Its subject's flame is coloured: the C# judge has no grey rule, so a grey subject would
-        # read differently on the two sides, and Python is the stricter one.
-        for cid in ("ctl-fx-plume-hue",):
-            self.assertEqual(pp.CONTROLS_OK, pp.judge_fx_control(cid, _fx_control(cid)[0])[0])
 
 
 class OwnerFlagTests(unittest.TestCase):

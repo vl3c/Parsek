@@ -1403,9 +1403,8 @@ def apply_page_states(rows: List[Dict], headers: Sequence[Dict], sweeps: Sequenc
     """A failing part case the accepted list explains whole (``partparity.page_state``) reads
     ``known`` or ``accepted``: its ``verdict`` (and its sweep header's count) becomes that, its
     ``partVerdict`` stays the judged one, ``accepted`` says by which entries. ``lists`` is
-    ``load_pinned``'s dict; a sweep with a baseline section is gated first, so a difference that
-    grew past its band stays red. In place, after the regression marks (which compare judged
-    verdicts)."""
+    ``load_pinned``'s dict; only a case its label's baseline measured can read so, after the gate
+    judged it. In place, after the regression marks (which compare judged verdicts)."""
     head = {h["sweep"]: h for h in headers}
     by_sweep: Dict[str, List[Dict]] = {}
     for r in rows:
@@ -1419,13 +1418,14 @@ def apply_page_states(rows: List[Dict], headers: Sequence[Dict], sweeps: Sequenc
         doc = (lists.get("baselines") or {}).get(profile)
         label = manifest.get("label")
         section = ((doc or {}).get("labels") or {}).get(label) if doc else None
+        if section is None:
+            continue
         sidecars = {cid: sc for cid, sc in (s.get("sidecars") or {}).items() if isinstance(sc, dict)}
         accepted = lists.get("accepted") or []
         verdicts = [pp.judge_case(sc) for cid, sc in sidecars.items()
                     if cid not in pp.ALL_CONTROL_IDS]
-        gate = None if section is None else pp.gate_sweep(
-            str(label), profile, manifest, sidecars, verdicts, section, accepted)
-        states = pp.sweep_page_states(verdicts, sidecars, profile, accepted, gate)
+        gate = pp.gate_sweep(str(label), profile, manifest, sidecars, verdicts, section, accepted)
+        states = pp.sweep_page_states(verdicts, sidecars, profile, accepted, section, gate)
         for r in by_sweep[keys[k]]:
             st = states.get(r["caseId"])
             if st is None:

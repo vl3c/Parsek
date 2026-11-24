@@ -1369,34 +1369,6 @@ def fx_weak_core_flag(entry: Dict) -> Optional[str]:
         (FLAG_FX_WEAK_CORE, entry.get("route"), entry.get("view"), entry.get("layer")) + cores)
 
 
-# A core mean whose channels lie this close together (8-bit levels) has no hue to compare: the
-# stored colours are rounded to whole levels, so rounding alone decides which channel is the
-# larger and the pixel's hue bin.
-FX_GREY_SPREAD_LEVELS = 2.0
-# The same, relative to the colour's own brightness (a dark flame's two levels are a colour).
-FX_GREY_SATURATION = 0.1
-# The core must be this much of the envelope the hue histogram is read over, so a coloured
-# fringe cannot hide behind a grey core.
-FX_GREY_CORE_FRACTION = 0.5
-GREY_NOTE = " (grey)"
-
-
-def fx_near_grey(side: Any) -> bool:
-    """One side's flame has no hue: the mean colour of its core's unsaturated pixels is grey
-    within one rounding (FX_GREY_SPREAD_LEVELS) and the core is most of what is drawn. False
-    when any of it was not measured."""
-    if not isinstance(side, dict):
-        return False
-    mean = side.get("meanColor")
-    if not _fx_numbers(mean, 3):
-        return False
-    core, envelope = _fx_count(side, "corePx"), _fx_count(side, "envelopePx")
-    spread = max(mean) - min(mean)
-    return max(mean) > 0 and spread < FX_GREY_SPREAD_LEVELS \
-        and spread < FX_GREY_SATURATION * max(mean) \
-        and core >= FX_GREY_CORE_FRACTION * envelope > 0
-
-
 def _over(v: float, fail: float, warn: float) -> Optional[str]:
     return VERDICT_FAIL if v > fail else (VERDICT_WARN if v > warn else None)
 
@@ -1411,9 +1383,7 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     brightness and core IoU are warn-only; an rcs case leaves out
     FX_RCS_REPORT_ONLY_MEASURES (R4). A layer one side lacks is named by its presence
     reason alone: the tile has no second plume for the other measures to compare. Where both
-    cores are weak nothing but presence is judged (``fx_weak_core_flag`` raises the case). A hue
-    fail between two grey flames (``fx_near_grey`` on BOTH sides, flame layer only) is a ``warn``:
-    their chromaticity is still judged, so a coloured ghost beside a grey part fails."""
+    cores are weak nothing but presence is judged (``fx_weak_core_flag`` raises the case)."""
     th = FX_THRESHOLDS
     layer = entry.get("layer")
     real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
@@ -1466,11 +1436,8 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
             "cross-section:offset")
     for key, line in (("chromaDistance", "chromaFail"), ("hueL1", "hueL1Fail")):
         if c[key] is not None:
-            level = _over(c[key], th[line], th[line] * th["colourWarnFraction"])
-            grey = key == "hueL1" and level == VERDICT_FAIL and layer == FX_LAYER_FLAME \
-                and fx_near_grey(real) and fx_near_grey(ghost)
-            add("colour", VERDICT_WARN if grey else level,
-                "colour=%s %.4f%s" % (key, c[key], GREY_NOTE if grey else ""), "colour:" + key)
+            add("colour", _over(c[key], th[line], th[line] * th["colourWarnFraction"]),
+                "colour=%s %.4f" % (key, c[key]), "colour:" + key)
     bright = c["brightnessRatio"]
     if bright is not None and _outside(bright, th["brightnessWarnMin"], th["brightnessWarnMax"]):
         add("brightness", VERDICT_WARN, "brightness=%.3f" % bright,
@@ -4179,19 +4146,27 @@ class PageState:
 
 
 def page_state(verdict: CaseVerdict, sidecar: Optional[Dict], profile: Optional[str],
-               accepted: Sequence[AcceptedEntry], gate: Optional["GateResult"] = None
-               ) -> Optional[PageState]:
+               accepted: Sequence[AcceptedEntry], section: Optional[Dict],
+               gate: Optional["GateResult"]) -> Optional[PageState]:
     """How the page shows a ``fail`` case, or None when it stays red: every fail reason and every
-    qualitative difference must be covered by an entry of kind ``ruled`` or ``accepted``, none may
-    be of PAGE_NEVER_GROUPS, an owner-flagged case always stays red, and so does one the gate
-    reds or could not measure (``gate``, when the sweep has a baseline): a difference that grew
-    past its band is not the accepted one."""
+    qualitative difference must be covered by an entry of kind ``ruled`` or ``accepted`` for the
+    sweep's own profile, none may be of PAGE_NEVER_GROUPS, and an owner-flagged case always stays
+    red. So does a case whose SIZE nothing bounds: the gate must have judged it against a measured
+    band of its label's baseline (``section``, ``gate``) and neither red nor lost it, so a
+    difference that grew past its band is not the accepted one. (What a ``noisy`` entry waives
+    there it waives here too, Appendix F.)"""
     if verdict.verdict != VERDICT_FAIL or not isinstance(sidecar, dict):
+        return None
+    if profile is None or section is None or gate is None:
+        return None
+    base = section.get("cases") if isinstance(section.get("cases"), dict) else {}
+    band = base.get(verdict.case_id)
+    if not isinstance(band, dict) or not band.get("measured"):
         return None
     if verdict.fx is not None and any(f.startswith(FLAG_OWNER_FLAGGED_PREFIX)
                                       for f in verdict.fx.flags):
         return None
-    if gate is not None and any(f.case_id == verdict.case_id for f in gate.reds + gate.unmeasured):
+    if any(f.case_id == verdict.case_id for f in gate.reds + gate.unmeasured):
         return None
     used: List[AcceptedEntry] = []
     for fr in fail_reasons(verdict) + qualitative_differences(sidecar):
@@ -4209,11 +4184,12 @@ def page_state(verdict: CaseVerdict, sidecar: Optional[Dict], profile: Optional[
 
 def sweep_page_states(verdicts: Sequence[CaseVerdict], sidecars: Dict[str, Optional[Dict]],
                       profile: Optional[str], accepted: Sequence[AcceptedEntry],
-                      gate: Optional["GateResult"] = None) -> Dict[str, PageState]:
+                      section: Optional[Dict], gate: Optional["GateResult"]
+                      ) -> Dict[str, PageState]:
     """``page_state`` of every case that has one."""
     out: Dict[str, PageState] = {}
     for cv in verdicts:
-        st = page_state(cv, sidecars.get(cv.case_id), profile, accepted, gate)
+        st = page_state(cv, sidecars.get(cv.case_id), profile, accepted, section, gate)
         if st is not None:
             out[cv.case_id] = st
     return out
@@ -4441,8 +4417,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         for err in gate_input.errors:
             gate.reds.insert(0, GateFinding(GATE_NO_BASELINE, None, err))
     page_states = sweep_page_states(
-        cases, sweep.sidecars, gate_input.profile, gate_input.accepted,
-        gate if gate_input.section is not None else None) if gate_input is not None else {}
+        cases, sweep.sidecars, gate_input.profile, gate_input.accepted, gate_input.section,
+        gate) if gate_input is not None else {}
     damaged = host_damage(manifest)
     if damaged:
         # The root cause outranks its symptoms: the controls, completeness and recompute

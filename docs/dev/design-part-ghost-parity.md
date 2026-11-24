@@ -2655,19 +2655,6 @@ the start route is now the part as a load leaves it.
   against that. A recording that starts at a split loads nothing and takes its ramp from the recorded
   events (GHOST-NOZZLE-GLOW-SPLIT-RAMP), which this rig does not fly.
 
-Grey flames (2026-11-24). A hue fail (`hueL1`) of the flame layer reads `warn`, with ` (grey)` on its
-reason, where BOTH sides are near grey (`fx_near_grey`: the core's mean channels under 2 levels and
-under 10 % of their maximum apart, and the core at least half of the envelope, so no coloured fringe
-hides behind it). The pixels are stored at 8 bits, so there the hue is the rounding: ReStock's
-`omsEngine` at 30 % reads mean colours (25.3, 25.0, 24.4) and (25.1, 24.7, 23.9), chromaticity 0.003
-apart (line 0.06) and hue L1 0.71 to 0.85 on every view. The chromaticity line is untouched. Over
-every archived sweep two verdicts move (`fail` to `warn`: that case in PP-9 `2026-11-23_1749` and
-`2026-11-24_0735`), none the other way, and no control. With every ghost flame's channels rotated
-(r,g,b) -> (b,r,g) on the newest PP-7 to PP-10, PP-5 and PP-6 and the `2026-11-23_17xx` / `_18xx`
-sweeps, 514 of 523 cases that failed before still fail; the 9 left are grey white flames whose
-rotated chromaticity moved 0.016 or less. Python only: the C# control judge has no such rule, its
-subject's flame is coloured. The smoke layer keeps its line.
-
 Drawn systems pair first (2026-11-24, `PartParityFxStructure.Diff`, C#, not flown). The inventory
 diff paired a real system with the first unpaired ghost one of its key. A part with variants keeps
 the hidden variants' systems (ReStock `RCSBlock.v2`: 36 on the real side, 8 of them drawn, 8 on the
@@ -3103,6 +3090,9 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   where the label has one, its baseline). A `fail` case shows `known` or `accepted` instead
   (`partparity.page_state`) when every fail reason and qualitative difference of it is covered by an
   entry whose `kind` says so: `known` when the owner ruled on each by name, else `accepted` (Appendix F).
+  Nothing else bounds how big a covered difference may be, so only a case the label's baseline
+  measured, on its own profile, and the gate judged can read so: every FX lane and every ad-hoc label
+  shows its fails.
   It keeps the judged verdict beside it (`judged fail: <todos>`), its red chips are drawn unfilled, it
   is counted and filtered apart, and it ranks under warn. It stays red when a reason is structural
   (missing, extra or hidden mesh, skin, a missing or extra effect, an unexplained fail), when the gate

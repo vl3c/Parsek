@@ -739,8 +739,11 @@ class PageStateTests(unittest.TestCase):
     def _e(self, kind, measure="color-blob", **kw):
         return dataclasses.replace(_entry(self.CID, measure=measure, **kw), kind=kind)
 
-    def _state(self, doc, entries, gate=None):
-        return pp.page_state(pp.judge_case(doc), doc, "stock-minimal", entries, gate)
+    def _state(self, doc, entries, section=None, profile="stock-minimal"):
+        # The baseline a case of this shape would have, unless the cell brings its own.
+        section = section if section is not None else _section([{doc["caseId"]: doc}])
+        gate = _gate({doc["caseId"]: doc}, section, entries, profile=profile)
+        return pp.page_state(pp.judge_case(doc), doc, profile, entries, section, gate)
 
     def test_ruled_reads_known_and_accepted_reads_accepted(self):
         doc = self._fail()
@@ -791,13 +794,13 @@ class PageStateTests(unittest.TestCase):
         cid = doc["caseId"]
         kinds = [dataclasses.replace(_entry(cid, measure="fx:%s" % m), kind="ruled")
                  for m in pp.FX_MEASURES] + [dataclasses.replace(_entry(cid, measure="fx:structure"), kind="ruled")]
-        self.assertIsNone(pp.page_state(pp.judge_case(doc), doc, None, kinds))
+        self.assertIsNone(self._state(doc, kinds))
         hue = fxt._fx_case(event=fxt._flame_of((90, 170, 250)), start=fxt._flame_of((90, 170, 250)))[0]
-        self.assertEqual(pp.PAGE_KNOWN, pp.page_state(pp.judge_case(hue), hue, None, kinds).state)
+        self.assertEqual(pp.PAGE_KNOWN, self._state(hue, kinds).state)
         saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {
             next(f.reason for e in pp.judge_case(hue).fx.entries for f in e.findings): "T"}
         try:
-            self.assertIsNone(pp.page_state(pp.judge_case(hue), hue, None, kinds))
+            self.assertIsNone(self._state(hue, kinds))
         finally:
             pp.OWNER_FLAGGED_REASONS = saved
 
@@ -805,18 +808,36 @@ class PageStateTests(unittest.TestCase):
         for doc in (_case(self.CID, views=[_view(color=100)]), _case(self.CID),
                     self._fail(status="spawn-timeout")):
             self.assertIsNone(self._state(doc, [self._e("ruled", measure="*")]))
-        self.assertIsNone(pp.page_state(pp.judge_case(self._fail()), None, None, [self._e("ruled")]))
+        section = _section([{self.CID: self._fail()}])
+        gate = _gate({self.CID: self._fail()}, section, [self._e("ruled")])
+        self.assertIsNone(pp.page_state(pp.judge_case(self._fail()), None, "stock-minimal",
+                                        [self._e("ruled")], section, gate))
 
     def test_a_case_the_gate_reds_stays_red(self):
         doc = self._fail()
         entries = [self._e("accepted")]  # not noisy: its drift still gates
         near = _section([{self.CID: self._fail(views=[_view(color=850)])}])
-        gate = _gate({self.CID: doc}, near, entries)
-        self.assertEqual(pp.PAGE_ACCEPTED, self._state(doc, entries, gate).state)
+        self.assertEqual(pp.PAGE_ACCEPTED, self._state(doc, entries, near).state)
         far = _section([{self.CID: self._fail(views=[_view(color=300)])}])
-        gate = _gate({self.CID: doc}, far, entries)
-        self.assertTrue(gate.reds)
-        self.assertIsNone(self._state(doc, entries, gate))
+        self.assertTrue(_gate({self.CID: doc}, far, entries).reds)
+        self.assertIsNone(self._state(doc, entries, far))
+
+    def test_a_difference_nothing_bounds_the_size_of_stays_red(self):
+        # No baseline, another profile's, a case the section lacks or holds only as a setup fault:
+        # a ``*`` entry would cover a picture difference of any size there.
+        doc, entries = self._fail(views=[_view(color=200000, real=200000, iou=0.05)]), [self._e("ruled", measure="*")]
+        cv, section = pp.judge_case(doc), _section([{self.CID: doc}])
+        gate = _gate({self.CID: doc}, section, entries)
+        args = {"profile": "stock-minimal", "section": section, "gate": gate}
+        self.assertIsNotNone(pp.page_state(cv, doc, accepted=entries, **args))
+        for gone in ({"section": None}, {"gate": None}, {"profile": None}):
+            self.assertIsNone(pp.page_state(cv, doc, accepted=entries, **dict(args, **gone)), gone)
+        other = _section([{"other--default--0000bbbb": self._fail()}])
+        self.assertIsNone(self._state(doc, entries, other))
+        fault = _section([{self.CID: self._fail(status="spawn-timeout")}])
+        self.assertIsNone(self._state(doc, entries, fault))
+        # Bounded by its own band: what was 900 px in the baseline and is 200000 now stays red.
+        self.assertIsNone(self._state(doc, entries, _section([{self.CID: self._fail()}])))
 
     def test_the_kind_moves_neither_the_gate_nor_the_verdict(self):
         doc = self._fail()
@@ -851,9 +872,13 @@ class PageStateTests(unittest.TestCase):
 
     def test_the_sweep_carries_its_states_and_the_summary_counts_them(self):
         doc = self._fail()
+        section, entries = _section([{self.CID: doc}]), [self._e("ruled")]
+        gate = _gate({self.CID: doc}, section, entries)
         states = pp.sweep_page_states([pp.judge_case(doc)], {self.CID: doc}, "stock-minimal",
-                                      [self._e("ruled")])
+                                      entries, section, gate)
         self.assertEqual({self.CID: "known"}, {c: s.state for c, s in states.items()})
+        self.assertEqual({}, pp.sweep_page_states([pp.judge_case(doc)], {self.CID: doc},
+                                                  "stock-minimal", entries, None, None))
 
 
 class EvaluateSweepGateTests(unittest.TestCase):
@@ -916,6 +941,7 @@ class EvaluateSweepGateTests(unittest.TestCase):
         res2 = self._eval(sweep, True, pp.GateInput("p", section, kinds))
         self.assertEqual((res.status, res.counts, res.gate.to_dict()),
                          (res2.status, res2.counts, res2.gate.to_dict()))
+        self.assertEqual({}, self._eval(sweep, False, pp.GateInput("p", None, kinds)).page_states)
         failing = {c.case_id for c in res2.cases if c.verdict == pp.VERDICT_FAIL}
         self.assertTrue(failing)
         self.assertEqual(failing, set(res2.page_states))

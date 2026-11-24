@@ -1441,6 +1441,14 @@ class FxSiteTests(_FxSetMixin, unittest.TestCase):
         self.assertEqual(set(), set(re.findall(r"\be\.([A-Za-z]+)", body)) - entry)
 
 
+def _fx_baselines(sweep):
+    """The baseline files a sweep's own reading would pin: every page state needs one."""
+    docs = {c: s for c, s in sweep["sidecars"].items() if c not in pp.ALL_CONTROL_IDS}
+    manifest = sweep["manifest"]
+    section = pp.build_baseline_section([("run", manifest, docs)], "2026-11-24T00:00:00Z")
+    return {pp.profile_of(manifest, None): {"labels": {manifest["label"]: section}}}
+
+
 class PageStateTests(_FxSetMixin, unittest.TestCase):
     """``known`` / ``accepted`` and the owner's mark on the page (design section 8)."""
 
@@ -1448,7 +1456,12 @@ class PageStateTests(_FxSetMixin, unittest.TestCase):
         cv = pp.judge_case(self.sweep["sidecars"][case_id])
         entries = [pp.AcceptedEntry(case_id, "*", g, "owner ruling 2026-11-22: cosmetic", "SOME-TODO-1",
                                     kind=kind) for g in sorted({f.group for f in pp.fail_reasons(cv)})]
-        return {"accepted": entries, "baselines": {}, "errors": []}
+        return {"accepted": entries, "baselines": _fx_baselines(self.sweep), "errors": []}
+
+    def test_a_sweep_with_no_baseline_shows_the_fail(self):
+        lists = dict(self._lists("ruled"), baselines={})
+        c = {c["caseId"]: c for c in self._build(lists)["cases"]}[FX_SHORT]
+        self.assertEqual((pp.VERDICT_FAIL, None), (c["verdict"], c["accepted"]))
 
     def _build(self, lists, **kw):
         return ppv.build_site_data([self.sweep], lists=lists, **kw)
@@ -1640,7 +1653,7 @@ class FxPageTests(unittest.TestCase):
         docs[FX_JET]["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE_RELOADED)
         docs[FX_JET]["flags"] = [pp.FLAG_START_RELOADED_PREFIX + "1"]
         cv = pp.judge_case(docs[FX_SHORT])
-        lists = {"baselines": {}, "errors": [], "accepted": [
+        lists = {"baselines": _fx_baselines(sweep), "errors": [], "accepted": [
             pp.AcceptedEntry(FX_SHORT, "*", g, "owner ruling: fine", "SOME-TODO-1", kind="ruled")
             for g in {f.group for f in pp.fail_reasons(cv)}]}
         data = ppv.build_site_data([sweep], lists=lists)
