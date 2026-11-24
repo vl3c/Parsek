@@ -516,8 +516,12 @@ later change.
   the ERS cache key (store + supersede version), `DisplayNames.Version`, the mission's name and include
   set (the Log's `ComputeChangeSignature` plus the ERS term). Never per frame. A rebuild logs
   `Profile window rebuilt on change: ... rows=a->b`.
-- Cache: the analyzer's `PhasePlan` per line is cached by the ordered piece ids plus `StateVersion`,
-  so a rename or an include toggle re-flattens rows without re-analysing.
+- Cache: none; a rebuild re-analyses. The planned per-line `PhasePlan` cache (key: ordered piece ids
+  plus `StateVersion`) is dropped (2026-11-24): the analyzer reads section endpoints and part events,
+  never trajectory points, and the six GUI-4 flights measured 0.4 ms for a repeat build (25 to 28 ms
+  for the first). That key was also wrong: the analyzer reads the line's `ExcludedSpans`, so an
+  include toggle would have served a stale plan. Unmeasured on a large career: `BuildProfileRequest`
+  (structure, launch index, ELS career sums), which such a cache would not have covered.
 - A target tree that no longer exists closes the window with an Info line (the Route History's
   deleted-route rule). A scene change closes it (2.2).
 - Loops, clones and supply routes: the Profile describes the recorded flight once; a looped mission
@@ -765,9 +769,9 @@ approach burns and final orbit read the stored terminal orbit (`117 x 102 km`) i
   window keeps its own table, hover strip and Close. Not in the Basic close set, like the Log.
 - Rebuild: on open and on a Layout event when `ComputeChangeSignature` moves (the Log's signature
   over `StateVersion`, the mission, its name and include set and `DisplayNames.Version`, plus
-  `ParsekScenario.SupersedeStateVersion`); a deleted tree closes the window with an Info line. The
-  per-line `PhasePlan` cache of section 6 is not built: a rebuild re-analyses (one `[Profile]`
-  summary per rebuild, never per frame).
+  `ParsekScenario.SupersedeStateVersion`); a deleted tree closes the window with an Info line. A
+  rebuild re-analyses every line (no cache, section 6; one `[Profile]` summary per rebuild, never
+  per frame).
 - The request the window fills: structure, vessel names and partner legs the Log's way, the
   effective ids as the tree's visible recordings with the session suppression ignored
   (`EffectiveRecordingIdsOf` over `EffectiveState.IsVisible`), the scenario's supersede rows, live
@@ -844,8 +848,11 @@ approach burns and final orbit read the stored terminal orbit (`117 x 102 km`) i
 - `ParsekUiScaleTests` covers the new window's `ParsekUiScale.Window` call.
 - `TooltipEchoBudgetTests` covers the button tooltip.
 - Architecture: the headless pins and layer pins stay unchanged (or are re-pinned with a reason).
-- In-game test `MissionProfile` category (SPACECENTER): open the Profile on a committed fixture
-  mission, assert the rendered row count equals the builder's and the window rect is on screen.
+- No in-game test (the planned `MissionProfile` category is dropped, 2026-11-24): GUI-4 opens the
+  real window on a committed host in both modes and pins its open line at 2 lines and 28 rows, and
+  the gallery captures carry a draw-produced read-back (`readback=ok witness=`). Not gated anywhere:
+  that the drawn rows equal the built rows, and that the first-open rect is on screen (GUI-4 sets
+  its own rect); both show in the census screenshots and GUI dumps.
 - Harness: the GUI census lanes capture the window; one P1a lane flies a launch to orbit and asserts
   the `DELTAV` snapshots (count window, Left falling at each burn, a staging drop); plus the new
   atmosphere-pass recording lane(s) of 11.2 if no fixture holds those shapes.
