@@ -2313,7 +2313,7 @@ namespace Parsek
                 // frame. A null graph (nothing committed yet) simply yields marker-free units.
                 builtLoopUnits = MissionLoopUnitBuilder.Build(
                     unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
-                    forceFaithful, DockEventGraphCache.GetOrBuild());
+                    forceFaithful, DockEventGraphCache.GetOrBuild()).WithFallCopies();
                 lastLoopUnitSignature = signature;
                 // The committed set / missions changed: drop every cached per-window re-aim adapter so a
                 // stale window transfer can never survive a recording edit / re-classification.

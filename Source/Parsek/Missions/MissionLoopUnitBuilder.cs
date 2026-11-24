@@ -291,15 +291,18 @@ namespace Parsek
                 return a.CompareTo(b);
             });
 
-            // 5. Span = [min trimmed start, max trimmed end] over the members.
+            // 5. Span = [min trimmed start, max trimmed RECORDED end] over the members (owner ruling
+            //    2026-11-24): every timing below reads it. A predicted tail is drawn but not timed, so
+            //    the members' own windows keep it and only renderSpanEndUT reaches its end.
             double spanStartUT = double.PositiveInfinity;
-            double spanEndUT = double.NegativeInfinity;
+            double renderSpanEndUT = double.NegativeInfinity;
             for (int i = 0; i < memberIndices.Count; i++)
             {
                 GhostPlaybackLogic.LoopUnit.MemberWindow w = memberWindowByIndex[memberIndices[i]];
                 if (w.StartUT < spanStartUT) spanStartUT = w.StartUT;
-                if (w.EndUT > spanEndUT) spanEndUT = w.EndUT;
+                if (w.EndUT > renderSpanEndUT) renderSpanEndUT = w.EndUT;
             }
+            double spanEndUT = ComputeTimingSpanEndUT(memberWindowByIndex, committed, out int fallMembers);
 
             // 6. Two cadences from the same user input:
             //
@@ -340,8 +343,8 @@ namespace Parsek
                 : mission.LoopAnchorUT;
 
             // 7b-i. First-play floor: a looped mission must NEVER relaunch before its first real play
-            //       completes - the original recording, which runs [spanStart, spanEnd] and spawns a
-            //       real vessel at spanEnd. The span clock (TryComputeSpanLoopUT /
+            //       completes - the original recording, which runs [spanStart, spanEnd] (a predicted
+            //       fall still in the air then is not waited for). The span clock (TryComputeSpanLoopUT /
             //       ComputeNewestMissionInstanceSpanLoopUT) never produces an instance before
             //       phaseAnchorUT, so clamping the anchor (and the phase-lock window-search reference
             //       below) to at least spanEndUT is sufficient to guarantee it. In the normal flow
@@ -587,13 +590,14 @@ namespace Parsek
                 arrivalHold.IsJointHold ? arrivalHold.JointSecondaryToleranceSeconds : double.NaN,
                 arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0,
                 transferMemberRecordingId,
-                seamMarkers);
+                seamMarkers,
+                renderSpanEndUT);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
                 effectiveCadence, effectiveOverlapCadence, ownerIndex, relaunchSchedule, phaseAnchorUT,
                 phaseLocked, scheduleRejectedForOverlap, baseAnchorUT, solution, cadence, bodyInfo,
-                foreignMembers);
+                foreignMembers, renderSpanEndUT, fallMembers);
 
             return true;
         }
@@ -1472,7 +1476,9 @@ namespace Parsek
             PeriodicitySolution solution,
             double cadence,
             IBodyInfo bodyInfo,
-            int foreignMembers = 0)
+            int foreignMembers = 0,
+            double renderSpanEndUT = double.NaN,
+            int fallMembers = 0)
         {
             if (!SuppressLogging)
             {
@@ -1487,7 +1493,8 @@ namespace Parsek
                     $"overlapCadence={effectiveOverlapCadence.ToString("R", ic)} " +
                     $"overlaps={(effectiveOverlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
                     $"scheduled={(relaunchSchedule != null ? "yes" : "no")} " +
-                    $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
+                    $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}" +
+                    FormatFallTokens(spanStartUT, spanEndUT, renderSpanEndUT, fallMembers, effectiveCadence));
 
                 // Phase-lock applied vs skipped (design Diagnostic Logging). APPLIED stays Info
                 // (a genuine, noteworthy lock). SKIPPED is VerboseRateLimited per-tree: it is a
@@ -1529,6 +1536,23 @@ namespace Parsek
                         "(today's behavior)", 10.0);
                 }
             }
+        }
+
+        /// <summary>
+        /// The unit line's fall tokens, empty when no member is drawn past the timing span:
+        /// <c>renderSpanEnd</c> (the latest drawn end), <c>fallMembers</c> (members drawn past the
+        /// span) and <c>fallOverlaps</c> (a fall is still drawn when the next launch starts).
+        /// <c>overlaps=</c> keeps its meaning, launch copies overlapping launch copies. Pure.
+        /// </summary>
+        internal static string FormatFallTokens(
+            double spanStartUT, double spanEndUT, double renderSpanEndUT, int fallMembers, double cadence)
+        {
+            if (fallMembers <= 0 || !(renderSpanEndUT > spanEndUT))
+                return string.Empty;
+            var ic = CultureInfo.InvariantCulture;
+            return $" renderSpanEnd={renderSpanEndUT.ToString("R", ic)}" +
+                $" fallMembers={fallMembers.ToString(ic)}" +
+                $" fallOverlaps={(renderSpanEndUT - spanStartUT > cadence ? "yes" : "no")}";
         }
 
         /// <summary>
@@ -1623,10 +1647,80 @@ namespace Parsek
         {
             Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows = null;
             if (committed != null && bodyInfo != null)
-                memberWindows = ComputeTrimmedMemberWindows(
-                    view, compRoots, committed, excludedIntervalKeys, null,
-                    out _, out _);
+                memberWindows = ComputeTimingMemberWindows(
+                    ComputeTrimmedMemberWindows(
+                        view, compRoots, committed, excludedIntervalKeys, null,
+                        out _, out _),
+                    committed);
             return MissionPeriodicity.ExtractConstraints(view, memberWindows, committed, bodyInfo);
+        }
+
+        /// <summary>
+        /// A member's TIMING end: its drawn window's end, or its last recorded UT when the window
+        /// reaches into a predicted tail (<see cref="PredictedEndingTakeover.ResolveRecordedEndUT"/>). NaN when the window holds no
+        /// recorded time at all. Pure.
+        /// </summary>
+        internal static double MemberTimingEndUT(
+            GhostPlaybackLogic.LoopUnit.MemberWindow window, Recording rec)
+        {
+            double recordedEndUT = rec != null ? PredictedEndingTakeover.ResolveRecordedEndUT(rec) : window.EndUT;
+            if (!(recordedEndUT > window.StartUT))
+                return double.NaN;
+            return Math.Min(window.EndUT, recordedEndUT);
+        }
+
+        /// <summary>
+        /// The timing span's end: the latest <see cref="MemberTimingEndUT"/> over the members, so a
+        /// predicted fall counts toward no loop timing (owner ruling 2026-11-24). Falls back to the
+        /// drawn end when no member holds recorded time. <paramref name="fallMembers"/> = the members
+        /// drawn past it. Shared by the unit builder and the Missions period cell. Pure.
+        /// </summary>
+        internal static double ComputeTimingSpanEndUT(
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> memberWindows,
+            IReadOnlyList<Recording> committed, out int fallMembers)
+        {
+            fallMembers = 0;
+            double timingEndUT = double.NegativeInfinity;
+            double drawnEndUT = double.NegativeInfinity;
+            foreach (var kv in memberWindows)
+            {
+                Recording rec = committed != null && kv.Key >= 0 && kv.Key < committed.Count
+                    ? committed[kv.Key] : null;
+                double memberEndUT = MemberTimingEndUT(kv.Value, rec);
+                if (memberEndUT > timingEndUT) timingEndUT = memberEndUT;
+                if (kv.Value.EndUT > drawnEndUT) drawnEndUT = kv.Value.EndUT;
+            }
+            if (double.IsNegativeInfinity(timingEndUT))
+                return drawnEndUT;
+            foreach (var kv in memberWindows)
+                if (kv.Value.EndUT > timingEndUT + LoopTiming.BoundaryEpsilon)
+                    fallMembers++;
+            return timingEndUT;
+        }
+
+        /// <summary>
+        /// The member windows the periodicity constraints read: each clipped to its recorded part, a
+        /// member with none dropped. Returns <paramref name="windows"/> itself when nothing is
+        /// clipped. Pure.
+        /// </summary>
+        internal static Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> ComputeTimingMemberWindows(
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> windows,
+            IReadOnlyList<Recording> committed)
+        {
+            Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> clipped = null;
+            foreach (var kv in windows)
+            {
+                double endUT = MemberTimingEndUT(kv.Value, committed[kv.Key]);
+                if (endUT == kv.Value.EndUT)
+                    continue;
+                if (clipped == null)
+                    clipped = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>(windows);
+                if (double.IsNaN(endUT))
+                    clipped.Remove(kv.Key);
+                else
+                    clipped[kv.Key] = new GhostPlaybackLogic.LoopUnit.MemberWindow(kv.Value.StartUT, endUT);
+            }
+            return clipped == null || clipped.Count == 0 ? windows : clipped;
         }
 
         /// <summary>

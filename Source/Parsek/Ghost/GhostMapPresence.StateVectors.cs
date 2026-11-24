@@ -1044,12 +1044,15 @@ namespace Parsek
         /// KSP-dependent wrapper over <see cref="ResolveStateVectorWorldPositionPure"/>.
         /// Looks up the section/body and resolves recorded Relative anchors
         /// through <see cref="RecordedRelativeAnchorPoseResolver"/>, then
-        /// delegates to the pure helper.
+        /// delegates to the pure helper. The anchor is resolved at
+        /// <paramref name="playbackUT"/>, the epoch the orbit is seeded at: the bracketing
+        /// sample can be seconds older, and the anchor has moved on since.
         /// </summary>
-        private static StateVectorWorldFrame ResolveStateVectorWorldPosition(
+        internal static StateVectorWorldFrame ResolveStateVectorWorldPosition(
             IPlaybackTrajectory traj,
             TrajectoryPoint point,
             CelestialBody body,
+            double playbackUT,
             bool allowOrbitalCheckpointStateVector = false)
         {
             TrackSection? section = null;
@@ -1108,7 +1111,7 @@ namespace Parsek
                 && RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
                     focusRecording,
                     section.Value,
-                    point.ut,
+                    playbackUT,
                     out AnchorPose anchorPose))
             {
                 anchorFound = true;
@@ -1222,6 +1225,7 @@ namespace Parsek
                     traj,
                     point,
                     body,
+                    ut,
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {
@@ -1482,6 +1486,7 @@ namespace Parsek
                     traj,
                     point,
                     body,
+                    ut,
                     allowOrbitalCheckpointStateVector);
             if (!resolution.Resolved)
             {

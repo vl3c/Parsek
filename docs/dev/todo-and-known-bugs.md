@@ -74,7 +74,7 @@ Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s b
 commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
 walks yet (a landed EVA host is needed); a walk lane is the follow-up.
 
-## SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); OPEN; visual, orbit EVA]
+## ~~SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER~~: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); FIXED 2026-11-24 (branch `eva-ghost-behind`); visual, orbit EVA]
 
 What happens. Recording Kerbal X in a 100 km orbit, Valentina steps out (423.83). Her child
 recording 9cee0a67 starts as a background recording (`DeferredEvaBranch: ship still active`,
@@ -95,15 +95,46 @@ active recorder's own Relative section draws her correctly. So the Relative path
 frame at that frame's UT (anchor pose included) instead of the playback UT, the case CLAUDE.md
 forbids for body-fixed samples ("never clamp a single or out-of-range sample into a stale ghost").
 
-Two halves, either of which removes the visible defect:
-- Recorder: a tree member that is active but not yet promoted is sampled by the background recorder
-  (or the closing section gets a sample at its end UT).
-- Playback: a Relative section whose playback UT is past its last frame resolves the anchor at the
-  playback UT with the last local offset (hold the pose beside the moving anchor), or hides.
+Fix: both halves. The recorder half alone leaves every recording already made wrong (recorded
+files are immutable); the playback half alone leaves the span without data, so a kerbal who drifts
+or a ship switched to for minutes is drawn at one frozen offset.
 
-Gate: EVA-17 stays red on the plume pin until this and the next entry are fixed. Its in-game cells
-do not see it: `RelativeSectionGhostsLandOnTheirRecordedShadow` skips (`ghosts=0`), the batch reads
-`total=3 passed=1 failed=0 skipped=2`.
+- Recorder. `PhysicsFramePatch` hands the ACTIVE vessel to
+  `BackgroundRecorder.OnBackgroundPhysicsFrame` while the post-switch watch is armed on it and no
+  active recorder is attached (`ShouldSampleActiveVesselInBackground`), before the watch runs. A
+  tracked member is a background recording until its promotion, so it keeps its sampling (dense
+  beside its Relative anchor, the ordinary 3 s backstop when alone: 0 m from itself is not proximity,
+  `ResolveHighFidelityDistance`) and its part-event polling; the frame whose change promotes it is still polled, which the promotion
+  (it seeds no events, the bug A / #263 rule) relies on. An outsider is in no BackgroundMap, so an
+  idle visited vessel stays unrecorded; a switch segment is bound to an active recorder at once, so
+  the no-op segment discard never sees the state; every other vessel takes the path it took.
+- Playback. A RELATIVE sample drawn at a playback UT other than its own (one sample, two at one UT,
+  before the first) holds its offset beside the pose the anchor has at the playback UT; an anchor
+  with no pose there hides the ghost. Readers: the flight positioner
+  (`TryPositionGhostRecordedRelativeAt`, also the LateUpdate re-apply UT), the flight world
+  position (`TrySelectRelativeOffset`), KSC (`TryResolveKscPointPose`, and `TryResolveKscSegmentPose`,
+  whose clamped sample UT was stale past ANY section's last frame), and the map state-vector seed
+  (`ResolveStateVectorWorldPosition`, which seeds the orbit at the playback UT). The loop path reads
+  the live anchor and the Tracking Station marker refuses an uncovered Relative section: both were
+  right. The parent-anchored and loop-anchored contracts are untouched.
+
+Tests: `RelativeSampleHoldTests`, `WatchedActiveVesselBackgroundSampleTests`. Gate: EVA-17 pins her
+background section's frame count, her ghost's distance at the end of it and no `Physics->Visual`
+transition; all three red on the `2026-11-23_2112` log.
+
+Live proof (Debug automation DLL sha256 dc06f145a0d78d99): `2026-11-23_2251_EVA-17-orbit-jetpack-hop-rewind`
+PASS attempt 1 (her section closed `frames=52 duration=11.14s avgGap=0.216s`; her ghost 17 m from the
+viewer at 423.99 and 19 m at 434.99, beside the ship's 19 m). `2026-11-23_2254_GPOS-2-eva-chute-relative-ghost-position`
+PASS attempt 1 (Relative placement unchanged against its body-fixed shadow). The defective recording itself,
+the save of `2026-11-23_2112` loaded on the fixed build by a scratch spec (not committed,
+`2026-11-23_2302_ZZ-eva17-held-old_run2`, log in `logs/flights/eva17-held-old-2026-11-24/`): the two-frame
+section replays held beside the ship for 10.08 s, first seen at 17 m, with no `Physics->Visual` transition
+(`RELATIVE sample held beside its anchor: ... heldSeconds=10.08`). With EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION
+and main merged in, `2026-11-24_0225_EVA-17-orbit-jetpack-hop-rewind` PASS attempt 1 (DLL sha256 93c231434b0cc850).
+
+Left as is: on an OLD held recording the map seeds its orbit at the right position with the held
+sample's velocity, so the orbit line can tilt by the arc flown since (about 2 degrees for 11 s in LKO);
+the Relative branch's seed velocity was already approximate.
 
 ## ~~EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION~~: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; FIXED 2026-11-24, branch `eva-jetpack-promotion`; visual]
 
@@ -167,7 +198,10 @@ ladders, fairings, animation groups and aero surfaces are post-switch triggers
 trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
 lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
 way. The fix shape is the same (compare the live state with the recording's last word); it needs its
-own pass because deployables are exactly the family bug A / #263 is about. A kerbal's helmet and
+own pass because deployables are exactly the family bug A / #263 is about. Since
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
+polled by the background recorder up to and including the trigger frame, so its changes are recorded;
+what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
 headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
 mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
 recorder clears `thrustingJetpackParts`. No flight has shown any of these.
@@ -673,12 +707,35 @@ Current owner rulings (V, 2026-11-18 review cards and 2026-11-21 in-session; a l
 | L2 | 2026-11-21 | Above 10x warp a crashing ghost plays its explosion when it is close enough to be seen; a far ghost just ends. |
 | L5 | 2026-11-21 | A gap over 30 s before the predicted path: the ghost slides across it, no freeze, no jump. |
 | R4b | 2026-11-21 | Looped replay of a predicted crash: each repeat's path turns with the planet so it hits the real crash site. |
+| R4c | 2026-11-24 | "A dropped stage's predicted fall plays in mission loops but does not count toward loop timing." Timing (span, cadence, overlap cap, Auto, first-play floor, period snapping, the KSC / Tracking Station clock, the supply-route clock and origin span) reads the recorded span: the latest non-predicted UT over the members. In flight the fall plays to its impact, overlapping the next launches and its own next copies; copies past the 20 cap end quietly, the cadence is never raised. KSC and the Tracking Station draw one copy, cut at the next relaunch. Same for a recording with no tail, spawns, first runs and R4b as before. |
 | P-STOCK | 2026-11-21 ~20:15 | Parsek's committed endings and crew outcomes must not contradict stock's background simulation; no live-game override. |
 | P-LEAVE | 2026-11-21 ~20:25 | Stock warns that leaving flight in the atmosphere loses the vessel, so a predicted crash with crew dead at commit agrees with stock; a prediction stock later contradicts (vessel alive after the crash UT) is dropped like a Q1b takeover. Q9 (make the live game match) is CLOSED by P-STOCK / Q4d / P-LEAVE. |
 
 Interpretations taken without asking (micro-choices): the periapsis floor (`OrbitClearance`, operator ruling 2026-09-27 "any orbit Parsek calls Orbiting will spawn" kept) is max(deletion line, highest terrain), read by commit, inference, finalizer and spawn safety alike; an arc whose low point is below the line but above the ground ends Destroyed at its first periapsis; a bound FLYING coast clear of the floor is a stable orbit; the horizon cap is 50 Kerbin years; a final orbit ends after a 60 s settle span on it; a Sun hyperbola ends SubOrbital and spawns on its path (ruling Q10, SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS); a member a quickload finds dropped is never made spawnable; an airless orbit grazing the peaks that stock keeps on rails is taken back from a predicted crash to SubOrbital (P-STOCK); a craft seen in the game after the commit that later vanishes with no recovery, termination or merge row was deleted by stock (P-STOCK); the stock-fate pass runs in FLIGHT only, because stock deletes nothing anywhere else.
 
 New persisted markers, all additive (no format or generation bump, absent = false / old behaviour): `terminalPredicted`, `terminalRemnantSurvives`, `quietEnd`, `stockHeldUT` and the `RECOVERED_CREW` child node on the recording, and `TrackSectionSource.Predicted` (= 3) on a track section.
+
+## ~~LOOP-TIMING-READ-THE-PREDICTED-FALL~~: a looped mission's span, period and supply-route clock included a dropped stage's predicted fall [FILED + FIXED 2026-11-24 from GS-12 `2026-11-23_2013` (PARSEK-FAIL), branch `loop-timing-predicted-falls`, owner ruling R4c; xUnit `MissionLoopFallTimingTests`, `LoopFallPlaybackTests`, `LoopFallEndTests`, `RouteBackingMissionTests`, `RouteBuilderTests`; lanes GS-12 (re-cut) and LF-3 (new) OWED a flight]
+
+**Seen:** since ABANDONED-STAGE-D1 a dropped stage keeps its predicted fall (minutes, days, or the 50-year horizon), and the loop unit took its span from the members' drawn ends: GS-12's 150 s loop of a 110 s flight read `span 109.86 -> 301.46`, `cadence=305` instead of 150, and the 5 s stage was raised to 20 s by span/20. The same span set the first-play floor (a loop waited for the fall to end), the Space Center and Tracking Station clock, a supply route's cadence, and refused a shuttle route whose dropped stage's fall outlived a dock (`origin-span-mismatch`).
+**Fix:** `PredictedEndingTakeover.ResolveRecordedEndUT` (Recording module) is the one reading of "last non-predicted UT": the recording's end when it has no predicted tail (an explicit end past the last sample stays recorded time), else the last real sample, section or non-predicted orbit segment. Every tail shape is a predicted orbit segment (a fall, an escape followed to its final orbit with the settle span, a ground-scan or horizon cap, a predicted coast that stays up), a predicted track section (a chute descent), or a predicted Destroyed end UT with no segment; a piece with predicted data only holds no recorded time. `MissionLoopUnitBuilder.ComputeTimingSpanEndUT` makes `LoopUnit.SpanEndUT` from it (window-clipped), so the cadences, the overlap cap, the floor, the periodicity windows (`ComputeTimingMemberWindows`), re-aim, the Missions period cell and the route clock follow with no change of their own; `MissionCompositionNode.TimingEndUT` does the same for the route's origin-span check and start trim. `LoopUnit.RenderSpanEndUT` carries the drawn end and the member windows keep their tails.
+- Flight: a falling member of a uniform unit that does not overlap itself is drawn as one copy per launch on the unit's cadence (`UpdateUnitMemberFallSchedule`, over the existing overlap path), so it plays to its impact while the rest keeps its single span-clock copy; in a self-overlapping unit it is on that path already. `ResolveOverlapCadence(keepCadence)` never raises a fall's cadence, and copies past the 20 cap end with no explosion (`Fall copy ended quietly at the copy cap`, `MeshDestroyed ... reason=fall copy cap`). In a unit with a relaunch schedule, loiter cuts, holds or the descent trigger the fall plays on through the wait and an older cycle's fall is kept beside the next one (`UpdateNonUniformFall`); with the launch alignment engaged (re-aim), one copy, cut at the next relaunch, because the overlap list belongs to the boundary secondary there. The flight map draws the same copies (`LoopUnitSet.DrawsFallCopies`).
+- Where a fall ends (review finding B1): a launch period longer than the fall leaves a gap with no copy. Once the newest launch's copy is past its own end (`HasOverlapCopyEnded`) it joins the overlap list, which expires it there with its ending (explosion, watch hold; `Fall copy reached its end before the next launch`), and its cycle is not drawn again, so the mesh and the flight map agree (`EndNewestFallCopy`; members and debris, and the Space Center's self-overlap path). Before that the copy was held at its end until the next launch, the wreck sliding on the ground and the explosion a period late. The watch clock stops following it too. The same ending applies to a member or debris of a self-overlapping unit whose predicted tail ends INSIDE the span (`EndsInPredictedTail`); one whose end is recorded keeps the old hold (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END). Debris of a non-uniform unit whose fall ends in the wait gets its ending as well, where it vanished.
+- High warp (review finding B2): above 50x `UpdateNonUniformFall` ends the older launches' copies and an older primary; they stayed alive, undriven and visible. A uniform fall whose copy ends while hidden is dropped instead of exploding after the warp (`DropEndedFallAtWarp`); the watched ghost is never dropped.
+- A loop edited while its falls are in the air (review finding B3): the Missions window sets the period without re-stamping the loop anchor, so the rebuilt unit is live on the next frame and the old cycle numbers name other launches. A copy numbered above the newest launch had a negative phase and hung at the separation point for hours; on a shorter period one read as ended would have exploded on the edit frame. Every fall copy now carries its own clock (`GhostPlaybackState.fallClockOffsetUT`, the live UT of recorded UT 0 for its cycle); a copy whose clock moved more than 0.5 s, or whose cycle is above the newest launch (or equal to it beside the slot), ends quietly (`IsStaleFallCopy`, `Fall copy ended quietly the loop's schedule changed under it`, `MeshDestroyed ... reason=fall schedule changed`) and the new schedule draws its own copies. Uniform and non-uniform units, debris, self-overlapping units with a predicted end and the Space Center's self-overlap path; a rebuild that moves nothing (a trim, an unrelated commit, the same route schedule rebuilt) keeps every copy, and the first run's fall, on the real clock, is untouched. Fall copies an edit leaves with no path to drive them go too (`DropUndrivenFallCopies`). The flight map lists copies from the schedule alone, so it needed nothing. Copies with a recorded end keep the old demotion (a cycle above the newest is still clamped at its start there; see OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END).
+- First run: a loop may now start while the first run's fall is still in the air; in flight that ghost keeps falling on the real clock beside the copies (`TryKeepFirstRunFall`), where the old floor waited for it. A scene load after the anchor does not redraw it.
+- Debris: debris with a predicted tail past the span end plays to its impact in flight (per launch in a uniform unit, else through the wait to the next relaunch) and changes no timing; recorded debris past the span end is cut as before. KSC and the Tracking Station draw no loop debris.
+- KSC / Tracking Station: the single copy plays its fall through the wait and the next relaunch cuts it (`TryExtendRenderIntoFall`). A self-overlapping unit keeps drawing one copy per launch there, falls included, as it did.
+- Logs: `MissionLoopUnit:` keeps every token (`span` / `spanDur` / `cadence` / `overlapCadence` / `overlaps` now read the recorded span) and gains `renderSpanEnd= fallMembers= fallOverlaps=` only when a member falls past it; `missionconfig applied:` gains `renderSpanSeconds=`.
+
+**Not changed (product questions, not decided here):** a copy whose end is recorded is still held at it between launches (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END); the map and Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost), and a span-clock copy at KSC that ends inside the wait still ends with no explosion, as every span-clock member's end did.
+
+## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; OPEN, owner question; low]
+
+**Cause:** `UpdateOverlapPlayback` (and `ParsekKSC.UpdateOverlapKsc`) clamps its newest cycle's playback UT to the recording's end and only expires OLDER cycles, so a member, debris or standalone loop whose own length is shorter than the launch cadence stays drawn at its last frame until the next launch; in flight its explosion comes only then, the watch clock stays on it, and the flight map lists no copy meanwhile. Reachable in a self-overlapping mission for every stage or debris shorter than the period (GS-12 stage 1's shape before R4c: 57 s debris at a 150 s cadence). The code is the same on main before the branch (9559614ea); the archived GS-12 log starts its loop lines at stage 2 (cadence 30, under the debris' 57 s), so it shows none.
+**Done:** recordings whose end is PREDICTED no longer do this (LOOP-TIMING-READ-THE-PREDICTED-FALL). Nothing changed for a recording without a predicted tail: R4c promises those stay as they were, so `SelfOverlappingDebris_EndsWhenPredicted_IsHeldWhenRecorded` / `SelfOverlappingMember_...` (`LoopFallEndTests`) pin the hold.
+**Same path, same scope line:** raising the period of a self-overlapping mission leaves copies with a recorded end numbered above the newest launch; they are clamped at their start until the schedule reaches that number, as on main. Falls end quietly instead (LOOP-TIMING-READ-THE-PREDICTED-FALL, B3).
+**Question for the owner:** should a copy with a recorded end also end at its end (explode or vanish) instead of standing there until the next launch? The change is to pass `endAtOwnEnd: true` at the remaining `UpdateOverlapPlayback` / `UpdateOverlapKsc` calls.
 
 ## ~~ABANDONED-STAGE-D1~~: every ignored spent stage exploded in mid-air at the moment Parsek stopped watching it [FILED 2026-11-18 (review finding D1, high, design); FIXED 2026-11-21, branch `asr-destroy` 14250a907, with c219f487e and 9d1694dd4; xUnit `BackgroundRecorderTests`, `RecordingFinalizationCacheProducerTests`; lanes ASR-1 / ASR-5 read the debris and the probe core ending at the ground; GS-8 / GS-9 re-pinned for the probe core's Destroyed ending 2026-11-23, branch `lane-repins-1023`; RF-14 re-pinned 2026-11-24 for the same ending (slot 1 promoted `crashed`, not `stableLeafUnconcluded`), branch `lane-repins3-1124`]
 

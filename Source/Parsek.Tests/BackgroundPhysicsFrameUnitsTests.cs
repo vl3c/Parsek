@@ -8,7 +8,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Direct tests of the units extracted from
-    /// <see cref="BackgroundRecorder.OnBackgroundPhysicsFrame(Vessel)"/>: the proximity interval
+    /// <see cref="BackgroundRecorder.OnBackgroundPhysicsFrame(Vessel, bool)"/>: the proximity interval
     /// bookkeeping, the fixed-step skip note, the effective sampling floor / ceiling and the two
     /// sample triggers.
     /// </summary>

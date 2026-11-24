@@ -10,7 +10,7 @@ using static Parsek.Tests.BackgroundRecorderCharacterizationSupport;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Golden characterization of <see cref="BackgroundRecorder.OnBackgroundPhysicsFrame(Vessel)"/>,
+    /// Golden characterization of <see cref="BackgroundRecorder.OnBackgroundPhysicsFrame(Vessel, bool)"/>,
     /// recorded against the method before its blocks were extracted (wave 2, W9b-3).
     ///
     /// Headless reach: every early exit (no vessel, a dead vessel, no map entry, a missing or

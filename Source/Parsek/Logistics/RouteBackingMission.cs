@@ -318,8 +318,9 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// (M-MIS-5 P2b) Derives the selection's rendered span — the min included
-        /// StartUT / max included EndUT across every selectable composition
+        /// (M-MIS-5 P2b) Derives the selection's TIMING span — the min included
+        /// StartUT / max included recorded end (a predicted tail is drawn, not
+        /// timed: owner ruling 2026-11-24) across every selectable composition
         /// interval whose key is NOT in <paramref name="excludedKeys"/> — the same
         /// quantities <c>MissionLoopUnitBuilder</c> later derives from the trimmed
         /// member windows. Pure. Used by RouteBuilder's fail-closed span check on
@@ -370,7 +371,7 @@ namespace Parsek.Logistics
             {
                 included++;
                 if (node.StartUT < minStart) minStart = node.StartUT;
-                if (node.EndUT > maxEnd) maxEnd = node.EndUT;
+                if (node.TimingEndUT > maxEnd) maxEnd = node.TimingEndUT;
             }
 
             for (int i = 0; i < node.Children.Count; i++)
@@ -783,7 +784,8 @@ namespace Parsek.Logistics
         }
 
         // (M-MIS-5 P2b) Start-side mirror of WalkAndClassify. An interval is
-        // excluded (pre-origin) when it ENDS at/before the origin-undock boundary
+        // excluded (pre-origin) when its RECORDED part ENDS at/before the origin-undock boundary
+        // (a dropped stage's predicted fall outliving the undock does not keep it)
         // OR it roots at a leg that separated at the ORIGIN undock branch point
         // (the depot-side offshoot, which starts AT the boundary and would evade
         // the EndUT rule).
@@ -798,7 +800,7 @@ namespace Parsek.Logistics
                 && !string.IsNullOrEmpty(node.OwnerHeadId))
             {
                 scanned++;
-                bool preOrigin = node.EndUT <= boundary
+                bool preOrigin = node.TimingEndUT <= boundary
                     || RootsAtUndockChild(node.HeadLegId, originUndockChildLegIds);
                 if (preOrigin)
                 {
