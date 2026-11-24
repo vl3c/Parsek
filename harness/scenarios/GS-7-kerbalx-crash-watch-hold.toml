@@ -432,8 +432,9 @@ count = { min = 8 }
 #   "phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired"  - THE token.
 #       Deliberately NOT the GS-4 alternation: an auto-follow or a `playback
 #       completed` ending here would mean the hold did not run, which is the finding.
-#   "phase=MeshDestroyed ... vessel=Kerbal X Probe reason=" / "... Kerbal X Debris"
-#       [MEASURED - GS-4]
+#   "phase=MeshDestroyed ... vessel=Kerbal X Probe reason=" / "... Kerbal X Debris reason="
+#       [MEASURED - GS-4], the quit's own `engine teardown` excluded (todo
+#       GHOST-ENDING-TOKENS-MET-BY-THE-QUIT): every archived flight ends both before it.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -463,8 +464,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Watch hold started for #[0-9]+: 5s terminal=Destroyed",
              "Watch hold expired for #[0-9]+ at t=",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=watch hold expired",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=(?!engine teardown)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=(?!engine teardown)"]
 # The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals
 # (a refused exit, a refused rewind, a watch that never entered all log at ERROR).
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

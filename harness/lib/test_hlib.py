@@ -15700,8 +15700,13 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.raised), 15)
         # 1012 -> 1021 when the M-A7 recorder hooks landed above it in the same file;
         # 1021 -> 1079 (2026-08-28) when the line-blink TracedPath-handoff exemption
-        # landed above it. The raise site itself is unchanged both times.
-        self.assertIn("Source/Parsek/MapRender/MapRenderProbe.cs:1079",
+        # landed above it; 1079 -> 1089 (2026-11-24) when the lift-frame check landed
+        # above it. The raise site itself is unchanged each time.
+        self.assertIn("Source/Parsek/MapRender/MapRenderProbe.cs:1089",
+                      self.raised.get("icon-teleport", []))
+        # The lift frame the icon drive did not place (todo
+        # MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24) raises the same gated reason.
+        self.assertIn("Source/Parsek/MapRender/MapRenderProbe.cs:1427",
                       self.raised.get("icon-teleport", []))
         # 158 -> 168 -> 177 (2026-09-23) when the destructible-building skip landed above it
         # in PatchFacilities. The raise site itself is unchanged.
@@ -15745,8 +15750,8 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # the contract - the membership is.
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
-             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445")],
+             ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:737"),
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2506")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")
@@ -25176,7 +25181,19 @@ S17_FLOWN_BATCH_LINE = (
 S17_FLOWN_BATCH_LINE_2026_11_12 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-S17_MEASURED_BATCH_LINE = S17_FLOWN_BATCH_LINE_2026_11_12
+# PREDICTED 2026-11-24: IconRevealDriveInGameTest (todo
+# MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24) moved the category to total=22. Both lines
+# below are predictions until S1.7 flies: the tally is the attribute derivation with the
+# one batch-disabled canary as its skip, the cell line is what the cell prints when the
+# reveal places the icon. Replace them with the read lines at the next flight.
+S17_EXPECTED_BATCH_LINE = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
+    " skipped=1 category=MapRender scene=FLIGHT")
+S17_EXPECTED_ICON_REVEAL_LINE = (
+    "[Parsek][INFO][TestRunner] IconRevealDrive: pid=2361972787 frame=4211"
+    " staleMeters=1534221 placedMeters=0.031 drawIcons=OBJ suppressed=False"
+    " lineActive=True testFrameUnchanged=True")
+S17_MEASURED_BATCH_LINE = S17_EXPECTED_BATCH_LINE
 # The runner's accounting for the single skip.
 S17_MEASURED_BATCH_SKIP_LINE = (
     "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
@@ -25220,7 +25237,8 @@ class MapRenderParityScenarioTests(unittest.TestCase):
     def test_required_patterns_match_the_flown_log(self):
         log = "\n".join((S17_MEASURED_KERBIN_LINE, S17_MEASURED_MUN_LINE,
                          S17_MEASURED_REAIM_LINE, S17_MEASURED_BATCH_SKIP_LINE,
-                         S17_MEASURED_BATCH_LINE)) + "\n"
+                         S17_MEASURED_BATCH_LINE,
+                         S17_EXPECTED_ICON_REVEAL_LINE)) + "\n"
         for pat in self.required:
             self.assertIsNotNone(re.search(pat, log),
                                  "required pattern never matches the flown line: %s" % pat)
@@ -25236,9 +25254,9 @@ class MapRenderParityScenarioTests(unittest.TestCase):
                  "category=MapRender scene=FLIGHT", "an all-skip batch"),
                 ("BATCH_COMPLETE v1 total=22 passed=20 failed=0 skipped=2 "
                  "category=MapRender scene=FLIGHT", "a test that flipped to Skip"),
-                ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "
+                ("BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1 "
                  "category=MapRender scene=FLIGHT",
-                 "the pre-2026-09-08 tally, i.e. a MapRender test removed"),
+                 "the pre-2026-11-24 tally, i.e. the icon reveal cell removed"),
                 ("BATCH_COMPLETE v1 total=24 passed=23 failed=0 skipped=1 "
                  "category=MapRender scene=FLIGHT", "a newly added MapRender test"),
                 ("BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 "
@@ -25254,6 +25272,23 @@ class MapRenderParityScenarioTests(unittest.TestCase):
                 ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "
                  "category=MapRender scene=TRACKSTATION", "a FLIGHT/TS host change")):
             self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
+
+    def test_the_icon_reveal_arm_reds_when_the_icon_is_not_placed(self):
+        pat = next(p for p in self.required if "IconRevealDrive" in p)
+        good = S17_EXPECTED_ICON_REVEAL_LINE
+        self.assertIsNotNone(re.search(pat, good))
+        for repl, why in (
+                (("placedMeters=0.031", "placedMeters=1534221.000"),
+                 "the icon shown where stock left it"),
+                (("staleMeters=1534221", "staleMeters=12"),
+                 "a hide that never moved the icon (the cell proves nothing)"),
+                (("drawIcons=OBJ", "drawIcons=NONE"), "an icon never shown"),
+                (("suppressed=False", "suppressed=True"),
+                 "an icon shown beside the marker"),
+                (("testFrameUnchanged=True", "testFrameUnchanged=False"),
+                 "a physics step inside the cell")):
+            self.assertIsNone(re.search(pat, good.replace(*repl)),
+                              "%s must NOT satisfy the icon reveal arm" % (why,))
 
     def test_both_multibody_arms_are_pinned_and_a_skip_cannot_satisfy_them(self):
         # sampled=True / skip=(none) / hasMeas=True / over=False are all pinned, so

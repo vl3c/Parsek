@@ -855,6 +855,15 @@ sites in `GhostOrbitLinePatch`. Source-gated by `LineBlinkWindowExitExemptionTes
   orbital arc; comparing a raw-world delta against body-centered orbital speed
   false-positives smooth fast coasts at high warp (the body's own world motion dominates).
   SOI-crossing frames suppressed via `bodyChanged`.
+- The frame an icon's suppression lifts: the delta (and the off-orbit angle) compare against a
+  hidden position the player never saw, so both checks skip it. Where the icon SITS is judged
+  instead when the drive did not place it on that very frame (drive record at freshness 0):
+  `CheckUndrivenLift` measures it against the Director's fresh seed with the loop shift baked,
+  sampled at the live clock, and raises `icon-teleport` with `LIFT-UNDRIVEN misplaced=` past the
+  jump threshold (pure `MapRenderTrace.IsUndrivenLiftMisplaced`). The driver's own orbit is no
+  reference there: stock propagated it, so the icon sits on it exactly. A ghost with no seed is
+  stock-placed and is not judged. The line Postfix drives every reveal it makes
+  (`EnsurePlacedForReveal`, architecture doc Appendix A), so a raise is a regression of that gate.
 - Also emits the Tier-A `FirstPosition` event per pid and reconciles intended-vs-actual
   line/icon state each `Sample`.
 
