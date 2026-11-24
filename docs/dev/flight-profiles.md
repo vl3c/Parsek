@@ -679,9 +679,9 @@ Lanes per family (rows) per timeline operation (columns).
 | CycleVessel | 2 | GC 1, SWC 1 |
 | EvaChuteDeploy | 2 | EVA 1, GPOS 1 |
 | ExitToMainMenu | 2 | QTM 1, RFQ 1 |
+| PickUpFlag | 2 | FLG 1, WF 1 |
 | EvaMove | 1 | EVA 1 |
 | LaunchSiteProbe | 1 | LS 1 |
-| PickUpFlag | 1 | FLG 1 |
 | SafeWriteCrash | 1 | ST 1 |
 | SpinVessel | 1 | MC 1 |
 
@@ -1896,7 +1896,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | S1.6-render-parity | daily | gloops-airshow +inj all-synthetic | seam | - | - | GhostMap | LIVE-PROVEN 2026-07-26 |
 | S1.7-maprender-parity | daily | gloops-airshow +inj all-synthetic | seam | - | - | MapRender | LIVE-PROVEN 2026-07-26 |
 | S1.8-soi-crossing-playback | daily | gloops-airshow +inj looped-inte... | seam | - | - | SoiCrossingPlayback | LIVE-PROVEN 2026-08-06 |
-| S1.9-part-showcase-render | operator | gloops-airshow +inj part-showcase | seam | Kerbin | reload, save, warp, time-jump | - | FLOWN + ARMED 2026-08-28, five flights sa... |
+| S1.9-part-showcase-render | operator | gloops-airshow +inj part-showcase | seam | Kerbin | reload, save, warp, time-jump | - | RE-PINNED 2026-11-24, not re-flown |
 | S4.1-rewind-merge | nightly | gloops-airshow +inj rewind-b9 | seam | - | re-fly, time-jump | - | LIVE-PROVEN 2026-07-31 |
 | S4.2-refly-world-preservation | nightly | gloops-airshow +inj refly-world... | seam | - | re-fly, time-jump | ReFlyWorldPreservation | SPEC CHANGED 2026-10-25 (branch claude/pr... |
 | S4.3-refly-discard-with-ghosts | operator | gloops-airshow +inj refly-world... | seam | - | re-fly, time-jump | - | 2026-10-07: _2241 PARSEK-FAIL on a stale... |

@@ -84,7 +84,7 @@ id = "CS-5-career-mun-flyby"
 # 31.2 km), HOME-FALL, HOME-REENTRY, HOME-SPLASHDOWN (SPLASHED, canopy observed). Measured and
 # pinned: rollout -11612, pod recovery +814; milestones Mun/Flyby 26000/4/2, Kerbin/Escape
 # 26400/5/3, Mun/Escape 18720/3/1, Mun/ReturnFromFlyBy 26000/4/2, Kerbin/Splashdown 4800/1/0
-# (funds/rep/sci); 14 recordings; batch passed=3 skipped=0; end pools funds 174783.98, science
+# (funds/rep/sci); 14 recordings (16 on split rule version 3); batch passed=3 skipped=0; end pools funds 174783.98, science
 # 30.5, rep 103.0; LedgerGroundTruth hardFailures=0 reportOnly=2 (Milestone MissingInRecon
 # Kerbin/Orbit, Vessel Consistency pid-only Flea, as on CS-4b); zero ERROR / GUARDED / leak.
 # Original note: the batch line pinned `total=3` with the split regexed; CS-3, CS-3b, CS-4
@@ -204,12 +204,19 @@ returnFallTimeoutSeconds   = 200000
 allowedAnomalies = []
 
 [expectations.recordings]
-# A WINDOW until the first flight measures it: the host's seven + the flyer's root chain
-# (the optimizer's environment and body splits: ascent, the cross-SOI coast, reentry;
-# CS-4's orbit-and-return measured three legs) + the dropped groups past
-# ShouldRecordDebris (two Thumpers, the core, the service section). The ground-truth
-# launch is unrecorded.
-count = { min = 13, max = 15 }
+# RE-PINNED 16 (2026-11-24, run 2026-11-24_0033_CS-5-career-mun-flyby): split rule version 3
+# adds the circularization and parking-orbit rows to this flight (burn cuts at orbit-kind
+# changes, design section 14.1). The host's seven + five CS Mun Flyby rows (ascent /
+# circularization / orbit / transfer / reentry) + four debris rows (two Thumpers, the core,
+# the service section; unchanged, 2026-10-27_2101 measured 14); this was
+# `count = { min = 13, max = 15 }`. The KSP.log carries exactly four splits
+# (`Optimization pass: split 4 recording(s)`, 12 -> 16; 14 under version 2):
+#   Split candidate (PersistedPhaseChange) splitUT=1626.16    (ascent exit)
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=1732.92
+#   Split candidate (DepartureBurnStart) splitUT=3145.38
+#   Split candidate (FinalDescentEntry) splitUT=59203.22      (reentry)
+# The ground-truth launch is unrecorded. Exact: 15 and 17 both red.
+count = { min = 16, max = 16 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):

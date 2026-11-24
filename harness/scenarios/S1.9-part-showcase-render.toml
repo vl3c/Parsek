@@ -466,8 +466,23 @@ count = { min = 243, max = 243 }
 # pid 100000, so a converter-loop apply line here can only come from those three rows;
 # `applied=[1-9]` says the ghost HAD a loop for the part (a missing one reads
 # `applied=0 ... reason=no-family-state` or `no-info-for-part`). `Converter loops driven`
-# shares one 5 s rate-limit key across every ghost, so it names whichever of the three
-# drove first. [DERIVED]
+# shares one 5 s rate-limit key across every ghost, so it names whichever loop drove first.
+#
+# RE-PINNED 2026-11-24, NOT RE-FLOWN, off `2026-11-24_0640` (these two tokens its only misses):
+#   - engines: stock's power rules own the engine emitters now (fd0f888d1, `stockRuled`), so the S1
+#     ratio scales nothing and prints no `FX magnitude (engine)` line; `Engine FX power:` prints
+#     what the rules wrote (`models` / `prefabs` / `legacy` counts) and `engine-fx start` the
+#     ignition edge. RCS keeps the ratio and its line. `playing=` is not pinned: a ghost primed
+#     before it activates reads 0 (`liquidEngine`), the RAPIER read 5.
+#   - converter loops: the Orbital Scanner's loop follows its deploy since 6d9bd2732 and drives
+#     first, spending the shared 5 s key before the drills' only driven frame (UT 71.2, 1.5 s
+#     later; todo CONVERTER-LOOP-DRIVE-LOG-SHARED-KEY-2026-11-24). Pinned per vessel instead: the
+#     loop built with sampled transforms and `driver=converter`, and on the vessel's own rec index
+#     (the spawn line's ghostIndex) an Activated line with applied=2 and a Deactivated line with
+#     applied=1. Those two come from the same call (the jump from 62.98 to 71.2), so the loop ends
+#     it on, and `DriveConverterLoops` poses every loop that is on, in the same frame, before the
+#     attitude families. The driven line stays required for any of the four vessels: it proves the
+#     drive pass runs. A drill with no loop, or whose events are skipped, reds on its own token.
 required = [
   "SanitizeNonLoopableLoopPlayback: cleared LoopPlayback on 243 non-loopable recording\\(s\\)",
 
@@ -505,12 +520,19 @@ required = [
   "Applied [0-9]+ part events for ghost #[0-9]+ \\(evtIdx now [0-9]+\\)",
 
   "Part pid=[0-9]+: applied heat level (?:Hot|Medium|Cold)",
-  "FX magnitude \\(engine\\) pid=[0-9]+ midx=[0-9]+ power=",
+  # Stock-ruled engine plumes (see RE-PINNED 2026-11-24): the rules were written at a throttle above
+  # zero to at least one system, and an ignition edge reached a ghost engine that has systems.
+  "Engine FX power: part='[^']+' pid=[0-9]+ midx=[0-9]+ throttle=(?!0\\.000 )[0-9.]+ thrustFraction=[0-9.]+ (?:models=[1-9][0-9]* prefabs=[0-9]+ legacy=[0-9]+|models=0 prefabs=[1-9][0-9]* legacy=[0-9]+|models=0 prefabs=0 legacy=[1-9][0-9]*)",
+  "engine-fx start part='[^']+' pid=[0-9]+ midx=[0-9]+ source=(?:legacy|effects-node|supplement) (?:effectsSystems=[1-9][0-9]* supplementSystems=[0-9]+ legacySystems=[0-9]+|effectsSystems=0 supplementSystems=[1-9][0-9]* legacySystems=[0-9]+|effectsSystems=0 supplementSystems=0 legacySystems=[1-9][0-9]*) [^\\r\\n]* power=(?!0\\.000)",
   "FX magnitude \\(rcs\\) pid=[0-9]+ midx=[0-9]+ power=",
 
-  "apply family=ConverterActivated surface=converter-loop rec=[0-9]+ pid=100000 applied=[1-9][0-9]* ",
-  "apply family=ConverterDeactivated surface=converter-loop rec=[0-9]+ pid=100000 applied=[1-9][0-9]* ",
-  "Converter loops driven: [1-9][0-9]* \\(vessel='Part Showcase - (?:Drill Junior|Drill-O-Matic|ISRU)'\\)",
+  "ConverterLoop 'MiniDrill': sampled [1-9][0-9]* looping transform\\(s\\) from '[^']+' over [1-9][0-9]* phases [\\s\\S]*?ConverterLoop 'MiniDrill' pid=100000: driver=converter[\\s\\S]*?Synthesized motion for 'MiniDrill' pid=100000: [^\\r\\n]*converterLoops=1",
+  "ConverterLoop 'RadialDrill': sampled [1-9][0-9]* looping transform\\(s\\) from '[^']+' over [1-9][0-9]* phases [\\s\\S]*?ConverterLoop 'RadialDrill' pid=100000: driver=converter[\\s\\S]*?Synthesized motion for 'RadialDrill' pid=100000: [^\\r\\n]*converterLoops=1",
+  "ConverterLoop 'ISRU': sampled [1-9][0-9]* looping transform\\(s\\) from '[^']+' over [1-9][0-9]* phases [\\s\\S]*?ConverterLoop 'ISRU' pid=100000: driver=converter[\\s\\S]*?Synthesized motion for 'ISRU' pid=100000: [^\\r\\n]*converterLoops=1",
+  "phase=MeshSpawned [^\\r\\n]*ghostIndex=([0-9]+) [^\\r\\n]*vessel=Part Showcase - Drill Junior reason=ghost-created(?=[\\s\\S]*?apply family=ConverterActivated surface=converter-loop rec=\\1 pid=100000 applied=2 skipped=0 )(?=[\\s\\S]*?apply family=ConverterDeactivated surface=converter-loop rec=\\1 pid=100000 applied=1 skipped=0 )",
+  "phase=MeshSpawned [^\\r\\n]*ghostIndex=([0-9]+) [^\\r\\n]*vessel=Part Showcase - Drill-O-Matic reason=ghost-created(?=[\\s\\S]*?apply family=ConverterActivated surface=converter-loop rec=\\1 pid=100000 applied=2 skipped=0 )(?=[\\s\\S]*?apply family=ConverterDeactivated surface=converter-loop rec=\\1 pid=100000 applied=1 skipped=0 )",
+  "phase=MeshSpawned [^\\r\\n]*ghostIndex=([0-9]+) [^\\r\\n]*vessel=Part Showcase - ISRU reason=ghost-created(?=[\\s\\S]*?apply family=ConverterActivated surface=converter-loop rec=\\1 pid=100000 applied=2 skipped=0 )(?=[\\s\\S]*?apply family=ConverterDeactivated surface=converter-loop rec=\\1 pid=100000 applied=1 skipped=0 )",
+  "Converter loops driven: [1-9][0-9]* \\(vessel='Part Showcase - (?:Drill Junior|Drill-O-Matic|ISRU|Orbital Scanner)'\\)",
 ]
 # The suite-wide ERROR pattern, PLUS the per-part resolution floor (code fact 4). The
 # second is the strongest single expression of "check if the parts get rendered": one
