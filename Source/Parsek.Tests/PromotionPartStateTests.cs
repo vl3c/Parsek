@@ -619,6 +619,60 @@ namespace Parsek.Tests
             Assert.Null(reason);
         }
 
+        [Theory]
+        [MemberData(nameof(FamilyNames))]
+        public void ARefusedCopyOfARecordingInterestingToItsEnd_IsStillANoOp(string name)
+        {
+            // The committed recording drove up to its last point, so the state event is stamped
+            // exactly at its end, the anchor RefusedResumedCopyTail reads the copy's tail from.
+            Family family = Named(name);
+            Recording Committed100()
+            {
+                var rec = new Recording { RecordingId = "r" };
+                foreach (double ut in new[] { 0.0, 50.0, 100.0 })
+                    rec.Points.Add(new TrajectoryPoint { ut = ut, bodyName = "Kerbin" });
+                rec.TrackSections.Add(new TrackSection
+                {
+                    environment = SegmentEnvironment.SurfaceMobile,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    startUT = 0, endUT = 100,
+                    frames = new List<TrajectoryPoint>(), checkpoints = new List<OrbitSegment>(),
+                });
+                return rec;
+            }
+            RecordingTree Tree(Recording rec)
+            {
+                var tree = new RecordingTree { Id = "tree", TreeName = "t", RootRecordingId = "r" };
+                tree.Recordings["r"] = rec;
+                return tree;
+            }
+
+            Recording committed = Committed100();
+            Recording copy = Committed100();
+            foreach (double ut in new[] { 500.0, 501.0, 503.0 })
+                copy.Points.Add(new TrajectoryPoint { ut = ut, bodyName = "Kerbin" });
+            double lastInteresting = RecordingOptimizer.FindLastInterestingUT(committed);
+            Assert.Equal(committed.EndUT, lastInteresting);
+            var events = new List<PartEvent>();
+            PartStateSeeder.EmitPromotionStateEvents(
+                Live(family, true), new List<PromotionPartFacts> { Fact(family, false) },
+                committed.PartEvents, events, committed.StartUT, lastInteresting, 500, "Recorder");
+            Assert.Equal(100, Assert.Single(events).ut);
+            copy.PartEvents.AddRange(events);
+
+            RefusedResumedCopyTail.Result r = RefusedResumedCopyTail.Evaluate(Tree(copy), Tree(committed));
+            Assert.Null(r.KeepReason);
+            Assert.True(r.IsNoOp);
+
+            // A change the resumed recorder polled, and any other event at the anchor, still count.
+            copy.PartEvents.Add(Ev(502, PartEventType.GearDeployed));
+            Assert.Equal("meaningful-tail:r:part-event:GearDeployed",
+                RefusedResumedCopyTail.Evaluate(Tree(copy), Tree(committed)).KeepReason);
+            copy.PartEvents[copy.PartEvents.Count - 1] = Ev(100, PartEventType.Decoupled);
+            Assert.Equal("meaningful-tail:r:part-event:Decoupled",
+                RefusedResumedCopyTail.Evaluate(Tree(copy), Tree(committed)).KeepReason);
+        }
+
         [Fact]
         public void AFreshSegmentOntoAKerbalUnderCanopy_IsStillANoOpVisit_AndALaterDeployIsThePlayers()
         {

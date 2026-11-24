@@ -231,8 +231,8 @@ when it lies before the promotion, else the part's own last event, else the reco
 than the jetpack seed's rule on purpose: a deploy event at a recording's start redraws the whole recorded
 flight with a panel that opened later (a jetpack event alone draws nothing); the last interesting moment is
 the latest UT that cannot move the tail trim (bug A / #263). A do-nothing visit is still discarded: those UTs
-lie before the visit, and the switch-segment check ignores such an event at the segment's start. No format
-change. Tests: `PromotionPartStateTests` (16 families, both directions, snapshot and event evidence, trim and
+lie before the visit, and the checks that read from a segment's start (`IsNoOpSegment`) or a committed
+recording's end (`RefusedResumedCopyTail`) ignore such an event exactly there. No format change. Tests: `PromotionPartStateTests` (16 families, both directions, snapshot and event evidence, trim and
 no-op), and `PromotionConverterSeedInGameTest` also resets over an unchanged live vessel and expects nothing.
 
 Left as is: a kerbal's helmet and headlamp have no part event at all, on any path (a recording-format question).

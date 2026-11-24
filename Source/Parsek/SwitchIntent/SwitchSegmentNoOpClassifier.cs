@@ -266,9 +266,17 @@ namespace Parsek
         /// committed original (which survives in <c>committedTrees</c>, copy-on-write)
         /// loses no replayable content. Dock targets / descendants are caught via
         /// the post-anchor Docked / Decoupled / branch part events.</para>
+        ///
+        /// <para><paramref name="sinceIsCommittedEnd"/>: the anchor is the committed
+        /// recording's end instead of the resume. A promotion state event
+        /// (<see cref="PartStateSeeder.EmitPromotionStateEvents"/>) can be stamped exactly there,
+        /// the recording's last interesting moment, so one AT the anchor is the resume's account
+        /// of how the vessel already stood and does not count; the resume's own first poll comes
+        /// later.</para>
         /// </summary>
         internal static bool IsNoOpResumeTail(
-            Recording segment, double sinceUT, out string keepReason)
+            Recording segment, double sinceUT, out string keepReason,
+            bool sinceIsCommittedEnd = false)
         {
             keepReason = null;
 
@@ -316,6 +324,12 @@ namespace Parsek
                 for (int i = 0; i < segment.PartEvents.Count; i++)
                 {
                     PartEvent evt = segment.PartEvents[i];
+                    if (sinceIsCommittedEnd && evt.ut == sinceUT
+                        && PartStateSeeder.IsPromotionStateEvent(evt.eventType))
+                    {
+                        passive.StateSeeds++;
+                        continue;
+                    }
                     if (evt.ut >= sinceUT && IsMeaningfulPartEvent(evt, segment, ref passive))
                     {
                         keepReason = "part-event:" + evt.eventType;
