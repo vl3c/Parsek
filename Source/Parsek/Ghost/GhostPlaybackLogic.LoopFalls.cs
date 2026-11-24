@@ -217,6 +217,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when cycle <paramref name="cycle"/>'s copy on the uniform schedule has played past its
+        /// own end. A period longer than the window leaves a gap before the next launch in which the
+        /// newest copy has ended. Pure.
+        /// </summary>
+        internal static bool HasOverlapCopyEnded(
+            double currentUT, long cycle, double scheduleStartUT, double cycleDurationSeconds,
+            double durationSeconds)
+        {
+            return cycle >= 0
+                && currentUT - (scheduleStartUT + cycle * cycleDurationSeconds) > durationSeconds;
+        }
+
+        /// <summary>
+        /// How close to its window end predicted data must reach to be what ends it: an explicit end
+        /// stamped with the prediction may sit a sample step past the last predicted segment.
+        /// </summary>
+        internal const double PredictedEndReachSeconds = 1.0;
+
+        /// <summary>
+        /// True when the window ends in predicted data (a fall, a chute descent): a predicted orbit
+        /// segment or predicted section covers its end. Such a copy ends at that end; a copy whose end
+        /// is recorded keeps the overlap path's old hold at it until the next launch. Pure.
+        /// </summary>
+        internal static bool EndsInPredictedTail(IPlaybackTrajectory traj, double windowEndUT)
+        {
+            if (traj == null)
+                return false;
+            double reachUT = windowEndUT - PredictedEndReachSeconds;
+            List<OrbitSegment> segments = traj.OrbitSegments;
+            if (segments != null)
+                for (int i = segments.Count - 1; i >= 0; i--)
+                    if (segments[i].isPredicted && segments[i].endUT >= reachUT
+                        && segments[i].startUT < windowEndUT)
+                        return true;
+            List<TrackSection> sections = traj.TrackSections;
+            if (sections != null)
+                for (int i = sections.Count - 1; i >= 0; i--)
+                    if (sections[i].source == TrackSectionSource.Predicted && sections[i].endUT >= reachUT
+                        && sections[i].startUT < windowEndUT)
+                        return true;
+            return false;
+        }
+
+        /// <summary>
         /// True when the copy cap retires cycle <paramref name="cycle"/>: older than
         /// <paramref name="oldestDrawnCycle"/> (long.MinValue = no cap). The first run's fall precedes
         /// cycle 0, so it is the oldest copy of all. Pure.

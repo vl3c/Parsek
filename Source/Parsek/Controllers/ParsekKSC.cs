@@ -1069,7 +1069,8 @@ namespace Parsek
                 UpdateOverlapKsc(
                     i, rec, currentUT, unit.OverlapCadenceSeconds, memberDuration,
                     memberStartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx,
-                    keepCadence: memberHasFall);
+                    keepCadence: memberHasFall,
+                    endAtOwnEnd: memberHasFall || GhostPlaybackLogic.EndsInPredictedTail(rec, memberEndUT));
                 return;
             }
 
@@ -1294,7 +1295,8 @@ namespace Parsek
         void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
-            float warpRate, bool suppressGhosts, bool suppressVisualFx, bool keepCadence = false)
+            float warpRate, bool suppressGhosts, bool suppressVisualFx, bool keepCadence = false,
+            bool endAtOwnEnd = false)
         {
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
@@ -1328,6 +1330,30 @@ namespace Parsek
             {
                 overlaps = new List<GhostPlaybackState>();
                 kscOverlapGhosts[recIdx] = overlaps;
+            }
+
+            // A fall whose period is longer than its window ends at its own end (the overlap loop below
+            // expires it there) and its cycle is not drawn again before the next launch.
+            if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
+                    currentUT, lastCycle, scheduleStartUT, cycleDuration, duration))
+            {
+                if (primaryActive)
+                {
+                    kscGhosts.Remove(recIdx);
+                    loggedGhostSpawn.Remove(recIdx);
+                    if (suppressGhosts || primaryState.loopCycleIndex < 0)
+                        DestroyKscGhost(primaryState, recIdx);
+                    else
+                        overlaps.Add(primaryState);
+                }
+                if (suppressGhosts)
+                    DestroyAllKscOverlapGhosts(recIdx);
+                else
+                    UpdateKscOverlapCopies(
+                        recIdx, rec, currentUT, overlaps, duration, cycleDuration,
+                        playbackStartUT, scheduleStartUT, suppressVisualFx,
+                        keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                return;
             }
 
             // --- Primary ghost = newest cycle (lastCycle) ---
@@ -1425,7 +1451,19 @@ namespace Parsek
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
             }
 
-            // --- Overlap ghosts (older cycles, reverse iterate) ---
+            UpdateKscOverlapCopies(
+                recIdx, rec, currentUT, overlaps, duration, cycleDuration,
+                playbackStartUT, scheduleStartUT, suppressVisualFx,
+                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+        }
+
+        /// <summary>The overlap ghosts of <see cref="UpdateOverlapKsc"/> (older cycles, reverse iterate):
+        /// expires a copy past its window, ends one past the fall copy cap, positions the rest.</summary>
+        void UpdateKscOverlapCopies(
+            int recIdx, Recording rec, double currentUT, List<GhostPlaybackState> overlaps,
+            double duration, double cycleDuration, double playbackStartUT, double scheduleStartUT,
+            bool suppressVisualFx, long oldestDrawnCycle)
+        {
             for (int j = overlaps.Count - 1; j >= 0; j--)
             {
                 var ovState = overlaps[j];
@@ -1436,7 +1474,7 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                if (keepCadence && cycle < GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle))
+                if (GhostPlaybackLogic.IsFallCopyPastCap(cycle, oldestDrawnCycle))
                 {
                     ParsekLog.VerboseRateLimited("KSCGhost",
                         "fall-copy-cap-" + recIdx.ToString(CultureInfo.InvariantCulture),

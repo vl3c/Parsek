@@ -130,8 +130,12 @@ namespace Parsek
                         memberStartUT,
                         memberScheduleStartUT,
                         out double overlapMemberUT,
-                        out _,
-                        memberHasFall))
+                        out long newestCycle,
+                        memberHasFall)
+                    // A fall's newest copy that has ended is not drawn until the next launch.
+                    && !(memberHasFall && GhostPlaybackLogic.HasOverlapCopyEnded(
+                        currentUT, newestCycle, memberScheduleStartUT,
+                        GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit), memberDuration)))
                 {
                     loopUT = overlapMemberUT;
                     return true;
@@ -450,9 +454,9 @@ namespace Parsek
                     ctx.warpRate, traj, spanLoopUT))
             {
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-warp-hidden");
-                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                 }
                 DestroyAllOverlapGhosts(i);
@@ -571,6 +575,7 @@ namespace Parsek
             // loop schedule never has (-1) and replay it beside the new cycle-0 primary, so it
             // is retired here. (The span-clock branch retires it at its cycle-change rebuild.)
             bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
+            bool endAtOwnEnd = memberHasFall || GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT);
             if (memberHasFall)
                 TryKeepFirstRunFall(i, traj, ctx, unit.PhaseAnchorUT, ref state, ref ghostActive);
             if (ShouldRetireOrdinaryStateAtUnitHandover(state))
@@ -617,9 +622,13 @@ namespace Parsek
                 {
                     GhostRenderTrace.EmitGuardSkip(
                         traj, i, ctx.currentUT, "unit-overlap-warp-hidden");
-                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                    if (endAtOwnEnd)
+                        DropEndedFallAtWarp(
+                            i, traj, f, ctx, unit.OverlapCadenceSeconds, memberDuration,
+                            memberScheduleStartUT, memberHasFall, ref state, ref ghostActive);
+                    if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                     {
-                        state.ghost.SetActive(false);
+                        DeactivateGhostMesh(state);
                         ResetGhostAppearanceTracking(state);
                     }
                     DestroyAllOverlapGhosts(i);
@@ -692,7 +701,7 @@ namespace Parsek
                 unit.OverlapCadenceSeconds, memberDuration,
                 memberPlaybackStartUT, memberScheduleStartUT,
                 suppressVisualFx, suppressOverlapGhosts,
-                keepCadence: memberHasFall);
+                keepCadence: memberHasFall, endAtOwnEnd: endAtOwnEnd);
         }
 
         /// <summary>
@@ -898,9 +907,9 @@ namespace Parsek
             // takes the unchanged teardown below.
             if (boundarySecondaryLive)
             {
-                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                 }
                 UpdateBoundaryOverlapSecondary(
@@ -917,9 +926,9 @@ namespace Parsek
             // IsGhostHeld case (hide, do not destroy).
             if (ghostActive && i == ctx.protectedIndex)
             {
-                if (state != null && state.ghost != null && state.ghost.activeSelf)
+                if (state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                     ParsekLog.VerboseRateLimited(
                         "CameraFollow", unitKey + "-keep-owner-alive-" + i.ToString(CultureInfo.InvariantCulture),
@@ -988,9 +997,9 @@ namespace Parsek
                 // existing in-game watch-retarget test; behavior for non-watched members is unchanged.
                 if (ghostActive && i == ctx.protectedIndex)
                 {
-                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    if (state != null && state.ghost != null && IsGhostMeshActive(state))
                     {
-                        state.ghost.SetActive(false);
+                        DeactivateGhostMesh(state);
                         ResetGhostAppearanceTracking(state);
                         ParsekLog.VerboseRateLimited(
                             "CameraFollow", unitKey + "-keep-owner-alive-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),

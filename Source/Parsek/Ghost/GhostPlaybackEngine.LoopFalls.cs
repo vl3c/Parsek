@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Parsek
@@ -81,17 +80,86 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Ends a fall's newest copy once it has played past its own end, while its period leaves the
+        /// next launch still ahead: the primary joins the overlap list, where the expiry places it at
+        /// its end and gives it its ending (the explosion, the watch hold), and the slot stays empty
+        /// until that launch. Older copies keep playing. A primary from no loop cycle just goes.
+        /// </summary>
+        private void EndNewestFallCopy(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
+            GhostPlaybackState primaryState, long newestCycle,
+            double duration, double cycleDuration, double playbackStartUT, double scheduleStartUT,
+            bool suppressVisualFx, long oldestDrawnCycle)
+        {
+            GhostRenderTrace.EmitGuardSkip(traj, index, ctx.currentUT, "fall-newest-copy-ended");
+            CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+            if (primaryState != null)
+            {
+                ParsekLog.VerboseRateLimited("Engine",
+                    "fall-ended-" + index.ToString(CultureInfo.InvariantCulture),
+                    "Fall copy reached its end before the next launch: #"
+                        + index.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?") + "\" cycle="
+                        + primaryState.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                        + " newestCycle=" + newestCycle.ToString(CultureInfo.InvariantCulture)
+                        + " UT=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " duration=" + duration.ToString("F2", CultureInfo.InvariantCulture));
+                if (primaryState.loopCycleIndex < 0)
+                    DestroyGhost(index, traj, flags, reason: "fall copy past its end");
+                else
+                    MoveToOverlapCopies(index, primaryState, primaryState.loopCycleIndex);
+            }
+            if (overlapGhosts.TryGetValue(index, out List<GhostPlaybackState> overlaps) && overlaps.Count > 0)
+                UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
+                    duration, cycleDuration, playbackStartUT, scheduleStartUT, suppressVisualFx,
+                    oldestDrawnCycle);
+        }
+
+        /// <summary>Ends a non-uniform unit's debris fall that played to its end in the wait, with the
+        /// overlap expiry's ending. The copy's window is taken as already over.</summary>
+        private void ExpireEndedFallCopy(
+            int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
+            GhostPlaybackState state, bool suppressVisualFx)
+        {
+            MoveToOverlapCopies(index, state, state.loopCycleIndex);
+            List<GhostPlaybackState> overlaps = overlapGhosts[index];
+            UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
+                -1.0, 0.0, traj.StartUT, ctx.currentUT, suppressVisualFx);
+            if (overlaps.Count == 0)
+                overlapGhosts.Remove(index);
+        }
+
+        /// <summary>
+        /// While high warp hides a fall's mesh, its primary goes as soon as its own copy has ended:
+        /// kept, it would be given its ending after the warp, long after the impact. The watched ghost
+        /// is kept hidden, so the camera never loses its target here.
+        /// </summary>
+        private void DropEndedFallAtWarp(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            double intervalSeconds, double duration, double scheduleStartUT, bool keepCadence,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            double cycleDuration = GhostPlaybackLogic.ResolveOverlapCadence(intervalSeconds, duration, keepCadence);
+            if (state == null || i == ctx.protectedIndex
+                || !GhostPlaybackLogic.HasOverlapCopyEnded(
+                    ctx.currentUT, state.loopCycleIndex, scheduleStartUT, cycleDuration, duration))
+                return;
+            DestroyGhost(i, traj, f, reason: "fall copy ended under high warp");
+            state = null;
+            ghostActive = false;
+        }
+
+        /// <summary>
         /// Ends a fall copy the per-recording cap retires: no explosion, and the watch camera (when it
         /// follows this copy) bridges as at any quiet expiry.
         /// </summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private void EndFallCopyQuietly(
             int index, IPlaybackTrajectory traj, TrajectoryPlaybackFlags flags, FrameContext ctx,
             GhostPlaybackState copy, long cycle)
         {
             if (cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
             {
-                Vector3 position = copy.ghost != null ? copy.ghost.transform.position : Vector3.zero;
+                Vector3 position = copy.ghost != null ? ReadGhostWorldPosition(copy) : Vector3.zero;
                 OnOverlapCameraAction?.Invoke(new CameraActionEvent
                 {
                     Index = index,
@@ -151,6 +219,9 @@ namespace Parsek
                         out double newestUT, out _, keepCadence: true)
                     || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(ctx.warpRate, traj, newestUT))
                 {
+                    DropEndedFallAtWarp(
+                        i, traj, f, ctx, cadence, memberDuration, scheduleStartUT, true,
+                        ref state, ref ghostActive);
                     HideFallAtWarp(i, traj, ctx, state, ghostActive);
                     return;
                 }
@@ -169,19 +240,18 @@ namespace Parsek
 
             UpdateOverlapPlayback(
                 i, traj, f, ctx, state, cadence, memberDuration, memberStartUT, scheduleStartUT,
-                suppressVisualFx, suppressOverlapGhosts, keepCadence: true);
+                suppressVisualFx, suppressOverlapGhosts, keepCadence: true, endAtOwnEnd: true);
         }
 
         /// <summary>The fall's high-warp hide: the mesh is hidden and its copies are dropped, as in every
-        /// overlap branch. Not inlined: it holds the Unity calls its caller must compile without.</summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        /// overlap branch.</summary>
         private void HideFallAtWarp(
             int i, IPlaybackTrajectory traj, FrameContext ctx, GhostPlaybackState state, bool ghostActive)
         {
             GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-fall-warp-hidden");
-            if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+            if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
             {
-                state.ghost.SetActive(false);
+                DeactivateGhostMesh(state);
                 ResetGhostAppearanceTracking(state);
             }
             DestroyAllOverlapGhosts(i);
@@ -209,8 +279,26 @@ namespace Parsek
             bool inWait = decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail;
             GhostPlaybackLogic.TryExtendRenderIntoFall(
                 unit, i, ctx.currentUT, memberStartUT, memberEndUT, unitCycle, ref decision, ref spanLoopUT);
-            if (unit.LaunchHoldEngaged || suppressGhosts)
+            if (unit.LaunchHoldEngaged)
                 return false;
+            if (suppressGhosts)
+            {
+                // High warp hides every fall: the copies go, and so does a primary of an older cycle,
+                // which would be given its ending after the warp, long after its impact.
+                if (overlapGhosts.ContainsKey(i))
+                {
+                    DestroyAllOverlapGhosts(i);
+                    overlapGhosts.Remove(i);
+                }
+                if (state != null && i != ctx.protectedIndex
+                    && state.loopCycleIndex >= 0 && state.loopCycleIndex < unitCycle)
+                {
+                    DestroyGhost(i, traj, f, reason: "fall copy ended under high warp");
+                    state = null;
+                    ghostActive = false;
+                }
+                return false;
+            }
 
             if (!TryKeepFirstRunFall(i, traj, ctx, unit.PhaseAnchorUT, ref state, ref ghostActive)
                 && state != null && state.loopCycleIndex >= 0
