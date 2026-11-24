@@ -280,6 +280,56 @@ namespace Parsek.Tests.Logistics
             Assert.Same(cloneSections, Committed("src-dock").TrackSections);
         }
 
+        // catches: the optimizer's normalization reporting a change over a source it left alone.
+        // A checkpoint wider than its own section (a coast that began before the section opened)
+        // is "covered" on every pass; counted as a change it flushed the source on every cold
+        // load with a deferred epoch advance, and the route paused as SourceChanged for good.
+        [Fact]
+        public void OptimizationPass_OverAWideCheckpointSource_LeavesItClean_RouteStaysActive()
+        {
+            InstallScenario();
+            Recording coast = Leg("src-coast", 17000, 18000);
+            OrbitSegment lead = Coast(17000, 17200);
+            OrbitSegment wide = Coast(17000, 18000);
+            TrackSection tail = OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(wide);
+            tail.startUT = 17200;
+            coast.TrackSections = new List<TrackSection>
+            {
+                OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(lead),
+                tail
+            };
+            coast.OrbitSegments = new List<OrbitSegment> { lead, wide };
+            CommitRunTree("tree-run", coast);
+            AddRoute("route-run", coast);
+
+            CommittedListOptimizer.RunOptimizationPass();
+            CommittedListOptimizer.RunOptimizationPass();
+
+            Recording now = Committed("src-coast");
+            Assert.False(now.FilesDirty);
+            Assert.False(now.SidecarEpochAdvancePending);
+            Assert.Equal(3, now.SidecarEpoch);
+            Assert.DoesNotContain(logLines, l => l.Contains("normalization Ensure mutated"));
+            Assert.DoesNotContain(logLines, l => l.Contains("FlushDirtyFiles: saved"));
+
+            Revalidate();
+
+            Assert.Equal(RouteStatus.Active, StatusOf("route-run"));
+        }
+
+        private static OrbitSegment Coast(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                eccentricity = 0.1,
+                semiMajorAxis = 250000,
+                epoch = startUT,
+                bodyName = Mun
+            };
+        }
+
         // catches: the fix swallowing a real change. A re-committed source whose trajectory was
         // edited in flight (dirty) is still rewritten, its epoch moves, and the route reads
         // SourceChanged through the epoch field even though its span and proof hash held.

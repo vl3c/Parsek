@@ -21,8 +21,16 @@ namespace Parsek
         // Changed semantics (and the tests pinned to them) are unmoved; callers that
         // mean "did this pass touch the recording at all" use AnyMutation.
         public int Resorted;
+        // 1 when the flat OrbitSegments rebuild left other segments than it found (0
+        // otherwise). SkippedCovered and Clipped only ASK for the rebuild. A checkpoint
+        // whose own span is wider than its section's (a coast that began before the section
+        // opened) is covered but matches no section exactly, so it asks on EVERY pass and
+        // the rebuild puts back the very same list: that is not a change.
+        public int FlatOrbitCacheChanged;
 
-        public bool Changed => Added > 0 || Clipped > 0 || SkippedCovered > 0
+        // SkippedCovered alone is not a change; what it drops from the flat cache is counted
+        // by FlatOrbitCacheChanged.
+        public bool Changed => Added > 0 || Clipped > 0 || FlatOrbitCacheChanged > 0
             || ReconciledEmptySections > 0;
 
         /// <summary>
@@ -41,7 +49,7 @@ namespace Parsek
         ///
         /// <para>
         /// Deliberately narrower than <see cref="AnyMutation"/> in both directions:
-        /// <c>SkippedCovered</c> only drives the flat-orbit-cache rebuild and never
+        /// <c>FlatOrbitCacheChanged</c> is the flat orbit list alone and never
         /// touches the section list, and <c>Added</c> alone cannot shift an ordinal —
         /// promotion APPENDS, so a chronologically-trailing promotion leaves every
         /// existing index in place, and a promotion that lands out of order is caught
@@ -430,7 +438,9 @@ namespace Parsek
                     {
                         // Fully covered by existing checkpoint sections (non-exact match):
                         // count as covered so the flat cache is rebuilt from section
-                        // content and the next pass sees exact matches.
+                        // content. A covered envelope drops out there; a checkpoint wider
+                        // than its own section comes straight back and is covered again on
+                        // the next pass (FlatOrbitCacheChanged tells the two apart).
                         stats.SkippedCovered++;
                         continue;
                     }
@@ -473,10 +483,13 @@ namespace Parsek
 
             if (EnsureTrackSectionsSorted(rec.TrackSections))
                 stats.Resorted = 1;
+            if ((stats.Clipped > 0 || stats.SkippedCovered > 0)
+                && RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(rec))
+            {
+                stats.FlatOrbitCacheChanged = 1;
+            }
             if (stats.AnyMutation)
             {
-                if (stats.Clipped > 0 || stats.SkippedCovered > 0)
-                    RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(rec);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
                 if (markDirty)
@@ -932,13 +945,14 @@ namespace Parsek
         /// NOT fully covered by payload sections. Coverage-based preservation
         /// replaced the old pure-predicted-suffix rule (FindPredictedTailStart),
         /// which silently dropped the predicted tail plus trailing segments for
-        /// interleaved [real, predicted, real] shapes.
+        /// interleaved [real, predicted, real] shapes. Returns whether the list changed;
+        /// an unchanged list keeps its instance.
         /// </summary>
-        private static void RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(
+        private static bool RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(
             Recording rec)
         {
             if (rec == null)
-                return;
+                return false;
 
             var originalOrbitSegments = rec.OrbitSegments != null
                 ? new List<OrbitSegment>(rec.OrbitSegments)
@@ -990,7 +1004,49 @@ namespace Parsek
                     rebuilt.RemoveAt(i);
             }
 
+            // Exact, not OrbitSegmentNearlyEquals: a within-tolerance replacement is still
+            // a different list from the one on disk.
+            if (rec.OrbitSegments != null && OrbitSegmentListsIdentical(rec.OrbitSegments, rebuilt))
+                return false;
+
             rec.OrbitSegments = rebuilt;
+            return true;
+        }
+
+        private static bool OrbitSegmentListsIdentical(List<OrbitSegment> a, List<OrbitSegment> b)
+        {
+            if (a.Count != b.Count)
+                return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!OrbitSegmentFieldsIdentical(a[i], b[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        // double.Equals / float.Equals: NaN equals NaN (a parabolic conic stores a NaN
+        // semi-major axis), unlike ==.
+        private static bool OrbitSegmentFieldsIdentical(OrbitSegment a, OrbitSegment b)
+        {
+            return a.startUT.Equals(b.startUT)
+                && a.endUT.Equals(b.endUT)
+                && a.inclination.Equals(b.inclination)
+                && a.eccentricity.Equals(b.eccentricity)
+                && a.semiMajorAxis.Equals(b.semiMajorAxis)
+                && a.longitudeOfAscendingNode.Equals(b.longitudeOfAscendingNode)
+                && a.argumentOfPeriapsis.Equals(b.argumentOfPeriapsis)
+                && a.meanAnomalyAtEpoch.Equals(b.meanAnomalyAtEpoch)
+                && a.epoch.Equals(b.epoch)
+                && string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal)
+                && a.isPredicted == b.isPredicted
+                && a.orbitalFrameRotation.x.Equals(b.orbitalFrameRotation.x)
+                && a.orbitalFrameRotation.y.Equals(b.orbitalFrameRotation.y)
+                && a.orbitalFrameRotation.z.Equals(b.orbitalFrameRotation.z)
+                && a.orbitalFrameRotation.w.Equals(b.orbitalFrameRotation.w)
+                && a.angularVelocity.x.Equals(b.angularVelocity.x)
+                && a.angularVelocity.y.Equals(b.angularVelocity.y)
+                && a.angularVelocity.z.Equals(b.angularVelocity.z);
         }
 
         private static bool IsSpanFullyCoveredByPayloadSections(
