@@ -40,7 +40,7 @@ namespace Parsek
         private Vector3 lastVelocity;
         private Vector3 driftVelocity;
 
-        internal static int RegisteredCount => registered.Count;
+        internal static int RegisteredCountForTesting => registered.Count;
 
         internal static Vector3d TotalShiftForTesting => totalShift;
 

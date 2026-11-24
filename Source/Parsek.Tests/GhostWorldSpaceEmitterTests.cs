@@ -116,7 +116,7 @@ namespace Parsek.Tests
             Vector3d total = GhostWorldSpaceEmitter.TotalShiftForTesting;
             Assert.Equal(45.0, total.x, 9);
             Assert.Equal(5.0, total.y, 9);
-            Assert.Equal(0, GhostWorldSpaceEmitter.RegisteredCount);
+            Assert.Equal(0, GhostWorldSpaceEmitter.RegisteredCountForTesting);
         }
 
         private static string Source(string relative)
