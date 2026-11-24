@@ -77,7 +77,8 @@ namespace Parsek
             emitter.maxEmission = GhostEngineFxPower.EmissionRate(rule.maxEmission, emission);
             emitter.minEnergy = rule.minEnergy * energy;
             emitter.maxEnergy = rule.maxEnergy * energy;
-            emitter.localVelocity = rule.localVelocity * rule.curves.speed.Value(power);
+            emitter.localVelocity = ScaleEmitterLocalVelocity(
+                rule.localVelocity, rule.curves.speed.Value(power), rule.useWorldSpace);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

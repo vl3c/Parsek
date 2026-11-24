@@ -153,6 +153,7 @@ namespace Parsek
         internal float minEnergy;
         internal float maxEnergy;
         internal Vector3 localVelocity;
+        internal bool useWorldSpace;
 
         // PrefabParticle and Legacy
         internal ParticleSystem system;

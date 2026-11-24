@@ -366,8 +366,8 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReStockCompat", Scene = GameScenes.FLIGHT,
-            Description = "ReStock installed: an SRB ghost's smoke clone keeps the asset's own speed and follows the floating origin; flame cores are not registered")]
-        public void SrbSmokeCloneKeepsItsSpeedAndFollowsTheOrigin()
+            Description = "ReStock installed: SRB smoke world-space emitters get the velocity floor; flame cores stay untouched")]
+        public void SrbSmokeWorldSpaceEmitterGetsVelocityFloor()
         {
             if (!IsReStockInstalled())
             {
@@ -375,37 +375,31 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            AssertSrbClone("ReStock/FX/restock-fx-srb-smoke-3", worldSpace: true);
-            AssertSrbClone("ReStock/FX/restock-fx-srb-smoke-1", worldSpace: true);
-            AssertSrbClone("ReStock/FX/restock-fx-srb-core-1", worldSpace: false);
-        }
+            // smoke-3 (Clydesdale/Thoroughbred): world-space, zero baked velocity; the
+            // floor must engage and follow the supplied exhaust axis (the live build
+            // site derives it from the engine's thrust transform per part rig).
+            GameObject smoke = GameDatabase.Instance.GetModelPrefab("ReStock/FX/restock-fx-srb-smoke-3");
+            InGameAssert.IsNotNull(smoke, "restock-fx-srb-smoke-3 model not loaded");
+            var smokeEmitter = smoke.GetComponentInChildren<KSPParticleEmitter>(true);
+            InGameAssert.IsNotNull(smokeEmitter, "smoke-3 has no KSPParticleEmitter");
+            InGameAssert.IsTrue(smokeEmitter.useWorldSpace,
+                "smoke-3 emitter expected world-space (trail-by-motion asset shape changed?)");
+            Vector3 exhaustAxis = new Vector3(0f, 0f, 1f);
+            InGameAssert.IsTrue(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                smokeEmitter.useWorldSpace, smokeEmitter.localVelocity, exhaustAxis, out Vector3 floored),
+                "velocity floor did not engage for the world-space near-static smoke emitter");
+            InGameAssert.IsTrue(Vector3.Angle(floored, exhaustAxis) < 0.1f &&
+                Mathf.Abs(floored.magnitude - GhostVisualBuilder.WorldSpaceEmitterFloorSpeed) < 0.01f,
+                $"floored velocity {floored} does not follow the exhaust axis at the floor speed");
 
-        private static void AssertSrbClone(string modelName, bool worldSpace)
-        {
-            GameObject prefab = GameDatabase.Instance.GetModelPrefab(modelName);
-            InGameAssert.IsNotNull(prefab, modelName + " not loaded");
-            var authored = prefab.GetComponentInChildren<KSPParticleEmitter>(true);
-            InGameAssert.IsNotNull(authored, modelName + " has no KSPParticleEmitter");
-            InGameAssert.IsTrue(authored.useWorldSpace == worldSpace,
-                modelName + " expected world-space=" + worldSpace + " (asset shape changed?)");
-            GameObject clone = UnityEngine.Object.Instantiate(prefab);
-            try
-            {
-                clone.SetActive(true);
-                GhostVisualBuilder.StripKspFxControllers(clone, null);
-                var emitter = clone.GetComponentInChildren<KSPParticleEmitter>(true);
-                InGameAssert.IsTrue(emitter.localVelocity == authored.localVelocity,
-                    $"{modelName}: clone velocity {emitter.localVelocity} differs from the asset's {authored.localVelocity}");
-                int registered = clone.GetComponentsInChildren<GhostWorldSpaceEmitter>(true).Length;
-                InGameAssert.IsTrue(registered == (worldSpace ? 1 : 0),
-                    $"{modelName}: {registered} GhostWorldSpaceEmitter components on the clone");
-                InGameAssert.IsTrue(clone.GetComponentsInChildren<KSPParticleEmitter>(true).Length == 1,
-                    modelName + " carries more than one emitter");
-            }
-            finally
-            {
-                UnityEngine.Object.Destroy(clone);
-            }
+            // The flame core is local-space and fast; it must never be floored.
+            GameObject core = GameDatabase.Instance.GetModelPrefab("ReStock/FX/restock-fx-srb-core-1");
+            InGameAssert.IsNotNull(core, "restock-fx-srb-core-1 model not loaded");
+            var coreEmitter = core.GetComponentInChildren<KSPParticleEmitter>(true);
+            InGameAssert.IsNotNull(coreEmitter, "core-1 has no KSPParticleEmitter");
+            InGameAssert.IsFalse(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                coreEmitter.useWorldSpace, coreEmitter.localVelocity, exhaustAxis, out Vector3 _),
+                "velocity floor wrongly engaged for the local-space flame core");
         }
 
         private static void ScanEffects(

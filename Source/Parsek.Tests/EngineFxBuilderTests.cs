@@ -390,6 +390,60 @@ namespace Parsek.Tests
             return count;
         }
 
+        // ---- world-space emitter velocity floor (ReStock SRB smoke models) ---------
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_ZeroVelocity_FlowsAlongExhaustAxis()
+        {
+            // restock-fx-srb-smoke-3 shape: world-space, exactly zero baked velocity.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: new Vector3(0f, 0f, 1f), out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, 0f, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_SlowVelocity_ExhaustAxisWinsOverAuthoredAxis()
+        {
+            // The asset's authored axis is rig-relative and differs across ReStock's
+            // SRBs (Clydesdale's fxTransformSmoke is oriented differently than
+            // Hammer's, which made an authored-axis floor squirt sideways). The
+            // engine's exhaust axis is the ground truth.
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, -1f, 0f),
+                exhaustAxisEmitterLocal: new Vector3(1f, 0f, 0f), out Vector3 floored));
+            AssertVector3Close(new Vector3(GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, 0f, 0f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_DegenerateAxis_FallsBackMinusY()
+        {
+            Assert.True(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: Vector3.zero, out Vector3 floored));
+            AssertVector3Close(Vector3.down * GhostVisualBuilder.WorldSpaceEmitterFloorSpeed, floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_FastWorldSpace_Unchanged()
+        {
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: true, localVelocity: new Vector3(0f, 0f, 14f),
+                exhaustAxisEmitterLocal: Vector3.down, out Vector3 floored));
+            AssertVector3Close(new Vector3(0f, 0f, 14f), floored);
+        }
+
+        [Fact]
+        public void WorldSpaceEmitterFloor_LocalSpace_NeverFloored()
+        {
+            // Every stock engine FX emitter is local-space (the stock no-op guarantee);
+            // even a zero-velocity local-space emitter must stay untouched.
+            Assert.False(GhostVisualBuilder.TryComputeWorldSpaceEmitterVelocityFloor(
+                useWorldSpace: false, localVelocity: Vector3.zero,
+                exhaustAxisEmitterLocal: Vector3.down, out Vector3 floored));
+            AssertVector3Close(Vector3.zero, floored);
+        }
+
         // ---- RAPIER: its own trail, never the fx_smokeTrail_large substitute ----------
 
         /// <summary>The stock RAPIER's trail entry (rapierEngine.cfg, running_open).</summary>
