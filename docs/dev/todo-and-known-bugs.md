@@ -317,27 +317,43 @@ the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchCl
 (`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
 committed-clone route; recordings 2..3 is a reading window until the first flight.
 
-## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN TWICE 2026-11-23, RED ON THE LANE SHAPE (branch `b4-eva`); OPEN: reshape WDK-1; test gap, low]
+## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`; xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
 
-Flown: `2026-11-23_2118` PARSEK-FAIL (the jump landed 17242.8 s before the dock: the phasing knob keeps
+A looped mission moves the watch camera by the loop unit's own handoff
+(`GhostPlaybackEngine.LogUnitTransitionIfChanged`): when the watched member's window ends it goes only to a
+member with the same raw launch guid (`IsSameWatchedVessel`; the name decides when a guid is unknown). A dock
+keeps one side's guid, so a watched ship that docks into the side that keeps it (and a kerbal that boards) was "a different vessel":
+`unit watch handoff suppressed ... is a different vessel`, and the camera stayed on the ended ship's hidden
+ghost. The ordinary path follows (`FindNextWatchTarget`: the merged vessel is the only child). The undock
+after it was wrong too: the merged leg and the station's leg share a guid, so the unit handoff would have
+picked the station over the watched ship (the owner ruling of 2026-11-20, WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION).
+
+Fix: when the watched member's window ends, the engine first asks its host
+(`ResolveWatchedBranchContinuation` -> `WatchModeController.FindWatchedBranchContinuation` ->
+`GhostPlaybackLogic.FindUnitBranchWatchTarget`), which applies the ordinary rules with the session's watched
+identity, only at a Dock, Board or Undock branch point and only to members the unit clock is in. -1 keeps the
+guid handoff: every other split still refuses its peeled-off siblings. The retarget line gains
+` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
+
+## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; WDK-1 RESHAPED 2026-11-24 (branch `wdk1-watch-dock`), flight owed; test gap, low]
+
+The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the dock: the phasing knob keeps
 12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
-keptRevs=12`; WL-3's instant, PR #2782, has the same error) and `2026-11-23_2205` PARSEK-FAIL (the dock
+keptRevs=12`; WL-3's instant, PR #2782, has the same error), `2026-11-23_2205` and `2026-11-24_0808` (the dock
 and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
-line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10); and
-in a looped mission the camera moves by the loop unit's own handoff (`IsSameWatchedVessel`, raw launch
-guids, `GhostPlaybackEngine.LoopUnits`), which never asks `FindNextWatchTarget` /
-`FindWatchedIdentityChild`, the code this lane pins. No product defect shown.
-Fix: fly it as an ordinary replay (no loop: an isolated Rewind-to-Launch of tree 2, or a host whose
-clock is before the dock) with the watched recording named by `index=`. To check at the same time (not
-proven by these runs): whether the loop unit's raw-guid comparison leaves the camera on the ended ship
-at a replayed dock, where the ordinary path follows it.
+line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10), which it
+had to: #10 was 1047 km from the active vessel and the watch entry cutoff is 300 km; and in a looped mission
+the camera moves by the loop unit's own handoff, which never asks `FindNextWatchTarget` /
+`FindWatchedIdentityChild`, the code this lane pins (and which lost the ship at a dock:
+LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
 
-WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION is xUnit only. Lane `WDK-1-watch-across-bdock-dock-undock`
-(operator, bdock-recorded) loops tree 2, jumps to WL-3's instant, enters watch mode and plays the
-recorded dock and undock 1.3 s apart at 1x, pinning the session identity line and the undock
-decision line with the outcome regexed. The fixture predates the dock-absorb link rows, so the
-live FOLLOW outcome needs a BDOCK re-harvest that records them (flight work, not filed as a
-defect).
+Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a
+TimeJump to UT 8935, watch mode on the ship's ghost by `index=10` (82 km away by both recorded orbits, the
+identity pin names its launch guid), then 1x across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the
+camera transfer to the merged vessel and the undock decision line with the outcome regexed. The fixture
+predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
+(flight work, not filed as a defect). Left: a live lane for the loop handoff, which needs an active vessel
+within 300 km of the looped dock.
 
 ## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
 

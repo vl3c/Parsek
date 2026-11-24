@@ -70,6 +70,8 @@ Not released yet.
 
 ### Fixed
 
+- **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
+  vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **A planted flag always comes back after a rewind.** It was lost when time warp or the Tracking
   Station passed its moment. (FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24)
 - **A looped ghost's map icon no longer flashes far from its orbit.** It is placed on the orbit

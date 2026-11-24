@@ -2539,6 +2539,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Host side of <see cref="GhostPlaybackEngine.ResolveWatchedBranchContinuation"/>: where
+        /// the watched vessel of a looped mission went at a dock, boarding or undock. -1 when
+        /// <paramref name="watchedIndex"/> is not the recording being watched.
+        /// </summary>
+        internal int FindWatchedBranchContinuation(int watchedIndex, Func<int, bool> isLive)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (watchedIndex < 0 || watchedIndex != watchedRecordingIndex || watchedIndex >= committed.Count)
+                return -1;
+
+            var scenario = ParsekScenario.Instance;
+            var supersedes = object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes;
+            return GhostPlaybackLogic.FindUnitBranchWatchTarget(
+                committed[watchedIndex], committed, RecordingStore.CommittedTrees,
+                isLive, supersedes, watchedIdentityGuid);
+        }
+
+        /// <summary>
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
         /// </summary>

@@ -21,6 +21,8 @@ namespace Parsek.Tests
     /// watching"): at the undock the child that continues the watched launch identity (its
     /// guid, or a fresh guid linked to it) wins over the child carrying the merge's pid; with
     /// the identity unknown or unmatched, the pid rule stays.
+    /// The <c>LoopUnit_</c> cells drive the same dock and undock through a loop unit's own watch
+    /// handoff, which must follow the same way.
     /// </summary>
     [Collection("Sequential")]
     public class WatchAcrossDockTests : IDisposable
@@ -317,6 +319,238 @@ namespace Parsek.Tests
             Assert.Contains(lines, l => l.Contains("[Watch]")
                 && l.Contains("no child continues the watched vessel identity=" + ShipGuid)
                 && l.Contains("keeping the same-PID rule"));
+        }
+
+        // ------------------------------------------------------------------
+        // The same dock and undock inside a LOOPED mission, where the camera moves by the loop
+        // unit's own handoff (GhostPlaybackEngine.LogUnitTransitionIfChanged) instead of the
+        // end-of-recording follow. Todo LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP.
+        // ------------------------------------------------------------------
+
+        private sealed class UnitWatch : IDisposable
+        {
+            internal readonly List<CameraActionEvent> Events = new List<CameraActionEvent>();
+            internal int Watched;
+            private readonly GhostPlaybackEngine engine = new GhostPlaybackEngine(null);
+            private readonly GhostPlaybackLogic.LoopUnit unit;
+            private readonly List<Recording> committed;
+
+            internal UnitWatch(
+                List<Recording> committed, List<RecordingTree> trees, int watched, string identity,
+                int[] members = null)
+            {
+                this.committed = committed;
+                Watched = watched;
+                if (members == null)
+                {
+                    members = new int[committed.Count];
+                    for (int i = 0; i < members.Length; i++) members[i] = i;
+                }
+                unit = new GhostPlaybackLogic.LoopUnit(
+                    ownerIndex: members[0], memberIndices: members,
+                    spanStartUT: 0, spanEndUT: 600, cadenceSeconds: 1000, phaseAnchorUT: 0);
+                engine.OnLoopCameraAction += e => Events.Add(e);
+                if (trees != null)
+                    engine.ResolveWatchedBranchContinuation = (index, isLive) =>
+                        GhostPlaybackLogic.FindUnitBranchWatchTarget(
+                            committed[index], committed, trees, isLive, null, identity);
+            }
+
+            internal void Frame(double loopUT, bool tail = false, bool suppress = false)
+            {
+                ParsekLog.ResetRateLimitsForTesting();
+                engine.LogUnitTransitionIfChanged(
+                    unit, "unit-test", committed, loopUT, 0, 5000 + loopUT, tail, Watched, suppress);
+            }
+
+            /// <summary>One frame; the host lands the transfer the event asked for.</summary>
+            internal int Step(double loopUT)
+            {
+                int before = Events.Count;
+                Frame(loopUT);
+                if (Events.Count > before)
+                    Watched = Events[Events.Count - 1].Index;
+                return Watched;
+            }
+
+            public void Dispose() => engine.Dispose();
+        }
+
+        // Fails if: the loop unit's raw launch-guid comparison decides a dock: the merge kept the
+        // station's guid, so the camera stays on the ended ship where the ordinary path follows.
+        [Fact]
+        public void LoopUnit_Dock_FollowsMerged()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                Assert.Equal(0, w.Step(150));
+                Assert.Equal(2, w.Step(201));
+                Assert.Single(w.Events);
+                Assert.Equal(CameraActionType.UnitHandoffRetarget, w.Events[0].Action);
+            }
+        }
+
+        // The ordinary path from the passive side: the station's own ghost docks too.
+        [Fact]
+        public void LoopUnit_Dock_FromThePassiveSide_FollowsMerged()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            committed[2].RecordedVesselGuid = ShipGuid; // the merge kept the ship's guid
+            using (var w = new UnitWatch(committed, trees, watched: 1, identity: StationGuid))
+            {
+                Assert.Equal(1, w.Step(150));
+                Assert.Equal(2, w.Step(201));
+            }
+        }
+
+        // Owner ruling 2026-11-20 inside a loop: at the undock the ship, not the same-guid station.
+        // Fails if: the guid tier (merged and stationAfter share the station's guid) wins.
+        [Fact]
+        public void LoopUnit_DockThenUndock_FollowsTheWatchedShip()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Step(150);
+                Assert.Equal(2, w.Step(201));
+                Assert.Equal(2, w.Step(300));
+                Assert.Equal(4, w.Step(401));
+            }
+        }
+
+        // No identity to follow: the station child, as the ordinary path and the guid tier both say.
+        [Fact]
+        public void LoopUnit_Undock_IdentityUnmatched_FollowsTheStation()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: FreshShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 2, identity: ShipGuid))
+            {
+                w.Step(300);
+                Assert.Equal(3, w.Step(401));
+            }
+        }
+
+        // The merged ghost takes frames to build: the event re-fires until the transfer lands.
+        [Fact]
+        public void LoopUnit_Dock_RefiresUntilTheTransferLands()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Frame(150);
+                w.Frame(201);
+                w.Frame(202);
+                Assert.Equal(2, w.Events.Count);
+                w.Watched = 2;
+                w.Frame(203);
+                w.Frame(204);
+                Assert.Equal(2, w.Events.Count);
+            }
+        }
+
+        // A mission that does not play the merged leg has nowhere to follow to: hold.
+        [Fact]
+        public void LoopUnit_Dock_MergedNotAMember_Holds()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid,
+                members: new[] { 0, 1 }))
+            {
+                w.Step(150);
+                Assert.Equal(0, w.Step(201));
+                Assert.Empty(w.Events);
+            }
+        }
+
+        [Fact]
+        public void LoopUnit_Dock_InstanceEndedOrTail_Holds()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Frame(150);
+                w.Frame(201, suppress: true);
+                Assert.Empty(w.Events);
+            }
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Frame(150);
+                w.Frame(201, tail: true);
+                Assert.Empty(w.Events);
+            }
+        }
+
+        // The unit handoff's own rule stays at every other split: a pod that ended (destroyed,
+        // beside its kerbal on EVA) holds for its own end, never jumps to the sibling.
+        // Fails if: the branch answer is asked at any branch type.
+        [Theory]
+        [InlineData(BranchPointType.EVA)]
+        [InlineData(BranchPointType.JointBreak)]
+        [InlineData(BranchPointType.Breakup)]
+        public void LoopUnit_OtherSplits_KeepTheSameVesselRule(BranchPointType type)
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            trees[0].BranchPoints[0].Type = type;
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Step(150);
+                Assert.Equal(0, w.Step(201));
+                Assert.Empty(w.Events);
+            }
+        }
+
+        // Boarding is a merge too: the kerbal's recording ends in the vessel.
+        [Fact]
+        public void LoopUnit_Board_FollowsTheVessel()
+        {
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            trees[0].BranchPoints[0].Type = BranchPointType.Board;
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Step(150);
+                Assert.Equal(2, w.Step(201));
+            }
+        }
+
+        // No host (tests, other scenes): the old same-vessel rule, unchanged.
+        [Fact]
+        public void LoopUnit_NoHostResolver_KeepsTheSameVesselRule()
+        {
+            DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, null, watched: 0, identity: ShipGuid))
+            {
+                w.Step(150);
+                Assert.Equal(0, w.Step(201));
+                Assert.Empty(w.Events);
+            }
+        }
+
+        [Fact]
+        public void LoopUnit_Dock_LogsTheBranchRetarget()
+        {
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            var trees = DockUndockTree(out var committed, shipAfterGuid: ShipGuid);
+            using (var w = new UnitWatch(committed, trees, watched: 0, identity: ShipGuid))
+            {
+                w.Step(150);
+                w.Step(201);
+            }
+            Assert.Contains(lines, l => l.Contains("[CameraFollow]")
+                && l.Contains("unit watch retarget owner=0 member #0->#2 at loopUT=201.00 via=branch"));
+        }
+
+        // Source gate: the flight host hands its watch controller to the engine.
+        [Fact]
+        public void LoopUnit_HostWiresTheBranchResolver()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "Controllers", "ParsekFlight.cs"));
+            Assert.Contains(
+                "engine.ResolveWatchedBranchContinuation = watchMode.FindWatchedBranchContinuation;", src);
         }
 
         [Fact]
