@@ -20,6 +20,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CONVERTER-LOOP-DRIVE-LOG-SHARED-KEY-2026-11-24: one rate-limit key covers every ghost's "Converter loops driven" line, so it names only the first loop to drive [FILED 2026-11-24 from S1.9 `2026-11-24_0640`; OPEN; low, log only]
+
+`GhostPlaybackLogic.DriveConverterLoops` logs `Converter loops driven: N (vessel='X')` under the single key `converter-loop-drive` (5 s). Since 6d9bd2732 a deploy-driven loop (the Orbital Scanner's) runs whenever it is deployed and spends the key, so the line a lane reads for a drill or ISRU is suppressed (`S1.9` had 1.5 s between them). The drive itself is per loop and unaffected: the drills' events applied and their loops were on at the same frame as before.
+
+Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vesselName ?? "unknown")`, at `GhostPlaybackLogic.SynthesizedMotion.cs` (the `VerboseRateLimited` call in `DriveConverterLoops`). Then `S1.9` can name the three vessels again. MINE-6 reads the line for `Mining Rover RC` and is exposed if another loop drives in the 5 s before it.
+
 ## MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; OPEN; product, low: one frame, looped ghosts, above 50 fps]
 
 **Seen:** right after a time jump (1,258,921 -> 1,268,401, into the Mun approach) the probe reported `TELEPORT dPos=448726384m ... frame=11069`, same orbit on both sides (Mun, sma -512034, ecc 1.6642), `dPosWorld` equal to `dPos`.
