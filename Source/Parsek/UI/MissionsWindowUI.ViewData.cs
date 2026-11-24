@@ -526,9 +526,10 @@ namespace Parsek
             return double.IsInfinity(min) ? 0.0 : min;
         }
 
-        // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
-        // loop members, computed via the SAME MissionLoopUnitBuilder.ComputeTrimmedMemberWindows the
-        // loop builder derives its span from - so the period cell's effective-cadence display matches
+        // The mission's TIMING span in seconds = (max trimmed recorded end - min trimmed start) over
+        // the COMMITTED loop members, computed via the SAME
+        // MissionLoopUnitBuilder.ComputeTrimmedMemberWindows + ComputeTimingSpanEndUT the loop
+        // builder derives its span from - so the period cell's effective-cadence display matches
         // the cadence actually running, including interval-level start/end trims.
         // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
         private double MissionSpanSeconds(
@@ -545,12 +546,9 @@ namespace Parsek
                 null, out _, out _);
 
             double min = double.PositiveInfinity;
-            double max = double.NegativeInfinity;
             foreach (var w in windows.Values)
-            {
                 if (w.StartUT < min) min = w.StartUT;
-                if (w.EndUT > max) max = w.EndUT;
-            }
+            double max = MissionLoopUnitBuilder.ComputeTimingSpanEndUT(windows, committed, out _);
             if (double.IsInfinity(min) || double.IsInfinity(max))
                 return 0.0;
             return System.Math.Max(0.0, max - min);

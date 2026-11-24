@@ -70,6 +70,8 @@ Not released yet.
 
 ### Fixed
 
+- **A dropped stage's fall no longer slows a looped mission.** The loop keeps its period and the
+  fall plays to its impact beside the next launches. (LOOP-TIMING-READ-THE-PREDICTED-FALL)
 - **A kerbal's jetpack plume shows on the replay.** A pack deployed before the recording picked the
   kerbal up is now recorded. (EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION)
 - **Dropped boosters fall smoothly in replays.** Their ghosts no longer hang in the air for half a

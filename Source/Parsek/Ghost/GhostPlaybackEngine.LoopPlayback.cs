@@ -42,7 +42,7 @@ namespace Parsek
         /// false return the block wrote neither, so the contract matches inline either way.
         /// Verbatim extraction; the syncCtx struct copy stays a stack local.
         /// </summary>
-        private bool TryUpdateLoopSyncedDebris(
+        internal bool TryUpdateLoopSyncedDebris(
             int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
             IReadOnlyList<IPlaybackTrajectory> trajectories, bool suppressGhosts, bool suppressVisualFx,
             double activationStartUT, bool hasPointData, bool hasInterpolatedPoints,
@@ -60,6 +60,7 @@ namespace Parsek
                     double parentLoopUT;
                     long parentCycle;
                     bool parentPaused;
+                    bool debrisFallEnded = false;
 
                     // Edge 9: when the loop-sync parent is itself a Mission loop unit member, its timing
                     // is governed by the unit's SHARED span clock, not its own per-recording loop
@@ -102,20 +103,28 @@ namespace Parsek
                         // MISSION SELF-OVERLAP: when the parent's unit overlaps (overlap cadence
                         // shorter than the span), the debris must overlap on the SAME cadence so its
                         // instances ride alongside the parent member's instances. The debris is NOT a
-                        // unit member, but its absolute window [debrisStart, debrisEnd] sits inside the
+                        // unit member, but its absolute window [debrisStart, debrisEnd] starts inside the
                         // span, so the SAME anchor-offset reduction the member path uses applies with
                         // the debris's own window:
                         //   scheduleStartUT = PhaseAnchorUT + (debrisStart - spanStart)
                         //   playbackStartUT = debrisStart
                         //   duration        = debrisEnd - debrisStart
-                        //   intervalSeconds = OverlapCadenceSeconds
+                        //   intervalSeconds = the unit's launch cadence
                         // Route it through UpdateOverlapPlayback (its own overlapGhosts[i] slot) so the
-                        // debris gets the same staggered instances as its parent. When the unit does
-                        // NOT overlap, fall through to the single span-clock instance below (unchanged).
-                        double parentUnitSpan = parentUnit.SpanEndUT - parentUnit.SpanStartUT;
-                        if (parentUnitSpan > 0 && parentUnit.OverlapCadenceSeconds < parentUnitSpan)
+                        // debris gets the same staggered instances as its parent. Debris whose predicted
+                        // fall runs past the span end takes the same path in a unit that does NOT overlap
+                        // (uniform cycles): each launch's copy plays to its own impact. Otherwise fall
+                        // through to the single span-clock instance below.
+                        bool debrisHasFall = GhostPlaybackLogic.DebrisHasLoopFall(parentUnit, traj);
+                        if (GhostPlaybackLogic.UnitMemberOverlaps(parentUnit)
+                            || (debrisHasFall && GhostPlaybackLogic.UnitHasUniformCycles(parentUnit)))
                         {
+                            double launchCadence = GhostPlaybackLogic.UnitMemberOverlaps(parentUnit)
+                                ? parentUnit.OverlapCadenceSeconds
+                                : GhostPlaybackLogic.UnitLaunchCadenceSeconds(parentUnit);
                             double debrisDuration = traj.EndUT - traj.StartUT;
+                            bool debrisEndsAtOwnEnd = debrisHasFall
+                                || GhostPlaybackLogic.EndsInPredictedTail(traj, traj.EndUT);
                             if (debrisDuration <= 0)
                             {
                                 GhostRenderTrace.EmitGuardSkip(
@@ -129,22 +138,29 @@ namespace Parsek
                             double debrisScheduleStartUT =
                                 parentUnit.PhaseAnchorUT + (traj.StartUT - parentUnit.SpanStartUT);
                             double debrisPlaybackStartUT = traj.StartUT;
+                            if (debrisHasFall)
+                                TryKeepFirstRunFall(
+                                    i, traj, ctx, parentUnit.PhaseAnchorUT, ref state, ref ghostActive);
 
                             bool suppressDebrisOverlapGhosts = false;
                             if (suppressGhosts)
                             {
                                 if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
-                                        ctx.currentUT, parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                        ctx.currentUT, launchCadence, debrisDuration,
                                         debrisPlaybackStartUT, debrisScheduleStartUT,
-                                        out double debrisNewestUT, out _)
+                                        out double debrisNewestUT, out _, debrisHasFall)
                                     || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                                         ctx.warpRate, traj, debrisNewestUT))
                                 {
                                     GhostRenderTrace.EmitGuardSkip(
                                         traj, i, ctx.currentUT, "debris-unit-overlap-warp-hidden");
-                                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                                    if (debrisEndsAtOwnEnd)
+                                        DropEndedFallAtWarp(
+                                            i, traj, f, ctx, launchCadence, debrisDuration,
+                                            debrisScheduleStartUT, debrisHasFall, ref state, ref ghostActive);
+                                    if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                                     {
-                                        state.ghost.SetActive(false);
+                                        DeactivateGhostMesh(state);
                                         ResetGhostAppearanceTracking(state);
                                     }
                                     DestroyAllOverlapGhosts(i);
@@ -159,20 +175,26 @@ namespace Parsek
                                 "Mission self-overlap debris #" + i.ToString(CultureInfo.InvariantCulture)
                                     + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
                                     + " owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
-                                    + " overlapCadence=" + parentUnit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
-                                    + " debrisDur=" + debrisDuration.ToString("F2", CultureInfo.InvariantCulture),
+                                    + " overlapCadence=" + launchCadence.ToString("F2", CultureInfo.InvariantCulture)
+                                    + " debrisDur=" + debrisDuration.ToString("F2", CultureInfo.InvariantCulture)
+                                    + (debrisHasFall ? " fall=yes" : ""),
                                 5.0);
 
                             UpdateOverlapPlayback(
                                 i, traj, f, ctx, state,
-                                parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                launchCadence, debrisDuration,
                                 debrisPlaybackStartUT, debrisScheduleStartUT,
-                                suppressVisualFx, suppressDebrisOverlapGhosts);
+                                suppressVisualFx, suppressDebrisOverlapGhosts,
+                                keepCadence: debrisHasFall, endAtOwnEnd: debrisEndsAtOwnEnd);
                             LogLoopSyncedDebrisOverlapVisibility(
-                                i, traj, ctx.currentUT, parentUnit.OverlapCadenceSeconds,
-                                debrisDuration, debrisPlaybackStartUT, debrisScheduleStartUT);
+                                i, traj, ctx.currentUT, launchCadence,
+                                debrisDuration, debrisPlaybackStartUT, debrisScheduleStartUT,
+                                debrisHasFall);
                             return true;
                         }
+
+                        // Copies of a fall drawn per launch, before an edit took those cycles away.
+                        DropUndrivenFallCopies(i, traj, f, ctx);
 
                         // Pass parentUnit.RelaunchSchedule so ride-along debris rides its scheduled
                         // parent's non-uniform launches (NOT the debris's own); null for a non-scheduled
@@ -203,6 +225,23 @@ namespace Parsek
                             return true;
                         }
                         parentPaused = parentInInterCycleTail; // parked between launches -> hide debris
+                        if (parentInInterCycleTail && debrisHasFall
+                            && GhostPlaybackLogic.TryComputeFallLoopUT(
+                                parentUnit, parentCycle, ctx.currentUT, out double debrisFallUT))
+                        {
+                            // Non-uniform unit: the fall plays through the wait and ends at the next
+                            // relaunch (one copy).
+                            parentLoopUT = debrisFallUT;
+                            parentPaused = false;
+                            debrisFallEnded = debrisFallUT > traj.EndUT;
+                        }
+                        if (debrisHasFall && TryDropStaleDebrisFall(
+                                i, traj, f, parentUnit, parentCycle, parentInInterCycleTail,
+                                debrisFallEnded, state))
+                        {
+                            state = null;
+                            ghostActive = false;
+                        }
                         ParsekLog.VerboseOnChange(
                             "Engine",
                             "loop-sync-debris-unit-" + i.ToString(CultureInfo.InvariantCulture),
@@ -264,6 +303,11 @@ namespace Parsek
                                 state.loopCycleIndex = parentCycle;
                         }
                     }
+                    else if (debrisFallEnded && state != null && state.loopCycleIndex >= 0)
+                    {
+                        // The fall played to its end in the wait: end it there, with its ending.
+                        ExpireEndedFallCopy(i, traj, f, ctx, state, suppressVisualFx);
+                    }
                     else if (state != null)
                     {
                         DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
@@ -287,14 +331,15 @@ namespace Parsek
         /// </summary>
         private void LogLoopSyncedDebrisOverlapVisibility(
             int index, IPlaybackTrajectory traj, double currentUT,
-            double cadenceSeconds, double duration, double playbackStartUT, double scheduleStartUT)
+            double cadenceSeconds, double duration, double playbackStartUT, double scheduleStartUT,
+            bool keepCadence = false)
         {
             int primaryActive = 0;
             long primaryCycle = -1;
             if (ghostStates.TryGetValue(index, out GhostPlaybackState primary) && primary != null)
             {
                 primaryCycle = primary.loopCycleIndex;
-                if (primary.ghost != null && primary.ghost.activeSelf)
+                if (primary.ghost != null && IsGhostMeshActive(primary))
                     primaryActive = 1;
             }
 
@@ -305,14 +350,14 @@ namespace Parsek
                 overlapTotal = overlaps.Count;
                 for (int k = 0; k < overlaps.Count; k++)
                 {
-                    if (overlaps[k]?.ghost != null && overlaps[k].ghost.activeSelf)
+                    if (overlaps[k]?.ghost != null && IsGhostMeshActive(overlaps[k]))
                         overlapActive++;
                 }
             }
 
             GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
                 currentUT, cadenceSeconds, duration, playbackStartUT, scheduleStartUT,
-                out double newestLoopUT, out long newestCycle);
+                out double newestLoopUT, out long newestCycle, keepCadence);
 
             ParsekLog.VerboseRateLimited(
                 "Engine", "debris-vis-" + index.ToString(CultureInfo.InvariantCulture),
@@ -793,14 +838,19 @@ namespace Parsek
             double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
             bool suppressVisualFx, bool suppressOverlapGhosts = false,
-            bool stopAfterSuppressOverlapGhostsForTesting = false)
+            bool stopAfterSuppressOverlapGhostsForTesting = false,
+            bool keepCadence = false,
+            bool endAtOwnEnd = false)
         {
             if (ctx.currentUT < scheduleStartUT)
             {
                 GhostRenderTrace.EmitGuardSkip(
                     traj, index, ctx.currentUT, "overlap-before-activation-start-ut");
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
-                DestroyAllOverlapGhosts(index);
+                if (!keepCadence || suppressOverlapGhosts
+                    || !UpdateFirstRunFallBeforeFirstCopy(
+                        index, traj, flags, ctx, duration, playbackStartUT, scheduleStartUT, suppressVisualFx))
+                    DestroyAllOverlapGhosts(index);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
             }
@@ -813,8 +863,10 @@ namespace Parsek
             // the pre-fix behaviour of silently culling older cycles via
             // GetActiveCycles's newest-cycle clamp (which stacked ghosts near
             // launch under short user periods).
-            double effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                intervalSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            // keepCadence (a loop unit's fall): the cadence is the launches' own; the copies past the
+            // cap end quietly below instead.
+            double effectiveCadence = GhostPlaybackLogic.ResolveOverlapCadence(
+                intervalSeconds, duration, keepCadence);
             LogOverlapCadenceIfChanged(index, traj, intervalSeconds, effectiveCadence, duration);
 
             double cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
@@ -839,6 +891,28 @@ namespace Parsek
             }
             if (suppressOverlapGhosts && stopAfterSuppressOverlapGhostsForTesting)
                 return;
+
+            // A loop edit renumbers the launches: a fall copy of the schedule before it is never read on
+            // this one (nor a fall's copy on a path that draws no fall).
+            if (endAtOwnEnd)
+                primaryState = DropStaleFallCopies(
+                    index, traj, flags, ctx, primaryState, lastCycle, duration, cycleDuration,
+                    playbackStartUT, scheduleStartUT);
+            else
+                DropUndrivenFallCopies(index, traj, flags, ctx);
+
+            // A fall whose period is longer than its window: the newest copy ends at its own end and
+            // its cycle is not drawn again. (A copy whose end is recorded is held there, below.)
+            if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
+                    ctx.currentUT, lastCycle, scheduleStartUT, cycleDuration, duration))
+            {
+                EndNewestFallCopy(
+                    index, traj, flags, ctx, primaryState, lastCycle,
+                    duration, cycleDuration, playbackStartUT, scheduleStartUT,
+                    suppressVisualFx,
+                    keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                return;
+            }
 
             // Primary ghost represents the newest (lastCycle)
             bool primaryCycleChanged = HasLoopCycleChanged(primaryState, lastCycle);
@@ -896,6 +970,9 @@ namespace Parsek
                     primaryState = CreatePendingSpawnState(
                         traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
                     primaryState.loopCycleIndex = lastCycle;
+                    if (endAtOwnEnd)
+                        primaryState.fallClockOffsetUT =
+                            scheduleStartUT + lastCycle * cycleDuration - playbackStartUT;
                     ghostStates[index] = primaryState;
                     GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
                         index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
@@ -1029,7 +1106,8 @@ namespace Parsek
 
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
-                duration, cycleDuration, playbackStartUT, scheduleStartUT, suppressVisualFx);
+                duration, cycleDuration, playbackStartUT, scheduleStartUT, suppressVisualFx,
+                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
         }
 
         /// <summary>
@@ -1042,7 +1120,9 @@ namespace Parsek
             List<GhostPlaybackState> overlaps,
             double duration, double cycleDuration,
             double playbackStartUT, double scheduleStartUT,
-            bool suppressVisualFx)
+            bool suppressVisualFx,
+            long oldestDrawnCycle = long.MinValue,
+            GhostPlaybackLogic.LoopUnit? fallUnit = null)
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
@@ -1062,7 +1142,17 @@ namespace Parsek
                 }
 
                 long cycle = ovState.loopCycleIndex;
-                double phase = ctx.currentUT - (scheduleStartUT + cycle * cycleDuration);
+                if (GhostPlaybackLogic.IsFallCopyPastCap(cycle, oldestDrawnCycle))
+                {
+                    EndFallCopyQuietly(
+                        index, traj, flags, ctx, ovState, cycle, "at the copy cap", "fall copy cap",
+                        " cap=" + GhostPlayback.MaxOverlapGhostsPerRecording.ToString(CultureInfo.InvariantCulture));
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                double phase = GhostPlaybackLogic.OverlapCopyPhaseSeconds(
+                    ctx.currentUT, cycle, scheduleStartUT, cycleDuration, playbackStartUT, fallUnit);
 
                 // Expired cycle
                 if (phase > duration)
@@ -1096,8 +1186,9 @@ namespace Parsek
                         TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
                     }
 
-                    // Fire camera event for overlap expiry
-                    if (!overlapExpiryRetired)
+                    // Fire camera event for overlap expiry (never for the first run's kept fall: no
+                    // watch cycle names it, so the camera is not on it)
+                    if (!overlapExpiryRetired && cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
                     {
                         OnOverlapCameraAction?.Invoke(new CameraActionEvent
                         {
@@ -1106,7 +1197,7 @@ namespace Parsek
                                 ? CameraActionType.ExplosionHoldStart
                                 : CameraActionType.ExplosionHoldEnd,
                             NewCycleIndex = cycle,
-                            AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
+                            AnchorPosition = ovState.ghost != null ? ReadGhostWorldPosition(ovState) : Vector3.zero,
                             HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
                             Trajectory = traj, Flags = flags
                         });
@@ -1117,7 +1208,7 @@ namespace Parsek
                             Index = index, Trajectory = traj, State = ovState, Flags = flags,
                             CycleIndex = cycle,
                             ExplosionFired = triggerExplosionAtExpiry,
-                            ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
+                            ExplosionPosition = ovState.ghost != null ? ReadGhostWorldPosition(ovState) : Vector3.zero
                         });
                     }
 
@@ -1617,6 +1708,19 @@ namespace Parsek
                 recordingIndex, state.loopCycleIndex);
         }
 
+        // The Unity reads and writes the overlap and unit paths make on a ghost's mesh, kept out of the
+        // methods a headless test drives (a host that refuses a Unity native call refuses the whole
+        // method that holds it). Never inlined, or the Release JIT puts the call back.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static Vector3 ReadGhostWorldPosition(GhostPlaybackState state)
+            => state.ghost.transform.position;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsGhostMeshActive(GhostPlaybackState state) => state.ghost.activeSelf;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void DeactivateGhostMesh(GhostPlaybackState state) => state.ghost.SetActive(false);
+
         private double ResolvePlaybackDistance(
             int recordingIndex, IPlaybackTrajectory traj, GhostPlaybackState state,
             double playbackUT, Vector3d activeVesselPos)
@@ -1630,7 +1734,7 @@ namespace Parsek
             }
 
             if (state != null && state.ghost != null)
-                return Vector3d.Distance((Vector3d)state.ghost.transform.position, activeVesselPos);
+                return Vector3d.Distance((Vector3d)ReadGhostWorldPosition(state), activeVesselPos);
 
             return double.MaxValue;
         }
@@ -1648,7 +1752,7 @@ namespace Parsek
             }
 
             if (state != null && state.ghost != null)
-                return Vector3d.Distance((Vector3d)state.ghost.transform.position, activeVesselPos);
+                return Vector3d.Distance((Vector3d)ReadGhostWorldPosition(state), activeVesselPos);
 
             return double.MaxValue;
         }

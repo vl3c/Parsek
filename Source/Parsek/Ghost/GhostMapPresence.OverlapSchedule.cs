@@ -60,12 +60,24 @@ namespace Parsek
                 return false;
             if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
                 return false;
-            if (!GhostPlaybackLogic.UnitMemberOverlaps(unit))
-                return false;
-
             double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
             double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
-            return memberEndUT - memberStartUT > LoopTiming.MinLoopDurationSeconds;
+            return IsUnitMemberDrawnPerInstance(unit, loopUnits, memberEndUT)
+                && memberEndUT - memberStartUT > LoopTiming.MinLoopDurationSeconds;
+        }
+
+        /// <summary>
+        /// Is this unit member drawn as one copy per launch on this set's scene? Yes when the mission
+        /// overlaps itself, and in flight (<see cref="GhostPlaybackLogic.LoopUnitSet.DrawsFallCopies"/>)
+        /// when the member's predicted fall outlasts the recorded span, as the flight engine draws its
+        /// mesh. The Tracking Station draws one copy of such a fall.
+        /// </summary>
+        private static bool IsUnitMemberDrawnPerInstance(
+            in GhostPlaybackLogic.LoopUnit unit, GhostPlaybackLogic.LoopUnitSet loopUnits, double memberEndUT)
+        {
+            return GhostPlaybackLogic.UnitMemberOverlaps(unit)
+                || (loopUnits.DrawsFallCopies
+                    && GhostPlaybackLogic.MemberFallUsesOverlapSchedule(unit, memberEndUT));
         }
 
         /// <summary>
@@ -216,7 +228,7 @@ namespace Parsek
         ///   duration        = memberEndUT - memberStartUT
         ///   playbackStartUT = memberStartUT
         ///   scheduleStartUT = ComputeMemberOverlapScheduleStartUT(PhaseAnchorUT, SpanStartUT, memberStartUT)
-        ///   effectiveCadence= ComputeEffectiveLaunchCadence(OverlapCadenceSeconds, duration, cap)
+        ///   effectiveCadence= ResolveOverlapCadence(UnitLaunchCadenceSeconds, duration, fall keeps it)
         ///   cycleDuration   = max(effectiveCadence, MinCycleDuration)
         /// SPAN-CLOCK CAVEAT: the overlap path uses this RAW schedule with ComputeOverlapCyclePlaybackUT,
         /// NOT ResolveTrackingStationSampleUT / ResolveMapPresenceSampleUT (the span-clock NON-overlap
@@ -239,11 +251,11 @@ namespace Parsek
                 return false;
             if (!loopUnits.TryGetUnitForMember(recIdx, out GhostPlaybackLogic.LoopUnit unit))
                 return false;
-            if (!GhostPlaybackLogic.UnitMemberOverlaps(unit))
-                return false;
-
             double memberStartUT = unit.MemberStartUT(recIdx, rec.StartUT);
             double memberEndUT = unit.MemberEndUT(recIdx, rec.EndUT);
+            if (!IsUnitMemberDrawnPerInstance(unit, loopUnits, memberEndUT))
+                return false;
+
             duration = memberEndUT - memberStartUT;
             if (duration <= LoopTiming.MinLoopDurationSeconds)
                 return false;
@@ -251,8 +263,9 @@ namespace Parsek
             playbackStartUT = memberStartUT;
             scheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
                 unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
-            effectiveCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
-                unit.OverlapCadenceSeconds, duration, GhostPlayback.MaxOverlapGhostsPerRecording);
+            effectiveCadence = GhostPlaybackLogic.ResolveOverlapCadence(
+                GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit), duration,
+                keepCadence: GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT));
             cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
             return true;
         }

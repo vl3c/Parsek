@@ -512,6 +512,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
                     }
+                    DropUndrivenFallCopies(i, traj, f, ctx);
                     CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
                     return;
                 }
@@ -560,6 +561,7 @@ namespace Parsek
                     DestroyAllOverlapGhosts(i);
                     DestroyGhost(i, traj, f, reason: "before activation start UT");
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
             }
@@ -762,6 +764,7 @@ namespace Parsek
                 DestroyAllOverlapGhosts(i);
                 DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
             }
+            DropUndrivenFallCopies(i, traj, f, ctx);
 
             if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
                     traj, f, ctx.currentUT,

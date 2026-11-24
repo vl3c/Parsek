@@ -24,6 +24,9 @@ namespace Parsek
         public int ChainIndex;
         public double StartUT;
         public double EndUT;
+        // The last recorded UT (PredictedEndingTakeover.ResolveRecordedEndUT), EndUT when the leg carries no predicted tail, NaN when
+        // it holds predicted data only. Route timing reads it; playback reads EndUT.
+        public double RecordedEndUT = double.NaN;
         public TerminalState? TerminalStateValue;
 
         // Crew name if this leg is an EVA kerbal (its own controllable craft); null
@@ -185,6 +188,7 @@ namespace Parsek
                     ChainIndex = rec.ChainIndex,
                     StartUT = rec.StartUT,
                     EndUT = rec.EndUT,
+                    RecordedEndUT = PredictedEndingTakeover.ResolveRecordedEndUT(rec),
                     TerminalStateValue = rec.TerminalStateValue,
                     EvaCrewName = rec.EvaCrewName,
                     IsAnchoredOffshoot = !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)

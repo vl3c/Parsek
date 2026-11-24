@@ -166,6 +166,9 @@ namespace Parsek.TestCommands
             // mapping is unknowable off-game and the empty dwell is invisible
             // until a flight burns.
             double spanSeconds = double.NaN;
+            // The DRAWN span: longer than spanSeconds (the timing span) when a member is drawn past
+            // its recorded end (a predicted fall).
+            double renderSpanSeconds = double.NaN;
             double compressedSpanSeconds = double.NaN;
             int loiterCutCount = 0;
             string loiterCuts = string.Empty;
@@ -198,6 +201,7 @@ namespace Parsek.TestCommands
                     cadenceSeconds = unit.CadenceSeconds;
                     overlapCadenceSeconds = unit.OverlapCadenceSeconds;
                     spanSeconds = unit.SpanEndUT - unit.SpanStartUT;
+                    renderSpanSeconds = unit.RenderSpanEndUT - unit.SpanStartUT;
                     loiterCutCount =
                         unit.LoiterCuts == null ? 0 : unit.LoiterCuts.Count;
                     compressedSpanSeconds =
@@ -214,7 +218,7 @@ namespace Parsek.TestCommands
                 "intervalSeconds={3} anchorUt={4} unitBuilt={5} phaseAnchorUt={6} " +
                 "spanSeconds={7} compressedSpanSeconds={8} loiterCutCount={9} " +
                 "loiterCuts={10} unit={11} overlapCadenceSeconds={12} " +
-                "autoLoopIntervalSeconds={13}",
+                "autoLoopIntervalSeconds={13} renderSpanSeconds={14}",
                 mission.Name, treeArg, mission.LoopPlayback,
                 mission.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture),
                 mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture),
@@ -226,7 +230,8 @@ namespace Parsek.TestCommands
                 loiterCuts,
                 TestCommandMissionConfig.UnitToken(mission.LoopTimeUnit),
                 overlapCadenceSeconds.ToString("R", CultureInfo.InvariantCulture),
-                autoLoopIntervalSecondsUsed.ToString("R", CultureInfo.InvariantCulture)));
+                autoLoopIntervalSecondsUsed.ToString("R", CultureInfo.InvariantCulture),
+                renderSpanSeconds.ToString("R", CultureInfo.InvariantCulture)));
 
             SetExecResult("OK", Payload(
                 Kv("mission", mission.Name ?? string.Empty),

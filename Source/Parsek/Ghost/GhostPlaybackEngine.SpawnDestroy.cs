@@ -785,7 +785,14 @@ namespace Parsek
             }
 
             state.explosionFired = true;
+            PlayDestroyedExplosion(state, traj, recIdx);
+        }
 
+        // Not inlined: it holds the Unity calls TriggerExplosionIfDestroyed must compile without (a
+        // copy with no mesh reaches it on a headless host).
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void PlayDestroyedExplosion(GhostPlaybackState state, IPlaybackTrajectory traj, int recIdx)
+        {
             Vector3 worldPos = state.ghost.transform.position;
             if (positioner != null
                 && !positioner.TryResolveExplosionAnchorPosition(recIdx, traj, state, out worldPos))

@@ -44,6 +44,9 @@ namespace Parsek
         public string CompositionLabel;   // "pod x1, probe x1, crew x3", or the atom name
         public double StartUT;
         public double EndUT;
+        // EndUT clipped to the vessel's last recorded UT: an interval reaching into a predicted tail
+        // ends here for route timing. NaN (never set) reads as EndUT, see TimingEndUT.
+        public double RecordedEndUT = double.NaN;
         public string StartEvent;         // what created this composition (Launch / Decouple / EVA / Dock / Board)
         public string EndEvent;           // what ended it (a split/merge event, or a terminal)
         public bool IsLeaf;               // single atom: nothing to expand
@@ -83,6 +86,9 @@ namespace Parsek
         public bool IsJoinedVessel;
 
         public readonly List<MissionCompositionNode> Children = new List<MissionCompositionNode>();
+
+        // Where the interval ends for timing: its recorded end, EndUT when it has no predicted tail.
+        internal double TimingEndUT => double.IsNaN(RecordedEndUT) ? EndUT : RecordedEndUT;
     }
 
     internal static class MissionCompositionBuilder
@@ -144,6 +150,17 @@ namespace Parsek
                && leg.OriginBranchPointType == BranchPointType.Launch
                && string.IsNullOrEmpty(leg.EvaCrewName);
 
+        // The run's last recorded UT: a predicted tail is a suffix of the run, so it is the latest
+        // recorded end over its legs; the run's drawn end when no leg holds recorded time.
+        private static double RunRecordedEndUT(List<MissionLeg> run)
+        {
+            double recordedEnd = double.NaN;
+            for (int r = 0; r < run.Count; r++)
+                if (double.IsNaN(recordedEnd) || run[r].RecordedEndUT > recordedEnd)
+                    recordedEnd = run[r].RecordedEndUT;
+            return double.IsNaN(recordedEnd) ? run[run.Count - 1].EndUT : recordedEnd;
+        }
+
         // One flat (post-subdivision) interval of a run: a structural interval, or a dock/board
         // sub-interval of one. MergeLegAtStart is the merge leg whose edge begins this interval
         // (null for the first sub-interval of a structural interval).
@@ -184,6 +201,7 @@ namespace Parsek
             MissionLeg lastLeg = run[run.Count - 1];
             double runStart = headLeg.StartUT;
             double runEnd = lastLeg.EndUT;
+            double runRecordedEnd = RunRecordedEndUT(run);
 
             // 2. Peels across the run, classified: an EVA kerbal child is a CREW peel (it does not
             //    change the vessel's controllers, so it never starts a new interval - it hangs off
@@ -368,6 +386,7 @@ namespace Parsek
                     CompositionLabel = FormatComposition(segLeg),
                     StartUT = segStart,
                     EndUT = segEnd,
+                    RecordedEndUT = runRecordedEnd < segEnd ? System.Math.Max(segStart, runRecordedEnd) : segEnd,
                     // A joined run did not launch here: the player switched to it.
                     StartEvent = (i == 0)
                         ? (runJoined ? "" : startEvent)
