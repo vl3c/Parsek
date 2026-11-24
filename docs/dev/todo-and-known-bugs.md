@@ -46,6 +46,12 @@ Fix (`harness/lib/ghostlife.py`): the engine's own 1 Hz census (`[Engine] engine
 quit line (a killed run), no census or a stale one excuse nothing. Blind spot: a ghost whose destroy goes missing
 inside the last second before the quit.
 
+Why not UNMEASURED when the log holds no `GhostPlaybackEngine disposed` after the quit line (the other rule considered):
+37 of the 72 November runs of the lanes with the balance on hold none, so it would switch the check off in half of them.
+The census rule never switches it off: without that evidence a ghost with no destroy line reds as before. It is no weaker
+than the old rule on a ghost nobody ended, because that ghost's teardown line always counted as its ending; the mesh both
+rules are there to catch, one the engine no longer holds, writes no teardown line and is in no census.
+
 Checked over the archive: on all 141 archived flights of the lanes with the block, the new evaluator's mismatches are the same with
 the log whole and cut at the quit line (the old one differed on 4), and only GS-6 `_1654` and two size-elided GS-12 logs
 change verdict, all to no mismatch. Cutting one ghost's destroy lines out of 114 GS / S1.9 / OC / RVC logs reds 698 of 704
