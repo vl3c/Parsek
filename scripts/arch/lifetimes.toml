@@ -633,6 +633,7 @@ ExpectedAttitudeSource = "scene: ParsekFlight.Start sets it and ParsekFlight.OnD
 name = "Parsek.GhostWorldSpaceEmitter"
 reason = "ghost smoke that follows the floating origin"
 [type.fields]
+plainSystemsDrift = "process: cached answer whether KSPCommunityFixes patches FloatingOrigin.setOffset; patches do not change after the game loaded"
 registered = "scene: the enabled emitters of the scene's ghosts; OnEnable adds, OnDisable (deactivation, destruction, scene unload) removes"
 totalShift = "process: running sum of origin shifts, read only as a difference of two of its values; it never needs a reset"
 

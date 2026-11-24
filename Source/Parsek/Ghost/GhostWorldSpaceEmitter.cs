@@ -1,21 +1,21 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using HarmonyLib;
 using UnityEngine;
 
 namespace Parsek
 {
     /// <summary>
-    /// Leaves a ghost's world-space <c>KSPParticleEmitter</c> smoke behind in the world, as stock
-    /// does a real part's. Unity's world is not the game's world: while the active vessel flies,
-    /// Krakensbane carries the frame along with it and <c>FloatingOrigin.setOffset</c> moves every
-    /// registered world-space particle back by the offset, each physics step
-    /// (<c>EffectBehaviour.OffsetParticles</c>). Stock registers an emitter from the part's
-    /// <c>ModelMultiParticleFX</c> / <c>ModelParticleFX</c>, which a ghost does not have, and an
-    /// unregistered emitter's smoke rides along with the active vessel.
+    /// Leaves a ghost's world-space smoke behind in the world, as stock does a real part's. Unity's
+    /// world is not the game's world: while the active vessel flies, Krakensbane carries the frame
+    /// along with it and <c>FloatingOrigin.setOffset</c> moves a part's world-space particles back
+    /// by the offset, each physics step. Stock finds them through the Part (its EFFECTS behaviours,
+    /// its FXGroups) or the <c>FXPrefab</c> on the system; a ghost has no Part and its clones'
+    /// <c>FXPrefab</c> is stripped, so this component is the one thing that moves a ghost's, and
+    /// smoke without it rides along with the active vessel.
     ///
     /// Enabled means registered: Unity calls OnDisable on deactivation, destruction and scene
-    /// unload, so nothing outside this class tracks the lifetime. A system that carries stock's
-    /// <c>FXPrefab</c> registers itself and gets no component.
+    /// unload, so nothing outside this class tracks the lifetime.
     /// </summary>
     internal sealed class GhostWorldSpaceEmitter : MonoBehaviour
     {
@@ -24,7 +24,14 @@ namespace Parsek
         /// <summary>Sum of every origin shift seen: compares positions read on two sides of a shift.</summary>
         private static Vector3d totalShift;
 
+        /// <summary>Set for an emitter-fed system (stock creates its <c>ps</c> in Awake).</summary>
         internal KSPParticleEmitter emitter;
+
+        /// <summary>Set for a plain particle system (a legacy <c>fx_*</c> clone, a PREFAB_PARTICLE).</summary>
+        internal ParticleSystem system;
+
+        private bool drifts;
+        private static bool? plainSystemsDrift;
 
         private bool hasSample;
         private Vector3 lastPosition;
@@ -41,6 +48,57 @@ namespace Parsek
         {
             registered.Clear();
             totalShift = Vector3d.zero;
+        }
+
+        /// <summary>
+        /// Adds the component to every world-space system of a ghost FX clone. Stock drifts an
+        /// emitter-fed system's particles besides shifting them; its own loops for the plain ones
+        /// drop what they compute (the particle is a copy that is never written back), and
+        /// KSPCommunityFixes' replacement of <c>setOffset</c> writes it. Returns the systems added.
+        /// </summary>
+        internal static int AttachAll(GameObject fxClone)
+        {
+            int added = 0;
+            foreach (KSPParticleEmitter emitter in fxClone.GetComponentsInChildren<KSPParticleEmitter>(true))
+            {
+                if (!emitter.useWorldSpace) continue;
+                GhostWorldSpaceEmitter e = emitter.gameObject.AddComponent<GhostWorldSpaceEmitter>();
+                e.emitter = emitter;
+                e.drifts = true;
+                added++;
+            }
+            foreach (ParticleSystem ps in fxClone.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (ps.main.simulationSpace != ParticleSystemSimulationSpace.World) continue;
+                if (ps.GetComponent<KSPParticleEmitter>() != null) continue;
+                GhostWorldSpaceEmitter e = ps.gameObject.AddComponent<GhostWorldSpaceEmitter>();
+                e.system = ps;
+                e.drifts = PlainSystemsDrift();
+                added++;
+            }
+            if (added > 0)
+                ParsekLog.VerboseRateLimited("GhostVisual", $"world-space-fx-{fxClone.name}",
+                    $"World-space FX follow the floating origin: fx='{fxClone.name}' systems={added} " +
+                    $"registered={registered.Count} plainDrift={plainSystemsDrift}", 60.0);
+            return added;
+        }
+
+        private static bool PlainSystemsDrift()
+        {
+            if (!plainSystemsDrift.HasValue)
+            {
+                HarmonyLib.Patches info = Harmony.GetPatchInfo(AccessTools.Method(typeof(FloatingOrigin), "setOffset"));
+                plainSystemsDrift = info != null && OwnersReplaceSetOffset(info.Owners);
+            }
+            return plainSystemsDrift.Value;
+        }
+
+        /// <summary>Whether KSPCommunityFixes is among the patch owners of <c>FloatingOrigin.setOffset</c>.</summary>
+        internal static bool OwnersReplaceSetOffset(IEnumerable<string> owners)
+        {
+            foreach (string owner in owners)
+                if (owner == "KSPCommunityFixes") return true;
+            return false;
         }
 
         private void OnEnable()
@@ -101,9 +159,9 @@ namespace Parsek
             => previous.sqrMagnitude < current.sqrMagnitude ? previous : current;
 
         /// <summary>
-        /// One particle's place after an origin shift: stock's rule for a
-        /// <c>KSPParticleEmitter</c> (<c>EffectBehaviour.OffsetParticles</c>), which also drifts
-        /// each particle back along the emitter's motion by a random part of one physics step.
+        /// One particle's place after an origin shift: stock's rule
+        /// (<c>EffectBehaviour.OffsetParticles</c>), which also drifts each particle back along the
+        /// emitter's motion by a random part of one physics step.
         /// </summary>
         internal static Vector3 ShiftParticle(Vector3 position, Vector3d shift, Vector3 driftStep, float random)
         {
@@ -140,15 +198,15 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void MoveParticles(GhostWorldSpaceEmitter e, Vector3d shift)
         {
-            KSPParticleEmitter source = e.emitter;
-            if (source == null || !source.useWorldSpace || source.ps == null) return;
-            int count = source.ps.particleCount;
+            ParticleSystem ps = e.emitter != null ? e.emitter.ps : e.system;
+            if (ps == null) return;
+            int count = ps.particleCount;
             if (count == 0) return;
-            Vector3 driftStep = e.driftVelocity * Time.deltaTime;
-            ParticleSystem.Particle[] buffer = source.ps.GetParticleBuffer();
+            Vector3 driftStep = e.drifts ? e.driftVelocity * Time.deltaTime : Vector3.zero;
+            ParticleSystem.Particle[] buffer = ps.GetParticleBuffer();
             for (int i = count - 1; i >= 0; i--)
                 buffer[i].position = ShiftParticle(buffer[i].position, shift, driftStep, Random.value);
-            source.ps.SetParticles(buffer, count);
+            ps.SetParticles(buffer, count);
         }
     }
 }

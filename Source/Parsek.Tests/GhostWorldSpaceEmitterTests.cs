@@ -131,13 +131,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Wiring_TheFxCloneKeepsFXPrefabAndRegistersItsEmitters()
+        public void Wiring_TheFxCloneIsRegisteredOnceAndItsFXPrefabStripped()
         {
             string source = Source(Path.Combine("Ghost", "GhostVisualBuilder.FxSetup.cs"));
-            Assert.DoesNotContain("case \"FXPrefab\":", source);
-            Assert.Contains("RegisterWorldSpaceEmitter(behaviours[i] as KSPParticleEmitter);", source);
-            // A system shifted by its own FXPrefab must not be shifted a second time.
-            Assert.Contains("if (emitter.GetComponent<FXPrefab>() != null) return;", source);
+            int strip = source.IndexOf("case \"FXPrefab\":", StringComparison.Ordinal);
+            int attach = source.IndexOf("GhostWorldSpaceEmitter.AttachAll(fxClone);", StringComparison.Ordinal);
+            // A system both kept in FloatingOrigin's list and registered here would move twice.
+            Assert.True(strip >= 0 && strip < attach);
+            Assert.Contains("Object.Destroy(behaviours[i]);", source.Substring(strip, attach - strip));
+        }
+
+        [Fact]
+        public void OwnersReplaceSetOffset_ReadsKspCommunityFixesOnly()
+        {
+            Assert.True(GhostWorldSpaceEmitter.OwnersReplaceSetOffset(new[] { "com.parsek.mod", "KSPCommunityFixes" }));
+            Assert.False(GhostWorldSpaceEmitter.OwnersReplaceSetOffset(new[] { "com.parsek.mod" }));
+            Assert.False(GhostWorldSpaceEmitter.OwnersReplaceSetOffset(new string[0]));
         }
 
         [Fact]

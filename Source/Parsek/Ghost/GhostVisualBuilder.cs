@@ -619,8 +619,8 @@ namespace Parsek
         /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
         /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
         /// Host (the Part). KEPT ALIVE — stripping kills smoke trails. Any NREs are non-fatal.
-        /// FXPrefab is KEPT: while enabled it registers its world-space system with FloatingOrigin, as
-        /// on the real part; a world-space KSPParticleEmitter gets GhostWorldSpaceEmitter instead.
+        /// FXPrefab (stock's FloatingOrigin registration) is stripped: GhostWorldSpaceEmitter moves
+        /// every world-space system of the clone when the floating origin shifts.
         ///
         /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
         /// MonoBehaviours) requiring Part/Vessel context. They are reimplemented via HeatGhostInfo
