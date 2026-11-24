@@ -28,11 +28,17 @@ namespace Parsek
         public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
-        // A loop fall copy's own clock: the live UT at which recorded UT 0 would play for its cycle
+        // An own-end loop copy's own clock: the live UT at which recorded UT 0 would play for its cycle
         // under the schedule that drove it last. A cycle number means nothing once the player edits
         // the loop, so a copy whose clock moved is ended instead of being read on the new schedule.
         // NaN on every other ghost. Never persisted.
         public double fallClockOffsetUT = double.NaN;
+        // True on a copy of a self-overlapping mission whose end is recorded or trimmed, not a predicted
+        // fall's: the wording of its log lines and destroy reasons. Never persisted.
+        public bool recordedEndCopy;
+        // True once a watched copy reached its own end and stays only as the camera's invisible target
+        // until the watch moves to the same vessel's next row. Never persisted.
+        public bool endedCopyHeld;
         // True once this state's MeshSpawned trace line was written. An overlap copy writes its
         // MeshDestroyed line only when this is set, so a boundary-overlap secondary or a primary
         // demoted before its build finished (neither ever wrote MeshSpawned) cannot unbalance the

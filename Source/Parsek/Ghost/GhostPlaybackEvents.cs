@@ -356,7 +356,14 @@ namespace Parsek
         /// a sibling member index, not a new cycle of the same index. Appended last so the existing
         /// ordinals (ExplosionHoldStart..ExitWatch) are unchanged.
         /// </summary>
-        UnitHandoffRetarget
+        UnitHandoffRetarget,
+
+        /// <summary>
+        /// The watched copy of a self-overlapping mission ended with no explosion and no further row of
+        /// its vessel: hold the camera there, then pick up the mission's running launch. The quiet twin
+        /// of <see cref="ExplosionHoldStart"/>.
+        /// </summary>
+        EndHoldStart
     }
 
     /// <summary>
@@ -379,6 +386,11 @@ namespace Parsek
 
         /// <summary>Cycle index for RetargetToNewGhost.</summary>
         public long NewCycleIndex;
+
+        /// <summary>UnitHandoffRetarget: the loop cycle the target copy must belong to, so a handoff in an
+        /// overlapping mission never lands on another launch's copy. Null when the unit draws one copy.
+        /// </summary>
+        public long? RequiredCycleIndex;
 
         /// <summary>World position for ExplosionHoldStart anchor.</summary>
         public Vector3 AnchorPosition;

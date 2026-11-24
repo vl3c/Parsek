@@ -723,7 +723,7 @@ namespace Parsek
             {
                 if (watchedRecordingIndex < 0) return; // not watching anything
                 if (watchedRecordingIndex == evt.Index) return; // already on the live member
-                bool transferred = TransferWatchToNextSegment(evt.Index);
+                bool transferred = TransferWatchToNextSegment(evt.Index, evt.RequiredCycleIndex);
                 if (!transferred)
                     ParsekLog.VerboseRateLimited(
                         "CameraFollow", "unit-handoff-defer",
@@ -858,6 +858,18 @@ namespace Parsek
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: camera bridged at quiet expiry for #{evt.Index} cycle={evt.NewCycleIndex}");
                     }
+                    break;
+
+                case CameraActionType.EndHoldStart:
+                    if (ShouldIgnoreOverlapCycleEvent(evt.NewCycleIndex, watchedOverlapCycleIndex))
+                        break;
+                    overlapRetargetAfterUT = evt.HoldUntilUT;
+                    watchedOverlapCycleIndex = GhostPlaybackEngine.WatchHoldCycleIndex;
+                    watchNoTargetFrames = 0;
+                    overlapBridgeLastRetryFrame = -1;
+                    PlaceOverlapCameraAnchor("ParsekOverlapCameraAnchor", evt.AnchorPosition);
+                    ParsekLog.Info("CameraFollow",
+                        $"Overlap: camera holding at the end of #{evt.Index} cycle={evt.NewCycleIndex}");
                     break;
             }
         }
@@ -2541,11 +2553,21 @@ namespace Parsek
         /// <summary>
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
+        /// With <paramref name="requiredCycle"/> (an overlapping mission) the transfer lands only on that
+        /// launch's own copy, built now when it is the slot's, and defers until it exists.
         /// </summary>
-        internal bool TransferWatchToNextSegment(int nextIndex)
+        internal bool TransferWatchToNextSegment(int nextIndex, long? requiredCycle = null)
         {
             var committed = RecordingStore.CommittedRecordings;
             if (nextIndex < 0 || nextIndex >= committed.Count) return false;
+
+            GhostPlaybackState cycleCopy = null;
+            if (requiredCycle.HasValue
+                && !TryPrepareTransferCopy(nextIndex, committed[nextIndex], requiredCycle.Value, out cycleCopy))
+            {
+                LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId);
+                return false;
+            }
 
             string oldName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
                 ? committed[watchedRecordingIndex].VesselName : "?";
@@ -2558,8 +2580,9 @@ namespace Parsek
             // one or two physics frames, so this deferral path is the normal
             // transient state, not a fault — log at rate-limited Verbose.
             var ghostStates = host.Engine.ghostStates;
-            GhostPlaybackState gs;
-            if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
+            GhostPlaybackState gs = cycleCopy;
+            if (!requiredCycle.HasValue
+                && (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null))
             {
                 LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId);
                 return false;
@@ -2657,6 +2680,31 @@ namespace Parsek
                 $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
             LogWatchFocusStateChanged(gs, force: true, context: "transfer");
             return true;
+        }
+
+        /// <summary>
+        /// The copy of one launch on one index, ready for the camera: the slot's copy is built now, so the
+        /// camera waits on an ended copy for a frame rather than for the time-sliced build; an overlap copy
+        /// must already be built. False = not yet.
+        /// </summary>
+        private bool TryPrepareTransferCopy(int index, Recording rec, long cycle, out GhostPlaybackState copy)
+        {
+            if (!host.Engine.TryGetCopyOfCycle(index, cycle, out copy))
+                return false;
+            if (IsCopyReadyForCamera(copy))
+                return true;
+            if (!host.Engine.TryGetGhostState(index, out GhostPlaybackState slot)
+                || !ReferenceEquals(slot, copy))
+                return false;
+            double currentUT = CurrentUTNow();
+            return host.Engine.EnsureGhostVisualsLoadedForWatch(
+                    index, rec, ResolveWatchPlaybackUT(rec, copy, currentUT, index), currentUT: currentUT)
+                && IsCopyReadyForCamera(copy);
+        }
+
+        private static bool IsCopyReadyForCamera(GhostPlaybackState copy)
+        {
+            return copy != null && copy.ghost != null && copy.cameraPivot != null;
         }
 
         /// <summary>
@@ -3216,8 +3264,13 @@ namespace Parsek
 
             var ghostStates = host.Engine.ghostStates;
 
-            if (Planetarium.GetUniversalTime() >= overlapRetargetAfterUT)
+            if (CurrentUTNow() >= overlapRetargetAfterUT)
             {
+                // An overlapping mission's copies end at their own ends, so the row the camera held on
+                // (or the mission's first row) may have no copy for the rest of the period.
+                if (host.Engine.IsSelfOverlapUnitMember(watchedRecordingIndex))
+                    return !TryRestartMissionWatchAfterHold();
+
                 // Destroy temp camera anchor
                 DestroyOverlapCameraAnchor();
                 overlapRetargetAfterUT = -1;
@@ -3287,6 +3340,75 @@ namespace Parsek
             }
         }
 
+        // A hold deadline in the past (zero and below mean "no hold").
+        private const double HoldAlreadyDueUT = 1e-3;
+
+        /// <summary>
+        /// After a hold in an overlapping mission: the camera moves to a copy that is drawn now
+        /// (<see cref="GhostPlaybackEngine.TryResolveSelfOverlapRestart"/>). With none, or one whose mesh
+        /// is not ready, the hold goes on and the next frame tries again: the mission relaunches, so the
+        /// watch session never ends here.
+        /// </summary>
+        private bool TryRestartMissionWatchAfterHold()
+        {
+            int endedIndex = watchedRecordingIndex;
+            double currentUT = CurrentUTNow();
+            if (host.Engine.TryResolveSelfOverlapRestart(
+                    endedIndex, RecordingStore.CommittedRecordings, currentUT,
+                    out int targetIndex, out long targetCycle))
+            {
+                if (targetIndex != endedIndex)
+                {
+                    if (TransferWatchToNextSegment(targetIndex, targetCycle))
+                    {
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, restarted mission watch on #{targetIndex} cycle={targetCycle}");
+                        return true;
+                    }
+                }
+                else if (TryPrepareTransferCopy(
+                        targetIndex, RecordingStore.CommittedRecordings[targetIndex], targetCycle,
+                        out GhostPlaybackState copy)
+                    && TryRetargetWatchCameraPreservingState(copy))
+                {
+                    overlapRetargetAfterUT = -1;
+                    watchedOverlapCycleIndex = copy.loopCycleIndex;
+                    watchNoTargetFrames = 0;
+                    DestroyOverlapCameraAnchor();
+                    ParsekLog.Info("CameraFollow",
+                        $"Overlap: hold ended, now following cycle={copy.loopCycleIndex}");
+                    LogWatchFocusStateChanged(copy, force: true, context: "hold-ended");
+                    return true;
+                }
+            }
+
+            ParsekLog.VerboseRateLimited("CameraFollow",
+                "overlap-hold-waits:" + endedIndex.ToString(CultureInfo.InvariantCulture),
+                $"Overlap: hold of #{endedIndex} goes on, no copy of the mission to follow yet", 5.0);
+            KeepHoldCameraStill();
+            return false;
+        }
+
+        // Not inlined: FlightCamera is a Unity read.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void KeepHoldCameraStill()
+        {
+            if (FlightCamera.fetch != null)
+                FlightCamera.fetch.pivotTranslateSharpness = 0f;
+            watchNoTargetFrames = 0;
+        }
+
+        // Not inlined: creates the anchor object and points the stock camera at it.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void PlaceOverlapCameraAnchor(string anchorName, Vector3 position)
+        {
+            DestroyOverlapCameraAnchor();
+            overlapCameraAnchor = new UnityEngine.GameObject(anchorName);
+            overlapCameraAnchor.transform.position = position;
+            if (FlightCamera.fetch != null)
+                FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+        }
+
         private bool HasPendingOverlapBridgeRetarget()
         {
             return watchedOverlapCycleIndex == -1 && IsUnityObjectAvailable(overlapCameraAnchor);
@@ -3348,6 +3470,20 @@ namespace Parsek
                 return false;
 
             overlapBridgeLastRetryFrame = currentFrame;
+
+            if (bridgeState == OverlapBridgeRetargetState.ExitWatch
+                && host.Engine.IsSelfOverlapUnitMember(watchedRecordingIndex))
+            {
+                // An edit of the loop ended the watched copy and the new schedule has no copy of this
+                // row now: the bridge becomes a hold, which picks up any copy of the mission.
+                watchedOverlapCycleIndex = GhostPlaybackEngine.WatchHoldCycleIndex;
+                overlapRetargetAfterUT = HoldAlreadyDueUT;
+                watchNoTargetFrames = 0;
+                overlapBridgeLastRetryFrame = -1;
+                ParsekLog.Info("CameraFollow",
+                    $"Overlap: bridge of #{watchedRecordingIndex} found no copy of its row - holding for the mission");
+                return true;
+            }
 
             if (bridgeState == OverlapBridgeRetargetState.ExitWatch)
             {

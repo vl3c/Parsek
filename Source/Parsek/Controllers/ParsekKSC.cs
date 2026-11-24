@@ -1070,7 +1070,11 @@ namespace Parsek
                     i, rec, currentUT, unit.OverlapCadenceSeconds, memberDuration,
                     memberStartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx,
                     keepCadence: memberHasFall,
-                    endAtOwnEnd: memberHasFall || GhostPlaybackLogic.EndsInPredictedTail(rec, memberEndUT));
+                    // Every copy ends at its own end, as in flight (owner ruling 2026-11-24).
+                    ends: new GhostPlaybackLogic.OverlapCopyEnds(
+                        memberEndUT,
+                        recorded: !memberHasFall
+                            && !GhostPlaybackLogic.EndsInPredictedTail(rec, memberEndUT)));
                 return;
             }
 
@@ -1296,7 +1300,7 @@ namespace Parsek
             double currentUT, double intervalSeconds, double duration,
             double playbackStartUT, double scheduleStartUT,
             float warpRate, bool suppressGhosts, bool suppressVisualFx, bool keepCadence = false,
-            bool endAtOwnEnd = false)
+            GhostPlaybackLogic.OverlapCopyEnds ends = default(GhostPlaybackLogic.OverlapCopyEnds))
         {
             GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
@@ -1332,8 +1336,8 @@ namespace Parsek
                 kscOverlapGhosts[recIdx] = overlaps;
             }
 
-            // A loop edit renumbers the launches: a fall copy of the schedule before it ends quietly.
-            if (endAtOwnEnd && !suppressGhosts)
+            // A loop edit renumbers the launches: a copy of the schedule before it ends quietly.
+            if (ends.AtOwnEnd && !suppressGhosts)
             {
                 if (primaryActive && IsStaleFallCopyKsc(
                         currentUT, primaryState, lastCycle, true, duration, cycleDuration,
@@ -1355,9 +1359,9 @@ namespace Parsek
                     }
             }
 
-            // A fall whose period is longer than its window ends at its own end (the overlap loop below
+            // A period longer than the window: the newest copy ends at its own end (the overlap loop below
             // expires it there) and its cycle is not drawn again before the next launch.
-            if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
+            if (ends.AtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
                     currentUT, lastCycle, scheduleStartUT, cycleDuration, duration))
             {
                 if (primaryActive)
@@ -1375,7 +1379,7 @@ namespace Parsek
                     UpdateKscOverlapCopies(
                         recIdx, rec, currentUT, overlaps, duration, cycleDuration,
                         playbackStartUT, scheduleStartUT, suppressVisualFx,
-                        keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                        keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue, ends);
                 return;
             }
 
@@ -1433,9 +1437,12 @@ namespace Parsek
                 primaryState = SpawnKscGhost(rec, recIdx);
                 if (primaryState == null) return;
                 primaryState.loopCycleIndex = lastCycle;
-                if (endAtOwnEnd)
+                if (ends.AtOwnEnd)
+                {
                     primaryState.fallClockOffsetUT =
                         scheduleStartUT + lastCycle * cycleDuration - playbackStartUT;
+                    primaryState.recordedEndCopy = ends.Recorded;
+                }
                 kscGhosts[recIdx] = primaryState;
                 PauseGhostAudioIfMenuOpen(primaryState);
                 ParsekLog.Verbose("KSCGhost",
@@ -1480,19 +1487,19 @@ namespace Parsek
             UpdateKscOverlapCopies(
                 recIdx, rec, currentUT, overlaps, duration, cycleDuration,
                 playbackStartUT, scheduleStartUT, suppressVisualFx,
-                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue, ends);
         }
 
         void DestroyStaleFallCopyKsc(int recIdx, GhostPlaybackState copy)
         {
             ParsekLog.VerboseRateLimited("KSCGhost",
                 "fall-stale-" + recIdx.ToString(CultureInfo.InvariantCulture),
-                $"Ghost #{recIdx} fall copy cycle={copy.loopCycleIndex} ended quietly: "
+                $"Ghost #{recIdx} {(copy.recordedEndCopy ? "loop" : "fall")} copy cycle={copy.loopCycleIndex} ended quietly: "
                     + "the loop's schedule changed under it");
             DestroyKscGhost(copy, recIdx);
         }
 
-        // Whether one fall copy is of a schedule the unit no longer flies; stamps the clock of one that
+        // Whether one own-end copy is of a schedule the unit no longer flies; stamps the clock of one that
         // is not (the flight engine's rule, GhostPlaybackLogic.IsStaleFallCopy).
         static bool IsStaleFallCopyKsc(
             double currentUT, GhostPlaybackState copy, long newestCycle, bool inSlot, double duration,
@@ -1515,7 +1522,7 @@ namespace Parsek
         void UpdateKscOverlapCopies(
             int recIdx, Recording rec, double currentUT, List<GhostPlaybackState> overlaps,
             double duration, double cycleDuration, double playbackStartUT, double scheduleStartUT,
-            bool suppressVisualFx, long oldestDrawnCycle)
+            bool suppressVisualFx, long oldestDrawnCycle, in GhostPlaybackLogic.OverlapCopyEnds ends)
         {
             for (int j = overlaps.Count - 1; j >= 0; j--)
             {
@@ -1540,14 +1547,24 @@ namespace Parsek
 
                 if (phase > duration)
                 {
-                    // Cycle expired — position at end, explode, destroy
-                    bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, ovState);
+                    // Cycle expired: position at the copy's own window end, explode, destroy.
+                    double endUT = GhostPlaybackLogic.ResolveOverlapCopyEndUT(ends, rec);
+                    bool endpointPositioned = PositionGhostAtLoopEndUT(recIdx, rec, ovState, endUT);
+                    if (ends.AtOwnEnd && endpointPositioned)
+                        ApplyKscEndEvents(recIdx, rec, ovState, endUT, phase - duration, suppressVisualFx);
                     if (ShouldTriggerKscExplosionAtCurrentPose(ovState, endpointPositioned, recIdx, rec, "overlap-expired")
-                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
-                            rec, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec)))
+                        && GhostPlaybackLogic.OverlapCopyExplodes(ends, rec))
                     {
                         TriggerExplosionIfDestroyed(ovState, rec, recIdx);
                     }
+                    if (ends.AtOwnEnd && ends.Recorded)
+                        ParsekLog.Verbose("KSCGhost",
+                            "Loop copy ended at its own end: #" + recIdx.ToString(CultureInfo.InvariantCulture)
+                                + " \"" + (rec.VesselName ?? "?") + "\" cycle="
+                                + cycle.ToString(CultureInfo.InvariantCulture)
+                                + " loopUT=" + (playbackStartUT + phase).ToString("F2", CultureInfo.InvariantCulture)
+                                + " endUT=" + endUT.ToString("F2", CultureInfo.InvariantCulture)
+                                + " reason=" + GhostPlaybackLogic.DescribeOverlapCopyEnd(rec, endUT));
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} overlap cycle={cycle} expired, destroying");
                     DestroyKscGhost(ovState, recIdx);
@@ -1592,13 +1609,39 @@ namespace Parsek
             if (state?.ghost == null || rec?.Points == null || rec.Points.Count == 0)
                 return false;
 
-            double endpointUT = GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec);
+            return PositionGhostAtLoopEndUT(
+                recIdx, rec, state, GhostPlaybackEngine.ResolveLoopPlaybackEndpointUT(rec));
+        }
+
+        bool PositionGhostAtLoopEndUT(int recIdx, Recording rec, GhostPlaybackState state, double endUT)
+        {
+            if (state?.ghost == null || rec?.Points == null || rec.Points.Count == 0)
+                return false;
+
             return InterpolateAndPositionKsc(
                 state,
                 rec,
                 ref state.playbackIndex,
                 ref state.kscPlaybackFrameSourceKey,
-                endpointUT);
+                endUT);
+        }
+
+        /// <summary>
+        /// The part events and the flag walk up to an own-end copy's end: its last drawn frame stopped a
+        /// step short of it and nothing draws the copy again. The flag walk is not culled by distance,
+        /// like the timeline-end walk (flags are world objects, placed once).
+        /// </summary>
+        void ApplyKscEndEvents(
+            int recIdx, Recording rec, GhostPlaybackState state, double endUT, double overshootSeconds,
+            bool suppressVisualFx)
+        {
+            if (pauseMenuOpen)
+                return;
+            if (ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost)))
+                GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, endUT, state,
+                    allowTransientEffects: !suppressVisualFx
+                        && overshootSeconds <= GhostPlaybackEngine.EndEventEffectsMaxOvershootSeconds);
+            GhostPlaybackLogic.ApplyFlagEvents(state, rec, endUT);
         }
 
         /// <summary>

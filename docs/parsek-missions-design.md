@@ -306,7 +306,25 @@ Debris rides along its parent leg via `ShouldSourceDebrisFromUnitSpan` (`GhostPl
 | Space Center | span clock | one copy, through the wait, cut at the next relaunch | one copy per launch |
 | Tracking Station | span clock | one copy, through the wait, cut at the next relaunch | one copy per launch |
 
-At most `MaxOverlapGhostsPerRecording` (20) copies of one recording are drawn; a fall's older copies end quietly and the cadence is never raised for a tail. A copy ends at its own end (with its explosion when it was destroyed): when the launch period is longer than the fall, nothing is drawn, on the mesh or the map, from that end to the next launch. A copy whose end is RECORDED, in a self-overlapping unit, is instead held at that end until the next launch. Above the ghost warp limit (50x) falls are hidden and a copy that ends meanwhile just goes. Editing a loop (its period, its members, its route schedule) while falls are in the air ends quietly every fall whose launch moved; the new schedule draws its own. Debris is not a member: its predicted tail past the span plays to its impact in flight and is not drawn in loops elsewhere. The first run's fall still in the air at the anchor keeps playing in flight on the real clock; spawns at a recording's end and the non-loop tail are unchanged. The unit line's `overlaps=` still means launch copies overlap launch copies; a fall overlapping the next launch is `fallOverlaps=yes`.
+At most `MaxOverlapGhostsPerRecording` (20) copies of one recording are drawn; a fall's older copies end quietly and the cadence is never raised for a tail. A copy ends at its own end (with its explosion when it was destroyed): when the launch period is longer than the fall, nothing is drawn, on the mesh or the map, from that end to the next launch. Above the ghost warp limit (50x) copies are hidden and one that ends meanwhile just goes. Editing a loop (its period, its members, its route schedule) while copies are in the air ends quietly every copy whose launch moved; the new schedule draws its own. Debris is not a member: its predicted tail past the span plays to its impact in flight and is not drawn in loops elsewhere. The first run's fall still in the air at the anchor keeps playing in flight on the real clock; spawns at a recording's end and the non-loop tail are unchanged. The unit line's `overlaps=` still means launch copies overlap launch copies; a fall overlapping the next launch is `fallOverlaps=yes`.
+
+**Every copy of a self-overlapping mission ends at its own end** (owner ruling 2026-11-24; built 2026-11-24 on branch `loop-own-end`, held for 1.0.4 by owner ruling, not merged; todo OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END). A row shorter than the period used to keep its newest copy frozen at its last frame until the next launch, beside the same vessel flying on as the next row; nobody asked for that (a clamp written for one recording's overlap, reused). The rule holds for members and ride-along debris alike, whether the end is recorded, trimmed or predicted:
+
+- A Destroyed ending explodes there, once. Every other ending (Landed, Splashed, Orbiting, SubOrbital, Docked, Boarded, Recovered, a row that continues) just goes, and the next row's copy carries on. No landed copy stays parked.
+- A member trimmed before its end ends quietly at its TRIMMED end: it is placed there, not at the recording's end, and explodes only when the trimmed window reaches the recording's end (within 0.05 s).
+- The copy's part events run up to its end first (at the Space Center its flag walk too; the flight overlap path never walks flags).
+- The flight mesh, the Space Center, the flight map, the Tracking Station and the watch clock read one end and one spacing (`GhostPlaybackLogic.HasOverlapCopyEnded`, `MemberOverlapCycleSeconds`, `OverlapCopyEnds`), so they agree on when a copy exists.
+- Unchanged: a loop that does not overlap itself (its span clock already hides each member at its own end), a standalone recording loop (its period is always shorter than its loop when it overlaps, so it never had the hold), the first run and its end spawn, and the fall rules above.
+
+The watch camera at an end (`WatchedCopyEnd`, decided by `DecideWatchedCopyEnd` alone):
+
+| What ended under the camera | What the camera does |
+| --- | --- |
+| A row, and the same vessel's next row of the SAME launch is drawn or starts within 3 s | The ended copy turns invisible and stays as the camera's target, at its end, until the handoff lands on that launch's own copy of the next row (never another launch's). The copy is built for the transfer, so this is normally one frame. High warp keeps the target |
+| A Destroyed row | The explosion hold (3 s of game time), and no row handoff while it lasts; then the restart below |
+| Anything else (the launch's last row, a trim, a trimmed-out stretch ahead) | A quiet hold of the same 3 s, then the restart below |
+
+The restart after a hold picks a copy that is drawn now: the mission's first row, else the newest launch's live row (the watched vessel first), else any row's copy. While there is none the hold goes on: a self-overlapping mission always relaunches, so the watch session is not ended there. An edit of the loop that ends the watched copy does the same once its bridge finds no copy of the row.
 
 ### 7.3 The build pipeline
 

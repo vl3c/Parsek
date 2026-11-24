@@ -4,6 +4,15 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 1.0.4
+
+Not released yet.
+
+### Fixed
+
+- **In an overlapping loop each ghost ends when its own recording ends.** It no longer stands frozen
+  until the next launch, or explodes a launch late. (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END)
+
 ## 1.0.3
 
 Not released yet.

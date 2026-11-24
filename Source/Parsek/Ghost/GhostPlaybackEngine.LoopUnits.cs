@@ -132,10 +132,12 @@ namespace Parsek
                         out double overlapMemberUT,
                         out long newestCycle,
                         memberHasFall)
-                    // A fall's newest copy that has ended is not drawn until the next launch.
-                    && !(memberHasFall && GhostPlaybackLogic.HasOverlapCopyEnded(
+                    // The newest copy that has ended is not drawn until the next launch: read on the
+                    // spacing the engine draws this member's copies with.
+                    && !GhostPlaybackLogic.HasOverlapCopyEnded(
                         currentUT, newestCycle, memberScheduleStartUT,
-                        GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit), memberDuration)))
+                        GhostPlaybackLogic.MemberOverlapCycleSeconds(unit, memberDuration, memberHasFall),
+                        memberDuration))
                 {
                     loopUT = overlapMemberUT;
                     return true;
@@ -582,7 +584,6 @@ namespace Parsek
             // loop schedule never has (-1) and replay it beside the new cycle-0 primary, so it
             // is retired here. (The span-clock branch retires it at its cycle-change rebuild.)
             bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
-            bool endAtOwnEnd = memberHasFall || GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT);
             if (memberHasFall)
                 TryKeepFirstRunFall(i, traj, ctx, unit.PhaseAnchorUT, ref state, ref ghostActive);
             if (ShouldRetireOrdinaryStateAtUnitHandover(state))
@@ -615,6 +616,17 @@ namespace Parsek
                 unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
             double memberPlaybackStartUT = memberStartUT;
 
+            // Every copy ends at its own end, its explosion included, and the same vessel's next row
+            // carries on (owner ruling 2026-11-24). The copy the camera follows ends for the camera too:
+            // see WatchedCopyEnd.
+            long watchedCycleHere = ctx.protectedIndex == i ? ctx.protectedLoopCycleIndex : -1;
+            var ends = new GhostPlaybackLogic.OverlapCopyEnds(
+                memberEndUT,
+                recorded: !memberHasFall && !GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT),
+                watchedCycle: watchedCycleHere,
+                watchedRowContinues: watchedCycleHere >= 0 && GhostPlaybackLogic.HasContinuingRow(
+                    unit, trajectories, i, watchedCycleHere, ctx.currentUT));
+
             // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
             // overlap meshes at high warp but keep the stationary newest primary visible.
             bool suppressOverlapGhosts = false;
@@ -629,10 +641,9 @@ namespace Parsek
                 {
                     GhostRenderTrace.EmitGuardSkip(
                         traj, i, ctx.currentUT, "unit-overlap-warp-hidden");
-                    if (endAtOwnEnd)
-                        DropEndedFallAtWarp(
-                            i, traj, f, ctx, unit.OverlapCadenceSeconds, memberDuration,
-                            memberScheduleStartUT, memberHasFall, ref state, ref ghostActive);
+                    DropEndedCopyAtWarp(
+                        i, traj, f, ctx, unit.OverlapCadenceSeconds, memberDuration,
+                        memberScheduleStartUT, memberHasFall, ends, ref state, ref ghostActive);
                     if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                     {
                         DeactivateGhostMesh(state);
@@ -674,10 +685,24 @@ namespace Parsek
             // still equals the ending member). The post-hold retarget then restarts the camera
             // on the through-line root. Diagnostics below still use the newest clock.
             bool watchedInstanceEnded = watchingThisUnitInstance && !watchPinnedToInstance;
+            // While the camera holds at an end (-2) nothing may pull it away: the hold's own restart
+            // picks the next target.
+            bool watchHolding = ctx.protectedLoopCycleIndex == WatchHoldCycleIndex
+                && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0;
+            // The watched member's own window is over and the same vessel's next row carries on: the
+            // handoff stays pending every frame until it lands, whatever the last frame's edge read.
+            bool watchedRowContinues = false;
             if (watchPinnedToInstance)
             {
                 handoffLoopUT = watchedInstLoopUT;
                 handoffCycle = ctx.protectedLoopCycleIndex;
+                IPlaybackTrajectory watched = ctx.protectedIndex < trajectories.Count
+                    ? trajectories[ctx.protectedIndex] : null;
+                watchedRowContinues = watched != null
+                    && watchedInstLoopUT > unit.MemberEndUT(ctx.protectedIndex, watched.EndUT)
+                        + LoopTiming.BoundaryEpsilon
+                    && GhostPlaybackLogic.HasContinuingRow(
+                        unit, trajectories, ctx.protectedIndex, ctx.protectedLoopCycleIndex, ctx.currentUT);
             }
             else
             {
@@ -688,7 +713,8 @@ namespace Parsek
             LogUnitTransitionIfChanged(
                 unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,
                 isInInterCycleTail: false, watchedIndex: ctx.protectedIndex,
-                suppressWatchRetarget: watchedInstanceEnded);
+                suppressWatchRetarget: watchedInstanceEnded || watchHolding,
+                handoffCycle: handoffCycle, watchedRowContinues: watchedRowContinues);
 
             ParsekLog.VerboseRateLimited(
                 "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
@@ -708,7 +734,7 @@ namespace Parsek
                 unit.OverlapCadenceSeconds, memberDuration,
                 memberPlaybackStartUT, memberScheduleStartUT,
                 suppressVisualFx, suppressOverlapGhosts,
-                keepCadence: memberHasFall, endAtOwnEnd: endAtOwnEnd);
+                keepCadence: memberHasFall, ends: ends);
         }
 
         /// <summary>
@@ -1312,7 +1338,7 @@ namespace Parsek
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
-            bool suppressWatchRetarget)
+            bool suppressWatchRetarget, long? handoffCycle = null, bool watchedRowContinues = false)
         {
             // Live camera member = the in-window member to point the watch camera at. -1 in the
             // inter-cycle wait or before the span. Selection is two-tier so a structural fork
@@ -1403,7 +1429,7 @@ namespace Parsek
                 lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering);
                 return;
             }
-            bool watchedWasRendering = prev.watchedRendering;
+            bool watchedWasRendering = prev.watchedRendering || watchedRowContinues;
             if (prev.cycle == cycle && prev.liveMemberIdx == liveMemberIdx
                 && watchedWasRendering == watchedIsRendering)
                 return;
@@ -1505,6 +1531,7 @@ namespace Parsek
                 {
                     Index = retargetMemberIdx,
                     Action = CameraActionType.UnitHandoffRetarget,
+                    RequiredCycleIndex = handoffCycle,
                 });
                 // If the watch camera did not transfer this frame (still on the old member because
                 // the target ghost is mid-build), the pure helper preserves the rendering edge so the
