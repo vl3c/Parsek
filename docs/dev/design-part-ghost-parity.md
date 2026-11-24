@@ -2513,7 +2513,10 @@ throttle, as ordinary play does. The independent-throttle cases and their ids do
   engine's (the Whiplash and the Panther spool at 0.2 /s and faster, so the ghost's bell trails by
   up to 5 s of its 80 s climb); a limiter, a throttle mode or a vessel throttle changed in flight on
   an engine that ignores the main throttle; an idling main throttle over a running independent
-  engine. The recorder does not gain the vessel's throttle for this (owner instruction of the task).
+  engine. The recorder does not gain the vessel's throttle for this.
+- Flown 2026-11-24 (throwaway lanes, todo PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN): both hot bells
+  read 0 px on both routes at full throttle (1 px on the Panther's bottom view), the start route
+  exactly at the real level (0.557) and the event route 0.02 to 0.04 of the clip below it.
 
 ### E.3 Capture changes
 
