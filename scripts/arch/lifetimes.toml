@@ -484,6 +484,11 @@ reason = "the ghost orbit arc-clip Harmony patch"
 drawnArcTapArmed = "scoped: armed by the DumpMapGeometry seam verb for one capture, disarmed in its finally and on timeout (ParsekTestCommandAddon.SetMapGeometryTapsArmed)"
 drawnArcClips = "scoped: filled only while the arc tap is armed; SetDrawnArcTapArmed(false) clears it"
 
+[[type]]
+name = "Parsek.TestCommands.EvaMoveInputPatch"
+default = "scoped"
+reason = "the EvaMove seam verb's input drive (automation only, Prepare-gated): armed by one EvaMove step's applier, disarmed by its completion, its reset and the addon's two-phase clear"
+
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its
 # write sites (the writes listed in the reason are every production write).

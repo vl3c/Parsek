@@ -1,0 +1,177 @@
+schema = 1
+id = "EVA-17-orbit-jetpack-hop-rewind"
+# =====================================================================================
+# EVA-17: A LIVE JETPACK FLIGHT RECORDED IN ORBIT AND READ BACK FROM THE GHOST.
+# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4, "Walking and jetpack
+# EVA recorded live"; todo EVA-JETPACK-LIVE-LANES-2026-11-23).
+#
+# WHY. Every committed EVA lane exits, floats, plants, boards or chutes; none flies the
+# jetpack, so the recorder's EVA poll (FlightRecorder.PartModuleStates.CheckEvaState:
+# EvaJetpackDeployed / EvaJetpackThrustStarted / Stopped) and the ghost's jetpack plume
+# (GhostPlaybackLogic.SynthesizedMotion, `EVA jetpack plume emitting`) were proven on
+# synthetic recordings only. The new `EvaMove` seam verb drives the kerbal with the
+# player's own input (EvaMoveInputPatch writes the fields the stock EVA_Pack_* keys write)
+# after deploying the pack through stock's ToggleJetpack, so the recorder sees a real burn.
+#
+# THE HOST is `eva2-lko-crewed`: Kerbal X in a 100 km orbit (Valentina and Bob aboard,
+# fixture UT 421.19), `Kerbal X Probe` 16 m away, the asteroid and four pad debris. The
+# jetpack cannot lift a kerbal off Kerbin's surface, so the orbit is the host.
+#
+# THE FLIGHT:
+#   (a) Record Kerbal X; Valentina out with release=true (EVA-15's shape: she floats beside
+#       the ship, so stock's toggle runs from st_idle_fl).
+#   (b) Four 0.5 s jetpack bursts, up / down / down / up, the last one stowing the pack. The
+#       direction is frozen in world space at each arm, so the pairs cancel and she ends near
+#       where she started (EvaBoard's reach is 10 m). The first burst is labelled `hop1`; its
+#       startUT is the replay target.
+#   (c) EvaBoard back into Kerbal X, stop, commit.
+#   (d) Rewind-to-Launch, then a SaveGame / LoadGame into FLIGHT (EVA-15's road). The
+#       asteroid AND the four pad debris are removed at stage, so the save's
+#       `activeVessel = 0` names an orbiting vessel beside the recorded formation (the probe,
+#       or Kerbal X when the rewind keeps it) instead of a pad debris 100 km below.
+#   (e) WarpToUT hop1's startUT at 1x: the replay plays the first burst with the viewer in
+#       the bubble, then FlightGhostPosition reads the ghosts by position (the kerbal ghost
+#       is an Absolute recording, so the absolute cell is the one this lane feeds).
+#
+# PRE-REGISTERED READING (first flight): recordings 4 (EVA-1's measured exact shape: root,
+# the EVA split's two children, the board merge); the recorder lines below; the plume line
+# for Valentina's ghost; the batch `total=3` with the split regexed (expected passed=1
+# skipped=2: no parent-anchored and no relative-anchor ghost on this subject).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: EVA-15's host and opening verbatim; no committed lane flies a jetpack.
+#   2 waits: explicit-UT WarpToUT only (424, then the handle).
+#   3 dwells: none beyond EvaExit's 10 s settle. 4 burns: four 0.5 s jetpack bursts.
+#   5 b5 coasts: none. 6 fail fast: every seam verb refuses in one frame; EvaMove times out
+#   at 90 s. 7 count: derived exactly above. 8 tier: operator by the calibration discipline
+#   until the first flight. 9 run tools/flight_efficiency.py on the first green flight.
+#   Takes no mouse and no focus: it can share a runner with other lanes.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23 (todo EVA-JETPACK-LIVE-LANES-2026-11-23). On eva2-lko-crewed: record Kerbal X, Valentina out (release), four 0.5 s jetpack bursts through the new EvaMove seam verb (up / down / down / up, the last stowing the pack), EvaBoard back, commit; Rewind-to-Launch, SaveGame / LoadGame into FLIGHT beside the formation, warp to the first burst's UT at 1x and run FlightGhostPosition. Gates the recorder's live EvaJetpackDeployed / EvaJetpackThrustStarted events and the ghost's jetpack plume on a real recording."
+instanceProfile = "stock-minimal"
+tags = ["EVA17", "eva", "jetpack", "eva-move", "rewind-to-launch", "ghost-render",
+        "ingame-batch", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167 (index 0) and the four landed `Kerbal X Debris` (indices 2..5): removed so
+# the reloaded save's `activeVessel = 0` names an orbiting vessel beside the formation
+# (header (d)).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[[fixture.liveState]]
+pid    = 1365670035
+remove = true
+
+[[fixture.liveState]]
+pid    = 3734310169
+remove = true
+
+[[fixture.liveState]]
+pid    = 1277750907
+remove = true
+
+[[fixture.liveState]]
+pid    = 2325190904
+remove = true
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the recorder's part-event lines and the plume line are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # (a) CI-1's LoadGame-race wait (fixture UT 421.19), then record and step out.
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaExit",    args = { kerbal = "Valentina Kerman", release = "true", settleSeconds = "10" }, expect = "OK", budget = 120 },
+  # (b) The burn under test.
+  { cmd = "MissionMark", args = { label = "eva17-hops" },                    expect = "OK" },
+  { cmd = "EvaMove",    args = { mode = "jetpack", dir = "up",   seconds = "0.5" }, label = "hop1", expect = "OK", budget = 90 },
+  { cmd = "EvaMove",    args = { mode = "jetpack", dir = "down", seconds = "0.5" }, label = "hop2", expect = "OK", budget = 90 },
+  { cmd = "EvaMove",    args = { mode = "jetpack", dir = "down", seconds = "0.5" }, label = "hop3", expect = "OK", budget = 90 },
+  { cmd = "EvaMove",    args = { mode = "jetpack", dir = "up",   seconds = "0.5", stow = "true" }, label = "hop4", expect = "OK", budget = 90 },
+  { cmd = "MissionMark", args = { label = "eva17-hops-done-ref-${hop4.refPid}" }, expect = "OK" },
+  # (c) Back aboard, then close the tree.
+  { cmd = "EvaBoard",                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (EVA-15, EX-1).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  # (d) Rewind, then into FLIGHT beside the formation.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "eva17-rewound" },                   expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "eva17-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # (e) The replay of the first burst at 1x, then the position read.
+  { cmd = "WarpToUT",   args = { ut = "${hop1.startUT}", maxRate = "1" },     expect = "OK", budget = 180 },
+  { cmd = "MissionMark", args = { label = "eva17-replay" },                  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "FlightGhostPosition" },         expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED (EVA-1's measured exact shape for exit + board): the root on Kerbal X, the EVA
+# split's two children, the board merge = 4. The rewind and the reload add none (EVA-15).
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required = [
+  "Mid-recording EVA detected: 'Valentina Kerman'",
+  # The seam drove the pack (ParsekTestCommandAddon.EvaMove.cs, TestCommandEvaMove.FormatStartLine).
+  "evamove start kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up seconds=0.5 stow=false startUT=[0-9.]+ packBefore=false ",
+  "evamove complete kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up effect=true ",
+  "evamove complete kerbal='Valentina Kerman' evaPid=[0-9]+ mode=jetpack dir=up effect=true deployed=false [^\\r\\n]*stowFires=[1-3]",
+  # THE SUBJECT, recorder side (FlightRecorder.PartModuleStates.cs CheckEvaState): the live
+  # deploy and the debounced thrust start, after the hops began.
+  "MISSIONMARK label=eva17-hops [\\s\\S]*?\\[Recorder\\] Part event: EvaJetpackDeployed 'kerbalEVA[A-Za-z]*' pid=[0-9]+ \\(eva\\)",
+  "MISSIONMARK label=eva17-hops [\\s\\S]*?\\[Recorder\\] Part event: EvaJetpackThrustStarted 'kerbalEVA[A-Za-z]*' ",
+  "detected boarding from EVA",
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # THE SUBJECT, ghost side (GhostPlaybackLogic.SynthesizedMotion.cs): the replayed burst
+  # plays the plume on Valentina's ghost.
+  "MISSIONMARK label=eva17-replay [\\s\\S]*?EVA jetpack plume emitting \\(vessel='Valentina Kerman' deployed=True thrusting=True ragdoll=False\\)",
+  # Pinned WHOLE off the first flight `2026-11-23_2112` (the pre-registered split).
+  "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=FlightGhostPosition scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evamove rejected reason=",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "FlightGhostPosition: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# Boot + LoadGame 300 + warp 120 + StartRecording 180 + EvaExit 120 + 4 x EvaMove 90 +
+# EvaBoard 120 + commit 120 + rewind 300 + save 120 + load 300 + warp 180 + RunTests 300
+# + the fast verbs, rounded up with boot margin.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

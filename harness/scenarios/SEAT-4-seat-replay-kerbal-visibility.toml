@@ -1,0 +1,127 @@
+schema = 1
+id = "SEAT-4-seat-replay-kerbal-visibility"
+# =====================================================================================
+# SEAT-4: A KERBAL IN AN EXTERNAL COMMAND SEAT, REPLAYED: DRAWN ONCE, NEVER TWICE OR NOT
+# AT ALL. AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4, "Command seat
+# replay"; todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23).
+#
+# WHY. SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing
+# replays it. A seated kerbal is a kerbal part coupled into the vehicle, so the vehicle
+# ghost carries it, and the dismount opens a separate EVA ghost of the same kerbal: a
+# replay can show him twice (in the seat and beside it) or not at all.
+#
+# THE FLIGHT is SEAT-1's (a) to (f) verbatim on `seat-pad` (LIVE-PROVEN 2026-10-24: board
+# complete ut~14.2, leave at ut=44.90, stop ut~54.9), committed in flight. Then:
+#   (g) Rewind-to-Launch, the stock Mallard launched onto the Runway as the viewer (GPOS-2's
+#       road: the pad stays free for the replay and the ghosts are inside the flight scene).
+#   (h) WarpToUT 41 at 10x (late in the seated leg, about 14-45), then the new
+#       `SeatGhostKerbal` category at 1x: every kerbal a live ghost carries as a kerbal part
+#       must be drawn on exactly one ghost for the whole sampling window (6 s real time,
+#       about UT 41-47). The window straddles the recorded dismount at 44.90, where the
+#       seated kerbal leaves the pod ghost and his EVA ghost appears: the handoff is where a
+#       replay shows him twice or not at all. One RunTests step (a batch-owning spec drives
+#       exactly one).
+#
+# PRE-REGISTERED READING: the batch `total=1` with passed=1 (a skip there means no live
+# ghost carried a kerbal part, which reds the regexed `passed=[1-9]`); the summary line names
+# `kerbals=Jebediah Kerman` with `longestTwice=0 longestMissing=0`.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: SEAT-1's flight verbatim; GPOS-2's viewer road.
+#   2 waits: explicit-UT WarpToUT only. 3 dwells: none. 4 burns: none. 5 b5 coasts: none.
+#   6 fail fast: seam verbs refuse in one frame; the RunTests holds one 6 s cell.
+#   7 count: SEAT-1's measured exact 6; the rewind adds none (GPOS-2).
+#   8 tier: operator by the calibration discipline until the first flight.
+#   9 run tools/flight_efficiency.py on the first green flight.
+#   Takes no mouse and no focus: it can share a runner with other lanes.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23 (todo SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23). SEAT-1's seat board and dismount on seat-pad, committed in flight, Rewound-to-Launch; the stock Mallard on the Runway as the viewer; the new SeatGhostKerbal category samples UT 41-47 across the recorded dismount (44.90) and fails when Jeb's kerbal part is drawn on two ghosts or on none for 10 consecutive frames."
+instanceProfile = "stock-minimal"
+tags = ["SEAT4", "SEAT1", "eva", "seat", "external-command-seat", "ghost-render",
+        "rewind-to-launch", "ingame-batch", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/seat-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  # (a)-(f) SEAT-1 verbatim.
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "SEAT1 Seat Pod" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "10" },                                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording", label = "sr",                                                 expect = "OK", budget = 180 },
+  { cmd = "EvaExit",        args = { kerbal = "Jebediah Kerman", release = "true", settleSeconds = "3" }, expect = "OK", budget = 120 },
+  { cmd = "EvaSeatBoard",                                                                 expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "45", maxRate = "1" },                          expect = "OK", budget = 120 },
+  { cmd = "EvaSeatLeave",                                                                 expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "55", maxRate = "1" },                          expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  # (g) Rewind, then the viewer on the Runway.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Mallard" },               expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                             expect = "OK", budget = 180 },
+  # (h) Late in the seated leg (at most 10x so the ghosts stay drawn), then the cell's
+  # 6 s window across the recorded dismount at 44.90.
+  { cmd = "WarpToUT",       args = { ut = "41", maxRate = "10" },                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "seat4-handoff" },                           expect = "OK" },
+  { cmd = "RunTests",       args = { category = "SeatGhostKerbal" },                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# SEAT-1's measured exact 6; the rewind adds none.
+count = { min = 6, max = 6 }
+
+[expectations.logContracts]
+required = [
+  "evaseatboard complete kerbal='Jebediah Kerman' vesselPid=[0-9]+ seatPart=seatExternalCmd seatId=[0-9]+",
+  "evaseatleave complete kerbal='Jebediah Kerman' kerbalPid=[0-9]+ vehiclePid=[0-9]+",
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "launchfromeditor complete scene=FLIGHT vessel=Mallard pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  # THE SUBJECT (GhostKerbalVisibility.FormatSummary): Jeb drawn once across the handoff.
+  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?SeatGhostKerbal summary scene=FLIGHT frames=[0-9]+ framesWithKerbal=[1-9][0-9]* once=[1-9][0-9]* twice=[0-9]+ missing=[0-9]+ longestTwice=0 longestMissing=[01] kerbals=Jebediah Kerman",
+  # Pinned WHOLE off the first flight `2026-11-23_2114`, whose summary read frames=359
+  # framesWithKerbal=354 once=353 twice=0 missing=1 longestTwice=0 longestMissing=1 (one frame at
+  # the handoff, the pre-registered reading was 0).
+  "MISSIONMARK label=seat4-handoff ut=[\\s\\S]*?BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=SeatGhostKerbal scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Tree branch created: type=Undock",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "goeditor (?:rejected|error) ",
+  "launchfromeditor refused",
+]
+
+[runtime]
+# SEAT-1's 1500 + rewind 300 + editor 120 + launch 180 + warp 120 + RunTests 120,
+# rounded up with boot margin.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

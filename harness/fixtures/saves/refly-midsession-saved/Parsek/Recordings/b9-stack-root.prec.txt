@@ -1,0 +1,95 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = b9-stack-root
+sidecarEpoch = 0
+sectionAuthoritative = False
+POINT
+{
+	ut = 21.159999999999638
+	lat = -0.0972
+	lon = -74.5577
+	alt = 80
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 36.159999999999641
+	lat = -0.0972
+	lon = -74.5577
+	alt = 2400
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 51.159999999999641
+	lat = -0.0972
+	lon = -74.5577
+	alt = 9000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 66.159999999999641
+	lat = -0.0972
+	lon = -74.5577
+	alt = 22000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 81.159999999999641
+	lat = -0.0972
+	lon = -74.5577
+	alt = 41000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}

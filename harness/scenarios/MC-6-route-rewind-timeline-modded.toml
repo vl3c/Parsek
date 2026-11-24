@@ -1,0 +1,145 @@
+schema = 1
+id = "MC-6-route-rewind-timeline-modded"
+# =====================================================================================
+# MC-6: H6's route x rewind batch on the modded-compat install (todo
+# TEST-GAPS-B4-MODDED-TWINS; test-gap list batch 4, AUTHORED AND FLOWN 2026-11-23).
+#
+# WHY. Every supply-route and Re-Fly lane flies stock-minimal / stock-tree; the modded-compat
+# install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation,
+# KSPCF) only ever ran MC-1..MC-5 and the part parity sweeps. This twin runs H6's
+# RouteRewindTimeline category (route-rewind lifecycle rows, dormant classify and Tick
+# materialize, kept-route reconcile, the pending-science cutoff drop, the live auto-pause /
+# resume nets) unchanged on that install, on the same `gloops-airshow` host MC-1 already loads
+# there, so a mod that changes part or save shapes under the route / rewind seams reds here.
+#
+# THE TWIN RULE. Steps, host and every log contract are H6's verbatim; only the id, the
+# install and the batch pin differ. The pin keeps H6's `total=7` and regexes the split until
+# the first flight (the interim form), then pins it whole. H6's own spec stays the authority
+# for what each contract means.
+#
+# FAST-LANE CHECKLIST: H6's shape (one load, one batch, no flight); retry `once`; operator
+# until measured (the modded install is not in the nightly instance set).
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23: H6's RouteRewindTimeline in-game category run unchanged on the modded-compat install (Waterfall, ReStock, B9PartSwitch, Kopernicus, BetterTimeWarp, PersistentRotation) on gloops-airshow; the route-rewind lifecycle rows, dormant materialize, kept-route reconcile and auto-pause / resume nets must hold with the mods loaded."
+instanceProfile = "modded-compat"
+tags = ["route", "rewind", "logistics", "route-x-rewind", "timeline-events", "MC-6", "modded-compat", "twin-of-H6", "flown"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5). No injected recordings: every test
+# builds and tears down its own synthetic routes / trees / ledger rows in memory.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so the
+# recording-rules suppression applies (count.max = 0 below). RunTests is the
+# single BATCH owner; its 540 per-step budget is the deferred cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteRewindTimeline" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the category drives the route <-> rewind interaction surface end to
+# end in live KSP (D10 route-x-rewind), a real ReconciliationBundle.Capture ->
+# Restore(cutoff) pass (D9 reconciliation-bundle), and genuine route ledger rows
+# written / retired through the live Ledger (D8 route). The run is SANDBOX on
+# the FLIGHT-scene pod host (D14). NOT claimed: rewind-to-separation / refly-gate
+# (no real RP invoke - the operator-tier S1.5/S4.1 own those) and the D10
+# delivery/dispatch tokens (no cargo moves in this category).
+D10 = ["route-x-rewind"]
+D9  = ["reconciliation-bundle"]
+D8  = ["route"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. Every spec but S1.6 carried it that way until
+# 2026-07-26; hlib.validate_spec now REJECTS the misplaced form, so this table must
+# stay ahead of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings and every test removes its
+# synthetic ones in finally - a leak into the save reds. Also selects the
+# recording-rules log-validation suppression (a legitimately recording-free run
+# must not red on REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# One grep-stable line per behavior the wave shipped, all emitted by PRODUCTION
+# code paths the tests drive (not test-log echoes), plus the batch tally.
+# The former PENDING-OPERATOR ("the first live run must confirm the seven tests
+# PASS from the gloops host") is CLOSED: the 2026-07-24 first live run was a
+# FULL PASS on attempt 1 with all seven verifiers green.
+#
+# Contract hardening notes (PR #1334 review):
+# - The batch tally pins BOTH failed=0 AND skipped=0 (runner line format:
+#   "failed={2} skipped={3}", InGameTestRunner.cs:1074). Without the skipped
+#   pin, a permanently-skipping DormantRoute_MaterializesViaScenarioDrivenTick
+#   (the ONLY production-wiring proof) would stay invisible because the
+#   sibling dormant test emits the same Materialize line.
+# - ANTI-VACUITY (hlib.batch_contract_vacuity_gap): `failed=0 skipped=0` was
+#   still satisfied by an EMPTY batch (`total=0 passed=0 failed=0 skipped=0`,
+#   which a renamed / mis-typed category selector produces), so the tally now
+#   pins total AND passed too. The derivation is closed:
+#   RouteRewindTimelineRuntimeTests declares exactly 7
+#   [InGameTest(Category = Category)] methods, every one scene-agnostic (no
+#   Scene = argument, so RequiredScene == AnyScene) and batch-allowed
+#   (AllowBatchExecution default true), so all 7 are eligible and execute at
+#   whatever scene the batch runs in. The 2026-07-24 live PASS met the
+#   `failed=0 skipped=0` pin over those 7, which fixes passed = total = 7.
+#   Adding a test to the category moves BOTH numbers here, same commit.
+#   EVIDENCE STANDING - this pin is DERIVED, not read off a line. Unlike H5 /
+#   M1 / M2 / S1.4, no archived H6 log carries a whole BATCH_COMPLETE tally:
+#   the 2026-07-24 pin contained no total / passed / category / scene tokens,
+#   so the PASS proves only `failed=0 skipped=0`. total=passed=7 follows from
+#   that plus the attribute count above (skipped=0 over 7 eligible tests forces
+#   passed=7). `category=RouteRewindTimeline` is the driver's own RunTests
+#   argument. `scene=FLIGHT` is the ONE token with no H6-specific evidence at
+#   all: it is inferred from the fixture, gloops-airshow, which carries a
+#   focusable vessel, so TestCommandLoadGame.DecideLoadRoute takes the
+#   Focusable/FLIGHT route - the same rule H5 and S1.4 MEASURED on the same
+#   fixture. Fail mode if the inference is wrong: a loud RED naming the real
+#   scene on the next run, never a false green. Re-pin from the measured line
+#   the first time an H6 run archives a log.
+# - Every LifecycleMarker regex ends in " ut=" so it can only match a genuine
+#   emission line ("... reason=X ut=<UT> seq=..."), never the "SKIPPED - live
+#   UT unresolved" warn line (RouteOrchestrator.cs:3613), which puts
+#   " SKIPPED" where the emission puts " ut=".
+# - ": routes at rewind cutoff" is emitted ONLY by the shared
+#   ReconcileStoreAtRewind classifier summary (newly-dormant or reconciled
+#   routes present) - unlike the InstallRoutesAtRewind line, it cannot be
+#   satisfied by a test's own store setup/teardown calls.
+required  = [
+  "LifecycleMarker: .*type=RoutePaused reason=player-pause ut=",
+  "LifecycleMarker: .*type=RouteResumed reason=player-activate ut=",
+  "LifecycleMarker: .*reason=AutoPause:MissingSourceRecording ut=",
+  "LifecycleMarker: .*reason=AutoResume:SourcesRestored ut=",
+  "LifecycleMarker: .*reason=AutoResume:CatchUp ut=",
+  ": routes at rewind cutoff",
+  "Materialize: 1 dormant route\\(s\\) materialized",
+  "kept-route status fidelity at cutoff",
+  "Restore: retired 1 free-standing route row\\(s\\)",
+  "Restore: dropped 1 pending science subject\\(s\\)",
+  "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
+  "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom. The category itself is fast (six synchronous tests plus one
+# <= 10 s production-tick wait), so the real batch runs well under the cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

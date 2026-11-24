@@ -54,6 +54,7 @@ namespace Parsek.Tests
         [InlineData("RecoveryScopeVesselRetrievalPatch", "science and milestone rewards")]
         [InlineData("FreeTechUnlockCapturePatch", "science and milestone rewards")]
         [InlineData("AutomationFocusLockSuppressionPatch", "automated testing")]
+        [InlineData("EvaMoveInputPatch", "automated testing")]
         [InlineData("PhysicsFramePatch", "flight recording")]
         [InlineData("FlagPickUpCapturePatch", "flight recording")]
         [InlineData("RevertToLaunchInterceptor", "revert, rewind and scene changes")]

@@ -254,7 +254,12 @@ count = { min = 2, max = 2 }
 #  - 2026-09-28: re-pinned WHOLE off `2026-09-28_2105` (12 passed, 0 skipped) after the host
 #    move to career-earned-pad and the R&D cell's two test-only fixes (see the header);
 #    first PASS on this pin `2026-09-29_1506`.
-required  = ["BATCH_COMPLETE v1 total=12 passed=12 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
+#  - 2026-11-23 (test-gap list batch 4, todo TEST-GAPS-BATCH4-CAREER): total=13, the facility
+#    Rebuild pairing cell `FacilityRebuildRefusedWithTheMenusReason`
+#    (`InGameTests/StockUiFacilityRebuildTests.cs`) added. It needs a facility at stock level 0
+#    on this host and skips otherwise, so the split was regexed until its
+#    first flight; pinned WHOLE off `2026-11-23_2124` (13 passed, 0 skipped, as predicted).
+required  = ["BATCH_COMPLETE v1 total=13 passed=13 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

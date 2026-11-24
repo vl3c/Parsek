@@ -88,6 +88,22 @@ namespace Parsek.TestCommands
         /// with <c>brakeTorque * brakePercentage</c> (60 at 100% on the EM-16) and it stops, as a
         /// player brakes a rotor.</summary>
         RotorBrake,
+        /// <summary>Breaks a deployable part (a solar panel, an antenna, a radiator) the way an
+        /// over-speed or an impact does: stock's own <c>ModuleDeployablePart.breakPanels()</c>
+        /// (KSP 1.12.5 decompiled: public virtual, called from the module's collision and
+        /// aero-load checks; it flings the break subtree off as physical objects and sets
+        /// <c>deployState = BROKEN</c>). Not a part-menu button: no player control breaks a
+        /// panel, so the verb calls the method the physics path calls. Stock itself returns
+        /// without breaking on a PACKED part, with the NoCrashDamage cheat on, and on a module
+        /// with neither a pivot nor a break transform; <c>state=</c> then still reads the old
+        /// <c>deployable:state=</c>.</summary>
+        BreakPanel,
+        /// <summary>Breaks a wheel or landing leg the way an over-stress or a hard landing
+        /// does: stock's own <c>ModuleWheels.ModuleWheelDamage.DamageWheel()</c> (KSP 1.12.5
+        /// decompiled: public, a <c>[ContextMenu("Damage Wheel")]</c> debug entry whose body is
+        /// <c>SetDamaged(true)</c>, the call the module's own stress and impact checks make).
+        /// Not a part-menu button for a player either.</summary>
+        BreakWheel,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -95,7 +111,11 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo, Rotor, Chute }
+        internal enum ReadingKind
+        {
+            Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo, Rotor, Chute,
+            Deployable, WheelDamage,
+        }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -144,6 +164,18 @@ namespace Parsek.TestCommands
         /// <c>CUT</c>), read after the press, so a lane can tell an armed chute from an open one.</summary>
         internal static PartActionModuleReading Chute(string deploymentState)
             => new PartActionModuleReading { Kind = ReadingKind.Chute, Name = deploymentState };
+
+        /// <summary>A deployable part's observed <c>ModuleDeployablePart.deployState</c> name
+        /// (<c>RETRACTED</c>, <c>EXTENDED</c>, <c>BROKEN</c>, ...), read after a
+        /// <c>breakpanel</c> press only, so a lane can tell a broken panel from one stock
+        /// declined to break.</summary>
+        internal static PartActionModuleReading Deployable(string deployState)
+            => new PartActionModuleReading { Kind = ReadingKind.Deployable, Name = deployState };
+
+        /// <summary>A wheel's <c>ModuleWheelDamage.isDamaged</c>, read after a
+        /// <c>breakwheel</c> press only.</summary>
+        internal static PartActionModuleReading WheelDamage(bool damaged)
+            => new PartActionModuleReading { Kind = ReadingKind.WheelDamage, Flag = damaged };
     }
 
     /// <summary>The warp context of a press, read right after it: the target vessel's
@@ -196,7 +228,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake|breakpanel|breakwheel [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [partPid=&lt;part persistentId&gt;] [resource=&lt;resource name&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
@@ -279,6 +311,20 @@ namespace Parsek.TestCommands
     /// <b>rotorbrake</b> presses the rotor's own <c>BrakeAction</c> (the Brakes action group's
     /// action) as <c>Activate</c>: a disengaged rotor coasts, the brake stops it.</para>
     ///
+    /// <para><b>breakpanel / breakwheel</b> break a part the way physics does, for a lane that
+    /// must record a break no seam can otherwise cause on a parked craft (todo
+    /// TEST-GAPS-B4-PART-BREAKS). Candidates are the named parts' <c>ModuleDeployablePart</c>
+    /// modules (solar panels, antennas, deployable radiators) whose <c>deployState</c> is not
+    /// BROKEN, or their <c>ModuleWheelDamage</c> modules not yet damaged; named parts carrying
+    /// none refuse <c>deployable-not-found</c> / <c>wheel-not-found</c>, and an already broken
+    /// one is <c>event-unavailable</c>. The press calls stock's own
+    /// <c>ModuleDeployablePart.breakPanels()</c> / <c>ModuleWheelDamage.DamageWheel()</c>, the
+    /// methods the collision, aero-load and stress checks call, and <c>state=</c> then reads
+    /// <c>deployable:state=</c> / <c>wheel:damaged=</c> (only for these two buttons, so every
+    /// other button's state string is unchanged). <c>breakPanels</c> returns without breaking
+    /// on a PACKED part or with stock's NoCrashDamage cheat on, so a lane pins
+    /// <c>state='deployable:state=BROKEN'</c> rather than trusting the OK.</para>
+    ///
     /// <para><b>partPid=</b> (any button) keeps only the named part whose
     /// <c>Part.persistentId</c> it is, for a vessel that carries several parts of one name.
     /// <b>transfer</b> (<c>resource=</c> REQUIRED, refused elsewhere) fills the ONE named part
@@ -352,6 +398,20 @@ namespace Parsek.TestCommands
         internal const string RotorOnToken = "rotoron";
         internal const string RotorOffToken = "rotoroff";
         internal const string RotorBrakeToken = "rotorbrake";
+        internal const string BreakPanelToken = "breakpanel";
+        internal const string BreakWheelToken = "breakwheel";
+
+        /// <summary>The <c>event=</c> of every breakpanel: stock's
+        /// <c>ModuleDeployablePart.breakPanels()</c>.</summary>
+        internal const string BreakPanelEventName = "breakPanels";
+
+        /// <summary>The <c>event=</c> of every breakwheel: stock's
+        /// <c>ModuleWheelDamage.DamageWheel()</c>.</summary>
+        internal const string BreakWheelEventName = "DamageWheel";
+
+        /// <summary>The <c>deployState</c> name a broken deployable reads
+        /// (<c>ModuleDeployablePart.DeployState.BROKEN</c>).</summary>
+        internal const string BrokenDeployStateName = "BROKEN";
 
         /// <summary>The Breaking Ground module the rotor buttons press.</summary>
         internal const string RotorModuleName = "ModuleRoboticServoRotor";
@@ -389,7 +449,7 @@ namespace Parsek.TestCommands
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
             ExplodeToken, ChuteToken, RunTestToken, TransferToken, ServoMaxToken, ServoMinToken,
-            RotorOnToken, RotorOffToken, RotorBrakeToken,
+            RotorOnToken, RotorOffToken, RotorBrakeToken, BreakPanelToken, BreakWheelToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -446,6 +506,8 @@ namespace Parsek.TestCommands
         internal const string TransferNothingMovedReason = "partaction-transfer-nothing-moved";
         internal const string ServoNotFoundReason = "partaction-servo-not-found";
         internal const string RotorNotFoundReason = "partaction-rotor-not-found";
+        internal const string DeployableNotFoundReason = "partaction-deployable-not-found";
+        internal const string WheelNotFoundReason = "partaction-wheel-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -495,6 +557,8 @@ namespace Parsek.TestCommands
             "partaction-transfer-nothing-moved",
             "partaction-servo-not-found",
             "partaction-rotor-not-found",
+            "partaction-deployable-not-found",
+            "partaction-wheel-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -535,6 +599,8 @@ namespace Parsek.TestCommands
                 case RotorOnToken: kind = PartActionKind.RotorOn; return null;
                 case RotorOffToken: kind = PartActionKind.RotorOff; return null;
                 case RotorBrakeToken: kind = PartActionKind.RotorBrake; return null;
+                case BreakPanelToken: kind = PartActionKind.BreakPanel; return null;
+                case BreakWheelToken: kind = PartActionKind.BreakWheel; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -567,6 +633,8 @@ namespace Parsek.TestCommands
                 case PartActionKind.RotorOn: return RotorOnToken;
                 case PartActionKind.RotorOff: return RotorOffToken;
                 case PartActionKind.RotorBrake: return RotorBrakeToken;
+                case PartActionKind.BreakPanel: return BreakPanelToken;
+                case PartActionKind.BreakWheel: return BreakWheelToken;
                 default: return "unknown";
             }
         }
@@ -616,6 +684,37 @@ namespace Parsek.TestCommands
             => kind == PartActionKind.RotorOn || kind == PartActionKind.RotorOff
                 || kind == PartActionKind.RotorBrake;
 
+        /// <summary>True for the two break buttons, whose candidates come from one stock module
+        /// type each (<c>ModuleDeployablePart</c> / <c>ModuleWheelDamage</c>) not yet broken, and
+        /// are pressed by a direct call of the stock method the physics path calls
+        /// (<see cref="BreakPanelEventName"/> / <see cref="BreakWheelEventName"/>), not a part-menu
+        /// event.</summary>
+        internal static bool IsBreakKind(PartActionKind kind)
+            => kind == PartActionKind.BreakPanel || kind == PartActionKind.BreakWheel;
+
+        /// <summary>A break button's candidate gate for one module: a deployable whose
+        /// <c>deployState</c> is not already BROKEN, or a wheel not already damaged. A broken
+        /// one is no candidate, so a second press on the same part is
+        /// <c>event-unavailable</c>, as a hidden part-menu button is.</summary>
+        internal static bool IsBreakCandidate(PartActionKind kind, string deployState, bool wheelDamaged)
+        {
+            if (kind == PartActionKind.BreakPanel)
+                return !string.Equals(deployState, BrokenDeployStateName, StringComparison.Ordinal);
+            if (kind == PartActionKind.BreakWheel) return !wheelDamaged;
+            return false;
+        }
+
+        /// <summary>The <c>event=</c> a break button reports, or null for any other kind.</summary>
+        internal static string BreakEventNameFor(PartActionKind kind)
+        {
+            switch (kind)
+            {
+                case PartActionKind.BreakPanel: return BreakPanelEventName;
+                case PartActionKind.BreakWheel: return BreakWheelEventName;
+                default: return null;
+            }
+        }
+
         /// <summary>True when <paramref name="moduleName"/> is <see cref="RotorModuleName"/>
         /// (exact, ordinal).</summary>
         internal static bool IsRotorModuleName(string moduleName)
@@ -653,7 +752,7 @@ namespace Parsek.TestCommands
         /// <c>servo-not-found</c> / <c>rotor-not-found</c> gate.</summary>
         internal static bool IsTypedModuleKind(PartActionKind kind)
             => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind) || IsServoKind(kind)
-                || IsRotorKind(kind);
+                || IsRotorKind(kind) || IsBreakKind(kind);
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -921,6 +1020,8 @@ namespace Parsek.TestCommands
             if (IsTransferKind(kind) && typedModules == 0) return ResourceNotFoundReason;
             if (IsServoKind(kind) && typedModules == 0) return ServoNotFoundReason;
             if (IsRotorKind(kind) && typedModules == 0) return RotorNotFoundReason;
+            if (kind == PartActionKind.BreakPanel && typedModules == 0) return DeployableNotFoundReason;
+            if (kind == PartActionKind.BreakWheel && typedModules == 0) return WheelNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
@@ -964,7 +1065,8 @@ namespace Parsek.TestCommands
         /// <c>rotor:engaged=0|1 rpmLimit=&lt;F2&gt; torqueLimit=&lt;F2&gt;</c> (<c>servoMotorIsEngaged</c>,
         /// the RPM the motor drives it to and the torque limit, percent); a parachute
         /// <c>chute:state=&lt;deploymentState&gt;</c> (<c>ModuleParachute.deploymentState</c>,
-        /// <c>ACTIVE</c> when armed). Invariant culture;
+        /// <c>ACTIVE</c> when armed); after a break button only, a deployable
+        /// <c>deployable:state=&lt;deployState&gt;</c> and a wheel <c>wheel:damaged=0|1</c>. Invariant culture;
         /// empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
@@ -1006,6 +1108,12 @@ namespace Parsek.TestCommands
                         break;
                     case PartActionModuleReading.ReadingKind.Chute:
                         parts.Add("chute:state=" + (r.Name ?? string.Empty));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Deployable:
+                        parts.Add("deployable:state=" + (r.Name ?? string.Empty));
+                        break;
+                    case PartActionModuleReading.ReadingKind.WheelDamage:
+                        parts.Add("wheel:damaged=" + (r.Flag ? "1" : "0"));
                         break;
                 }
             }

@@ -138,6 +138,8 @@ DECOUPLER_UID = 4261170001
 TANK_UID = 4261170002
 PROBE_UID = 4261170003
 
+_DEFAULT_UIDS = (DECOUPLER_UID, TANK_UID, PROBE_UID)
+
 # The stand's staging: its own first stage (2), ahead of the Flea's RT-5 (1) and chute (0).
 STAND_STAGE = 2
 
@@ -201,37 +203,40 @@ def decoupler_tail():
     return tail.replace(EJECTION_FROM, EJECTION_TO)
 
 
-def layout(host_pos, fin_band_dy):
+def layout(host_pos, fin_band_dy, azimuth_deg=AZIMUTH_DEG, uids=None, stage=STAND_STAGE):
     """The three appended parts as dicts of their derived scalars, parent first.
-    ``fin_band_dy`` is the base fins' attPos0 y on the booster."""
-    a = math.radians(AZIMUTH_DEG)
+    ``fin_band_dy`` is the base fins' attPos0 y on the booster. ``azimuth_deg``, ``uids``
+    (decoupler, tank, probe) and ``stage`` default to this craft's one stand; the twin
+    builder (build_cs_flea_twin_probe_craft.py) places a second stand with its own."""
+    dec_uid, tank_uid, probe_uid = uids or _DEFAULT_UIDS
+    a = math.radians(azimuth_deg)
     out_dir = (math.cos(a), 0.0, math.sin(a))
     bottom_y = host_pos[1] + RT5_BOTTOM_NODE
     tank_y = bottom_y + T100_HALF
-    rot = _quat_y(180.0 - AZIMUTH_DEG)
+    rot = _quat_y(180.0 - azimuth_deg)
     dec_pos = (host_pos[0] + DECOUPLER_RADIUS * out_dir[0], host_pos[1] + fin_band_dy,
                host_pos[2] + DECOUPLER_RADIUS * out_dir[2])
     tank_pos = (dec_pos[0] + CHILD_OFFSET * out_dir[0], tank_y,
                 dec_pos[2] + CHILD_OFFSET * out_dir[2])
     probe_dy = T100_HALF - STAYPUTNIK_BOTTOM_NODE
     probe_pos = (tank_pos[0], tank_y + probe_dy, tank_pos[2])
-    dec = dict(name="radialDecoupler", uid=DECOUPLER_UID, pos=dec_pos,
+    dec = dict(name="radialDecoupler", uid=dec_uid, pos=dec_pos,
                att_pos0=tuple(d - h for d, h in zip(dec_pos, host_pos)),
-               rot=rot, att_rot0=rot, istg=STAND_STAGE, dstg=STAND_STAGE + 1, sidx=0,
-               sqor=STAND_STAGE, sep=STAND_STAGE, attm=1,
-               links=["fuelTankSmallFlat_%d" % TANK_UID], attn=[],
+               rot=rot, att_rot0=rot, istg=stage, dstg=stage + 1, sidx=0,
+               sqor=stage, sep=stage, attm=1,
+               links=["fuelTankSmallFlat_%d" % tank_uid], attn=[],
                srfn=HOST, tail=decoupler_tail())
-    tank = dict(name="fuelTankSmallFlat", uid=TANK_UID, pos=tank_pos,
+    tank = dict(name="fuelTankSmallFlat", uid=tank_uid, pos=tank_pos,
                 att_pos0=(-CHILD_OFFSET, tank_y - dec_pos[1], 0.0), rot=rot, att_rot0=(0.0, 0.0, 0.0, 1.0),
-                istg=STAND_STAGE, dstg=STAND_STAGE + 1, sidx=-1, sqor=-1, sep=STAND_STAGE,
-                attm=1, links=["probeCoreSphere.v2_%d" % PROBE_UID],
-                attn=[("top", "probeCoreSphere.v2_%d" % PROBE_UID, T100_HALF)],
-                srfn="radialDecoupler_%d" % DECOUPLER_UID, tail=TAILS["fuelTankSmallFlat"])
-    probe = dict(name="probeCoreSphere.v2", uid=PROBE_UID, pos=probe_pos,
+                istg=stage, dstg=stage + 1, sidx=-1, sqor=-1, sep=stage,
+                attm=1, links=["probeCoreSphere.v2_%d" % probe_uid],
+                attn=[("top", "probeCoreSphere.v2_%d" % probe_uid, T100_HALF)],
+                srfn="radialDecoupler_%d" % dec_uid, tail=TAILS["fuelTankSmallFlat"])
+    probe = dict(name="probeCoreSphere.v2", uid=probe_uid, pos=probe_pos,
                  att_pos0=(0.0, probe_dy, 0.0), rot=rot, att_rot0=(0.0, 0.0, 0.0, 1.0),
-                 istg=STAND_STAGE, dstg=STAND_STAGE + 1, sidx=-1, sqor=-1, sep=STAND_STAGE,
+                 istg=stage, dstg=stage + 1, sidx=-1, sqor=-1, sep=stage,
                  attm=0, links=[],
-                 attn=[("bottom", "fuelTankSmallFlat_%d" % TANK_UID, STAYPUTNIK_BOTTOM_NODE)],
+                 attn=[("bottom", "fuelTankSmallFlat_%d" % tank_uid, STAYPUTNIK_BOTTOM_NODE)],
                  srfn=None, tail=TAILS["probeCoreSphere.v2"])
     return [dec, tank, probe]
 

@@ -116,7 +116,7 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
                 "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
-                "servomin", "rotoron", "rotoroff", "rotorbrake" },
+                "servomin", "rotoron", "rotoroff", "rotorbrake", "breakpanel", "breakwheel" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -327,7 +327,8 @@ namespace Parsek.Tests
                 Assert.Equal(token == "activate", TestCommandPartAction.IsEngineKind(kind));
                 Assert.Equal(token == "activate" || token == "radiatoron" || token == "radiatoroff"
                     || token == "chute" || token == "servomax" || token == "servomin"
-                    || token == "rotoron" || token == "rotoroff" || token == "rotorbrake",
+                    || token == "rotoron" || token == "rotoroff" || token == "rotorbrake"
+                    || token == "breakpanel" || token == "breakwheel",
                     TestCommandPartAction.IsTypedModuleKind(kind));
             }
             Assert.False(TestCommandPartAction.IsEngineKind(PartActionKind.Unknown));
@@ -1152,6 +1153,84 @@ namespace Parsek.Tests
             }
         }
 
+        [Theory]
+        [InlineData("breakpanel", "breakPanels", "partaction-deployable-not-found")]
+        [InlineData("breakwheel", "DamageWheel", "partaction-wheel-not-found")]
+        public void Break_CallsTheStockBreakMethod_AndRefusesAPartWithNoSuchModule(
+            string token, string eventName, string notFound)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(token == "breakpanel" ? PartActionKind.BreakPanel : PartActionKind.BreakWheel, kind);
+            Assert.Equal(token, TestCommandPartAction.Token(kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsBreakKind(kind));
+            Assert.True(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.True(TestCommandPartAction.AcceptsAll(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.False(TestCommandPartAction.AcceptsConverter(kind));
+            Assert.Null(TestCommandPartAction.ServoActionNameFor(kind));
+            Assert.Equal(eventName, TestCommandPartAction.BreakEventNameFor(kind));
+            // A direct call of the physics path's method, not a part-menu event.
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            foreach (string t in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(t, out PartActionKind k));
+                Assert.Equal(t == "breakpanel" || t == "breakwheel", TestCommandPartAction.IsBreakKind(k));
+                Assert.Equal(t == "breakpanel" || t == "breakwheel",
+                    TestCommandPartAction.BreakEventNameFor(k) != null);
+            }
+            // A named part carrying no such module is a spec fault; one already broken is a
+            // live state (no candidate), as a hidden part-menu button is.
+            Assert.Equal(notFound, TestCommandPartAction.DecideCandidates(
+                kind, "probeCoreOcto2.v2", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                kind, "solarPanels2", 1, null, 0, 0, 1, 0, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "solarPanels2", 0, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                kind, "solarPanels2", 2, null, 0, 0, 2, 2, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "solarPanels2", 2, null, 0, 0, 2, 2, true));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "solarPanels2", 1, null, 0, 0, 1, 1, false));
+            ParsedCommand cmd = Cmd("button=" + token + " part=solarPanels2");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal(token, cmd.Args["button"]);
+        }
+
+        [Theory]
+        [InlineData("breakpanel", "EXTENDED", false, true)]
+        [InlineData("breakpanel", "RETRACTED", false, true)]
+        [InlineData("breakpanel", "BROKEN", false, false)]
+        [InlineData("breakpanel", null, false, true)]
+        [InlineData("breakwheel", null, false, true)]
+        [InlineData("breakwheel", null, true, false)]
+        [InlineData("servomax", "EXTENDED", false, false)]
+        public void IsBreakCandidate_SkipsWhatIsAlreadyBroken(
+            string token, string deployState, bool wheelDamaged, bool expected)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(expected, TestCommandPartAction.IsBreakCandidate(kind, deployState, wheelDamaged));
+            Assert.False(TestCommandPartAction.IsBreakCandidate(PartActionKind.Unknown, deployState, wheelDamaged));
+        }
+
+        [Fact]
+        public void FormatState_ReadsTheBrokenDeployableAndWheel()
+        {
+            Assert.Equal("deployable:state=BROKEN", TestCommandPartAction.FormatState(
+                new List<PartActionModuleReading> { PartActionModuleReading.Deployable("BROKEN") }));
+            Assert.Equal("wheel:damaged=1", TestCommandPartAction.FormatState(
+                new List<PartActionModuleReading> { PartActionModuleReading.WheelDamage(true) }));
+            Assert.Equal("wheel:damaged=0;deployable:state=EXTENDED", TestCommandPartAction.FormatState(
+                new List<PartActionModuleReading>
+                {
+                    PartActionModuleReading.WheelDamage(false),
+                    PartActionModuleReading.Deployable("EXTENDED"),
+                }));
+            Assert.Equal("deployable:state=", TestCommandPartAction.FormatState(
+                new List<PartActionModuleReading> { PartActionModuleReading.Deployable(null) }));
+        }
+
         [Fact]
         public void TheTransferArgsReachTheVerb()
         {
@@ -1165,9 +1244,11 @@ namespace Parsek.Tests
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(36, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(38, TestCommandPartAction.Reasons.Length);
             Assert.Equal("partaction-servo-not-found", TestCommandPartAction.Reasons[34]);
             Assert.Equal("partaction-rotor-not-found", TestCommandPartAction.Reasons[35]);
+            Assert.Equal("partaction-deployable-not-found", TestCommandPartAction.Reasons[36]);
+            Assert.Equal("partaction-wheel-not-found", TestCommandPartAction.Reasons[37]);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);

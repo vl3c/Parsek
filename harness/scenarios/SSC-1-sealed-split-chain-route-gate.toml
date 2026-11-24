@@ -1,0 +1,198 @@
+schema = 1
+id = "SSC-1-sealed-split-chain-route-gate"
+tier = "operator"
+# =====================================================================================
+# SSC-1: A SPLIT CHAIN IN AN UNFINISHED FLIGHT, SEALED, THEN OFFERED TO THE ROUTE GATE (todo
+# SEAL-SPLIT-CHAIN-LANE-OWED; test-gap list 2026-11-18, batch 4).
+#
+# THE FIX UNDER TEST (todo SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL, PR #2714, proven headless
+# only). A Destroyed slot under a Rewind Point commits as an open Unfinished Flight
+# (CommittedProvisional). When the commit's optimizer pass splits that recording, the head keeps
+# its CommittedProvisional copy and the new tip carries it too. A seal flips only the slot's
+# effective tip, so before the fix the head stayed open for good and
+# `RouteCandidateFinder.IsTreeFullySealed` (which read each member's raw state) refused the tree
+# `sealed=False ... refusal=TreeNotSealed`. The fix reads each member through its slot's
+# effective tip (`EffectiveState.ResolveMemberSealState`), and `IsTreeFullySealed` logs one
+# rate-limited Verbose line when it reads sealed only through tips.
+#
+# WHY THE CREATE IS EXPECTED REJECTED. The subject is the SEALED read, not a route: a Flea hop
+# tree is never route-eligible (no dock, no delivery). The create gate checks found, dismissed,
+# sealed, then eligibility, in that order (`TestCommandRouteCommand.ClassifyCreateRefusal`), and
+# logs every input on one line. So `sealed=True eligible=False ... refusal=CandidateIneligible`
+# proves the gate got past the sealed check it used to fail; before the fix the same line read
+# `sealed=False ... refusal=TreeNotSealed`. The host's own rover route is not touched.
+#
+# THE FLIGHT (host `rover-route-recorded`, stock-minimal sandbox, clock 979.48; IR-3's recipe):
+#   * the kill triple; autoMerge on (the scene exit commits, SURV-2's shape); verbose on (the
+#     through-tip line is Verbose).
+#   * the practice hop, unrecorded (added after the first flight, `2026-11-23_2110`: FirstLaunch
+#     and two record rows on the pod's recording sealed its slot, reason
+#     `recordingAction:MilestoneAchievement`): ExitToSpaceCenter, a Jumping Flea on the same profile to
+#     UT 1047, then the pod exploded.
+#   * the VAB, `CS Flea Probe` onto the pad, StartRecording, `PartAction
+#     decouple part=radialDecoupler`: the pod and the TT-38K probe stand are both controllable, so
+#     the split authors a Rewind Point with two slots (IR-3 / RW-25 measured `slots=2
+#     controllablePids=2`). The pod stays the active vessel (its Mk1 pod is the craft's root).
+#   * the hop, RW-11's measured profile: activate the Flea at 1120, the chute at 1167, landed on
+#     KSC grass by 1310, all at 1x. The atmospheric run lasts well over 120 s
+#     (`BriefSectionMaxSeconds`), so it is not a surface graze, and the landing boundary is not the
+#     launch-site departure, so the commit's optimizer pass splits the pod's recording there
+#     (`Split candidate (SurfaceInvolved)`). The pod then sits landed until 1340, so the second
+#     half clears the optimizer's 5 s minimum.
+#   * `PartAction explode part=mk1pod.v2` at ~1340: the pod's slot ends Destroyed, an open
+#     Unfinished Flight. The stand is still alive on the pad, so no post-destruction dialog
+#     (`not all leaves terminal`, SURV-2's line).
+#   * ExitToSpaceCenter: the silent scene-exit auto-commit, the commit promotion, then the
+#     optimizer pass that splits the pod's recording into a chain whose head and tip are both
+#     CommittedProvisional.
+#   * SealSlot in tree mode on the new tree (its id captured from `ListHandles kind=active` while
+#     the tree was live): the pod slot's tip is sealed, the head stays CommittedProvisional and
+#     reads sealed through the tip, so the seal ends `sealslot complete mode=tree` (before the
+#     fix: `sealslot incomplete ... firstReason=member-not-slot-tip`).
+#   * RouteCommand create on that tree: expected REJECTED with the gate line above.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - no `Split candidate` after the commit: the hop was short of 120 s (a surface graze,
+#     `SuppressedSurfaceGraze*`) or the landed tail was too short; lengthen the hop or the dwell.
+#   - no through-tip line but `sealed=True`: the head was not CommittedProvisional after the split
+#     (the shape was not reached; the lane proves nothing about the fix then, it is not a pass to
+#     keep; read the `Split: MergeState=` line).
+#   - `sealed=False ... refusal=TreeNotSealed`: the fix regressed, or a debris recording of the
+#     breakup is left CommittedProvisional outside any slot (read `sealslot complete`'s
+#     `remaining=` and each member's MergeState in the produced save).
+#   - `Single-controllable split: no RP`: the stand did not count as controllable (IR-3's reading).
+#
+# THE RECORDING COUNT is a window until the first flight: the host's 5 + the pre-decouple root +
+# the stand + the pod's head and tip (9), plus whatever debris the explosion's breakup records.
+#
+# STATUS: AUTHORED 2026-11-23 (test-gap list batch 4, branch `b4-career`), flown the same day. Todo
+# TEST-GAPS-BATCH4-CAREER. Operator by the calibration discipline until its first green flight.
+# =====================================================================================
+description = "SEAL-SPLIT-CHAIN-LANE-OWED: on rover-route-recorded a CS Flea Probe decoupled on the pad (a Rewind Point, two slots) hops and lands, then its pod is exploded, so its slot commits as an open Unfinished Flight whose recording the commit's optimizer splits at the landing; SealSlot in tree mode must complete, IsTreeFullySealed must read the tree sealed through the chain's closed tip, and the route-create gate must pass its sealed check (sealed=True, refused only as ineligible, since a Flea hop is no supply route)."
+instanceProfile = "stock-minimal"
+tags = ["SSC-1", "logistics", "route", "seal", "unfinished-flight", "rewind-point", "optimizer",
+        "split", "recorded-fixture", "sandbox", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The kill triple, as on every rover-route-recorded lane (RVR-3's header).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoMerge",          value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  # ---- the Flea Probe decoupled on the pad: a Rewind Point with two slots ----
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  # ---- the practice hop, unrecorded: a Jumping Flea on the same profile first reaches
+  # FirstLaunch and the speed / altitude record bands, so the recorded hop files no milestone
+  # row (one, even at zero value, seals the pod's slot: design section 2.12, measured on the
+  # first flight). A Flea leaves nothing on the pad; the CS Flea Probe's dropped stand was
+  # still FLYING, or gone, at the Space Center (the second flight) ----
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "Jumping Flea" },   expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g0",   expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "activate", part = "solidBooster.sm.v2" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1047", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "explode", part = "mk1pod.v2" },    expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1055", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ssc1-practice-done" },              expect = "OK" },
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "PartAction",   args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "active" }, label = "a",              expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ssc1-decoupled-${a.tree}" },        expect = "OK" },
+  # ---- the hop: RW-11's profile, landed on KSC grass ----
+  { cmd = "WarpToUT",     args = { ut = "1120", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "activate", part = "solidBooster.sm.v2" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1167", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "chute", part = "parachuteSingle" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1310", maxRate = "1" },                expect = "OK", budget = 240 },
+  { cmd = "PartAction",   args = { button = "inspect", part = "mk1pod.v2" }, label = "landed", expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1340", maxRate = "1" },                expect = "OK", budget = 120 },
+  # ---- the pod destroyed on the ground: an open Unfinished Flight ----
+  { cmd = "MissionMark",  args = { label = "ssc1-before-explode" },             expect = "OK" },
+  { cmd = "PartAction",   args = { button = "explode", part = "mk1pod.v2" },    expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1350", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "PartAction",   args = { button = "inspect", part = "mk1pod.v2" },    expect = "REJECTED" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "r",        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ssc1-after-crash-${r.count}" },     expect = "OK" },
+  # ---- the scene-exit auto-commit: promotion, then the optimizer split ----
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "ListHandles",  args = { kind = "committed" }, label = "c",           expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "ssc1-committed-${c.count}" },       expect = "OK" },
+  # ---- the seal, then the route gate ----
+  { cmd = "SealSlot",     args = { tree = "${a.tree}" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ssc1-sealed" },                     expect = "OK" },
+  { cmd = "RouteCommand", args = { action = "create", tree = "${a.tree}", name = "SSC1 Flea" }, expect = "REJECTED", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "ssc1-gated" },                      expect = "OK" },
+  { cmd = "SaveGame",                                                           expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A window until the first flight (header): 9 without breakup debris.
+count = { min = 9, max = 13 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=ssc1-decoupled-[0-9a-f]{32} ut=",
+  # The pod destroyed on the ground, the stand alive: no post-destruction dialog.
+  "MISSIONMARK label=ssc1-before-explode [\\s\\S]*partaction applied button=explode pid=[0-9]+ part='mk1pod.v2' partId=[0-9]+ event=explode ",
+  "MISSIONMARK label=ssc1-before-explode [\\s\\S]*ShowPostDestructionTreeMergeDialog: not all leaves terminal",
+  "MISSIONMARK label=ssc1-after-crash-1 ut=",
+  # The scene-exit commit, and the optimizer splitting the pod's recording at the landing.
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[2-9][0-9]*",
+  "MISSIONMARK label=ssc1-after-crash-1 ut=(?:(?!MISSIONMARK label=ssc1-committed-)[\\s\\S])*?Split candidate \\(SurfaceInvolved\\): rec=[0-9a-f]{32} ",
+  "MISSIONMARK label=ssc1-after-crash-1 ut=(?:(?!MISSIONMARK label=ssc1-committed-)[\\s\\S])*?Split: MergeState=CommittedProvisional carried with terminal=Destroyed onto the second half",
+  # THE SEAL: complete in tree mode (before the fix: `sealslot incomplete ...
+  # firstReason=member-not-slot-tip`).
+  "MISSIONMARK label=ssc1-committed-[0-9]+ ut=(?:(?!MISSIONMARK label=ssc1-sealed )[\\s\\S])*?sealslot complete mode=tree tree=[0-9a-f]{32} total=[0-9]+ sealed=[1-9][0-9]* remaining=0 alreadySealed=False",
+  # THE GATE: sealed read through the chain's closed tip, then refused only as ineligible.
+  "MISSIONMARK label=ssc1-sealed ut=(?:(?!MISSIONMARK label=ssc1-gated )[\\s\\S])*?IsTreeFullySealed: tree=[0-9a-f]{32} reads sealed with [1-9][0-9]* member\\(s\\) not Immutable themselves, read through their slot's closed effective tip",
+  "MISSIONMARK label=ssc1-sealed ut=(?:(?!MISSIONMARK label=ssc1-gated )[\\s\\S])*?routecommand create gate tree=[0-9a-f]{32} treeFound=True dismissed=False sealed=True eligible=False status=\\S+ alreadyPromoted=False refusal=CandidateIneligible",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "sealslot incomplete ",
+  "sealslot rejected ",
+  "routecommand create gate [^\\r\\n]*sealed=False",
+  "refusal=TreeNotSealed",
+  # The decouple only: the exploded pod's breakup logs it with controllable=0 by design.
+  "MISSIONMARK label=ssc1-practice-done (?:(?!MISSIONMARK label=ssc1-before-explode )[\\s\\S])*Single-controllable split: no RP",
+  "warptout refused",
+  "listhandles rejected",
+  "ShowPostDestructionTreeMergeDialog: all leaves terminal",
+  "pending split/coalescer wait timed out",
+]
+
+[runtime]
+# Two scene exits, the editor and a launch, a 230 s hop and dwell at 1x, the seal and the gate,
+# plus the short steps.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
