@@ -2326,8 +2326,8 @@ namespace Parsek
 
             // Pass 3 review subtle gap: the prior gate keyed on
             // `ensureStats.Changed`, which is true only when sections were
-            // Added / Clipped / SkippedCovered. But Ensure's cleanup block at
-            // OrbitSegmentCheckpointBridge.cs:188 also fires its CachedStats
+            // Added / Clipped / reconciled or the flat orbit list changed. But
+            // Ensure's cleanup block at OrbitSegmentCheckpointBridge.cs:188 also fires its CachedStats
             // wipe under `Changed || sorted` — a pure-re-sort case
             // (sorted=true, Changed=false) wipes CachedStats but the
             // Changed flag stays false. Restoration is cheap (list-clear +

@@ -4130,12 +4130,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # window, its shared LogTableWindowFrame and those eight profile types join beside
         # the Mission Log's builder: 446 (one on the cut side of the first cut, eight on the
         # uncut side of all three).
+        # ReplayedFlagCatchUp (todo FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24) is called
+        # from the Space Center and the flight playback host and calls GhostPlaybackLogic's
+        # flag walk, so it joins: 447.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [446, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [447, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4316,11 +4319,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # side of the first cut, which therefore starts one higher and lands where it did
         # (437 -> 405). The Mission Profile window's nine (see the knot sizes above) put one on
         # the cut side of the first cut and eight on the uncut side of all three
-        # (446 -> 413, 413 -> 391, 391 -> 373).
+        # (446 -> 413, 413 -> 391, 391 -> 373). ReplayedFlagCatchUp (see the knot sizes above)
+        # leaves with GhostPlaybackLogic: one higher until the second cut, which lands where it
+        # did (447 -> 414, 414 -> 391).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 446)
-        self.assertEqual(first["sizeAfter"], 413)
+        self.assertEqual(first["sizeBefore"], 447)
+        self.assertEqual(first["sizeAfter"], 414)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4328,7 +4333,7 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 413)
+        self.assertEqual(second["sizeBefore"], 414)
         self.assertEqual(second["sizeAfter"], 391)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])

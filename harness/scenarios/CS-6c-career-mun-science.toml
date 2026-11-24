@@ -102,7 +102,7 @@ id = "CS-6c-career-mun-science"
 # 16, evaReport high 16, crewReport low 15, mysteryGoo low 30, 2HOT low 24, evaReport low
 # (Midlands) 24, recovery@MunOrbited 2.7; Mun/Spacewalk 15600/2/1 and Mun/Science 12480/2/1
 # (funds/rep/sci, body-qualified); basicScience (45) and electrics (90) researched; science
-# pool 20.17 after research; 34 recordings; batch passed=3 skipped=0; LedgerGroundTruth
+# pool 20.17 after research; 34 recordings (37 on split rule version 3); batch passed=3 skipped=0; LedgerGroundTruth
 # hardFailures=0 reportOnly=2; zero ERROR / GUARDED / leak. Original note: owed off the first
 # flight: the rollout debit,
 # Mun/Spacewalk's payout, the subjects' amounts (predicted above, regexed), the low EVA
@@ -283,10 +283,22 @@ returnFallTimeoutSeconds   = 200000
 allowedAnomalies = []
 
 [expectations.recordings]
-# A WINDOW until the first flight measures it: the host's twenty-one + CS-6's flight
-# shape (seven) + two EVA branches and their board merges. The ground-truth launch is
-# unrecorded.
-count = { min = 33, max = 35 }
+# RE-PINNED 37 (2026-11-24, run 2026-11-23_2349_CS-6c-career-mun-science): split rule
+# version 3 adds three rows to this flight (burn cuts at orbit-kind changes, design section
+# 14.1): the circularization and parking-orbit rows at Kerbin, and the Mun orbit cut from
+# the return transfer. The host's twenty-one, the two EVA branches with their board merges
+# and the four debris rows are unchanged (2026-10-28_0028 measured 34); this was
+# `count = { min = 33, max = 35 }`. The KSP.log carries exactly five splits
+# (`Optimization pass: split 5 recording(s)`, 32 -> 37; 34 under version 2):
+#   Split candidate (PersistedPhaseChange) splitUT=119841.73  (ascent exit)
+#   Split candidate (OrbitInsertionBurnEnd) splitUT=119950.48
+#   Split candidate (DepartureBurnStart) splitUT=120191.32    (Kerbin)
+#   Split candidate (DepartureBurnStart) splitUT=160124.94    (Mun)
+#   Split candidate (FinalDescentEntry) splitUT=185567.52     (reentry)
+# The Mun capture (UT 151176.73-151187.85) is not cut: no rails time between it and the
+# first EVA, so the burn has no elements after it (the accepted no-warp case).
+# The ground-truth launch is unrecorded. Exact: 36 and 38 both red.
+count = { min = 37, max = 37 }
 
 [expectations.logContracts]
 # Source of each literal (Source/Parsek/...):
