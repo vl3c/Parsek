@@ -3261,7 +3261,7 @@ drift up to twice that), so the smoke stays where it was emitted; the ghost's wa
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 
-### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`)
+### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`, flown 2026-11-26: PPS-19a / b / c, readings in the todo entries)
 
 What the sweeps of 2026-11-24 read as real ghost differences, and what the next readings mean:
 
