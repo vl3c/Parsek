@@ -322,10 +322,9 @@ namespace Parsek
                     continue;
                 }
 
-                float fraction = ComputeDeployableTransitionFraction(
-                    currentUT, info.transitionStartUT,
-                    info.transitionStartFraction, info.transitionTargetFraction,
-                    info.clipLengthSeconds, out bool complete);
+                // An end-marked transition carries its own duration (it ENDS at its event UT);
+                // every other one starts at its event and runs the clip.
+                float fraction = ActiveTransitionFractionAt(info, currentUT, out bool complete);
 
                 if (!ApplyDeployableFraction(info, fraction))
                 {
@@ -339,6 +338,7 @@ namespace Parsek
                 if (complete)
                 {
                     info.transitionActive = false;
+                    info.transitionDurationSeconds = double.NaN;
                     info.deployFraction = info.transitionTargetFraction;
                     info.currentDeployed = info.transitionTargetFraction >= 0.5f;
                     active.RemoveAt(i);
@@ -355,6 +355,8 @@ namespace Parsek
                 {
                     if (kvp.Value == null) continue;
                     kvp.Value.transitionActive = false;
+                    kvp.Value.transitionDurationSeconds = double.NaN;
+                    kvp.Value.transitionEventUT = double.NaN;
                 }
             }
             state?.activeDeployableTransitions?.Clear();
@@ -576,6 +578,8 @@ namespace Parsek
             if (immediate)
             {
                 info.transitionActive = false;
+                info.transitionDurationSeconds = double.NaN;
+                info.transitionEventUT = double.NaN;
                 info.currentDeployed = deployed;
                 bool snapped = ApplyDeployableFraction(info, target);
                 if (snapped)
@@ -584,6 +588,11 @@ namespace Parsek
                     ? GhostPartEventOutcome.Applied
                     : GhostPartEventOutcome.NoResolvedVisual;
             }
+
+            // A family whose recorded event marks the END of stock's motion plays the motion
+            // that led up to the event (GhostPlaybackLogic.DeployMotionEnd.cs).
+            if (IsEndMarkedDeployable(info))
+                return ApplyEndMarkedDeployEvent(state, info, evt, deployed);
 
             // Already there and not mid-clip: nothing to animate, and re-arming would restart a
             // finished clip every time a duplicate event replays.

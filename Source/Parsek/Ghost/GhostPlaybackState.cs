@@ -73,6 +73,14 @@ namespace Parsek
         // null/Count check per frame. Cleared wholesale on a loop cycle (a mid-transition panel
         // must re-stow, not resume against the new cycle's clock).
         internal List<DeployableGhostInfo> activeDeployableTransitions;
+        // The end-marked deploy events of the trajectory this state replays, with the previous
+        // same-part event's UT (GhostPlaybackLogic.BuildEndMarkedDeploySchedule), built once per
+        // PartEvents list and count; and the look-ahead horizon over the deployable infos.
+        internal List<EndMarkedDeployEntry> endMarkedDeploySchedule;
+        internal object endMarkedDeployScheduleSource;
+        internal int endMarkedDeployScheduleCount = -1;
+        internal object endMarkedHorizonSource;
+        internal double endMarkedHorizonSeconds;
         // S3: gimbals / control surfaces / sun-tracking pivots discovered at build time. Null when
         // the craft carries none, which is the common case and costs one null check per frame.
         internal SynthesizedMotionGhostInfos synthesizedMotionInfos;
@@ -111,6 +119,8 @@ namespace Parsek
         public Dictionary<uint, HeatGhostInfo> heatInfos;
         // Every heat info's nozzle glows, flat; null when the ghost has none.
         internal List<NozzleGlowInfo> nozzleGlows;
+        // The variable nozzles among them, one per part; null when the ghost has none.
+        internal List<NozzlePoseInfo> nozzlePoses;
         internal double nozzleGlowStartUT = double.NaN;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
@@ -244,6 +254,7 @@ namespace Parsek
             evaRagdoll = false;
             heatInfos = null;
             nozzleGlows = null;
+            nozzlePoses = null;
             nozzleGlowStartUT = double.NaN;
             lightInfos = null;
             lightPlaybackStates = null;
