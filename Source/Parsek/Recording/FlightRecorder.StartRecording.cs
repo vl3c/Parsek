@@ -138,6 +138,7 @@ namespace Parsek
             // ResetPartEventTrackingState rebuilds in-memory tracking sets from the
             // current live vessel.
             PrepareQuickloadResumeStateIfNeeded();
+            engineThrottleStill.Clear();
             ResetPartEventTrackingState(v, emitSeedEvents: !isPromotion);
 
             LogVisualRecordingCoverage(v);

@@ -5372,11 +5372,12 @@ PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
 )
 PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
-# fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules.ArgWords):
-# `none` (the default), `all` or a csv of FX words, with no states= and at most contexts=air
+# fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules): `none` (the
+# default), `all` (ArgWords) or a csv of FX words (ArgKnownWords), with no states= and at most contexts=air
 # beside it (FxCombinationValid). An fx= run with contexts=air holds its jets in the air and
 # meets the pad host rule (host-not-at-pad) like every air run.
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+PARTPARITY_FX_KNOWN_VALUES: Tuple[str, ...] = PARTPARITY_FX_VALUES + ("plume-main",)
 PARTPARITY_FX_ALL_TOKEN = "all"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
@@ -5580,7 +5581,7 @@ def _partparity_fx_ok(text: str) -> bool:
         return True
     if not text:
         return False
-    return all(item in PARTPARITY_FX_VALUES for item in text.split(","))
+    return all(item in PARTPARITY_FX_KNOWN_VALUES for item in text.split(","))
 
 
 def _partparity_fx_combination_ok(step_args: Dict) -> bool:
@@ -5674,7 +5675,7 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
            "'none' or a csv of %s ('air' alone)" % ", ".join(PARTPARITY_CONTEXT_VALUES),
            "contexts-arg-invalid")
     shaped("fx", _partparity_fx_ok,
-           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_FX_VALUES), "fx-arg-invalid")
+           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_FX_KNOWN_VALUES), "fx-arg-invalid")
     fx_text = handle_shape_probe(step_args.get("fx")) if "fx" in step_args else None
     fx_run = (fx_text is not None and fx_text != PARTPARITY_NONE_TOKEN
               and _partparity_fx_ok(fx_text))

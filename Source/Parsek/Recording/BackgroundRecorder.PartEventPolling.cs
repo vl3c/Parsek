@@ -324,7 +324,8 @@ namespace Parsek
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
                     ignited, recordedPower,
-                    state.activeEngineKeys, state.lastThrottle, ut, reusableEventBuffer);
+                    state.activeEngineKeys, state.lastThrottle, ut, reusableEventBuffer,
+                    state.engineThrottleStill);
 
                 for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {

@@ -55,6 +55,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False
@@ -195,6 +196,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False
@@ -315,6 +317,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False
@@ -434,6 +437,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False
@@ -554,6 +558,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False
@@ -694,6 +699,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=null
     extendedDeployables=count=0
     hasCurrentAnchorCandidate=False

@@ -1103,7 +1103,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
         others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
         for cs, mirror in (("Families", pp.FX_FAMILIES),
                            ("StochasticFamilies", pp.FX_STOCHASTIC_FAMILIES),
-                           ("ArgWords", pp.FX_ARG_WORDS), ("States", pp.FX_STATES),
+                           ("ArgWords", pp.FX_ARG_WORDS),
+                           ("ArgKnownWords", pp.FX_ARG_KNOWN_WORDS), ("States", pp.FX_STATES),
                            ("OrbitContexts", pp.FX_ORBIT_CONTEXTS),
                            ("ExclusionReasons", pp.FX_EXCLUSION_REASONS),
                            ("Views", pp.FX_VIEWS), ("RendererLayers", pp.FX_RENDERER_LAYERS),
@@ -1130,7 +1131,12 @@ class PartParitySourceSyncTests(unittest.TestCase):
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
         pairs = re.findall(r"case (\w+): return (\w+);", body)
-        self.assertEqual(len(pp.FX_ARG_WORDS), len(pairs))
+        self.assertEqual(len(pp.FX_ARG_KNOWN_WORDS), len(pairs))
+        self.assertEqual(pp.FX_MAIN_STATES, (consts["StateMainFull"], consts["StateMainLow"]))
+        self.assertEqual({"main-full": self._num_const(text, "BurnFullThrottle"),
+                          "main-low": self._num_const(text, "BurnLowThrottle")}, pp.FX_MAIN_THROTTLES)
+        self.assertIn("PlumeOption(m, StateMainFull, BurnFullThrottle, ", text)
+        self.assertIn("PlumeOption(m, StateMainLow, BurnLowThrottle, ", text)
         for arg, family in pairs:
             with self.subTest(arg=arg):
                 self.assertEqual(consts[family], pp.fx_family_for_arg(consts[arg]))
@@ -1148,6 +1154,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("SmokeMinPx", pp.FX_SMOKE_MIN_PX),
                              ("SplitHalfPct", pp.FX_SPLIT_HALF_PCT),
                              ("PlateLitMinPct", pp.PLATE_LIT_MIN_PCT),
+                             ("ThrottleDoneTolerance", pp.FX_THROTTLE_DONE_TOLERANCE),
                              ("PlateLitMinLum", pp.PLATE_LIT_MIN_LUM),
                              ("StripFrames", pp.FX_STRIP_FRAMES)):
             with self.subTest(const=name):
@@ -1246,7 +1253,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
         # rules, and P6's tables are what PP-3 to PP-6 plan today.
         rules = self._source("PartParityStateRules.cs")
         for word in ("plume", "plate", "rcs-fire", "burn-full", "burn-low", "heat-medium",
-                     "heat-hot") + pp.FX_EXCLUSION_REASONS:
+                     "heat-hot") + pp.FX_MAIN_STATES + pp.FX_EXCLUSION_REASONS:
             with self.subTest(word=word):
                 self.assertNotIn('"%s"' % word, rules)
         self.assertEqual(("alone", "stacked", "fgv"), pp.ORBIT_CONTEXTS)
@@ -2905,6 +2912,34 @@ class FxJudgeTests(unittest.TestCase):
             doc["stateProof"]["family"] = family
             self.assertEqual(["fx.family=plume stateProof.family=%s" % family], pp.fx_block_problems(doc))
             self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+
+    def test_a_plume_case_says_which_throttle_drove_it(self):
+        drive = {"ignited": True, "currentThrottle": 1.0, "recordedPower": 1.0}
+        for state, throttle, main, independent, ok in (
+                ("main-full", 1.0, 1.0, False, True), ("main-low-m2", 0.3, 0.3, False, True),
+                ("main-low", 0.3, 0.295, False, True),
+                ("main-full", 1.0, 0.0, False, False), ("main-full", 1.0, 1.0, True, False),
+                ("main-full", 1.0, 1.0, None, False), ("main-full", 1.0, None, False, False),
+                ("main-low", 0.3, 1.0, False, False), ("main-low", 1.0, 1.0, False, False),
+                ("main-low", None, 0.3, False, False),
+                ("burn-full", 1.0, 0.0, True, True), ("burn-low-m1", 0.3, 0.0, True, True),
+                ("burn-full", 1.0, None, None, True),  # a sidecar from before the keys
+                ("burn-full", 1.0, 1.0, True, False), ("burn-low", 0.3, 0.0, False, False)):
+            with self.subTest(state=state, main=main, independent=independent):
+                doc = _fx_case(state=state)[0]
+                doc["fx"]["throttle"] = throttle
+                doc["fx"]["drive"] = dict(drive, mainThrottle=main, independentThrottle=independent)
+                problems = pp.fx_block_problems(doc)
+                self.assertEqual(ok, not problems, problems)
+                self.assertEqual(not ok, pp.judge_case(doc).verdict == pp.VERDICT_ERROR)
+        # No drive block at all: an older burn case is not asked, a main case is.
+        doc = _fx_case(state="burn-full")[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+        doc = _fx_case(state="main-full")[0]
+        self.assertIn("on a main-full case", pp.fx_block_problems(doc)[0])
+        # A case that never reached its throttle is a setup fault, not a contradiction.
+        doc["setup"] = {"status": "state-timeout", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(doc))
 
     def test_a_dark_plate_is_an_error_never_a_pass(self):
         doc = _fx_case()[0]
