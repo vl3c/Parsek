@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Fixed
+
+- **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
+  vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
+
 ## 1.0.3
 
 ### Added
