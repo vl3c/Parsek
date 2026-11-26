@@ -1,0 +1,767 @@
+# Part parity burst / dust fixture (design-part-ghost-parity.md Appendix G, piece X1), profile modded-restock.
+# Derived once from <umbrella>/automation/modded-restock/GameData/ModuleManager.ConfigCache (post-patch part configs,
+# read 2026-11-26) over the sweep's part list (602 parts after the 3.1 exclusions); its MODULE order is the
+# prefab order (the rule held for every module of the stock-minimal and modded-compat fixtures). Every part is listed:
+# P <part> <explosionPotential or -> <the FX groups its fx_* keys name, csv, or ->; M lines only for the
+# modules the burst / dust rules read (ModuleDecouple, ModuleAnchoredDecoupler, ModuleSurfaceFX, and the
+# engine modules of a part with a ModuleSurfaceFX): M <prefab index> <moduleName> <type chain or ->
+# <the config keys the rules read, key=value|..., PROPELLANT.name=<x> per PROPELLANT, or ->. Tab-separated.
+# Never hand-edited.
+P	AdvancedCanard	0.1	-
+P	CanardController	0.1	-
+P	CargoStorageUnit	-	-
+P	CircularIntake	-	-
+P	Clydesdale	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	2	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	ConformalStorageUnit	-	-
+P	Decoupler.0	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Decoupler.1	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Decoupler.1p5	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Decoupler.2	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Decoupler.3	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Decoupler.4	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	DeployedCentralStation	-	-
+P	DeployedGoExOb	-	-
+P	DeployedIONExp	-	-
+P	DeployedRTG	-	-
+P	DeployedSatDish	-	-
+P	DeployedSeismicSensor	-	-
+P	DeployedSolarPanel	-	-
+P	DeployedWeatherStn	-	-
+P	EnginePlate1p5	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	EnginePlate2	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	EnginePlate3	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	EnginePlate4	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	EnginePlate5	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	EquiTriangle0	-	-
+P	EquiTriangle1	-	-
+P	EquiTriangle1p5	-	-
+P	EquiTriangle2	-	-
+P	FanShroud.01	-	-
+P	FanShroud.02	-	-
+P	FanShroud.03	-	-
+P	FuelCell	-	-
+P	FuelCellArray	-	-
+P	GearFixed	-	-
+P	GearFree	-	-
+P	GearLarge	-	-
+P	GearMedium	-	-
+P	GearSmall	-	-
+P	GooExperiment	-	-
+P	GrapplingDevice	-	-
+P	HECS2.ProbeCore	-	-
+P	HeatShield0	-	-
+M	2	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	HeatShield1	-	-
+M	3	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	HeatShield1p5	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	HeatShield2	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	HeatShield3	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	HighGainAntenna	-	-
+P	HighGainAntenna5	-	-
+P	HighGainAntenna5.v2	-	-
+P	ISRU	-	-
+P	InflatableAirlock	-	decouple
+M	5	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	InflatableHeatShield	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	InfraredTelescope	-	-
+P	IntakeRadialLong	-	-
+P	JetEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.12|engineID=Cruise|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=20|falloff=2|fxMax=0.5|thrustTransformName=thrustTransform
+P	Large.Crewed.Lab	-	-
+P	LargeTank	-	-
+P	LaunchEscapeSystem	-	decouple
+M	5	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	LgRadialSolarPanel	-	-
+P	LiquidEngineKE-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=80|falloff=2|fxMax=1|thrustTransformName=thrustTransform
+P	LiquidEngineLV-T91	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=80|falloff=2|fxMax=1|thrustTransformName=thrustTransform
+P	LiquidEngineLV-TX87	-	-
+P	LiquidEngineRE-I2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	LiquidEngineRE-J10	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.5|fxMax=0.6|thrustTransformName=thrustTransform
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	LiquidEngineRK-7	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	LiquidEngineRV-1	-	-
+P	MEMLander	-	-
+P	MK1CrewCabin	-	-
+P	MK1Fuselage	-	-
+P	MK1IntakeFuselage	-	-
+P	Magnetometer	-	-
+P	Mark1Cockpit	-	-
+P	Mark2Cockpit	-	-
+P	MassiveBooster	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=8.0|engineID=S1SRB|PROPELLANT.name=SolidFuel
+M	2	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=80|falloff=2|fxMax=1|thrustTransformName=thrustTransform
+P	MiniDrill	-	-
+P	MiniISRU	-	-
+P	Mite	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.75|thrustTransformName=thrustTransform
+P	Mk1FuselageStructural	-	-
+P	Mk2Pod	-	-
+P	MpoProbe	0	-
+P	MtmStage	0	-
+P	OrbitalScanner	-	-
+P	Panel0	-	-
+P	Panel1	-	-
+P	Panel1p5	-	-
+P	Panel2	-	-
+P	Pollux	-	running,running,running
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.75|thrustTransformName=thrustTransform
+P	R8winglet	0.1	-
+P	RAPIER	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.2|engineID=AirBreathing|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=ClosedCycle|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=1|maxDistance=20|falloff=2|fxMax=0.5|thrustTransformName=thrustTransform
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=2|maxDistance=30|falloff=1.6|fxMax=0.6|thrustTransformName=thrustTransform
+P	RCSBlock.v2	-	-
+P	RCSFuelTank	-	-
+P	RCSLinearSmall	-	-
+P	RCSTank1-2	-	-
+P	RCSblock.01.small	-	-
+P	RadialDrill	-	-
+P	RadialOreTank	-	-
+P	RelayAntenna100	-	-
+P	RelayAntenna5	-	-
+P	RelayAntenna50	-	-
+P	ReleaseValve	-	gasDraining,particlesDraining
+P	RobotArmScanner.S1	-	-
+P	RobotArmScanner.S2	-	-
+P	RobotArmScanner.S3	-	-
+P	Rockomax16.BW	-	-
+P	Rockomax32.BW	-	-
+P	Rockomax64.BW	-	-
+P	Rockomax8BW	-	-
+P	RotorEngine.02	-	-
+P	RotorEngine.03	-	-
+P	SSME	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KS25|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=75|falloff=1.75|fxMax=0.9|thrustTransformName=thrustTransform
+P	ScienceBox	-	-
+P	Separator.0	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Separator.1	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Separator.1p5	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Separator.2	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Separator.3	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Separator.4	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	ServiceBay.125.v2	-	-
+P	ServiceBay.250.v2	-	-
+P	ServiceModule18	-	deploy
+P	ServiceModule25	-	deploy
+P	Shrimp	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.75|thrustTransformName=thrustTransform
+P	Size.1.5.Cone	-	-
+P	Size1p5.Monoprop	-	-
+P	Size1p5.Size0.Adapter.01	-	-
+P	Size1p5.Size1.Adapter.01	-	-
+P	Size1p5.Size1.Adapter.02	-	-
+P	Size1p5.Size2.Adapter.01	-	-
+P	Size1p5.Strut.Decoupler	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	Size1p5.Tank.01	-	-
+P	Size1p5.Tank.02	-	-
+P	Size1p5.Tank.03	-	-
+P	Size1p5.Tank.04	-	-
+P	Size1p5.Tank.05	-	-
+P	Size1to0ServiceModule	-	deploy
+P	Size2LFB	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSLFB|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.8|thrustTransformName=thrustPoint
+P	Size2LFB.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSLFB|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.8|thrustTransformName=thrustPoint
+P	Size3.Size4.Adapter.01	-	-
+P	Size3AdvancedEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KSX|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=100|falloff=2|fxMax=1|thrustTransformName=thrustTransform
+P	Size3EngineCluster	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=KS25|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=100|falloff=1.5|fxMax=1|thrustTransformName=obj_gimbal
+P	Size3LargeTank	-	-
+P	Size3MediumTank	-	-
+P	Size3SmallTank	-	-
+P	Size3To2Adapter.v2	-	-
+P	Size4.EngineAdapter.01	-	-
+P	Size4.Tank.01	-	-
+P	Size4.Tank.02	-	-
+P	Size4.Tank.03	-	-
+P	Size4.Tank.04	-	-
+P	SmallGearBay	-	-
+P	SmallTank	-	-
+P	StandardCtrlSrf	0.1	-
+P	SurfAntenna	-	-
+P	SurfaceScanner	-	-
+P	SurveyScanner	-	-
+P	Thoroughbred	-	running,running,running
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.75|thrustTransformName=thrustTransform
+P	Triangle0	-	-
+P	Triangle1	-	-
+P	Triangle1p5	-	-
+P	Triangle2	-	-
+P	Tube1	-	-
+P	Tube1p5	-	-
+P	Tube2	-	-
+P	Tube3	-	-
+P	Tube4	-	-
+P	adapterEngines	-	-
+P	adapterLargeSmallBi	-	-
+P	adapterLargeSmallQuad	-	-
+P	adapterLargeSmallTri	-	-
+P	adapterMk3-Mk2	-	-
+P	adapterMk3-Size2	-	-
+P	adapterMk3-Size2Slant	-	-
+P	adapterSize2-Mk2	-	-
+P	adapterSize2-Size1	-	-
+P	adapterSize2-Size1Slant	-	-
+P	adapterSize3-Mk3	-	-
+P	adapterSmallMiniShort	-	-
+P	adapterSmallMiniTall	-	-
+P	advSasModule	-	-
+P	airScoop	-	-
+P	airbrake1	0.1	-
+P	airlinerCtrlSrf	0.1	-
+P	airlinerMainWing	0.1	-
+P	airlinerTailFin	0.1	-
+P	airplaneTail	-	-
+P	airplaneTailB	-	-
+P	asasmodule1-2	-	-
+P	avionicsNoseCone	-	-
+P	basicFin	0.1	-
+P	batteryBank	-	-
+P	batteryBankLarge	-	-
+P	batteryBankMini	-	-
+P	batteryPack	-	-
+P	cargoContainer	-	-
+P	commDish	-	-
+P	controller1000	-	-
+P	crewCabin	-	-
+P	cupola	-	-
+P	delta.small	0.1	-
+P	deltaWing	0.1	-
+P	dockingPort1	-	-
+P	dockingPort2	-	-
+P	dockingPort3	-	-
+P	dockingPortLarge	-	-
+P	dockingPortLateral	-	-
+P	domeLight1	-	-
+P	elevon2	0.1	-
+P	elevon3	0.1	-
+P	elevon5	0.1	-
+P	engineLargeSkipper.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	evaChute	-	-
+P	evaCylinder	-	-
+P	evaJetpack	-	-
+P	evaRepairKit	-	-
+P	evaScienceKit	-	-
+P	externalTankCapsule	-	-
+P	externalTankRound	-	-
+P	externalTankToroid	-	-
+P	fairingSize1	-	deploy
+P	fairingSize1p5	-	deploy
+P	fairingSize2	-	deploy
+P	fairingSize3	-	deploy
+P	fairingSize4	-	deploy
+P	fireworksLauncherBig	-	-
+P	fireworksLauncherSmall	-	-
+P	flagPartFlat	-	-
+P	flagPartSize0	-	-
+P	flagPartSize1	-	-
+P	flagPartSize1p5	-	-
+P	flagPartSize2	-	-
+P	flagPartSize3	-	-
+P	flagPartSize4	-	-
+P	foldingRadLarge	-	-
+P	foldingRadMed	-	-
+P	foldingRadSmall	-	-
+P	fuelLine	0	-
+P	fuelTank	-	-
+P	fuelTank.long	-	-
+P	fuelTankSmall	-	-
+P	fuelTankSmallFlat	-	-
+P	groundAnchor	-	deploy,deploy,deploy,deploy
+P	groundLight1	-	-
+P	groundLight2	-	-
+P	hinge.01	-	-
+P	hinge.01.s	-	-
+P	hinge.03	-	-
+P	hinge.03.s	-	-
+P	hinge.04	-	-
+P	ionEngine	-	-
+P	ksp.r.largeBatteryPack	-	-
+P	kv1Pod	-	decouple
+M	1	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	kv2Pod	-	decouple
+M	1	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	kv3Pod	-	decouple
+M	1	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	lGripPad	-	-
+P	lGripStrip	-	-
+P	ladder1	-	-
+P	landerCabinSmall	-	-
+P	landingLeg1	-	-
+P	landingLeg1-2	-	-
+P	largeAdapter	-	-
+P	largeAdapter2	-	-
+P	largeFanBlade	0.1	-
+P	largeHeliBlade	0.1	-
+P	largePropeller	0.1	-
+P	largeSolarPanel	-	-
+P	linearRcs	-	-
+P	liquidEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.5|fxMax=0.5|thrustTransformName=thrustTransform
+P	liquidEngine.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.5|fxMax=0.5|thrustTransformName=thrustTransform
+P	liquidEngine2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	liquidEngine2-2.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.5|fxMax=0.6|thrustTransformName=thrustTransform
+P	liquidEngine2.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	liquidEngine3.v2	-	running
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.3|thrustTransformName=thrustTransform
+P	liquidEngineMainsail.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.8|thrustTransformName=thrustTransform
+P	liquidEngineMini.v2	-	-
+P	longAntenna	-	-
+P	mGripPad	-	-
+P	mediumDishAntenna	-	-
+P	mediumFanBlade	0.1	-
+P	mediumHeliBlade	0.1	-
+P	mediumPropeller	0.1	-
+P	microEngine.v2	-	-
+P	miniFuelTank	-	-
+P	miniFuselage	-	-
+P	miniIntake	-	-
+P	miniJetEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.12|engineID=Cruise|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=10|falloff=2|fxMax=0.5|thrustTransformName=thrustTransform
+P	miniLandingLeg	0	-
+P	mk1-3pod	-	-
+P	mk1pod.v2	-	-
+P	mk2.1m.AdapterLong	-	-
+P	mk2.1m.Bicoupler	-	-
+P	mk2CargoBayL	-	-
+P	mk2CargoBayS	-	-
+P	mk2Cockpit.Inline	-	-
+P	mk2Cockpit.Standard	-	-
+P	mk2CrewCabin	-	-
+P	mk2DockingPort	-	-
+P	mk2DroneCore	-	-
+P	mk2Fuselage	-	-
+P	mk2FuselageLongLFO	-	-
+P	mk2FuselageShortLFO	-	-
+P	mk2FuselageShortLiquid	-	-
+P	mk2FuselageShortMono	-	-
+P	mk2LanderCabin	-	-
+P	mk2LanderCabin.v2	-	-
+P	mk2SpacePlaneAdapter	-	-
+P	mk3CargoBayL	-	-
+P	mk3CargoBayM	-	-
+P	mk3CargoBayS	-	-
+P	mk3CargoRamp	-	-
+P	mk3Cockpit.Shuttle	-	-
+P	mk3CrewCabin	-	-
+P	mk3FuselageLF.100	-	-
+P	mk3FuselageLF.25	-	-
+P	mk3FuselageLF.50	-	-
+P	mk3FuselageLFO.100	-	-
+P	mk3FuselageLFO.25	-	-
+P	mk3FuselageLFO.50	-	-
+P	mk3FuselageMONO	-	-
+P	monopropMiniSphere	-	-
+P	mumech.MJ2.AR202	-	-
+P	mumech.MJ2.AR202.features1	-	-
+P	mumech.MJ2.AR202.features2	-	-
+P	mumech.MJ2.AR202.features3	-	-
+P	mumech.MJ2.AR202.features4	-	-
+P	nacelleBody	-	-
+P	navLight1	-	-
+P	noseCone	-	-
+P	noseConeAdapter	-	-
+P	noseconeTiny	-	-
+P	noseconeVS	-	-
+P	nuclearEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2.5|fxMax=0.7|thrustTransformName=thrustTransform
+P	omsEngine	-	-
+P	parachuteDrogue	-	-
+P	parachuteLarge	-	-
+P	parachuteRadial	-	-
+P	parachuteSingle	-	-
+P	piston.01	-	-
+P	piston.02	-	-
+P	piston.03	-	-
+P	piston.04	-	-
+P	pointyNoseConeA	-	-
+P	pointyNoseConeB	-	-
+P	probeCoreCube	0	-
+P	probeCoreHex	0	-
+P	probeCoreHex.v2	0	-
+P	probeCoreOcto.v2	0	-
+P	probeCoreOcto2.v2	0	-
+P	probeCoreSphere.v2	0	-
+P	probeStackLarge	0	-
+P	probeStackSmall	0	-
+P	radPanelEdge	-	-
+P	radPanelLg	-	-
+P	radPanelSm	-	-
+P	radialDecoupler	-	decouple
+M	0	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	radialDecoupler1-2	-	decouple
+M	0	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	radialDecoupler2	-	decouple
+M	0	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	radialDrogue	-	-
+P	radialEngineBody	-	-
+P	radialEngineMini.v2	-	-
+P	radialLiquidEngine1-2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	radialRCSTank	-	-
+P	ramAirIntake	-	-
+P	rcsTankMini	-	-
+P	rcsTankRadialLong	-	-
+P	restock-adapter-1875-125-1	-	-
+P	restock-adapter-1875-25-1	-	-
+P	restock-adapter-hollow-25-375-1	-	-
+P	restock-adapter-skeletal-25-375-1	-	-
+P	restock-airlock-1	0	decouple
+M	3	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-antenna-stack-2	-	-
+P	restock-antenna-stack-3	-	-
+P	restock-apu-radial-1	-	-
+P	restock-battery-1875-1	-	-
+P	restock-battery-375-1	-	-
+P	restock-claw-625-1	-	-
+P	restock-decoupler-1875-1	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-decoupler-1875-truss-1	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-decoupler-5-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-decoupler-radial-tiny-1	-	decouple
+M	0	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	restock-docking-375-1	-	-
+P	restock-drone-core-0625-1	0	-
+P	restock-drone-core-1875-1	0	-
+P	restock-drone-core-375-1	0	-
+P	restock-engine-125-pug	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.3|thrustTransformName=thrustTransform
+P	restock-engine-125-valiant	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	restock-engine-375-corgi	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=MainExhaust|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=70|falloff=2|fxMax=1.0|thrustTransformName=thrustTransform
+P	restock-engine-boar	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=MainExhaust|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	7	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=70|falloff=2|fxMax=1.0|thrustTransformName=thrustTransform
+P	restock-engine-caravel-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	5	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	restock-engine-cherenkov	-	-
+P	restock-engine-galleon-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=80|falloff=2|fxMax=1|thrustTransformName=thrustTransform
+P	restock-engine-les-2	-	decouple
+M	2	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engine-panda-1	-	-
+P	restock-engine-schnauzer-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.5|fxMax=0.6|thrustTransformName=thrustTransform
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	restock-engine-torch	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	engineID=MainExhaust|PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	7	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=70|falloff=2|fxMax=1.0|thrustTransformName=thrustTransform
+P	restock-engine-ursa-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=30|falloff=1.7|fxMax=0.5|thrustTransformName=thrustTransform
+P	restock-engineplate-125-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engineplate-125-2	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engineplate-1875-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engineplate-25-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engineplate-375-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-engineplate-5-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-fairing-base-0625-1	-	deploy
+P	restock-fairing-base-1875-1	-	deploy
+P	restock-fairing-base-5-1	-	deploy
+P	restock-fuel-tank-0625-1	-	-
+P	restock-fuel-tank-0625-2	-	-
+P	restock-fuel-tank-0625-3	-	-
+P	restock-fuel-tank-0625-5	-	-
+P	restock-fuel-tank-375-4	-	-
+P	restock-fuel-tank-probe-1	-	-
+P	restock-fuel-tank-probe-2	-	-
+P	restock-fuel-tank-rcs-1875-1	-	-
+P	restock-fuel-tank-rcs-375-1	-	-
+P	restock-fuel-tank-rcs-radial-tiny-1	-	-
+P	restock-fueltank-1875-1	-	-
+P	restock-fueltank-1875-2	-	-
+P	restock-fueltank-1875-3	-	-
+P	restock-fueltank-1875-4	-	-
+P	restock-fueltank-1875-soyuz-1	-	-
+P	restock-fueltank-5-1	-	-
+P	restock-fueltank-5-2	-	-
+P	restock-fueltank-5-3	-	-
+P	restock-fueltank-5-4	-	-
+P	restock-fueltank-adapter-1875-0625-1	-	-
+P	restock-fueltank-adapter-1875-125-1	-	-
+P	restock-fueltank-adapter-1875-125-2	-	-
+P	restock-fueltank-adapter-25-1875-1	-	-
+P	restock-fueltank-adapter-375-5-1	-	-
+P	restock-fueltank-saturn-engine-1	-	-
+P	restock-fueltank-sphere-0625-1	-	-
+P	restock-fueltank-sphere-125-1	-	-
+P	restock-fueltank-sphere-1875-1	-	-
+P	restock-fueltank-sphere-25-1	-	-
+P	restock-fueltank-sphere-375-1	-	-
+P	restock-goocanister-625-1	-	-
+P	restock-heatshield-1875-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-ladder-static-2	-	-
+P	restock-ladder-static-3	-	-
+P	restock-materialbay-radial-1	-	-
+P	restock-mk2-pod	-	-
+P	restock-node-1875-1	-	-
+P	restock-node-625-1	-	-
+P	restock-nosecone-0625-1	-	-
+P	restock-nosecone-1875-1	-	-
+P	restock-nosecone-1875-2	-	-
+P	restock-nosecone-375-1	-	-
+P	restock-nosecone-5-1	-	-
+P	restock-oretank-1875-1	-	-
+P	restock-oretank-375-1	-	-
+P	restock-pod-sphere-1	0	decouple
+M	2	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	restock-pod-sphere-2	0	decouple
+M	2	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	restock-pod-sphere-3	0	decouple
+M	2	ModuleAnchoredDecoupler	ModuleAnchoredDecoupler,ModuleDecouplerBase,PartModule	-
+P	restock-rcs-block-dual-1	-	-
+P	restock-rcs-block-dual-mini-1	-	-
+P	restock-rcs-block-multi-2	-	-
+P	restock-rcs-block-multi-mini-2	-	-
+P	restock-rcs-block-quad-angled-1	-	-
+P	restock-rcs-block-quad-angled-mini-1	-	-
+P	restock-rcs-block-quad-mini-1	-	-
+P	restock-rcs-block-quint-1	-	-
+P	restock-rcs-block-qunit-mini-1	-	-
+P	restock-rcs-block-triple-angled-1	-	-
+P	restock-rcs-block-triple-angled-mini-1	-	-
+P	restock-rcs-single-mini-1	-	-
+P	restock-reactionwheel-1875-1	-	-
+P	restock-reactionwheel-radial-1	-	-
+P	restock-relay-radial-2	-	-
+P	restock-relay-radial-2.v2	-	-
+P	restock-sciencebox-stack-1	-	-
+P	restock-separator-1875-1	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-separator-5-1	-	decouple
+M	1	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	restock-service-bay-1875-1	-	-
+P	restock-service-module-125-625-1	-	deploy
+P	restock-service-module-1875-1	-	deploy
+P	restock-srb-anvil-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	2	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.7|thrustTransformName=thrustTransform
+P	restock-srb-castor-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	2	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.7|thrustTransformName=thrustTransform
+P	restock-srb-mallet-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.7|thrustTransformName=thrustTransform
+P	restock-srb-striker-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	1	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.7|thrustTransformName=thrustTransform
+P	restock-structural-tube-125-1	-	-
+P	restock-structural-tube-1875-1	-	-
+P	restock-structural-tube-25-1	-	-
+P	restock-structural-tube-375-1	-	-
+P	restock-structural-tube-5-1	-	-
+P	restock-truss-3	-	-
+P	restock-truss-adapter-0625-1	-	-
+P	restock-truss-hub-1	-	-
+P	restock-wheel-1-T	-	-
+P	restock-wheel-4	-	-
+P	rocketNoseCone.v2	-	-
+P	rocketNoseCone.v3	-	-
+P	rocketNoseConeSize3	-	-
+P	rocketNoseConeSize4	-	-
+P	rotoServo.00	-	-
+P	rotoServo.02	-	-
+P	rotoServo.03	-	-
+P	rotoServo.04	-	-
+P	rotor.01	-	-
+P	rotor.01s	-	-
+P	rotor.02	-	-
+P	rotor.02s	-	-
+P	rotor.03	-	-
+P	rotor.03s	-	-
+P	roverBody	0	-
+P	roverBody.v2	0	-
+P	roverWheel1	-	-
+P	roverWheel2	-	-
+P	roverWheel3	0	-
+P	roverWheelM1-F	-	-
+P	rtg	-	-
+P	sGripPad	-	-
+P	sGripStrip	-	-
+P	sasModule	-	-
+P	science.module	-	-
+P	seatExternalCmd	-	-
+P	sensorAccelerometer	-	-
+P	sensorAtmosphere	-	-
+P	sensorBarometer	-	-
+P	sensorGravimeter	-	-
+P	sensorThermometer	-	-
+P	sepMotor1	-	-
+P	shockConeIntake	-	-
+P	size0.RotorEngine.02	-	-
+P	size0.basicFin	0.1	-
+P	smallCargoContainer	-	-
+P	smallClaw	-	-
+P	smallCtrlSrf	0.1	-
+P	smallFanBlade	0.1	-
+P	smallHardpoint	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	smallHeliBlade	0.1	-
+P	smallPropeller	0.1	-
+P	smallRadialEngine	-	-
+P	smallRadialEngine.v2	-	-
+P	solarPanelOX10C	-	-
+P	solarPanelOX10L	-	-
+P	solarPanelSP10C	-	-
+P	solarPanelSP10L	-	-
+P	solarPanels1	-	-
+P	solarPanels2	-	-
+P	solarPanels3	-	-
+P	solarPanels4	-	-
+P	solarPanels5	-	-
+P	solidBooster.sm.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	2	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.7|thrustTransformName=thrustTransform
+P	solidBooster.v2	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=10.0|PROPELLANT.name=SolidFuel
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=1.8|fxMax=0.75|thrustTransformName=thrustTransform
+P	solidBooster1-1	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	throttleLocked=True|useEngineResponseTime=True|engineAccelerationSpeed=8.0|PROPELLANT.name=SolidFuel
+M	3	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=50|falloff=2|fxMax=0.8|thrustTransformName=thrustTransform
+P	spotLight1	-	-
+P	spotLight1.v2	-	-
+P	spotLight2	-	-
+P	spotLight2.v2	-	-
+P	spotLight3	-	-
+P	stackBiCoupler.v2	-	-
+P	stackPoint1	-	-
+P	stackQuadCoupler	-	-
+P	stackTriCoupler.v2	-	-
+P	standardNoseCone	-	-
+P	stationHub	-	-
+P	stripLight1	-	-
+P	structuralIBeam1	-	-
+P	structuralIBeam2	-	-
+P	structuralIBeam3	-	-
+P	structuralMiniNode	-	-
+P	structuralPanel1	-	-
+P	structuralPanel2	-	-
+P	structuralPylon	-	decouple
+M	0	ModuleDecouple	ModuleDecouple,ModuleDecouplerBase,PartModule	-
+P	structuralWing	0.1	-
+P	structuralWing2	0.1	-
+P	structuralWing3	0.1	-
+P	structuralWing4	0.1	-
+P	strutConnector	0	-
+P	strutCube	-	-
+P	strutOcto	-	-
+P	sweptWing	0.1	-
+P	sweptWing1	0.1	-
+P	sweptWing2	0.1	-
+P	tailfin	0.1	-
+P	telescopicLadder	-	-
+P	telescopicLadderBay	-	-
+P	toroidalAerospike	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	PROPELLANT.name=LiquidFuel|PROPELLANT.name=Oxidizer
+M	4	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=40|falloff=1.7|fxMax=0.6|thrustTransformName=thrustTransform
+P	trussAdapter	-	-
+P	trussPiece1x	-	-
+P	trussPiece3x	-	-
+P	turboFanEngine	-	-
+M	0	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.2|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	6	ModuleSurfaceFX	-	thrustProviderModuleIndex=0|maxDistance=25|falloff=2|fxMax=0.6|thrustTransformName=thrustTransform
+P	turboFanSize2	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.06|engineID=Cruise|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	9	ModuleSurfaceFX	-	thrustProviderModuleIndex=1|maxDistance=20|falloff=2|fxMax=0.5|thrustTransformName=smokePoint
+P	turboJet	-	-
+M	1	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.5|engineID=Dry|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	2	ModuleEnginesFX	ModuleEnginesFX,ModuleEngines,PartModule	useEngineResponseTime=True|engineAccelerationSpeed=0.8|engineID=Wet|PROPELLANT.name=IntakeAir|PROPELLANT.name=LiquidFuel
+M	10	ModuleSurfaceFX	-	thrustProviderModuleIndex=1|maxDistance=25|falloff=2|fxMax=0.6|thrustTransformName=thrustTransform
+M	11	ModuleSurfaceFX	-	thrustProviderModuleIndex=2|maxDistance=25|falloff=2|fxMax=0.6|thrustTransformName=thrustTransform
+P	vernierEngine	-	-
+P	wheelMed	-	-
+P	wingConnector	0.1	-
+P	wingConnector2	0.1	-
+P	wingConnector3	0.1	-
+P	wingConnector4	0.1	-
+P	wingConnector5	0.1	-
+P	wingShuttleDelta	0.1	-
+P	wingShuttleElevon1	0.1	-
+P	wingShuttleElevon2	0.1	-
+P	wingShuttleRudder	0.1	-
+P	wingShuttleStrake	0.1	-
+P	wingStrake	0.1	-
+P	winglet	0.1	-
+P	winglet3	0.1	-
+P	xenonTank	-	-
+P	xenonTankLarge	-	-
+P	xenonTankRadial	-	-

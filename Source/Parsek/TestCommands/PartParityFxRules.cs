@@ -60,6 +60,47 @@ namespace Parsek.TestCommands
         /// reference-only (E.6), else null.</summary>
         internal string Reference;
 
+        // ----- P9 burst and dust cases (design Appendix G); unset on every P8 case -----
+
+        /// <summary>A burst case's <c>explosionPotential</c> (an explode, puff, decouple or
+        /// joint-break case: its part's; a custom stand-in: Parsek's power for its length); NaN otherwise.</summary>
+        internal double ExplosionPotential = double.NaN;
+
+        /// <summary>A vessel-explode case's stack size; 0 otherwise.</summary>
+        internal int StackSize;
+
+        /// <summary>A burst-custom case's stand-in (<see cref="PartParityFxRules.StandInCustom"/> /
+        /// <see cref="PartParityFxRules.StandInPuff"/>); null otherwise.</summary>
+        internal string StandIn;
+
+        /// <summary>A custom explosion's vessel length, metres; NaN otherwise.</summary>
+        internal double StandInLengthM = double.NaN;
+
+        /// <summary>A decouple case's FX group (the decoupler's <c>fxGroupName</c>); null otherwise.</summary>
+        internal string FxGroup;
+
+        /// <summary>A burst case's window, seconds (<see cref="PartParityFxRules.BurstWindowFor"/>); NaN otherwise.</summary>
+        internal double BurstWindowSeconds = double.NaN;
+
+        /// <summary>A dust case's <c>thrustProviderModuleIndex</c> (the engine's prefab index); -1 otherwise.</summary>
+        internal int ThrustProviderModuleIndex = -1;
+
+        /// <summary>A dust case's engine module name (the thrust provider); null otherwise.</summary>
+        internal string EngineModule;
+
+        /// <summary>A dust case's slot surface (<c>terrain</c> / <c>water</c>); null otherwise.</summary>
+        internal string Surface;
+
+        /// <summary>A dust case's slot height as a fraction of <see cref="SurfaceFxMaxDistanceM"/>, and in metres.</summary>
+        internal double SlotFraction = double.NaN;
+        internal double SlotHeightM = double.NaN;
+
+        /// <summary>A dust case's <c>ModuleSurfaceFX</c> fields (stock defaults where the config names none).</summary>
+        internal double SurfaceFxMaxDistanceM = double.NaN;
+        internal double SurfaceFxFalloff = double.NaN;
+        internal double SurfaceFxFxMax = double.NaN;
+        internal string ThrustTransformName;
+
         /// <summary>The same option in another context.</summary>
         internal PartParityFxOption InContext(string context)
         {
@@ -146,6 +187,9 @@ namespace Parsek.TestCommands
 
         /// <summary>The prefab's model carries the <c>ModuleAnimateHeat</c> clip the module names.</summary>
         internal bool HasHeatClip;
+
+        /// <summary>The prefab carries a <c>ModuleSurfaceFX</c> (a dust control's subject must, design G.4).</summary>
+        internal bool HasSurfaceFx;
     }
 
     /// <summary>The subject an FX control runs on, or why it has none.</summary>
@@ -208,7 +252,7 @@ namespace Parsek.TestCommands
     /// <see cref="PartParityStateRules.OrbitContexts"/>, its exclusions) do not change: heat
     /// and <c>plate</c> live here only.
     /// </summary>
-    internal static class PartParityFxRules
+    internal static partial class PartParityFxRules
     {
         // ----- families (E.1 table order) -----
 
@@ -246,6 +290,11 @@ namespace Parsek.TestCommands
                 case ArgRcs: return FamilyRcs;
                 case ArgHeat: return FamilyHeat;
                 case ArgPlate: return FamilyLight;
+                case ArgExplode: return FamilyExplode;
+                case ArgVesselExplode: return FamilyVesselExplode;
+                case ArgBurstCustom: return FamilyBurstCustom;
+                case ArgDecouple: return FamilyDecouple;
+                case ArgDust: return FamilyDust;
                 default: return null;
             }
         }
@@ -737,10 +786,10 @@ namespace Parsek.TestCommands
             sb.Append(" fx=").Append(fx ?? TestCommandPartParitySweep.ArgNoneToken)
                 .Append(" contexts=").Append(contexts ?? TestCommandPartParitySweep.ArgNoneToken)
                 .Append(" install=").Append(total.ToString(Ic)).Append(" (");
-            AppendCounts(sb, Families, byFamily);
+            AppendCounts(sb, Families, BuiltFamilies, byFamily);
             sb.Append(") planned=").Append(planned.ToString(Ic))
                 .Append(" excluded=").Append(ex.ToString(Ic)).Append(" (");
-            AppendCounts(sb, ExclusionReasons, byReason);
+            AppendCounts(sb, ExclusionReasons, BuiltExclusionReasons, byReason);
             return sb.Append(')').ToString();
         }
 
@@ -750,16 +799,17 @@ namespace Parsek.TestCommands
             d[key ?? string.Empty] = n + 1;
         }
 
-        private static void AppendCounts(StringBuilder sb, string[] order, Dictionary<string, int> counts)
+        private static void AppendCounts(StringBuilder sb, string[] order, string[] then, Dictionary<string, int> counts)
         {
             bool first = true;
-            foreach (string k in order)
-            {
-                if (!counts.TryGetValue(k, out int n) || n == 0) continue;
-                if (!first) sb.Append(' ');
-                sb.Append(k).Append('=').Append(n.ToString(Ic));
-                first = false;
-            }
+            foreach (string[] list in new[] { order, then })
+                foreach (string k in list)
+                {
+                    if (!counts.TryGetValue(k, out int n) || n == 0) continue;
+                    if (!first) sb.Append(' ');
+                    sb.Append(k).Append('=').Append(n.ToString(Ic));
+                    first = false;
+                }
         }
 
         // =====================================================================================
@@ -1217,6 +1267,8 @@ namespace Parsek.TestCommands
         /// of the install whose prefab light is a point light, in the stable part order).</summary>
         internal static string[] ControlPreference(string controlId, bool airRun)
         {
+            string[] built = BuiltControlPreference(controlId);
+            if (built != null) return built;
             if (airRun) return SmokeControlParts;
             switch (controlId)
             {
@@ -1290,7 +1342,8 @@ namespace Parsek.TestCommands
             var notes = new List<string>();
             foreach (string part in candidates)
             {
-                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun);
+                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun,
+                    Array.IndexOf(TestCommandPartParitySweep.DustControlIds, controlId) >= 0);
                 if (why == null)
                 {
                     choice.Subject = part;
@@ -1309,18 +1362,21 @@ namespace Parsek.TestCommands
             return choice;
         }
 
-        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip)
+        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip, bool needsSurfaceFx)
         {
             if (f == null || !f.Present) return "absent";
             if (f.HasWaterfall) return "waterfall";
             if (lightType != null && (f.LightTypes == null || !f.LightTypes.Contains(lightType))) return "no-" + lightType.ToLowerInvariant() + "-light";
             if (needsHeatClip && !f.HasHeatClip) return "no-heat-clip";
+            if (needsSurfaceFx && !f.HasSurfaceFx) return "no-surface-fx";
             return null;
         }
 
         /// <summary>A control's subject in words.</summary>
         internal static string ControlSubjectWords(string controlId, bool airRun)
         {
+            string built = BuiltControlSubjectWords(controlId);
+            if (built != null) return built;
             string plume = string.Join(" / ", PlumeControlParts) + " (first with no ModuleWaterfallFX)";
             if (airRun && (controlId == TestCommandPartParitySweep.ControlEmpty || controlId == TestCommandPartParitySweep.ControlGhostAbsent))
                 return SmokeControlParts[0] + " held burning in the air, " + (controlId == TestCommandPartParitySweep.ControlEmpty ? "both sides hidden" : "ghost not built");
@@ -1346,6 +1402,8 @@ namespace Parsek.TestCommands
         /// <summary>A control's required outcome in words.</summary>
         internal static string ControlRequiredWords(string controlId)
         {
+            string built = BuiltControlRequiredWords(controlId);
+            if (built != null) return built;
             switch (controlId)
             {
                 case TestCommandPartParitySweep.ControlEmpty: return "zero coverage on every layer";

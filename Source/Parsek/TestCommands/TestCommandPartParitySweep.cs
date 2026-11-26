@@ -189,6 +189,13 @@ namespace Parsek.TestCommands
         internal static string FxAtlasFileName(string caseId) => (caseId ?? string.Empty) + FxAtlasSuffix;
         internal static string StripFileName(string caseId) => (caseId ?? string.Empty) + StripSuffix;
 
+        /// <summary>A burst case's time-binned atlas and a dust case's atlas (design Appendix G).</summary>
+        internal const string BurstAtlasSuffix = ".burst.png";
+        internal const string DustAtlasSuffix = ".dust.png";
+
+        internal static string BurstAtlasFileName(string caseId) => (caseId ?? string.Empty) + BurstAtlasSuffix;
+        internal static string DustAtlasFileName(string caseId) => (caseId ?? string.Empty) + DustAtlasSuffix;
+
         /// <summary>The label directory relative to the KSP root, forward slashes.</summary>
         internal static string RelativeLabelDir(string label) => RootDirName + "/" + (label ?? string.Empty);
 
@@ -268,11 +275,19 @@ namespace Parsek.TestCommands
         /// prediction (design E.2, E0 U2).</summary>
         internal const string SetupRcsInputMismatch = "rcs-input-mismatch";
 
+        /// <summary>A burst case whose REAL side drew nothing it was meant to: no blast tagged, no
+        /// gas burst (design G.4). Unmeasurable, never a pass.</summary>
+        internal const string SetupBurstNotTriggered = "burst-not-triggered";
+
+        /// <summary>A dust case whose stock raycast hit no surface in any sample (design G.4): its
+        /// slot height is under the part's reach by construction, so this is a setup fault.</summary>
+        internal const string SetupDustNoStockHit = "dust-no-stock-hit";
+
         internal static readonly string[] SetupStatuses =
         {
             SetupOk, SetupSkinNotApplied, SetupSpawnTimeout, SetupStillAnimating,
             SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired, SetupActionFailed, SetupStateTimeout,
-            SetupPlateNotLit, SetupRcsInputMismatch,
+            SetupPlateNotLit, SetupRcsInputMismatch, SetupBurstNotTriggered, SetupDustNoStockHit,
         };
 
         /// <summary>True for a status that is a setup fault: anything but <c>ok</c> and
@@ -350,9 +365,39 @@ namespace Parsek.TestCommands
             ControlEmpty, ControlGhostAbsent, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
         };
 
+        // The burst and dust controls (design G.4); their subjects are PartParityFxRules.BuiltControlPreference's.
+        internal const string ControlBurstEmpty = "ctl-burst-empty";
+        internal const string ControlBurstRealVsReal = "ctl-burst-real-vs-real";
+        internal const string ControlBurstOff = "ctl-burst-off";
+        internal const string ControlBurstLate = "ctl-burst-late";
+        internal const string ControlBurstPower = "ctl-burst-power";
+        internal const string ControlBurstShift = "ctl-burst-shift";
+        internal const string ControlBurstHue = "ctl-burst-hue";
+        internal const string ControlDustRealVsReal = "ctl-dust-real-vs-real";
+        internal const string ControlDustOff = "ctl-dust-off";
+        internal const string ControlDustAboveReach = "ctl-dust-above-reach";
+
+        /// <summary>A burst run's controls (<c>fx=</c> of burst words, <c>contexts=air</c>).</summary>
+        internal static readonly string[] BurstControlIds =
+        {
+            ControlBurstEmpty, ControlBurstRealVsReal, ControlBurstOff, ControlBurstLate, ControlBurstPower,
+            ControlBurstShift, ControlBurstHue,
+        };
+
+        /// <summary>A dust run's controls (<c>fx=dust</c>, <c>contexts=ground</c>).</summary>
+        internal static readonly string[] DustControlIds =
+        {
+            ControlDustRealVsReal, ControlDustOff, ControlDustAboveReach,
+        };
+
         /// <summary>The controls an install may lack a subject for: recorded <c>n/a</c>, never
         /// <c>bad</c> (E0 U9: no part on either install carries a point light).</summary>
         internal static readonly string[] OptionalControlIds = { ControlPlateLightOffPoint };
+
+        /// <summary>The controls that record <c>n/a</c> while a known ghost difference stands
+        /// (design G.4): <c>ctl-dust-above-reach</c> until fix Y3 (G.8 item 3,
+        /// <see cref="PartParityFxRules.DustAboveReachGhostJudged"/>).</summary>
+        internal static readonly string[] KnownDifferenceControlIds = { ControlDustAboveReach };
 
         /// <summary>Every control id any run may plan.</summary>
         internal static readonly string[] AllControlIds =
@@ -363,6 +408,8 @@ namespace Parsek.TestCommands
             ControlFxRealVsReal, ControlFxPlumeOff, ControlFxPlumeShort, ControlFxPlumeHue,
             ControlFxPlumeShift, ControlFxSmokeDropped, ControlHeatEventsDropped, ControlPlateLightOff,
             ControlPlateLightOffPoint, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
+            ControlBurstEmpty, ControlBurstRealVsReal, ControlBurstOff, ControlBurstLate, ControlBurstPower,
+            ControlBurstShift, ControlBurstHue, ControlDustRealVsReal, ControlDustOff, ControlDustAboveReach,
         };
 
         internal const string ControlsOk = "ok";
@@ -395,6 +442,13 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
+        /// <summary>REJECTED: a well-formed burst or dust run (design G.7) while the live burst
+        /// and dust driver (piece X4) is not built; the grammar alone is <see cref="TryParseGrammar"/>.</summary>
+        internal const string BurstDustRunsNotBuiltReason = "burst-dust-runs-not-built";
+
+        /// <summary>False until the live burst and dust driver (design G.7 piece X4) lands.</summary>
+        internal const bool BurstDustRunsBuilt = false;
+
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
 
@@ -418,7 +472,7 @@ namespace Parsek.TestCommands
             StatesArgInvalidReason, ContextsArgInvalidReason, FxArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
+            BurstDustRunsNotBuiltReason, NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
         /// <summary>Every arg key the verb reads.</summary>
@@ -456,13 +510,25 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
-        /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. A burst or dust run
+        /// (design G.7) is refused <c>burst-dust-runs-not-built</c> (detail <c>fx=..</c>) while
+        /// <see cref="BurstDustRunsBuilt"/> is false. On a refusal <paramref name="rejectReason"/> is the reason token and
         /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
-            => TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);
+        {
+            if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
+            if (!BurstDustRunsBuilt && IsBurstDustRun(parsed))
+            {
+                rejectReason = BurstDustRunsNotBuiltReason;
+                rejectDetail = "fx=" + FormatFx(parsed);
+                parsed = null;
+                return false;
+            }
+            return true;
+        }
 
         /// <summary>
         /// The arg grammar alone: every arg of one step, each present one that does not parse
@@ -533,11 +599,14 @@ namespace Parsek.TestCommands
             if (raw != null)
             {
                 if (!TryParseFx(raw, out List<string> fx, out bool fxAll)
-                    || (fx != null && !FxCombinationValid(a)))
+                    || (fx != null && !FxCombinationValid(a, fx)))
                 { rejectReason = FxArgInvalidReason; return Reject("fx", raw, out rejectDetail); }
                 a.Fx = fx;
                 a.FxAll = fxAll;
             }
+            // The ground context is the dust run's alone: without fx= it would plan nothing.
+            if (a.Fx == null && IsGroundRun(a))
+            { rejectReason = ContextsArgInvalidReason; return Reject("contexts", FormatContexts(a), out rejectDetail); }
 
             raw = Get(args, "views");
             if (raw != null)
@@ -698,17 +767,28 @@ namespace Parsek.TestCommands
             return TryParseKnownCsv(raw, PartParityStateRules.KnownStates, out states);
         }
 
+        /// <summary>Every context a <c>contexts=</c> csv may name, in canonical order: P6's
+        /// (<see cref="PartParityStateRules.KnownContexts"/>), then the dust run's <c>ground</c>
+        /// (design G.2.2), which lives in the FX rules so P6's tables do not change.</summary>
+        internal static readonly string[] KnownRunContexts =
+        {
+            PartParityStateRules.ContextAlone, PartParityStateRules.ContextStacked, PartParityStateRules.ContextAir,
+            PartParityStateRules.ContextFgv, PartParityFxRules.ContextGround,
+        };
+
         /// <summary>
         /// <c>none</c> (null) or a csv of known contexts (canonical order, duplicates dropped).
         /// <c>air</c> stands alone: the air cases need a host at the pad and the orbit cases an
-        /// orbiting one, so one step never plans both.
+        /// orbiting one, so one step never plans both. <c>ground</c> stands alone too, and only
+        /// an <c>fx=dust</c> run names it (the grammar refuses it otherwise).
         /// </summary>
         internal static bool TryParseContexts(string raw, out List<string> contexts)
         {
             contexts = null;
             if (raw == ArgNoneToken) return true;
-            if (!TryParseKnownCsv(raw, PartParityStateRules.KnownContexts, out List<string> list)) return false;
+            if (!TryParseKnownCsv(raw, KnownRunContexts, out List<string> list)) return false;
             if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;
+            if (list.Contains(PartParityFxRules.ContextGround) && list.Count > 1) return false;
             contexts = list;
             return true;
         }
@@ -744,15 +824,35 @@ namespace Parsek.TestCommands
                 all = true;
                 return true;
             }
-            return TryParseKnownCsv(raw, PartParityFxRules.ArgWords, out fx);
+            return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);
         }
 
-        /// <summary>An <c>fx=</c> run plans FX cases only (design E.5), so it names no
-        /// <c>states=</c> and at most <c>contexts=air</c>: a P6 state word or an orbit context
-        /// beside it would be silently ignored. The parse reads <c>fx=</c> after both.</summary>
-        internal static bool FxCombinationValid(PartParitySweepArgs a)
-            => a.States == null
-               && (a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir));
+        /// <summary>
+        /// An <c>fx=</c> run plans FX cases only (design E.5), so it names no <c>states=</c>: a P6
+        /// state word beside it would be silently ignored. Its words are of ONE kind (design G.7),
+        /// since each kind has its own host, context and control set: P8 words with at most
+        /// <c>contexts=air</c>; burst words with exactly <c>contexts=air</c> (a burst never runs in
+        /// the orbit context, G.2.1); the dust word with exactly <c>contexts=ground</c>. The parse
+        /// reads <c>fx=</c> after <c>states=</c> and <c>contexts=</c>.
+        /// </summary>
+        internal static bool FxCombinationValid(PartParitySweepArgs a, IList<string> fx)
+        {
+            if (a.States != null || fx == null) return false;
+            bool burst = false, dust = false, p8 = false;
+            foreach (string w in fx)
+            {
+                if (PartParityFxRules.IsBurstArg(w)) burst = true;
+                else if (PartParityFxRules.IsDustArg(w)) dust = true;
+                else p8 = true;
+            }
+            if ((burst ? 1 : 0) + (dust ? 1 : 0) + (p8 ? 1 : 0) != 1) return false;
+            if (burst) return OnlyContext(a, PartParityStateRules.ContextAir);
+            if (dust) return OnlyContext(a, PartParityFxRules.ContextGround);
+            return a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir);
+        }
+
+        private static bool OnlyContext(PartParitySweepArgs a, string context)
+            => a.Contexts != null && a.Contexts.Count == 1 && a.Contexts[0] == context;
 
         /// <summary>The <c>fx=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
         internal static string FormatFx(PartParitySweepArgs args)
@@ -764,6 +864,24 @@ namespace Parsek.TestCommands
         /// <summary>True when the step names <c>fx=</c> other than <c>none</c>: it plans ONLY
         /// the FX cases of its families (design E.5).</summary>
         internal static bool IsFxRun(PartParitySweepArgs args) => args?.Fx != null;
+
+        /// <summary>A burst run (design G.2.1): <c>fx=</c> of burst words (the grammar keeps a run to one kind).</summary>
+        internal static bool IsBurstRun(PartParitySweepArgs args)
+            => args?.Fx != null && args.Fx.Count > 0 && PartParityFxRules.IsBurstArg(args.Fx[0]);
+
+        /// <summary>A dust run (design G.2.2): <c>fx=dust</c>.</summary>
+        internal static bool IsDustRun(PartParitySweepArgs args)
+            => args?.Fx != null && args.Fx.Count > 0 && PartParityFxRules.IsDustArg(args.Fx[0]);
+
+        /// <summary>A burst or dust run (design G.7): refused until the live driver lands.</summary>
+        internal static bool IsBurstDustRun(PartParitySweepArgs args) => IsBurstRun(args) || IsDustRun(args);
+
+        /// <summary>True for a ground run: <c>contexts=ground</c> (the dust cases, design G.2.2).</summary>
+        internal static bool IsGroundRun(PartParitySweepArgs args)
+            => args?.Contexts != null && args.Contexts.Contains(PartParityFxRules.ContextGround);
+
+        /// <summary>A run whose host is the pad host (design D.4, G.2): an air run or a ground run.</summary>
+        internal static bool IsPadHostRun(PartParitySweepArgs args) => IsAirRun(args) || IsGroundRun(args);
 
         /// <summary>The <c>states=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
         internal static string FormatStates(PartParitySweepArgs args)
@@ -816,6 +934,8 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static string[] ControlSetFor(PartParitySweepArgs args)
         {
+            if (IsBurstRun(args)) return (string[])BurstControlIds.Clone();
+            if (IsDustRun(args)) return (string[])DustControlIds.Clone();
             if (IsFxRun(args)) return (string[])(IsAirRun(args) ? FxAirControlIds : FxOrbitControlIds).Clone();
             if (!IsStateRun(args)) return (string[])ControlIds.Clone();
             return (string[])(IsAirRun(args) ? AirControlIds : OrbitStateControlIds).Clone();
@@ -935,6 +1055,15 @@ namespace Parsek.TestCommands
             PartParitySweepArgs args, IEnumerable<PartParityCaseKey> fxKeys = null)
         {
             if (args == null) args = new PartParitySweepArgs();
+            if (IsBurstDustRun(args))
+            {
+                var built = new List<PartParityCaseKey>();
+                string context = IsBurstRun(args) ? PartParityFxRules.ContextBurst : PartParityFxRules.ContextGround;
+                if (fxKeys != null)
+                    foreach (var k in fxKeys)
+                        if (PartParityFxRules.BuiltKeySelected(k, args.Fx, context)) built.Add(k);
+                return SelectCases(built, args);
+            }
             if (IsFxRun(args))
             {
                 var fx = new List<PartParityCaseKey>();
@@ -1210,14 +1339,14 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The admission of a run by its kind: an orbit run (stowed or state) needs an orbiting
-        /// host, as above; an air run (design D.4) a host PRELAUNCH or LANDED within
+        /// host, as above; an air run (design D.4) or a ground run (design G.2.2) a host PRELAUNCH or LANDED within
         /// <see cref="AirHostMaxPadDistanceM"/> of the KSC pad, else <c>host-not-at-pad</c>.
         /// A non-finite distance is not at the pad.
         /// </summary>
         internal static string DecideHostAdmission(PartParitySweepArgs args, bool hasActiveVessel,
             bool activeVesselOrbiting, bool activeVesselLandedOrPrelaunch, double distanceToPadM)
         {
-            if (!IsAirRun(args)) return DecideHostAdmission(hasActiveVessel, activeVesselOrbiting);
+            if (!IsPadHostRun(args)) return DecideHostAdmission(hasActiveVessel, activeVesselOrbiting);
             if (!hasActiveVessel) return NoActiveVesselReason;
             bool near = !double.IsNaN(distanceToPadM) && !double.IsInfinity(distanceToPadM)
                         && distanceToPadM >= 0.0 && distanceToPadM <= AirHostMaxPadDistanceM;
