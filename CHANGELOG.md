@@ -4,24 +4,22 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 1.0.3
+## 1.0.4
 
 Not released yet.
+
+## 1.0.3
 
 ### Added
 
 - **Missions: a Profile window for each mission.** Its new Profile button shows the flight's
   phases, burns, orbits, docking and EVA, with the delta-v spent and left.
-
 - **Recordings keep the game's delta-v.** Each flight now saves the stock delta-v readout at
   launch, burns, staging and docking, which the mission Profile window shows.
-
 - **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly Klaw grabs, a
   release, rock mining on a route, a Re-Fly across a grab and a comet grab.
-
 - **Dev: chained supply routes and many routes at once are tested.** A hub-and-depot chain and 10 to
   30 routes run through warps, saves and Re-Fly loads.
-
 - **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea it
   reports whether it sits buried, in the air or off its depth, without changing the result yet.
 
@@ -70,6 +68,8 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost smoke stays behind in the air, not around the rocket.** A ghost beside your vessel, in
+  the air or in orbit, hid in a ball of its own smoke. (GHOST-SMOKE-RIDES-ACTIVE-VESSEL)
 - **A planted flag always comes back after a rewind.** It was lost when time warp or the Tracking
   Station passed its moment. (FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24)
 - **A looped ghost's map icon no longer flashes far from its orbit.** It is placed on the orbit
@@ -192,7 +192,7 @@ Not released yet.
   milestones reach the career at once, and its vessel appears. (UNION-COMMIT-STALE-INCOMING-TREE)
 - **A rescue or tourism contract still works after you go back in time.** The stranded kerbal or
   part comes back when the clock reaches the accept again, and passengers become tourists again.
-- **A stranded rescue vessel still appears after a rewind or a discarded Re-fly.** It appears at
+- **A stranded rescue vessel still appears after a rewind or a discarded Re-Fly.** It appears at
   your next Space Center visit, so the contract can still be finished.
 - **Construction, repair and part test contracts still work after you go back in time.** The craft
   to build on or repair comes back at the accept, and the test part is usable again.
@@ -320,10 +320,8 @@ Not released yet.
   lump; comets get their rock but no tail. (ROCK-GHOST-PREFAB-MESH)
 - **A ship holding a rock checks for room at the rock's real size.** It can no longer appear inside
   a nearby vessel. (ROCK-SPAWN-BOUNDS-TOO-SMALL)
-- **A looped mission that starts in orbit keeps its own launch moon.** Its loops are spaced around
-  the moon it started from. (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
-- **The same holds when you never time-warp before that low pass.** The loop keeps the moon it
-  started from. (MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED)
+- **A looped mission that starts in orbit keeps its own launch moon.** Its loops are spaced
+  around it, time warp or not. (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
 - **A flight resumed after a load saves its real end time.** The save records the real end instead
   of the moment it resumed. (REFLY-ATTEMPT-STALE-END-UT)
 - **A replaced flight that survived is no longer at risk of being marked destroyed.** Not seen in
