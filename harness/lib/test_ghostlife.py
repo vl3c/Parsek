@@ -1350,6 +1350,161 @@ class GhostlifeV3EmitterSourceGuardTests(unittest.TestCase):
                           "a field was appended after dRotDeg/rotRef")
 
 
+class HeldAtQuitTests(unittest.TestCase):
+    """The balance across the quit (todo GHOST-BALANCE-CUT-BY-THE-QUIT): a ghost the
+    engine still held at the quit line is not a leak, whether or not its teardown
+    line reached KSP.log; a mesh the engine lost track of during the run is one."""
+
+    LIVE = "bcbb2778d4574d9db45f6d5019d9ab82"
+    OTHER = "21d6d9e2d4574d9db45f6d5019d9ab82"
+    QUIT = "[LOG 19:03:54.515] [Parsek][INFO][TestCommands] flushandquit: Application.Quit"
+    SCHEDULED = ("[LOG 19:03:54.508] [Parsek][INFO][TestCommands] flushandquit: scheduling "
+                 "Application.Quit (deferred one frame) id=0007")
+    TEARDOWN = ("[LOG 19:03:%s] [Parsek][INFO][Engine] DestroyAllGhosts: clearing "
+                "1 primary + 0 overlap entries")
+
+    @staticmethod
+    def census(at, *held, dropped=()):
+        # Field for field off FormatEngineIterEntry + FormatEngineIterOutcome.
+        entries = []
+        for hs, recs in (("T", held), ("F", dropped)):
+            for rec in recs:
+                entries.append(
+                    "[i=%d rec=%s skip=None aru=F hd=T hs=%s endUT=335.6]%s"
+                    % (len(entries), rec[:8], hs,
+                       "[out:vis=F retired=F zone=Visual rdist=73592m]"
+                       if hs == "T" else "[out:none]"))
+        return ("[LOG 19:03:%s] [Parsek][VERBOSE][Engine] engine-frame-iter %s | suppressed=57"
+                % (at, ",".join(entries)))
+
+    def spawn(self, rec=None):
+        return line(ghostlife.PHASE_SPAWNED, rec_id=rec or self.LIVE,
+                    vessel="Kerbal X Sweep Probe")
+
+    def destroy(self, rec=None, reason="playback completed"):
+        return line(ghostlife.PHASE_DESTROYED, rec_id=rec or self.LIVE,
+                    vessel="Kerbal X Sweep Probe", reason=reason)
+
+    def balance(self, *lines):
+        snap = ghostlife.parse_ghost_lifecycle(log(*lines))
+        r = ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": {"gating": True, "requireBalanced": True}}, snap)
+        f = r.observed["ghostLifecycle"]
+        self.assertEqual(r.status == ghostlife.STATUS_PASS, not f["unbalanced"], r.mismatches)
+        return ([u["recId"] for u in f["unbalanced"]],
+                [u["recId"] for u in f["aliveAtQuit"]])
+
+    def test_a_ghost_held_at_a_quit_that_cut_the_log_is_not_a_leak(self):
+        # GS-6 `2026-11-24_1654`: KSP.log ended before ParsekFlight.OnDestroy.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(), self.census("54.017", self.LIVE), self.SCHEDULED, self.QUIT))
+
+    def test_a_teardown_that_logged_its_count_but_not_its_lines_is_not_a_leak(self):
+        # The other half of the same quit: HighLogic gone first, so the tracer is off.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(), self.census("54.017", self.LIVE), self.QUIT,
+            self.TEARDOWN % "55.300"))
+
+    def test_a_written_teardown_line_stays_a_balance(self):
+        self.assertEqual(([], []), self.balance(
+            self.spawn(), self.census("54.017", self.LIVE), self.QUIT,
+            self.TEARDOWN % "55.300", self.destroy(reason="engine teardown")))
+
+    def test_a_written_teardown_closes_every_ghost_it_held_or_reds(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.spawn(self.OTHER),
+            self.census("54.017", self.LIVE, self.OTHER), self.QUIT,
+            self.TEARDOWN % "55.300", self.destroy(self.OTHER, reason="engine teardown")))
+        # An ordinary ending after the quit line is not the teardown.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(), self.spawn(self.OTHER),
+            self.census("54.017", self.LIVE, self.OTHER), self.QUIT,
+            self.destroy(self.OTHER)))
+        # A teardown before the quit (a rewind) is not the quit's.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.spawn(self.OTHER), self.destroy(self.OTHER, reason="engine teardown"),
+            self.spawn(), self.census("54.017", self.LIVE), self.QUIT))
+
+    def test_a_mesh_the_engine_lost_during_the_run_is_a_leak(self):
+        self.assertEqual(([self.LIVE], [self.OTHER]), self.balance(
+            self.spawn(), self.spawn(self.OTHER),
+            self.census("40.000", self.LIVE, self.OTHER),
+            self.census("54.017", self.OTHER, dropped=(self.LIVE,)), self.QUIT))
+
+    def test_a_ghost_whose_row_left_the_census_is_a_leak(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.census("54.017", self.OTHER), self.QUIT))
+
+    def test_a_ghost_spawned_after_the_last_census_is_held(self):
+        # The census is 1 Hz; AT-1 quits inside that second.
+        self.assertEqual(([], [self.LIVE]), self.balance(
+            self.census("54.017", dropped=(self.LIVE,)), self.spawn(), self.QUIT))
+
+    def test_a_teardown_during_the_run_empties_the_census(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.census("53.017", self.LIVE), self.TEARDOWN % "54.000",
+            self.QUIT))
+
+    def test_a_stale_census_proves_nothing(self):
+        # A flight scene left without its teardown, the quit reached elsewhere.
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.census("40.000", self.LIVE), self.QUIT))
+
+    def test_no_census_proves_nothing(self):
+        self.assertEqual(([self.LIVE], []), self.balance(self.spawn(), self.QUIT))
+
+    def test_a_killed_run_proves_nothing(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.census("54.017", self.LIVE)))
+
+    def test_the_scheduling_line_and_a_quoted_marker_are_not_the_quit(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.spawn(), self.census("54.017", self.LIVE), self.SCHEDULED,
+            "[LOG 19:03:54.100] echo: flushandquit: Application.Quit"))
+
+    def test_the_clock_wraps_at_midnight(self):
+        held = self.census("59.900", self.LIVE).replace("19:03:59", "23:59:59")
+        quit_line = self.QUIT.replace("19:03:54.515", "00:00:00.400")
+        self.assertEqual(([], [self.LIVE]), self.balance(self.spawn(), held, quit_line))
+        stale = held.replace("23:59:59", "23:59:30")
+        self.assertEqual(([self.LIVE], []), self.balance(self.spawn(), stale, quit_line))
+
+    def test_a_spawn_after_the_quit_is_not_held(self):
+        self.assertEqual(([self.LIVE], []), self.balance(
+            self.census("54.017", dropped=(self.LIVE,)), self.QUIT, self.spawn()))
+
+    def test_the_c_sharp_writers_still_emit_the_census(self):
+        guard = EmitterSourceGuardTests
+
+        def read(name):
+            with open(os.path.join(PARSEK_SOURCE_DIR, "Ghost", name),
+                      encoding="utf-8-sig") as fh:
+                return fh.read()
+
+        diag = read("GhostPlaybackEngine.Diagnostics.cs")
+        entry = guard._method_body(diag, "internal static string FormatEngineIterEntry(")
+        # The order `_ENGINE_CENSUS_ENTRY_RE` reads: the id, then `hs`, one bracket pair.
+        at = [entry.find(t) for t in ('"[i="', '" rec="', '" hs="', '"]"')]
+        self.assertEqual(sorted(at), at)
+        self.assertGreaterEqual(at[0], 0, at)
+        self.assertIn('" hs=" + (inGhostStates ? "T" : "F")', entry)
+        frame = guard._method_body(diag, "private void EmitEngineIterTraceForFrame(")
+        self.assertIn("inGhostStates: ghostStates.ContainsKey(i)", frame)
+        emit = guard._method_body(diag, "internal static void EmitEngineIterTrace(")
+        self.assertIn('"%s"' % ghostlife.ENGINE_SUBSYSTEM_TAG.strip("[]"), emit)
+        self.assertRegex(emit, r"\b1\.0\)", "the census is no longer a 1 s line; "
+                         "ENGINE_CENSUS_MAX_AGE_SECONDS and the docs assume it is")
+        engine = read("GhostPlaybackEngine.cs")
+        self.assertIn('EngineFrameIterMessagePrefix = "%s"' % ghostlife.ENGINE_CENSUS_TOKEN,
+                      engine)
+        # The census is written whenever the tracer is on.
+        self.assertIn("ParsekSettings.Current?.ghostRenderTracing == true", engine)
+        teardown = guard._method_body(
+            read("GhostPlaybackEngine.SpawnDestroy.cs"), "internal void DestroyAllGhosts(")
+        self.assertIn(ghostlife.ENGINE_TEARDOWN_TOKEN, teardown)
+        self.assertIn('"%s"' % ghostlife.ENGINE_TEARDOWN_REASON, teardown)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
 

@@ -667,58 +667,16 @@ namespace Parsek
             => string.IsNullOrEmpty(existing) ? addition : existing + "; " + addition;
 
         /// <summary>
-        /// The emitter <c>localVelocity</c> to write for one throttle ratio: <c>baseline * ratio</c>,
-        /// except that a WORLD-SPACE emitter never drops below the minimum-flow floor its baseline
-        /// was given at build time.
-        ///
-        /// Why the special case. <c>GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor</c> lifts a
-        /// near-static world-space emitter to <c>WorldSpaceEmitterFloorSpeed</c> (6 m/s) precisely
-        /// because such an asset paints its trail by MOTION, and a ghost that is standing still would
-        /// otherwise pool every particle at the nozzle. <c>CaptureFxMagnitudeBaselines</c> captures
-        /// AFTER that lift, so the floored 6 m/s IS the baseline — and a plain ratio write at, say,
-        /// 0.2 throttle would put 1.2 m/s back on the emitter, under the 4 m/s threshold the floor
-        /// exists to clear, re-creating the pooling at partial throttle. Narrow but real: ReStock's
-        /// world-space SRB smoke rigs at genuine partial throttle.
-        ///
-        /// The clamp is a floor, never a boost: the result is capped at the baseline's own magnitude,
-        /// so an emitter whose real velocity was already above the floor keeps its exact ratio down to
-        /// the floor and no further. Local-space emitters (every stock FX asset) are untouched, and a
-        /// zero / negative ratio is left alone — the callers only scale a LIT engine, and the one
-        /// place a zero would arrive is a shutdown, where the emitters are being gated off anyway.
-        /// </summary>
-        internal static Vector3 ScaleEmitterLocalVelocity(
-            Vector3 baselineLocalVelocity, float speedRatio, bool useWorldSpace)
-        {
-            Vector3 scaled = baselineLocalVelocity * speedRatio;
-            if (!useWorldSpace) return scaled;
-            if (float.IsNaN(speedRatio) || float.IsInfinity(speedRatio) || speedRatio <= 0f)
-                return scaled;
-
-            float baselineMagnitude = baselineLocalVelocity.magnitude;
-            if (baselineMagnitude <= 0.001f) return scaled;
-
-            float floor = Math.Min(
-                baselineMagnitude, GhostVisualBuilder.WorldSpaceEmitterFloorSpeed);
-            if (scaled.magnitude >= floor) return scaled;
-
-            return baselineLocalVelocity * (floor / baselineMagnitude);
-        }
-
-        /// <summary>
         /// Writes <c>baseline * ratio</c> into the two magnitude surfaces a ghost plume actually
         /// has: the <c>KSPParticleEmitter</c> clone's own rate / velocity fields (the ONLY particle
         /// creation source on a ghost — Unity's emission module is permanently off, bug #105), and
         /// the <c>ParticleSystem</c>'s speed / size multipliers.
         ///
         /// Ratio-of-baseline rather than absolute writes is what makes this composable: the #383
-        /// size boost, the per-part FX tunings and the world-space velocity floor are all already
+        /// size boost and the per-part FX tunings are already
         /// baked into the captured baseline, so scaling multiplies them instead of overwriting
         /// them, and repeated events at the same power are idempotent instead of compounding.
         /// An uncaptured baseline (build failed, or a KSP version renamed a field) writes nothing.
-        ///
-        /// The one composition the ratio cannot express is the world-space minimum-flow floor, which
-        /// is a THRESHOLD rather than a magnitude; <see cref="ScaleEmitterLocalVelocity"/> owns that
-        /// exception and every other write here stays a plain ratio.
         ///
         /// EVERY write goes through <see cref="TryConvertMagnitudeForField"/>, because the emitter's
         /// fields are NOT all floats — see that method's contract.
@@ -751,8 +709,7 @@ namespace Parsek
                         r.baselineMaxEmission * emissionRatio, ref failure);
                     wrote |= TryWriteMagnitudeVectorField(
                         r.localVelocityField, r.emitter,
-                        ScaleEmitterLocalVelocity(
-                            r.baselineLocalVelocity, speedRatio, r.baselineUseWorldSpace),
+                        r.baselineLocalVelocity * speedRatio,
                         ref failure);
 
                     if (wrote) scaledEmitters++;

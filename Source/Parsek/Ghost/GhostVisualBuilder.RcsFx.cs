@@ -418,7 +418,6 @@ namespace Parsek
                 minEnergy = emitter.minEnergy,
                 maxEnergy = emitter.maxEnergy,
                 localVelocity = emitter.localVelocity,
-                useWorldSpace = emitter.useWorldSpace,
             });
         }
 

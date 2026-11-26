@@ -593,7 +593,6 @@ namespace Parsek
             rule.minEnergy = emitter.minEnergy;
             rule.maxEnergy = emitter.maxEnergy;
             rule.localVelocity = emitter.localVelocity;
-            rule.useWorldSpace = emitter.useWorldSpace;
             info.fxRules.Add(rule);
             return true;
         }
