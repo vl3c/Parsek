@@ -1249,6 +1249,7 @@ namespace Parsek
             GhostRenderTrace.ExpectedAttitudeSource = Positioner.TryResolveRecordedAttitudeForTrace;
             engine.OnLoopCameraAction += watchMode.HandleLoopCameraAction;
             engine.OnOverlapCameraAction += watchMode.HandleOverlapCameraAction;
+            engine.ResolveWatchedBranchContinuation = watchMode.FindWatchedBranchContinuation;
             engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
                 watchMode != null && watchMode.IsWatchedGhostState(recordingIndex, state);
             engine.ResolvePlaybackDistanceOverride = Positioner.ResolvePlaybackDistanceForEngine;

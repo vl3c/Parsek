@@ -15,6 +15,8 @@ Not released yet.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.
+- **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
+  vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 
 ## 1.0.3
 
