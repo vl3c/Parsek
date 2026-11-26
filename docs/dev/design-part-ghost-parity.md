@@ -2145,7 +2145,9 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. After it, an engine
+  case holds (inside the press timeout) while the recorder still owes the settled-throttle event
+  (`IsEngineSettlePending`), so a jet is read at rest and not on the last 0.05 step. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
