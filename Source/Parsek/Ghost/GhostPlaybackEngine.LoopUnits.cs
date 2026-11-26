@@ -618,13 +618,29 @@ namespace Parsek
 
             // Every copy ends at its own end, its explosion included, and the same vessel's next row
             // carries on (owner ruling 2026-11-24). The copy the camera follows ends for the camera too:
-            // see WatchedCopyEnd.
+            // see WatchedCopyEnd. Where the watched vessel goes on is asked in order: at a dock, boarding
+            // or undock the host's branch answer (that launch's copy of it, or nothing to follow), else
+            // the same vessel's next row.
             long watchedCycleHere = ctx.protectedIndex == i ? ctx.protectedLoopCycleIndex : -1;
             var nextRow = GhostPlaybackLogic.NextRowCopy.OutOfReach;
             int nextLiveRow = -1;
+            bool nextRowViaBranch = false;
             if (ctx.protectedLoopCycleIndex >= 0
                 && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0)
-                nextRow = FindWatchedNextRow(unit, trajectories, ctx, suppressGhosts, out nextLiveRow);
+            {
+                int branchRow = FindWatchedBranchRow(
+                    unit, trajectories, ctx, suppressGhosts, out GhostPlaybackLogic.NextRowCopy branchCopy);
+                if (branchRow >= 0)
+                {
+                    nextRowViaBranch = true;
+                    nextRow = branchCopy;
+                    nextLiveRow = branchCopy == GhostPlaybackLogic.NextRowCopy.Live ? branchRow : -1;
+                }
+                else
+                {
+                    nextRow = FindWatchedNextRow(unit, trajectories, ctx, suppressGhosts, out nextLiveRow);
+                }
+            }
             var ends = new GhostPlaybackLogic.OverlapCopyEnds(
                 memberEndUT,
                 recorded: !memberHasFall && !GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT),
@@ -722,7 +738,9 @@ namespace Parsek
                 suppressWatchRetarget: watchedInstanceEnded || watchHolding
                     || (watchedRowOver && !watchedRowContinues),
                 handoffCycle: handoffCycle, watchedRowContinues: watchedRowContinues,
-                continuingRow: watchedRowContinues ? nextLiveRow : (int?)null);
+                continuingRow: watchedRowContinues ? nextLiveRow : (int?)null,
+                continuingRowViaBranch: nextRowViaBranch,
+                askBranch: !watchPinnedToInstance);
 
             ParsekLog.VerboseRateLimited(
                 "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
@@ -1340,14 +1358,17 @@ namespace Parsek
         /// the unit's live CAMERA member = the in-window member with the highest StartUT (the newest
         /// segment) by scanning all members against <paramref name="spanLoopUT"/>; -1 = nothing live
         /// (inter-cycle wait / before span). Records the new state so siblings later in the same
-        /// frame see no change.
+        /// frame see no change. An overlapping mission watched on one launch names the target row
+        /// itself (<paramref name="continuingRow"/>: the branch answer at a dock, boarding or undock,
+        /// else the same vessel's next row; -1 waits for it) and passes <paramref name="askBranch"/>
+        /// false, so the window-based branch lookup here never answers for it.
         /// </summary>
-        private void LogUnitTransitionIfChanged(
+        internal void LogUnitTransitionIfChanged(
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
             bool suppressWatchRetarget, long? handoffCycle = null, bool watchedRowContinues = false,
-            int? continuingRow = null)
+            int? continuingRow = null, bool continuingRowViaBranch = false, bool askBranch = true)
         {
             // Live camera member = the in-window member to point the watch camera at. -1 in the
             // inter-cycle wait or before the span. Selection is two-tier so a structural fork
@@ -1507,12 +1528,22 @@ namespace Parsek
             // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
             // the ending member so its terminal explosion hold applies and the post-hold retarget
             // restarts on the through-line root.
-            // An overlapping mission names the row itself (continuingRow): the picker reads windows alone,
-            // and the row it picks may have no copy of the watched launch.
+            // A dock, boarding or undock is the one end where the vessel goes on under another
+            // launch guid, so "different vessel" is not "not where it went": there the host's
+            // branch answer decides, ahead of the guid tiers. An overlapping mission watched on one
+            // launch names the row itself (continuingRow, the branch answer first): the picker reads
+            // windows alone, and the row it picks may have no copy of the watched launch.
+            int branchMemberIdx = askBranch && continuingRow == null
+                && watchedWasRendering && !watchedIsRendering
+                ? ResolveWatchedBranchMember(unit, trajectories, spanLoopUT, isInInterCycleTail, watchedIndex)
+                : -1;
             int retargetMemberIdx = suppressWatchRetarget
                 ? -1
                 : continuingRow
-                    ?? GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+                    ?? (branchMemberIdx >= 0
+                        ? branchMemberIdx
+                        : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched));
+            bool viaBranch = continuingRow.HasValue ? continuingRowViaBranch : branchMemberIdx >= 0;
             if (suppressWatchRetarget && watchedIndex >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-instance-ended",
@@ -1522,7 +1553,7 @@ namespace Parsek
                         + " instance ended - holding for its own terminal end / post-hold restart"
                         + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
                     5.0);
-            else if (retargetMemberIdx < 0 && watchedIndex >= 0 && watchedWasRendering
+            else if (retargetMemberIdx < 0 && !watchedRowContinues && watchedIndex >= 0 && watchedWasRendering
                 && !watchedIsRendering && liveMemberIdx >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-noncontinuation",
@@ -1544,7 +1575,8 @@ namespace Parsek
                         "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
                         + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
-                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + (viaBranch ? " via=branch" : " via=same-vessel"));
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
                     Index = retargetMemberIdx,
@@ -1574,6 +1606,29 @@ namespace Parsek
 
             lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering,
                 retargetFired ? watchedIndex : -1, retargetFired ? retargetMemberIdx : -1);
+        }
+
+        /// <summary>
+        /// The unit member the watched member's vessel went to at a dock, boarding or undock
+        /// (<see cref="ResolveWatchedBranchContinuation"/>), or -1: no host, the watched index is
+        /// not this unit's, or the answer is not a member the unit clock is in.
+        /// </summary>
+        private int ResolveWatchedBranchMember(
+            GhostPlaybackLogic.LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
+            double spanLoopUT, bool isInInterCycleTail, int watchedIndex)
+        {
+            int[] members = unit.MemberIndices;
+            if (ResolveWatchedBranchContinuation == null || isInInterCycleTail || members == null
+                || watchedIndex < 0 || Array.IndexOf(members, watchedIndex) < 0)
+                return -1;
+
+            return ResolveWatchedBranchContinuation(watchedIndex, idx =>
+                idx >= 0 && idx < trajectories.Count && trajectories[idx] != null
+                && Array.IndexOf(members, idx) >= 0
+                && GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                    spanLoopUT,
+                    unit.MemberStartUT(idx, trajectories[idx].StartUT),
+                    unit.MemberEndUT(idx, trajectories[idx].EndUT)));
         }
     }
 }

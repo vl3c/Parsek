@@ -155,12 +155,8 @@ namespace Parsek
                         watched.RecordedVesselGuid, watched.VesselName,
                         member.RecordedVesselGuid, member.VesselName))
                     continue;
-                bool hasCopy = TryGetCopyOfCycle(idx, cycle, out GhostPlaybackState copy) && !copy.endedCopyHeld;
-                bool inSlot = hasCopy && ghostStates.TryGetValue(idx, out GhostPlaybackState slot)
-                    && ReferenceEquals(slot, copy);
-                GhostPlaybackLogic.NextRowCopy next = GhostPlaybackLogic.DecideNextRowCopy(
-                    unit, idx, member, cycle, ctx.currentUT, IsRowDrawn(idx, member, ctx),
-                    suppressGhosts, ctx.warpRate, inSlot, hasCopy && !inSlot);
+                GhostPlaybackLogic.NextRowCopy next = DecideWatchedLaunchRowCopy(
+                    unit, idx, member, cycle, ctx, suppressGhosts);
                 if (next > best)
                     best = next;
                 double start = unit.MemberStartUT(idx, member.StartUT);
@@ -170,14 +166,77 @@ namespace Parsek
                     liveStart = start;
                 }
             }
-            if (best == GhostPlaybackLogic.NextRowCopy.Live
-                && TryGetCopyOfCycle(watchedIndex, cycle, out GhostPlaybackState held)
-                && held.endedCopyHeld && held.endedCopyWaitFrames >= MaxEndedCopyWaitFrames)
+            if (WaitedTooLongFor(best, watchedIndex, cycle))
             {
                 liveRow = -1;
                 return GhostPlaybackLogic.NextRowCopy.WaitedTooLong;
             }
             return best;
+        }
+
+        /// <summary>
+        /// Where the watched vessel of launch <see cref="FrameContext.protectedLoopCycleIndex"/> went at a
+        /// dock, boarding or undock: the host's branch answer (<see cref="ResolveWatchedBranchContinuation"/>,
+        /// the end-of-recording follow rules), asked over the members whose copy of that launch is within
+        /// reach, or -1 (no host, no such branch, the launch is over or its watched row is not near its end).
+        /// <paramref name="copy"/> is whether the camera can be handed that launch's copy of it
+        /// (<see cref="GhostPlaybackLogic.DecideNextRowCopy"/>, bounded by the held copy's wait): a branch
+        /// answer that cannot be followed ends the watch of the launch, it never falls to the same-guid
+        /// row, which at an undock is the station's.
+        /// </summary>
+        private int FindWatchedBranchRow(
+            in GhostPlaybackLogic.LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
+            FrameContext ctx, bool suppressGhosts, out GhostPlaybackLogic.NextRowCopy copy)
+        {
+            copy = GhostPlaybackLogic.NextRowCopy.OutOfReach;
+            int watchedIndex = ctx.protectedIndex;
+            long cycle = ctx.protectedLoopCycleIndex;
+            int[] members = unit.MemberIndices;
+            if (ResolveWatchedBranchContinuation == null || cycle < 0 || trajectories == null || members == null
+                || watchedIndex < 0 || watchedIndex >= trajectories.Count || trajectories[watchedIndex] == null
+                || System.Array.IndexOf(members, watchedIndex) < 0)
+                return -1;
+            double instanceUT = GhostPlaybackLogic.UnitInstanceLoopUT(unit, cycle, ctx.currentUT);
+            if (instanceUT > unit.SpanEndUT + LoopTiming.BoundaryEpsilon
+                || instanceUT < unit.MemberEndUT(watchedIndex, trajectories[watchedIndex].EndUT)
+                    - GhostPlaybackLogic.NextRowLookAheadSeconds)
+                return -1;
+
+            var unitCopy = unit;
+            int branchRow = ResolveWatchedBranchContinuation(watchedIndex, idx =>
+                idx != watchedIndex && idx >= 0 && idx < trajectories.Count && trajectories[idx] != null
+                && System.Array.IndexOf(members, idx) >= 0
+                && DecideWatchedLaunchRowCopy(unitCopy, idx, trajectories[idx], cycle, ctx, suppressGhosts)
+                    != GhostPlaybackLogic.NextRowCopy.OutOfReach);
+            if (branchRow < 0 || branchRow == watchedIndex || branchRow >= trajectories.Count
+                || trajectories[branchRow] == null || System.Array.IndexOf(members, branchRow) < 0)
+                return -1;
+            copy = DecideWatchedLaunchRowCopy(unit, branchRow, trajectories[branchRow], cycle, ctx, suppressGhosts);
+            if (WaitedTooLongFor(copy, watchedIndex, cycle))
+                copy = GhostPlaybackLogic.NextRowCopy.WaitedTooLong;
+            return branchRow;
+        }
+
+        // What the engine does with launch <paramref name="cycle"/>'s copy of one row, read from where that
+        // copy is now (a held copy is the camera's, never a target).
+        private GhostPlaybackLogic.NextRowCopy DecideWatchedLaunchRowCopy(
+            in GhostPlaybackLogic.LoopUnit unit, int index, IPlaybackTrajectory member, long cycle,
+            FrameContext ctx, bool suppressGhosts)
+        {
+            bool hasCopy = TryGetCopyOfCycle(index, cycle, out GhostPlaybackState copy) && !copy.endedCopyHeld;
+            bool inSlot = hasCopy && ghostStates.TryGetValue(index, out GhostPlaybackState slot)
+                && ReferenceEquals(slot, copy);
+            return GhostPlaybackLogic.DecideNextRowCopy(
+                unit, index, member, cycle, ctx.currentUT, IsRowDrawn(index, member, ctx),
+                suppressGhosts, ctx.warpRate, inSlot, hasCopy && !inSlot);
+        }
+
+        // A started row whose copy the watched launch's held end waited the whole bound for never comes.
+        private bool WaitedTooLongFor(GhostPlaybackLogic.NextRowCopy next, int watchedIndex, long cycle)
+        {
+            return next == GhostPlaybackLogic.NextRowCopy.Live
+                && TryGetCopyOfCycle(watchedIndex, cycle, out GhostPlaybackState held)
+                && held.endedCopyHeld && held.endedCopyWaitFrames >= MaxEndedCopyWaitFrames;
         }
 
         // The guards that stop UpdatePlaybackEntry / UpdateUnitMemberPlayback before they draw the row.
