@@ -2836,6 +2836,7 @@ namespace Parsek.TestCommands
         {
             string label = ArgOrNull(cmd, "label") ?? string.Empty;
             TestCommandMissionMark.EmitMark(label, CurrentUt());
+            Parsek.InGameTests.FxReentryRig.OnMark(label);
             SetExecResult("OK", Payload(Kv("label", label)), null);
         }
 

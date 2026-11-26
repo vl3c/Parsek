@@ -28,7 +28,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 65 implemented): none
 - Dimension values (2 of 251 registry values): D1 `sub-2-point-drop`, D13 `pid-dedup`
-- In-game test categories (4 of 153 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`, `LadderGhost`, `LiveGhostReentryFx`, `PartParity`
+- In-game test categories (5 of 154 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`, `LadderGhost`, `LiveGhostReentryFx`, `PartParity`, `PartParityBurstSpike`
 
 ## Lanes per family
 
