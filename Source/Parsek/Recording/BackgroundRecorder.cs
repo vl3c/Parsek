@@ -1041,6 +1041,7 @@ namespace Parsek
             loadedState.activeRcsKeys.Clear();
             loadedState.activeRoboticKeys.Clear();
             loadedState.lastThrottle.Clear();
+            loadedState.engineThrottleStill.Clear();
             loadedState.lastRcsThrottle.Clear();
             loadedState.lastRoboticPosition.Clear();
             loadedState.rcsActiveFrameCount.Clear();

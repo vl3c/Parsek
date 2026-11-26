@@ -84,7 +84,7 @@ namespace Parsek.Tests
             Assert.Contains("if (fx.Option.MainThrottle && (e == null || !PartParityFxRules.MainThrottleHeld(", observe);
             string step = Body(driver, "internal static bool TryStep(WaveCase wc)");
             Assert.Contains("ReadThrottle(wc);", step);
-            Assert.Contains("&& now - run.PressRealtime >= PartParityFxRules.MinBurnSeconds(fx.Option)) run.Done = true;", step);
+            Assert.Contains("if (now - run.PressRealtime < PartParityFxRules.MinBurnSeconds(fx.Option)) return true;", step);
             Assert.Equal(1, Regex.Matches(step, @"run\.Done = true;").Count - 1);
             Assert.Contains("ReadThrottle(wc);", Body(Read("TestCommands", "PartParityFxDriver.Capture.cs"), "internal static void FillSidecar("));
             string release = Body(driver, "internal static void Release(WaveCase wc)");

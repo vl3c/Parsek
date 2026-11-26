@@ -351,27 +351,50 @@ the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchCl
 (`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
 committed-clone route; recordings 2..3 is a reading window until the first flight.
 
-## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN TWICE 2026-11-23, RED ON THE LANE SHAPE (branch `b4-eva`); OPEN: reshape WDK-1; test gap, low]
+## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`, for 1.0.4 (owner ruling 2026-11-24); xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
 
-Flown: `2026-11-23_2118` PARSEK-FAIL (the jump landed 17242.8 s before the dock: the phasing knob keeps
+A looped mission moves the watch camera by the loop unit's own handoff
+(`GhostPlaybackEngine.LogUnitTransitionIfChanged`): when the watched member's window ends it goes only to a
+member with the same raw launch guid (`IsSameWatchedVessel`; the name decides when a guid is unknown). A dock
+keeps one side's guid, so a watched ship that docks into the side that keeps it (and a kerbal that boards) was "a different vessel":
+`unit watch handoff suppressed ... is a different vessel`, and the camera stayed on the ended ship's hidden
+ghost. The ordinary path follows (`FindNextWatchTarget`: the merged vessel is the only child). The undock
+after it was wrong too: the merged leg and the station's leg share a guid, so the unit handoff would have
+picked the station over the watched ship (the owner ruling of 2026-11-20, WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION).
+
+Fix: when the watched member's window ends, the engine first asks its host
+(`ResolveWatchedBranchContinuation` -> `WatchModeController.FindWatchedBranchContinuation` ->
+`GhostPlaybackLogic.FindUnitBranchWatchTarget`), which applies the ordinary rules with the session's watched
+identity, only at a Dock, Board or Undock branch point and only to members the unit clock is in. -1 keeps the
+guid handoff: every other split still refuses its peeled-off siblings. The host answers for the index
+it is asked about, not only the current one: every unit member asks with the frame's index, and a transfer the
+first answer caused has already landed when the others ask. The retarget line gains
+` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
+
+## ~~WATCH-ACROSS-DOCK-LANE-2026-11-23~~: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; RESHAPED AND LIVE-PROVEN 2026-11-24 (branch `wdk1-watch-dock`, WDK-1 `2026-11-24_1828` PASS attempt 1); test gap, low]
+
+The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the dock: the phasing knob keeps
 12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
-keptRevs=12`; WL-3's instant, PR #2782, has the same error) and `2026-11-23_2205` PARSEK-FAIL (the dock
+keptRevs=12`; WL-3's instant, PR #2782, has the same error), `2026-11-23_2205` and `2026-11-24_0808` (the dock
 and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
-line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10); and
-in a looped mission the camera moves by the loop unit's own handoff (`IsSameWatchedVessel`, raw launch
-guids, `GhostPlaybackEngine.LoopUnits`), which never asks `FindNextWatchTarget` /
-`FindWatchedIdentityChild`, the code this lane pins. No product defect shown.
-Fix: fly it as an ordinary replay (no loop: an isolated Rewind-to-Launch of tree 2, or a host whose
-clock is before the dock) with the watched recording named by `index=`. To check at the same time (not
-proven by these runs): whether the loop unit's raw-guid comparison leaves the camera on the ended ship
-at a replayed dock, where the ordinary path follows it.
+line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10), which it
+had to: #10 was 1047 km from the active vessel (the two jumps shift the live vessel's epoch and leave it where
+it is) and the watch entry cutoff is 300 km; and in a looped mission
+the camera moves by the loop unit's own handoff, which never asks `FindNextWatchTarget` /
+`FindWatchedIdentityChild`, the code this lane pins (and which lost the ship at a dock:
+LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
 
-WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION is xUnit only. Lane `WDK-1-watch-across-bdock-dock-undock`
-(operator, bdock-recorded) loops tree 2, jumps to WL-3's instant, enters watch mode and plays the
-recorded dock and undock 1.3 s apart at 1x, pinning the session identity line and the undock
-decision line with the outcome regexed. The fixture predates the dock-absorb link rows, so the
-live FOLLOW outcome needs a BDOCK re-harvest that records them (flight work, not filed as a
-defect).
+Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a rails
+warp to UT 8925 (a TimeJump would leave the probe about 1084 km off; coasting, it is 82 km from the dock by both
+recorded orbits), watch mode on the ship's ghost by `index=10` (the identity pin names its launch guid), then 1x
+across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line. The fixture
+predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
+(flight work, not filed as a defect). First flight of the reshape, `2026-11-24_1821`: PARSEK-FAIL(expectation) on one setup token
+this reshape wrote wrong (`warptout complete reachedUT=892[5-9]`; the verb ends about 0.2 s before its target, 8924.806),
+every subject token matched and every other verifier green. The spec then pins the warp's target (`ut=8925`), the landed
+transfer (`Watch hold timer set ... (watched #18)`: `Auto-following` also prints for a deferred one) and the undock
+outcome that run read, the pre-registered `no child continues`; `2026-11-24_1828` PASS attempt 1. Left: a live lane for the loop handoff, which needs an active vessel
+within 300 km of the looped dock.
 
 ## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
 
@@ -494,9 +517,21 @@ Tests: `EngineFxBuilderTests` (`EngineWithoutStandIn_ScansExactlyItsOwnEffects`,
 
 Flown: PPS-14a `2026-11-23_1706` (stock-minimal, DLL 8b67133f, INVALID on controls only: the spec plans none), 17 cases 14 pass / 3 warn / 0 fail (PP-7 `2026-11-23_1027`: 17 fail). `fxExtraOnGhost` empty and `fxMissingOnGhost` only the two unrendered flameout sparks on all nine; every `engine-fx start` line `source=effects-node supplementSystems=0`, no `fallback ... added` / `forced` line. Side core real / event ghost: `Size2LFB` full 5249 / 34981 -> 5255 / 5264, 30 % 2965 / 29697 -> 2909 / 2904; `Size3EngineCluster` 43525 / 68046 -> 43500 / 43561; `Size3AdvancedEngine` 30 % 30869 / 5954 -> 30755 / 30865; `MassiveBooster` hue L1 0.72 -> 0.07, length 1.15 -> 1.00; SSME bottom area 1.38 -> 1.00; `omsEngine` hue 0.87 -> 0.01; `microEngine.v2` length 0.47 -> 1.02, lateral -119 -> -0.4 px; `radialEngineMini.v2` 0.41 -> 0.99. Warns left: `omsEngine` full far length 0.842, `radialEngineMini.v2` 30 % length 0.86 to 0.87 and hue 0.35, `Size3EngineCluster` 30 % chroma 0.016 (start). Same on the full lane, PP-7 `2026-11-23_1732` (all nine pass or warn). The smoke of `Size3AdvancedEngine` and `MassiveBooster` in the air: flown `2026-11-23_1951` (PPS-15, stock-minimal, DLL 7a603868: main 82dc51fb with a throwaway one-line instrument change that gives these two parts the air context, since the air run plans air-breathing engines only; INVALID on controls only, recompute 0). Both draw `fx_smokeTrail_veryLarge`, which is additive, so it is measured in the flame layer and the smoke layer is empty on both sides; inventories equal, `fxDiffers` empty. Core real / event ghost: Kickback full side-a 20327 / 20587, far 18119 / 18295, length 1.00, pass; Rhino full 37286 / 37364, far 22864 / 23210, pass; Rhino 30 % 31375 / 31406, far 18888 / 19864, warn (bottom hue L1 0.14).
 
-## ENGINE-THROTTLE-EVENT-STEP: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; OPEN; low (recorded data is immutable)]
+## ~~ENGINE-THROTTLE-EVENT-STEP~~: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; FIXED 2026-11-24, branch `throttle-settle`, flown `2026-11-24_1845` / `_1852`; low; existing recordings keep their events]
 
 What: the recorder writes an EngineThrottle event only when the throttle has moved more than 0.05 since the last one (`FlightRecorder.EngineAndRcs.cs`), so a slow spool to 0.29 ends on a recorded 0.25. Where stock's curve or per-frame threshold is steep the ghost shows it: RAPIER in air mode at 30 % `fx-far` flame real 20746, event ghost 321 (its trail draws nothing), Whiplash 18000 / 15002. The start route, seeded at 0.30, reads 20816 and 17945. A recorded flight cannot be changed; a settled-throttle event would be a recorder change for new flights.
+
+Owner ruling (2026-11-24): record the settled value: keep the 5 % step while it moves, and add one event when the throttle stops moving; new recordings only, few extra events.
+
+Fix: `FlightRecorder.CheckEngineTransition` (both recorders, engines only, RCS unchanged) writes one more EngineThrottle when the power has stayed within 0.001 of one value for 1.0 s of game time and is more than 0.01 off the last recorded value. The window's reference is the value it started at, so a drift faster than 0.001 per second never settles. Numbers: stock writes a resting throttle exactly (decompiled `ModuleEngines.UpdateThrottle`: instant engines copy the request, `useEngineResponseTime` closes by `Lerp` and snaps at 0.0001), so there is no jitter at rest; simulated on stock's formula, every stock jet spool gets one settled event within 0.008 of the target (Panther, RAPIER, Whiplash, Juno, Wheesley) and the Goliath (0.06 /s) two; a looser 0.002 gives the Wheesley two and the Goliath four, 0.5 s gives the Goliath four.
+
+Only an engine that wrote its own EngineIgnited / EngineThrottle in this recording session is armed, and both values must be positive, so a settled event always sits inside a burn of the same engine, before its shutdown: `FindLastInterestingUT`, the no-op classifiers and the phase analyzer read what they read before, and the post-switch activity watch runs without the rule. The optimizer's split rules read no part events. Left as it was: a seeded engine (a recording that starts mid-burn, an F9 resume, a background promotion) trimmed by less than 0.05 keeps the seed until its first step. A copy refused on resume (`RefusedResumedCopyTail`) whose engine runs in a surface-stationary tail can read the settled event as its one meaningful tail event and is then kept, never discarded.
+
+Cost, fixture recordings replayed offline (312 recordings, 4953 engine events, 763 ignitions): +34 to +205 settled events (+0.7 % to +4.1 %, 0.04 to 0.27 per ignition, the range being whether an unrecorded stretch ramps or rests); one for every throttle event held 1 s or more would be +486. The part-parity FX sweep polls with the same rule and holds a spooling case until its settled value is in.
+
+Flown (DLL 4d91d9d4, evidence `<umbrella>/logs/flights/throttle-settle/`). Held-air sweep `2026-11-24_1845`, PASS attempt 1, `fx-far` flame real / event ghost: RAPIER air 30 % 20746 / 321 before, 21129 / 21954 now; Whiplash 30 % 18000 / 15002 before, 17871 / 18069 now (before `2026-11-23_1201`; the sweep now also waits for the settled event). One settled event per case on every jet, at the simulated values (RAPIER 0.2963, Goliath 0.2843), and on each control solid booster (0.982 to 1.000, stock spools them too). AIR-1 `2026-11-24_1852`, PASS attempt 1, the ordinary flight: 14 settled of 136 EngineThrottle events, 7 per engine over a 405 s mission and 42 throttle commands; above the offline range because every command on a spooling jet that rests off a step writes one. Seen, not this entry's: the Juno's full-throttle `fx-far` ghost smoke (real 632, event 5445, start 5652) now matches its start route (852 / 1135 / 5434 before).
+
+Gate: `EngineThrottleSettleTests`.
 
 ## ~~GHOST-NOZZLE-GLOW-WRONG-SOURCE~~: the ghost's nozzle glow follows the wrong signal on the Whiplash, the wet Panther and seven ReStock boosters, and ReStock's RCS glow is missing [FILED 2026-11-23 from `ghost-fx-3`'s `2026-11-23_1201`, PPS-12b `2026-11-23_1656`, PP-10 `2026-11-23_1712` and `_1718` / `_1725`; FIXED 2026-11-23, branch `ghost-fx-6`, flown `2026-11-23_1927` / `_1934` / `_1940` / `_1946`; low (visual only)]
 

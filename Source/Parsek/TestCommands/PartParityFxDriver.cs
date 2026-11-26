@@ -522,7 +522,7 @@ namespace Parsek.TestCommands
                 float power = FlightRecorder.ComputeRecordedEnginePower(engine.currentThrottle, engine.finalThrust, engine.maxThrust);
                 fx.EventBuffer.Clear();
                 FlightRecorder.CheckEngineTransition(key, part.persistentId, moduleIndex, part.partInfo?.name ?? "unknown",
-                    ignited, power, sets.activeEngineKeys, sets.lastThrottle, ut, fx.EventBuffer);
+                    ignited, power, sets.activeEngineKeys, sets.lastThrottle, ut, fx.EventBuffer, fx.EngineStill);
                 foreach (PartEvent e in fx.EventBuffer)
                 {
                     run.Sink.Events.Add(e);
@@ -597,9 +597,27 @@ namespace Parsek.TestCommands
                 }
             }
             if (!run.Reached) return true;
-            if (now - run.ReachedRealtime >= PartParitySweepPlan.MinSettleSeconds
-                && now - run.PressRealtime >= PartParityFxRules.MinBurnSeconds(fx.Option)) run.Done = true;
+            if (now - run.ReachedRealtime < PartParitySweepPlan.MinSettleSeconds) return true;
+            if (now - run.PressRealtime < PartParityFxRules.MinBurnSeconds(fx.Option)) return true;
+            // A spooling engine reaches the request while it still creeps: hold until the recorder
+            // has written the settled value, inside the press timeout and never past it.
+            if (fx.Engine != null)
+            {
+                if (now - run.PressRealtime <= run.TimeoutSeconds && EngineSettlePending(wc, run)) return true;
+                ReadDrive(fx);
+            }
+            run.Done = true;
             return true;
+        }
+
+        private static bool EngineSettlePending(WaveCase wc, PartParityStateRun run)
+        {
+            PartParityFxRun fx = wc.Fx;
+            if (fx.Option.Family != PartParityFxRules.FamilyPlume || run.Sets == null) return false;
+            ulong key = FlightRecorder.EncodeEngineKey(wc.Real.rootPart.persistentId, fx.Option.RecorderKeyIndex);
+            ModuleEngines engine = fx.Engine;
+            float power = FlightRecorder.ComputeRecordedEnginePower(engine.currentThrottle, engine.finalThrust, engine.maxThrust);
+            return FlightRecorder.IsEngineSettlePending(key, power, run.Sets.lastThrottle, fx.EngineStill);
         }
 
         private static bool Observe(WaveCase wc, PartParityStateRun run, Part part, out string field, out string value)
