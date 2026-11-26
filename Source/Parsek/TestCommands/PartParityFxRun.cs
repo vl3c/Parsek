@@ -105,10 +105,21 @@ namespace Parsek.TestCommands
         internal double? DriveFinalThrust;
         internal double? DriveCurrentThrottle;
         internal double? DriveRecordedPower;
+        internal double? DriveMainThrottle;
+        internal bool? DriveIndependentThrottle;
+
+        /// <summary>A main-throttle case's input while it is armed; null before and after.</summary>
+        internal FlightInputCallback MainThrottleInput;
+
+        /// <summary>Its vessel's throttle right after the release.</summary>
+        internal float? MainThrottleAfter;
 
         /// <summary>The RCS poll's own debounce frame counts (the recorder's <c>rcsActiveFrameCount</c>).</summary>
         internal readonly Dictionary<ulong, int> RcsFrameCounts = new Dictionary<ulong, int>();
         internal readonly List<PartEvent> EventBuffer = new List<PartEvent>();
+
+        /// <summary>The engine poll's own settled-throttle state (the recorder's <c>engineThrottleStill</c>).</summary>
+        internal readonly Dictionary<ulong, EngineThrottleStill> EngineStill = new Dictionary<ulong, EngineThrottleStill>();
 
         internal FlightInputCallback RcsInput;
         internal PartParityRcsChoice RcsChoice;

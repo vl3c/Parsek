@@ -46,7 +46,7 @@ namespace Parsek.Tests
 
         private static float GhostPose(string moduleName, float targetAngle, bool mirror, bool inverted, float offset)
             => GhostPlaybackLogic.ComputeRoboticPoseAngleDegrees(
-                GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle(moduleName, targetAngle, mirror, inverted),
+                PartStateSeeder.ResolveSnapshotDisplayedServoAngle(moduleName, targetAngle, mirror, inverted),
                 offset);
 
         [Theory]
@@ -71,7 +71,7 @@ namespace Parsek.Tests
         [InlineData(177f)]
         public void UnmirroredHinge_DisplayedAngleIsTheTargetAngleUnchanged(float targetAngle)
         {
-            Assert.Equal(targetAngle, GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle(
+            Assert.Equal(targetAngle, PartStateSeeder.ResolveSnapshotDisplayedServoAngle(
                 "ModuleRoboticServoHinge", targetAngle, false, false));
         }
 
@@ -79,9 +79,9 @@ namespace Parsek.Tests
         public void HingeIgnoresInverted()
         {
             // The hinge declares no `inverted`; a stray key must not flip it.
-            Assert.Equal(40f, GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle(
+            Assert.Equal(40f, PartStateSeeder.ResolveSnapshotDisplayedServoAngle(
                 "ModuleRoboticServoHinge", 40f, false, true));
-            Assert.Equal(-40f, GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle(
+            Assert.Equal(-40f, PartStateSeeder.ResolveSnapshotDisplayedServoAngle(
                 "ModuleRoboticServoHinge", 40f, true, true));
         }
 
@@ -102,7 +102,7 @@ namespace Parsek.Tests
         [InlineData("ModuleRoboticServoRotor")]
         public void NonAngularServo_ValueUnchanged(string moduleName)
         {
-            Assert.Equal(0.75f, GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle(moduleName, 0.75f, true, true));
+            Assert.Equal(0.75f, PartStateSeeder.ResolveSnapshotDisplayedServoAngle(moduleName, 0.75f, true, true));
         }
 
         private static ConfigNode HingePart(string targetAngle, string mirrorRotation)
