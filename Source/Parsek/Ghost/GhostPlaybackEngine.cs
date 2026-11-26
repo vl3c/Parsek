@@ -343,6 +343,14 @@ namespace Parsek
         /// </summary>
         internal System.Func<int, IPlaybackTrajectory, GhostPlaybackState, double, double> ResolvePlaybackActiveVesselDistanceOverride;
 
+        /// <summary>
+        /// Optional host-supplied answer to "where did the watched vessel go" when a watched
+        /// loop-unit member ends at a dock, boarding or undock: the watched committed index and
+        /// the "is this index a member whose window the unit clock is in" predicate in, the index
+        /// to follow (or -1) out. The engine holds no recordings, so the branch lookup is the host's.
+        /// </summary>
+        internal System.Func<int, System.Func<int, bool>, int> ResolveWatchedBranchContinuation;
+
         // Camera events (engine detects cycle changes, host handles FlightCamera).
         internal event Action<CameraActionEvent> OnLoopCameraAction;
         internal event Action<CameraActionEvent> OnOverlapCameraAction;
@@ -512,6 +520,7 @@ namespace Parsek
                         DestroyAllOverlapGhosts(i);
                         DestroyGhost(i, traj, f, reason: "session-suppressed subtree");
                     }
+                    DropUndrivenFallCopies(i, traj, f, ctx);
                     CountFrameSkip(GhostPlaybackSkipReason.SessionSuppressed);
                     return;
                 }
@@ -560,6 +569,7 @@ namespace Parsek
                     DestroyAllOverlapGhosts(i);
                     DestroyGhost(i, traj, f, reason: "before activation start UT");
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
             }
@@ -762,6 +772,7 @@ namespace Parsek
                 DestroyAllOverlapGhosts(i);
                 DestroyGhost(i, traj, f, reason: f.skipReason.ToLogToken());
             }
+            DropUndrivenFallCopies(i, traj, f, ctx);
 
             if (GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion(
                     traj, f, ctx.currentUT,

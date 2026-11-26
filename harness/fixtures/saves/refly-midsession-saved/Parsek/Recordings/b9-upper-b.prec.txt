@@ -1,0 +1,59 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = b9-upper-b
+sidecarEpoch = 0
+sectionAuthoritative = False
+POINT
+{
+	ut = 81.159999999999641
+	lat = -0.0972
+	lon = -74.5577
+	alt = 41000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 101.15999999999964
+	lat = -0.0972
+	lon = -74.5577
+	alt = 63000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 121.15999999999964
+	lat = -0.0972
+	lon = -74.5577
+	alt = 78000
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}

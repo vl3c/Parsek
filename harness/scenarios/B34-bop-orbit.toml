@@ -126,7 +126,16 @@ D14 = ["jool", "bop", "warp-rails", "scene-flight", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 2 }
+# RE-PINNED 3 (2026-11-24, run 2026-11-24_0304_B34-bop-orbit): split rule version 3 cuts this
+# flight at its two orbit-kind burns (design section 14.1): Jool parking orbit / transfer /
+# Bop orbit, no debris; this was `count = { min = 1, max = 2 }` (one row before version 3).
+# The capture burn ended at 133.5 km and no section is Approach, so B33's Tylo Approach dip
+# has no counterpart here. The KSP.log carries exactly two splits:
+#   Split candidate (DepartureBurnStart) splitUT=28197838.52  (Jool)
+#   Split candidate (CaptureBurnEnd) splitUT=29537244.36      (Bop)
+#   CommitTreeFlight: optimization pass ran committed=1->3
+# Exact: 2 and 4 both red.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required  = [

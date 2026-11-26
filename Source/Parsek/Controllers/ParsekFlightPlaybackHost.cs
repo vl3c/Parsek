@@ -54,6 +54,8 @@ namespace Parsek
 
         private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
 
+        private readonly ReplayedFlagCatchUp flagCatchUp = new ReplayedFlagCatchUp("flight");
+
         private readonly List<double> ghostCommNetClaimScratch = new List<double>();
 
         private readonly List<KeyValuePair<double, double>> ghostCommNetCarrierScratch =
@@ -2016,6 +2018,10 @@ namespace Parsek
                 }
             }
 
+            // Flags of recordings whose replay ended with no ghost to walk them. After the
+            // engine, so a ghost that ended this frame has walked its own flags first.
+            DriveFlagCatchUp(committed, flags, currentUT, activeReFlyMarker);
+
             // Retry held ghost spawns (#96): ghosts held at final position while
             // waiting for a blocked/deferred spawn to resolve
             host.policy.RetryHeldGhostSpawns();
@@ -2068,6 +2074,43 @@ namespace Parsek
 
             // Watch-mode ghost validity check
             host.watchMode.ValidateWatchedGhostStillActive();
+        }
+
+        /// <summary>
+        /// Asks <see cref="ReplayedFlagCatchUp"/> for each recording's flags under the gates
+        /// <see cref="ComputePlaybackFlags"/> took for its end spawn this frame. A list the
+        /// engine's completions restructured since then is left to the next frame.
+        /// </summary>
+        private void DriveFlagCatchUp(
+            IReadOnlyList<Recording> committed, TrajectoryPlaybackFlags[] flags, double currentUT,
+            ReFlySessionMarker activeReFlyMarker)
+        {
+            if (flags == null || flags.Length != committed.Count
+                || ghostCommNetInputs == null || ghostCommNetInputs.Length != committed.Count)
+                return;
+            string activeReFlyRecordingId = activeReFlyMarker?.ActiveReFlyRecordingId;
+            string liveRecorderRecordingId = ResolveLiveRecorderRecordingId();
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null
+                    || !string.Equals(rec.RecordingId, flags[i].recordingId, StringComparison.Ordinal))
+                    continue;
+                flagCatchUp.Tick(rec, currentUT, ReplaysItsFlags(
+                    ghostCommNetInputs[i],
+                    GhostPlaybackLogic.IsLiveFlownRecording(
+                        rec.RecordingId, activeReFlyRecordingId, liveRecorderRecordingId)));
+            }
+        }
+
+        /// <summary>Pure: the end spawn's gates without its vessel half.</summary>
+        internal static bool ReplaysItsFlags(GhostCommNetEligibilityInput input, bool liveFlownRecording)
+        {
+            return !input.SupersededByRelation
+                && !input.RewindRetired
+                && !input.SessionSuppressed
+                && !input.HistoricalNeverReplayed
+                && !liveFlownRecording;
         }
 
         /// <summary>
@@ -2313,7 +2356,7 @@ namespace Parsek
                 // frame. A null graph (nothing committed yet) simply yields marker-free units.
                 builtLoopUnits = MissionLoopUnitBuilder.Build(
                     unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
-                    forceFaithful, DockEventGraphCache.GetOrBuild());
+                    forceFaithful, DockEventGraphCache.GetOrBuild()).WithFallCopies();
                 lastLoopUnitSignature = signature;
                 // The committed set / missions changed: drop every cached per-window re-aim adapter so a
                 // stale window transfer can never survive a recording edit / re-classification.

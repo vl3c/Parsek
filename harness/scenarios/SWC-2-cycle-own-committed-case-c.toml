@@ -1,0 +1,126 @@
+schema = 1
+id = "SWC-2-cycle-own-committed-case-c"
+# =====================================================================================
+# SWC-2: THE [ ] VESSEL CYCLE ONTO YOUR OWN SEPARATELY COMMITTED VESSEL WHILE RECORDING.
+# AUTHORED AND FLOWN 2026-11-23 (test-gap list 2026-11-18 batch 4; todo
+# PRESWITCH-CASE-C-LANES-2026-11-23).
+#
+# THE GAP. Pre-switch Case C (MapFocusObjectOnSelectPatch: no switch-segment session, a live
+# recording, and the LOADED target is a SEPARATE previously committed vessel, so the
+# in-bubble consume would skip the committed-clone restore that needs `activeTree == null`)
+# is unit-tested only (`case=C-loaded-separate-committed`). With auto-merge on (the shipping
+# value) the live tree is decided without asking: merged, or discarded when it changed
+# nothing, then the switch runs and the target restores through the committed-clone route.
+#
+# THE HOST is `eva2-lko-crewed` (S0.13's): Kerbal X in a 100 km orbit, `Kerbal X Probe`
+# 16 m away, both in the physics bubble, nothing committed.
+#   (a) Record Kerbal X for a few seconds and commit it (T1); the auto-resumed recorder is
+#       stopped and dropped (DiscardTree), so nothing is live.
+#   (b) The save reloaded with the probe focused (LoadGame focusPid); no recording is live.
+#   (c) StartRecording on the probe: a second, separate tree (T2) is live.
+#   (d) THE SUBJECT: CycleVessel next (`]`, GC-4 measured that it lands on Kerbal X from
+#       the probe) while T2 records. The cycle fix (todo CYCLE-SWITCH-PRESWITCH-BYPASS)
+#       hands a cycle press onto a committed vessel to the same pre-switch handling as
+#       the map click; no lane flew a cycle press onto a committed vessel before this one
+#       (GC-4 cycles between two uncommitted vessels).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: S0.13's host and opening; GC-4's cycle press. 2 waits: explicit-UT WarpToUT
+#   only. 3 dwells: none. 4 burns: none. 5 b5 coasts: none. 6 fail fast: every verb answers
+#   in one frame or two. 7 count: READING (derived 2..3: T1's root, then T2 merged or
+#   discarded, plus at most one committed-clone continuation on Kerbal X if the quit
+#   commits it); re-pin from the first flight. 8 tier: operator by the calibration
+#   discipline until the first flight. 9 run tools/flight_efficiency.py on the first
+#   green flight. Takes no mouse and no focus: it can share a runner with other lanes.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23 (todo PRESWITCH-CASE-C-LANES-2026-11-23). GC-4's twin with a separately committed vessel in the bubble: on eva2-lko-crewed Kerbal X is recorded and committed (T1), a stock cycle goes to the probe, a second recording starts on the probe (T2), then the ] cycle press onto Kerbal X must be handed to the pre-switch handling (Case C, auto-resolved), switch, and restore Kerbal X through the committed-clone route."
+instanceProfile = "stock-minimal"
+tags = ["SWC2", "switch", "pre-switch", "case-c", "committed-clone", "auto-merge", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # LOAD-BEARING: the Case C detection line is Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # (a) T1: Kerbal X recorded and committed.
+  { cmd = "WarpToUT",       args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "432", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  # (b) To the probe with nothing live: the save reloaded with the probe focused (the seam's
+  # CycleVessel leaves a cycle Parsek has no reason to take to stock, `outcome=left-to-stock`,
+  # which switches nothing: the first flight).
+  { cmd = "SaveGame",       args = { name = "swc2-t1" },                                expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "swc2-t1", focusPid = "2614652043" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # (c) T2 on the probe.
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "440", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "swc2-switch" },                           expect = "OK" },
+  { cmd = "CycleVessel",    args = { direction = "next" },                            expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                       expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# READING (header item 7).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # THE SUBJECT: Case C detected on the loaded, separately committed Kerbal X ...
+  "MISSIONMARK label=swc2-switch [\\s\\S]*?pre-switch Case C: loaded target is separate committed vessel targetPid=3620499050 matchedTreeId=[0-9a-f]+ activeTreeId=[0-9a-f]+",
+  # ... decided without asking (merged, or discarded as a no-op) ...
+  "MISSIONMARK label=swc2-switch [\\s\\S]*?pre-switch auto-resolve: resolution=(?:Merge|Discard) case=C-loaded-separate-committed autoMerge=True [^\\r\\n]*targetPid=3620499050",
+  # ... and Kerbal X restored through the committed-clone route.
+  "MISSIONMARK label=swc2-switch [\\s\\S]*?\\[SwitchSegment\\] route=committed-spawned-clone ",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+  "MISSIONMARK label=swc2-switch [\\s\\S]*?Vessel cycle handed to pre-switch handling: targetPid=3620499050 take=AutoResolved ",
+  "cyclevessel result direction=next outcome=pre-switch-handoff detail=auto-resolved before=2614652043 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The dialog stays closed with auto-merge on (design section 5.4).
+  "pre-switch-dialog opening",
+  "pre-switch Case C lookup failed",
+  "pre-switch Case C skipped",
+  "switchclick refused",
+]
+
+[runtime]
+# Boot + LoadGame 300 + 3 warps 360 + 2 StartRecording 360 + commit 120 + the switch 120
+# + ExitToSpaceCenter 120 + the fast verbs, rounded up with boot margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

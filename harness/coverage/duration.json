@@ -660,6 +660,16 @@
         "2026-10-11T14:51:19Z": 126.0
       }
     },
+    "CPR-1-contract-parameter-paid-once-after-rewind": {
+      "last": 543.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 543.0,
+      "p95": 543.0,
+      "samples": {
+        "2026-11-23T22:27:07Z": 543.0
+      }
+    },
     "CT-2-parttest-rebuilt-experimental-part": {
       "last": 206.0,
       "lastVsP50": 1.0,
@@ -989,6 +999,26 @@
         "2026-10-12T18:30:43Z": 51.0
       }
     },
+    "FORGE-refly-midsession": {
+      "last": 69.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 69.0,
+      "p95": 69.0,
+      "samples": {
+        "2026-11-23T21:00:07Z": 69.0
+      }
+    },
+    "GM-1-scenario-saves-inert": {
+      "last": 60.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 60.0,
+      "p95": 60.0,
+      "samples": {
+        "2026-11-23T22:08:16Z": 60.0
+      }
+    },
     "GPOS-1-kerbalx-ascent-ghost-position": {
       "last": 269.0,
       "lastVsP50": 1.0,
@@ -1048,14 +1078,15 @@
       }
     },
     "GS-12-kerbalx-loop-cycles": {
-      "last": 432.0,
-      "lastVsP50": 1.0,
-      "n": 2,
+      "last": 427.0,
+      "lastVsP50": 0.988,
+      "n": 3,
       "p50": 432.0,
       "p95": 442.0,
       "samples": {
         "2026-09-24T19:41:35Z": 442.0,
-        "2026-10-12T18:53:13Z": 432.0
+        "2026-10-12T18:53:13Z": 432.0,
+        "2026-11-24T18:40:23Z": 427.0
       }
     },
     "GS-13-mun-v3-chain-loop-replay": {
@@ -1106,16 +1137,17 @@
       }
     },
     "GS-6-part-event-applier-sweep": {
-      "last": 517.0,
-      "lastVsP50": 1.0,
-      "n": 4,
-      "p50": 517.0,
-      "p95": 547.0,
+      "last": 563.0,
+      "lastVsP50": 1.076,
+      "n": 5,
+      "p50": 523.0,
+      "p95": 563.0,
       "samples": {
         "2026-09-02T14:27:09Z": 412.0,
         "2026-09-02T15:33:38Z": 523.0,
         "2026-09-02T15:51:28Z": 547.0,
-        "2026-10-11T15:33:33Z": 517.0
+        "2026-10-11T15:33:33Z": 517.0,
+        "2026-11-24T18:21:20Z": 563.0
       }
     },
     "GS-7-kerbalx-crash-watch-hold": {
@@ -1943,16 +1975,17 @@
       }
     },
     "H45-stock-ui-overlay": {
-      "last": 45.0,
-      "lastVsP50": 0.682,
-      "n": 4,
+      "last": 55.0,
+      "lastVsP50": 0.833,
+      "n": 5,
       "p50": 66.0,
       "p95": 81.0,
       "samples": {
         "2026-08-28T22:21:13Z": 66.0,
         "2026-08-28T23:00:29Z": 66.0,
         "2026-09-29T15:07:36Z": 81.0,
-        "2026-10-12T06:00:28Z": 45.0
+        "2026-10-12T06:00:28Z": 45.0,
+        "2026-11-23T21:25:02Z": 55.0
       }
     },
     "H46-settings": {
@@ -1979,14 +2012,15 @@
       }
     },
     "H48-ledger-drawdown": {
-      "last": 41.0,
-      "lastVsP50": 1.0,
-      "n": 2,
-      "p50": 41.0,
-      "p95": 47.0,
+      "last": 48.0,
+      "lastVsP50": 1.021,
+      "n": 3,
+      "p50": 47.0,
+      "p95": 48.0,
       "samples": {
         "2026-08-28T22:23:40Z": 47.0,
-        "2026-10-12T06:02:41Z": 41.0
+        "2026-10-12T06:02:41Z": 41.0,
+        "2026-11-23T21:25:53Z": 48.0
       }
     },
     "H49-tree-integrity": {
@@ -2362,6 +2396,16 @@
         "2026-10-12T06:51:15Z": 181.0
       }
     },
+    "IR-6T-route-warp-in-tracking-station": {
+      "last": 149.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 149.0,
+      "p95": 149.0,
+      "samples": {
+        "2026-11-23T21:12:18Z": 149.0
+      }
+    },
     "KB-1-ksc-building-repair-ledger": {
       "last": 48.0,
       "lastVsP50": 1.0,
@@ -2716,6 +2760,16 @@
         "2026-10-12T07:30:40Z": 70.0
       }
     },
+    "LX-2-career-loop-watch-scene-change-reload": {
+      "last": 81.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 81.0,
+      "p95": 81.0,
+      "samples": {
+        "2026-11-24T18:41:50Z": 81.0
+      }
+    },
     "M1-mission-loop-unit": {
       "last": 41.0,
       "lastVsP50": 0.891,
@@ -2813,6 +2867,27 @@
         "2026-09-26T18:55:27Z": 112.0
       }
     },
+    "MC-6-route-rewind-timeline-modded": {
+      "last": 80.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 80.0,
+      "p95": 80.0,
+      "samples": {
+        "2026-11-23T21:22:48Z": 80.0
+      }
+    },
+    "MC-7-rewind-merge-modded": {
+      "last": 92.0,
+      "lastVsP50": 1.26,
+      "n": 2,
+      "p50": 73.0,
+      "p95": 92.0,
+      "samples": {
+        "2026-11-23T21:24:04Z": 73.0,
+        "2026-11-23T22:10:46Z": 92.0
+      }
+    },
     "MS-1-mission-leg-trim-clone": {
       "last": 55.0,
       "lastVsP50": 1.25,
@@ -2863,6 +2938,16 @@
       "p95": 165.0,
       "samples": {
         "2026-11-21T11:41:06Z": 165.0
+      }
+    },
+    "PBR-1-panel-wheel-break-ghost": {
+      "last": 89.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 89.0,
+      "p95": 89.0,
+      "samples": {
+        "2026-11-23T21:20:01Z": 89.0
       }
     },
     "PP-1-part-parity-stock": {
@@ -3128,6 +3213,16 @@
       "p95": 56.0,
       "samples": {
         "2026-10-12T08:20:48Z": 56.0
+      }
+    },
+    "QTM-1-quit-to-main-menu-commits-flight": {
+      "last": 58.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 58.0,
+      "p95": 58.0,
+      "samples": {
+        "2026-11-23T21:09:46Z": 58.0
       }
     },
     "R1-rewind-loop-flown": {
@@ -3502,6 +3597,76 @@
         "2026-09-08T23:58:12Z": 210.0,
         "2026-09-09T00:33:23Z": 210.0,
         "2026-09-09T01:07:16Z": 211.0
+      }
+    },
+    "RFK-1-ksc-purchases-before-refly-merge": {
+      "last": 207.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 207.0,
+      "p95": 207.0,
+      "samples": {
+        "2026-11-23T22:14:40Z": 207.0
+      }
+    },
+    "RFK-2-ksc-purchases-before-refly-discard": {
+      "last": 200.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 200.0,
+      "p95": 200.0,
+      "samples": {
+        "2026-11-23T22:18:01Z": 200.0
+      }
+    },
+    "RFN-1-refly-nested-separation-merge-f9": {
+      "last": 171.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 171.0,
+      "p95": 171.0,
+      "samples": {
+        "2026-11-23T22:11:09Z": 171.0
+      }
+    },
+    "RFN-2-refly-nested-separation-discard": {
+      "last": 114.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 114.0,
+      "p95": 114.0,
+      "samples": {
+        "2026-11-23T21:26:17Z": 114.0
+      }
+    },
+    "RFP-1-refly-resumed-in-new-process": {
+      "last": 65.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 65.0,
+      "p95": 65.0,
+      "samples": {
+        "2026-11-23T22:02:47Z": 65.0
+      }
+    },
+    "RFQ-1-refly-quit-without-saving-keeps-dialog": {
+      "last": 89.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 89.0,
+      "p95": 89.0,
+      "samples": {
+        "2026-11-23T21:08:47Z": 89.0
+      }
+    },
+    "RFQ-2-refly-quit-to-main-menu-merge": {
+      "last": 79.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 79.0,
+      "p95": 79.0,
+      "samples": {
+        "2026-11-23T21:08:53Z": 79.0
       }
     },
     "RH-1-live-rp-handle-rewind": {
@@ -4010,6 +4175,16 @@
         "2026-10-12T08:52:57Z": 55.0
       }
     },
+    "SEAT-4-seat-replay-kerbal-visibility": {
+      "last": 135.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 135.0,
+      "p95": 135.0,
+      "samples": {
+        "2026-11-23T21:16:37Z": 135.0
+      }
+    },
     "SN-1-startup-notices-clean-install": {
       "last": 41.0,
       "lastVsP50": 0.788,
@@ -4072,6 +4247,16 @@
         "2026-09-25T21:04:29Z": 149.0,
         "2026-09-25T21:09:45Z": 138.0,
         "2026-10-12T08:55:35Z": 113.0
+      }
+    },
+    "SSC-1-sealed-split-chain-route-gate": {
+      "last": 478.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 478.0,
+      "p95": 478.0,
+      "samples": {
+        "2026-11-23T22:37:09Z": 478.0
       }
     },
     "ST-1-storage-timeline-ingame": {
@@ -4152,6 +4337,26 @@
         "2026-11-21T11:42:41Z": 81.0,
         "2026-11-21T12:14:43Z": 69.0,
         "2026-11-21T12:29:33Z": 74.0
+      }
+    },
+    "SWC-1-map-switch-own-committed-case-c": {
+      "last": 90.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 90.0,
+      "p95": 90.0,
+      "samples": {
+        "2026-11-23T22:30:57Z": 90.0
+      }
+    },
+    "SWC-2-cycle-own-committed-case-c": {
+      "last": 79.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 79.0,
+      "p95": 79.0,
+      "samples": {
+        "2026-11-23T22:05:38Z": 79.0
       }
     },
     "V1-map-dwell-mun-orbit": {
@@ -4896,6 +5101,16 @@
       "p95": 147.0,
       "samples": {
         "2026-08-28T16:26:42Z": 147.0
+      }
+    },
+    "WDK-1-watch-across-bdock-dock-undock": {
+      "last": 274.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 274.0,
+      "p95": 274.0,
+      "samples": {
+        "2026-11-24T18:33:03Z": 274.0
       }
     },
     "WTT-1-timeline-warp-across-committed-rows": {

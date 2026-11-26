@@ -1,0 +1,135 @@
+schema = 1
+id = "WDK-1-watch-across-bdock-dock-undock"
+# =====================================================================================
+# WDK-1: WATCH MODE HELD ACROSS A REPLAYED DOCK AND UNDOCK (test-gap list 2026-11-18 batch 4,
+# "Watch mode across a docking replay"; todo WATCH-ACROSS-DOCK-LANE-2026-11-23).
+#
+# WHY. WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION (fixed 2026-11-20, batch 2) is xUnit only
+# (`WatchAcrossDockTests`): a watch session remembers the launch guid of the vessel it
+# started on, and at an Undock branch point `GhostPlaybackLogic.FindWatchedIdentityChild`
+# prefers the child that continues that identity over the same-pid child. No lane held a
+# watch across a replayed dock and undock, so the live path (session start, the dock
+# transfer, the undock decision) had never run.
+#
+# THE HOST is `bdock-recorded`, tree 2 (8c677bba0ec04e558c6ebec4ad8c3c9f, Kerbal X #2):
+# the recorded Dock merge 4fe5e39e at UT 8949.268 and the Undock 857e997a 1.32 s later at
+# UT 8950.588, both in low Kerbin orbit beside the station. Nothing is flown.
+#
+# RESHAPED 2026-11-24, from a looped mission to an ORDINARY REPLAY. The loop shape flew red
+# three times (`2026-11-23_2118`, `_2205`, `2026-11-24_0808`) on the lane, not on Parsek: the
+# tree= pick watched the probe ghost, the docking ship's ghost was 1047 km from the active
+# vessel (the watch entry cutoff is 300 km), and a looped member's camera moves by the loop
+# unit's own handoff, which never asks the undock decision this lane pins. (That handoff did
+# lose the ship at a dock: todo LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP, fixed, xUnit.)
+#
+# THE FLIGHT: RF-8's rewind (the Interceptor separation, rp1 of the host, UT 693, the dropped
+# probe re-flown as slot 1), a rails warp to UT 8925, watch mode on the docking ship's ghost
+# by index (#10, RF-8's measured sibling index on this host; the identity pin below names its
+# launch guid, so a moved index reds instead of watching something else), then 1x across the
+# dock and the undock. The probe coasts in the ship's parking orbit and is 82 km from the dock
+# by both recorded orbits, inside the 300 km watch cutoff. It has to COAST there: a TimeJump
+# would shift its epoch and leave it in place, about 1084 km off.
+#
+# PRE-REGISTERED READING: the session identity 270d1da5 (the ship's guid); `Auto-following:
+# #10 -> #18` at the dock (the merged recording f049901e, the only place the ship went); one
+# undock decision line for 857e997a. The fixture predates the dock-absorb link rows and the
+# ship's leaving half carries no guid, so the expected outcome is `no child continues the
+# watched vessel identity=`, which keeps the same-pid rule.
+# READ on `2026-11-24_1821` (red only on this spec's own warp-arrival literal): all three as
+# registered, and the same-pid rule then moved the watch #18 -> #19 (the station's half).
+# LIVE-PROVEN `2026-11-24_1828` PASS attempt 1.
+# Proving the FOLLOW outcome needs a BDOCK re-harvest that records the dock-absorb rows.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: RF-8's host and rewind. 2 waits: explicit-UT WarpToUT only (the 165 s rails coast
+#   is the price of a real position). 3 dwells: none.
+#   4 burns: none. 5 b5 coasts: none. 6 fail fast: every seam verb refuses in one frame.
+#   7 count: no [expectations.recordings] (nothing but the re-fly coast is recorded).
+#   8 tier: operator by the calibration discipline until the first green flight.
+#   9 run tools/flight_efficiency.py on the first green flight.
+#   Takes the flight camera (watch mode) but no mouse: keep it off a shared desktop focus.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED AND FLOWN 2026-11-23, RESHAPED AND LIVE-PROVEN 2026-11-24 (`2026-11-24_1828`, todo WATCH-ACROSS-DOCK-LANE-2026-11-23). On bdock-recorded: rewind to the Interceptor separation (rp1, slot 1), a rails warp to shortly before the recorded dock, watch mode entered on the docking ship's ghost by index, then a 1x warp across the replayed dock (UT 8949.27) and undock (8950.59). Gates the live watch identity path of WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: the session identity, the camera transfer to the merged vessel and the undock decision line."
+instanceProfile = "stock-minimal"
+tags = ["WDK1", "watch", "docking", "rewind", "refly", "flight-view", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # LOAD-BEARING: the Watch identity lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "StopRecording",                                                                    expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp1}", slot = "1" },                  expect = "OK", budget = 300 },
+  # The flight-ready wait (RF-8 / CI-2): kind=chains defers until OnFlightReady built the
+  # ghost chains, the await until the re-fly recorder is live, so the jump never runs first.
+  { cmd = "ListHandles",       args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  # A warp, never TimeJump: the jump shifts the live vessel's epoch and leaves it where it
+  # is, 1084 km from the dock. Rails at 50x for 8230 s (the parking orbit's altitude cap).
+  { cmd = "WarpToUT",          args = { ut = "8925" },                                        expect = "OK", budget = 540 },
+  # At 1x: the ghost is spawned and placed before the watch asks for it.
+  { cmd = "WarpToUT",          args = { ut = "8938", maxRate = "1" },                         expect = "OK", budget = 120 },
+  { cmd = "EnterWatchMode",    args = { index = "10" },                                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "wdk1-watching" },                            expect = "OK" },
+  # Across the dock (8949.268) and the undock (8950.588), at 1x.
+  { cmd = "WarpToUT",          args = { ut = "8955", maxRate = "1" },                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "wdk1-past-undock" },                         expect = "OK" },
+  # The re-fly is concluded rather than abandoned (RF-8).
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                   expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_f4edbb9721bc43649a6c1727dca67b1e",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  # The warp ends about 0.2 s before its target (8924.806), so the target is what is pinned.
+  "warptout complete reachedUT=892[45][^\\r\\n]* ut=8925 [^\\r\\n]*ladder=auto",
+  "enterwatchmode complete: index=10 recId=",
+  # THE SUBJECT (WatchModeController.TryCommitWatchSessionStart): the docking ship's own guid,
+  # so a split that moved the index cannot pass on another vessel.
+  "\\[Watch\\] Watch session identity: #10 \"Kerbal X\" id=[0-9a-f]{32} identity=270d1da540774c93926d6193080883a6",
+  # THE SUBJECT (the dock): the watch LANDED on the merged vessel, #18 = f049901e. The
+  # `Auto-following` line alone also prints for a transfer that is deferred, so the landing is
+  # read off the watch session being on #18 when that ghost ends.
+  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[CameraFollow\\] Auto-following: #10 \"Kerbal X\" -> #18 \"Kerbal X\"[\\s\\S]*?\\[CameraFollow\\] Watch hold timer set: [^\\r\\n]*\\(watched #18\\)",
+  # THE SUBJECT (GhostPlaybackLogic.FindWatchedIdentityChild): the replayed undock decided by
+  # the watched identity, after the watch began; the outcome is the pre-registered one, read
+  # on `2026-11-24_1821` (header). A BDOCK re-harvest with link rows moves it to `following`.
+  "MISSIONMARK label=wdk1-watching [\\s\\S]*?\\[Watch\\] [^\\r\\n]*: undock 857e997acb43492ca4d7635e47e7b698 for rec '[^']+': no child continues the watched vessel identity=270d1da540774c93926d6193080883a6 - keeping the same-PID rule",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "enterwatchmode rejected",
+  "warptout refused",
+  # The flight-ready wait read the chains before OnFlightReady evaluated them.
+  "listhandles kind=chains .* evaluated=false",
+]
+
+[runtime]
+# Boot + LoadGame 300 + InvokeRewind 300 + warps 780 + watch 120 + merge 120, rounded up
+# with boot margin.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

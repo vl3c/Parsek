@@ -1,0 +1,179 @@
+schema = 1
+id = "RFN-1-refly-nested-separation-merge-f9"
+# =====================================================================================
+# RFN-1: A SEPARATION INSIDE A RE-FLY AUTHORS A NESTED, SESSION-SCOPED REWIND POINT; AN F9 TO
+# BEFORE THAT SEPARATION DROPS IT, A REPEATED SEPARATION AUTHORS A FRESH ONE, AND THE MERGE
+# PROMOTES IT. Test-gap list 2026-11-18, batch 4, item 2 ("a separation inside a Re-Fly"),
+# cases (a) merge and (c) F9 to before the staging; case (b) discard is RFN-2. RF-14's header
+# names this shape as not driven. AUTHORED AND FLOWN 2026-11-23 (branch `b4-refly`).
+#
+# In gameplay terms: the player launches a craft with two probe stands, drops one on the pad
+# (a rewind point), commits, re-flies the remaining craft, presses F5, drops the second stand
+# (a second rewind point, born inside the Re-Fly), changes their mind and presses F9 (the
+# second point must be gone with the separation it came from), drops the stand again and
+# merges the Re-Fly (the second point becomes an ordinary one).
+#
+# WHAT THE CODE SAYS (read 2026-11-23 on main 0003b8107):
+#   - RewindPointAuthor.Begin authors every split's point with SessionProvisional=true and
+#     CreatingSessionId = the live marker's session (null outside a Re-Fly), and logs
+#     `RewindPoint begin: rp= bp= slots= controllablePids= focusSlot= ut=`.
+#   - ListHandles kind=rewindpoints lists ParsekScenario.RewindPoints in order, so the nested
+#     point is rp1 and `rp1provisional` reads its SessionProvisional.
+#   - The F9 is a Cold save-file load (QL-5c / QL-16): the point list comes from the
+#     quicksave's PARSEK node, which predates the nested point.
+#   - The merge runs MergeJournalOrchestrator.TagRpsForReap, which clears SessionProvisional on
+#     every point the session created and logs `TagRpsForReap: promoted N session-provisional
+#     RP(s) for sess=X (fromSession=a, fromNormalOrigin=b)`. Only the post-F9 point carries
+#     the session id at that moment, so fromSession=1.
+#
+# HOST: `cs-career-mun4` (CS-6c's produced save, UT ~185734, stock-tree), RW-25's road, with
+# `CS Flea Twin Probe` (harness/tools/build_cs_flea_twin_probe_craft.py: the CS Flea Probe
+# with a second stand). The two decouplers are named by their craft-baked part pids,
+# 3615180009 (stand A, dropped in the recorded flight) and 3615180012 (stand B, dropped in the
+# Re-Fly); test_cs_flea_twin_probe_craft pins both against the builder.
+#
+# PRE-REGISTERED READINGS (not gated): the merged supersede outcome (the attempt's own
+# separation ends the fork at a split, REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE's path), the
+# point count after the merge (rp0's stand-A slot may stay open), and the recording count.
+# A first flight reads them off `rfn1-merged-` and the save block.
+#
+# PRE-REGISTERED RED READINGS: `rfn1-nested-2-false` (the nested point was not born
+# session-scoped), `rfn1-after-f9-2` (the F9 kept a point its quicksave never had),
+# a missing TagRpsForReap fromSession=1 (the merge left the point provisional, so the next
+# load sweep would discard it). A decouple refused `partaction-part-not-found` is a pid
+# collision on the pad, driver-INVALID, not a Parsek defect.
+#
+# FAST-LANE CHECKLIST: RW-25's road reused verbatim up to the commit; explicit-UT warps at
+# maxRate 1 of at most 25 s; no ground-truth tail (the rows this lane moves are rewind
+# points, not ledger rows).
+# =====================================================================================
+tier = "operator"
+description = "Re-Fly nested separation (batch 4 item 2, cases a and c): on cs-career-mun4 a CS Flea Twin Probe drops stand A on the pad (a rewind point) and is committed with its Flea slot stashed; a Re-Fly of that slot takes an F5, drops stand B (a nested session-provisional rewind point), F9s back to the F5 (the nested point is gone), drops stand B again (a fresh nested point) and merges, which promotes the nested point (TagRpsForReap fromSession=1)."
+instanceProfile = "stock-tree"
+tags = ["RFN-1", "career", "rewind", "refly", "nested-rewind-point", "quickload",
+        "save-file-load", "merge", "editor", "timeline-ops", "flown", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+
+  # ---- G: stand A dropped on the pad (rp0), committed with the Flea slot stashed ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Twin Probe" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler", partPid = "3615180009" }, expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185812", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+
+  # ---- the Re-Fly of the Flea slot (the Flea still carrying stand B), and its F5 ----
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rfn1-f5" },                                  expect = "OK" },
+
+  # ---- (case a, first half) stand B dropped inside the Re-Fly: a nested point ----
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler", partPid = "3615180012" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185825", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n1",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn1-nested-${n1.count}-${n1.rp1provisional}" }, expect = "OK" },
+
+  # ---- (case c) F9 to the F5, before stand B's separation ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n2",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn1-after-f9-${n2.count}" },                expect = "OK" },
+
+  # ---- stand B dropped again: a fresh nested point ----
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler", partPid = "3615180012" }, expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185840", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n3",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn1-renested-${n3.count}-${n3.rp1provisional}" }, expect = "OK" },
+
+  # ---- (case a) the merge promotes the nested point ----
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "n4",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rfn1-merged-${n4.count}" },                  expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "unfinished-flights-stash"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 plus G's two and at least the attempt and stand B's child; a reading run
+# sets the window.
+count = { min = 36 }
+
+[expectations.logContracts]
+required = [
+  # ---- G: stand A off on the pad, rp0 ----
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Twin Probe pid=([0-9]+) [\\s\\S]*?partaction applied button=decouple pid=\\1 part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1858[0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "savegame name=quicksave folder=.+ saved=true[\\s\\S]*MISSIONMARK label=rfn1-f5 ",
+
+  # ---- the nested point, born session-scoped ----
+  "MISSIONMARK label=rfn1-f5 (?:(?!MISSIONMARK label=rfn1-nested-)[\\s\\S])*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 [\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=rfn1-nested-2-true ut=",
+
+  # ---- the F9 is a Cold save-file load of the F5 and drops the nested point ----
+  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "\\[ReFlySession\\] Started sess=(sess_[0-9a-f]{32}) [\\s\\S]*loadgame player-load: firing [\\s\\S]*\\[ReFlySession\\] Marker loaded: \\1\\b",
+  "loadgame player-load: firing [\\s\\S]*\\[LoadSweep\\] Marker valid=True;",
+  "MISSIONMARK label=rfn1-after-f9-1 ut=",
+
+  # ---- the repeated separation authors a fresh nested point ----
+  "MISSIONMARK label=rfn1-after-f9-1 (?:(?!MISSIONMARK label=rfn1-renested-)[\\s\\S])*?RewindPoint begin: rp=rp_[0-9a-f]{32} bp=[0-9a-f]{32} slots=2 controllablePids=2 ",
+  "MISSIONMARK label=rfn1-renested-2-true ut=",
+
+  # ---- the merge promotes it ----
+  "MISSIONMARK label=rfn1-renested-2-true [\\s\\S]*answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=rfn1-renested-2-true [\\s\\S]*TagRpsForReap: promoted [1-9][0-9]* session-provisional RP\\(s\\) for sess=sess_[0-9a-f]{32} \\(fromSession=1, ",
+  "MISSIONMARK label=rfn1-merged-[0-9]+ ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  # Scoped to the F9: every load outside the session sweeps with no marker by design.
+  "loadgame player-load: firing (?:(?!MISSIONMARK label=rfn1-after-f9-)[\\s\\S])*\\[LoadSweep\\] Marker valid=False",
+  "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
+  "Discard removed session provisional RP",
+  "MISSIONMARK label=rfn1-nested-(?!2-true )",
+  "MISSIONMARK label=rfn1-after-f9-(?!1 )",
+  "MISSIONMARK label=rfn1-renested-(?!2-true )",
+]
+
+[runtime]
+# LoadGame x2 + InvokeRewind + AnswerMergeDialog at max(budget, 600) + 60 = 2640; warps x4,
+# editor, launch, StartRecording, CommitTree, SaveGame at 660 each = 5940; the rest (SetSetting
+# x3, PartAction x3, RecordingState x4, StopRecording x2, ListHandles x5, StashSlot,
+# MissionMark x5, FlushAndQuit) 24 x 120 = 2880. Sum 11460; expected wall about 6 minutes.
+budgetSeconds = 11700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

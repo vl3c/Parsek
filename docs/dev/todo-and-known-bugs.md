@@ -28,6 +28,418 @@ What: on `duna-park-recorded` (tree `ced78481...`, re-aim ENGAGED Kerbin->Duna w
 
 What: looping `bdock-recorded` tree 2 (Kerbal X #2, `scheduled=yes owner=9 phaseAnchor=65039.347`) and watching 120 s before the recorded dock (live UT 73597.5), the watch header reads `Watching: Kerbal X (208.6 km)` from the active vessel, which is tree 1's Kerbal X, the vessel the recording docked with. So the replayed approach does not meet the live target at that instant (night side; the screenshot shows the ghost alone). Owner question: should a mission loop whose dock partner is a live vessel phase-lock the approach to it, or is a ghost-only approach in the recorded orbit the intended replay? `python harness/run.py --id WL-3-docking-bdock --hold` shows it.
 
+## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-4 (0.040 s read 3 frames in `2026-11-24_1627`, two of them at one UT) on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
+
+**The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
+
+**What a player sees:** the seated kerbal disappears at the event and the EVA ghost is first drawn at 44.96 (red, about 0.10 s) / 45.12 (green, about 0.06 s): the event-to-end span, then the frame that destroys #3 and builds #4 (#4 starts at the first sample after the branch), then the two-frame activation settle. SEAT-4's cell counts only frames where a live ghost carries him, so it sees the first part alone.
+
+**Possible fix (not done, small visual gain):** skip the activation settle for an EVA ghost whose parent recording ended on this kerbal's dismount, as chain seams already do (`state.spawnedAtChainSeam`), and keep a `kerbalEVA*` part drawn on the parent ghost until its end when the Decoupled event is within the last frames of the recording. The recorded event UT must not move (recordings are immutable).
+
+## ~~GHOST-BALANCE-CUT-BY-THE-QUIT~~: a ghost still playing at the quit reads as a leaked mesh when its teardown line does not reach KSP.log [FOUND 2026-11-24 on GS-6 `2026-11-24_1654` (release flights, PARSEK-FAIL(ghost-lifecycle), spawned 8 destroyed 7 unbalanced 1). FIXED 2026-11-24, branch `gs6-quit-balance`; harness evaluator only, checked over the archive, GS-6 re-flown green `2026-11-24_1811`; test gate, low]
+
+Not a Parsek defect: the teardown ran. GS-6's dropped core is still falling at the quit (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT),
+so only `ParsekFlight.OnDestroy` -> `DestroyAllGhosts` closes its ghost. In `_1654` KSP.log ends at
+`GhostTrajectoryPolylineRenderer.Driver destroyed`, one object before ParsekFlight, while Player.log goes on:
+`OnDestroy: cleaning up ParsekFlight`, `DestroyAllGhosts: clearing 1 primary`. Player.log has no `MeshDestroyed`
+line either: `HighLogic` was already gone, so `ParsekSettings.Current` was null and the tracer read as off. Unity's quit
+order is not fixed, and it decides both halves. Of the 241 archived November runs that drew a ghost and quit from flight,
+132 carry the teardown in KSP.log and 109 end before it.
+
+Fix (`harness/lib/ghostlife.py`): the engine's own 1 Hz census (`[Engine] engine-frame-iter ... rec=<8> ... hs=T|F`, `hs` =
+`ghostStates` holds the ghost) says what it held when it was told to quit. The last census before the
+`flushandquit: Application.Quit` line, plus spawns after it, minus a `DestroyAllGhosts` after it, and at most 5 s old
+(1.00 s at most over 410 runs), is the held set; a recording with no destroy line that is in it rides the new
+`aliveAtQuit` facet instead of `unbalanced`. A mesh the engine lost during the run is not in its census and still reds; no
+quit line (a killed run), no census or a stale one excuse nothing, and when the quit's own `engine teardown` lines did
+reach the log they must close every held ghost, as before. Blind spots: a ghost whose destroy goes missing inside the
+last second before the quit, and, as before, an earlier missing destroy of a recording that is drawn again at the quit.
+
+Why not UNMEASURED when the log holds no `GhostPlaybackEngine disposed` after the quit line (the other rule considered):
+37 of the 72 November runs of the lanes with the balance on hold none, so it would switch the check off in half of them.
+The census rule never switches it off: without that evidence a ghost with no destroy line reds as before. It is no weaker
+than the old rule on a ghost nobody ended, because that ghost's teardown line always counted as its ending; the mesh both
+rules are there to catch, one the engine no longer holds, writes no teardown line and is in no census.
+
+Checked over the archive: on all 142 archived flights of the lanes with the block, the new evaluator's mismatches are the same with
+the log whole and cut at the quit line (the old one differed on 5), and only GS-6 `_1654` and two size-elided GS-12 logs
+change verdict, all to no mismatch. Cutting one ghost's destroy lines (one the
+census no longer holds at the quit) out of 114 GS / S1.9 / OC / RVC logs reds 698 of 698 times. No `logContracts.required` token of any lane's two
+latest flights is met only after the quit line. Guards: `test_ghostlife.HeldAtQuitTests` (16 mutations of the reader, all
+caught; its last cell holds the census line to the C# writers). GS-6 `2026-11-24_1811` (main DLL b86aa44d, this evaluator) PASS
+attempt 1, 8 spawned / 8 destroyed: this time the teardown line reached the log, so the flight proves the whole-log half;
+the cut half is `_1654` re-judged (PASS, `aliveAtQuit` 1) and `_1811` cut at its quit line.
+
+## ~~GHOST-ENDING-TOKENS-MET-BY-THE-QUIT~~: five lanes required a ghost's destroy line that quitting the game writes by itself [FOUND 2026-11-24 on MC-4 `2026-11-24_0422` (release flights). FIXED 2026-11-24, branch mc4-chute-gate; specs only, offline over the archive, not re-flown; test gate, low]
+
+`GhostPlaybackEngine.DestroyAllGhosts` writes `phase=MeshDestroyed ... reason=engine teardown` for
+every ghost still alive, so a required token `MeshDestroyed ... vessel=<v> reason=` (or with no reason
+at all) is met by the quit. On MC-4 `_0422` that was the only Probe destroy line (after
+`flushandquit: Application.Quit`): since the predicted falls (owner rulings Q1a / Q2) the dropped core
+is still falling at the quit (its recording ends at UT 329.74, the quit is at 169.44). Unity's quit order
+is not fixed either (GS-8 `_1119` against `_0840`), so the old token could also red a good flight.
+
+What the line was for: the GS-4 clone's derender half, the dropped core's ghost has its own ending.
+Fix: the MC-4 and GS-6 Probe token names the recording off its spawn line and wants, before the quit
+line, either `MeshDestroyed rec=<it> ... reason=playback completed` (its own end) or
+`[Anchor] parent-anchored predicted tail: ... recordingId=<it>... active=T` (on screen past its last
+track section). The debris tokens of MC-4, GS-6, GS-7 and GS-12, GS-7's Probe and SUB-2's PSUB-1 read
+`reason=(?!engine teardown)`, the GS-8 form: their ghosts all end before the quit.
+
+Checked offline over every archived flight: all PASS flights meet the new tokens (MC-4 7, GS-6 11 of 12,
+GS-7 17, GS-12 8, SUB-2 2); GS-6 `2026-11-23_0842` misses, and should: it passed while the core's fall
+was hidden (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT). The same logs with every ending cut and the quit's
+destroys written instead meet every old token and miss every new one. Left as they are: GS-8 and GS-9's
+open `Kerbal X Debris` token (exact explosion counts and per-cycle destroy counts stand behind it) and
+GS-9's `Kerbal X Probe reason=engine teardown` (the second rewind's teardown, pinned by the census).
+Guard: `harness/lib/test_ghost_ending_tokens.py` reds on any other required destroy token a quit-only
+log meets (it reds on all eight old tokens).
+
+## ~~CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE~~: an unchanged orbital recording was rewritten on every cold load and commit, and a supply route flown from it paused for good [FOUND 2026-11-24 from the `normalization Ensure mutated` lines repeating in the release flights, by log and code. FIXED 2026-11-24, branch bridge-changed; xUnit; not flown; medium]
+
+`OrbitSegmentCheckpointBridgeStats.Changed` counted `SkippedCovered` ("this flat segment lies inside
+closed checkpoint sections and matches none exactly"), which only asks for the flat orbit rebuild. The
+recorded shape that never settles: a coast that crosses a section boundary on rails, so the later
+checkpoint section holds the whole coast and its checkpoint starts before the section does
+(`cs-career-mun2` recording 23e74057: section 60838.63-61194.70, checkpoint 60612.65-61194.70). The
+exact match compares the checkpoint with the SECTION's span, so it misses on every pass; the rebuild
+puts the same list back and the pass says it changed something. Read over the committed fixtures: 50 of
+610 `.prec` files never settled, all 50 with a byte-equal flat list after the pass.
+
+Cost, per affected recording: `FindSplitCandidatesForOptimizer` (`markDirty: true`) runs on every cold
+load, tree commit and Re-Fly merge, so `FlushDirtyFiles` rewrote its sidecars, refitted its smoothing
+and left the epoch advance pending, and the next OnSave rewrote it again at epoch N+1. A supply route
+compares that epoch (`RouteStore.FirstDifferingField`, `sidecar-epoch`), so a route on such a source
+read `SourceChanged` after the load and never recovered (reproduced in xUnit on the old count; the note in
+ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW's side question, "the specific case cannot fire in practice", was wrong).
+`SessionMerger.MergeTree` dirtied it the same way. The archived flight logs through 2026-11-24 hold 6295
+such optimizer passes; merge / split convergence never read the stats (`RunMergeSplitToFixedPoint`
+counts merges, splits and role re-reads).
+
+Fix: the rebuild returns whether the list differs, field by field (exact, NaN equal to NaN; an unchanged
+list keeps its instance), and `Changed` counts that (`FlatOrbitCacheChanged`) in place of
+`SkippedCovered`. A covered envelope the rebuild drops or replaces still counts, once. Other readers:
+`AnyMutation` (the dirty mark, the cached-stats reset, the two log lines), `SplitAtUT`'s restore line
+(text only); `SectionOrdinalsShifted` never read it. Nothing needed the over-report. No recorded data is
+changed by this: the wide checkpoint stays as recorded. Tests: `CheckpointBridgeChangedTests` (the wide
+checkpoint, a NaN conic, the two mirror cells, the optimizer pass, every committed fixture settles after
+one pass), `RouteSourceEpochMetadataRewriteTests.OptimizationPass_OverAWideCheckpointSource_LeavesItClean_RouteStaysActive`;
+six mutations, all red.
+
+## CONVERTER-LOOP-DRIVE-LOG-SHARED-KEY-2026-11-24: one rate-limit key covers every ghost's "Converter loops driven" line, so it names only the first loop to drive [FILED 2026-11-24 from S1.9 `2026-11-24_0640`; OPEN; low, log only]
+
+`GhostPlaybackLogic.DriveConverterLoops` logs `Converter loops driven: N (vessel='X')` under the single key `converter-loop-drive` (5 s). Since 6d9bd2732 a deploy-driven loop (the Orbital Scanner's) runs whenever it is deployed and spends the key, so the line a lane reads for a drill or ISRU is suppressed (`S1.9` had 1.5 s between them). The drive itself is per loop and unaffected: the drills' events applied and their loops were on at the same frame as before.
+
+Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vesselName ?? "unknown")`, at `GhostPlaybackLogic.SynthesizedMotion.cs` (the `VerboseRateLimited` call in `DriveConverterLoops`). Then `S1.9` can name the three vessels again. MINE-6 reads the line for `Mining Rover RC` and is exposed if another loop drives in the 5 s before it.
+
+## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused; FLOWN 2026-11-24: S1.7 `2026-11-24_1630` PASS (22 / 21 / 0 / 1, IconRevealDrive stale 1472037 m, placed 0.000 m), TP-6 `2026-11-24_1625` PASS]
+
+**Seen:** right after a time jump (1,258,921 -> 1,268,401, into the Mun approach) the probe reported `TELEPORT dPos=448726384m ... frame=11069`, same orbit on both sides (Mun, sma -512034, ecc 1.6642), `dPosWorld` equal to `dPos`.
+
+**The position was wrong, not the comparison.** The icon was drawn (`drawIcons=OBJ`, `iconSuppressed=false`, marker outcome `drawn-proto-icon`) at frame 11068, about 448,000 km from the Mun, and right at 11069. The distance is the Mun hyperbola propagated at the live clock without the loop shift: v_inf 356.7 m/s over shift 1,249,866.7 s, 447,760 km from the Mun computed from the elements against a measured jump of 448,726 km (the two positions are within 1,540 km of it). Kerbin's motion and the floating origin play no part. The probe skips the un-suppress frame itself (`suppressionLifted`, "a delta the user never saw") and so saw only the return; resetting its sample on a jump would hide a real misplacement.
+
+**Cause:** the icon drive (`GhostOrbitIconDrivePatch`, on `OrbitDriver.updateFromParameters`) runs per FixedUpdate (its own comment; the log order agrees); the line Postfix that clears the suppression and sets `drawIcons=OBJ` (`director-stockconic-visible`) runs per render frame and asks only that a fresh StockConic seed exists (`IsDirectorDriveActive`), never that the drive has placed the icon with it. While the polyline owns the leg, the Prefix returns true and stock propagates the raw-epoch orbit at the live clock (harmless while hidden). After the jump the suppression ends two frames later (`SeedFreshnessFrames` 2). The stock wheel exceptions in the logs mark each Update and FixedUpdate: in both passing runs that frame (9008, 11196) had a FixedUpdate, so the drive ran first and then the line showed; in the failing run frame 11068 had an Update and no FixedUpdate, so the icon was shown where the last stock step left it, and the drive ran at 11069.
+
+**When:** any suppress-to-StockConic handoff of a ghost with a loop shift (burn seams of a looped mission too, not only a time jump) that lands on a frame without a physics step: 16 % of frames in all three runs (about 60 fps), more at a higher rate. A ghost with shift 0 is safe (stock's live propagation is right). TP-6 has one such handoff per flight, so it fails about one flight in six.
+
+**Fix** (`GhostOrbitLinePatch.EnsurePlacedForReveal`, called by the `director-stockconic-visible` and `visible-body-frame` branches of the line Postfix before they show the icon, and by `parking-conic-loiter-hold`): when the pid is still in `ghostsWithSuppressedIcon`, the Postfix runs the drive on that render frame. The set itself is the record the entry asked for: the drive adds the pid whenever it clamps the icon or leaves a tracked ghost to stock, and for a ghost with bounds only a visible placement takes it out, so no stamp and no new per-pid state is needed. If the drive refuses (degenerate orbit, no driver) the icon stays off and stays in the set, so the marker decision, which reads the same set, draws: never both, never neither by decision. Driving beats holding because the marker cannot always stand in: in FLIGHT it has no position where the recording has no points (a conic coast), and a paused game has no physics step to end the hold. Paused, the first render frame places the icon and it then stays. Logged `Icon reveal drove ...` / `Icon reveal refused ...` (`GhostOrbitIcon`, rate limited per pid).
+
+**Other paths checked:** `terminal-visible` needs nothing (no bounds: the drive leaves the ghost to stock hidden or shown, shift 0); the Tracking Station runs the same Postfix and drive; the line the next frame draws is right too, because the drive bakes the epoch the arc clip reads.
+
+**Correction to "Seen":** stock draws the map node (`DrawNodes`, inside `OrbitRendererBase.LateUpdate`) before the Postfix sets `drawIcons`, so an icon revealed on frame N is drawn from N + 1. One frame with no physics step (11068) therefore left the probe's end-of-frame state wrong but reached the screen only when the next frame had none either (about 100 fps and up, or a pause).
+
+**Detector:** the probe no longer skips a lift frame the drive did not place: `CheckUndrivenLift` compares the icon with the Director's seed conic (epoch baked, live clock) and raises `icon-teleport` `LIFT-UNDRIVEN misplaced=` past the jump threshold (`MapRenderTrace.IsUndrivenLiftMisplaced`). A lift the drive placed on that frame, and a ghost with no seed, stay skipped.
+
+**Gates:** `IconRevealDriveTests` (xUnit) and the in-game `IconRevealDriveInGameTest` (category `MapRender`, lane S1.7), which runs hide, stock step, seed and Postfix inside one frame, so no frame rate decides the outcome; S1.7 requires its `IconRevealDrive:` line. TP-6's zero `icon-teleport` allowance stays the flown check of the real handoff. Owed: one flight of S1.7 (its tally is a prediction until then) and one of TP-6.
+
+## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 LIVE-PROVEN `2026-11-24_1641` (planted 1 at the first Space Center visit, alreadyPresent 1 at the next), WF-1 `2026-11-24_1624` and FLG-1 `2026-11-24_1630` green on the same build]
+
+**Seen:** WF-1 plants a flag in flight 1 (the EVA kerbal's recording, plant UT about 69-71, terminal Boarded), rewinds and warps the pad from UT 46 to 900 in flight 2. Every earlier WF-1 log that got that far (seven, 2026-10-26 to 2026-11-15) has no `Spawned flag vessel` line after the rewind: the kerbal's recording reads `PlaybackCompleted index=2 ... ghostWasActive=False` at the warp-down and again at every later scene load, and the flag is never planted. `2026-11-24_0504` is the first with a ghost for that recording, and the flag was planted at its timeline end (UT 652).
+
+**Expected:** flight recorder design 4.13: the plant happens whatever the ghost's zone or build state; owner ruling 2026-11-04, "plant once". The new run is the correct one.
+
+**Cause:** the flag walk runs only (1) in range and not warp-hidden (`RenderInRangeGhost`; above 50x `UpdatePlaybackEntry` returns at the warp gate first, except in a SurfaceStationary section), (2) at the timeline end of a ghost that EXISTS (`HandlePastEndGhost`, inside `if (ghostActive)`), (3) in the deferred flush, only for a recording queued for an end SPAWN (#463; nothing queues a recording for flags alone, `pendingFlagReplayRecordingIds` only re-queues a failed plant). A recording with no end spawn (Boarded, Recovered, Destroyed, mid-chain) whose window passed with no ghost gets none of the three: `completedEventFired` is set and no later walk runs. The Space Center has the same hole (`ParsekKSC`, the `!inRange && currentUT > rec.EndUT` branch spawns the vessel only; named "Not covered" in the archived FLAG-EVENT-PAST-RECORDING-END and never filed), and the Tracking Station, a time jump and a load past the end run no walk at all.
+
+**Why the runs differ (no commit found):** frame phase. At 63-100x the window is a few frames wide; the kerbal's ghost is built only if a frame lands in the recording's SurfaceStationary section (UT 64.3 / 65.4 to 69 / 71). 2026-11-24 had frames at 62.45, 65.07 and 67.77; 2026-11-15 went 63.56 -> about 69 in one frame. The walk code is unchanged since 5f5e7c0aa (2026-11-05), which the 11-06 and 11-15 runs carry.
+
+**No lane gated it:** WF-1 is reshaped on branch `lane-repins3-1124` (981df6769) to pick each flag up again, so both outcomes of this entry leave its pad clear. That branch lands BEFORE this fix: on the old WF-1 the replayed flag stands against flight 2's hatch and the lane reads driver-INVALID.
+
+**Fix:** `Ghost/ReplayedFlagCatchUp.cs`, one per scene host (flight after the engine pass, the Space Center ahead of every draw decision), walks a recording's flags once per scene when the clock is past its end AND past its last flag plant or pick-up, ghost or no ghost, so a window passed under warp, in the Tracking Station, by a jump or by a load is made up for at the next frame in flight or at the Space Center (off-Kerbin, hidden and looping recordings included; the Space Center never drew the first). The completion-event hook the filing proposed is not used: it misses looping members and recordings with no drawable data, and a KSC walk has no event.
+**Gate:** the end spawn's own, without its vessel half: `IsHistoricalNeverReplayed` (a recording the playhead was never wound back before is not walked; the active Re-Fly session's tree is exempt), timeline-active, not session-suppressed, not the recording being flown. The tombstones (`RemovedReplayFlags`) block a flag the player removed. So a flag removed in a save from before the tombstones comes back only if its recording is in replay scope there.
+**Dedup:** this walk runs again at every scene load, so a flag of the same name within the tombstones' 3 m also counts as standing (`IsStandingFlagOfEvent`): a flag that toppled, or that stock lifted off a craft (`Moving upwards 0.500m`), is not planted a second time. The ghost walks keep the 1 m rule. Accepted: of two flags of one name planted within 3 m, a window with no ghost brings back the first only.
+**Also covered:** the in-range cursor walk advances past a plant that failed (`ApplyFlagEvents`); the catch-up retries it, at most 3 walks per scene, then one Warn and the next scene load. The Tracking Station itself plants nothing: the flag stands from the next flight or Space Center visit.
+**Log:** `[FlagReplay] Flag catch-up: rec=... host=flight|ksc currentUT= endUT= eligible= planted= alreadyPresent= removedByPlayer= failed=` (Info when it planted, else Verbose), once per recording with flags per scene.
+**Proof:** each of seven mutations (walk off, gate dropped, due UT dropped, once-per-scene dropped, 3 m match dropped, Space Center unwired, flight history gate dropped) reds the tests. FLG-2 (never flown) passes the window in the Tracking Station between two Cold save-file loads (`playerLoad=true`, gated), so the replay scope comes back from the save, and requires the plant on the next Space Center visit and none on the one after.
+
+## ~~FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24~~: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision; RULED 2026-11-24 (owner): option 1, leave it; no code; design 4.13]
+
+**Seen:** flight 2's pod stands on the pad at flight 1's pose. Flight 1's flag was planted under the hatch, so the replayed flag (UT 652) stands against flight 2's pod: at the warp exit stock logs `[Flag]: ground contact from a Part! Moving upwards 0.500m`, and the next EVA is refused (`FlightEVA.spawnEVA` returned null). Decompiled (1.12.5): with the kerbal aboard and an airlock present, null means stock's hatch checks found every hatch obstructed (a screen message and no log line), and flight 1 left the same pod by the same hatch before the flag stood there.
+
+**What a player meets:** rewind, relaunch the same craft from the same pad and wait there past the flag's moment: a real flag appears against the craft, the hatch reads obstructed until the craft moves or the flag is removed in the Tracking Station. The flag takes no damage and deals none (`HardenGhostVesselPartPhysics`). `GhostVisualBuilder.SpawnFlagVessel` has no overlap check; a vessel end spawn holds until its spot is clear.
+
+**Options:** (1) leave it, the committed timeline puts the flag there; (2) hold the plant while a live vessel's bounds cover the spot and retry, as the end spawn does. Not a data problem either way. FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST makes it more frequent once fixed.
+
+## EVA-JETPACK-LIVE-LANES-2026-11-23: no lane flies a jetpack, so the recorder's jetpack events and the ghost's plume were proven on synthetic recordings only [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, RED BY FINDING, GREEN on `2026-11-23_2244` with the jetpack fix (branches `b4-eva`, `eva-jetpack-promotion`); test gap, medium]
+
+FLOWN 2026-11-23 (`2026-11-23_2112`, run b4-first): PARSEK-FAIL, a finding. The verb works (four
+bursts, effect=true, the last stowed with one press, boarded); the two failed pins are the entries
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER and EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION below. The batch
+read `total=3 passed=1 failed=0 skipped=2`, pinned whole.
+
+Every committed EVA lane exits, floats, plants, boards or chutes. New seam verb `EvaMove
+mode=jetpack|walk dir=forward|back|left|right|up|down seconds=<0.1..30> [stow=true]`
+(`TestCommandEvaMove.cs` pure, `ParsekTestCommandAddon.EvaMove.cs` applier,
+`EvaMoveInputPatch.cs`): it deploys the pack through stock's `ToggleJetpack` (silent outside the
+idle states, so the applier verifies it and refuses `pack-refused`), freezes the direction in world
+space, and a Prepare-gated postfix on `KerbalEVA.HandleMovementInput` writes `packTgtRPos` (the
+field the `EVA_Pack_*` keys write) or sets a walk waypoint every frame for the burst. Inert unless
+`PARSEK_TEST_COMMANDS=1`. Answers OK with `effect` / `deployed` / the nearest loaded vessel's
+distance and relative speed; ERROR on kerbal lost, ragdoll, no effect, a refused stow or timeout.
+Lane `EVA-17-orbit-jetpack-hop-rewind` (operator, eva2-lko-crewed): four 0.5 s bursts, board,
+commit, Rewind-to-Launch, replay of the first burst. Walking is supported by the verb but no lane
+walks yet (a landed EVA host is needed); a walk lane is the follow-up.
+
+## ~~SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER~~: an EVA kerbal you switch to is sampled by no recorder until a post-switch trigger, and the replay then draws the ghost kilometres behind the ship [FILED 2026-11-23 from EVA-17's first flight (run b4-first, `2026-11-23_2112_EVA-17-orbit-jetpack-hop-rewind`, PARSEK-FAIL(expectation) attempt 1; Debug automation DLL sha256 3f64e8b105ca130b from 61e7c75b1, markers verified; collected `logs/2026-11-23_2314_EVA-17-orbit-jetpack-hop-rewind`); FIXED 2026-11-24 (branch `eva-ghost-behind`); visual, orbit EVA]
+
+What happens. Recording Kerbal X in a 100 km orbit, Valentina steps out (423.83). Her child
+recording 9cee0a67 starts as a background recording (`DeferredEvaBranch: ship still active`,
+TrackSection Absolute then `RELATIVE mode entered ... dist=1.5m` at 423.89), stock makes her the
+active vessel, and the post-switch watch waits for a trigger. From that moment nothing samples her:
+`PhysicsFramePatch.Postfix` hands only non-active vessels to
+`BackgroundRecorder.OnBackgroundPhysicsFrame` (`bgVessel != v`) and no active recorder exists until
+the trigger. The first jetpack burst triggers `PromoteTrackedRecording` at 435.09 and the background
+section closes `env=ExoBallistic ref=Relative frames=2 ... duration=11.20s`: both frames are the
+same sample (UT 423.893), while the section claims 423.89..435.09.
+
+What the player sees. After a Rewind-to-Launch the replayed kerbal is right at 423.99 (187 m from
+the camera, offset (0.00,0.74,-1.29)) and then stays where the anchor was at 423.89 while the ship
+flies on: `Zone transition: ghost=#2 "Valentina Kerman" Physics->Visual dist=10036m` about 5 s in and
+`appearance ... ut=435.05 ... dist=22690m activeFrame=Relative sectionUT=423.89-435.09` at the end
+(22690 m / 11.16 s = 2033 m/s, orbital speed), beside its ship's ghost at 19 m. From 435.11 the
+active recorder's own Relative section draws her correctly. So the Relative path holds the last
+frame at that frame's UT (anchor pose included) instead of the playback UT, the case CLAUDE.md
+forbids for body-fixed samples ("never clamp a single or out-of-range sample into a stale ghost").
+
+Fix: both halves. The recorder half alone leaves every recording already made wrong (recorded
+files are immutable); the playback half alone leaves the span without data, so a kerbal who drifts
+or a ship switched to for minutes is drawn at one frozen offset.
+
+- Recorder. `PhysicsFramePatch` hands the ACTIVE vessel to
+  `BackgroundRecorder.OnBackgroundPhysicsFrame` while the post-switch watch is armed on it and no
+  active recorder is attached (`ShouldSampleActiveVesselInBackground`), before the watch runs. A
+  tracked member is a background recording until its promotion, so it keeps its sampling (dense
+  beside its Relative anchor, the ordinary 3 s backstop when alone: 0 m from itself is not proximity,
+  `ResolveHighFidelityDistance`) and its part-event polling; the frame whose change promotes it is still polled, which the promotion
+  (it seeds no events, the bug A / #263 rule) relies on. An outsider is in no BackgroundMap, so an
+  idle visited vessel stays unrecorded; a switch segment is bound to an active recorder at once, so
+  the no-op segment discard never sees the state; every other vessel takes the path it took.
+- Playback. A RELATIVE sample drawn at a playback UT other than its own (one sample, two at one UT,
+  before the first) holds its offset beside the pose the anchor has at the playback UT; an anchor
+  with no pose there hides the ghost. Readers: the flight positioner
+  (`TryPositionGhostRecordedRelativeAt`, also the LateUpdate re-apply UT), the flight world
+  position (`TrySelectRelativeOffset`), KSC (`TryResolveKscPointPose`, and `TryResolveKscSegmentPose`,
+  whose clamped sample UT was stale past ANY section's last frame), and the map state-vector seed
+  (`ResolveStateVectorWorldPosition`, which seeds the orbit at the playback UT). The loop path reads
+  the live anchor and the Tracking Station marker refuses an uncovered Relative section: both were
+  right. The parent-anchored and loop-anchored contracts are untouched.
+
+Tests: `RelativeSampleHoldTests`, `WatchedActiveVesselBackgroundSampleTests`. Gate: EVA-17 pins her
+background section's frame count, her ghost's distance at the end of it and no `Physics->Visual`
+transition; all three red on the `2026-11-23_2112` log.
+
+Live proof (Debug automation DLL sha256 dc06f145a0d78d99): `2026-11-23_2251_EVA-17-orbit-jetpack-hop-rewind`
+PASS attempt 1 (her section closed `frames=52 duration=11.14s avgGap=0.216s`; her ghost 17 m from the
+viewer at 423.99 and 19 m at 434.99, beside the ship's 19 m). `2026-11-23_2254_GPOS-2-eva-chute-relative-ghost-position`
+PASS attempt 1 (Relative placement unchanged against its body-fixed shadow). The defective recording itself,
+the save of `2026-11-23_2112` loaded on the fixed build by a scratch spec (not committed,
+`2026-11-23_2302_ZZ-eva17-held-old_run2`, log in `logs/flights/eva17-held-old-2026-11-24/`): the two-frame
+section replays held beside the ship for 10.08 s, first seen at 17 m, with no `Physics->Visual` transition
+(`RELATIVE sample held beside its anchor: ... heldSeconds=10.08`). With EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION
+and main merged in, `2026-11-24_0225_EVA-17-orbit-jetpack-hop-rewind` PASS attempt 1 (DLL sha256 93c231434b0cc850).
+
+Left as is: on an OLD held recording the map seeds its orbit at the right position with the held
+sample's velocity, so the orbit line can tilt by the arc flown since (about 2 degrees for 11 s in LKO);
+the Relative branch's seed velocity was already approximate.
+
+## ~~EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION~~: a jetpack deployed before the kerbal's recording is promoted is never recorded as deployed, so the ghost shows no jetpack plume for the whole EVA [FILED 2026-11-23 from the same EVA-17 flight; FIXED 2026-11-24, branch `eva-jetpack-promotion`; visual]
+
+What happens. The player (or the seam) deploys the pack on a kerbal who is not yet promoted: no
+recorder polls her (previous entry), and the thrust that follows is the trigger. The promoted
+recorder seeds its tracking set without an event (`PartStateSeeder.SeedEvaState`, `Seeded
+already-deployed EVA jetpack: 'kerbalEVAfemale' pid=723310870`) and `ResetPartEventTrackingState`
+skips every non-engine, non-converter seed on a promotion (the bug A / #263 rule), on the premise
+that the background recorder already wrote the state. Here nobody did, so the recording holds
+EvaJetpackThrustStarted (435.25, 435.77, 436.33, 436.89), ThrustStopped and the final Stowed, and
+no EvaJetpackDeployed.
+
+What the player sees. The replay applies the thrust edges (`[GhostPartEvents] apply
+family=EvaJetpackThrustStarted ... applied=1` at 23:13:44.859, .381, .936) but the plume gate needs
+`deployed && thrusting && !ragdoll` (`GhostPlaybackLogic.SynthesizedMotion`), so no `EVA jetpack
+plume emitting` line is ever written and no plume is drawn. The normal in-game order (press R, then
+thrust) is exactly this one.
+
+Fix (`PartStateSeeder.EmitEvaStateSeedEvents`, called on the EVA promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): per part, the live jetpack and ragdoll state is
+compared with the last word of the recording's own events. Pack out and not recorded out writes
+EvaJetpackDeployed; ragdoll and not recorded ragdoll writes EvaRagdollStarted; the mirror that keeps
+a plume dark, recorded ragdoll but upright now, writes EvaRagdollEnded. Already recorded, or stowed
+now, writes nothing. UT: a part with no EVA event yet is seeded at the promotion seed UT (the
+recording's start, like the engine and converter seeds), a part that has some at the UT of its last
+one, after it. So the tail trim's last interesting UT does not move, no recorded plume changes, and
+a do-nothing visit to the kerbal is still discarded (the resumed-tail check reads only events after
+the visit began; the switch-segment check ignores an EvaJetpackDeployed at the segment's start).
+Existing recordings are untouched; no format change. Tests: `EvaPromotionSeedTests`. Gate: EVA-17's
+required deploy line accepts the seed or either recorder's polled edge.
+
+Live proof: EVA-17 PASS attempt 1 on run `2026-11-23_2244` (Debug automation DLL sha256
+0cc3af4e0c6a7e5e, built from 39d07200f; `logs/flights/eva-jetpack/`): `Seed event:
+EvaJetpackDeployed pid=2527420064 part='kerbalEVAfemale' ut=423.85 (promotion)` at the promotion
+(`currentUT=434.71`), then on the replay `EVA jetpack plume emitting (vessel='Valentina Kerman'
+deployed=True thrusting=True ragdoll=False)`. Before, on `2026-11-23_2112`, both lines were missing.
+
+What the seed is for once the background recorder samples the watched kerbal (the fix of
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER: it then writes the deploy itself before the promotion
+EVA-17 flies, and the seed writes nothing there). The other recorder starts with no such writer:
+- a switch segment (`BindLiveRecorderToSwitchSegment`: committed clone, background-member
+  continuation, ended-recording takeover, standalone, resumed spawn) starts a NEW recording with no
+  events; the background recorder wrote into another one. Stock keeps the pack out across a save
+  (`KerbalEVA.OnLoad` reads `packExt`), so flying or switching to a kerbal left floating with his
+  pack out is this case every time, and its bursts would draw no plume;
+- an in-place resume of a committed recording (`TryRestoreCommittedTreeForSpawnedActiveVessel`):
+  no tree was live, so nothing recorded a pack deployed or a ragdoll begun or ended after the commit;
+- an F9 restore (`RestoreActiveTreeFromPending`) whose kerbal does not come back in the recorded
+  state (a ragdoll is not a saved field): only the ragdoll edges matter here.
+- a split whose active half is the kerbal (leaving a command seat) starts a new recording too.
+By reading the callers only; none of these has its own lane. The two promotions that fix does make
+redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
+Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
+
+## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
+engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
+ladders, fairings, animation groups and aero surfaces are post-switch triggers
+(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
+trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
+lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
+way. The fix shape is the same (compare the live state with the recording's last word); it needs its
+own pass because deployables are exactly the family bug A / #263 is about. Since
+SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
+polled by the background recorder up to and including the trigger frame, so its changes are recorded;
+what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
+headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
+mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
+recorder clears `thrustingJetpackParts`. No flight has shown any of these.
+
+## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
+
+Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
+(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 4 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
+
+SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
+New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
+`GhostKerbalVisibilityTests`): for 6 s it reads every live ghost's kerbal parts (the `kerbalEVA*`
+PART nodes of its snapshot, by crew name) and counts per frame whether each kerbal is drawn on
+one ghost, two or none; it fails on a run of 10 frames drawn twice or missing. Lane
+`SEAT-4-seat-replay-kerbal-visibility` (operator, seat-pad) runs it over UT 41-47 of SEAT-1's
+replay, across the recorded dismount at 44.90 (the handoff from the pod ghost to the EVA ghost).
+
+## ~~PRESWITCH-CASE-C-LANES-2026-11-23~~: no lane switches to its own separately committed vessel while recording, by map or by `[` / `]` [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (SWC-1 `2026-11-23_2229`, SWC-2 `2026-11-23_2204`, branch `b4-eva`); DONE]
+
+Both first flights never left Kerbal X: the seam's `CycleVessel` leaves a cycle Parsek has no reason
+to take to stock (`outcome=left-to-stock switched=false`) and cannot press stock's own key, so the
+lanes now save and reload with the probe focused. Reading: auto-resolve `resolution=Merge
+reason=not-committed-restore-clone`, the committed-clone route, recordings exactly 2. The map press
+logs its Case C detection as `switchclick Case C:`, the cycle press as `pre-switch Case C:`.
+
+Pre-switch Case C (`case=C-loaded-separate-committed`) and the CYCLE-SWITCH-PRESWITCH-BYPASS fix
+are xUnit only. Lanes on eva2-lko-crewed with `autoMerge` on: Kerbal X recorded and committed,
+the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchClick`
+(`SWC-1-map-switch-own-committed-case-c`) or by `CycleVessel direction=next`
+(`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
+committed-clone route; recordings 2..3 is a reading window until the first flight.
+
+## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`, for 1.0.4 (owner ruling 2026-11-24); xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
+
+A looped mission moves the watch camera by the loop unit's own handoff
+(`GhostPlaybackEngine.LogUnitTransitionIfChanged`): when the watched member's window ends it goes only to a
+member with the same raw launch guid (`IsSameWatchedVessel`; the name decides when a guid is unknown). A dock
+keeps one side's guid, so a watched ship that docks into the side that keeps it (and a kerbal that boards) was "a different vessel":
+`unit watch handoff suppressed ... is a different vessel`, and the camera stayed on the ended ship's hidden
+ghost. The ordinary path follows (`FindNextWatchTarget`: the merged vessel is the only child). The undock
+after it was wrong too: the merged leg and the station's leg share a guid, so the unit handoff would have
+picked the station over the watched ship (the owner ruling of 2026-11-20, WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION).
+
+Fix: when the watched member's window ends, the engine first asks its host
+(`ResolveWatchedBranchContinuation` -> `WatchModeController.FindWatchedBranchContinuation` ->
+`GhostPlaybackLogic.FindUnitBranchWatchTarget`), which applies the ordinary rules with the session's watched
+identity, only at a Dock, Board or Undock branch point and only to members the unit clock is in. -1 keeps the
+guid handoff: every other split still refuses its peeled-off siblings. The host answers for the index
+it is asked about, not only the current one: every unit member asks with the frame's index, and a transfer the
+first answer caused has already landed when the others ask. The retarget line gains
+` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
+
+## ~~WATCH-ACROSS-DOCK-LANE-2026-11-23~~: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; RESHAPED AND LIVE-PROVEN 2026-11-24 (branch `wdk1-watch-dock`, WDK-1 `2026-11-24_1828` PASS attempt 1); test gap, low]
+
+The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the dock: the phasing knob keeps
+12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
+keptRevs=12`; WL-3's instant, PR #2782, has the same error), `2026-11-23_2205` and `2026-11-24_0808` (the dock
+and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
+line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10), which it
+had to: #10 was 1047 km from the active vessel (the two jumps shift the live vessel's epoch and leave it where
+it is) and the watch entry cutoff is 300 km; and in a looped mission
+the camera moves by the loop unit's own handoff, which never asks `FindNextWatchTarget` /
+`FindWatchedIdentityChild`, the code this lane pins (and which lost the ship at a dock:
+LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
+
+Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a rails
+warp to UT 8925 (a TimeJump would leave the probe about 1084 km off; coasting, it is 82 km from the dock by both
+recorded orbits), watch mode on the ship's ghost by `index=10` (the identity pin names its launch guid), then 1x
+across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line. The fixture
+predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
+(flight work, not filed as a defect). First flight of the reshape, `2026-11-24_1821`: PARSEK-FAIL(expectation) on one setup token
+this reshape wrote wrong (`warptout complete reachedUT=892[5-9]`; the verb ends about 0.2 s before its target, 8924.806),
+every subject token matched and every other verifier green. The spec then pins the warp's target (`ut=8925`), the landed
+transfer (`Watch hold timer set ... (watched #18)`: `Auto-following` also prints for a deferred one) and the undock
+outcome that run read, the pre-registered `no child continues`; `2026-11-24_1828` PASS attempt 1. Left: a live lane for the loop handoff, which needs an active vessel
+within 300 km of the looped dock.
+
+## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
+
+New FLIGHT category `LiveGhostReentryFx` (`LiveGhostReentryFx.cs` pure, xUnit in
+`GhostKerbalVisibilityTests`): for 8 s it re-derives each live ghost's raw reentry intensity from
+its interpolated body, altitude and surface velocity and fails when a ghost hot enough to glow
+stays unlit for 30 frames and 1 s. No lane runs it: a B4 or LAY-1 descent replays far beyond the
+300 km watch range of any FLIGHT viewer the seam can place, and the seam has no handle for the
+descent UT (`ListHandles` gives `ut` only for rewind points). Unblock with a viewer placed near
+the descent (a spawn-at-orbit verb) or a descent-UT handle. Ghost sound does not apply mid-descent
+(no engine runs).
+## TEST-GAPS-B4-PART-BREAKS: no lane records a live solar panel or wheel break and replays it [FILED 2026-11-23 from the test-gap list, batch 4; PBR-1 LIVE-PROVEN 2026-11-23 (`2026-11-23_2118`); OPEN: the RAPIER mode switch]
+
+- Gap: the recorder's `DeployableBroken` / `WheelBroken` edges and the ghost's break appliers were proven only in xUnit and synthetically (H37 builds break visuals from prefabs); no seam verb could break a part (archived GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER).
+- Built: `PartAction button=breakpanel` (stock `ModuleDeployablePart.breakPanels()`) and `button=breakwheel` (stock `ModuleWheelDamage.DamageWheel()`), automation-only, refusing a part with no such module (`partaction-deployable-not-found` / `partaction-wheel-not-found`) and skipping an already broken one; the applied line's `state=` reads `deployable:state=` / `wheel:damaged=` after a break press. Lane PBR-1 on the derived fixture `pbr-break-rover` (`harness/tools/build_pbr_break_rover.py`).
+- Flown green on its first flight, retry `none` since. Owed: a tier call.
+- NOT BUILT, the RAPIER mode switch: no committed fixture carries a RAPIER, and the recorder skips a zero-throttle ignite, so a live switch needs a throttle seam (no verb sets the main throttle) plus an SPH host. PR #2792 changed only the RAPIER trail visuals and the part parity lanes read per-mode FX from a held ghost, not a recorded switch.
+
+## TEST-GAPS-B4-INERT-GAME-MODES: no lane loads a stock scenario or training save [FILED 2026-11-23 from the test-gap list, batch 4; GM-1 LIVE-PROVEN 2026-11-23 (`2026-11-23_2207`); OPEN: the Making History modes]
+
+- Gap: `ParsekGameModeGate` (owner ruling S9) and ParsekScenario's inert pass-through were pinned only headless; no committed fixture had a SCENARIO or SCENARIO_NON_RESUMABLE mode.
+- Built: lane GM-1 on the derived fixture `gm-scenario-modes` (`harness/tools/build_gm_scenario_modes.py`, from `b1-pad-craft`: `persistent.sfs` SCENARIO with a 4-value Parsek node, `training.sfs` SCENARIO_NON_RESUMABLE with none). Gates the inert lines, the refused StartRecording, the inert stash / write-back round trip, no normal ParsekScenario load or save and no backup; the produced save is the training game, whose report-only saveParse row must read no Parsek node.
+- Not covered: Making History MISSION / MISSION_BUILDER (a mission loads from `Missions/<name>/`, not a plain save). To fly one the PC must copy a stock mission folder from the install's `Missions/` (Making History ships them) into the automation instance and the seam needs a mission-load verb; neither exists.
+- Flown: `2026-11-23_2120` red on REC-001 / REC-003 alone (hlib counted the refused StartRecording as a live recording; `spec_expects_live_recording` now skips a StartRecording expected refused), `2026-11-23_2207` PASS attempt 1, retry `none` since. Owed: the daily promotion call.
+
+## ~~TEST-GAPS-B4-MODDED-TWINS~~: no route or Re-Fly lane flies with mods loaded [FILED 2026-11-23 from the test-gap list, batch 4; DONE 2026-11-23: MC-6 `2026-11-23_2121` and MC-7 `2026-11-23_2122` PASS attempt 1; MC-7 armed, armed re-flight `2026-11-23_2209` PASS]
+
+- Built: MC-6 (H6's RouteRewindTimeline batch, interim `total=7` pin) and MC-7 (S4.1's B9 Re-Fly merge cycle, its rewind block and Unity exception ceiling report-only) on modded-compat, steps and contracts verbatim from their stock lanes.
+- MC-6's split pinned whole (7 / 0 / 0). MC-7 read supersedeRows 0, tombstones 0, Unity exceptions 0 (parsekFrames 0): rewind block armed, ceiling S4.1's (maxTotal 3, maxParsekFrames 0) through UnityExceptionScanTests' allowlists.
+
+## TEST-GAPS-B4-BATCH-CRASH-RECOVERY-LANE: the in-game batch crash recovery has no lane [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED on the harness]
+
+- Gap: `RunTestBatchCrashReconcile` (TestBatchMarker; revert the `.bak`, sweep, deferred real LoadGame) is proven headless only. It fires only on a `ParsekScenario.OnLoad` in a DIFFERENT process (the marker's `ProcessSessionId` must differ) on the same save folder.
+- Blocked: the harness v1 has no kill-and-relaunch inside one attempt (`INTERRUPTED` is unreachable; the killed-run mode is the boot watchdog's), so a lane cannot kill KSP mid-batch and boot it again on the same staged save.
+- Fix options: (a) a `run.py` step kind that kills the game and relaunches it on the same instance without re-staging, then resumes the seam steps (the faithful one); or (b) an automation-only seam op that simulates the second process in place (reset `ProcessSessionId`, then a cold LoadGame of the save holding the marker), like SafeWriteCrash's cold reload. (b) is cheaper but proves less (the same AppDomain keeps every static store).
+- Not reached in batch 4: the aerobraking lane (L).
+
 ## ~~MISSION-PROFILE-P1A~~: recorded delta-v snapshots on each focused recording [FILED 2026-11-22 (design `docs/dev/design-mission-profile.md` section 8.1, owner decision 2026-11-22); BUILT 2026-11-22, branch `mission-profile`; LIVE-PROVEN 2026-11-22 by lane DV-1, run `2026-11-22_1918`; REVIEW FIX 2026-11-22 (the pre-staging read), re-proven by DV-1 run `2026-11-22_2210`; residue: the `DeltaV` log-tag map entry]
 
 What: the focused recorder stores the game's own Delta-V readout (`Vessel.VesselDeltaV`) as snapshots on the recording it writes, so the coming Profile window (P1b) shows real Spent / Left figures instead of an estimate. A snapshot is UT, trigger, status (Ok, or Unknown when the game did not settle in time: derived, an Unknown snapshot carries no figures), the vacuum, sea-level and current-pressure totals, and per stage the stage number, vacuum delta-v and burn time. Stored as the optional `DELTAV` child node of the recording metadata node, one `SNAPSHOT` line each (`DeltaVSnapshotCodec`); additive under the save-format policy (no bump, an empty list writes no node, malformed lines skipped with one `[DeltaV]` Warn).
@@ -38,13 +450,13 @@ Live proof: lane DV-1 (B2's LKO ascent, then `ExitToSpaceCenter` with the record
 
 Review fix (2026-11-22, the pre-staging read): the settled Staging read lands about 1.25 s after the stage activation, stamped with the read UT, so the "before" of a staging drop was the previous snapshot (in run `2026-11-22_1918` the Start at UT 36.54 for a staging at 49.36) and the drop absorbed the fuel burned since; the chain-boundary End at each staging also read Unknown (stock not ready at that tick). Fix at the source: `FlightRecorder.DeltaV.cs` keeps the last ready reading of the focused vessel (re-read on every ready physics tick into two swapped stage buffers; nothing stored per frame) and the new additive trigger `PreStaging` (stored by name) is written from it at each staging when it is at most `DeltaVSnapshotTracker.CachedReadingMaxAgeSeconds` = 1 s of game time old, stamped with the reading's UT, logged `source=cached age=Ns`; skipped (`no-recent-reading`, `staging-pending`) otherwise. The same reading serves a BurnStart (the tick before ignition; a pending request only when none is recent) and backs the stop's End when stock is not ready. Tracker rules: `CanServeFromCache`, `IsCachedReadingUsable`, the four-argument `Request`. Unit: `DeltaVSnapshotTests` (`CachedReading_UsableOnlyAtOrBeforeTheEventWithinTheBound`, `Request_BurnStart_ServedFromARecentReadingElseFiled`, `Request_PreStaging_OnlyFromARecentReadingAndNoPendingStaging`, the pair reads `StagingDrop_*`). Lane DV-1 now also requires a `trigger=PreStaging ... status=Ok ... source=cached` line followed by the settled `trigger=Staging` read: needs a re-flight on a provisioned DLL of this branch. Left: `scripts/arch/log_tags.json` regenerated for the new `DeltaV` tag (needs `ikdasm`, not available on the build machine; CI's report-only `test_iltags` shows the difference). Re-flight `2026-11-22_2210` PASS attempt 1: a PreStaging Ok read (`source=cached age=0.00s`) at each of the three booster stagings (UT 49.22, 64.86, 83.90) with the settled Staging read 1.26 s later, the chain-boundary Ends at those stagings now Ok from the cache, BurnStart at the circularization read from the cache, End Ok on the force stop, 12 snapshots, unknown=0.
 
-## MISSION-PROFILE-P1B: the Profile window over the phase analyzer [FILED 2026-11-22 (design `docs/dev/design-mission-profile.md` sections 2-7, 10 P1b); CORE BUILT 2026-11-22, WINDOW BUILT 2026-11-23, branch `mission-profile`, PR #2789; GUI-4 FLOWN GREEN `2026-11-23_0643`; OPEN: the GUI-1 census flight (its operator-local fixture is not staged); DROPPED 2026-11-24: the per-line `PhasePlan` cache and the in-game test (reasons in design sections 6 and 11.3), GUI-4 pins the open line's 2 lines and 28 rows instead]
+## ~~MISSION-PROFILE-P1B: the Profile window over the phase analyzer~~ [FILED 2026-11-22 (design `docs/dev/design-mission-profile.md` sections 2-7, 10 P1b); CORE BUILT 2026-11-22, WINDOW BUILT 2026-11-23, branch `mission-profile`, PR #2789; GUI-4 FLOWN GREEN `2026-11-23_0643`; GUI-1 FLOWN GREEN `2026-11-24_0627`; DROPPED 2026-11-24: the per-line `PhasePlan` cache and the in-game test (reasons in design sections 6 and 11.3), GUI-4 pins the open line's 2 lines and 28 rows instead]
 
 What: the phase analyzer, line builder, profile builder, the Profile button and window, the gallery builder, tests and docs of design section 10 (P1b). Reads the P1a snapshots through `DeltaVSnapshotList` (Spent = vacuum left before minus after a burn, Left = the snapshot after an element, a staging drop shown on the `Stage separation` row) and falls back to the estimate of design 4.6 for flights recorded before P1a or with the stock Delta-V calculation off.
 
 Built (the pure, headless core): `Recording/ProfileElementKinds.cs` (phase / event / burn kinds, evidence tiers, the two orbit axes); `Recording/MissionPhaseAnalyzer.cs` + `.Facts.cs` (stage 1: sections in UT order with the later piece winning a shared instant, regimes with on-rails sections read by their conic, engine time from ignite / shutdown events, the burn definition shared with BurnCuts through the now-internal `RecordingOptimizer.ExtendBurnRun` / `IsBurnSection`, RCS taps under 0.5 s dropped, orbit facts by tier: stored checkpoints (predicted skipped), the terminal orbit only at or after the last burn, a held altitude inferred, structural floor / SOI evidence, encounters walked back over corrections) + `.Passes.cs` (the atmosphere-pass table as rule data) + `.Burns.cs` (table 4.4 as rule data, recorded Spent / Left less staging drops, the impulsive stored-frame estimate under 120 s) + `.Grouping.cs` (phases from marks with hindsight, the Docked overlay, flyby / drive / atmospheric-flyby sub-phases, EVA lines) + `.Placement.cs` (events placed by UT, include-set clipping, totality, counts); `Missions/ProfileLabels.cs` (player words and InvariantCulture number formats); `Missions/MissionProfileLines.cs` (lines from `MissionVesselRowBuilder.Build`'s rows: pieces per through-line owner, the Re-Fly bridge through the supersede rows with a `Flown again from here` anchor, anchors read off the branch points with stagings batched like the Log, dock side from the legs, short-EVA collapse, excluded spans per interval); `Missions/MissionProfileRows.cs` (the row view model, `MissionProfile`, career totals); `Missions/MissionProfileBuilder.cs` + `.Rows.cs` + `.Summary.cs` (the one seam the window calls, `MissionProfileBuilder.BuildProfile(MissionProfileRequest)`, rows with cells / hovers / flags and the Summary block; one `[Profile]` Verbose summary and one per line, `InfoRateLimited` for an `In space` phase). Unit: `MissionPhaseAnalyzerTests` (pass table row by row, burn table, evidence, burn definition, delta-v against vis-viva hand checks, EVA, include set, culture), `MissionProfileBuilderTests` (docks either way, stagings and debris, chain hole, short EVA, empty state, log lines, row independence on mun-landing-recorded re-cut three times), `MissionProfileFixtureTests` (Appendix A.1 / A.2 / A.3 row by row, line set equals the tab's vessel-row set, Re-Fly bridge on refly-split-crewed-merged, include clipping, stable keys / hovers / locations, and a sweep over all 74 committed fixtures with trees: no throw, phases tile, line set equals the row set; 7 `In space` phases report-only, in depot-route-recorded (two files) and refly-a-recorded).
 
-Built (2026-11-23, the player-facing half, design 10.2): the window `UI/MissionProfileWindowUI.cs` (one instance in `ParsekWindowSet`, `IMissionProfileWindow`; title `Parsek - Profile: <mission>`; 960 x 640 first open 80 px down / right of the Log's, floor 480 x 160; seven columns, the Element cell's indent and caret, Summary / line rows bold, the Empty row muted, Spent in the new `ParsekUI.StatusColorKind.Orange` (1, 0.6, 0.25) whenever the row has a figure; every cell carries the row's hover for the single-line `TooltipEchoBox`; collapse per mission + row key, cleared on open; rebuild only on open or a Layout pass whose signature moved (the Log's signature plus `SupersedeStateVersion`), closing on a deleted tree), drawing over a `MissionProfileRequest` that `StructureListWindowUI.BuildProfileRequest` fills from live data the Log's way (handed to the window by `ParsekWindowSet`: a direct call put the window in the knot residue, 125 over the bound 124) (structure, `MissionVesselNaming` names and partner legs, `EffectiveRecordingIdsOf` = the tree's visible recordings with the session suppression ignored, the scenario's supersede rows, `RecordingOptimizer.ResolveBodyFacts`, the Log's date / part-title / dock-partner resolvers, the committed trees and their mission names, and `SumCareer` over ELS rows tagged to the effective ids); its frame `UI/LogTableWindowFrame.cs`, which the Log / Route History now draw through too; the buttons (column C of the mission bar, 72 px, both modes: `Profile` on line 1, `Log` under it on line 2; Advanced column B 150 px = `Warp to...` over the whole loop row with the period slot inside it, after PR #2781 removed column A; `MissionPresentation.ProfileButtonTooltip`); the seam `UiAction op=target window=profile mission=` (`TestCommandUiAction.ProfileWindow`, table row after `routehistory`, so every `describe` reads `windows=12`; hlib vocabulary moved with it); the gallery `UI/Gallery/GuiMock.Profile.cs` (`profile.mission.mun-return` through the real builder over one detached recording with recorded delta-v, `profile.mission.empty`; `op=mock window=profile`); the census captures in GUI-1 (Advanced + Basic) and GUI-4 (Advanced + Basic + the two gallery states), GUI-4 flown green on 2026-11-23, GUI-1 still unflown; `harness/tools/gui_mirror.py` `LAYOUT_EPOCHS` `missions` / `profile` set to the GUI-4 runs `2026-11-23_0012` / `_0603`. The fold caret is drawn in the body cell's own style: with the skin's label style and zero margins, caret rows came out about 8 px shorter than leaf rows and the triangle sat above the text line (found by the owner on `_0127`, fixed before `_0603`). Tests: `MissionProfileWindowTests` (title, rect, collapse visibility and cycle, signature, effective ids, career sum, orange rule, deleted tree, gallery states, the caret toggle's log line, seam parse, source wiring), the re-pinned `MissionsTabColumnSequenceTests`, the table / tooltip / gallery / seam gates extended to the window. The archview knot grew 437 -> 446 (the window, its frame and the profile builder types join beside the Mission Log builder; `test_archview` re-pinned). Left: the GUI-1 census flight. The per-line `PhasePlan` cache and the in-game `MissionProfile` test are dropped (2026-11-24, design 6 and 11.3). Review fixes (2026-11-22): (1) staging drops read only from the P1a `PreStaging` / `Staging` pair (`DeltaVSnapshotList.TryGetStagingDrop` over a batch's UT span) and every Spent is the fall in Left between two reads less the paired drops between them (`MissionPhaseAnalyzer.SpentBetween`), unknown with gap `delta-v unknown (no reading just before a staging)` when a staging between them has no pair (no drop is ever read from an older snapshot); tests `RecordedDeltaV_SpentLeftAndAStagingDrop` (the recorder's real shape), `RecordedDeltaV_StagingDropsNeverAbsorbBurnedFuel` (start 4000, settled reads 3000 and 1800, end 1500: Spent 1700), `RecordedDeltaV_StagingWithoutAPreStagingRead_IsUnknown`, `RecordedDeltaV_BurnWithAnUnreadStaging_HasNoRecordedSpent`; (2) table 4.4's predicates are named methods with the name as data, `BurnRules` complexity 54 -> 16; (3) an ascent firing carried from the pad into space starts its burn row at the atmosphere exit (`FollowsTakeoffFloor` in `TimeBurn`) and the Ascent closes there (`CloseAscentAtBurn`), so its Spent is not counted in Prelaunch and again in the Ascent (`AscentFiringAcrossTheAtmosphereExit_IsOneBurnFromTheExit`, `_SpentCountedOnce`); (4) the tab and the Profile build vessel rows through one entry, `MissionVesselRowBuilder.BuildForMission`, the fixture tests derive the tab's rows from the tab's own inputs and compare a full row signature, and `VesselRowBuilders_CallTheSharedEntryOnly` pins both callers (mutation-checked); added: the line hover's `Aboard: <composition>` (design 2.4) and the "Docked by another mission" event (design 3.2) over the request's new `CommittedTrees` / `TreeMissionName`, which the window must fill. `BuildProfile` had no production caller until the window (it has one since 2026-11-23).
+Built (2026-11-23, the player-facing half, design 10.2): the window `UI/MissionProfileWindowUI.cs` (one instance in `ParsekWindowSet`, `IMissionProfileWindow`; title `Parsek - Profile: <mission>`; 960 x 640 first open 80 px down / right of the Log's, floor 480 x 160; seven columns, the Element cell's indent and caret, Summary / line rows bold, the Empty row muted, Spent in the new `ParsekUI.StatusColorKind.Orange` (1, 0.6, 0.25) whenever the row has a figure; every cell carries the row's hover for the single-line `TooltipEchoBox`; collapse per mission + row key, cleared on open; rebuild only on open or a Layout pass whose signature moved (the Log's signature plus `SupersedeStateVersion`), closing on a deleted tree), drawing over a `MissionProfileRequest` that `StructureListWindowUI.BuildProfileRequest` fills from live data the Log's way (handed to the window by `ParsekWindowSet`: a direct call put the window in the knot residue, 125 over the bound 124) (structure, `MissionVesselNaming` names and partner legs, `EffectiveRecordingIdsOf` = the tree's visible recordings with the session suppression ignored, the scenario's supersede rows, `RecordingOptimizer.ResolveBodyFacts`, the Log's date / part-title / dock-partner resolvers, the committed trees and their mission names, and `SumCareer` over ELS rows tagged to the effective ids); its frame `UI/LogTableWindowFrame.cs`, which the Log / Route History now draw through too; the buttons (column C of the mission bar, 72 px, both modes: `Profile` on line 1, `Log` under it on line 2; Advanced column B 150 px = `Warp to...` over the whole loop row with the period slot inside it, after PR #2781 removed column A; `MissionPresentation.ProfileButtonTooltip`); the seam `UiAction op=target window=profile mission=` (`TestCommandUiAction.ProfileWindow`, table row after `routehistory`, so every `describe` reads `windows=12`; hlib vocabulary moved with it); the gallery `UI/Gallery/GuiMock.Profile.cs` (`profile.mission.mun-return` through the real builder over one detached recording with recorded delta-v, `profile.mission.empty`; `op=mock window=profile`); the census captures in GUI-1 (Advanced + Basic) and GUI-4 (Advanced + Basic + the two gallery states), GUI-4 flown green on 2026-11-23, GUI-1 on 2026-11-24; `harness/tools/gui_mirror.py` `LAYOUT_EPOCHS` `missions` / `profile` set to the GUI-4 runs `2026-11-23_0012` / `_0603`. The fold caret is drawn in the body cell's own style: with the skin's label style and zero margins, caret rows came out about 8 px shorter than leaf rows and the triangle sat above the text line (found by the owner on `_0127`, fixed before `_0603`). Tests: `MissionProfileWindowTests` (title, rect, collapse visibility and cycle, signature, effective ids, career sum, orange rule, deleted tree, gallery states, the caret toggle's log line, seam parse, source wiring), the re-pinned `MissionsTabColumnSequenceTests`, the table / tooltip / gallery / seam gates extended to the window. The archview knot grew 437 -> 446 (the window, its frame and the profile builder types join beside the Mission Log builder; `test_archview` re-pinned). Nothing is left to fly (GUI-1 `2026-11-24_0627` PASS). The per-line `PhasePlan` cache and the in-game `MissionProfile` test are dropped (2026-11-24, design 6 and 11.3). Review fixes (2026-11-22): (1) staging drops read only from the P1a `PreStaging` / `Staging` pair (`DeltaVSnapshotList.TryGetStagingDrop` over a batch's UT span) and every Spent is the fall in Left between two reads less the paired drops between them (`MissionPhaseAnalyzer.SpentBetween`), unknown with gap `delta-v unknown (no reading just before a staging)` when a staging between them has no pair (no drop is ever read from an older snapshot); tests `RecordedDeltaV_SpentLeftAndAStagingDrop` (the recorder's real shape), `RecordedDeltaV_StagingDropsNeverAbsorbBurnedFuel` (start 4000, settled reads 3000 and 1800, end 1500: Spent 1700), `RecordedDeltaV_StagingWithoutAPreStagingRead_IsUnknown`, `RecordedDeltaV_BurnWithAnUnreadStaging_HasNoRecordedSpent`; (2) table 4.4's predicates are named methods with the name as data, `BurnRules` complexity 54 -> 16; (3) an ascent firing carried from the pad into space starts its burn row at the atmosphere exit (`FollowsTakeoffFloor` in `TimeBurn`) and the Ascent closes there (`CloseAscentAtBurn`), so its Spent is not counted in Prelaunch and again in the Ascent (`AscentFiringAcrossTheAtmosphereExit_IsOneBurnFromTheExit`, `_SpentCountedOnce`); (4) the tab and the Profile build vessel rows through one entry, `MissionVesselRowBuilder.BuildForMission`, the fixture tests derive the tab's rows from the tab's own inputs and compare a full row signature, and `VesselRowBuilders_CallTheSharedEntryOnly` pins both callers (mutation-checked); added: the line hover's `Aboard: <composition>` (design 2.4) and the "Docked by another mission" event (design 3.2) over the request's new `CommittedTrees` / `TreeMissionName`, which the window must fill. `BuildProfile` had no production caller until the window (it has one since 2026-11-23).
 
 ## ~~MISSION-CLONE-REMOVAL~~: the Advanced Missions tab's Clone and Delete buttons are removed with the clone feature [FILED + BUILT 2026-11-22 (owner decision, `docs/dev/plans/remove-player-looping.md` 10.5 item 1), branch `mission-clone-removal`; xUnit; lanes MS-1 `2026-11-22_2215` and GUI-4 `2026-11-22_2216` re-flown green]
 
@@ -207,7 +619,7 @@ Clusters, each with its entry:
 - Heat: `heat-hot` fails on colour on 13 of 16 stock parts and 12 of 13 ReStock ones, `heat-medium` passes on all but the JetEngine and (stock) the nuclear engine: the ghost draws the generic emissive where stock plays the part's own clip (PARTPARITY-FX-FIRST-READINGS-2026-11-23, Heat). On the nuclear engine the ghost lights the bell, which stock's clip leaves dark (`nuclearengine--default--heat-medium--6b86bbe4`, bottom 18457 px).
 - RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts (the position and the scale are fixed with GHOST-FX-MODEL-SCALE, not flown).
 - `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum; GHOST-FLAME-Z-DIRECTION).
-- ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+- ~~ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9)~~: GHOST-SMOKE-RIDES-ACTIVE-VESSEL (fixed 2026-11-24).
 - Stock `LaunchEscapeSystem` draws no particles (GHOST-LES-NO-PLUME, fixed and flown); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed and flown).
 - `sepMotor1` (stock) flame origin 34 px late, width 0.76.
 
@@ -301,13 +713,29 @@ The numbers behind each fix are in design E.4, "FX instrument fixes". The C# hal
 - ~~The real-vs-real controls compared 8 samples a side with 8.~~ FIXED (16 a side, flown on PP-5, PP-6 and PP-10): the air one read 1.264 and 1.345 on the Flea's far flame width against itself (line 1.30), so `2026-11-23_1201` was INVALID on it. If it still crosses at 16 a side, the lanes PP-5 / PP-6 (second label) and PP-10 read INVALID(parity-controls) now and then and the subject or the far view's width must be re-decided.
 - OPEN. The cross-section offset of small RCS puffs is noise at its fail line (0.1 of the nozzle box): one ghost against a second one of the same case fails it on 4 to 6 of 19 ReStock rcs cases (0.107 to 0.425). Re-pin it from the reading runs, not from one case.
 
-## PARTPARITY-ORBIT-SRB-SMOKE-NOISE: ReStock solid booster smoke in orbit is noise on the real side, so only an air lane can judge it, and no air lane plans a booster [FILED 2026-11-23 from PP-8 reading flight `2026-11-23_1217`, PP-9 `2026-11-23_1050` and PP-8 `2026-11-23_1232`; OPEN; low (tooling)]
+## ~~GHOST-SMOKE-RIDES-ACTIVE-VESSEL~~ (was PARTPARITY-ORBIT-SRB-SMOKE-NOISE): a ghost's world-space smoke rode along with the active vessel, so a booster ghost sat in a ball of its own smoke [FILED 2026-11-23 from PP-8 / PP-9 as instrument noise; the owner saw it on the pictures 2026-11-24; FIXED 2026-11-24, branch `srb-smoke`]
 
-What: in orbit the Krakensbane shear (design E.12 U8) carries a ReStock booster's smoke puffs 130 to 160 m away, and one lands in the near box now and then. The real side against itself (even against odd samples) therefore jumps: `solidBooster.sm.v2` 0 and 754 px, `solidBooster.v2` 53 and 542, `Shrimp` 3976 and 0 (minimum 256), where the ghost's smoke stays at the nozzle (244 to 4164 px). So the `smoke-extra` those boosters read (10 on PP-9) is not a finding about the ghost, and the Flea cannot be the real-vs-real control where its smoke is judged. Stock boosters draw no smoke in vacuum and are unaffected.
+What a player saw: beside his own ghost in the air, or with a vessel in orbit, every ReStock booster ghost hid in a ball or column of grey smoke the real booster does not draw, and stock smoke trails spread out around the ghost instead of behind it. The parity instrument read it as `smoke-extra` on 12 boosters of PP-8 / PP-9; this entry called it noise on the real side, inferred from the Krakensbane shear. Wrong: the real side was right, the ghost was not.
 
-Fix (not started): do not judge the `smoke` layer of an orbit case whose real side draws world-space smoke, or exclude it in orbit (`smoke` measured, `reference`); the air lanes (PP-5 / PP-6 second label, PP-10) plan only air-breathing engines, so no lane judges a booster's smoke in the air. Until then read the orbit `smoke-*` reasons of ReStock boosters as noise. Since the per-entry cap (PARTPARITY-FX-INSTRUMENT-2026-11-23) an unsettled smoke view caps every smoke view of its route, so this noise alone fails none of them; the boosters that fail do so on the body.
+Cause (IL of `FloatingOrigin.setOffset` and `EffectBehaviour.OffsetParticles`): while Krakensbane or continuous mode is on, stock moves every registered world-space particle by minus (origin offset + frame velocity * dt) each physics step, 45 m at orbital speed, so smoke stays where it was emitted; a `KSPParticleEmitter`'s particles also drift back by `(rb.velocity + frameVelocity) * Random * dt` (mean one half more). It finds a part's systems through the Part (`ModelMultiParticleFX` / `ModelParticleFX`, FXGroups) or stock's `FXPrefab`; a ghost has no Part, and `StripKspFxControllers` destroys `FXPrefab`. So nothing moved a ghost's smoke, and it kept the active vessel's velocity. Stock's own loops for plain systems (FXGroups, PREFAB_PARTICLE) move nothing: the particle is a copy that is never written back, and `FXPrefab`'s registration does the plain shift; KSPCommunityFixes' `FloatingOriginPerf` replaces `setOffset` with one that writes both the shift and the drift. This also answers E0's open question (why the real world-space particles drift kilometres in orbit).
 
-Re-read 2026-11-23: PP-9 `_1749` still reads `smoke-extra` on 12 cases (the 10 of `2026-11-23_1050` plus `liquidEngineMini.v2` and `smallRadialEngine.v2` at 30 %, whose cores are weak). The per-entry cap holds: none of the 12 fails on smoke.
+Fix: `Source/Parsek/Ghost/GhostWorldSpaceEmitter.cs`, one component on every world-space system of a ghost FX clone (`FXPrefab` stays stripped, so nothing moves twice), registered exactly while it is enabled, moved in the `setOffset` postfix with stock's rule: the shift always, the drift for an emitter-fed system and, when KSPCommunityFixes patches `setOffset`, for a plain one. The drift velocity is read off the ghost's own motion plus the shifts; a jump (loop restart) is rejected by taking the slower of two readings. Nothing happens while the active vessel is parked (no shift), as for a real vessel seen from there.
+
+Proof (throwaway lanes SMK-1 to SMK-6, kept with their rig in `<umbrella>/logs/flights/srb-smoke/`): free burns recorded by the real recorder, the ghost replayed from the same recording at the same UT and camera, before (registration removed) and after. Orbit, 9 ReStock boosters, smoke within 20 m of the nozzle of about 280 particles: real 2 to 4 on all 27 shots, before 34 to 294, after 2 to 4; spread across the plume real 2.9 to 3.4 km, after 2.9 to 3.3 km. Air, a real booster of the same kind 42 m beside the ghost (mean distance behind the nozzle): Hammer +5 s before 6.3 m, after 73.1 m, real in the same instant 67.9 m; Flea +7 s 6.5 / 136.6 / 138.0 m. Stock `fx_smokeTrail_medium` beside a Flea +7 s: before 165 m, after 473 m, real 466 m.
+
+The standing flow STAYS (owner ruling 2026-11-24; do not remove it without asking). `WorldSpaceEmitterFloorSpeed` gives a ReStock booster ghost's smoke 6 m/s exhaust-ward (commit d75cf8f27, 2026-06-12, made for the static showcase, where the asset's own 0 to 1 m/s "gathers in one point"). The real part does gather: a real Hammer held still in the air reads 1.0 m mean behind the nozzle (4.8 m at most), the flowing ghost 5.8 m (15.7 m); without the flow the ghost reads 1.0 / 4.9 m and the showcase shows a ball of smoke at each booster (both photographed, `showcase/` and `air-restock-nofloor/` in the flight folder; removal 97e052a12, reverted). Its limit, tightened with the ruling: the flow counts the ghost's own speed (`GhostWorldSpaceEmitter.StandingFlow`, smoke leaves at 6 m/s minus the ghost's speed when that is above its own), so only a booster that burns standing still differs from the real one and nothing from 6 m/s up is touched. Before that it reached launched flights too: Hammer +3 / +5 / +7 s 30.9 / 73.1 / 118.5 m with it, 25.3 / 68.7 / 114.6 m without, real beside it 25.0 / 67.9 / 114.5 m.
+
+Parity lanes on the fixed build (PP-9 `2026-11-24_2040` and `_2145`, PP-10 `_2101`, PP-7 `_2120`, PP-5 `_2137`, MC-2 `_2144` PASS; DLL 7164781e except `_2040` / `_2101`, which flew the build without the standing flow): ReStock booster smoke on PP-9, 10 boosters times 4 views, views with a ghost core of 256 px or more 40 of 40 before, 1 and 0 of 40 after (real 0, 0, 2); the instrument's own 95th-percentile spread across the axis real 155 / ghost 155 m on the Thumper (before 1.7 m). Verdicts against main `2026-11-24_0735` / `_0758` / `_0628` (pass / warn / fail): PP-9 68 / 31 / 65 -> 71 / 27 / 66, PP-7 105 / 19 / 4 -> 103 / 23 / 2, PP-10 2 / 5 / 7 -> 2 / 6 / 6, PP-5 2 / 5 / 7 -> 2 / 5 / 7, every control ok; the cases that moved the wrong way are flame-layer flicker at the rate two runs of one build show (PP-9 9 worse / 8 better / 2 to fail between `_1749` and `_0735`, 8 / 9 / 4 here) and two smoke views, see the next entry. `ctl-fx-smoke-dropped` was built on the defect (a ghost that keeps its smoke at the nozzle in orbit) and now switches the mover off on its own ghosts.
+
+Not changed: a ghost watched from a parked vessel draws its trail without the drift (as stock draws a real vessel from there), so it is denser than the one its pilot saw.
+
+## PARTPARITY-ORBIT-SMOKE-PUFF-NOISE: in orbit a fresh smoke puff lands in the near box now and then, on either side, so a booster's orbit smoke view can read `smoke-missing` or `smoke-extra` once in a while [FILED 2026-11-24 from PP-9 `_2040` / `_2145`; OPEN; low (tooling)]
+
+What: the puffs of the newest rendered frame sit at the nozzle until the next physics step carries them off, and a view counts them when a sample falls in that gap. After GHOST-SMOKE-RIDES-ACTIVE-VESSEL both sides do it alike: of 80 booster smoke views 1 had a ghost core (Flea side-a 924 px) and 2 a real one (Flea side-a 808, Thumper bottom 2279; the Thumper read 29 and 197 px there in the two runs before). With both halves settled the Thumper's bottom view reads `smoke-missing` and fails (PP-9 `_2145`); `smallRadialEngine.v2` at 30 % reads the same `smoke-extra` on its bottom view as before the fix and fails now that the cap for unsettled views no longer hides it. Fix: do not judge the smoke layer of an orbit case whose sides draw world-space smoke unless both cores pass the minimum in both halves, or make it a visible known-unjudged. Until then read a single orbit smoke reason on a booster as this.
+
+## GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL: the ghost FX Parsek builds itself (explosion smoke, part puffs, launch dust, the reentry fire) are world-space and do not follow the floating origin [FILED 2026-11-24 while fixing GHOST-SMOKE-RIDES-ACTIVE-VESSEL; OPEN; low (visual only)]
+
+What: `GhostVisualBuilder.TransientFx.cs` and the reentry fire (`GhostVisualBuilder.HeatAndReentryFx.cs`) create their particle systems with `simulationSpace = World` and nothing moves them when the origin shifts, so beside a flying active vessel they drift along with it for their 1 to 4 s. Read from the source, not seen in a flight. Fix: attach `GhostWorldSpaceEmitter` there too (an unparented one does not drift), and look at the reentry fire first, whose streaks were tuned to what they are now.
 
 ## PARTPARITY-FX-FIRST-READINGS-2026-11-23: what the first FX sweep (P8 F3 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the P8 F6 reading runs, nothing judged yet]
 
@@ -443,6 +871,7 @@ Current owner rulings (V, 2026-11-18 review cards and 2026-11-21 in-session; a l
 | L2 | 2026-11-21 | Above 10x warp a crashing ghost plays its explosion when it is close enough to be seen; a far ghost just ends. |
 | L5 | 2026-11-21 | A gap over 30 s before the predicted path: the ghost slides across it, no freeze, no jump. |
 | R4b | 2026-11-21 | Looped replay of a predicted crash: each repeat's path turns with the planet so it hits the real crash site. |
+| R4c | 2026-11-24 | "A dropped stage's predicted fall plays in mission loops but does not count toward loop timing." Timing (span, cadence, overlap cap, Auto, first-play floor, period snapping, the KSC / Tracking Station clock, the supply-route clock and origin span) reads the recorded span: the latest non-predicted UT over the members. In flight the fall plays to its impact, overlapping the next launches and its own next copies; copies past the 20 cap end quietly, the cadence is never raised. KSC and the Tracking Station draw one copy, cut at the next relaunch. Same for a recording with no tail, spawns, first runs and R4b as before. |
 | P-STOCK | 2026-11-21 ~20:15 | Parsek's committed endings and crew outcomes must not contradict stock's background simulation; no live-game override. |
 | P-LEAVE | 2026-11-21 ~20:25 | Stock warns that leaving flight in the atmosphere loses the vessel, so a predicted crash with crew dead at commit agrees with stock; a prediction stock later contradicts (vessel alive after the crash UT) is dropped like a Q1b takeover. Q9 (make the live game match) is CLOSED by P-STOCK / Q4d / P-LEAVE. |
 
@@ -450,7 +879,38 @@ Interpretations taken without asking (micro-choices): the periapsis floor (`Orbi
 
 New persisted markers, all additive (no format or generation bump, absent = false / old behaviour): `terminalPredicted`, `terminalRemnantSurvives`, `quietEnd`, `stockHeldUT` and the `RECOVERED_CREW` child node on the recording, and `TrackSectionSource.Predicted` (= 3) on a track section.
 
-## ~~ABANDONED-STAGE-D1~~: every ignored spent stage exploded in mid-air at the moment Parsek stopped watching it [FILED 2026-11-18 (review finding D1, high, design); FIXED 2026-11-21, branch `asr-destroy` 14250a907, with c219f487e and 9d1694dd4; xUnit `BackgroundRecorderTests`, `RecordingFinalizationCacheProducerTests`; lanes ASR-1 / ASR-5 read the debris and the probe core ending at the ground; GS-8 / GS-9 re-pinned for the probe core's Destroyed ending 2026-11-23, branch `lane-repins-1023`]
+## ~~LOOP-TIMING-READ-THE-PREDICTED-FALL~~: a looped mission's span, period and supply-route clock included a dropped stage's predicted fall [FILED + FIXED 2026-11-24 from GS-12 `2026-11-23_2013` (PARSEK-FAIL), branch `loop-timing-predicted-falls`, owner ruling R4c; xUnit `MissionLoopFallTimingTests`, `LoopFallPlaybackTests`, `LoopFallEndTests`, `RouteBackingMissionTests`, `RouteBuilderTests`; lanes GS-12 (re-cut) and LF-3 (new) FLOWN GREEN `2026-11-24_0228`]
+
+**Seen:** since ABANDONED-STAGE-D1 a dropped stage keeps its predicted fall (minutes, days, or the 50-year horizon), and the loop unit took its span from the members' drawn ends: GS-12's 150 s loop of a 110 s flight read `span 109.86 -> 301.46`, `cadence=305` instead of 150, and the 5 s stage was raised to 20 s by span/20. The same span set the first-play floor (a loop waited for the fall to end), the Space Center and Tracking Station clock, a supply route's cadence, and refused a shuttle route whose dropped stage's fall outlived a dock (`origin-span-mismatch`).
+**Fix:** `PredictedEndingTakeover.ResolveRecordedEndUT` (Recording module) is the one reading of "last non-predicted UT": the recording's end when it has no predicted tail (an explicit end past the last sample stays recorded time), else the last real sample, section or non-predicted orbit segment. Every tail shape is a predicted orbit segment (a fall, an escape followed to its final orbit with the settle span, a ground-scan or horizon cap, a predicted coast that stays up), a predicted track section (a chute descent), or a predicted Destroyed end UT with no segment; a piece with predicted data only holds no recorded time. `MissionLoopUnitBuilder.ComputeTimingSpanEndUT` makes `LoopUnit.SpanEndUT` from it (window-clipped), so the cadences, the overlap cap, the floor, the periodicity windows (`ComputeTimingMemberWindows`), re-aim, the Missions period cell and the route clock follow with no change of their own; `MissionCompositionNode.TimingEndUT` does the same for the route's origin-span check and start trim. `LoopUnit.RenderSpanEndUT` carries the drawn end and the member windows keep their tails.
+- Flight: a falling member of a uniform unit that does not overlap itself is drawn as one copy per launch on the unit's cadence (`UpdateUnitMemberFallSchedule`, over the existing overlap path), so it plays to its impact while the rest keeps its single span-clock copy; in a self-overlapping unit it is on that path already. `ResolveOverlapCadence(keepCadence)` never raises a fall's cadence, and copies past the 20 cap end with no explosion (`Fall copy ended quietly at the copy cap`, `MeshDestroyed ... reason=fall copy cap`). In a unit with a relaunch schedule, loiter cuts, holds or the descent trigger the fall plays on through the wait and an older cycle's fall is kept beside the next one (`UpdateNonUniformFall`); with the launch alignment engaged (re-aim), one copy, cut at the next relaunch, because the overlap list belongs to the boundary secondary there. The flight map draws the same copies (`LoopUnitSet.DrawsFallCopies`).
+- Where a fall ends (review finding B1): a launch period longer than the fall leaves a gap with no copy. Once the newest launch's copy is past its own end (`HasOverlapCopyEnded`) it joins the overlap list, which expires it there with its ending (explosion, watch hold; `Fall copy reached its end before the next launch`), and its cycle is not drawn again, so the mesh and the flight map agree (`EndNewestFallCopy`; members and debris, and the Space Center's self-overlap path). Before that the copy was held at its end until the next launch, the wreck sliding on the ground and the explosion a period late. The watch clock stops following it too. The same ending applies to a member or debris of a self-overlapping unit whose predicted tail ends INSIDE the span (`EndsInPredictedTail`); one whose end is recorded keeps the old hold (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END). Debris of a non-uniform unit whose fall ends in the wait gets its ending as well, where it vanished.
+- High warp (review finding B2): above 50x `UpdateNonUniformFall` ends the older launches' copies and an older primary; they stayed alive, undriven and visible. A uniform fall whose copy ends while hidden is dropped instead of exploding after the warp (`DropEndedFallAtWarp`); the watched ghost is never dropped.
+- A loop edited while its falls are in the air (review finding B3): the Missions window sets the period without re-stamping the loop anchor, so the rebuilt unit is live on the next frame and the old cycle numbers name other launches. A copy numbered above the newest launch had a negative phase and hung at the separation point for hours; on a shorter period one read as ended would have exploded on the edit frame. Every fall copy now carries its own clock (`GhostPlaybackState.fallClockOffsetUT`, the live UT of recorded UT 0 for its cycle); a copy whose clock moved more than 0.5 s, or whose cycle is above the newest launch (or equal to it beside the slot), ends quietly (`IsStaleFallCopy`, `Fall copy ended quietly the loop's schedule changed under it`, `MeshDestroyed ... reason=fall schedule changed`) and the new schedule draws its own copies. Uniform and non-uniform units, debris, self-overlapping units with a predicted end and the Space Center's self-overlap path; a rebuild that moves nothing (a trim, an unrelated commit, the same route schedule rebuilt) keeps every copy, and the first run's fall, on the real clock, is untouched. Fall copies an edit leaves with no path to drive them go too (`DropUndrivenFallCopies`). The flight map lists copies from the schedule alone, so it needed nothing. Copies with a recorded end keep the old demotion (a cycle above the newest is still clamped at its start there; see OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END).
+- First run: a loop may now start while the first run's fall is still in the air; in flight that ghost keeps falling on the real clock beside the copies (`TryKeepFirstRunFall`), where the old floor waited for it. A scene load after the anchor does not redraw it.
+- Debris: debris with a predicted tail past the span end plays to its impact in flight (per launch in a uniform unit, else through the wait to the next relaunch) and changes no timing; recorded debris past the span end is cut as before. KSC and the Tracking Station draw no loop debris.
+- KSC / Tracking Station: the single copy plays its fall through the wait and the next relaunch cuts it (`TryExtendRenderIntoFall`). A self-overlapping unit keeps drawing one copy per launch there, falls included, as it did.
+- Logs: `MissionLoopUnit:` keeps every token (`span` / `spanDur` / `cadence` / `overlapCadence` / `overlaps` now read the recorded span) and gains `renderSpanEnd= fallMembers= fallOverlaps=` only when a member falls past it; `missionconfig applied:` gains `renderSpanSeconds=`.
+
+**Not changed (product questions, not decided here):** a copy whose end is recorded is still held at it between launches (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END); the map and Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost), and a span-clock copy at KSC that ends inside the wait still ends with no explosion, as every span-clock member's end did.
+
+## LOOP-FALL-KSC-TS-SINGLE-COPY: looped predicted falls at the Space Center, the Tracking Station and on the map are drawn less fully than in flight [FILED 2026-11-24 from LOOP-TIMING-READ-THE-PREDICTED-FALL's "KSC / Tracking Station" and "Not changed" notes; OPEN, product, low, for 1.0.4 or later]
+
+Left open by owner ruling R4c (option C), which fixed loop timing and the flight scene:
+- **Fall cut short:** in a loop that does not overlap itself, the Space Center and the Tracking Station draw one copy, and the next relaunch cuts its fall (`TryExtendRenderIntoFall`); in flight each launch's fall plays to its impact (`UpdateUnitMemberFallSchedule`). A self-overlapping loop draws one copy per launch there, falls included.
+- **No explosion:** a span-clock copy at the Space Center whose fall ends inside the wait ends with no explosion. Every span-clock member's end did so before, so it is not new.
+- **Map path:** the map and the Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost only).
+
+Related: OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END (copies with a recorded end, built on `loop-own-end`, held for 1.0.4).
+
+## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; OPEN, owner question; low; RULED 2026-11-24 (owner): every copy ends at its own recorded end, as falls do, no parked landed copy; built on branch `loop-own-end`, HELD for 1.0.4, not in 1.0.3]
+
+**Cause:** `UpdateOverlapPlayback` (and `ParsekKSC.UpdateOverlapKsc`) clamps its newest cycle's playback UT to the recording's end and only expires OLDER cycles, so a member, debris or standalone loop whose own length is shorter than the launch cadence stays drawn at its last frame until the next launch; in flight its explosion comes only then, the watch clock stays on it, and the flight map lists no copy meanwhile. Reachable in a self-overlapping mission for every stage or debris shorter than the period (GS-12 stage 1's shape before R4c: 57 s debris at a 150 s cadence). The code is the same on main before the branch (9559614ea); the archived GS-12 log starts its loop lines at stage 2 (cadence 30, under the debris' 57 s), so it shows none.
+**Done:** recordings whose end is PREDICTED no longer do this (LOOP-TIMING-READ-THE-PREDICTED-FALL). Nothing changed for a recording without a predicted tail: R4c promises those stay as they were, so `SelfOverlappingDebris_EndsWhenPredicted_IsHeldWhenRecorded` / `SelfOverlappingMember_...` (`LoopFallEndTests`) pin the hold.
+**Same path, same scope line:** raising the period of a self-overlapping mission leaves copies with a recorded end numbered above the newest launch; they are clamped at their start until the schedule reaches that number, as on main. Falls end quietly instead (LOOP-TIMING-READ-THE-PREDICTED-FALL, B3).
+**Question for the owner:** should a copy with a recorded end also end at its end (explode or vanish) instead of standing there until the next launch? The change is to pass `endAtOwnEnd: true` at the remaining `UpdateOverlapPlayback` / `UpdateOverlapKsc` calls.
+
+## ~~ABANDONED-STAGE-D1~~: every ignored spent stage exploded in mid-air at the moment Parsek stopped watching it [FILED 2026-11-18 (review finding D1, high, design); FIXED 2026-11-21, branch `asr-destroy` 14250a907, with c219f487e and 9d1694dd4; xUnit `BackgroundRecorderTests`, `RecordingFinalizationCacheProducerTests`; lanes ASR-1 / ASR-5 read the debris and the probe core ending at the ground; GS-8 / GS-9 re-pinned for the probe core's Destroyed ending 2026-11-23, branch `lane-repins-1023`; RF-14 re-pinned 2026-11-24 for the same ending (slot 1 promoted `crashed`, not `stableLeafUnconcluded`), branch `lane-repins3-1124`]
 
 **Cause:** `ResolveBackgroundEndTerminalUT` (`BackgroundRecorder.Finalization.cs`) returned min(predicted terminal UT, close UT) for a Destroyed ending, so a debris time limit, unload, parent close or warp cut the tail to the close (GS-7: a 20 ms tail), and the design's edge case 16 said so.
 **Fix:** a background close (debris time limit, unload, parent close, confirmed destruction) keeps the cache's Destroyed / Landed / Splashed terminal UT when it is at or after the close, so the tail runs to impact. An Orbiting / SubOrbital ending is kept too when the cache carries a predicted segment past the close (a Q8 final orbit, c219f487e from review A); when an ending is pulled back to the close the cache's far `TerminalOrbit` is dropped so the applier stamps the last retained segment's orbit. The switch-close stamp passes `retainPredictedTailPastEnd=false`, so a tail never overlaps the continuation. A close after an ending the cache already predicted (a deletion Parsek did not see) is clamped to that ending (9d1694dd4).
@@ -507,7 +967,7 @@ New persisted markers, all additive (no format or generation bump, absent = fals
 **Rule (Q6c, Q6b, Q12b, Q13b, Q4d, Q14):** a Destroyed ending kills the crew, predicted or confirmed (`InferCrewEndState` and the ghost-only chain handoff), with the death hold; a reputation penalty row exists only when stock took one. `Recording.TerminalPredicted` (key `terminalPredicted`) still marks a prediction: the takeover, playback, the stock-fate pass and the recovery rule read it. Identity loss over a remnant KSP keeps (`MarkDestroyedAtTerminal(vesselSurvives)` = `IdentityLossClassifier.RemnantSurvives`) stamps `terminalRemnantSurvives`; only that flag sends the crew through the per-part check (seat by part persistentId from the end, else start snapshot; Dead only when a Destroyed / ParachuteDestroyed part death names his part or the end snapshot dropped him; a seat a Breakup / JointBreak child took is read as carried away). A crewed breakup piece is always recorded (`ShouldRecordDebris` crewCount). Recovery: ABANDONED-STAGE-RECOVERY.
 **Fix history (approach changed):** 70d3e56e7 first answered Aboard for a predicted crash (ruling Q6); bdeb64cd6 reverted that to Dead (Q6c). 8beef2e79: a same-id replace after a takeover (`ShouldRefreshCrewRowsOnReplace`) retires the predicted crash's KerbalAssignment rows and its death penalty (`LedgerOrchestrator.RetireTakenOverPredictedCrashCrewRows`). f05f243cb (review B2): a recovered breakup remnant keeps Dead the kerbal whose part stock destroyed. c6afcc383: a kerbal the recovery names (`RECOVERED_CREW`) is Recovered even when his start seat is a destroyed part (an IVA transfer). Old recordings (no key) keep Dead.
 
-## ~~ABANDONED-STAGE-B4~~: a far Switch-To, Commit Flight or post-crash merge froze a still-falling sibling [FILED 2026-11-18 (review finding B4, medium-high); FIXED 2026-11-21, branch `asr-crew` 70d3e56e7; xUnit `InFlightCommitOptimizationTests`, `SwitchIntentPatchSmokeTests`, `ReFlyConclusionChainHeadFinalizeTests`]
+## ~~ABANDONED-STAGE-B4~~: a far Switch-To, Commit Flight or post-crash merge froze a still-falling sibling [FILED 2026-11-18 (review finding B4, medium-high); FIXED 2026-11-21, branch `asr-crew` 70d3e56e7; xUnit `InFlightCommitOptimizationTests`, `SwitchIntentPatchSmokeTests`, `ReFlyConclusionChainHeadFinalizeTests`; GPOS-1 re-pinned 8 -> 9 2026-11-24, branch `lane-repins3-1124`: the probe core's predicted fall makes its space half longer than the 5 s floor, so the optimizer cuts it at its atmosphere exit, as it does at a scene exit (RF-9)]
 
 **Fix:** an in-flight commit runs the lifetime finalizer for a live non-active leaf, and for the active leaf when the pre-switch Merge abandons it (`CommitTreeFlightAbandoningActiveVessel`, the far Switch-To Case B), or a fresh Destroyed cache when it declines, before the situation stamp (ruling Q1b). A plain CommitTree keeps the active vessel's live situation stamp by design (ASR-4's reading: the active crewed stack ends SubOrbital).
 
@@ -996,6 +1456,92 @@ Fix: `Object.DestroyImmediate(tempClone)`, like the siblings. `GhostTempCloneDes
 
 Proof: PP-1 `2026-11-21_2111` and every later PP-1 / PP-2 flight answered every step with the host in one piece and in orbit, through the final pair `2026-11-22_0033` / `_0045` (GHOST-PARITY-RESIDUALS-2026-11-22).
 
+## ~~TEST-GAPS-BATCH4-REFLY-2026-11-23~~: Re-Fly quits, a separation inside a Re-Fly, KSC purchases before a Re-Fly, a Re-Fly resumed in a new process [FILED 2026-11-23 from the test-gap list, batch 4; DONE: ALL NINE LANES LIVE-PROVEN 2026-11-23; branch `b4-refly`; one new seam verb (`ExitToMainMenu`) and one new `AnswerMergeDialog` arg (`exit=`), automation-only C#]
+
+What: four Re-Fly gaps no lane drove. (1) Leaving a live Re-Fly by Quit without saving or by Quit to Main Menu (the second needs the flight Esc menu's Quit to Main Menu, which no seam verb drove, then a load back from the main menu). (2) A separation inside a Re-Fly: the nested, session-scoped rewind point it authors, kept by a merge, purged by a discard, dropped by an F9 to before the separation. RF-14's header named this as not driven. (3) Space Center purchases made between a separation and its Re-Fly. (4) A Re-Fly saved mid-session and resumed in a new game process.
+
+Seam: `ExitToMainMenu` (FLIGHT, two-phase, 120 s budget) runs stock's Quit to Main Menu (`saveAndExit(MAINMENU)`: confirm-exit, save, load) and completes OK `scene=MAINMENU persisted=true` once the main menu has settled; it is REJECTED `dialog-required` when a merge modal would block the exit (a live Re-Fly, or auto-merge off), so a lane answers those with `AnswerMergeDialog exit=mainMenu`. `AnswerMergeDialog exit=quitWithoutSaving|mainMenu` (Re-Fly conclusion only) leaves through stock's no-save exit or the main menu instead of the default saving exit to the Space Center. hlib mirrors both (`ExitToMainMenuSourceSyncTests`, `AnswerMergeExitSourceSyncTests`); xUnit `TestCommandExitToMainMenuTests` and `TestCommandMergeAnswerTests`. Contract: `design-autotest-command-seam.md`.
+
+Lanes (all never flown; rows under "Committed, not yet green" in `autotest-status.md`):
+- item 1: `RFQ-1-refly-quit-without-saving-keeps-dialog` and `RFQ-2-refly-quit-to-main-menu-merge` (nightly, QL-16's host `gloops-airshow` + `rewind-b9`); `QTM-1-quit-to-main-menu-commits-flight` (nightly, `eva2-lko-crewed`): the verb's own subject, a live tree committed without the dialog under auto-merge.
+- item 2: `RFN-1-refly-nested-separation-merge-f9` (cases a and c) and `RFN-2-refly-nested-separation-discard` (case b), operator, `cs-career-mun4` with the new single-consumer craft `CS Flea Twin Probe` (`harness/tools/build_cs_flea_twin_probe_craft.py`, drift gate `test_cs_flea_twin_probe_craft`; the CS Flea Probe builder's `layout()` gained azimuth / uid / stage arguments, its output byte-identical).
+- item 3: `RFK-1-ksc-purchases-before-refly-merge` / `RFK-2-ksc-purchases-before-refly-discard`, operator, `cs-career-mun4`: runway upgrade, annex demolish and repair, a dismissal, then a Re-Fly from before them; LedgerGroundTruth pinned whole at `total=3 passed=3 failed=0 skipped=0`, the split every RW lane on this host reads. Part purchase is not covered: `cs-career-mun4` bypasses entry purchases, and the five entry-purchase hosts (`career-pad-craft-hard`, `career-pad-craft-purchase`, `career-science-pad-hard`, `stock-screen-census`, `-repair`) carry only one-command-part craft (Jumping Flea, Settings Probe), so none authors a rewind point; it needs a new host (an entry-purchase career with the CS Flea Probe's parts bought).
+- item 4: `FORGE-refly-midsession` (operator) stamps `refly-midsession-saved` (harvest recipe in its header); forged and harvested 2026-11-23 (run `2026-11-23_2058`, PASS attempt 1, 16 sidecar files, rp_b9_root quicksave kept); `RFP-1-refly-resumed-in-new-process` is nightly over it.
+
+Flown 2026-11-23 (runner runs `b4-first` / `b4-refly1`): FORGE-refly-midsession `_2058`, RFQ-1 `_2107`, RFQ-2 `_2107`,
+QTM-1 `_2108` and RFN-2 `_2124` green on the first flight. RFP-1 (`_2109`, then `_2201` green) and RFN-1 (`_2121`, then
+`_2208` green) reded on a forbidden `Marker valid=False` / `Marker loaded: none` that every load outside the session
+logs by design; both are rescoped to the load under test. RFK-1 (`_2126`, then `_2211` green) and RFK-2 (`_2132`, then
+`_2214` green) were INVALID twice on the check launch (G's vessels stand on the pad); it launches from the runway now.
+Owed: the ordinary tier calls.
+## TEST-GAPS-BATCH4-CAREER: test-gap list batch 4, career and logistics: CPR-1, IR-6T and SSC-1 authored, two in-game cells added [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN 2026-11-23, ALL FIVE GREEN; branch `b4-career`; in-game cells only (no production C# change); OPEN: only the options named below]
+
+From the 2026-11-18 test-gap list, five career / logistics gaps. None was covered on main (grep of
+`harness/scenarios`, the in-game tests and the open PRs on 2026-11-23).
+
+1. A contract parameter's own reward across a rewind (RW-17's header held it to the unit tests).
+   Lane `CPR-1-contract-parameter-paid-once-after-rewind` (operator, stock-tree, `cs-career-new`).
+   FIRSTLAUNCH `a5a1f217`'s one parameter pays 3200 funds / 1 science / 1 rep on its own, and stock
+   completes it at liftoff, so a Flea hop is enough (CS-4's REACHSPACE needs the MechJeb orbit
+   mission for the same walk). Two hops straddle a Rewind-to-Launch. Gates: G's parameter row
+   `effective=true`, F's `effective=false (already credited), rewards zeroed`, RW-17's contract
+   pair, no take-back, LedgerGroundTruth `hardFailures=0`.
+2. Routes while warping in the Tracking Station (IR-6's owed half, roadmap IR-6 row). Lane
+   `IR-6T-route-warp-in-tracking-station` (operator, stock-minimal, `rover-route-recorded` with
+   `trackingStationIntroDone = true`). IR-6's arithmetic, every delivery and the high-warp collapse
+   in the Tracking Station, entered through a save reload before cycle-0.
+3. SEAL-SPLIT-CHAIN-LANE-OWED. Lane `SSC-1-sealed-split-chain-route-gate` (operator,
+   stock-minimal, `rover-route-recorded`): a decoupled CS Flea Probe pod hops, lands and is
+   exploded, so its open slot's recording is split at the landing by the commit's optimizer;
+   SealSlot (tree mode), the through-tip line and the create gate `sealed=True` (refused only as
+   ineligible: a Flea tree is no route).
+4. The facility "Rebuild lvl N" block and mark, never run live. In-game cell
+   `FacilityRebuildRefusedWithTheMenusReason` (StockUiOverlay, SPACECENTER, host H45, which is
+   re-pinned `total=13` with the split regexed). It reads the Rebuild decoration
+   (`ForFacilityMenuRebuild` / `DecideRebuild`) and clicks Rebuild through stock's private
+   `SpaceCenterBuilding.DowngradeFacility(true)` with the Harmony prefix installed, on a level-0
+   facility (where stock itself changes nothing), and asserts one blocked dialog with the
+   decoration's text and no level or funds change. Not covered: the greyed button on a really
+   shown Rebuild (it needs a destroyed facility above level 1 and Left Ctrl held when the menu
+   opens; a lane would need a destroyed-facility fixture and a seam key press).
+5. A stock rescue's completion. In-game cell `RescuedKerbalFlipBooksAKerbalRescueRow` (Ledger,
+   SPACECENTER, host H48, re-pinned `total=5` with the split regexed): the stock
+   `ProtoCrewMember.type` flip Unowned -> Crew on a fresh Unowned kerbal is captured as one
+   KerbalRescued event with its trait, converts into a KerbalRescue row, and the kerbals walk keeps
+   the kerbal. Reading the walk found REWOUND-RESCUE-KERBAL-NEVER-JOINS-ROSTER (below), filed
+   without a red test. Later option (L): a full rescue rendezvous lane (accept a RecoverAsset
+   rescue, fly to the stranded pod, EVA transfer, recover, then rewind and cross the row).
+
+Flown 2026-11-23 (runner runs `b4-first` / `b4-refly1` / `b4-refly2`): IR-6T `_2109`, H45 `_2124` (13 / 0) and H48
+`_2125` (5 / 0) green on the first flight, both batches pinned whole. CPR-1 `_2138` red on the count alone (4 rows,
+each hop split at its landing; pinned 4), `_2218` PASS. SSC-1 see SEAL-SPLIT-CHAIN-LANE-OWED.
+
+## REWOUND-RESCUE-KERBAL-NEVER-JOINS-ROSTER: after a rewind past a committed rescue, the rescued kerbal never becomes crew when the clock reaches the rescue [FILED 2026-11-23 by code reading (test-gap list batch 4, branch `b4-career`); no red test, no flight; medium (a kerbal the committed timeline rescued stays Unowned, stranded or unlisted, for good)]
+
+What the design says: "Rescued kerbals exist from the recovery UT of the recording that rescued
+them" (parsek-game-actions-and-resources-recorder-design.md, the kerbals section).
+
+What the code does (main 0003b8107). A completed rescue flips the stranded kerbal from Unowned to
+Crew (`ProtoCrewMember.type`), `GameStateRecorder.OnKerbalTypeChange` books KerbalRescued, and
+the commit converter makes a KerbalRescue row. In the kerbals walk that row only adds the name to
+`ledgerCreatedKerbals` (`KerbalsModule.ProcessAction`), a deletion guard. Nothing acts when the
+clock reaches it: `KerbalsModule.PromoteReachedCommittedHires` promotes reached KerbalHire rows
+(Applicant -> Crew), and no counterpart exists for KerbalRescue. So after a Rewind-to-Launch (or
+any load) to before the rescue, the loaded save holds the kerbal as Unowned (aboard the stranded
+vessel when the accept is before the load, or not at all), and when the clock passes the committed
+rescue's recovery he stays that way: he never appears on the crew list.
+
+Second gap seen on the way, also unproven: KerbalRescued is never forwarded to the ledger directly
+(no `ShouldForwardDirectLedgerEvent` call in `OnKerbalTypeChange`), so a rescue flipped while no
+recorder claims the event (filed untagged, e.g. a recovery from the Tracking Station) reaches no
+ledger row at all.
+
+Fix (not narrow, owner questions first): promote a reached KerbalRescue row's kerbal to Crew the
+way reached hires are promoted, and decide what happens to the stranded copy (the Unowned kerbal
+aboard the regenerated stranded vessel, todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): remove
+him from that vessel, or keep the vessel and treat it as the committed flight's ghost target. A
+lane would be the full rescue rendezvous noted in TEST-GAPS-BATCH4-CAREER item 5.
+
 ## TEST-GAPS-BATCH3-FLIGHTS-2026-11-21: the batch 3 re-flights, every owed lane green, 14 report-only save blocks armed [FILED 2026-11-21, branch `test-gaps-batch3`; one seam fix (C#, automation-only `PartAction`); OPEN: nothing; the operator / nightly promotion calls of the new lanes are the ordinary ones]
 
 Flown: runner runs `b3-flights-4` / `b3-flights-5` / `b3-flights-6` on V's PC, 3 slots. `b3-flights-4`: 19 lanes on the Debug automation DLL sha256 prefix 4dd8a0d9 built from 87ce236fb; `b3-flights-5`: 12 lanes on prefix b5179f97 (the `rotoron` torque fix below); `b3-flights-6`: 3 lanes on prefix b5d5ae14 (plus `rotorbrake`). Every install carried one hash per run, verified by size, sha256 and markers in both encodings (`ServoMirroredPose`, `RescueAcceptDeferrals`, `PatchCrossedBuildingRows`, `Rotor spin applied in playback`, `Flight clock reached a committed ledger row`, `Rewind point file deleted on revert`, later `partaction rotor torque raised: button=`, `rotorbrake`).
@@ -1147,7 +1693,7 @@ Known divergence, accepted: a part whose bottom-node neighbour leaves by a joint
 - Logs: `Burn kind change: ... Before -> After (Kind) cut|<reason>` (once per state), `Split candidate (OrbitInsertionBurnEnd|CaptureBurnEnd|CaptureToAtmosphereBurnEnd|InjectionBurnEnd|DepartureBurnStart|DeorbitBurnStart|DirectDescentBurnStart)`, the split summary's `rules=v3 burns= burnsUnjudged= burnKindKept= burnShortRowKept= transferWholeKept=`, `Split rules: stamped version 3`.
 - Accepted: a cut needs on-rails elements (or an atmosphere / ground boundary, an SOI change, the terminal orbit) next to the burn, so a flight flown with no time warp around a burn keeps that burn inside its row. A correction with no elements after it whose orbit before it does not yet reach the target (a second departure burn after a phasing orbit) is taken as the departure. The row label (`HoldsInterplanetaryTransfer`, read at the cut) sees the piece alone, so a row whose transfer is held only by evidence in another chain piece is labelled `orbit` rather than `transfer`; the cut decisions read the whole line, and the different label can at most keep two such rows from merging (an extra row, never a re-cut). A stock-named body in a planet pack whose live registry cannot be read falls back to stock values.
 
-**Lanes:** flown lanes commit version 3, fixture-hosted recordings keep their stored version. Lanes whose spec pins split candidates / split counts and that fly a new flight, to re-pin from their first version-3 flight: B4 (deorbit row before the reentry), B7, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20, B21, B22, B33, B36 (its new flight), GS-8, L5, QL-2, QL-4b, RF-13H, RF-9, V3C (circularization / orbit rows at Kerbin; Mun / Minmus transfer, orbit and descent rows on B11-B14; interplanetary transfers stay one row). RE-PINNED 2026-11-23 from their first version-3 flights on main 08445c153 (branch `lane-repins-1023`): B5 11 and B6 11 (circularization + orbit rows; both missing from this list), B7 10 (circularization row, departure kept whole); and the same day (branch `lane-repins2-1023`) PWR-1 / PWR-2 / PWR-3 9 (circularization row, the orbit coast its own row; `2026-11-23_1322` / `_1323` / `_1321`, `committed=7->9`; all three missing from this list); GS-8 flew and took no version-3 cut (`2026-11-23_0840`, a suborbital flight, count 10 unchanged). Fixture-hosted, unchanged unless a lane commits new flights: RF-13R, V12, W1. The 29 lanes test-gaps batch 3 adds or edits (PR #2735, flown on builds without version 3) were checked against their last green flight logs (2026-11-21): no recording flown in any of them has a physics-frame `ExoPropulsive` section (zero `TrackSection started: env=ExoPropulsive`), so version 3 builds an empty burn map and cuts, roles and merges stay as flown; none pins a split token; no re-flight owed for version 3.
+**Lanes:** flown lanes commit version 3, fixture-hosted recordings keep their stored version. Lanes whose spec pins split candidates / split counts and that fly a new flight, to re-pin from their first version-3 flight: B4 (deorbit row before the reentry), B7, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20, B21, B22, B33, B36 (its new flight), GS-8, L5, QL-2, QL-4b, RF-13H, RF-9, V3C (circularization / orbit rows at Kerbin; Mun / Minmus transfer, orbit and descent rows on B11-B14; interplanetary transfers stay one row). RE-PINNED 2026-11-23 from their first version-3 flights on main 08445c153 (branch `lane-repins-1023`): B5 11 and B6 11 (circularization + orbit rows; both missing from this list), B7 10 (circularization row, departure kept whole); and the same day (branch `lane-repins2-1023`) PWR-1 / PWR-2 / PWR-3 9 (circularization row, the orbit coast its own row; `2026-11-23_1322` / `_1323` / `_1321`, `committed=7->9`; all three missing from this list); GS-8 flew and took no version-3 cut (`2026-11-23_0840`, a suborbital flight, count 10 unchanged). RE-PINNED 2026-11-24 from their first version-3 flights (branch `lane-repins3-1124`; all six missing from this list): CS-5 16 and KSS-1 13 (circularization + orbit rows), CS-6 25 (those plus the Mun orbit and return transfer rows), CS-6c 37 (circularization + orbit + the Mun orbit row; its Mun capture has no rails time after it and is not cut), B34 3 and B35 3 (Jool orbit / transfer / moon orbit); runs `2026-11-24_0033`, `_0029`, `_0113`, `2026-11-23_2349`, `2026-11-24_0304`, `_0313`. Flown on version 3 with their pins unchanged: CS-4 7 (`2026-11-24_0137`, no rails time between its burns, both unjudged; missing from this list too), CS-7 52 (`2026-11-23_2306`, window 49-55; missing too), B33 3 (`2026-11-24_0246`, window 1-3). Fixture-hosted, unchanged unless a lane commits new flights: RF-13R, V12, W1. The 29 lanes test-gaps batch 3 adds or edits (PR #2735, flown on builds without version 3) were checked against their last green flight logs (2026-11-21): no recording flown in any of them has a physics-frame `ExoPropulsive` section (zero `TrackSection started: env=ExoPropulsive`), so version 3 builds an empty burn map and cuts, roles and merges stay as flown; none pins a split token; no re-flight owed for version 3.
 
 **Tests:** `OptimizerBurnCutsTests` (every case of the table, staging gaps, the Mun transfer ellipse, the mid-course correction, the powered flyby, starting / ending mid-burn, the terminal orbit, the short-row and interplanetary guards, EVA / debris, the version-1 / version-2 pins, the merge refusals and the floor-exit join; each shape run twice through the real pass; 21 of them red with the burn check disabled; review follow-up: a correction with no elements after it, a no-warp departure, a low-periapsis arrival with and without a correction, the guard across chain pieces and the approach-band exit, the five red before the fix; re-review: a departing piece that starts on the pad reads its line, a low Mun assist through its approach band is no touchdown), `OptimizerBurnCutsPhase0Tests` (red with the interplanetary guard disabled; plus the low-periapsis arrival shapes), `OptimizerRepeatPassSweepTests.EveryFixtureSave_SecondPassChangesNothing_VersionThree`. Ghost replay across the cuts: GHOST-REPLAY-ACROSS-V3-CUTS-LANE below.
 
@@ -2855,7 +3401,7 @@ Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id besi
 Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
 Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
 
-## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; lane SWC-2 LIVE-PROVEN 2026-11-23 (PRESWITCH-CASE-C-LANES-2026-11-23), flight owed; medium (the vessel gets a second history and its own mission stops)]
 
 What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
 stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
@@ -2991,7 +3537,7 @@ cycle in flight). Design table row added (supply-routes design section 1.3). Owe
 raises the confirm mid-cycle (`UiAction raise popup=deleteroute` after a pickup window) and
 reads `cargoInTransit=True`.
 
-## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
+## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit; lane WDK-1 AUTHORED 2026-11-23 (WATCH-ACROSS-DOCK-LANE-2026-11-23), flight owed; low (camera choice, the player can pick the ship again)]
 
 At the dock itself watch was right in every shape and is unchanged: the merged vessel is the
 only child, so it is followed whether the merge kept the watched ship's pid (same-pid rule) or
@@ -3648,7 +4194,7 @@ green reading run: pin the batch split whole, leave `INTERIM_PIN_IDS`, tighten t
 
 Flown 2026-11-20 (`2026-11-20_2310_SOI-3-bg-probe-mun-exit-on-rails`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(results) attempt 1. The crossing recorded as designed (one seam at UT 1317.090; two of the three cells passed), but the continuity cell measured a 9.1 km gap: filed as BG-SOI-SEAM-WORLD-GAP (top of this file), settled 2026-11-21 as the cell comparing two instants 1 s apart in the Sun-anchored world frame (the probe's 9127.7 m/s heliocentric speed); the cell now evaluates both sides at the seam UT within 1 km. Owed: the re-flight.
 
-## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only, no lane yet; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
+## ~~SEAL-SPLIT-CHAIN-LANE-OWED~~: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only; LANE AUTHORED 2026-11-23, `SSC-1-sealed-split-chain-route-gate` (TEST-GAPS-BATCH4-CAREER), LIVE-PROVEN 2026-11-23 (`2026-11-23_2229`); DONE; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
 
 The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane
 that seals in tree mode or creates a route flew green on it, but none of them reached the shape it
@@ -3664,6 +4210,17 @@ kept open as an Unfinished Flight, then sealed (`SealSlot` in tree mode), then m
 rate-limited Verbose line, so confirm the lane's verbose setting before pinning it), and the
 create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
 flight (`harness/README.md` -> "Authoring a fast lane").
+
+Flown 2026-11-23: `_2110` red (FirstLaunch and two record rows of the sandbox hop sealed the pod's slot,
+`recordingAction:MilestoneAchievement`, design section 2.12: a counted row seals even at zero value), so an
+unrecorded Jumping Flea hop now reaches them first; `_2201` / `_2204` INVALID on a practice hop that left a
+stand behind (fixed), `_2229` PASS attempt 1 with the through-tip line and `sealed=True`.
+
+Authored 2026-11-23: `SSC-1-sealed-split-chain-route-gate` on `rover-route-recorded`, IR-3's CS
+Flea Probe pad decouple (a Rewind Point), RW-11's hop, a 30 s landed dwell and the pod exploded:
+the slot commits open and the landing is a SurfaceInvolved split (the air run is over 120 s). The
+create is expected REJECTED as `candidate-ineligible`, with the gate line pinned at `sealed=True`;
+verbose logging is on for the through-tip line.
 
 ## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 read green on their first flights 2026-11-17 (runs `2026-11-17_2320` / `_2322`, runner run `spawn-flight-2026-11-18`), the fix's live proof]
 
@@ -6244,8 +6801,9 @@ Side question (sidecar flush -> SourceChanged): the mechanism is real and by des
 reads as `SourceChanged/sidecar-epoch-drift` and never auto-recovers. The specific case named
 above cannot fire in practice: `FindSplitCandidatesForOptimizer`'s
 `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` dirties a recording only on
-an actual mutation, Ensure is idempotent (pinned by `EnsurePassIntegrityTests
-.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
+an actual mutation (true only since 2026-11-24, CHECKPOINT-BRIDGE-COVERED-IS-NOT-A-CHANGE: until
+then a checkpoint wider than its section dirtied on every pass), Ensure is idempotent (pinned by
+`EnsurePassIntegrityTests.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
 its own commit before a route can name it, and the route captures the pending advance of that
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
@@ -11632,8 +12190,8 @@ Open items, highest leverage first:
   magnitude, and `ComputeScaledRcsEmissionRate`/`...Speed` had ZERO production call
   sites. **Fix:** both `Set*Emission` choke points now scale the plume as a RATIO of a
   baseline captured once at build time (`GhostVisualBuilder.CaptureFxMagnitudeBaselines`,
-  run AFTER the #383 size boost and the world-space velocity floor so scaling composes
-  with them rather than overwriting them), written into the cloned `KSPParticleEmitter`'s
+  run AFTER the #383 size boost so scaling composes
+  with it rather than overwriting it), written into the cloned `KSPParticleEmitter`'s
   own persistent fields plus the `ParticleSystem` multipliers. Persistent fields, not a
   per-event computation, because `RestoreAllRcsEmissions` re-enables emitters WITHOUT
   going through `SetRcsEmission` — a per-event scale would restore a full-magnitude plume
@@ -11641,14 +12199,9 @@ Open items, highest leverage first:
   are the ratio's numerator and denominator, which gives them production callers with
   their showcase visibility floors intact. Degradation is one-directional: an unreadable
   baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
-  untouched (it already consumed the magnitude; touching it would double-apply). Review
-  follow-up: the one baseline the ratio cannot scale freely is a WORLD-SPACE emitter's
-  `localVelocity`, because that baseline may BE the minimum-flow floor
-  (`ApplyWorldSpaceEmitterVelocityFloor`, 6 m/s) rather than a magnitude — a 0.2 ratio would
-  write 1.2 m/s, back under the 4 m/s pooling threshold the floor exists to clear.
-  `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
-  above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
-  on ReStock's world-space SRB smoke at genuine partial throttle.
+  untouched (it already consumed the magnitude; touching it would double-apply). The special case
+  for world-space emitters (a 6 m/s minimum flow held through a throttle ratio) was removed
+  2026-11-24: the flow is now a standing ghost's only (GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
   **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
   until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
   midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to

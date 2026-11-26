@@ -21,7 +21,8 @@ namespace Parsek.TestCommands
     /// <para>The watched set is deliberately small. It names only the verbs whose wait
     /// is about that same kerbal and that never end, switch away from or destroy the
     /// active vessel on their own success path. Excluded on purpose: EvaChuteDeploy (owns
-    /// a debounced <c>eva-chute-kerbal-lost</c> terminal already), EvaBoard (boarding
+    /// a debounced <c>eva-chute-kerbal-lost</c> terminal already), EvaMove (owns its
+    /// <c>evamove-kerbal-lost</c> terminal), EvaBoard (boarding
     /// removes the EVA vessel by design), EvaExit (switches focus to the new kerbal),
     /// Recover / ExitToSpaceCenter / LoadGame / InvokeRewind (leave or reload the scene),
     /// and WarpToUT (its OK is about the clock, and what the warp did to the vessel is

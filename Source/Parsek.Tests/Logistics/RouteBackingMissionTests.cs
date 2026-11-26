@@ -928,6 +928,72 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(700.0, spanStartUT);
         }
 
+        // A predicted fall added to a leg whose recorded part ends at recordedEnd: the shape a dropped
+        // stage has once Parsek stops watching it (owner ruling 2026-11-24: drawn, not timed).
+        private static Recording FallingLeg(
+            string id, string chainId, double start, double recordedEnd, double tailEnd)
+        {
+            Recording rec = Leg(id, chainId, 0, start, recordedEnd, vessel: "Stage");
+            rec.Points.Add(new TrajectoryPoint { ut = start, bodyName = "Mun" });
+            rec.Points.Add(new TrajectoryPoint { ut = recordedEnd, bodyName = "Mun" });
+            rec.OrbitSegments.Add(new OrbitSegment
+                { startUT = recordedEnd, endUT = tailEnd, isPredicted = true, bodyName = "Mun" });
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.TerminalPredicted = true;
+            rec.ExplicitEndUT = tailEnd;
+            return rec;
+        }
+
+        // catches: a stage dropped before the origin undock being kept (and dragging the span start
+        // to its drop) only because its predicted fall outlives the undock.
+        [Theory]
+        [InlineData(2200.0)]
+        [InlineData(460080000.0)]
+        public void TryComputeSelectionSpan_PreOriginStageFallOutlivesUndock_SpanUnchanged(double tailEnd)
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            tree.Recordings["stage"] = FallingLeg("stage", "C3", 700, 900, tailEnd);
+            tree.BranchPoints.Add(BP("stage-bp", BranchPointType.JointBreak,
+                new[] { "root" }, new[] { "stage" }, ut: 700));
+
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+            Assert.Contains("stage", excluded);
+            Assert.True(RouteBackingMission.TryComputeSelectionSpan(
+                tree, excluded, out double spanStartUT, out double spanEndUT));
+            Assert.Equal(ShuttleOriginUndockUT, spanStartUT);
+            Assert.Equal(ShuttleDockBUT, spanEndUT);
+        }
+
+        // catches: a stage dropped in transit stretching the route span by its predicted fall.
+        [Fact]
+        public void TryComputeSelectionSpan_TransitStageFallPastTheDock_SpanEndsAtTheDock()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            tree.Recordings["stage"] = FallingLeg("stage", "C3", 1700, 1800, 90000);
+            tree.BranchPoints.Add(BP("stage-bp", BranchPointType.JointBreak,
+                new[] { "transit" }, new[] { "stage" }, ut: 1700));
+
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+            Assert.DoesNotContain("stage", excluded);
+            Assert.True(RouteBackingMission.TryComputeSelectionSpan(
+                tree, excluded, out double spanStartUT, out double spanEndUT));
+            Assert.Equal(ShuttleOriginUndockUT, spanStartUT);
+            Assert.Equal(ShuttleDockBUT, spanEndUT);
+        }
+
+        // catches the mirror: a stage RECORDED past the dock still counts, as before.
+        [Fact]
+        public void TryComputeSelectionSpan_TransitStageRecordedPastTheDock_StillCounts()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            tree.Recordings["stage"] = FallingLeg("stage", "C3", 1700, 4000, 90000);
+            tree.BranchPoints.Add(BP("stage-bp", BranchPointType.JointBreak,
+                new[] { "transit" }, new[] { "stage" }, ut: 1700));
+            Assert.True(RouteBackingMission.TryComputeSelectionSpan(
+                tree, ShuttleCreationExclusions(tree), out _, out double spanEndUT));
+            Assert.Equal(4000, spanEndUT);
+        }
+
         [Fact]
         public void TryComputeSelectionSpan_NullTreeOrAllExcluded_False()
         {

@@ -12,6 +12,27 @@ tier = "operator"
 # ground truth `passed=3 skipped=0`, `facetsCompared=10`, strategy facet `managed=[Appreciation
 # CampaignCfg,BailoutGrant] ... diverged=0`; recordings 1. Pinned whole off that flight.
 #
+# RE-PINNED 2026-11-24, NOT RE-FLOWN, off `2026-11-24_0536` (its only three mismatches; the ground
+# truth, every other token and every other verifier green). Since todo
+# FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS (2026-11-21) the flight ledger cursor recalculates at the
+# row's UT, in the same frame and ahead of `StrategyActivationGate`, so the crossing switches
+# Appreciation on through `PatchStrategies` and the gate finds nothing off. (The gate still does it
+# when a live tree defers the patch: STR-2.) The meaning is unchanged and was proved on that run:
+#   free      Both paths call `Strategy.Load` with the committed date and factor, which only
+#             registers the effects; stock charges the setup cost in `Activate()` alone
+#             (decompiled 1.12.5). PatchAll runs it under the resource and replay suppression. The
+#             funds pool read 445321.326171875 before each crossing and 445321.326171875 at each warp
+#             exit, `leak=0 adjustment=0`; no StockPoolAdjustment, no Strategy ledger row and no
+#             Strategy event after the rewind; the save holds date 200.507 and factor 0.05. The
+#             reputation step 0 -> -143.78 is the grant's own committed row (the cursor applies it at
+#             its UT; before, the warp exit did).
+#   once      `matching=1` at both warp exits and after the reload, `activated=0` after the rewind and
+#             after the F9, one `activated=1` per crossing window.
+#   on time   Nothing at 200.22 / 200.15 and 200.42, before the activation's 200.507 (the walk stops
+#             at its cutoff; a later row is `futureDated`).
+# Bail-Out stays off: `left one-shot exchanger strategy=BailoutGrant off` when a step lands between
+# its two rows, and any patch line naming another id than Appreciation is forbidden.
+#
 # THE HOST. `career-pad-craft` (L8's host: funds 500000, science 100, rep 0, the Jumping Flea
 # on the pad at UT 9.06, pid 2905720181, Administration level 0 = one strategy slot) plus the
 # shared `Settings Probe` (pid 1100000001 on launch).
@@ -33,13 +54,13 @@ tier = "operator"
 #              future-dated, Bail-Out is a one-shot that is never switched back on
 #              (`StrategyStatePatcher.IsOneShotExchanger`).
 #   crossing 1 VAB launch of the probe, F5 (quicksave at ~46), warp in flight to 300. The
-#              clock crosses ~200: the activation gate (`StrategyActivationGate`) switches
-#              Appreciation on in stock without cost or capture. It must NOT touch Bail-Out:
+#              clock crosses ~200: the flight ledger cursor's recalculation (`PatchStrategies`)
+#              switches Appreciation on in stock without cost or capture. It must NOT touch Bail-Out:
 #              switching an exchanger on in stock runs its OnRegister, which pays the grant a
 #              second time.
 #   F9         quickload back to ~46. Stock's strategy list is the quicksave's (both off);
 #              nothing may switch Appreciation on before its UT.
-#   crossing 2 warp in flight to 300 again: the gate fires a second time, Bail-Out again
+#   crossing 2 warp in flight to 300 again: the same, a second time, Bail-Out again
 #              untouched.
 #   check      save, then a cold load of that save (a scene change: in flight no clock
 #              cursor patches funds, so the exchange's funds leg reaches KSP's pool at the
@@ -49,10 +70,11 @@ tier = "operator"
 #
 # THE GATES:
 #   - both activations applied before the rewind; the grant paid exactly once there;
-#   - the gate line for Appreciation in BOTH crossing windows, none for Bail-Out anywhere;
-#   - after the rewind: no StrategyOutput funds change at all (stock paying the grant again)
-#     and no `PatchStrategies: activated=N` (a load switching a strategy on early or
-#     re-registering the exchanger);
+#   - Appreciation switched on once in EACH crossing window, at its UT, the funds pool equal before
+#     the crossing and at the warp exit with no leak; no one-shot switched on anywhere;
+#   - after the rewind: no StrategyOutput funds change at all (stock paying the grant again), no
+#     adjustment row, no Strategy row captured, and no `PatchStrategies: activated=N` outside the
+#     two windows or below UT 200 (a load or a walk switching a strategy on early);
 #   - LedgerGroundTruth `hardFailures=0` and the strategy facet comparing Appreciation active
 #     on both sides with no divergence.
 #
@@ -68,7 +90,7 @@ tier = "operator"
 #     runs after `Parent.Deactivate()` and is report-only (Unity exceptions are not armed).
 #   - `PatchStrategies: activated=1` after the F9: the quickload switched Appreciation on
 #     before its UT; read `futureDated=` on the same line, then file it.
-#   - the gate line missing in window 2 but `matching=1` on the F9 patch: stock kept the
+#   - the patch line missing in window 2 but `matching=1` on the F9 patch: stock kept the
 #     strategy on across the quickload; read `PatchStrategies: stock strategy list loaded`.
 #   - `CompareStrategies: ... ledgerActive=[AppreciationCampaignCfg,BailoutGrant]`: stock's
 #     delayed self-deactivation of the exchanger was not captured as a StrategyDeactivate row,
@@ -82,7 +104,7 @@ tier = "operator"
 # (3)-(5) no dwells, burns or coasts; (6) retry `once`; (7) count pinned {1,1} (flight A
 # only; the probe is unrecorded); (8) operator until green,
 # about 8 min expected; (9) flight_efficiency.py after the first green flight.
-description = "STR-1 (strategies x Rewind-to-Launch x F9): on career-pad-craft record and recover the Flea, activate Bail-Out Grant (a one-shot paid at once) and then Appreciation Campaign, rewind to the launch, and cross the activations in flight twice around an F9; the gate switches Appreciation on at its UT both times, never re-pays the grant, and LedgerGroundTruth after a cold load finds the pools and the strategy list exact."
+description = "STR-1 (strategies x Rewind-to-Launch x F9): on career-pad-craft record and recover the Flea, activate Bail-Out Grant (a one-shot paid at once) and then Appreciation Campaign, rewind to the launch, and cross the activations in flight twice around an F9; the crossing switches Appreciation on at its UT both times without cost, never re-pays the grant, and LedgerGroundTruth after a cold load finds the pools and the strategy list exact."
 instanceProfile = "stock-minimal"
 tags = ["STR-1", "strategy", "career", "ledger", "ledger-groundtruth", "rewind", "quickload",
         "editor", "recovery", "timeline-ops", "reading-run"]
@@ -165,9 +187,10 @@ required = [
   "kscaction action=activate-strategy target=AppreciationCampaignCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 setupFunds=70750 setupSci=0 setupRep=0 fundsDelta=-70750 ",
   # --- the rewind ---
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
-  # --- the gate switches Appreciation on in each crossing window ---
-  "(?s)MISSIONMARK label=str1-cross1 (?:(?!MISSIONMARK label=str1-f9 ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
-  "(?s)MISSIONMARK label=str1-cross2 (?:(?!MISSIONMARK label=str1-reload ).)*?Committed strategy activation reached: strategy=AppreciationCampaignCfg activateUT=[0-9.]+ factor=[0-9.]+ nowUT=[0-9.]+ \\(switched on without cost or capture\\)",
+  # --- the crossing switches Appreciation on in each window, and the funds pool is the same
+  # number before it, at the crossing and at the warp exit (backreference; no leak, no adjustment) ---
+  "(?s)MISSIONMARK label=str1-cross1 (?:(?!MISSIONMARK label=str1-f9 ).)*?PatchFunds: clock-crossing applies the reached rows: live=([0-9.]+) lastPatched=\\1 (?:(?!MISSIONMARK label=str1-f9 ).)*?PatchStrategies: activated=1 deactivated=0 [^\\r\\n]* activatedIds=\\[AppreciationCampaignCfg\\] deactivatedIds=\\[\\] failed=0 nowUT=20[0-9][\\r\\n](?:(?!MISSIONMARK label=str1-f9 ).)*?PatchFunds: pool=Funds mode=measured lastWritten=\\1 expected=\\1 live=\\1 stepped=0\\(0\\) [^\\r\\n]* leak=0 adjustment=0 ",
+  "(?s)MISSIONMARK label=str1-cross2 (?:(?!MISSIONMARK label=str1-reload ).)*?PatchFunds: clock-crossing applies the reached rows: live=([0-9.]+) lastPatched=\\1 (?:(?!MISSIONMARK label=str1-reload ).)*?PatchStrategies: activated=1 deactivated=0 [^\\r\\n]* activatedIds=\\[AppreciationCampaignCfg\\] deactivatedIds=\\[\\] failed=0 nowUT=20[0-9][\\r\\n](?:(?!MISSIONMARK label=str1-reload ).)*?PatchFunds: pool=Funds mode=measured lastWritten=\\1 expected=\\1 live=\\1 stepped=0\\(0\\) [^\\r\\n]* leak=0 adjustment=0 ",
   # --- the check ---
   "(?s)MISSIONMARK label=str1-check .*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=LedgerGroundTruth scene=FLIGHT",
   "(?s)MISSIONMARK label=str1-check .*?result: hardFailures=0 ",
@@ -183,9 +206,18 @@ forbidden = [
   # The one-shot exchanger is never switched back on, by the gate or by a load.
   "Committed strategy activation reached: strategy=BailoutGrant",
   "Committed strategy activation reached but stock left",
-  # After the rewind nothing pays the grant again, and no load switches a strategy on early.
+  # After the rewind nothing pays the grant again, nothing is charged or captured, and no load or
+  # early walk switches a strategy on: once per crossing window, at its UT, Appreciation only.
   "(?s)MISSIONMARK label=str1-rewind .*?(?:Game state: FundsChanged \\+[0-9]+ \\(StrategyOutput\\)|Suppressed FundsChanged event \\(StrategyOutput\\))",
-  "(?s)MISSIONMARK label=str1-rewind .*?PatchStrategies: activated=[1-9]",
+  "(?s)MISSIONMARK label=str1-rewind .*?filed StockPoolAdjustment",
+  "(?s)MISSIONMARK label=str1-rewind .*?(?:Added action: type=Strategy|Emit: Strategy)",
+  "(?s)MISSIONMARK label=str1-rewind .*?PatchStrategies: activated=[1-9][^\\r\\n]* activatedIds=\\[(?!AppreciationCampaignCfg\\])",
+  "(?s)MISSIONMARK label=str1-rewind .*?PatchStrategies: activated=[1-9][^\\r\\n]*nowUT=(?:[0-9]{1,2}|1[0-9]{2})[\\r\\n]",
+  "(?s)MISSIONMARK label=str1-rewind (?:(?!MISSIONMARK label=str1-cross1 ).)*?PatchStrategies: activated=[1-9]",
+  "(?s)MISSIONMARK label=str1-f9 (?:(?!MISSIONMARK label=str1-cross2 ).)*?PatchStrategies: activated=[1-9]",
+  "(?s)MISSIONMARK label=str1-reload .*?PatchStrategies: activated=[1-9]",
+  "(?s)MISSIONMARK label=str1-cross1 (?:(?!MISSIONMARK label=str1-f9 ).)*?PatchStrategies: activated=[1-9](?:(?!MISSIONMARK label=str1-f9 ).)*?PatchStrategies: activated=[1-9]",
+  "(?s)MISSIONMARK label=str1-cross2 (?:(?!MISSIONMARK label=str1-reload ).)*?PatchStrategies: activated=[1-9](?:(?!MISSIONMARK label=str1-reload ).)*?PatchStrategies: activated=[1-9]",
 ]
 
 [runtime]

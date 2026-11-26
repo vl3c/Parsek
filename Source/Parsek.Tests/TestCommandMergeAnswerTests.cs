@@ -262,5 +262,69 @@ namespace Parsek.Tests
             Assert.False(TestCommandMergeAnswer.IsMergeRefusalReason("no-live-dialog"));
             Assert.False(TestCommandMergeAnswer.IsMergeRefusalReason(null));
         }
+
+        // ----- exit= (which stock exit drives the Re-Fly conclusion) -----
+
+        [Fact]
+        public void ParseExit_AbsentIsTheSavingSpaceCenterExit()
+        {
+            Assert.Null(TestCommandMergeAnswer.ParseExit(null, out ReFlyConclusionExit exit));
+            Assert.Equal(ReFlyConclusionExit.SpaceCenter, exit);
+            Assert.Equal(GameScenes.SPACECENTER, TestCommandMergeAnswer.ExitDestination(exit));
+            Assert.True(TestCommandMergeAnswer.ExitSavesFirst(exit));
+        }
+
+        [Fact]
+        public void ParseExit_QuitWithoutSaving_GoesToTheSpaceCenterWithoutASave()
+        {
+            Assert.Null(TestCommandMergeAnswer.ParseExit("quitWithoutSaving", out ReFlyConclusionExit exit));
+            Assert.Equal(ReFlyConclusionExit.QuitWithoutSaving, exit);
+            Assert.Equal(GameScenes.SPACECENTER, TestCommandMergeAnswer.ExitDestination(exit));
+            Assert.False(TestCommandMergeAnswer.ExitSavesFirst(exit));
+            Assert.Equal("quitWithoutSaving", TestCommandMergeAnswer.ExitToken(exit));
+        }
+
+        [Fact]
+        public void ParseExit_MainMenu_GoesToTheMainMenuAfterASave()
+        {
+            Assert.Null(TestCommandMergeAnswer.ParseExit("mainMenu", out ReFlyConclusionExit exit));
+            Assert.Equal(ReFlyConclusionExit.MainMenu, exit);
+            Assert.Equal(GameScenes.MAINMENU, TestCommandMergeAnswer.ExitDestination(exit));
+            Assert.True(TestCommandMergeAnswer.ExitSavesFirst(exit));
+            Assert.Equal("mainMenu", TestCommandMergeAnswer.ExitToken(exit));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("mainmenu")]
+        [InlineData("spaceCenter")]
+        [InlineData("true")]
+        public void ParseExit_AnyOtherValue_IsRefused(string raw)
+        {
+            Assert.Equal(TestCommandMergeAnswer.ExitArgInvalidReason,
+                TestCommandMergeAnswer.ParseExit(raw, out ReFlyConclusionExit exit));
+            Assert.Equal(ReFlyConclusionExit.SpaceCenter, exit);
+        }
+
+        [Fact]
+        public void Completion_MainMenuCountsAsASettledExit()
+        {
+            Assert.Equal(AnswerCompletionDecision.CompleteOk,
+                TestCommandMergeAnswer.DecideAnswerCompletion(1.0, true, TestCommandScene.MainMenu, Budget));
+        }
+
+        [Fact]
+        public void ReFlyKeepsItsDialogOnBothExits()
+        {
+            // The premise the two exit values rely on: neither stock exit concludes a live
+            // Re-Fly by itself, so the dialog is up for the verb to answer.
+            Assert.False(NoSaveSceneExit.ShouldFollowTheSave(GameScenes.SPACECENTER,
+                noSaveExit: true, rewinding: false, reFlyActive: true, mergeJournalActive: false));
+            Assert.False(SceneExitInterceptor.ShouldCommitMainMenuExitWithoutDialog(GameScenes.MAINMENU,
+                SceneExitInterceptor.DialogVariant.ReFlyAttempt, isAutoMerge: true, mergeJournalActive: false));
+            Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt,
+                SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(GameScenes.MAINMENU,
+                    hasActiveTree: true, reFlyActive: true, isAutoMerge: true));
+        }
     }
 }

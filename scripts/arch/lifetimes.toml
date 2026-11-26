@@ -484,6 +484,11 @@ reason = "the ghost orbit arc-clip Harmony patch"
 drawnArcTapArmed = "scoped: armed by the DumpMapGeometry seam verb for one capture, disarmed in its finally and on timeout (ParsekTestCommandAddon.SetMapGeometryTapsArmed)"
 drawnArcClips = "scoped: filled only while the arc tap is armed; SetDrawnArcTapArmed(false) clears it"
 
+[[type]]
+name = "Parsek.TestCommands.EvaMoveInputPatch"
+default = "scoped"
+reason = "the EvaMove seam verb's input drive (automation only, Prepare-gated): armed by one EvaMove step's applier, disarmed by its completion, its reset and the addon's two-phase clear"
+
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its
 # write sites (the writes listed in the reason are every production write).
@@ -623,6 +628,14 @@ name = "Parsek.GhostRenderTrace"
 reason = "flight render tracing"
 [type.fields]
 ExpectedAttitudeSource = "scene: ParsekFlight.Start sets it and ParsekFlight.OnDestroy clears it"
+
+[[type]]
+name = "Parsek.GhostWorldSpaceEmitter"
+reason = "ghost smoke that follows the floating origin"
+[type.fields]
+plainSystemsDrift = "process: cached answer whether KSPCommunityFixes patches FloatingOrigin.setOffset; patches do not change after the game loaded"
+registered = "scene: the enabled emitters of the scene's ghosts; OnEnable adds, OnDisable (deactivation, destruction, scene unload) removes"
+totalShift = "process: running sum of origin shifts, read only as a difference of two of its values; it never needs a reset"
 
 [[type]]
 name = "Parsek.Patches.PhysicsFramePatch"

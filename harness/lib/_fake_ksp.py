@@ -416,6 +416,9 @@ def main(argv=None):
             elif verdict == "OK" and cmd == "ExitToSpaceCenter":
                 landing_scene = "SPACECENTER"
                 payload = " scene=SPACECENTER"
+            elif verdict == "OK" and cmd == "ExitToMainMenu":
+                landing_scene = "MAINMENU"
+                payload = " scene=MAINMENU persisted=true"
             elif verdict == "OK" and cmd == "InvokeRewind":
                 # ECHO the args back. This is what makes the R10 round trip PROVABLE
                 # end to end without a real game: the response carries the very id the

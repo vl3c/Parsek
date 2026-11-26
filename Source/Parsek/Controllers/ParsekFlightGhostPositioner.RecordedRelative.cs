@@ -185,6 +185,7 @@ namespace Parsek
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         frames[0],
+                        targetUT,
                         target,
                         recordingFormatVersion,
                         allowActivation,
@@ -231,6 +232,7 @@ namespace Parsek
                 if (TryPositionGhostRecordedRelativeAt(
                         ghost,
                         before,
+                        targetUT,
                         target,
                         recordingFormatVersion,
                         allowActivation,
@@ -466,9 +468,18 @@ namespace Parsek
                 5.0);
         }
 
+        /// <summary>
+        /// Positions a ghost at one RELATIVE sample, holding its anchor-local offset beside the
+        /// pose the anchor has at <paramref name="playbackUT"/>. The sample covers playback UTs
+        /// other than its own (a one-sample section, two samples at one UT, a UT before the first
+        /// frame), and the anchor keeps moving there: resolving it at the UT of the sample leaves
+        /// the ghost behind at the speed of the anchor. An anchor with no pose at
+        /// <paramref name="playbackUT"/> fails, and the caller hides the ghost.
+        /// </summary>
         private bool TryPositionGhostRecordedRelativeAt(
             GameObject ghost,
             TrajectoryPoint point,
+            double playbackUT,
             RelativeSectionPlaybackTarget target,
             int recordingFormatVersion,
             bool allowActivation,
@@ -479,7 +490,7 @@ namespace Parsek
             failure = default;
             if (!TryResolveRecordedRelativeAnchorPose(
                     target,
-                    point.ut,
+                    playbackUT,
                     out ParsekFlight.RelativeAnchorPose anchorPose,
                     out failure))
             {
@@ -508,8 +519,8 @@ namespace Parsek
             GhostRenderTrace.EmitRelativeResolver(
                 target.RecordingId,
                 -1,
-                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut,
-                point.ut,
+                Planetarium.fetch != null ? Planetarium.GetUniversalTime() : playbackUT,
+                playbackUT,
                 "recorded-relative-single",
                 "resolved",
                 0u,
@@ -520,14 +531,14 @@ namespace Parsek
                 anchorRotation: anchorPose.worldRotation,
                 localOffset: new Vector3d(dx, dy, dz),
                 outputPosition: ghostPos);
-            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : point.ut;
+            double traceCurrentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : playbackUT;
             if (GhostRenderTrace.ShouldEmitPhase(target.RecordingId, traceCurrentUT))
             {
                 GhostRenderTrace.EmitPhase(
                     target.RecordingId,
                     -1,
                     traceCurrentUT,
-                    point.ut,
+                    playbackUT,
                     "UpdatePath",
                     "mode=RecordedRelativeSingle sectionIndex=" + target.SectionIndex.ToString(CultureInfo.InvariantCulture)
                     + " anchorRec=" + (target.AnchorRecordingId ?? "<none>")
@@ -536,6 +547,13 @@ namespace Parsek
                     + " final=" + GhostRenderTrace.FormatVector3d(ghostPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
+
+            double heldSeconds = playbackUT - point.ut;
+            if (ParsekLog.IsVerboseEnabled && IsHeldRelativeSample(heldSeconds))
+                ParsekLog.VerboseRateLimited("Playback",
+                    "recorded-relative-held|" + (target.RecordingId ?? "(none)"),
+                    FormatHeldRelativeSample(target, playbackUT, heldSeconds, dx, dy, dz),
+                    5.0);
 
             CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, bodyName);
             altitude = body != null ? body.GetAltitude(ghostPos) : 0.0;
@@ -555,9 +573,37 @@ namespace Parsek
                 anchorSectionIndex = target.SectionIndex,
                 relativeAnchorRecordingId = target.AnchorRecordingId,
                 relativeLoopLiveAnchor = false,
-                pointUT = point.ut,
+                pointUT = playbackUT,
             });
             return true;
+        }
+
+        // More than one physics step, so an ordinary single-sample frame is not reported.
+        private const double HeldRelativeSampleLogSeconds = 0.05;
+
+        /// <summary>True when a RELATIVE sample is drawn at a playback UT other than its own.</summary>
+        internal static bool IsHeldRelativeSample(double heldSeconds)
+        {
+            return !double.IsNaN(heldSeconds) && Math.Abs(heldSeconds) > HeldRelativeSampleLogSeconds;
+        }
+
+        internal static string FormatHeldRelativeSample(
+            RelativeSectionPlaybackTarget target,
+            double playbackUT,
+            double heldSeconds,
+            double dx,
+            double dy,
+            double dz)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "RELATIVE sample held beside its anchor: recordingId={0} sectionIndex={1} " +
+                "anchorRec={2} playbackUT={3:F2} heldSeconds={4:F2} offset=({5:F2},{6:F2},{7:F2})",
+                ShortRecordingId(target.RecordingId),
+                target.SectionIndex,
+                ShortRecordingId(target.AnchorRecordingId),
+                playbackUT,
+                heldSeconds,
+                dx, dy, dz);
         }
 
         private bool TryUseRelativeBodyFixedPrimaryFallback(

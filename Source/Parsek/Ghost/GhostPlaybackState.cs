@@ -28,6 +28,11 @@ namespace Parsek
         public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
+        // A loop fall copy's own clock: the live UT at which recorded UT 0 would play for its cycle
+        // under the schedule that drove it last. A cycle number means nothing once the player edits
+        // the loop, so a copy whose clock moved is ended instead of being read on the new schedule.
+        // NaN on every other ghost. Never persisted.
+        public double fallClockOffsetUT = double.NaN;
         // True once this state's MeshSpawned trace line was written. An overlap copy writes its
         // MeshDestroyed line only when this is set, so a boundary-overlap secondary or a primary
         // demoted before its build finished (neither ever wrote MeshSpawned) cannot unbalance the

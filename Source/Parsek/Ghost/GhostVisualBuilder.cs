@@ -619,7 +619,8 @@ namespace Parsek
         /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
         /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
         /// Host (the Part). KEPT ALIVE — stripping kills smoke trails. Any NREs are non-fatal.
-        /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        /// FXPrefab (stock's FloatingOrigin registration) is stripped: GhostWorldSpaceEmitter moves
+        /// every world-space system of the clone when the floating origin shifts.
         ///
         /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
         /// MonoBehaviours) requiring Part/Vessel context. They are reimplemented via HeatGhostInfo
@@ -629,23 +630,16 @@ namespace Parsek
         /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
         /// design principle.
         /// </summary>
-        // ReStock's SRB smoke models (restock-fx-srb-smoke-1/2/3) are world-space
-        // TRAIL assets: live, the plume column comes from the EMITTER (the flying
-        // vessel) moving away from emitted particles; the baked particle velocity is
-        // near zero (smoke-3 is exactly zero; in modern KSP both damping and
-        // emitterVelocityScale are dead fields, and the cfg speed curve maxes at 1.0,
-        // so live full-power velocity equals the baked value). A stationary ghost
-        // (static showcase fixture, hover) never moves, so every particle pools at
-        // the nozzle point. Give such emitters a minimum exhaust-ward flow so the
-        // smoke flows instead of gathering. Provably a no-op on non-ReStock installs:
-        // a 2026-06-12 scan of every Squad/SquadExpansion/ReStock/ReStockPlus .mu
-        // found ZERO stock world-space emitters; only ReStock's three srb-smoke
-        // models (and drill FX outside the engine FX path) are world-space.
-        // Accepted deviation for MOVING ghosts: the smoke column drifts a few m/s
-        // exhaust-ward on top of the motion-painted trail, visually minor next to
-        // vessel speed and physically plausible for exhaust flow.
+        // ReStock's SRB smoke models (restock-fx-srb-smoke-1/2/3) are world-space TRAIL assets
+        // with a baked velocity of 0 to 1 m/s: the column comes from the vessel flying away from
+        // it. A real booster that burns standing still gathers its smoke in a ball at the nozzle
+        // (1.0 m mean, measured), and a standing showcase ghost would too. Owner ruling 2026-11-24:
+        // the showcase keeps its flowing look, so a standing ghost's smoke leaves at
+        // WorldSpaceEmitterFloorSpeed, and a moving one's is not touched
+        // (GhostWorldSpaceEmitter.StandingFlow counts the ghost's own speed). Do not remove it, and
+        // do not let it reach a launched flight, without asking.
         internal const float WorldSpaceEmitterSlowSpeedThreshold = 4f;
-        internal const float WorldSpaceEmitterFloorSpeed = 6f;
+        internal const float WorldSpaceEmitterFloorSpeed = GhostWorldSpaceEmitter.StandingFlowSpeed;
 
         // #383: Ghost engine flames render undersized vs live stock because Parsek's FX
         // pipeline never applies stock's per-frame FXGroup.SetPower runPower multiplier
@@ -1925,10 +1919,12 @@ namespace Parsek
         /// </summary>
         internal const float EvaJetpackPlumeEmissionRate = 45f;
 
-        /// <summary>
-        /// Builds a ghost GameObject for a planted flag from the flag part prefab.
-        /// Returns the ghost (initially inactive). Applies flag texture to the mesh_flag quad.
-        /// </summary>
+        /// <summary>Pure: the vessel name a replayed flag is planted under.</summary>
+        internal static string FlagVesselNameOf(FlagEvent evt)
+        {
+            return !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+        }
+
         /// <summary>
         /// Spawns a real KSP flag vessel at the recorded position via ProtoVessel.
         /// Returns the flag vessel's root GameObject, or null on failure.
@@ -1965,7 +1961,7 @@ namespace Parsek
                 Orbit orbit = new Orbit(0, 0, body.Radius + evt.altitude, 0, 0, 0, 0, body);
                 ConfigNode[] partNodes = new ConfigNode[] { partNode };
 
-                string vesselName = !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+                string vesselName = FlagVesselNameOf(evt);
                 ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
                     vesselName, VesselType.Flag, orbit, 0, partNodes);
 

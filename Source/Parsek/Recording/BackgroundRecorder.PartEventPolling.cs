@@ -203,9 +203,9 @@ namespace Parsek
         /// ragdoll is a real, visible case (a rover runs him over while you fly something else), and
         /// his jetpack pose persists across the span.
         ///
-        /// THRUST is absent, and that is parity rather than a gap: JetpackIsThrusting is recomputed
-        /// from fuel flow driven by player INPUT, and a background kerbal receives none - so the
-        /// edge can never fire and a wrapper for it would be dead code.
+        /// THRUST is absent: JetpackIsThrusting is recomputed from fuel flow driven by player
+        /// INPUT. A non-active kerbal receives none, and for the active one the post-switch watch
+        /// still waits on, thrust is what promotes it to the active recorder, which polls the edge.
         /// </summary>
         private void CheckEvaState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)

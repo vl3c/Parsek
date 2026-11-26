@@ -205,6 +205,7 @@ namespace Parsek.TestCommands
 
         // ----- R12 (scene routing) -----
         void ExitToSpaceCenter(ParsedCommand cmd);
+        void ExitToMainMenu(ParsedCommand cmd);
 
         // ----- R12 (stock switch click; the promoted reserved verb) -----
         void SimulateStockSwitchClick(ParsedCommand cmd);
@@ -319,6 +320,9 @@ namespace Parsek.TestCommands
         // ----- PickUpFlag (the active EVA kerbal takes down the nearest real flag through
         // stock's own FlagSite.PickUp) -----
         void PickUpFlag(ParsedCommand cmd);
+        // ----- EvaMove (the active EVA kerbal driven by jetpack or on foot with the player's
+        // own movement input for a set number of game seconds) -----
+        void EvaMove(ParsedCommand cmd);
         // ----- The map-geometry pair: DumpMapGeometry (the geometry the map drew in one
         // frame, written as <label>.map.json) and MapCamera (the map camera framed by
         // value) -----
@@ -571,6 +575,9 @@ namespace Parsek.TestCommands
                 // (StartRecording / InvokeRewind / TimeJump / the EVA family). The verb's
                 // REAL refusals - the wedge guard - are executor-side and typed REJECTED.
                 ["ExitToSpaceCenter"] = VerbSceneRequirement.RequiresFlight,
+                // The flight Esc-menu Quit to Main Menu: FLIGHT is its precondition for
+                // ExitToSpaceCenter's reasons (a defer on a scene still settling in).
+                ["ExitToMainMenu"] = VerbSceneRequirement.RequiresFlight,
                 // R12. SimulateStockSwitchClick's scene depends on its site=: the map-view
                 // "Switch To" click exists only in FLIGHT (the map is a FLIGHT overlay), the
                 // Tracking Station Fly only in TRACKSTATION, the KSC marker Fly only at the
@@ -773,6 +780,9 @@ namespace Parsek.TestCommands
                 // lets the preceding EvaExit's auto-switch settle. Default budget (stock's
                 // pick-up kills the flag vessel inside the call).
                 ["PickUpFlag"] = VerbSceneRequirement.RequiresFlight,
+                // EvaMove: the EVA family row. RequiresFlight with the not-eva defer below;
+                // its own budget (the held input plus the stow presses and the settle).
+                ["EvaMove"] = VerbSceneRequirement.RequiresFlight,
                 // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); the
                 // executor refuses FLIGHT with the map closed (map-view-closed). Default
                 // budget: the dump waits one frame for its end-of-frame capture, and the
@@ -1004,6 +1014,7 @@ namespace Parsek.TestCommands
                     break;
 
                 case "ExitToSpaceCenter":
+                case "ExitToMainMenu":
                     // A scene exit mid-load would race the boot channel's own scene change,
                     // and a re-fly merge journal mid-finalize must not be raced by a driven
                     // transition (both mirror InvokeRewind's guards verbatim). NOTE the
@@ -1168,7 +1179,8 @@ namespace Parsek.TestCommands
                 case "EvaChuteDeploy":
                 case "EvaGroundScience":
                 case "PickUpFlag":
-                    // All five act on the EVA kerbal, so defer while the preceding EvaExit's
+                case "EvaMove":
+                    // All six act on the EVA kerbal, so defer while the preceding EvaExit's
                     // auto-switch is still settling (the active vessel is not yet the EVA one).
                     if (!state.ActiveVesselIsEva)
                         return DispatchResult.Defer("not-eva");
@@ -1272,6 +1284,12 @@ namespace Parsek.TestCommands
         /// the scenario's EVA window is specified LOW rather than at apoapsis.</summary>
         internal const double EvaChuteDeploySeconds = 420.0;
 
+        /// <summary>EvaMove: not-eva defer + the held input (at most 30 game seconds, at 1x)
+        /// + up to three stow presses 30 polls apart + the settle. 90 s
+        /// (<see cref="TestCommandEvaMove.BudgetSeconds"/>), unmeasured: the verb has not
+        /// flown yet.</summary>
+        internal const double EvaMoveSeconds = TestCommandEvaMove.BudgetSeconds;
+
         /// <summary>EvaGroundScience (coverage wave 10): not-eva defer + the place gate
         /// (kerbal landed and standing) + the preview build + the confirm presses and
         /// face-away re-turns + the ground vessel load, or the pick-up's retract animation +
@@ -1299,6 +1317,11 @@ namespace Parsek.TestCommands
         /// settle (120 s) rather than like LoadGame (300 s), which additionally parses a
         /// cold save off disk.</summary>
         internal const double ExitToSpaceCenterSeconds = 120.0;
+
+        /// <summary>ExitToMainMenu: the pre-exit save, the main-menu branch's commit and
+        /// second save, the FLIGHT teardown and the main-menu bootstrap. A scene exit that
+        /// re-reads no save: the ExitToSpaceCenter size (120 s).</summary>
+        internal const double ExitToMainMenuSeconds = 120.0;
 
         /// <summary>StartLoopPlayback (player-workflow lane): the forward jump itself
         /// is an instantaneous <c>Planetarium.SetUniversalTime</c> set, exactly like
@@ -1424,10 +1447,14 @@ namespace Parsek.TestCommands
                     return EvaBoardSeconds;
                 case "EvaChuteDeploy":
                     return EvaChuteDeploySeconds;
+                case "EvaMove":
+                    return EvaMoveSeconds;
                 case "EvaGroundScience":
                     return EvaGroundScienceSeconds;
                 case "ExitToSpaceCenter":
                     return ExitToSpaceCenterSeconds;
+                case "ExitToMainMenu":
+                    return ExitToMainMenuSeconds;
                 case "StartLoopPlayback":
                     return StartLoopPlaybackSeconds;
                 case "WarpToUT":

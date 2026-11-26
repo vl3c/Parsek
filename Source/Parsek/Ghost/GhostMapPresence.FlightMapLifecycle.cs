@@ -117,7 +117,8 @@ namespace Parsek
                 return null;
 
             StateVectorWorldFrame resolution =
-                ResolveStateVectorWorldPosition(traj, point, body, allowOrbitalCheckpointStateVector: true);
+                ResolveStateVectorWorldPosition(
+                    traj, point, body, effUT, allowOrbitalCheckpointStateVector: true);
             if (!resolution.Resolved)
                 return null;
 

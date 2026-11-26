@@ -1,0 +1,22 @@
+version = 0
+recordingSchemaGeneration = 4
+timelineBreak = 0 21.159999999999638 ReFlyStart
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 21.159999999999638
+	type = 11
+	actionId = act_b78db646eb154fbd93135cdb998db5d3
+	recordingId = b9-stack-root
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 21.16
+	endUT = 81.16
+	endState = 3
+	xpGained = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+}

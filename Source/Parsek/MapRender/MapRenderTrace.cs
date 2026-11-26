@@ -971,8 +971,10 @@ namespace Parsek
             // after suppression lifts re-propagates the proto to its live phase,
             // a position delta the user never saw (the icon was invisible the
             // whole clamped interval). Mirrors justReset / bodyChanged: a
-            // suppressed-to-visible edge is not a teleport. Defaults false so
-            // every existing call site is byte-identical.
+            // suppressed-to-visible edge is not a teleport, so the DELTA says
+            // nothing on the lift frame. Where the icon then SITS does: a lift
+            // the drive did not place is judged by IsUndrivenLiftMisplaced.
+            // Defaults false so every existing call site is byte-identical.
             if (suppressionLifted)
                 return false;
 
@@ -1002,6 +1004,38 @@ namespace Parsek
                 IconJumpFloorMeters,
                 expected * ExpectedMotionMultiplier);
             return dPos > threshold;
+        }
+
+        /// <summary>
+        /// Pure: is the proto icon shown in the wrong place on the frame its suppression lifts
+        /// (<paramref name="suppressionLifted"/>)? The per-frame delta cannot say
+        /// (<see cref="IsIconJump"/> skips the lift frame), so this compares where the icon SITS with
+        /// where the Director's fresh StockConic seed puts it (<paramref name="misplacedMeters"/>, the
+        /// distance between the two), under the same threshold as a jump.
+        ///
+        /// <para>A lift the icon-drive placed on this very frame (<paramref name="drivenThisFrame"/>) is
+        /// the normal one and never raises. A lift with no seed to compare against
+        /// (<paramref name="hasReference"/> false: stock places those ghosts, hidden or shown) never
+        /// raises either.</para>
+        /// </summary>
+        internal static bool IsUndrivenLiftMisplaced(
+            bool suppressionLifted,
+            bool drivenThisFrame,
+            bool hasReference,
+            bool justReset,
+            double misplacedMeters,
+            double expectedMotionMeters)
+        {
+            if (!suppressionLifted || drivenThisFrame || !hasReference || justReset)
+                return false;
+            if (double.IsNaN(misplacedMeters) || double.IsInfinity(misplacedMeters))
+                return false;
+            double expected = double.IsNaN(expectedMotionMeters)
+                    || double.IsInfinity(expectedMotionMeters)
+                ? 0.0
+                : Math.Max(0.0, expectedMotionMeters);
+            return misplacedMeters > Math.Max(
+                IconJumpFloorMeters, expected * ExpectedMotionMultiplier);
         }
 
         /// <summary>

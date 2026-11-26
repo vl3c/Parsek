@@ -105,6 +105,7 @@ namespace Parsek
             memberEndUT = unit.MemberEndUT(recordingIndex, memberEndUT);
 
             double span = unit.SpanEndUT - unit.SpanStartUT;
+            bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
 
             // Self-overlap: the mission relaunches every OverlapCadenceSeconds, so watch must pin the
             // NEWEST instance of this member (the primary ghost UpdateOverlapPlayback keeps pointed at
@@ -112,20 +113,29 @@ namespace Parsek
             // per-recording overlap math the engine renders the member with: scheduleStartUT =
             // PhaseAnchorUT + (memberStart - spanStart), playbackStartUT = memberStart, duration =
             // memberEnd - memberStart, intervalSeconds = the mission overlap cadence. See
-            // UpdateUnitMemberPlayback for the matching render-side reduction.
-            if (span > 0 && unit.OverlapCadenceSeconds < span)
+            // UpdateUnitMemberPlayback for the matching render-side reduction. A member whose fall is
+            // drawn as one copy per launch takes the same reduction on the unit's launch cadence.
+            if (span > 0 && (unit.OverlapCadenceSeconds < span
+                    || GhostPlaybackLogic.MemberFallUsesOverlapSchedule(unit, memberEndUT)))
             {
                 double memberScheduleStartUT = unit.PhaseAnchorUT + (memberStartUT - unit.SpanStartUT);
                 double memberDuration = memberEndUT - memberStartUT;
                 if (memberDuration > 0
                     && GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
                         currentUT,
-                        unit.OverlapCadenceSeconds,
+                        unit.OverlapCadenceSeconds < span
+                            ? unit.OverlapCadenceSeconds
+                            : GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit),
                         memberDuration,
                         memberStartUT,
                         memberScheduleStartUT,
                         out double overlapMemberUT,
-                        out _))
+                        out long newestCycle,
+                        memberHasFall)
+                    // A fall's newest copy that has ended is not drawn until the next launch.
+                    && !(memberHasFall && GhostPlaybackLogic.HasOverlapCopyEnded(
+                        currentUT, newestCycle, memberScheduleStartUT,
+                        GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit), memberDuration)))
                 {
                     loopUT = overlapMemberUT;
                     return true;
@@ -148,8 +158,8 @@ namespace Parsek
                     unit.SpanEndUT,
                     unit.CadenceSeconds,
                     out double spanLoopUT,
-                    out _,
-                    out _,
+                    out long unitCycle,
+                    out bool inInterCycleTail,
                     unit.RelaunchSchedule,
                     unit.LoiterCuts,
                     unit.ArrivalHoldSeconds,
@@ -166,6 +176,13 @@ namespace Parsek
             }
 
             loopUT = spanLoopUT;
+            if (memberHasFall && inInterCycleTail)
+            {
+                var decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail;
+                GhostPlaybackLogic.TryExtendRenderIntoFall(
+                    unit, recordingIndex, currentUT, memberStartUT, memberEndUT, unitCycle,
+                    ref decision, ref loopUT);
+            }
             return true;
         }
 
@@ -221,6 +238,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: $"unit member anchor {traj.LoopAnchorVesselId} unloaded");
                     DestroyAllOverlapGhosts(i);
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
                 return;
             }
@@ -283,6 +301,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: "unit span clock unresolved");
                     DestroyAllOverlapGhosts(i);
                 }
+                DropUndrivenFallCopies(i, traj, f, ctx);
                 CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
@@ -298,6 +317,28 @@ namespace Parsek
             // recorded time, and a seam is a recorded-time fact.
             if (!isInInterCycleTail)
                 TryEmitSeamMarker(i, traj, f, unit, spanLoopUT, unitCycle);
+
+            // (2c) A member whose predicted fall outlasts the recorded span: one copy per launch on the
+            // unit's cadence (uniform units), or the fall of each cycle beside the span-clock primary.
+            bool keepFallCopies = false;
+            if (GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT))
+            {
+                if (GhostPlaybackLogic.UnitHasUniformCycles(unit))
+                {
+                    UpdateUnitMemberFallSchedule(
+                        i, traj, f, ctx, unit, unitKey, memberStartUT, memberEndUT,
+                        suppressGhosts, suppressVisualFx, ref state, ref ghostActive);
+                    return;
+                }
+                keepFallCopies = UpdateNonUniformFall(
+                    i, traj, f, ctx, unit, unitCycle, memberStartUT, memberEndUT,
+                    suppressGhosts, suppressVisualFx, ref decision, ref spanLoopUT, ref state, ref ghostActive);
+            }
+            else
+            {
+                // An edit can end the fall's outlasting of the span under its copies.
+                DropUndrivenFallCopies(i, traj, f, ctx);
+            }
 
             // DESCENT TRIGGER (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the FLIGHT
             // engine must render a descent-set member EXACTLY like the map/TS resolver
@@ -420,9 +461,9 @@ namespace Parsek
                     ctx.warpRate, traj, spanLoopUT))
             {
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-warp-hidden");
-                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                 }
                 DestroyAllOverlapGhosts(i);
@@ -441,7 +482,7 @@ namespace Parsek
             // overlapGhosts[i] this frame, do NOT tear it down (it would thrash every frame across the borrow
             // window); UpdateBoundaryOverlapSecondary below owns that storage. The secondary path NEVER calls
             // UpdateOverlapPlayback / the expiry block, so it never confuses the self-overlap machinery.
-            if (!boundarySecondaryLive && overlapGhosts.ContainsKey(i))
+            if (!boundarySecondaryLive && !keepFallCopies && overlapGhosts.ContainsKey(i))
             {
                 DestroyAllOverlapGhosts(i);
                 overlapGhosts.Remove(i);
@@ -513,7 +554,7 @@ namespace Parsek
                     i, traj, f, syncCtx, suppressGhosts, suppressVisualFx,
                     boundarySecondaryLoopUT, boundarySecondaryCycle);
             }
-            else if (overlapGhosts.ContainsKey(i))
+            else if (!keepFallCopies && overlapGhosts.ContainsKey(i))
             {
                 // No live secondary this frame but a stale boundary-overlap ghost lingers (e.g. the borrow window
                 // just ended, or warp suppression hid the primary above and returned early on a prior frame): tear
@@ -540,6 +581,10 @@ namespace Parsek
             // ghost. UpdateOverlapPlayback would demote it as an overlap copy of a cycle the
             // loop schedule never has (-1) and replay it beside the new cycle-0 primary, so it
             // is retired here. (The span-clock branch retires it at its cycle-change rebuild.)
+            bool memberHasFall = GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT);
+            bool endAtOwnEnd = memberHasFall || GhostPlaybackLogic.EndsInPredictedTail(traj, memberEndUT);
+            if (memberHasFall)
+                TryKeepFirstRunFall(i, traj, ctx, unit.PhaseAnchorUT, ref state, ref ghostActive);
             if (ShouldRetireOrdinaryStateAtUnitHandover(state))
             {
                 ParsekLog.Info("Engine",
@@ -578,15 +623,19 @@ namespace Parsek
                 if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
                         ctx.currentUT, unit.OverlapCadenceSeconds, memberDuration,
                         memberPlaybackStartUT, memberScheduleStartUT,
-                        out double newestOverlapUT, out _)
+                        out double newestOverlapUT, out _, memberHasFall)
                     || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                         ctx.warpRate, traj, newestOverlapUT))
                 {
                     GhostRenderTrace.EmitGuardSkip(
                         traj, i, ctx.currentUT, "unit-overlap-warp-hidden");
-                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                    if (endAtOwnEnd)
+                        DropEndedFallAtWarp(
+                            i, traj, f, ctx, unit.OverlapCadenceSeconds, memberDuration,
+                            memberScheduleStartUT, memberHasFall, ref state, ref ghostActive);
+                    if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                     {
-                        state.ghost.SetActive(false);
+                        DeactivateGhostMesh(state);
                         ResetGhostAppearanceTracking(state);
                     }
                     DestroyAllOverlapGhosts(i);
@@ -658,7 +707,8 @@ namespace Parsek
                 i, traj, f, ctx, state,
                 unit.OverlapCadenceSeconds, memberDuration,
                 memberPlaybackStartUT, memberScheduleStartUT,
-                suppressVisualFx, suppressOverlapGhosts);
+                suppressVisualFx, suppressOverlapGhosts,
+                keepCadence: memberHasFall, endAtOwnEnd: endAtOwnEnd);
         }
 
         /// <summary>
@@ -864,9 +914,9 @@ namespace Parsek
             // takes the unchanged teardown below.
             if (boundarySecondaryLive)
             {
-                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                 }
                 UpdateBoundaryOverlapSecondary(
@@ -883,9 +933,9 @@ namespace Parsek
             // IsGhostHeld case (hide, do not destroy).
             if (ghostActive && i == ctx.protectedIndex)
             {
-                if (state != null && state.ghost != null && state.ghost.activeSelf)
+                if (state != null && state.ghost != null && IsGhostMeshActive(state))
                 {
-                    state.ghost.SetActive(false);
+                    DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                     ParsekLog.VerboseRateLimited(
                         "CameraFollow", unitKey + "-keep-owner-alive-" + i.ToString(CultureInfo.InvariantCulture),
@@ -954,9 +1004,9 @@ namespace Parsek
                 // existing in-game watch-retarget test; behavior for non-watched members is unchanged.
                 if (ghostActive && i == ctx.protectedIndex)
                 {
-                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    if (state != null && state.ghost != null && IsGhostMeshActive(state))
                     {
-                        state.ghost.SetActive(false);
+                        DeactivateGhostMesh(state);
                         ResetGhostAppearanceTracking(state);
                         ParsekLog.VerboseRateLimited(
                             "CameraFollow", unitKey + "-keep-owner-alive-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
@@ -1258,7 +1308,7 @@ namespace Parsek
         /// (inter-cycle wait / before span). Records the new state so siblings later in the same
         /// frame see no change.
         /// </summary>
-        private void LogUnitTransitionIfChanged(
+        internal void LogUnitTransitionIfChanged(
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
@@ -1418,9 +1468,17 @@ namespace Parsek
             // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
             // the ending member so its terminal explosion hold applies and the post-hold retarget
             // restarts on the through-line root.
+            // A dock, boarding or undock is the one end where the vessel goes on under another
+            // launch guid, so "different vessel" is not "not where it went": there the host's
+            // branch answer decides, ahead of the guid tiers.
+            int branchMemberIdx = watchedWasRendering && !watchedIsRendering
+                ? ResolveWatchedBranchMember(unit, trajectories, spanLoopUT, isInInterCycleTail, watchedIndex)
+                : -1;
             int retargetMemberIdx = suppressWatchRetarget
                 ? -1
-                : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+                : branchMemberIdx >= 0
+                    ? branchMemberIdx
+                    : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
             if (suppressWatchRetarget && watchedIndex >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-instance-ended",
@@ -1450,7 +1508,8 @@ namespace Parsek
                     "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
                         + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
-                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + (branchMemberIdx >= 0 ? " via=branch" : " via=same-vessel"));
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
                     Index = retargetMemberIdx,
@@ -1478,6 +1537,29 @@ namespace Parsek
                 retargetFired, watchedIndex, retargetMemberIdx, watchedIsRendering);
 
             lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
+        }
+
+        /// <summary>
+        /// The unit member the watched member's vessel went to at a dock, boarding or undock
+        /// (<see cref="ResolveWatchedBranchContinuation"/>), or -1: no host, the watched index is
+        /// not this unit's, or the answer is not a member the unit clock is in.
+        /// </summary>
+        private int ResolveWatchedBranchMember(
+            GhostPlaybackLogic.LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
+            double spanLoopUT, bool isInInterCycleTail, int watchedIndex)
+        {
+            int[] members = unit.MemberIndices;
+            if (ResolveWatchedBranchContinuation == null || isInInterCycleTail || members == null
+                || watchedIndex < 0 || Array.IndexOf(members, watchedIndex) < 0)
+                return -1;
+
+            return ResolveWatchedBranchContinuation(watchedIndex, idx =>
+                idx >= 0 && idx < trajectories.Count && trajectories[idx] != null
+                && Array.IndexOf(members, idx) >= 0
+                && GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                    spanLoopUT,
+                    unit.MemberStartUT(idx, trajectories[idx].StartUT),
+                    unit.MemberEndUT(idx, trajectories[idx].EndUT)));
         }
     }
 }

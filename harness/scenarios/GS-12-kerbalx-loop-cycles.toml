@@ -14,8 +14,10 @@ id = "GS-12-kerbalx-loop-cycles"
 #
 # THE THREE STAGES ARE THE THREE BEHAVIOURS OF D6 `loop-period-modes` (registry
 # comment, redefined 2026-09-24), plus the cap:
-#   1. sec / 150 s  - period >= the ~109 s span: ONE copy at a time
-#                     (`MissionLoopUnit: ... overlaps=no`).
+#   1. sec / 150 s  - period >= the ~109 s RECORDED span: ONE launch copy at a time
+#                     (`MissionLoopUnit: ... overlaps=no`). The dropped core's ~192 s
+#                     predicted fall outlasts the period, so ITS copies overlap
+#                     (`fallOverlaps=yes`); see THE PREDICTED FALL below.
 #   2. auto         - `LoopTimeUnit.Auto`: the overlap cadence reads the GLOBAL
 #                     auto-loop interval (MissionLoopUnitBuilder step 6b), shorter than
 #                     the span, so copies overlap. Unreachable by seam before this
@@ -34,6 +36,21 @@ id = "GS-12-kerbalx-loop-cycles"
 #                     todo OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE.
 # Stages 2 and 3 run long enough past their arm UT (> the span) for the first copies
 # to finish their flights: ghostlife v2's `MeshDestroyed reason=overlap expired`.
+#
+# THE PREDICTED FALL (owner ruling 2026-11-24, "a dropped stage's predicted fall plays in
+# mission loops but does not count toward loop timing"; todo
+# LOOP-TIMING-READ-THE-PREDICTED-FALL). Since ABANDONED-STAGE-D1 the dropped core keeps its
+# predicted fall (recorded to ~140.4, Destroyed at ~332.4), and the loop timing read it:
+# run `2026-11-23_2013` red with span 109.86 -> 301.46, stage 1 cadence=305, stage 3 raised
+# to 20 s. The timing now reads the RECORDED span again (max over members of the last
+# non-predicted UT), so every number below is the 2026-11-15 one. WHAT `overlaps=` MEANS
+# (decided with the re-cut, unchanged by the fall): launch copies overlap launch copies, i.e.
+# overlapCadence < recorded span. A fall overlapping the next launch is a separate token,
+# `fallOverlaps=`, on the same line; stage 1 pins `overlaps=no` TOGETHER with
+# `fallMembers=1 fallOverlaps=yes`, so a timing that reads the fall (cadence=305), a fall
+# that is dropped (no token) and a launch overlap each red it. The engine half is
+# `Mission fall unit` and the core's own `Loop cadence ... requested=150.00s ... effective=
+# 150.00s (cycles=2) no adjustment`: the cadence is the launches', never raised.
 #
 # WHY THE LOOP IS ARMED AFTER THE FIRST RUN. It began as a workaround: with a mission
 # loop armed, a Rewind-to-Launch showed NO ghost for the whole first run (the engine
@@ -58,7 +75,10 @@ id = "GS-12-kerbalx-loop-cycles"
 # and its Re-Fly becomes enabled once the clock passes the RP UT; supersedeRows and
 # tombstones stay pinned at 0.
 #
-# STATUS (automation DLL sha256 2b7214fd, branch `gs12-loop`):
+# AWAITING A FLIGHT since the 2026-11-24 re-cut (branch `loop-timing-predicted-falls`):
+# the stage tokens, the fall tokens and `terminalStates` are derived from run
+# `2026-11-23_2013` and the last green run `2026-11-15_1332`, not yet flown together.
+# STATUS before it (automation DLL sha256 2b7214fd, branch `gs12-loop`):
 #   READING `2026-09-24_1911`: MISSION-OK (all 37 phases, 9/9 rows, every stage armed,
 #   watched and walked at 10x), PARSEK-FAIL(expectations) on exactly ONE interim token,
 #   the cap witness, which had assumed span/20 = 5.455 would come back verbatim. It
@@ -108,8 +128,11 @@ steps = [
 craftName        = "Kerbal X"
 launchSite       = "LaunchPad"
 watcherCraftName = "Jumping Flea"
-# Game seconds per stage: stage 1 covers two seams at a 150 s period; stages 2 and 3
-# run 200 s, past the ~109 s span, so copies launched at the arm UT finish.
+# Game seconds per stage: stage 1 covers two seams at a 150 s period and the whole fall of
+# the first copy's core (impact ~302 s after the arm); stages 2 and 3 run 200 s, past the
+# ~109 s span, so copies launched at the arm UT finish. The core's copies in stages 2 and 3
+# launch 88 s in and fall for 213 s, so none of them ends inside 200 s: no token waits on
+# one, and the copy cap (20 at 10 s = 200 s of copies) is not reached.
 loopStages = [
   { unit = "sec",  intervalSeconds = 150, watchSeconds = 330 },
   { unit = "auto",                        watchSeconds = 200 },
@@ -197,6 +220,8 @@ count = { min = 8, max = 8 }
 #   (100, 150): 150 (stage 1's own period), 30 (the global Auto interval, a multiple of
 #   P) and 10 (span/20 rounded up to P).
 #   "reason=overlap expired"       ghostlife v2 (tracing-gated).
+#   "Kerbal X Debris reason=(?!engine teardown)": the quit destroys every live copy, so an
+#   open reason is met by quitting (todo GHOST-ENDING-TOKENS-MET-BY-THE-QUIT).
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
              "Rewind-to-Launch initiated to UT",
@@ -206,10 +231,12 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris reason=(?!engine teardown)",
              "missionconfig seeded 1 default mission\\(s\\) before resolving tree=",
              "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=150 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=150 ",
-             "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=150 overlapCadence=150 overlaps=no",
+             "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=150 overlapCadence=150 overlaps=no [^\\r\\n]*fallMembers=1 fallOverlaps=yes",
+             "Mission fall unit owner=[0-9]+ member #[0-9]+ launchCadence=150\\.00 span=1[0-4][0-9]\\.[0-9]{2} memberDur=[0-9.]+ schedStart=",
+             "Loop cadence #[0-9]+ \"Kerbal X Probe\": requested=150\\.00s duration=[0-9.]+s cap=20 effective=150\\.00s \\(cycles=2\\) no adjustment",
              "missionconfig applied: [^\\r\\n]*loop=True [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=auto overlapCadenceSeconds=([0-9]+(?:\\.[0-9]+)?) autoLoopIntervalSeconds=\\1\\b",
              "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Auto cadence=[0-9]+ overlapCadence=30 overlaps=yes",
              "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=5 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=10 ",
@@ -219,7 +246,10 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired",
              "SetLoopEnabled: loop ON for 'Kerbal X' \\(tree=[0-9a-f]{32}\\); anchorUT=",
              "Watch UT resolved via Mission span clock: rec #0 rawUT=[0-9.]+ loopUT="]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+# The per-recording cap never raises a loop member's cadence (the fall's copies end quietly
+# past the cap instead).
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "Loop cadence #[0-9]+ \"Kerbal X[^\"]*\": [^\\r\\n]*auto-adjusted"]
 
 # ARMED off the reading run `2026-09-24_1911` (spawned 8, spawnLines 57 = destroyLines
 # 57, unbalanced 0; destroyedReasons included `overlap expired` x27 - 14 Kerbal X, 13
@@ -244,8 +274,10 @@ supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 # ARMED. EXACTLY ONE REAL VESSEL after the rewind (operator ruling), measured: the
-# Jumping Flea. Both Kerbal X terminals are SubOrbital, which the spawn gate refuses
-# (`Spawn suppressed: ... terminal state SubOrbital`), so nothing materializes at the
+# Jumping Flea. The stack ends SubOrbital, which the spawn gate refuses (`Spawn suppressed:
+# ... terminal state SubOrbital`), and the dropped core is Destroyed at its predicted impact
+# since ABANDONED-STAGE-D1 (`2026-11-23_2013` read SubOrbital 1, Destroyed 7; GS-8 / GS-9
+# were re-pinned for the same cause), so nothing materializes at the
 # first run's end, and neither loop risk the scoping named can arise here: no real
 # same-pid vessel exists to trigger the external-vessel skip
 # (`externalVesselSuppressed=0` on every engine frame line) and no suborbital pod is
@@ -257,7 +289,7 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8, max = 8 }
 spawnedVessels = { max = 0 }
 branchPoints   = { JointBreak = { min = 4 } }
-terminalStates = { SubOrbital = { min = 2, max = 2 }, Destroyed = { min = 4 } }
+terminalStates = { SubOrbital = { min = 1, max = 1 }, Destroyed = { min = 7, max = 7 } }
 vesselNames    = { "Jumping Flea" = { min = 1, max = 1 }, "Kerbal X" = { max = 0 }, "Kerbal X Probe" = { max = 0 } }
 
 # GS-4's ceilings (the same subject and teardown; `_1911` read total 0, parsekFrames 0).
