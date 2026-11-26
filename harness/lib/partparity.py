@@ -349,8 +349,14 @@ def is_setup_fault(status: Optional[str]) -> bool:
 FX_FAMILIES: Tuple[str, ...] = ("plume", "rcs", "heat", "light")
 FX_STOCHASTIC_FAMILIES: Tuple[str, ...] = ("plume", "rcs")
 FX_ARG_WORDS: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+# Every fx= word a run may name: those of ``all``, then the ones it asks for by name.
+FX_ARG_KNOWN_WORDS: Tuple[str, ...] = FX_ARG_WORDS + ("plume-main",)
 FX_ARG_ALL = "all"
-FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit")
+# The plume cases on the vessel's main throttle (PartParityFxOption.MainThrottle); every other
+# plume case runs on the engine's independent throttle with the vessel's at 0.
+FX_MAIN_STATES: Tuple[str, ...] = ("main-full", "main-low")
+FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low") + FX_MAIN_STATES + (
+    "rcs-fire", "heat-medium", "heat-hot", "lit")
 CONTEXT_PLATE = "plate"
 FX_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_PLATE)
 FX_EXCLUSION_REASONS: Tuple[str, ...] = (
@@ -363,7 +369,8 @@ REFERENCE_WATERFALL = "waterfall"
 
 def fx_family_for_arg(word: Optional[str]) -> Optional[str]:
     """PartParityFxRules.FamilyForArg: ``plate`` selects the ``light`` family."""
-    return {"plume": "plume", "rcs": "rcs", "heat": "heat", "plate": "light"}.get(word or "")
+    return {"plume": "plume", "rcs": "rcs", "heat": "heat", "plate": "light",
+            "plume-main": "plume"}.get(word or "")
 
 
 # Views, layers and sides (E.3); the FX atlas's rows and columns (E.5).
@@ -392,7 +399,13 @@ FX_KEYS: Tuple[str, ...] = (
     "hold", "rcs", "samples", "framing", "layers", "cullingMask", "views", "particles",
     "structure", "inventory", "plate", "reference",
 )
-FX_DRIVE_KEYS: Tuple[str, ...] = ("ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat")
+FX_DRIVE_KEYS: Tuple[str, ...] = (
+    "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat", "mainThrottle", "independentThrottle",
+)
+# PartParityFxRules.ThrottleDoneTolerance, and the throttle each main-throttle word burns at
+# (BurnFullThrottle, BurnLowThrottle).
+FX_THROTTLE_DONE_TOLERANCE = 0.01
+FX_MAIN_THROTTLES: Dict[str, float] = {"main-full": 1.0, "main-low": 0.3}
 FX_SIDE_KEYS: Tuple[str, ...] = FX_SIDES
 FX_PLATEAU_KEYS: Tuple[str, ...] = ("signal", "settled", "waitS")
 FX_HOLD_KEYS: Tuple[str, ...] = ("maxDriftM", "stepM", "steps")
@@ -657,6 +670,7 @@ FX_ROUTE_ROW: Dict[str, str] = {ROUTE_EVENT: "ghost", ROUTE_START: "ghost-start"
 FX_VIEW_AXIS = "fx-bottom"
 FX_LAYER_FLAME = "flame"
 FX_LAYER_SMOKE = "smoke"
+FX_FAMILY_PLUME = "plume"
 FX_FAMILY_RCS = "rcs"
 FX_FAMILY_LIGHT = "light"
 # What a stochastic case did not measure, so a check did not run: its FX structure lists (the
@@ -674,8 +688,8 @@ FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
     FLAG_FX_WEAK_CORE)
 # The family of each FX state word (PartParityFxRules.Enumerate).
 FX_STATE_FAMILY: Dict[str, str] = {
-    "burn-full": "plume", "burn-low": "plume", "rcs-fire": "rcs", "heat-medium": "heat",
-    "heat-hot": "heat", "lit": "light"}
+    "burn-full": "plume", "burn-low": "plume", "main-full": "plume", "main-low": "plume",
+    "rcs-fire": "rcs", "heat-medium": "heat", "heat-hot": "heat", "lit": "light"}
 _TIEBREAK_RE = re.compile(r"-m\d+$")
 REASON_FX_UNSETTLED = CAP_FX_UNSETTLED + ":capped at warn"
 # Route, view, layer of one ``fx.views[]`` entry.
@@ -1153,7 +1167,32 @@ def fx_contradictions(sidecar: Optional[Dict]) -> List[str]:
         lit = _num(plate.get("litPct"))
         if lit is None or lit < PLATE_LIT_MIN_PCT:
             problems.append("plate litPct=%s on an ok case" % plate.get("litPct"))
+    if family == FX_FAMILY_PLUME:
+        problem = fx_throttle_problem(word, fx)
+        if problem is not None:
+            problems.append(problem)
     return problems
+
+
+def fx_throttle_problem(word: str, fx: Dict) -> Optional[str]:
+    """The throttle a plume case says drove it against its state word: a ``main-*`` case's
+    vessel held the word's main throttle and its engine followed it; any other plume case's
+    engine ran on the independent throttle with the vessel's at 0 (a main-throttle case never
+    reaches another one). A sidecar written before the two drive keys is not asked, except for
+    a ``main-*`` case, which no such build could write."""
+    drive = fx.get("drive") if isinstance(fx.get("drive"), dict) else {}
+    main, independent = _num(drive.get("mainThrottle")), drive.get("independentThrottle")
+    if word in FX_MAIN_STATES:
+        want = FX_MAIN_THROTTLES[word]
+        if (main is None or independent is not False or _num(fx.get("throttle")) != want
+                or abs(main - want) > FX_THROTTLE_DONE_TOLERANCE):
+            return ("drive mainThrottle=%s independentThrottle=%s throttle=%s on a %s case"
+                    % (drive.get("mainThrottle"), independent, fx.get("throttle"), word))
+        return None
+    if independent is False or (main is not None and abs(main) > FX_THROTTLE_DONE_TOLERANCE):
+        return "drive mainThrottle=%s independentThrottle=%s on a %s case" % (
+            drive.get("mainThrottle"), independent, word)
+    return None
 
 
 def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:

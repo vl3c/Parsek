@@ -11,7 +11,7 @@ namespace Parsek.InGameTests
     /// <c>(mirrorRotation ? -targetAngle : targetAngle) - modelInitialAngle</c> (decompiled
     /// ModuleRoboticServoHinge.JointTargetAngle, KSP 1.12.5); the ghost's snapshot baseline used
     /// to read the raw <c>targetAngle</c>, so the mirrored half started its replay turned the
-    /// wrong way until its first recorded event (GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle).
+    /// wrong way until its first recorded event (PartStateSeeder.ResolveSnapshotDisplayedServoAngle).
     ///
     /// <para>
     /// The subject is the COMMITTED recording SRV-3 flew (the first in ERS whose start snapshot
