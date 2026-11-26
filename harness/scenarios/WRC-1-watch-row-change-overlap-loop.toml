@@ -10,7 +10,9 @@ tier = "operator"
 # lane asks (lines quoted under THE CLOCK); the two tokens were re-cut off that log (offline:
 # every required token matches, every forbidden one is absent, and a transfer to another
 # launch's cycle, `HoldThenRestart` on the first row and `NotWatched` on the second each red).
-# Not yet flown green (tag `pending-flight`).
+# LIVE-PROVEN 2026-11-26 `2026-11-26_2012`, PASS attempt 1 (DLL sha256 c00bbf32, the same source
+# rebuilt, 175 s): the same lines as the reading flight, at loopUT 393.14 and 427.36, the restart on
+# cycle 3 (tag `flown`).
 # =====================================================================================
 #
 # WHAT IT PROVES (owner ruling 2026-11-24; design `docs/parsek-missions-design.md` 7.2): in a
@@ -91,15 +93,17 @@ tier = "operator"
 # explicit-UT WarpToUT; (3) the 1x dwell is 65 s, the least that brackets the predicted row
 # change (+-5 s, one lock step) and the second row's end plus its 3 s hold; the 10x leg is
 # the 325 s of the first row; (4) no burn; (5) no coast; (6) deterministic seam steps, a
-# refused verb fails the run, retry `once` while unflown; (7) recordings pinned 2..2 (the
+# refused verb fails the run, retry `once`; (7) recordings pinned 2..2 (the
 # host's two; the loop and the watch record nothing); (8) operator until flown, 177 s
 # measured (one load, ~33 s at 10x, 65 s at 1x); (9) flight_efficiency.py after the first
-# green flight.
+# green flight: run on 2026-11-26_2012, the 1x leg is 65 of its 121 s of seam steps; the anchor
+# is now measured (440.74), so 795 -> 845 would keep both ends at 1x and save about 15 s, left
+# for the next spec edit rather than spent on another flight.
 # =====================================================================================
 description = "Watch camera across a row change in an overlapping mission loop (todo OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END): on air-circuit-recorded the Mallard's two-row circuit (362 s flight to the splash, then 34 s afloat) is looped at 120 s (span 396 s, four launches at once) and launch 0 is watched from its take-off; its first row ends at its own end with watch=HoldForNextRow, the hand-off names the second row and lands on the same launch's copy, the second row ends with watch=HoldThenRestart, holds 3 s and restarts on a running launch, all at 1x, with no watch exit."
 instanceProfile = "stock-minimal"
 tags = ["WRC", "WRC-1", "loop-playback", "mission-loop", "self-overlap", "watch-mode",
-        "chain-handoff", "kerbin", "sandbox", "recorded-fixture", "pending-flight", "reading-run"]
+        "chain-handoff", "kerbin", "sandbox", "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/air-circuit-recorded"
@@ -139,7 +143,10 @@ steps = [
 ]
 
 [dimensionsCovered]
-# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+# Claimed off the green flight 2026-11-26_2012. D6 loop-period-modes is mode (2), overlapping copies
+# (`overlaps=yes`, cadence 120 s under the 396.62 s span); self-overlap is the same witness in D6 and D11.
+D6  = ["self-overlap", "loop-period-modes"]
+D11 = ["whole-mission-loop", "self-overlap"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]
