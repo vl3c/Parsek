@@ -367,7 +367,10 @@ namespace Parsek.TestCommands
             "structure", "inventory", "plate", "reference",
         };
 
-        internal static readonly string[] FxDriveKeys = { "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat" };
+        internal static readonly string[] FxDriveKeys =
+        {
+            "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat", "mainThrottle", "independentThrottle",
+        };
 
         /// <summary><c>warmupS</c>, <c>plateau</c>, <c>particles</c>, <c>layers</c> and
         /// <c>inventory</c> are keyed by side (<c>ghostAll</c> on an rcs case only).</summary>
