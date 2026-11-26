@@ -34,6 +34,11 @@ namespace Parsek
             if (selections.Count == 0) return selections;
             HashSet<string> hidden = GhostB9Subtypes.HiddenTransformNames(
                 selections, DescendantTransformNames(modelRoot));
+            // The ghost's hide filter also matches a renderer's ancestors above the model root,
+            // which B9 never touches: a B9 name equal to the model root's or an ancestor's would
+            // hide the whole part, so those names are left out.
+            for (Transform t = modelRoot; t != null; t = t.parent)
+                hidden.Remove(t.name);
             if (hidden.Count > 0) hiddenNames = hidden;
             ParsekLog.VerboseRateLimited("GhostVisual", $"b9-subtypes-{partName}",
                 $"  Part '{partName}' pid={persistentId}: B9 subtypes {GhostB9Subtypes.Describe(selections)} " +

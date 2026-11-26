@@ -196,6 +196,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ModifiersFor_AnEarlierModuleHoldsTheRotationLock_EvenFromAnotherSubtype()
+        {
+            // Module "a" rotates Arm only in its hidden subtype; module "b" rotates and moves Arm
+            // in its shown one. B9 refuses b's rotator (a's lock) and keeps b's move.
+            var part = new ConfigNode("PART");
+            ConfigNode a = B9Module(part, "a");
+            Subtype(a, "plain");
+            ConfigNode turned = Subtype(a, "turned");
+            ConfigNode ta = turned.AddNode("TRANSFORM");
+            ta.AddValue("name", "Arm");
+            ta.AddValue("rotationOffset", "0,45,0");
+            ConfigNode b = B9Module(part, "b");
+            ConfigNode bs = Subtype(b, "moved");
+            ConfigNode tb = bs.AddNode("TRANSFORM");
+            tb.AddValue("name", "Arm");
+            tb.AddValue("rotationOffset", "90,0,0");
+            tb.AddValue("positionOffset", "0,1,0");
+            List<B9ModuleSelection> sel = GhostB9Subtypes.Resolve(part, SnapshotPart(("a", "plain"), ("b", "moved")));
+            List<B9TransformModifier> mods = GhostB9Subtypes.ModifiersFor(sel, "Arm");
+            Assert.Single(mods);
+            Assert.Null(mods[0].RotationOffsetEuler);
+            Assert.Equal(new Vector3(0f, 1f, 0f), mods[0].PositionOffset.Value);
+
+            // With a's turned subtype shown, a's rotation applies and b's is still refused.
+            sel = GhostB9Subtypes.Resolve(part, SnapshotPart(("a", "turned"), ("b", "moved")));
+            mods = GhostB9Subtypes.ModifiersFor(sel, "Arm");
+            Assert.Equal(2, mods.Count);
+            Assert.Equal(new Vector3(0f, 45f, 0f), mods[0].RotationOffsetEuler.Value);
+            Assert.Null(mods[1].RotationOffsetEuler);
+        }
+
+        [Fact]
+        public void ModifiersFor_OneModuleKeepsEveryRotationOfItsSubtype()
+        {
+            var part = new ConfigNode("PART");
+            ConfigNode m = B9Module(part, "a");
+            ConfigNode st = Subtype(m, "x");
+            foreach (string r in new[] { "0,10,0", "0,20,0" })
+            {
+                ConfigNode t = st.AddNode("TRANSFORM");
+                t.AddValue("name", "Arm");
+                t.AddValue("rotationOffset", r);
+            }
+            List<B9TransformModifier> mods = GhostB9Subtypes.ModifiersFor(GhostB9Subtypes.Resolve(part, null), "Arm");
+            Assert.Equal(new[] { 10f, 20f }, mods.Select(x => x.RotationOffsetEuler.Value.y));
+        }
+
+        [Fact]
         public void ParseTransformModifier_ReadsEachOffset_AndDropsAnEmptyOrNamelessNode()
         {
             var t = new ConfigNode("TRANSFORM");

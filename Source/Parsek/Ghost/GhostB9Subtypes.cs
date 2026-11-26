@@ -14,6 +14,10 @@ namespace Parsek
         internal Vector3? PositionOffset;
         internal Vector3? RotationOffsetEuler;
         internal Vector3? ScaleOffset;
+
+        /// <summary>A copy with the rotation dropped (an earlier module holds the rotation lock).</summary>
+        internal B9TransformModifier WithoutRotation()
+            => new B9TransformModifier { Name = Name, PositionOffset = PositionOffset, ScaleOffset = ScaleOffset };
     }
 
     /// <summary>
@@ -41,6 +45,9 @@ namespace Parsek
         internal readonly List<B9NameMatcher> CurrentTransforms = new List<B9NameMatcher>();
         /// <summary>The <c>transform</c> names every other subtype of the module enables.</summary>
         internal readonly List<B9NameMatcher> OtherTransforms = new List<B9NameMatcher>();
+        /// <summary>The TRANSFORM names any subtype of the module rotates (B9's rotation aspect
+        /// lock is held by the module, whichever subtype is shown).</summary>
+        internal readonly List<B9NameMatcher> RotationLocks = new List<B9NameMatcher>();
     }
 
     /// <summary>
@@ -173,6 +180,11 @@ namespace Parsek
                 }
                 for (int s = 0; s < subtypes.Length; s++)
                 {
+                    foreach (ConfigNode t in subtypes[s].GetNodes("TRANSFORM"))
+                    {
+                        B9TransformModifier mod = ParseTransformModifier(t);
+                        if (mod != null && mod.RotationOffsetEuler.HasValue) sel.RotationLocks.Add(mod.Name);
+                    }
                     List<B9NameMatcher> into = s == shown ? sel.CurrentTransforms : sel.OtherTransforms;
                     foreach (string name in subtypes[s].GetValues("transform"))
                     {
@@ -214,14 +226,24 @@ namespace Parsek
         }
 
         /// <summary>The offsets to apply to a transform named <paramref name="name"/>, in the order
-        /// B9 applies them (module order, then TRANSFORM node order). Empty when none matches.</summary>
+        /// B9 applies them (module order, then TRANSFORM node order). Empty when none matches. A
+        /// rotation is kept only for the first module that rotates the transform in any of its
+        /// subtypes: B9's <c>TransformRotator</c> is an aspect lock, and a later module's rotator
+        /// is refused (<c>PartSubtype.MaybeAddModifier</c>), so its modifier comes back without the
+        /// rotation.</summary>
         internal static List<B9TransformModifier> ModifiersFor(List<B9ModuleSelection> modules, string name)
         {
             var list = new List<B9TransformModifier>();
             if (modules == null || name == null) return list;
-            foreach (B9ModuleSelection m in modules)
-                foreach (B9TransformModifier mod in m.TransformModifiers)
-                    if (mod.Name != null && mod.Name.Match(name)) list.Add(mod);
+            for (int i = 0; i < modules.Count; i++)
+            {
+                bool rotationLocked = false;
+                for (int k = 0; k < i && !rotationLocked; k++)
+                    rotationLocked = AnyMatch(modules[k].RotationLocks, name);
+                foreach (B9TransformModifier mod in modules[i].TransformModifiers)
+                    if (mod.Name != null && mod.Name.Match(name))
+                        list.Add(rotationLocked && mod.RotationOffsetEuler.HasValue ? mod.WithoutRotation() : mod);
+            }
             return list;
         }
 
