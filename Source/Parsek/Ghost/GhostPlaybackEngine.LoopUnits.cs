@@ -1308,7 +1308,7 @@ namespace Parsek
         /// (inter-cycle wait / before span). Records the new state so siblings later in the same
         /// frame see no change.
         /// </summary>
-        private void LogUnitTransitionIfChanged(
+        internal void LogUnitTransitionIfChanged(
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
@@ -1468,9 +1468,17 @@ namespace Parsek
             // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
             // the ending member so its terminal explosion hold applies and the post-hold retarget
             // restarts on the through-line root.
+            // A dock, boarding or undock is the one end where the vessel goes on under another
+            // launch guid, so "different vessel" is not "not where it went": there the host's
+            // branch answer decides, ahead of the guid tiers.
+            int branchMemberIdx = watchedWasRendering && !watchedIsRendering
+                ? ResolveWatchedBranchMember(unit, trajectories, spanLoopUT, isInInterCycleTail, watchedIndex)
+                : -1;
             int retargetMemberIdx = suppressWatchRetarget
                 ? -1
-                : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+                : branchMemberIdx >= 0
+                    ? branchMemberIdx
+                    : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
             if (suppressWatchRetarget && watchedIndex >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-instance-ended",
@@ -1500,7 +1508,8 @@ namespace Parsek
                     "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
                         + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
-                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + (branchMemberIdx >= 0 ? " via=branch" : " via=same-vessel"));
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
                     Index = retargetMemberIdx,
@@ -1528,6 +1537,29 @@ namespace Parsek
                 retargetFired, watchedIndex, retargetMemberIdx, watchedIsRendering);
 
             lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
+        }
+
+        /// <summary>
+        /// The unit member the watched member's vessel went to at a dock, boarding or undock
+        /// (<see cref="ResolveWatchedBranchContinuation"/>), or -1: no host, the watched index is
+        /// not this unit's, or the answer is not a member the unit clock is in.
+        /// </summary>
+        private int ResolveWatchedBranchMember(
+            GhostPlaybackLogic.LoopUnit unit, IReadOnlyList<IPlaybackTrajectory> trajectories,
+            double spanLoopUT, bool isInInterCycleTail, int watchedIndex)
+        {
+            int[] members = unit.MemberIndices;
+            if (ResolveWatchedBranchContinuation == null || isInInterCycleTail || members == null
+                || watchedIndex < 0 || Array.IndexOf(members, watchedIndex) < 0)
+                return -1;
+
+            return ResolveWatchedBranchContinuation(watchedIndex, idx =>
+                idx >= 0 && idx < trajectories.Count && trajectories[idx] != null
+                && Array.IndexOf(members, idx) >= 0
+                && GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                    spanLoopUT,
+                    unit.MemberStartUT(idx, trajectories[idx].StartUT),
+                    unit.MemberEndUT(idx, trajectories[idx].EndUT)));
         }
     }
 }

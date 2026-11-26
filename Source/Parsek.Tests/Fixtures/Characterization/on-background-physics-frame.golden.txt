@@ -117,6 +117,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -367,6 +368,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -508,6 +510,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -720,6 +723,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -892,6 +896,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1071,6 +1076,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1243,6 +1249,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1415,6 +1422,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1594,6 +1602,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1767,6 +1776,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -1939,6 +1949,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -2111,6 +2122,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -2291,6 +2303,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -2471,6 +2484,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -2644,6 +2658,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=Atmospheric
@@ -2828,6 +2843,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=ExoBallistic
@@ -3001,6 +3017,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=ExoBallistic
@@ -3174,6 +3191,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=ExoBallistic
@@ -3359,6 +3377,7 @@
     deployedGear=count=0
     deployedLadders=count=0
     deployedRobotArmScannerModules=count=0
+    engineThrottleStill=count=0
     environmentHysteresis=
       hasPending=False
       lastConfirmedEnvironment=ExoBallistic
