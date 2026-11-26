@@ -1,0 +1,103 @@
+schema = 1
+id = "PP-11-part-parity-mod-parts"
+tier = "operator"
+# PART GHOST PARITY OF THE MOD PARTS THE OWNER ASKED FOR (2026-11-26): Utility Weight 2.0.0
+# and PicoPort 0.1.6.4, pinned in harness/provision/pins.toml and installed on modded-compat
+# (and modded-restock) beside B9PartSwitch, the way the owner plays them. PP-2's shape on
+# modded-compat narrowed to those two mods with the sweep's `source=` filter (the first path
+# segment of a part's model url: `UtilityWeight` for the weight, `SHED` for the four ports).
+#
+# WHAT IT PROVES. Utility Weight's one part (`UtilityWeight.OsmiumTank`) carries three
+# B9PartSwitch modules (mass, size, cost); the seven size subtypes scale its model transform
+# (`TRANSFORM { name = ModelOsmiumTank scaleOffset = k }`, 0.3125 m to 5.0 m). The ghost
+# builder applies each B9 module's shown subtype (GhostB9Subtypes: TRANSFORM offsets and the
+# transform enable lists), so every size case should picture the same size on both sides and
+# its skin proof should read real == ghost. The four PicoPorts (stock ModuleDockingNode, no
+# animation) have one stowed case each.
+#
+# CASES (design 3.2, `skins=all`): the weight's base case, 13 mass subtypes, 7 size subtypes
+# and 8 cost subtypes (one module at a time) and the four ports' base cases, about 33, plus the
+# controls. At PP-2's ~0.7 s per case that is well under one 480 s step; the second step
+# answers `done=true` at once unless the first ran short.
+#
+# GATES. PP-2's instrument gates (controls, completeness, the Python recompute) from the
+# start. The part verdicts are REPORT-ONLY (`[expectations.partParity] gating = false`) until
+# two matching reading runs pin a `pp11` baseline section (design Appendix F). The log pins:
+# the run-step summary line with `crashed=0` and `controls=ok`, the applier's OK line, and no
+# `[Parsek][ERROR]`. The new parts also enter PP-2's full sweep, whose baseline is re-pinned
+# from its own reading runs.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: PP-2's host and steps, one
+# narrowed sweep. (2) The one game-time wait is an explicit-UT WarpToUT on rails. (3) The time
+# box is the measurement. (4)/(5) No burns, no coasts. (6) `[retry] policy = "none"`: a
+# retry's `op=reset` would clear the files a reading run keeps. (7) Recording count pinned at
+# 0. (8)/(9) after the first flight: tier by measured p50 and a flight_efficiency.py check.
+#
+# AUTHORED 2026-11-26, NEVER FLOWN (tag `pending-flight`).
+description = "AUTHORED 2026-11-26, NEVER FLOWN: part ghost parity of the Utility Weight and PicoPort mod parts on modded-compat (B9PartSwitch installed) - the weight's mass, size and cost subtypes and the four micro docking ports photographed beside their Parsek ghosts in LKO, one source-filtered PartParitySweep, judged by the partParity verifier row (instrument gates gating, part verdicts report-only)."
+instanceProfile = "modded-compat"
+tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-11"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines (and the ghost builder's B9 subtype lines) are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp11", op = "reset" }, expect = "OK", budget = 120 },
+  # The two mods' parts in every skin; the second step resumes or answers done at once.
+  { cmd = "PartParitySweep", args = { label = "pp11", op = "run", source = "UtilityWeight,SHED", skins = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp11", op = "run", source = "UtilityWeight,SHED", skins = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# REPORT-ONLY until two matching reading runs pin the `pp11` baseline section (design
+# Appendix F). The instrument gates gate regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp11 op=run ok=true label=pp11 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp11 elapsed=[0-9.]+s label=pp11 done=(true|false) ",
+  # The ghost builder applied the weight's B9 subtypes (GhostVisualBuilder.B9Subtypes.cs).
+  "\\[Parsek\\]\\[VERBOSE\\]\\[GhostVisual\\]   Part 'UtilityWeight\\.OsmiumTank' pid=[0-9]+: B9 TRANSFORM offsets applied=[1-9][0-9]* ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# Boot and load ~180 s (the modded install boots slower), the warp 120, the reset 120,
+# two 540 s run steps.
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

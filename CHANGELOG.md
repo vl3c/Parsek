@@ -8,6 +8,15 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Fixed
+
+- **Ghosts of resizable B9PartSwitch parts keep the size you picked.** A Utility Weight set to
+  2.5 m or 5 m used to replay at its default 1.25 m. (todo GHOST-B9-SUBTYPE-TRANSFORMS)
+
+### Added
+
+- **Dev: Utility Weight and PicoPort on the modded test installs.** Lane PP-11 checks their ghosts.
+
 ## 1.0.3
 
 ### Added
