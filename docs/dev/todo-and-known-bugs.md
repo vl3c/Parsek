@@ -20,6 +20,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GHOST-DEPLOY-MOTION-TIMING-2026-11-26: a replayed deploy starts when the real one had finished, and its in-between motion is not stock's [FILED 2026-11-26 from the part parity P7 plan (design `docs/dev/design-part-ghost-parity.md` Appendix G.6), by code reading on main a3812a8d4; OPEN; not measured yet, P7 measures it; product, medium]
+
+What (each a hypothesis until P7's reading flight; its spike M0 checks item 1 live first):
+
+1. One clip late. The pollers emit a deployable, gear, cargo bay, standalone animate generic or ladder event only at the END of stock's motion (`PartStatePoller.cs` 737-739 and 776-777, `FlightRecorder.Classifiers.cs` 86-90 and 261-276, `FlightRecorder.ReflectionClassifiers.cs` 805), and the ghost starts its transition at that UT and runs one clip from there (`GhostPlaybackLogic.HeatDeployablesLights.cs` 201, 615-618). So a ghost panel, leg, bay or ladder starts moving when the real one had stopped. Animation groups, the airbrake and chutes emit at the start and do not lag.
+2. Straight-line in-between poses: two clip samples (`GhostVisualBuilder.AnimationSampling.cs` 470-536) and one shared Lerp / Slerp fraction for every transform (`HeatDeployablesLights.cs` 249-254): stock's easing, staged clips and turns past 180 degrees are lost.
+3. Chutes snap open (`GhostPlaybackLogic.PartEvents.cs` 916-919, 1702-1705) where stock opens over seconds (semi 1.7 to 3.5 s, full 4.9 to 13 s, design D.4).
+4. Servos step at 4 Hz: posed only at recorded samples (`GhostPlaybackLogic.Robotics.cs` 287-300; the per-frame pass moves only rotors and wheels), sampled at most every 0.25 s (`FlightRecorder.cs` 606).
+
+Fix: not chosen. Item 1 can be fixed on playback (start the transition one clip before an end-marking event; heals old recordings) or in the recorder (emit at the start edge; new recordings only): owner question G.8. Items 2 to 4 are playback-only.
+
 ## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-4 (0.040 s read 3 frames in `2026-11-24_1627`, two of them at one UT) on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
 
 **The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
