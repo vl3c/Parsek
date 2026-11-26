@@ -142,7 +142,7 @@ namespace Parsek
         public System.Reflection.FieldInfo emitField;
         // S1 (plume magnitude): the emitter's own particle-rate / velocity fields at BUILD time,
         // captured once by GhostVisualBuilder.CaptureFxMagnitudeBaselines AFTER every build-time
-        // mutation has run (the #383 size boost, the world-space velocity floor, the per-part
+        // mutation has run (the #383 size boost, the per-part
         // overrides). Runtime throttle scaling writes `baseline * ratio` into these same fields,
         // so it composes with those fixes instead of fighting them and never drifts across
         // repeated events. FieldInfos are resolved once at capture: KSPParticleEmitter is
@@ -157,13 +157,6 @@ namespace Parsek
         public float baselineMaxEmission;
         public Vector3 baselineLocalVelocity;
         public bool magnitudeBaselineCaptured;
-        // Whether this emitter simulates in WORLD space. Captured with the baseline because the
-        // baseline VALUE may be the world-space minimum-flow floor
-        // (GhostVisualBuilder.ApplyWorldSpaceEmitterVelocityFloor), and a low throttle ratio applied
-        // to it would scale the flow back under the pooling threshold the floor exists to clear.
-        // Only ReStock's world-space SRB smoke rigs are affected; every stock FX asset is
-        // local-space and this flag stays false.
-        public bool baselineUseWorldSpace;
         // A GhostEngineFxRule writes this emitter; the S1 ratio leaves it alone.
         public bool stockRuled;
     }

@@ -20,6 +20,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GHOST-SMOKE-RIDES-ACTIVE-VESSEL~~ (was PARTPARITY-ORBIT-SRB-SMOKE-NOISE): a ghost's world-space smoke rode along with the active vessel, so a booster ghost sat in a ball of its own smoke [FILED 2026-11-23 from PP-8 / PP-9 as instrument noise; the owner saw it on the pictures 2026-11-24; FIXED 2026-11-24, branch `srb-smoke`]
+
+What a player saw: beside his own ghost in the air, or with a vessel in orbit, every ReStock booster ghost hid in a ball or column of grey smoke the real booster does not draw, and stock smoke trails spread out around the ghost instead of behind it. The parity instrument read it as `smoke-extra` on 12 boosters of PP-8 / PP-9; this entry called it noise on the real side, inferred from the Krakensbane shear. Wrong: the real side was right, the ghost was not.
+
+Cause (IL of `FloatingOrigin.setOffset` and `EffectBehaviour.OffsetParticles`): while Krakensbane or continuous mode is on, stock moves every registered world-space particle by minus (origin offset + frame velocity * dt) each physics step, 45 m at orbital speed, so smoke stays where it was emitted; a `KSPParticleEmitter`'s particles also drift back by `(rb.velocity + frameVelocity) * Random * dt` (mean one half more). It finds a part's systems through the Part (`ModelMultiParticleFX` / `ModelParticleFX`, FXGroups) or stock's `FXPrefab`; a ghost has no Part, and `StripKspFxControllers` destroys `FXPrefab`. So nothing moved a ghost's smoke, and it kept the active vessel's velocity. Stock's own loops for plain systems (FXGroups, PREFAB_PARTICLE) move nothing: the particle is a copy that is never written back, and `FXPrefab`'s registration does the plain shift; KSPCommunityFixes' `FloatingOriginPerf` replaces `setOffset` with one that writes both the shift and the drift. This also answers E0's open question (why the real world-space particles drift kilometres in orbit).
+
+Fix: `Source/Parsek/Ghost/GhostWorldSpaceEmitter.cs`, one component on every world-space system of a ghost FX clone (`FXPrefab` stays stripped, so nothing moves twice), registered exactly while it is enabled, moved in the `setOffset` postfix with stock's rule: the shift always, the drift for an emitter-fed system and, when KSPCommunityFixes patches `setOffset`, for a plain one. The drift velocity is read off the ghost's own motion plus the shifts; a jump (loop restart) is rejected by taking the slower of two readings. Nothing happens while the active vessel is parked (no shift), as for a real vessel seen from there.
+
+Proof (throwaway lanes SMK-1 to SMK-6, kept with their rig in `<umbrella>/logs/flights/srb-smoke/`): free burns recorded by the real recorder, the ghost replayed from the same recording at the same UT and camera, before (registration removed) and after. Orbit, 9 ReStock boosters, smoke within 20 m of the nozzle of about 280 particles: real 2 to 4 on all 27 shots, before 34 to 294, after 2 to 4; spread across the plume real 2.9 to 3.4 km, after 2.9 to 3.3 km. Air, a real booster of the same kind 42 m beside the ghost (mean distance behind the nozzle): Hammer +5 s before 6.3 m, after 73.1 m, real in the same instant 67.9 m; Flea +7 s 6.5 / 136.6 / 138.0 m. Stock `fx_smokeTrail_medium` beside a Flea +7 s: before 165 m, after 473 m, real 466 m.
+
+The standing flow STAYS (owner ruling 2026-11-24; do not remove it without asking). `WorldSpaceEmitterFloorSpeed` gives a ReStock booster ghost's smoke 6 m/s exhaust-ward (commit d75cf8f27, 2026-06-12, made for the static showcase, where the asset's own 0 to 1 m/s "gathers in one point"). The real part does gather: a real Hammer held still in the air reads 1.0 m mean behind the nozzle (4.8 m at most), the flowing ghost 5.8 m (15.7 m); without the flow the ghost reads 1.0 / 4.9 m and the showcase shows a ball of smoke at each booster (both photographed, `showcase/` and `air-restock-nofloor/` in the flight folder; removal 97e052a12, reverted). Its limit, tightened with the ruling: the flow counts the ghost's own speed (`GhostWorldSpaceEmitter.StandingFlow`, smoke leaves at 6 m/s minus the ghost's speed when that is above its own), so only a booster that burns standing still differs from the real one and nothing from 6 m/s up is touched. Before that it reached launched flights too: Hammer +3 / +5 / +7 s 30.9 / 73.1 / 118.5 m with it, 25.3 / 68.7 / 114.6 m without, real beside it 25.0 / 67.9 / 114.5 m.
+
+Parity lanes on the fixed build (PP-9 `2026-11-24_2040` and `_2145`, PP-10 `_2101`, PP-7 `_2120`, PP-5 `_2137`, MC-2 `_2144` PASS; DLL 7164781e except `_2040` / `_2101`, which flew the build without the standing flow): ReStock booster smoke on PP-9, 10 boosters times 4 views, views with a ghost core of 256 px or more 40 of 40 before, 1 and 0 of 40 after (real 0, 0, 2); the instrument's own 95th-percentile spread across the axis real 155 / ghost 155 m on the Thumper (before 1.7 m). Verdicts against main `2026-11-24_0735` / `_0758` / `_0628` (pass / warn / fail): PP-9 68 / 31 / 65 -> 71 / 27 / 66, PP-7 105 / 19 / 4 -> 103 / 23 / 2, PP-10 2 / 5 / 7 -> 2 / 6 / 6, PP-5 2 / 5 / 7 -> 2 / 5 / 7, every control ok; the cases that moved the wrong way are flame-layer flicker at the rate two runs of one build show (PP-9 9 worse / 8 better / 2 to fail between `_1749` and `_0735`, 8 / 9 / 4 here) and two smoke views, see the next entry. `ctl-fx-smoke-dropped` was built on the defect (a ghost that keeps its smoke at the nozzle in orbit) and now switches the mover off on its own ghosts.
+
+Not changed: a ghost watched from a parked vessel draws its trail without the drift (as stock draws a real vessel from there), so it is denser than the one its pilot saw.
+
+## PARTPARITY-ORBIT-SMOKE-PUFF-NOISE: in orbit a fresh smoke puff lands in the near box now and then, on either side, so a booster's orbit smoke view can read `smoke-missing` or `smoke-extra` once in a while [FILED 2026-11-24 from PP-9 `_2040` / `_2145`; OPEN; low (tooling)]
+
+What: the puffs of the newest rendered frame sit at the nozzle until the next physics step carries them off, and a view counts them when a sample falls in that gap. After GHOST-SMOKE-RIDES-ACTIVE-VESSEL both sides do it alike: of 80 booster smoke views 1 had a ghost core (Flea side-a 924 px) and 2 a real one (Flea side-a 808, Thumper bottom 2279; the Thumper read 29 and 197 px there in the two runs before). With both halves settled the Thumper's bottom view reads `smoke-missing` and fails (PP-9 `_2145`); `smallRadialEngine.v2` at 30 % reads the same `smoke-extra` on its bottom view as before the fix and fails now that the cap for unsettled views no longer hides it. Fix: do not judge the smoke layer of an orbit case whose sides draw world-space smoke unless both cores pass the minimum in both halves, or make it a visible known-unjudged. Until then read a single orbit smoke reason on a booster as this.
+
+## GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL: the ghost FX Parsek builds itself (explosion smoke, part puffs, launch dust, the reentry fire) are world-space and do not follow the floating origin [FILED 2026-11-24 while fixing GHOST-SMOKE-RIDES-ACTIVE-VESSEL; OPEN; low (visual only)]
+
+What: `GhostVisualBuilder.TransientFx.cs` and the reentry fire (`GhostVisualBuilder.HeatAndReentryFx.cs`) create their particle systems with `simulationSpace = World` and nothing moves them when the origin shifts, so beside a flying active vessel they drift along with it for their 1 to 4 s. Read from the source, not seen in a flight. Fix: attach `GhostWorldSpaceEmitter` there too (an unparented one does not drift), and look at the reentry fire first, whose streaks were tuned to what they are now.
+
+## LOOP-FALL-KSC-TS-SINGLE-COPY: looped predicted falls at the Space Center, the Tracking Station and on the map are drawn less fully than in flight [FILED 2026-11-24 from LOOP-TIMING-READ-THE-PREDICTED-FALL's "KSC / Tracking Station" and "Not changed" notes; OPEN, product, low, for 1.0.4 or later]
+
+Left open by owner ruling R4c (option C), which fixed loop timing and the flight scene:
+- **Fall cut short:** in a loop that does not overlap itself, the Space Center and the Tracking Station draw one copy, and the next relaunch cuts its fall (`TryExtendRenderIntoFall`); in flight each launch's fall plays to its impact (`UpdateUnitMemberFallSchedule`). A self-overlapping loop draws one copy per launch there, falls included.
+- **No explosion:** a span-clock copy at the Space Center whose fall ends inside the wait ends with no explosion. Every span-clock member's end did so before, so it is not new.
+- **Map path:** the map and the Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost only).
+
+Related: OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END (copies with a recorded end, built on `loop-own-end`, held for 1.0.4).
+
 ## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-4 (0.040 s read 3 frames in `2026-11-24_1627`, two of them at one UT) on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
 
 **The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
@@ -588,7 +621,7 @@ Clusters, each with its entry:
 - Heat: `heat-hot` fails on colour on 13 of 16 stock parts and 12 of 13 ReStock ones, `heat-medium` passes on all but the JetEngine and (stock) the nuclear engine: the ghost draws the generic emissive where stock plays the part's own clip (PARTPARITY-FX-FIRST-READINGS-2026-11-23, Heat). On the nuclear engine the ghost lights the bell, which stock's clip leaves dark (`nuclearengine--default--heat-medium--6b86bbe4`, bottom 18457 px).
 - RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts (the position and the scale are fixed with GHOST-FX-MODEL-SCALE, not flown).
 - `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum; GHOST-FLAME-Z-DIRECTION).
-- ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+- ~~ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9)~~: GHOST-SMOKE-RIDES-ACTIVE-VESSEL (fixed 2026-11-24).
 - Stock `LaunchEscapeSystem` draws no particles (GHOST-LES-NO-PLUME, fixed and flown); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed and flown).
 - `sepMotor1` (stock) flame origin 34 px late, width 0.76.
 
@@ -12140,8 +12173,8 @@ Open items, highest leverage first:
   magnitude, and `ComputeScaledRcsEmissionRate`/`...Speed` had ZERO production call
   sites. **Fix:** both `Set*Emission` choke points now scale the plume as a RATIO of a
   baseline captured once at build time (`GhostVisualBuilder.CaptureFxMagnitudeBaselines`,
-  run AFTER the #383 size boost and the world-space velocity floor so scaling composes
-  with them rather than overwriting them), written into the cloned `KSPParticleEmitter`'s
+  run AFTER the #383 size boost so scaling composes
+  with it rather than overwriting it), written into the cloned `KSPParticleEmitter`'s
   own persistent fields plus the `ParticleSystem` multipliers. Persistent fields, not a
   per-event computation, because `RestoreAllRcsEmissions` re-enables emitters WITHOUT
   going through `SetRcsEmission` — a per-event scale would restore a full-magnitude plume
@@ -12149,14 +12182,9 @@ Open items, highest leverage first:
   are the ratio's numerator and denominator, which gives them production callers with
   their showcase visibility floors intact. Degradation is one-directional: an unreadable
   baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
-  untouched (it already consumed the magnitude; touching it would double-apply). Review
-  follow-up: the one baseline the ratio cannot scale freely is a WORLD-SPACE emitter's
-  `localVelocity`, because that baseline may BE the minimum-flow floor
-  (`ApplyWorldSpaceEmitterVelocityFloor`, 6 m/s) rather than a magnitude — a 0.2 ratio would
-  write 1.2 m/s, back under the 4 m/s pooling threshold the floor exists to clear.
-  `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
-  above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
-  on ReStock's world-space SRB smoke at genuine partial throttle.
+  untouched (it already consumed the magnitude; touching it would double-apply). The special case
+  for world-space emitters (a 6 m/s minimum flow held through a throttle ratio) was removed
+  2026-11-24: the flow is now a standing ghost's only (GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
   **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
   until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
   midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to
