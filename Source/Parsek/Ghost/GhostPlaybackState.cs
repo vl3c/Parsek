@@ -73,6 +73,14 @@ namespace Parsek
         // null/Count check per frame. Cleared wholesale on a loop cycle (a mid-transition panel
         // must re-stow, not resume against the new cycle's clock).
         internal List<DeployableGhostInfo> activeDeployableTransitions;
+        // The end-marked deploy events of the trajectory this state replays, with the previous
+        // same-part event's UT (GhostPlaybackLogic.BuildEndMarkedDeploySchedule), built once per
+        // PartEvents list and count; and the look-ahead horizon over the deployable infos.
+        internal List<EndMarkedDeployEntry> endMarkedDeploySchedule;
+        internal object endMarkedDeployScheduleSource;
+        internal int endMarkedDeployScheduleCount = -1;
+        internal object endMarkedHorizonSource;
+        internal double endMarkedHorizonSeconds;
         // S3: gimbals / control surfaces / sun-tracking pivots discovered at build time. Null when
         // the craft carries none, which is the common case and costs one null check per frame.
         internal SynthesizedMotionGhostInfos synthesizedMotionInfos;

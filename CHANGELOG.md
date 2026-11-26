@@ -21,6 +21,8 @@ Not released yet.
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 - **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
   speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
+- **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and
+  ladders opened only once the recorded part had finished. (GHOST-DEPLOY-MOTION-TIMING-2026-11-26)
 
 ## 1.0.3
 
