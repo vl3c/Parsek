@@ -329,15 +329,6 @@ namespace Parsek.TestCommands
             return true;
         }
 
-        /// <summary>
-        /// The product auto-select: the FIRST in-scope candidate satisfying all three
-        /// watchability probes, mirroring
-        /// <c>MissionsWindowUI.ResolveMissionWatchTarget</c>'s conjunction and its
-        /// first-match-wins order (ascending committed index). Returns -1 when nothing
-        /// is watchable - a REJECTED, never a "watch something else" fallback: picking
-        /// a different vessel than the one the scope names would certify the wrong
-        /// thing.
-        /// </summary>
         internal const string VesselWithIndexReason = "vessel-with-index";
         internal const string VesselArgInvalidReason = "vessel-arg-invalid";
 
@@ -382,22 +373,24 @@ namespace Parsek.TestCommands
             return have != null && string.Equals(have, wantedNormalized, System.StringComparison.Ordinal);
         }
 
+        /// <summary>The launch guid in <c>VesselLaunchIdentity.NormalizeGuid</c>'s "N"
+        /// form, or null when it is not a guid (that normalizer hands an unparseable
+        /// value back unchanged; here it is a refusal).</summary>
         internal static string NormalizeVesselGuid(string raw)
         {
-            if (string.IsNullOrEmpty(raw))
-                return null;
-            string v = raw.Trim().Replace("-", string.Empty).ToLowerInvariant();
-            if (v.Length != 32)
-                return null;
-            for (int i = 0; i < v.Length; i++)
-            {
-                char c = v[i];
-                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
-                    return null;
-            }
-            return v;
+            string n = VesselLaunchIdentity.NormalizeGuid(raw);
+            return n != null && System.Guid.TryParse(n, out _) && n.Length == 32 ? n : null;
         }
 
+        /// <summary>
+        /// The product auto-select: the FIRST in-scope candidate satisfying all three
+        /// watchability probes, mirroring
+        /// <c>MissionsWindowUI.ResolveMissionWatchTarget</c>'s conjunction and its
+        /// first-match-wins order (ascending committed index). Returns -1 when nothing
+        /// is watchable - a REJECTED, never a "watch something else" fallback: picking
+        /// a different vessel than the one the scope names would certify the wrong
+        /// thing.
+        /// </summary>
         internal static int ResolveAutoWatchIndex(IReadOnlyList<WatchCandidate> candidates)
         {
             if (candidates == null)
