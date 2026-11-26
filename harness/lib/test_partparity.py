@@ -3835,5 +3835,167 @@ class FxPressGateTests(unittest.TestCase):
         self.assertEqual(2, res.counts["error"])
 
 
+# ---------------------------------------------------------------------------
+# P9 X3: the burst measures' Python transcription against the committed C# fixture
+# (Source/Parsek.Tests/Fixtures/PartParity/burst/, PartParityBurstFixture).
+# ---------------------------------------------------------------------------
+
+BURST_FIXTURE = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "Fixtures", "PartParity", "burst",
+                             "burstfixturepart--default--explode--air--ddae84c8")
+
+
+def _burst_fixture():
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        return json.load(fh), gui_mirror.read_png(BURST_FIXTURE + pp.BURST_ATLAS_SUFFIX)
+
+
+class BurstMeasureTests(unittest.TestCase):
+    """The Python transcription of PartParityBurstMetrics (design G.3) against the committed
+    C# fixture: every bin measure, side summary, comparison, split-half comparison and the
+    schedule diff recomputes; every tampered number and a mutated pixel are mismatches."""
+
+    def test_the_c_sharp_fixture_recomputes(self):
+        side, atlas = _burst_fixture()
+        self.assertEqual([], pp.recompute_burst_case(side, atlas))
+        burst = side["burst"]
+        self.assertEqual(6, len(burst["views"]))
+        self.assertEqual([8] * 16, burst["samples"]["real"])
+        self.assertEqual(pp.BURST_KEYS, tuple(burst))
+        self.assertIsNone(side["fx"])
+
+    def test_every_value_of_the_fixture_is_bit_identical(self):
+        side, (w, _h, _bpp, px) = _burst_fixture()
+        burst = side["burst"]
+        meta, n_of = burst["atlas"], burst["samples"]["real"]
+        tile, bins, rows, views = meta["tile"], meta["bins"], meta["rows"], meta["views"]
+        checked = 0
+        for e in burst["views"]:
+            sides = {}
+            for name in pp.BURST_SIDE_KEYS:
+                y = rows.index("%s-%s" % (name, e["layer"])) * tile
+                measured = []
+                for b in range(bins):
+                    m, problems = pp.burst_measure_bin(px, w, (views.index(e["view"]) * bins + b) * tile, y,
+                                                       tile, n_of[b], e["source"]["%sPx" % name])
+                    self.assertEqual([], problems)
+                    for key in pp.BURST_BIN_MEASURE_KEYS:
+                        self.assertEqual(e[name]["bins"][b][key], m[key], (e["view"], e["layer"], name, b, key))
+                        checked += 1
+                    measured.append(m)
+                sides[name] = pp.burst_measure_side(measured)
+                for key in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx"):
+                    self.assertEqual(e[name][key], sides[name][key])
+                    checked += 1
+            got = pp.burst_compare(sides["real"], sides["ghost"], e["source"], e["layer"])
+            for key in pp.BURST_COMPARE_KEYS:
+                self.assertEqual(e["compare"][key], got[key], (e["view"], e["layer"], key))
+                checked += 1
+        self.assertEqual(6 * 2 * 16 * 9 + 6 * 2 * 4 + 6 * 12, checked)
+
+    def test_the_failing_measures_are_the_c_sharp_ones(self):
+        # PartParityBurstMetricsTests.Fixture_ExercisesEveryMeasureItClaims, from the sidecar.
+        side, _ = _burst_fixture()
+        want = {("burst-side", "flame"): ["onset"], ("burst-side", "smoke"): [],
+                ("burst-top", "flame"): ["centroid-offset"], ("burst-top", "smoke"): ["smoke"],
+                ("burst-far", "flame"): ["colour"], ("burst-far", "smoke"): ["smoke"]}
+        for e in side["burst"]["views"]:
+            got = pp.burst_failing_measures(e["layer"], e["real"], e["ghost"], e["compare"])
+            self.assertEqual(want[(e["view"], e["layer"])], got, (e["view"], e["layer"]))
+        sc = pp.burst_schedule_compare(side["burst"]["schedule"]["real"], side["burst"]["schedule"]["ghost"])
+        self.assertEqual("warn", sc["level"])
+        self.assertTrue(sc["powerDiffers"])
+        self.assertEqual("smoke-missing", next(e for e in side["burst"]["views"]
+                                               if (e["view"], e["layer"]) == ("burst-top", "smoke"))["compare"]["presence"])
+
+    def test_every_tampered_fixture_number_is_a_mismatch(self):
+        side, atlas = _burst_fixture()
+        targets = [("bins", k) for k in pp.BURST_BIN_MEASURE_KEYS] \
+            + [("side", k) for k in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx")] \
+            + [("compare", k) for k in pp.BURST_COMPARE_KEYS if k != "presence"]
+        for block, key in targets:
+            with self.subTest(block=block, key=key):
+                bad = copy.deepcopy(side)
+                if block == "bins":
+                    holder = next(b for e in bad["burst"]["views"] for b in e["real"]["bins"]
+                                  if b[key] is not None)
+                elif block == "side":
+                    holder = next(e["real"] for e in bad["burst"]["views"] if e["real"][key] is not None)
+                else:
+                    holder = next(e["compare"] for e in bad["burst"]["views"] if e["compare"][key] is not None)
+                value = holder[key]
+                if isinstance(value, list):
+                    value[-1] += 0.001
+                else:
+                    holder[key] = value + (1 if key in pp.BURST_EXACT_KEYS or block == "side" else 1e-6)
+                diffs = pp.recompute_burst_case(bad, atlas)
+                self.assertGreaterEqual(len(diffs), 1, diffs)
+                self.assertTrue(any(key in d for d in diffs), diffs)
+        # A presence reason and a schedule fact.
+        bad = copy.deepcopy(side)
+        bad["burst"]["views"][3]["compare"]["presence"] = None
+        self.assertTrue(any("compare.presence" in d for d in pp.recompute_burst_case(bad, atlas)))
+        bad = copy.deepcopy(side)
+        bad["burst"]["scheduleCompare"]["powerDiffers"] = False
+        self.assertEqual(["scheduleCompare.powerDiffers:False!=True"], pp.recompute_burst_case(bad, atlas))
+
+    def test_a_split_half_number_is_rechecked(self):
+        side, atlas = _burst_fixture()
+        side["burst"]["views"][0]["splitHalf"]["even"]["compare"]["peakAreaRatio"] += 1e-6
+        diffs = pp.recompute_burst_case(side, atlas)
+        self.assertEqual(1, len(diffs), diffs)
+        self.assertIn("splitHalf.even.compare.peakAreaRatio", diffs[0])
+
+    def test_a_mutated_atlas_pixel_is_a_mismatch(self):
+        side, (w, h, bpp, px) = _burst_fixture()
+        tile, bins = side["burst"]["atlas"]["tile"], side["burst"]["atlas"]["bins"]
+        mutated = bytearray(px)
+        # The real flame of burst-side, bin 6, its centre pixel: drop it from the envelope.
+        x, y = 6 * tile + tile // 2, tile // 2
+        i = (y * w + x) * 4
+        self.assertGreater(mutated[i + 3], 0)
+        mutated[i:i + 4] = b"\0\0\0\0"
+        diffs = pp.recompute_burst_case(side, (w, h, bpp, bytes(mutated)))
+        self.assertTrue(any("burst-side:flame.real.bins[6].envelopePx" in d for d in diffs), diffs[:5])
+        # An alpha no sample count writes.
+        mutated = bytearray(px)
+        mutated[i + 3] = 1
+        self.assertTrue(any("is no count of 8 samples" in d for d in pp.recompute_burst_case(side, (w, h, bpp, bytes(mutated)))))
+
+    def test_the_layout_is_checked(self):
+        side, (w, h, bpp, px) = _burst_fixture()
+        self.assertIn("burst atlas is", pp.recompute_burst_case(side, (w - 48, h, bpp, px))[0])
+        bad = copy.deepcopy(side)
+        bad["burst"]["atlas"]["rows"] = ["real-flame"]
+        self.assertIn("rows=", pp.recompute_burst_case(bad, (w, h, bpp, px))[0])
+
+    def test_the_c_sharp_measures_hold_no_constant_of_their_own(self):
+        # Every constant is PartParityFxRules' (design G.7 X3), so the transcription reads
+        # BURST_THRESHOLDS / FX_* and no number of its own.
+        path = os.path.join(CS_DIR, "PartParityBurstMetrics.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comments(fh.read())
+        self.assertNotIn("const ", text)
+        self.assertNotIn("static readonly", text)
+        for literal in ("0.95", "0.6", "1.6", "0.3", "64", "256", "0.0001"):
+            self.assertNotRegex(text, r"(?<![\w.])%s(?![\w.])" % re.escape(literal), literal)
+        self.assertIn("PartParityMetrics.NearestRankPercentile(distances, PartParityFxRules.BurstRadiusPercentile)", text)
+        self.assertIn("if (real.PeakCorePx >= min && ghost.PeakCorePx == 0)", text)
+        self.assertIn("(double)(ghost.LastCoreBin.Value - real.LastCoreBin.Value) / (real.LastCoreBin.Value + 1)", text)
+
+    def test_the_schedule_and_presence_rules_on_their_own(self):
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        self.assertEqual("ok", pp.burst_schedule_compare([blast], [dict(blast, offsetM=[0.9, 0, 0])])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [dict(blast, index=0)])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [dict(blast, offsetM=[3.0, 0, 0])])["level"])
+        self.assertEqual("warn", pp.burst_schedule_compare([blast], [dict(blast, power=0.6)])["level"])
+        side = lambda core: {"peakCorePx": core}
+        self.assertEqual("burst-missing", pp.burst_presence_reason("flame", side(64), side(0)))
+        self.assertEqual("burst-extra", pp.burst_presence_reason("flame", side(0), side(64)))
+        self.assertIsNone(pp.burst_presence_reason("flame", side(63), side(0)))
+        self.assertIsNone(pp.burst_presence_reason("smoke", side(255), side(0)))
+        self.assertEqual("smoke-missing", pp.burst_presence_reason("smoke", side(256), side(0)))
+
+
 if __name__ == "__main__":
     unittest.main()

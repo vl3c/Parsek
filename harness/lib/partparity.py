@@ -4771,3 +4771,373 @@ def detail_record(row: RowResult) -> Dict[str, Any]:
                         "reds": [f.text() for f in s.gate.reds[:20]]}}
                    for s in row.sweeps],
     }
+
+
+# --- the burst measures (PartParityBurstMetrics.cs, design G.3, piece X3) ---------------
+#
+# A stdlib transcription of PartParityBurstMetrics: every value is computed from the 8-bit
+# tiles the burst atlas holds, in the C# order of operations, so the recompute reproduces
+# the sidecar exactly where integral and to RECOMPUTE_FLOAT_TOLERANCE otherwise.
+
+BURST_EXACT_KEYS: Tuple[str, ...] = ("corePx", "envelopePx", "saturatedPx")
+
+
+def _nearest_rank(values: List[float], q: float) -> float:
+    """PartParityMetrics.NearestRankPercentile: sorted, rank ceil(q n) clamped to 1..n."""
+    values = sorted(values)
+    rank = int(math.ceil(q * len(values)))
+    rank = max(1, min(len(values), rank))
+    return values[rank - 1]
+
+
+def burst_measure_bin(pixels: bytes, width: int, x0: int, y0: int, tile: int, n: int,
+                      source: Optional[Sequence[float]]) -> Tuple[Dict[str, Any], List[str]]:
+    """PartParityBurstMetrics.MeasureBin over the ``tile`` px square at (x0, y0) of an RGBA
+    image ``width`` px wide: every BURST_BIN_MEASURE_KEYS key, and what breaks the tile rule."""
+    k_of = [fx_covered_samples(al, n) for al in range(256)]
+    exact = [fx_tile_alpha(k_of[al], n) == al for al in range(256)]
+    core_of = [fx_is_core(k, n) for k in k_of]
+    problems: List[str] = []
+    has_source = (isinstance(source, (list, tuple)) and len(source) >= 2
+                  and all(_num(v) is not None for v in source[:2]))
+    env = core = sat = sx = sy = un = ur = ug = ub = 0
+    bins = [[0, 0, 0] for _ in range(FX_HUE_BINS)]
+    distances: List[float] = []
+    for y in range(tile):
+        start = ((y0 + y) * width + x0) * 4
+        row = pixels[start:start + tile * 4]
+        if len(row) != tile * 4:
+            raise ValueError("burst atlas tile out of range at row %d" % (y0 + y))
+        if not row.strip(b"\0"):
+            continue
+        for x in range(tile):
+            i = x * 4
+            al = row[i + 3]
+            r, g, b = row[i], row[i + 1], row[i + 2]
+            if not al:
+                if (r or g or b) and len(problems) < 3:
+                    problems.append("colour on an uncovered pixel (%d, %d)" % (x, y))
+                continue
+            if not exact[al] and len(problems) < 3:
+                problems.append("alpha %d at (%d, %d) is no count of %d samples" % (al, x, y, n))
+            if k_of[al] <= 0:
+                continue
+            env += 1
+            saturated = fx_is_saturated(r, g, b)
+            if not saturated:
+                h = fx_hue_bin(r, g, b)
+                if h >= 0:
+                    acc = bins[h]
+                    acc[0] += r
+                    acc[1] += g
+                    acc[2] += b
+            if has_source:
+                dx, dy = x + 0.5 - source[0], y + 0.5 - source[1]
+                distances.append(math.sqrt(dx * dx + dy * dy))
+            if not core_of[al]:
+                continue
+            core += 1
+            sx += x
+            sy += y
+            if saturated:
+                sat += 1
+                continue
+            un += 1
+            ur += r
+            ug += g
+            ub += b
+    m: Dict[str, Any] = {k: None for k in BURST_BIN_MEASURE_KEYS}
+    m.update({"corePx": core, "envelopePx": env, "saturatedPx": sat})
+    if core:
+        m["coreCentroid"] = _fx_pixel_mean(sx, sy, core)
+    if has_source and distances:
+        m["radiusPx"] = _nearest_rank(distances, BURST_THRESHOLDS["burstRadiusPercentile"])
+    if un:
+        m["meanColor"] = [ur / un, ug / un, ub / un]
+        m["luminance"] = fx_luminance(ur, ug, ub) / un
+        total = ur + ug + ub
+        if total:
+            m["chromaticity"] = [ur / total, ug / total]
+    m["hueHistogram"] = [fx_luminance(*acc) for acc in bins]
+    return m, problems
+
+
+def burst_measure_side(bins: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """PartParityBurstMetrics.MeasureSide: onset (first envelope), peak (largest envelope,
+    the earliest on a tie), last core bin and largest core."""
+    side: Dict[str, Any] = {"bins": list(bins), "onsetBin": None, "peakBin": None,
+                            "lastCoreBin": None, "peakCorePx": 0}
+    peak_envelope = 0
+    for b, m in enumerate(bins):
+        if not isinstance(m, dict):
+            continue
+        env, core = m.get("envelopePx") or 0, m.get("corePx") or 0
+        if env > 0 and side["onsetBin"] is None:
+            side["onsetBin"] = b
+        if env > peak_envelope:
+            peak_envelope = env
+            side["peakBin"] = b
+        if core > 0:
+            side["lastCoreBin"] = b
+        if core > side["peakCorePx"]:
+            side["peakCorePx"] = core
+    return side
+
+
+def burst_presence_reason(layer: str, real: Dict[str, Any], ghost: Dict[str, Any]) -> Optional[str]:
+    """PartParityBurstMetrics.PresenceReason: over the window, one side's largest core at the
+    layer's minimum and the other side's 0."""
+    smoke = layer == FX_LAYER_SMOKE
+    low = FX_SMOKE_MIN_PX if smoke else FX_PRESENCE_MIN_PX
+    if real["peakCorePx"] >= low and ghost["peakCorePx"] == 0:
+        return FX_REASON_SMOKE_MISSING if smoke else BURST_REASON_MISSING
+    if ghost["peakCorePx"] >= low and real["peakCorePx"] == 0:
+        return FX_REASON_SMOKE_EXTRA if smoke else BURST_REASON_EXTRA
+    return None
+
+
+def _burst_chroma(a: Any, b: Any) -> Optional[float]:
+    if a is None or b is None:
+        return None
+    dr, dg = b[0] - a[0], b[1] - a[1]
+    return math.sqrt(dr * dr + dg * dg)
+
+
+def _burst_hue_l1(a: Any, b: Any) -> Optional[float]:
+    if a is None or b is None or len(a) != len(b):
+        return None
+    sa = sb = 0.0
+    for x, y in zip(a, b):
+        sa += x
+        sb += y
+    if not sa > 0 or not sb > 0:
+        return None
+    d = 0.0
+    for x, y in zip(a, b):
+        d += abs(x / sa - y / sb)
+    return d
+
+
+def burst_centroid_offset(real_centroid: Any, ghost_centroid: Any, source: Any) -> Optional[float]:
+    """PartParityBurstMetrics.CentroidOffset: each centroid from its own side's source point,
+    ghost minus real, its length over the source part's box diameter."""
+    if real_centroid is None or ghost_centroid is None or not isinstance(source, dict):
+        return None
+    rs, gs, d = source.get("realPx"), source.get("ghostPx"), _num(source.get("diameterPx"))
+    if rs is None or gs is None or d is None or not d > 0:
+        return None
+    dx = (ghost_centroid[0] - gs[0]) - (real_centroid[0] - rs[0])
+    dy = (ghost_centroid[1] - gs[1]) - (real_centroid[1] - rs[1])
+    return math.sqrt(dx * dx + dy * dy) / d
+
+
+def burst_compare(real: Dict[str, Any], ghost: Dict[str, Any], source: Any,
+                  layer: str) -> Dict[str, Any]:
+    """PartParityBurstMetrics.Compare: every BURST_COMPARE_KEYS key, ghost minus real."""
+    c: Dict[str, Any] = {k: None for k in BURST_COMPARE_KEYS}
+    c["presence"] = burst_presence_reason(layer, real, ghost)
+    if real["onsetBin"] is not None and ghost["onsetBin"] is not None:
+        c["onsetDeltaBins"] = float(ghost["onsetBin"] - real["onsetBin"])
+    if real["peakBin"] is not None and ghost["peakBin"] is not None:
+        c["peakTimeDeltaBins"] = float(ghost["peakBin"] - real["peakBin"])
+    if real["lastCoreBin"] is not None and ghost["lastCoreBin"] is not None:
+        c["durationDelta"] = (ghost["lastCoreBin"] - real["lastCoreBin"]) / (real["lastCoreBin"] + 1)
+    if real["peakCorePx"] > 0:
+        c["peakAreaRatio"] = ghost["peakCorePx"] / real["peakCorePx"]
+    p = real["peakBin"]
+    if p is not None:
+        r, g = real["bins"][p], ghost["bins"][p]
+        if isinstance(r, dict) and isinstance(g, dict):
+            rr, gr = _num(r.get("radiusPx")), _num(g.get("radiusPx"))
+            if rr is not None and gr is not None and rr > 0:
+                c["radiusRatio"] = gr / rr
+            c["centroidOffset"] = burst_centroid_offset(r.get("coreCentroid"), g.get("coreCentroid"), source)
+            c["chromaDistance"] = _burst_chroma(r.get("chromaticity"), g.get("chromaticity"))
+            c["hueL1"] = _burst_hue_l1(r.get("hueHistogram"), g.get("hueHistogram"))
+            rl, gl = _num(r.get("luminance")), _num(g.get("luminance"))
+            if rl is not None and gl is not None and rl > 0:
+                c["brightnessRatio"] = gl / rl
+    chroma = hue = 0.0
+    nc = nh = 0
+    for r, g in zip(real["bins"], ghost["bins"]):
+        if not isinstance(r, dict) or not isinstance(g, dict):
+            continue
+        d = _burst_chroma(r.get("chromaticity"), g.get("chromaticity"))
+        if d is not None:
+            chroma += d
+            nc += 1
+        h = _burst_hue_l1(r.get("hueHistogram"), g.get("hueHistogram"))
+        if h is not None:
+            hue += h
+            nh += 1
+    if nc:
+        c["chromaDistanceMean"] = chroma / nc
+    if nh:
+        c["hueL1Mean"] = hue / nh
+    return c
+
+
+def burst_schedule_compare(real: Sequence[Dict], ghost: Sequence[Dict]) -> Dict[str, Any]:
+    """PartParityBurstMetrics.CompareSchedule: every BURST_SCHEDULE_COMPARE_KEYS key, and the
+    level under ``level``."""
+    real, ghost = list(real or []), list(ghost or [])
+    t = BURST_THRESHOLDS
+    s: Dict[str, Any] = {"realCount": len(real), "ghostCount": len(ghost),
+                         "countDiffers": len(real) != len(ghost), "indexDiffers": False,
+                         "powerDiffers": False, "maxOffsetDeltaM": None}
+    position = False
+    for r, g in zip(real, ghost):
+        if r.get("index") != g.get("index"):
+            s["indexDiffers"] = True
+        elif abs(g.get("power") - r.get("power")) > t["burstSchedulePowerEpsilon"]:
+            s["powerDiffers"] = True
+        ro, go = r.get("offsetM") or [], g.get("offsetM") or []
+        total = 0.0
+        for i in range(3):
+            d = (go[i] if len(go) > i else 0.0) - (ro[i] if len(ro) > i else 0.0)
+            total += d * d
+        d = math.sqrt(total)
+        if s["maxOffsetDeltaM"] is None or d > s["maxOffsetDeltaM"]:
+            s["maxOffsetDeltaM"] = d
+        if d > t["burstSchedulePositionToleranceM"]:
+            position = True
+    fail = s["countDiffers"] or s["indexDiffers"] or position
+    s["level"] = LEVEL_FAIL if fail else (LEVEL_WARN if s["powerDiffers"] else LEVEL_OK)
+    return s
+
+
+def burst_failing_measures(layer: str, real: Dict[str, Any], ghost: Dict[str, Any],
+                           c: Dict[str, Any]) -> List[str]:
+    """PartParityBurstMetrics.FailingMeasures: the measures over their fail line, in
+    BURST_MEASURES order (presence alone on a layer one side lacks; only presence where both
+    largest cores are weak; ``smoke`` alone on the smoke layer)."""
+    weak = real["peakCorePx"] < FX_PRESENCE_MIN_PX and ghost["peakCorePx"] < FX_PRESENCE_MIN_PX
+
+    def fails(measure: str, value: Any) -> bool:
+        return value is not None and burst_measure_level(measure, value) == LEVEL_FAIL
+
+    if layer == FX_LAYER_SMOKE:
+        bad = c["presence"] is not None or (not weak and fails("peak-area", c["peakAreaRatio"]))
+        return ["smoke"] if bad else []
+    if c["presence"] is not None:
+        return ["presence"]
+    if weak:
+        return []
+    out = [m for m, key in (("onset", "onsetDeltaBins"), ("peak-time", "peakTimeDeltaBins"),
+                            ("duration", "durationDelta"), ("peak-area", "peakAreaRatio"),
+                            ("radius", "radiusRatio"), ("centroid-offset", "centroidOffset"))
+           if fails(m, c[key])]
+    if (burst_colour_level(c["chromaDistance"], c["hueL1"]) == LEVEL_FAIL
+            or burst_colour_level(c["chromaDistanceMean"], c["hueL1Mean"]) == LEVEL_FAIL):
+        out.append("colour")
+    return out
+
+
+def _burst_value_diffs(at: str, recorded: Any, got: Any, exact: bool) -> List[str]:
+    if isinstance(got, list):
+        if not isinstance(recorded, list) or len(recorded) != len(got):
+            return ["%s:%s!=%s" % (at, recorded, got)]
+        return [d for i, (a, b) in enumerate(zip(recorded, got))
+                for d in _burst_value_diffs("%s[%d]" % (at, i), a, b, exact)]
+    if got is None or isinstance(got, str):
+        return [] if recorded == got else ["%s:%s!=%s" % (at, recorded, got)]
+    if exact:
+        ok = type(recorded) is int and recorded == got
+    else:
+        ok = not isinstance(recorded, (bool, str, list, dict)) and _float_equal(recorded, got)
+    return [] if ok else ["%s:%s!=%s" % (at, recorded, got)]
+
+
+def _burst_side_diffs(at: str, recorded: Any, got: Dict[str, Any]) -> List[str]:
+    if not isinstance(recorded, dict):
+        return ["%s: block missing" % at]
+    out: List[str] = []
+    for key in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx"):
+        out.extend(_burst_value_diffs("%s.%s" % (at, key), recorded.get(key), got[key], True))
+    return out
+
+
+def recompute_burst_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute every ``burst.views[]`` entry from the decoded burst atlas, and the schedule
+    diff from the schedule; return the differences with the sidecar. Each bin's tile is
+    measured; each side's summary and the comparison are recomputed from those measures; the
+    split halves have no tiles, so their comparisons are recomputed from their own recorded
+    side blocks. An atlas whose layout does not match ``burst.atlas`` is itself a difference."""
+    width, height, _bpp, pixels = atlas
+    burst = sidecar.get("burst") if isinstance(sidecar.get("burst"), dict) else {}
+    meta = burst.get("atlas") if isinstance(burst.get("atlas"), dict) else {}
+    tile, bins = meta.get("tile"), meta.get("bins")
+    rows, views = meta.get("rows"), meta.get("views")
+    if type(tile) is not int or tile <= 0 or type(bins) is not int or bins <= 0:
+        return ["burst atlas block unusable: tile=%s bins=%s" % (tile, bins)]
+    if list(rows or []) != list(BURST_ATLAS_ROWS) or not isinstance(views, list) or not views:
+        return ["burst atlas rows=%s views=%s" % (rows, views)]
+    if (width, height) != (len(views) * bins * tile, len(rows) * tile):
+        return ["burst atlas is %dx%d, the block says %dx%d" % (
+            width, height, len(views) * bins * tile, len(rows) * tile)]
+    samples = burst.get("samples") if isinstance(burst.get("samples"), dict) else {}
+    diffs: List[str] = []
+    for e in burst.get("views") or []:
+        view, layer = e.get("view"), e.get("layer")
+        at = "%s:%s" % (view, layer)
+        if view not in views or layer not in BURST_LAYERS:
+            diffs.append("%s: not in the atlas" % at)
+            continue
+        source = e.get("source") if isinstance(e.get("source"), dict) else {}
+        got_sides: Dict[str, Dict[str, Any]] = {}
+        for side in BURST_SIDE_KEYS:
+            n_of = samples.get(side)
+            if not isinstance(n_of, list) or len(n_of) != bins:
+                diffs.append("%s: burst.samples.%s=%s" % (at, side, n_of))
+                break
+            row = rows.index("%s-%s" % (side, layer))
+            measured = []
+            for b in range(bins):
+                n = n_of[b]
+                if type(n) is not int or not 0 <= n <= FX_MAX_SAMPLES:
+                    diffs.append("%s: %s samples[%d]=%s" % (at, side, b, n))
+                    break
+                m, problems = burst_measure_bin(pixels, width, (views.index(view) * bins + b) * tile,
+                                                row * tile, tile, n, source.get("%sPx" % side))
+                diffs.extend("%s.%s.bins[%d]: %s" % (at, side, b, p) for p in problems)
+                measured.append(m)
+            recorded = (e.get(side) or {}).get("bins") if isinstance(e.get(side), dict) else None
+            if not isinstance(recorded, list) or len(recorded) != len(measured):
+                diffs.append("%s.%s.bins: %s entries, %d measured" % (
+                    at, side, None if not isinstance(recorded, list) else len(recorded), len(measured)))
+                continue
+            for b, (rec, m) in enumerate(zip(recorded, measured)):
+                for key in BURST_BIN_MEASURE_KEYS:
+                    diffs.extend(_burst_value_diffs("%s.%s.bins[%d].%s" % (at, side, b, key),
+                                                    (rec or {}).get(key), m[key], key in BURST_EXACT_KEYS))
+            got_sides[side] = burst_measure_side(measured)
+            diffs.extend(_burst_side_diffs("%s.%s" % (at, side), e.get(side), got_sides[side]))
+        if len(got_sides) == 2:
+            got = burst_compare(got_sides["real"], got_sides["ghost"], source, layer)
+            for key in BURST_COMPARE_KEYS:
+                diffs.extend(_burst_value_diffs("%s.compare.%s" % (at, key),
+                                                (e.get("compare") or {}).get(key), got[key], False))
+        halves = e.get("splitHalf") if isinstance(e.get("splitHalf"), dict) else {}
+        for half in FX_SPLIT_HALF_KEYS:
+            h = halves.get(half)
+            if not isinstance(h, dict) or not isinstance(h.get("real"), dict) or not isinstance(h.get("ghost"), dict):
+                diffs.append("%s.splitHalf.%s: block missing" % (at, half))
+                continue
+            sides = {s: burst_measure_side(h[s].get("bins") or []) for s in BURST_SIDE_KEYS}
+            for s in BURST_SIDE_KEYS:
+                diffs.extend(_burst_side_diffs("%s.splitHalf.%s.%s" % (at, half, s), h[s], sides[s]))
+            got = burst_compare(sides["real"], sides["ghost"], source, layer)
+            for key in BURST_COMPARE_KEYS:
+                diffs.extend(_burst_value_diffs("%s.splitHalf.%s.compare.%s" % (at, half, key),
+                                                (h.get("compare") or {}).get(key), got[key], False))
+    schedule = burst.get("schedule") if isinstance(burst.get("schedule"), dict) else {}
+    got = burst_schedule_compare(schedule.get("real") or [], schedule.get("ghost") or [])
+    recorded = burst.get("scheduleCompare") if isinstance(burst.get("scheduleCompare"), dict) else {}
+    for key in BURST_SCHEDULE_COMPARE_KEYS:
+        exact = key != "maxOffsetDeltaM"
+        if isinstance(got[key], bool):
+            if recorded.get(key) is not got[key]:
+                diffs.append("scheduleCompare.%s:%s!=%s" % (key, recorded.get(key), got[key]))
+        else:
+            diffs.extend(_burst_value_diffs("scheduleCompare.%s" % key, recorded.get(key), got[key], exact))
+    return diffs
