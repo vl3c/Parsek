@@ -17,6 +17,8 @@ Not released yet.
 
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
+- **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
+  while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 - **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and
   ladders opened only once the recorded part had finished. (GHOST-DEPLOY-MOTION-TIMING-2026-11-26)
 

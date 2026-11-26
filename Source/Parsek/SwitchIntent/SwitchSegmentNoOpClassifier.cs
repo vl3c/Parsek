@@ -266,9 +266,17 @@ namespace Parsek
         /// committed original (which survives in <c>committedTrees</c>, copy-on-write)
         /// loses no replayable content. Dock targets / descendants are caught via
         /// the post-anchor Docked / Decoupled / branch part events.</para>
+        ///
+        /// <para><paramref name="sinceIsCommittedEnd"/>: the anchor is the committed
+        /// recording's end instead of the resume. A promotion state event
+        /// (<see cref="PartStateSeeder.EmitPromotionStateEvents"/>) can be stamped exactly there,
+        /// the recording's last interesting moment, so one AT the anchor is the resume's account
+        /// of how the vessel already stood and does not count; the resume's own first poll comes
+        /// later.</para>
         /// </summary>
         internal static bool IsNoOpResumeTail(
-            Recording segment, double sinceUT, out string keepReason)
+            Recording segment, double sinceUT, out string keepReason,
+            bool sinceIsCommittedEnd = false)
         {
             keepReason = null;
 
@@ -316,6 +324,12 @@ namespace Parsek
                 for (int i = 0; i < segment.PartEvents.Count; i++)
                 {
                     PartEvent evt = segment.PartEvents[i];
+                    if (sinceIsCommittedEnd && evt.ut == sinceUT
+                        && PartStateSeeder.IsPromotionStateEvent(evt.eventType))
+                    {
+                        passive.StateSeeds++;
+                        continue;
+                    }
                     if (evt.ut >= sinceUT && IsMeaningfulPartEvent(evt, segment, ref passive))
                     {
                         keepReason = "part-event:" + evt.eventType;
@@ -517,6 +531,10 @@ namespace Parsek
         /// actually moved is caught by the surface-motion or environment gates.</item>
         /// <item>An EvaJetpackDeployed at the owner's start UT is the promotion seed of a pack
         /// that was already out, so it does not count; a later one is the player's.</item>
+        /// <item>A part state (parachute, deployable, gear, bay, wheel, shroud, fairing) at the
+        /// owner's start UT is the promotion's account of how the vessel already stood
+        /// (<see cref="PartStateSeeder.EmitPromotionStateEvents"/>), so it does not count either;
+        /// the recorder's own first poll comes a physics frame later.</item>
         /// <item>Cosmetic light / thermal-animation events never count.</item>
         /// </list>
         /// </summary>
@@ -590,8 +608,15 @@ namespace Parsek
                     }
                     return true;
 
-                // Everything structural / geometry - meaningful.
+                // Everything structural / geometry - meaningful, unless it is a promotion state
+                // event stamped at the segment's start.
                 default:
+                    if (owner != null && evt.ut <= owner.StartUT
+                        && PartStateSeeder.IsPromotionStateEvent(evt.eventType))
+                    {
+                        passive.StateSeeds++;
+                        return false;
+                    }
                     return true;
             }
         }
@@ -872,13 +897,14 @@ namespace Parsek
             public int StopTransitions;
             public int Ragdoll;
             public int JetpackSeeds;
+            public int StateSeeds;
             public int SurfaceSettleSections;
             public bool DisplacementMeasured;
             public bool DisplacementKnown;
             public double DisplacementMeters;
 
             public bool Any => WheelRobotic > 0 || StopTransitions > 0 || Ragdoll > 0
-                || JetpackSeeds > 0 || SurfaceSettleSections > 0;
+                || JetpackSeeds > 0 || StateSeeds > 0 || SurfaceSettleSections > 0;
         }
 
         private static void LogPassiveSignalsIgnored(
@@ -890,7 +916,7 @@ namespace Parsek
                 $"{check}: no-op despite passive signals rec={rec?.RecordingId ?? "<null>"} " +
                 $"sinceUT={(double.IsNaN(sinceUT) ? "none" : sinceUT.ToString("R", CultureInfo.InvariantCulture))} " +
                 $"wheelRobotic={passive.WheelRobotic} stopTransitions={passive.StopTransitions} " +
-                $"ragdoll={passive.Ragdoll} jetpackSeeds={passive.JetpackSeeds} settleSections={passive.SurfaceSettleSections} " +
+                $"ragdoll={passive.Ragdoll} jetpackSeeds={passive.JetpackSeeds} stateSeeds={passive.StateSeeds} settleSections={passive.SurfaceSettleSections} " +
                 $"surfaceMoveM={(passive.DisplacementKnown ? passive.DisplacementMeters.ToString("F2", CultureInfo.InvariantCulture) : "n/a")}");
         }
 

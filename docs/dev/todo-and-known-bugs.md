@@ -317,22 +317,64 @@ By reading the callers only; none of these has its own lane. The two promotions 
 redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
 Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
 
-## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+## ~~PART-STATES-LOST-AT-PROMOTION~~: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; owner approved the fix 2026-11-24; FIXED 2026-11-24, branch `part-states-promotion`; LIVE-PROVEN 2026-11-26 (PSP-1 `2026-11-26_1811`); visual, low]
 
-The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
-engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
-ladders, fairings, animation groups and aero surfaces are post-switch triggers
-(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
-trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
-lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
-way. The fix shape is the same (compare the live state with the recording's last word); it needs its
-own pass because deployables are exactly the family bug A / #263 is about. Since
-SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
-polled by the background recorder up to and including the trigger frame, so its changes are recorded;
-what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
-headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
-mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
-recorder clears `thrustingJetpackParts`. No flight has shown any of these.
+What was really lost, family by family, by reading every promotion caller (`StartRecording(isPromotion: true)`):
+
+- A TRACKED member (post-switch watch, board promotion): since SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER
+  the background recorder polls it up to and including the trigger frame, so parachutes (EVA too), lamps,
+  shrouds, fairings, panels, gear, bays, ladders, animation groups, surfaces, wheels, heat and the deployable
+  that fired the trigger are recorded. The one family it does not poll is a cabin light (ModuleColorChanger,
+  `BackgroundRecorder.CheckLightState` reads ModuleLight only): LOST.
+- A FRESH recording (the five `BindLiveRecorderToSwitchSegment` routes, a split's active half, a seat
+  dismount, a merge): its ghost spawns from the start snapshot captured in the same recorder start
+  (`SnapshotPartBaseline`, the #290 shroud read, the fairing `fsm`), so panels, broken panels, wheels, gear,
+  bays, ladders, animations, surfaces, parachutes, lights, shrouds and fairings were drawn right with no event.
+  Three states are in no snapshot key the ghost reads: part heat (ModuleAnimateHeat), an EVA kerbal's
+  parachute (the reader matches `ModuleParachute` by name, his is `ModuleEvaChute`) and a robot arm
+  scanner: LOST.
+- A RESUMED recording (in-place resume of a committed recording, F9 restore): the ghost snapshot is the old
+  start, so every family that changed with no recorder running is LOST, and one quickload case too: an F5
+  taken while a panel, bay or gear was moving back leaves the resumed recorder with nothing to close, so
+  the ghost keeps it out for good.
+
+Stock keeps all of these across a save (heat follows the part temperature), so the live vessel shows the new
+state in each case and the ghost did not.
+
+Fix (`PartStateSeeder.EmitPromotionStateEvents`, last step of the promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): the states the recording's ghost would show (its start
+snapshot, then its recorded events, `BuildShownStates`) are diffed with the live parts through the rails-span
+differ, and only the differences are written, in both directions (a repair, a retraction, a light off, heat
+gone, a chute cut or repacked write their own event; a shroud and a fairing are one-way). Nothing is written for
+a state the snapshot or an event already carries, so most promotions write nothing. `SnapshotPartBaseline`'s
+reader moved from the Ghost module to Recording (`PartStateSeeder.SnapshotBaseline.cs`, the ghost builder
+forwards to it) so the recorder and the ghost read one snapshot the same way. UT: the recording's last interesting moment
+when it lies before the promotion, else the part's own last event, else the recording's start. It is later
+than the jetpack seed's rule on purpose: a deploy event at a recording's start redraws the whole recorded
+flight with a panel that opened later (a jetpack event alone draws nothing); the last interesting moment is
+the latest UT that cannot move the tail trim (bug A / #263). A do-nothing visit is still discarded: those UTs
+lie before the visit, and the checks that read from a segment's start (`IsNoOpSegment`) or a committed
+recording's end (`RefusedResumedCopyTail`) ignore such an event exactly there. No format change. Tests: `PromotionPartStateTests` (16 families, both directions, snapshot and event evidence, trim and
+no-op), and `PromotionConverterSeedInGameTest` also resets over an unchanged live vessel and expects nothing.
+
+Live proof (Debug automation DLL sha256 prefix 077cbda8, evidence `logs/flights/part-states/`): PSP-1 PASS attempt 1
+on `2026-11-26_1811`. A wheel broken while recording, the panel broken while no recorder ran, a save and reload: the
+in-place resume wrote `Seed event: DeployableBroken pid=2967988029 midx=0 part='solarPanels2' ut=36.18 (promotion)`
+(the recording's last interesting moment) and nothing else, the two unchanged resumes wrote nothing, and the replay
+applied both breaks. On the same DLL MINE-15 (an unchanged rover with drills, panels and lights writes nothing), EVA-17
+and S0.16 (an F9 inside a switch segment writes nothing) passed attempt 1.
+
+Left as is: a kerbal's helmet and headlamp have no part event at all, on any path (a recording-format question).
+The mid-burst quickload is QUICKLOAD-LEAVES-A-BURST-OPEN.
+
+## QUICKLOAD-LEAVES-A-BURST-OPEN: a quickload taken in mid-burst leaves a jetpack or RCS start with no stop until the next burst ends [FILED 2026-11-24, split from PART-STATES-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+An F5 while a kerbal's pack (or an RCS block) is firing saves `EvaJetpackThrustStarted` / `RCSActivated`
+without its stop; after the F9 nothing fires, the resumed recorder's `thrustingJetpackParts` /
+`activeRcsKeys` start without it, so no poll ever writes the stop and the ghost's plume runs until the next
+burst ends. A separate mechanism from a lost part state: the truth is an interval that ended at the load, so its
+stop belongs at the quicksave UT, not at the recording's last interesting moment, and a burst that is open at
+the end of a committed recording must not be drawn across the gap to a later resume. No flight has shown it.
 
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
