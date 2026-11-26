@@ -11064,7 +11064,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GM-1-scenario-saves-inert.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-INERT-GAME-MODES's lane on the derived fixture `gm-scenario-modes` (stock-minimal, b1-pad-craft restamped): a stock SCENARIO save carrying a Parsek node and a stock SCENARIO_NON_RESUMABLE training save loaded into FLIGHT; the inert game-mode lines, the refused StartRecording, the inert OnLoad stash / OnSave write-back round trip and no normal ParsekScenario load, save or backup pinned. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight, then a daily promotion call (no warps, three loads)",
         "MC-6-route-rewind-timeline-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of H6 on modded-compat (not in the nightly instance set): H6's RouteRewindTimeline batch on gloops-airshow, steps and contracts verbatim, the batch split interim until the first flight. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
         "MC-7-rewind-merge-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of S4.1 on modded-compat (not in the nightly instance set): the B9 Re-Fly merge cycle on gloops-airshow + rewind-b9, steps and contracts verbatim, the rewind block report-only until a green reading. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
-        "PSP-1-part-state-across-in-place-resume.toml": "tier=operator by the calibration discipline (authored 2026-11-24, never flown, tag `pending-flight`), NOT debt; todo PART-STATES-LOST-AT-PROMOTION on PBR-1's host `pbr-break-rover` (stock-minimal): a wheel broken while recording and committed, the panel broken while no recorder runs, the rover saved and reloaded so its committed recording resumes in place; one DeployableBroken promotion seed, none on the unchanged auto-resume before it, and both breaks applied on the ghost after Rewind-to-Launch. Owed: its first flight",
+        "PSP-1-part-state-across-in-place-resume.toml": "tier=operator by the calibration discipline (authored 2026-11-24, LIVE-PROVEN 2026-11-26 `2026-11-26_1811`, tag `flown`), NOT debt; todo PART-STATES-LOST-AT-PROMOTION on PBR-1's host `pbr-break-rover` (stock-minimal): a wheel broken while recording and committed, the panel broken while no recorder runs, the rover saved and reloaded so its committed recording resumes in place; one DeployableBroken promotion seed, none on the unchanged auto-resume before it, and both breaks applied on the ghost after Rewind-to-Launch. Owed: the ordinary promotion call",
         "PBR-1-panel-wheel-break-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-PART-BREAKS's flight lane on the derived fixture `pbr-break-rover` (stock-minimal, MINE-6 / SRV-1's rover pair with one RTG swapped for a retracted SP-L 1x6): the panel and a rover wheel broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; both recorder break edges, the ghost's break-subtree map and both apply lines pinned. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
         "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-rover` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, swung +90 / -90 by PartAction servomax / servomin while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away, the recorder's live hinge angle, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. First flight 2026-11-20 red on the old pad host (lane design and todo RECORDER-SERVO-ANGLE-PAW-ONLY), REDESIGNED 2026-11-21, never flown since; owed: its re-flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1151`, runner run b3-flights-4); owed: the ordinary promotion call",
         "SRV-2-rotor-spin-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo RECORDER-ROTOR-RPM-PAW-ONLY's flight lane on the derived fixture `srv-rotor-rover` (stock-tree, SRV-1's install, not in the nightly instance set): an EM-16 rotor carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, engaged by PartAction rotoron, held at 30 RPM and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the recorder's live RPM read and steady-spin moving signal, the ghost's follower plan / bind, first rotor spin and first re-pose pinned. AUTHORED 2026-11-21, NEVER FLOWN; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1227`, its third: a seam fix and a lane fix, runner run b3-flights-6); owed: the ordinary promotion call",
@@ -25180,17 +25180,16 @@ S17_FLOWN_BATCH_LINE = (
 S17_FLOWN_BATCH_LINE_2026_11_12 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-# PREDICTED 2026-11-24: IconRevealDriveInGameTest (todo
+# READ 2026-11-24: IconRevealDriveInGameTest (todo
 # MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24) moved the category to total=22. Both lines
-# below are predictions until S1.7 flies: the tally is the attribute derivation with the
-# one batch-disabled canary as its skip, the cell line is what the cell prints when the
-# reveal places the icon. Replace them with the read lines at the next flight.
+# below are the ones `2026-11-24_1630_S1.7-maprender-parity` (PASS attempt 1) printed: the
+# predicted tally held, with the one batch-disabled canary as its skip.
 S17_EXPECTED_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
 S17_EXPECTED_ICON_REVEAL_LINE = (
-    "[Parsek][INFO][TestRunner] IconRevealDrive: pid=2361972787 frame=4211"
-    " staleMeters=1534221 placedMeters=0.031 drawIcons=OBJ suppressed=False"
+    "[Parsek][INFO][TestRunner] IconRevealDrive: pid=3794203339 frame=10021"
+    " staleMeters=1472037 placedMeters=0.000 drawIcons=OBJ suppressed=False"
     " lineActive=True testFrameUnchanged=True")
 S17_MEASURED_BATCH_LINE = S17_EXPECTED_BATCH_LINE
 # The runner's accounting for the single skip.
@@ -25277,9 +25276,9 @@ class MapRenderParityScenarioTests(unittest.TestCase):
         good = S17_EXPECTED_ICON_REVEAL_LINE
         self.assertIsNotNone(re.search(pat, good))
         for repl, why in (
-                (("placedMeters=0.031", "placedMeters=1534221.000"),
+                (("placedMeters=0.000", "placedMeters=1472037.000"),
                  "the icon shown where stock left it"),
-                (("staleMeters=1534221", "staleMeters=12"),
+                (("staleMeters=1472037", "staleMeters=12"),
                  "a hide that never moved the icon (the cell proves nothing)"),
                 (("drawIcons=OBJ", "drawIcons=NONE"), "an icon never shown"),
                 (("suppressed=False", "suppressed=True"),

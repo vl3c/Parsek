@@ -2,7 +2,8 @@ schema = 1
 id = "PSP-1-part-state-across-in-place-resume"
 # =====================================================================================
 # PSP-1: A PANEL BROKEN WHILE NO RECORDER RAN IS WRITTEN WHEN THE RECORDING IS RESUMED, AND
-# THE GHOST LOSES IT (todo PART-STATES-LOST-AT-PROMOTION). AUTHORED 2026-11-24.
+# THE GHOST LOSES IT (todo PART-STATES-LOST-AT-PROMOTION). AUTHORED 2026-11-24, LIVE-PROVEN 2026-11-26
+# (`2026-11-26_1811`, PASS attempt 1, 137 s).
 #
 # WHY. A recorder that takes a recording over (a promotion) skips the full seed set (bug A /
 # #263), so a part state that changed while nothing recorded it was in no event and the ghost
@@ -38,14 +39,14 @@ id = "PSP-1-part-state-across-in-place-resume"
 #   - the seed's ut= at or after the reload: the tail-trim rule is broken.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: PBR-1's host, verbs and shape. (2)
-# explicit-UT WarpToUT only. (3) 3-7 s holds. (4)/(5) no burns or coasts. (6) retry `once`
-# until the first green flight. (7) recordings window 1..3 until measured. (8) operator until
+# explicit-UT WarpToUT only. (3) 3-7 s holds. (4)/(5) no burns or coasts. (6) retry `none` since
+# the first green flight. (7) recordings window 1..3 until measured. (8) operator until
 # measured. (9) flight_efficiency.py after the first green flight. Takes no mouse or focus.
 tier = "operator"
-description = "AUTHORED 2026-11-24 (todo PART-STATES-LOST-AT-PROMOTION): on pbr-break-rover a wheel is broken while recording and committed, then the solar panel is broken while no recorder runs, and the rover is saved and reloaded so its committed recording resumes in place; the resume must write one DeployableBroken seed (none on the unchanged auto-resume before it, no second WheelBroken), and after Rewind-to-Launch the ghost must apply both breaks."
+description = "LIVE-PROVEN 2026-11-26 (todo PART-STATES-LOST-AT-PROMOTION): on pbr-break-rover a wheel is broken while recording and committed, then the solar panel is broken while no recorder runs, and the rover is saved and reloaded so its committed recording resumes in place; the resume must write one DeployableBroken seed (none on the unchanged auto-resume before it, no second WheelBroken), and after Rewind-to-Launch the ghost must apply both breaks."
 instanceProfile = "stock-minimal"
 tags = ["PSP-1", "part-events", "promotion", "in-place-resume", "deployable-broken", "wheel-damage",
-        "ghost-render", "rewind-to-launch", "pending-flight"]
+        "ghost-render", "rewind-to-launch", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/pbr-break-rover"
@@ -151,7 +152,7 @@ forbidden = [
 budgetSeconds = 3000
 
 [retry]
-policy = "once"
+policy = "none"
 
 [expectedFail]
 bugId = ""
