@@ -379,7 +379,7 @@ namespace Parsek.InGameTests
                         // persisted SPIN key at all, so they are deliberately baseline-less.
                         // Asking the resolver rather than re-deriving the rule keeps this
                         // cell honest if the family set ever moves.
-                        if (!GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+                        if (!PartStateSeeder.TryResolveSnapshotRoboticPoseKey(
                                 name, out string resolvedKey))
                             continue;
                         candidate = ap;

@@ -19,7 +19,7 @@ namespace Parsek.InGameTests
         private const string Tag = "TestRunner";
 
         [InGameTest(Category = "PromotionConverterSeed", Scene = GameScenes.FLIGHT,
-            Description = "A promotion into a fresh branch seeds ConverterActivated for each running converter; a recording that already has a converter edge gets none")]
+            Description = "A promotion into a fresh branch seeds ConverterActivated for each running converter; a recording that already has a converter edge, or whose start snapshot already shows the vessel as it is, gets no other seed")]
         public void PromotionSeedsRunningConverters()
         {
             Vessel v = FlightGlobals.ActiveVessel;
@@ -64,6 +64,22 @@ namespace Parsek.InGameTests
                     "running converter part pid=" + pid + " has no ConverterActivated seed");
             InGameAssert.AreEqual(0, nonConverterSeeds,
                 "a promotion must not emit the non-engine, non-converter seeds (bug A / #263)");
+
+            // A recording whose start ghost snapshot shows the vessel exactly as it is now (a
+            // split child, an unchanged F9 resume): the live readers and the snapshot reader must
+            // agree on every part, so the part state reconcile writes nothing.
+            var snapshotted = BuildRecorder("promo-seed-snapshot", null);
+            ConfigNode startSnapshot = FlightRecorder.TryBackupSnapshot(v);
+            InGameAssert.IsNotNull(startSnapshot, "the vessel must back up to a snapshot");
+            snapshotted.ActiveTree.Recordings["promo-seed-snapshot"].GhostVisualSnapshot = startSnapshot;
+            snapshotted.ResetPartEventTrackingState(v, emitSeedEvents: false);
+            for (int i = 0; i < snapshotted.PartEvents.Count; i++)
+            {
+                PartEvent e = snapshotted.PartEvents[i];
+                InGameAssert.IsFalse(PartStateSeeder.IsPromotionStateEvent(e.eventType),
+                    "an unchanged vessel got a part state event: " + e.eventType + " part='"
+                    + e.partName + "' midx=" + e.moduleIndex.ToString(CultureInfo.InvariantCulture));
+            }
 
             // A recording that already carries a converter edge keeps its own state.
             var edged = BuildRecorder("promo-seed-edged", new PartEvent

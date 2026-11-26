@@ -17,6 +17,8 @@ Not released yet.
 
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
+- **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
+  while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 
 ## 1.0.3
 
