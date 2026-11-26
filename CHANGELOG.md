@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Fixed
+
+- **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
+  speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
+
 ## 1.0.3
 
 ### Added
