@@ -3432,7 +3432,7 @@ already.
 | 3 | Custom explosion | `GhostVisualBuilder.SpawnExplosionFx` (`TransientFx.cs:380`): additive fireball (200 to 300 particles, sized by vessel length, gravity 0.15, noise) + alpha-blended smoke child, destroyed after 5 s | always in the Space Center scene (`ParsekKSC.cs:2245`: FXMonger lives in FLIGHT only); in flight when the pause menu is open or `FXMonger.Explode` failed | none in the Space Center (stock simulates no vessel there); the look to match is the FXMonger prefab of the same power | a hand-built fireball, never compared with the prefab it stands in for |
 | 4 | Part puff | `GhostVisualBuilder.SpawnPartPuffFx` (`TransientFx.cs:113`): alpha smoke burst + additive sparks, sized by the part's first renderer (`bounds.size.magnitude * 0.5`), destroyed after 3 s | (a) every recorded `Decoupled` event, on the joint CHILD (`ApplyDecoupledPartEvent`, `PartEvents.cs:636`; the recorder writes it for the child of any joint break, `FlightRecorder.RecordJointBreakDecoupledEvent`, `FlightRecorder.PartEvents.cs:475`); (b) a destroyed part when FXMonger is not live, failed, or the pause menu is open | (a) a decoupler that fires bursts its `decouple` FXGroup (`ModuleDecouplerBase.fxGroupName`, `FXGroup.Burst`): the legacy `fx_gasBurst_white` plus `sound_decoupler_fire`, on the decoupler part (30 parts on stock-minimal); any other joint break draws nothing; (b) the FXMonger prefab of row 2 | (a) smoke and sparks at the child where stock shows a white gas burst at the decoupler, and a puff on breaks stock draws nothing for; (b) a puff where stock shows an explosion |
 | 5 | Launch dust | `GhostVisualBuilder.TryBuildLaunchDust` (`TransientFx.cs:509`), driven by `GhostPlaybackEngine.UpdateLaunchDust` (`ReentryFx.cs:179`) | any engine lit and the ghost ROOT within 40 m above a ground altitude latched once from the first trajectory point with a finite `recordedGroundClearance`; intensity `min(1, sum of engine powers * (1 - agl / 40))`; one additive particle disc (radius 4 m) at the ghost root | `ModuleSurfaceFX` per engine (39 parts on stock-minimal, 53 on modded-compat and modded-restock): a raycast from the thrust transform along its forward, up to `maxDistance` (50 m default); `ScaledFX = thrust / maxThrust * fxMax * (1 - d / maxDistance)^falloff`; a `SurfaceFX` prefab (cloud and dust systems) at the HIT POINT on terrain, a water prefab (wake) over the ocean, and on a collider tagged `LaunchpadFX` no dust but the pad's own FX | see G.8: placement, plane, shader, surface type, ground reference |
-| 6 | Reentry fire | `GhostVisualBuilder.TryBuildReentryFx` (`HeatAndReentryFx.cs:582`): mesh-surface additive particles (world space, 0.1 to 0.35 s) + an additive shell redrawn 4 times behind the ghost with `Graphics.DrawMesh` | `ComputeReentryIntensity` (`HeatAndReentryFx.cs:1083`) above 0.02, from the ghost's surface speed, `body.GetDensity` at its altitude and Mach | `AerodynamicsFX` on the ACTIVE vessel only: `FxScalar = min(1, (0.5 d' v^3.5 - p0) / (5 p0))`, `p0 = 8e6`, `d' = 0.0091 rho^0.5 + 0.09 rho^2` (faded toward 0 below rho 0.0015); colour and length blend from condensation (white) to plasma (orange) by `state = InverseLerp(2.5, 3.75, Mach)`; in air thinner than 0.25 kg/m3 the condensation share fades (`FxScalar *= Lerp(a, 1, state)`, `a = (rho - 0.0875) / 0.1625`, 0 below 0.0875), so there stock too is dark below Mach 2.5; drawn by `FXCamera`, a camera parented to the flight camera that re-renders layer 0 with replacement shaders extruded along -velocity, plus an `fxLight` lighting the vessel; never drawn on a non-active vessel | the intensity curve is not stock's (G.8); no light |
+| 6 | Reentry fire | `GhostVisualBuilder.TryBuildReentryFx` (`HeatAndReentryFx.cs:582`): mesh-surface additive particles (world space, 0.1 to 0.35 s) + an additive shell redrawn 4 times behind the ghost with `Graphics.DrawMesh` | `ComputeReentryIntensity` (`HeatAndReentryFx.cs:1083`) above 0.02, from the ghost's surface speed, `body.GetDensity` at its altitude and Mach | `AerodynamicsFX`, from the ACTIVE vessel's conditions but drawn on whatever the camera sees near it (below): `FxScalar = min(1, (0.5 d' v^3.5 - p0) / (5 p0))`, `p0 = 8e6`, `d' = 0.0091 rho^0.5 + 0.09 rho^2` (faded toward 0 below rho 0.0015); colour and length blend from condensation (white) to plasma (orange) by `state = InverseLerp(2.5, 3.75, Mach)`; in air thinner than 0.25 kg/m3 the condensation share fades (`FxScalar *= Lerp(a, 1, state)`, `a = (rho - 0.0875) / 0.1625`, 0 below 0.0875), so there stock too is dark below Mach 2.5; drawn by `FXCamera`, a camera parented to the flight camera that re-renders what it sees with replacement shaders extruded along the active vessel's -velocity, so a staged booster or any other part in view near the camera wears the same fire, plus an `fxLight` lighting the vessel | the intensity curve is not stock's (G.8); no light |
 | 7 | Reentry glow | Layer A of the same build (`CollectReentryGlowMaterials`, `ReentryFx.cs` `DriveReentryLayers`): every non-heat-managed material's emissive pushed toward a hot colour above `ReentryLayerAThreshold` | the same intensity | blackbody glow of every hot part of ANY loaded vessel: `_TemperatureColor` from `PhysicsGlobals.GetBlackBodyRadiation(skinTemperature)` above about 798 K, per part, from its own heating history | intensity-driven and uniform over the ghost, where stock is per part and lags the heating |
 | 8 | Ablator char | `GhostPlaybackLogic.ApplyColorChangerCharState` from the same intensity | the same intensity | `ModuleAblator`'s char colour changer from the ablator's own state (8 parts on stock-minimal, 12 modded) | intensity-driven, not ablation-driven |
 | 9 | (none) condensation / Mach effects | - | never: intensity is 0 below Mach 2.5 | `AerodynamicsFX` with `state < 1`: white condensation streaks whenever `FxScalar > 0` in air denser than 0.0875 kg/m3 (full strength above 0.25), on the active vessel | missing on the ghost |
@@ -3444,12 +3444,26 @@ Not in P9: a replayed flag is a real stock `FlagSite` vessel (`GhostVisualBuilde
 P8; row 11 is listed for completeness and planned later (G.7, X9), because a kerbal is not a part
 case and the jetpack is another session's open work (todo EVA-JETPACK-LIVE-LANES-2026-11-23).
 
-Camera dependence, stock side. Only rows 6 and 9 depend on the flight camera: `AerodynamicsFX`
-reads `FlightGlobals.ActiveVessel` in its `Update`, its `FXCamera` is a child of
-`FlightCamera.fetch.mainCamera`, and its velocity camera is an ortho depth camera on layer 0
-(`cullingMask = 1`) sized from the active vessel. So the part sweep's capture camera (D4) never
-sees them, and a stock reentry can only be photographed from the flight camera with the real
-vessel active. Rows 1, 2, 4, 5, 7, 8 and 10 are ordinary scene objects or materials of any loaded
+Camera dependence, stock side. Only rows 6 and 9 depend on the flight camera. Rev 1 said stock
+draws them on the active vessel only; the owner doubted it (2026-11-26) and the decompile agrees
+with him. `AerodynamicsFX` takes ONE set of conditions, the active vessel's (surface velocity,
+`atmDensity`, `mach`, read in its `Update`), and hands them to `FXCamera` as global shader values
+(`_LightDirection0` = the effect direction, `_FXColor`, `_FxLength`, ...). `FXCamera` is a second
+camera parented to `FlightCamera.fetch.mainCamera`, with the flight camera's field of view and a far
+clip of at least its prefab value (300 m by the field default) or the camera distance plus the
+vessel bounds, and it re-renders what it sees through replacement shaders keyed on `RenderType`.
+Its occlusion map is an ortho depth camera on layer 0 (`cullingMask = 1`), centred on the camera
+pivot and sized to the camera distance (at least the active vessel's size). Nothing in either
+class names a vessel. So the fire is drawn on every opaque object that camera renders near the
+camera:
+- the active vessel;
+- a booster staged during entry;
+- debris;
+- any other loaded vessel in view;
+all with the active vessel's direction and strength. A vessel reentering while the active vessel
+is slow shows none, and so does one beyond the camera's reach (X0 U8 measures both). So the part
+sweep's capture camera (D4) never sees the effect. A stock reentry is photographed from the
+flight camera, with the real vessel active or beside the active vessel. Rows 1, 2, 4, 5, 7, 8 and 10 are ordinary scene objects or materials of any loaded
 vessel: FXMonger prefabs are instantiated unparented in world space, `SurfaceFX` registers its
 systems with `FloatingOrigin`, blackbody and char are part materials. The rig camera sees those.
 
@@ -3471,7 +3485,7 @@ vessel-scale crash, reentry or launch is a flight, not a part case.
 | joint break puff (4a) | rig, burst | held 2-part case, the joint broken directly (`Part.decouple()` on a non-decoupler) | the same event | stock draws nothing; the ghost's puff must read `fx-extra` until fixed |
 | launch dust (5) | rig, steady | engine held nose up, nozzle down, at h above terrain or water near KSC in the new context `ground` (F7's held surface slot), burning on the independent throttle under the propellant cheat (E.2) | event route: the burning engine's ghost, with the dust driven from a one-point trajectory stub (ground reference = the terrain altitude under the slot) | `SurfaceFX` and the ghost disc both reach a plateau in seconds, so P8's warm-up and plateau rule applies |
 | pad launch dust (5, `LaunchpadFX`) | flight | a launch from the pad | its replay | the pad's own FX belongs to the pad facility, which a held case may not reach (X0 U4) |
-| reentry fire, glow, char, condensation (6 to 9) | flight | the real probe reentering as the ACTIVE vessel, flight camera | its ghost replayed in watch mode at the same UT and camera pose, the active vessel parked in orbit | stock draws only for the active vessel through the flight camera |
+| reentry fire, glow, char, condensation (6 to 9) | flight | the real probe reentering as the ACTIVE vessel, flight camera | its ghost replayed in watch mode at the same UT and camera pose, the active vessel parked in orbit | stock draws it from the active vessel's conditions through the flight camera, onto what is in view near it |
 | vessel crash (1, 2) | flight | a real crash on terrain | its replay | the stock cascade of part blasts over the impact cannot be staged with held parts |
 | splash (10) | flight | the reentry probe's splashdown | its replay | water entry at speed |
 
@@ -3555,7 +3569,9 @@ toggles, in `Source/Parsek/InGameTests/` or `TestCommands/`, never in `Ghost/`.
   `graze-low-probe-stack`, decided by X0 U7). Marks at fixed UTs chosen from the reading flight's
   Mach and density trace: one above the atmosphere (75 km, no effect on either side), Mach 2.0
   (condensation only where the air is dense enough), 2.5, 3.0, 3.75 (full plasma), peak heating,
-  Mach 1.5 on the way down, and the splash. Camera: the flight camera at a fixed pose relative to the
+  Mach 1.5 on the way down, and the splash. The craft drops a stage during entry, so the real
+  side also shows stock's fire on a booster that is not the active vessel, against that booster's
+  ghost. Camera: the flight camera at a fixed pose relative to the
   vessel (side-on, across the velocity, at k vessel lengths; and one rear-quarter view), camera
   shake off (X0 U6). At each mark, eight consecutive frames (the distribution over about 0.15 s,
   little change in Mach) and, per side, two isolation frames: real with `AerodynamicsFX`'s cameras
@@ -3687,9 +3703,12 @@ Each lane's first flight is a `limit=20` reading flight, its step count set from
   frame restores them; `blackBodyRadiationAlphaMult = 0` takes effect within one frame.
 - U7 FXC-1's vessel and fixture: which parked-orbit fixture reaches Mach 3.75 below the density
   where plasma shows, with the heat shield leading, and splashes intact.
-- U8 Contamination: does the velocity camera (layer 0, sized from the active vessel) paint stock
-  streaks on a ghost within a few metres of a hot active vessel. If it does, it is also a product
-  question (a ghost flying beside the player during reentry would wear the player's streaks).
+- U8 Who wears stock's fire. With a real booster staged during entry beside the active vessel:
+  - is the fire drawn on the booster, and at what distance from the camera does it stop;
+  - which layers `FXCamera` renders, and what `RenderType` the ghost's materials carry;
+  - whether a ghost near a hot active vessel is painted too. If so, it wears stock's fire and its
+    own, which is a product question as well.
+  - whether a reentering non-active vessel shows any fire while the active vessel is slow.
 - U9 Replay background: at the same UT and pose, how many pixels of the real and ghost frames
   differ outside the vessel's mask (the sky and planet should be equal; the camera pose is set
   from the vessel's interpolated pose on the ghost side).
@@ -3714,13 +3733,14 @@ G subsection.
 | X7 | Rig lanes PP-11 / PP-12: specs, hlib wiring cells, lane catalog regen, status rows | `harness/scenarios/PP-11-*.toml`, `PP-12-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md`, hlib cells | X8 | harness suites green; first flights (`limit=20`, then full), findings filed |
 | X8 | Flight rig and lanes FXC-1 / FXC-2: the committed mark-driven rig (poses, isolation frames, composited readback, world-pose capture, schedule), the specs, a small mission shell for the deorbit and the hop | `Source/Parsek/InGameTests/FxFlightCompareRig.cs` (new), `harness/scenarios/FXC-1-*.toml`, `FXC-2-*.toml`, `harness/missions/` (one shell) | X4 to X7 (after X0, X3) | both lanes fly green and report-only; the reference pages read by the owner |
 | X9 | Later, own plan: the EVA jetpack against `KerbalEVA`'s thruster groups (a held kerbal with a fed input, the RCS pattern of E.2) | - | - | - |
+| Y1 to Y7 | The fixes, after the comparison has read each mismatch, one PR each with before / after pictures from the lane that found it and a `## 1.0.4` CHANGELOG line: Y1 the reentry intensity to stock's curve, with condensation, density fade and the light, the streaks re-tuned against FXC-1 (G.8 item 1; G.9 ruling 1); Y2 the part explosion's speed term from the ghost's recorded surface speed (item 2); Y3 launch dust to stock's rule (per engine along the thrust axis, at the hit point, the surface type, each part's `maxDistance` and `falloff`), preferably by spawning stock's own `SurfaceFX` / water / pad prefabs (item 3); Y4 a decouple plays the decoupler's own stock `decouple` FX group, and a plain joint break draws nothing (item 4); Y5 the Space Center explosion uses stock's own FXMonger prefab, loaded and kept from the flight scene (ruling 2); Y6 the water splash through `FXMonger.Splash` (item 6); Y7 the end-explosion power, only if PP-11 / FXC-2 show it differs (item 5) | `Source/Parsek/Ghost/` (after ghost-fx-9 merges), CHANGELOG, todo | one at a time per file | the comparison case that found the mismatch reads pass, or a named residual, on the same lane |
 
 Order: X0 first; X1 and X3 together; X2 once the floating-origin change for these effects has
 merged; X4 after X1, X2 and X3, with X5; X6 after X5; X7 after X4 and X5; X8 after X0 and X3 (it
 uses X3's measures and X6's pages, and the rig is its own file). Machine time for the pieces'
-own acceptance: X0 three throwaway flights of 10 to 15 minutes; X4 one dev-install run of about
+own acceptance (every flight on the operator's go): X0 three throwaway flights of 10 to 15 minutes; X4 one dev-install run of about
 10 minutes; X7 the four PP-11 / PP-12 flights of G.5; X8 the two FXC flights twice (reading, then
-full).
+full); each Y fix one re-flight of the lane that found its mismatch.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
@@ -3782,12 +3802,16 @@ full).
    (item 1) and the reentry light (`AerodynamicsFX`'s `fxLight`, which lights the active vessel and
    its surroundings in the effect's colour).
 
-### G.9 Owner questions
+### G.9 Owner rulings (2026-11-26)
 
-- Q1 Stock draws reentry fire only on the vessel the player flies. A ghost of the player's own
-  flight should look like that view (the plan's target). Should a ghost of a vessel that was NOT
-  active in its flight (a dropped booster reentering) also show fire, which stock never showed on
-  it, or none, as stock? P9 measures the first; the second is a product choice.
-- Q2 For the Space Center (no FXMonger in that scene), is matching the stock prefab the goal (for
-  instance by keeping a copy of the flight scene's explosion prefabs), or only matching it as
-  closely as a hand-built effect can? The comparison is the same either way; the fix differs.
+- Ruling 1 (was Q1). A ghost shows reentry fire wherever stock would draw it on the real vessel.
+  Rev 1's premise that stock draws only on the active vessel was wrong (G.1, "Camera dependence"):
+  stock keys the effect on the active vessel's conditions and draws it on whatever the flight
+  camera sees near it, a staged booster included. A ghost keys it on its own conditions. For
+  anything flying beside the active vessel the two agree; X0 U8 and FXC-1's staged booster measure
+  where they part.
+- Ruling 2 (was Q2). The Space Center explosion uses stock's own FXMonger prefab, loaded and kept
+  from the flight scene, not a hand-built match (fix Y5).
+- Build. The comparison is built, then each mismatch it reads is fixed in its own PR with before /
+  after pictures (Y1 to Y7), X0 first and X2 after ghost-fx-9 merges; flights run on the
+  operator's go only.
