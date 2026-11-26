@@ -3411,8 +3411,13 @@ Sources. Stock: the full decompile of the harness install's `Assembly-CSharp.dll
 `p8-plan/AerodynamicsFX.cs`; `Physics.cfg` and the ModuleManager caches of the three harness
 installs. Parsek: `origin/main` 3ae94db1c. Coordination: another session is changing the floating
 origin registration of these same effects (todo GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL, files in
-`Source/Parsek/Ghost/`). P9 edits nothing under `Source/Parsek/Ghost/` until that lands (piece X2,
-G.7), and every finding below that reads world-space particles is to be re-read on that build.
+`Source/Parsek/Ghost/`, branch `ghost-fx-9`). That change makes the reentry fire, the launch dust,
+the part puff and the built fallback explosion follow `FloatingOrigin.setOffset` (the shift only,
+stock's rule for plain systems); the flight-scene explosion stays stock's FXMonger prefab, which
+stock itself moves only while the active vessel's radar altitude is under
+`FloatingOrigin.altToStopMovingExplosions` (10 km), as for a real explosion. P9 edits nothing under
+`Source/Parsek/Ghost/` until that lands (piece X2, G.7), and every finding below that reads
+world-space particles is to be re-read on that build.
 
 ### G.1 Inventory
 
@@ -3427,10 +3432,10 @@ already.
 | 3 | Custom explosion | `GhostVisualBuilder.SpawnExplosionFx` (`TransientFx.cs:380`): additive fireball (200 to 300 particles, sized by vessel length, gravity 0.15, noise) + alpha-blended smoke child, destroyed after 5 s | always in the Space Center scene (`ParsekKSC.cs:2245`: FXMonger lives in FLIGHT only); in flight when the pause menu is open or `FXMonger.Explode` failed | none in the Space Center (stock simulates no vessel there); the look to match is the FXMonger prefab of the same power | a hand-built fireball, never compared with the prefab it stands in for |
 | 4 | Part puff | `GhostVisualBuilder.SpawnPartPuffFx` (`TransientFx.cs:113`): alpha smoke burst + additive sparks, sized by the part's first renderer (`bounds.size.magnitude * 0.5`), destroyed after 3 s | (a) every recorded `Decoupled` event, on the joint CHILD (`ApplyDecoupledPartEvent`, `PartEvents.cs:636`; the recorder writes it for the child of any joint break, `FlightRecorder.RecordJointBreakDecoupledEvent`, `FlightRecorder.PartEvents.cs:475`); (b) a destroyed part when FXMonger is not live, failed, or the pause menu is open | (a) a decoupler that fires bursts its `decouple` FXGroup (`ModuleDecouplerBase.fxGroupName`, `FXGroup.Burst`): the legacy `fx_gasBurst_white` plus `sound_decoupler_fire`, on the decoupler part (30 parts on stock-minimal); any other joint break draws nothing; (b) the FXMonger prefab of row 2 | (a) smoke and sparks at the child where stock shows a white gas burst at the decoupler, and a puff on breaks stock draws nothing for; (b) a puff where stock shows an explosion |
 | 5 | Launch dust | `GhostVisualBuilder.TryBuildLaunchDust` (`TransientFx.cs:509`), driven by `GhostPlaybackEngine.UpdateLaunchDust` (`ReentryFx.cs:179`) | any engine lit and the ghost ROOT within 40 m above a ground altitude latched once from the first trajectory point with a finite `recordedGroundClearance`; intensity `min(1, sum of engine powers * (1 - agl / 40))`; one additive particle disc (radius 4 m) at the ghost root | `ModuleSurfaceFX` per engine (39 parts on stock-minimal, 53 on modded-compat and modded-restock): a raycast from the thrust transform along its forward, up to `maxDistance` (50 m default); `ScaledFX = thrust / maxThrust * fxMax * (1 - d / maxDistance)^falloff`; a `SurfaceFX` prefab (cloud and dust systems) at the HIT POINT on terrain, a water prefab (wake) over the ocean, and on a collider tagged `LaunchpadFX` no dust but the pad's own FX | see G.8: placement, plane, shader, surface type, ground reference |
-| 6 | Reentry fire | `GhostVisualBuilder.TryBuildReentryFx` (`HeatAndReentryFx.cs:582`): mesh-surface additive particles (world space, 0.1 to 0.35 s) + an additive shell redrawn 4 times behind the ghost with `Graphics.DrawMesh` | `ComputeReentryIntensity` (`HeatAndReentryFx.cs:1083`) above 0.02, from the ghost's surface speed, `body.GetDensity` at its altitude and Mach | `AerodynamicsFX` on the ACTIVE vessel only: `FxScalar = min(1, (0.5 d' v^3.5 - p0) / (5 p0))`, `p0 = 8e6`, `d' = 0.0091 rho^0.5 + 0.09 rho^2` (faded toward 0 below rho 0.0015); colour and length blend from condensation (white) to plasma (orange) by `InverseLerp(2.5, 3.75, Mach)`; drawn by `FXCamera`, a camera parented to the flight camera that re-renders layer 0 with replacement shaders extruded along -velocity, plus an `fxLight` lighting the vessel; never drawn on a non-active vessel | the intensity curve is not stock's (G.8); no light |
+| 6 | Reentry fire | `GhostVisualBuilder.TryBuildReentryFx` (`HeatAndReentryFx.cs:582`): mesh-surface additive particles (world space, 0.1 to 0.35 s) + an additive shell redrawn 4 times behind the ghost with `Graphics.DrawMesh` | `ComputeReentryIntensity` (`HeatAndReentryFx.cs:1083`) above 0.02, from the ghost's surface speed, `body.GetDensity` at its altitude and Mach | `AerodynamicsFX` on the ACTIVE vessel only: `FxScalar = min(1, (0.5 d' v^3.5 - p0) / (5 p0))`, `p0 = 8e6`, `d' = 0.0091 rho^0.5 + 0.09 rho^2` (faded toward 0 below rho 0.0015); colour and length blend from condensation (white) to plasma (orange) by `state = InverseLerp(2.5, 3.75, Mach)`; in air thinner than 0.25 kg/m3 the condensation share fades (`FxScalar *= Lerp(a, 1, state)`, `a = (rho - 0.0875) / 0.1625`, 0 below 0.0875), so there stock too is dark below Mach 2.5; drawn by `FXCamera`, a camera parented to the flight camera that re-renders layer 0 with replacement shaders extruded along -velocity, plus an `fxLight` lighting the vessel; never drawn on a non-active vessel | the intensity curve is not stock's (G.8); no light |
 | 7 | Reentry glow | Layer A of the same build (`CollectReentryGlowMaterials`, `ReentryFx.cs` `DriveReentryLayers`): every non-heat-managed material's emissive pushed toward a hot colour above `ReentryLayerAThreshold` | the same intensity | blackbody glow of every hot part of ANY loaded vessel: `_TemperatureColor` from `PhysicsGlobals.GetBlackBodyRadiation(skinTemperature)` above about 798 K, per part, from its own heating history | intensity-driven and uniform over the ghost, where stock is per part and lags the heating |
 | 8 | Ablator char | `GhostPlaybackLogic.ApplyColorChangerCharState` from the same intensity | the same intensity | `ModuleAblator`'s char colour changer from the ablator's own state (8 parts on stock-minimal, 12 modded) | intensity-driven, not ablation-driven |
-| 9 | (none) condensation / Mach effects | - | never: intensity is 0 below Mach 2.5 | `AerodynamicsFX` with `state < 1`: white condensation streaks whenever `FxScalar > 0`, faded by density between 0.25 and 0.0875 kg/m3, on the active vessel | missing on the ghost |
+| 9 | (none) condensation / Mach effects | - | never: intensity is 0 below Mach 2.5 | `AerodynamicsFX` with `state < 1`: white condensation streaks whenever `FxScalar > 0` in air denser than 0.0875 kg/m3 (full strength above 0.25), on the active vessel | missing on the ghost |
 | 10 | (none) water splash | - | never: no `FXMonger.Splash` call in `Source/Parsek` | `PartBuoyancy` calls `FXMonger.Splash` when a part enters water, sized by speed and part size | missing on the ghost |
 | 11 | EVA jetpack puff | `GhostVisualBuilder.TryBuildEvaJetpackPlume` (`TransientFx.cs:607`): one small local-space additive puff behind the pack | a recorded jetpack event | `KerbalEVA`'s 12 thruster FXGroups (pitch, yaw, roll, x, y, z, each sign) fire with the input | one puff for every direction |
 
@@ -3476,6 +3481,9 @@ vessel-scale crash, reentry or launch is a flight, not a part case.
   1600 m above sea level, held). The active vessel is the pad host at rest, so stock's speed term
   is 0 on the real side and the ghost side is comparable; the speed term itself is a pure check
   (G.8 item 2).
+- Origin. The air context's active vessel is the pad host on the ground, under the 10 km line, so
+  stock moves FXMonger's prefabs with the origin on both sides alike; a burst case never runs in the
+  orbit context, where stock stops moving them.
 - Separation. FXMonger merges any two blasts within 10 m, and a P8 ghost sits at its real part's
   pose. So a burst case's ghost is placed at its own slot at least 20 m from every real source
   (a new slot pair rule in the burst driver), and each side is photographed from its own pose
@@ -3496,6 +3504,17 @@ vessel-scale crash, reentry or launch is a flight, not a part case.
   and the puff are tagged from the GameObject they return (the puff's is dropped by
   `SpawnPartPuffAtPart` today: X2 records it). Each side's render hides every untagged and
   other-side effect object as well as P8's hide-all set.
+- The ghost's event. A rig part case builds its event route from the recorder's pollers
+  (`PartParityStateDriver`), and none of them writes `Destroyed` or `Decoupled`: production writes
+  `Decoupled` from `onPartJointBreak` (`FlightRecorder.RecordJointBreakDecoupledEvent`,
+  `BackgroundRecorder.GameEventHandlers.cs`) and `Destroyed` from `onPartDie` through
+  `FlightRecorder.ClassifyPartDeath`. So X4 subscribes those two GameEvents for its case vessels and
+  builds the event with the recorder's own code: the `PartEvent` construction of
+  `RecordJointBreakDecoupledEvent` and of the part-die handler, extracted by X2 as `internal static`
+  builders (pid, part name, UT in; the event out) that the recorders then call, with a source pin
+  as E.2's `PartParityFxRecorderPinTests` so the two cannot drift. Stock fires `onPartJointBreak`
+  inside `Decouple` and `onPartDie` inside `explode`, so the ghost's event is applied in the same
+  frame as the real trigger, before FXMonger's `LateUpdate`.
 - Schedule (deterministic). Per side, the list of blasts: frame, position relative to the source,
   power, and the prefab name (which gives the index). Real from the tagged objects; ghost from the
   same tagging plus X2's read-only record of the power Parsek passed.
@@ -3503,7 +3522,10 @@ vessel-scale crash, reentry or launch is a flight, not a part case.
 #### G.2.2 Dust cases (rig)
 
 Context `ground`: F7's held surface slots (`PartParityHeldSlot`) at a height h above the terrain
-under the slot (heights 5 m and 25 m), and one slot over the ocean east of KSC at 10 m. Each case
+under the slot, sized from each part's own `ModuleSurfaceFX.maxDistance` (10 to 100 m on
+stock-minimal: 14 parts at 50, 11 at 30, the rest 10, 20, 25, 40, 75, 80 or 100): h = 0.2 and 0.7
+of it over terrain and 0.4 of it over the ocean east of KSC, so stock's raycast always reaches the
+surface and a `dust-no-stock-hit` is a real setup fault. Each case
 is one engine with `ModuleSurfaceFX` (the same family predicate as the module list, logged),
 nozzle down, `burn-full` as E.2 (cheat, independent throttle, hold, temperature write-back);
 air-breathing engines spool as in F7. The stock side's raycast result (surface type, hit point,
@@ -3531,7 +3553,8 @@ toggles, in `Source/Parsek/InGameTests/` or `TestCommands/`, never in `Ghost/`.
 - FXC-1, reentry and splash (stock-minimal). A probe with a heat shield and a chute on a steep
   Kerbin reentry from a parked orbit (the `B4-reentry-splashdown` craft, or the fixture
   `graze-low-probe-stack`, decided by X0 U7). Marks at fixed UTs chosen from the reading flight's
-  Mach and density trace: Mach 2.0 (condensation only), 2.5, 3.0, 3.75 (full plasma), peak heating,
+  Mach and density trace: one above the atmosphere (75 km, no effect on either side), Mach 2.0
+  (condensation only where the air is dense enough), 2.5, 3.0, 3.75 (full plasma), peak heating,
   Mach 1.5 on the way down, and the splash. Camera: the flight camera at a fixed pose relative to the
   vessel (side-on, across the velocity, at k vessel lengths; and one rear-quarter view), camera
   shake off (X0 U6). At each mark, eight consecutive frames (the distribution over about 0.15 s,
@@ -3542,9 +3565,15 @@ toggles, in `Source/Parsek/InGameTests/` or `TestCommands/`, never in `Ghost/`.
   three layers per side: `aero` (stock streaks against the ghost's fire and shell), `glow`
   (blackbody against Layer A) and `body` (char included). Pixels are read in C# from the
   composited frame (`ScreenCapture.CaptureScreenshotAsTexture` after `WaitForEndOfFrame`), since
-  `FXCamera` composites over the main camera. The replay runs with the active vessel left in orbit
-  (no deorbit burn after the rewind), where `FxScalar` is 0, so no stock streak reaches the ghost
-  (X0 U8 measures whether the velocity camera would paint a ghost near a hot active vessel).
+  `FXCamera` composites over the main camera. The rewind strips the recorded vessel (`RewindLauncher`), so the replay's active vessel is a
+  separate host the fixture carries, landed at KSC under the descent's ground track, with the
+  deorbit timed so the splash falls within about 100 km of it; it is at rest, so `FxScalar` is 0 on
+  it and no stock streak reaches the ghost (X0 U8 measures whether the velocity camera would paint a
+  ghost near a hot active vessel). Watch mode exits past 300 km from the active vessel
+  (`DefaultWatchCameraCutoffKm`, `ParsekConfig.cs:89`), and an unwatched ghost past 10 km draws
+  no FX (`FullFidelityRangeMeters`), so every mark must be within the cutoff of the host: X0 U10
+  measures the distances on the reading flight, and a mark beyond it is either moved or served by
+  a test-only cutoff raise in the X8 rig (logged, restored at the end of the step).
 - FXC-2, pad launch and crash (stock-minimal). A small rocket on the pad (`b1-pad-craft`) lit at
   full throttle, a short hop, engine cut, a fall onto the grass beside the pad: pad FX and dust on
   the way up, the stock cascade of part blasts at impact. Camera: the parity capture camera (no
@@ -3606,10 +3635,10 @@ from the engine's power.
 | `ctl-burst-power` | an intact ghost against one exploded one prefab index lower | fails the schedule (index) and peak area or radius |
 | `ctl-burst-shift` | an intact ghost against one triggered 3 m off its part | fails centroid offset; passes area and colour |
 | `ctl-burst-hue` | an intact ghost against one whose readback channels are rotated (E.5's `ctl-fx-plume-hue` rule) | fails colour only |
-| `ctl-dust-real-vs-real` | the LV-T45 at 5 m, split halves | passes every dust measure |
+| `ctl-dust-real-vs-real` | the LV-T45 (`maxDistance` 30, `falloff` 1.7) at 0.2 of its reach, split halves | passes every dust measure |
 | `ctl-dust-off` | an intact ghost against one with its dust hidden | fails dust presence; the flame layer passes |
-| `ctl-dust-above-reach` | the LV-T45 held at 60 m (past `maxDistance`) | stock draws no dust (raycast miss); the ghost must not either: recorded `n/a` while G.8 item 3 stands, `ok` after |
-| `ctl-aero-cold` (FXC-1) | the first mark, above the atmosphere | the real `aero` layer difference is zero (the isolation frames add nothing) |
+| `ctl-dust-above-reach` | the LV-T45 held at 36 m (1.2 of its `maxDistance`) | stock draws no dust (raycast miss); the ghost must not either: recorded `n/a` while G.8 item 3 stands, `ok` after |
+| `ctl-aero-cold` (FXC-1) | the 75 km mark, above the atmosphere | the real `aero` layer difference is zero (the isolation frames add nothing) |
 | `ctl-aero-hot` (FXC-1) | the Mach 3.75 mark | the real `aero` layer difference is non-zero (the isolation frames remove the stock streaks) |
 
 Every control with no eligible subject is `bad` (INVALID(parity-controls)) except the ones marked
@@ -3627,7 +3656,7 @@ the SMK flights (each 10 to 14 minutes for a recorded flight and two replays).
 
 | Lane | Install | Cases | Estimate | Steps (480 s, +50 %) | `budgetSeconds` |
 | --- | --- | --- | --- | --- | --- |
-| PP-11 (new), labels `pp11burst` and `pp11dust` | stock-minimal | burst: 4 part-power buckets (potential 0, 0.1, 0.5, 1.0 on the install) + 4 vessel stacks + 9 custom / puff stand-ins + the 30 decouplers + 2 joint breaks + 8 controls; dust: 39 `ModuleSurfaceFX` engines x 3 slots (117) + 3 controls | burst about 10 s per case (one wave per case) = about 550 s; dust about 8 s per rocket case and about 80 s per wave of 4 jets = about 1200 s; with the boot about 1850 s | 6 | 3600 |
+| PP-11 (new), labels `pp11burst` and `pp11dust` | stock-minimal | burst: 4 part-power buckets (potential 0, 0.1, 0.5, 1.0 on the install) + 4 vessel stacks + 9 custom / puff stand-ins + the 30 decouplers + 2 joint breaks + 8 controls; dust: 39 `ModuleSurfaceFX` engines x 3 slots (117, heights per part) + 3 controls | burst about 10 s per case (one wave per case) = about 550 s; dust about 8 s per rocket case and about 80 s per wave of 4 jets = about 1200 s; with the boot about 1850 s | 6 | 3600 |
 | PP-12 (new), the same labels | modded-restock | ReStock's decouplers and 53 engines, about 1.3 x | about 2400 s | 8 | 4200 |
 | FXC-1 (new) | stock-minimal | reentry and splash, 7 marks | parked orbit to splash about 9 min, the replay about 9 min, two loads: about 1500 s | flight (3 legs) | 2400 |
 | FXC-2 (new) | stock-minimal | pad launch and crash | about 800 s (SMK-like) | flight (2 legs) | 1500 |
@@ -3664,6 +3693,8 @@ Each lane's first flight is a `limit=20` reading flight, its step count set from
 - U9 Replay background: at the same UT and pose, how many pixels of the real and ghost frames
   differ outside the vessel's mask (the sky and planet should be equal; the camera pose is set
   from the vessel's interpolated pose on the ghost side).
+- U10 FXC-1 distances: the ghost-to-host distance at every mark on the reading flight, against
+  the 300 km watch cutoff (G.2.3).
 
 ### G.7 Work breakdown
 
@@ -3673,9 +3704,9 @@ G subsection.
 
 | # | Piece | Files | Runs alongside | Acceptance |
 | --- | --- | --- | --- | --- |
-| X0 | Spike (throwaway branch, never merged): one in-game cell for U1 to U5 and U8 on the pad host, one SMK-shaped flight for U6, U7, U9; three operator flights | spike branch only | before everything | every unknown answered in G.2 / G.6 |
+| X0 | Spike (throwaway branch, never merged): one in-game cell for U1 to U5 and U8 on the pad host, one SMK-shaped flight for U6, U7, U9, U10; three operator flights | spike branch only | before everything | every unknown answered in G.2 / G.6 |
 | X1 | The contract, both sides: in `PartParityFxRules` the families `explode`, `vessel-explode`, `burst-custom`, `decouple`, `dust`, the `ground` context and its slots, the burst window and bins, every G.3 constant and line, the new setup statuses, the new `fx=` values (refused combinations), `ControlSetFor` for the burst and dust sets; every Python mirror; the committed part lists and count pins (`explode` buckets, decouplers, `ModuleSurfaceFX` engines per install); the no-change cells (the existing `fx=` values plan exactly as today) | `PartParityFxRules.cs`, `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py`, `test_partparity.py` (sync class), `hlib.py` (arg table) | X3 | `dotnet test` and the lib suite green; with every old `fx=` value each plan, control set and manifest `settings` equals today's |
-| X2 | Ghost seams, no behaviour change, AFTER the floating-origin fix for these effects lands: an engine-owned static for the launch dust frame body (ground reference and altitude passed in; inline fold proof as F2's); a read-only record of every explosion and puff Parsek starts (kind, position, power, the GameObject when there is one), insert-only; a pure `TerminalExplosionPower(vesselLength)` read by `PlayDestroyedExplosion`; a test-only per-ghost suppress for the reentry fire, shell and Layer A for one frame | `GhostPlaybackEngine.ReentryFx.cs`, `GhostPlaybackEngine.SpawnDestroy.cs`, `GhostVisualBuilder.TransientFx.cs`, `GhostPlaybackLogic.PartEvents.cs`, xUnit | X1, X3 | IL proofs; ghost tests green |
+| X2 | Ghost and recorder seams, no behaviour change, AFTER the floating-origin fix for these effects lands: the `PartEvent` builders of G.2.1 for `Decoupled` and `Destroyed`, called by both recorders, with their source pin; an engine-owned static for the launch dust frame body (ground reference and altitude passed in; inline fold proof as F2's); a read-only record of every explosion and puff Parsek starts (kind, position, power, the GameObject when there is one), insert-only; a pure `TerminalExplosionPower(vesselLength)` read by `PlayDestroyedExplosion`; a test-only per-ghost suppress for the reentry fire, shell and Layer A for one frame | `GhostPlaybackEngine.ReentryFx.cs`, `GhostPlaybackEngine.SpawnDestroy.cs`, `GhostVisualBuilder.TransientFx.cs`, `GhostPlaybackLogic.PartEvents.cs`, `FlightRecorder.PartEvents.cs`, `BackgroundRecorder.GameEventHandlers.cs`, the part-die handler's file, xUnit | X1, X3 | IL proofs; ghost tests green |
 | X3 | Pure burst measures: the time-binned accumulator (bins over frames and trials, the E.4 tile rule), radial measures, onset / peak / duration, schedule diff, split halves by trial; a committed synthetic burst atlas and sidecar for the Python recompute | `PartParityBurstMetrics.cs` (new, `TestCommands/`), xUnit, the fixture | X1, X2 | xUnit on synthetic bursts: late, small, shifted, hue-rotated and missing bursts each move exactly their own measure |
 | X4 | Live burst and dust driver: the burst wave (slot pairs 20 m apart, one-frame trigger, trials, per-side poses, tagging, schedule), the vessel stacks, the stand-in cases, the decouple press and the joint break, the `ground` context spawn and hold, the stock raycast read, the dust layer, the trajectory stub, the setup statuses | `PartParityBurstDriver.cs` (new), `PartParityAirContext.cs`, `PartParityCaseCapture.cs`, `PartParitySweepRunner.cs`, `PartParityInGameTests.cs` (the `fx=` filter only, no new `[InGameTest]`) | X5 | a dev-install run of every family on stock: each case reaches its trigger, every row written, controls ok, nothing left after teardown |
 | X5 | Harness judge: burst and dust verdicts, the schedule judge, the burst controls, the recompute from the burst atlas | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | X4 (recompute cells after X3's fixture) | lib suite green; each broken fixture fails its own measure; a mutated atlas reds INVALID(parity-instrument) |
@@ -3696,16 +3727,23 @@ full).
 1. The reentry intensity is not stock's curve, although its comment says it is
    (`Source/Parsek/Ghost/GhostVisualBuilder.HeatAndReentryFx.cs:1083` to `1125`, constants
    `GhostVisualBuilder.cs:35` to `42`). Stock (`AerodynamicsFX`, decompiled):
-   `FxScalar = min(1, (0.5 d' v^3.5 - 8e6) / (5 x 8e6))`, with no Mach gate (Mach only blends white
-   condensation into orange plasma between 2.5 and 3.75) and a density fade below 0.0015. Parsek:
-   `(d' v^3.5) / (d'(0.1) x (340 x 3.75)^3.5)`, zero below Mach 2.5 (line 1094) and a hard cut below
-   0.0015 (line 1098). At density 0.1 stock starts at about 563 m/s and is full by about 939 m/s;
-   the ghost is 0.34 at 939 m/s and reaches 1 only at 1275 m/s, where stock is at 3.3 before its
-   clamp. So the ghost's fire starts later and is weaker than stock's through most of a reentry, and
-   the white condensation phase (G.1 row 9) is missing. The density also differs a little: the
-   ghost reads `body.GetDensity` at the standard temperature (`GhostPlaybackEngine.ReentryFx.cs:140`),
-   stock the vessel's `atmDensity`. The streaks were tuned by eye against the current curve
-   (todo GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL says so), so a fix re-tunes both together.
+   `FxScalar = min(1, (0.5 d' v^3.5 - 8e6) / (5 x 8e6))`, then, while `state < 1` and the density
+   is under 0.25, `FxScalar *= Lerp(a, 1, state)` with `a = (rho - 0.0875) / 0.1625` (0 below
+   0.0875), and a density fade below 0.0015. Parsek: `(d' v^3.5) / (d'(0.1) x (340 x 3.75)^3.5)`,
+   zero below Mach 2.5 (line 1094) and a hard cut below 0.0015 (line 1098).
+   - At density 0.1 (about 20 km on Kerbin, sound speed about 297 m/s): stock's raw scalar starts
+     at about 563 m/s and clamps to 1 by about 939 m/s, but the Mach fade (`a` = 0.077) holds it
+     to about 0.57 at 939 m/s (Mach 3.2) and lets it reach 1 only at Mach 3.75 (about 1.1 km/s);
+     the ghost is 0.34 at 939 m/s and about 0.6 at 1.1 km/s, and reaches 1 only at 1275 m/s.
+   - In air thinner than 0.0875 stock is also dark below Mach 2.5 (the multiplier is `state`), so
+     there the ghost's Mach gate agrees with stock; in denser air it does not: at 0.3 kg/m3 stock
+     shows white condensation from about 395 m/s and full strength by about 660 m/s, where the
+     ghost shows nothing (G.1 row 9).
+   - So through most of a reentry the ghost's fire is weaker than stock's, and the condensation
+     of a fast pass in dense air is missing. The density also differs a little: the ghost reads
+     `body.GetDensity` at the standard temperature (`GhostPlaybackEngine.ReentryFx.cs:140`), stock
+     the vessel's `atmDensity`. The streaks were tuned by eye against the current curve (todo
+     GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL says so), so a fix re-tunes both together.
 2. A ghost part explosion has no speed term (`GhostPlaybackLogic.PartEvents.cs:863`); stock adds
    0.12 or 0.25 to every part's potential by the active vessel's surface speed (`Part.explode`),
    which is the crashing vessel itself when the player flew it. With most parts at the default
@@ -3727,9 +3765,9 @@ full).
      and a plane rolling on a runway gets dust from engines that point backward;
    - it ignores the surface: the pad (stock: the pad's own FX, no dust) and water (stock: the wake
      prefab) both get the same grey disc;
-   - the reach is 40 m (`LaunchDustMaxAglMeters`) with a linear falloff; stock's is `maxDistance`
-     per part (50 m default) along the thrust axis with `(1 - d / maxDistance)^falloff` (falloff 2
-     by default).
+   - the reach is 40 m (`LaunchDustMaxAglMeters`) with a linear falloff for every vessel; stock's
+     is `maxDistance` per part (10 to 100 m on stock-minimal, 50 m by default) along the thrust axis
+     with `(1 - d / maxDistance)^falloff` (2 by default, 1.7 on the LV-T45).
 4. The decouple puff (`GhostPlaybackLogic.PartEvents.cs:636`, `1133` to `1154`) sits on the joint
    child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
    and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud
