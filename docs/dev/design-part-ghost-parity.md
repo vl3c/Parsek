@@ -3718,7 +3718,11 @@ spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
 ### G.6 Motion defects visible from the code (to be measured by P7)
 
 Read on `origin/main` a3812a8d4. Each is a hypothesis until the reading flight measures it (M0
-checks the first live); filed as todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26.
+checks the first live); filed as todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26. Item 1 was confirmed
+live and fixed on playback by PR #2838 (2026-11-26, owner approval), which also carries the todo entry: the five end-marked
+families now play their motion over [event UT - motion, event UT], the motion being the clip at the
+module's own speed over its travel. The motion lanes of G.4 keep measuring it, so a regression shows
+as lag again.
 
 1. A deploy plays one clip LATE on the ghost, for five of the seven in-orbit families. The pollers
    emit only at the END of stock's motion: deployables skip `EXTENDING` / `RETRACTING`
