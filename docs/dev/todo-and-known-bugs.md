@@ -591,13 +591,24 @@ Cause (decompiled): the two keys end in `true`, which makes `PartLoader` add `(K
 
 Fix: `EngineFxBuilder.LegacyFxLocalPosition`. Tests: `GhostFxStockPlacementTests`. Flown: PPS-16d `2026-11-23_1946`, 30 % side-b width 0.381 -> 0.991, core 4900 / 3943 -> 4896 / 4994, side-a origin 16 -> 0 px, both powers pass, `fxDiffers` empty.
 
-## PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; OPEN; instrument, low]
+## ~~PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN~~: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; FIXED 2026-11-24, branch `fx-rig-main-throttle`, flown `2026-11-24_1901` / `_1911` / `_1917`; instrument, low]
 
-What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: today the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judge a cold bell against a cold bell; the ordinary flight, bell hot on both sides, is not measured.
+What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judged a cold bell against a cold bell; the ordinary flight, bell hot on both sides, was not measured.
 
-Seen 2026-11-23: PPS-16a / PPS-16b (`2026-11-23_1927` / `_1934`) read 0 px on both bells against the cold real side (16355 to 18272 px before GHOST-NOZZLE-GLOW-WRONG-SOURCE), which agrees with the rig's reading and measures nothing about the ordinary case.
+Fix: two state words, `main-full` and `main-low`, for every throttleable engine (`independentThrottle = False`, the vessel's own throttle held through its `OnPreAutopilotUpdate`, 60 s of burn for the engines whose glow reads it), planned by `fx=plume` only for those two engines (four cases more in each air lane) and for every engine by `fx=plume-main`. Design: "Main-throttle cases as built" in E.2. The independent-throttle cases keep their ids and their waves.
 
-Fix (not started): also author `CTRLSTATE { mainThrottle = <the case's throttle> }` on the case vessel (the independent throttle stays, so nothing else moves) and expect both bells hot.
+Flown (DLL sha256 prefix 106a6702, origin/main at #2820, so without `throttle-settle`; evidence `<umbrella>/logs/flights/fx-rig/`; each lane's INVALID is the labels run with `controls=false`, the two air labels and the orbit label that ran controls read them ok; no `[Parsek][ERROR]`). Glow clip level at the capture and body `color-blob-px` on `bottom`, stock (ReStock within 0.001 of a level and 6 px):
+
+| Case | Real level | Event ghost | Start ghost | bottom px, event / start |
+| --- | --- | --- | --- | --- |
+| Whiplash `main-full` | 0.557 | 0.513 (target 0.973) | 0.557 | 0 / 0 |
+| Whiplash `main-low` | 0.170 | 0.138 (target 0.253) | 0.170 | 2951 / 2951, its nozzle's shape (`burn-low` 2954) |
+| Panther wet `main-full` | 0.556 | 0.538 (target 0.980) | 0.556 | 1 / 1 |
+| Panther wet `main-low` | 0.170 | 0.146 (target 0.261) | 0.170 | 6337 / 6334, its nozzle's shape (`burn-low` 6380) |
+
+The hot bell is hot: the real `bottom` view differs from its `burn-full` twin by 20228 px (Whiplash) and 20045 px (Panther) over 12 levels; the Whiplash's mean red is 109.9 real, 98.3 event, 109.8 start against 42.2 cold. The start route is exact. The event route is 0.02 to 0.04 of the clip dimmer, under every threshold: the spool the recording holds and the vessel throttle it does not (E.2, "What the ghost cannot know"), and the last throttle step the recorder drops (ENGINE-THROTTLE-EVENT-STEP, `throttle-settle`'s). The Whiplash's clip adds no colour below about 0.17. Controls: the Wheesley and the LV-T45 read the same main as independent (0 px), the RAPIER too (0 px; its 30 % air flame fails as it does independently). `burn-*` re-flown beside them moved nothing: `turboFanEngine` full 0 / 0, low 2954, `turboJet` m1 12985 / 11139, m2 1 / 6380 (2972, 12986, 11142, 6376 in `2026-11-23_1718`). The host and the player's input stayed at 0.000; every case vessel released at 0.000.
+
+Left: the glow of an engine that ignores the main throttle (independent or locked) while the main throttle moves in flight is not recorded and stays a limit.
 
 ## GHOST-NOZZLE-GLOW-REAIM-HISTORY: a re-aimed loop row cut at a burn's end starts with a cold nozzle [FILED 2026-11-23 from the `ghost-fx-2` review; OPEN; low (visual only)]
 
