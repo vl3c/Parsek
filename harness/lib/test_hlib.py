@@ -19456,6 +19456,13 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         fx_text = self._source("TestCommands", "PartParityFxRules.cs")
         fx = self._string_consts(fx_text)
         self.assertEqual(list(hlib.PARTPARITY_FX_VALUES), self._identifier_array(fx_text, "ArgWords", fx))
+        self.assertEqual(list(hlib.PARTPARITY_FX_KNOWN_VALUES),
+                         self._identifier_array(fx_text, "ArgKnownWords", fx))
+        # `all` is ArgWords alone: a main-throttle control sweep is asked for by name.
+        body = text[text.index("internal static bool TryParseFx("):]
+        body = body[:body.index("internal static bool FxCombinationValid(")]
+        self.assertIn("fx = new List<string>(PartParityFxRules.ArgWords);", body)
+        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.ArgKnownWords, out fx);", body)
         self.assertEqual(hlib.PARTPARITY_FX_ALL_TOKEN, fx["ArgAllToken"])
         parse = text[text.index("internal static bool TryParseGrammar("):text.index(
             "private static bool Reject(")]
@@ -19489,7 +19496,7 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(reason, errors[0])
         # An orbit FX run validates, and so does the held-jet air one.
-        for fx in ("plume", "all", "plume,rcs"):
+        for fx in ("plume", "all", "plume,rcs", "plume-main", "plume,plume-main"):
             self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
             self.assertEqual([], v(0, {"label": "pp5fx", "fx": fx, "contexts": "air"}))
         # fx=none is no FX run: a P6 step beside it validates as before.

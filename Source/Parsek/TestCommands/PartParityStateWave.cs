@@ -46,6 +46,10 @@ namespace Parsek.TestCommands
         /// <summary>The prefix of an FX wave's kind (design E.2): <c>fx:&lt;bucket&gt;</c>.</summary>
         internal const string KindFxPrefix = "fx:";
 
+        /// <summary>The end of a main-throttle case's wave kind: they share no wave with an
+        /// independent-throttle case, whose waves stay what they were.</summary>
+        internal const string KindMainThrottleSuffix = ":main";
+
         internal static bool IsFxKind(string kind) => kind != null && kind.StartsWith(KindFxPrefix, StringComparison.Ordinal);
 
         /// <summary>The wave kind of a stowed case (the stowed waves of today).</summary>
@@ -56,7 +60,9 @@ namespace Parsek.TestCommands
         /// worst case is that bucket's.</summary>
         internal static string WaveKind(PartParityCaseKey key)
         {
-            if (key?.FxOption != null) return KindFxPrefix + PartParityFxRules.BucketFor(key.FxOption).ToString();
+            if (key?.FxOption != null)
+                return KindFxPrefix + PartParityFxRules.BucketFor(key.FxOption).ToString()
+                       + (key.FxOption.MainThrottle ? KindMainThrottleSuffix : string.Empty);
             if (key?.StateOption == null) return KindStowed;
             return "state:" + PartParityStateRules.BucketFor(key.StateOption.Family).ToString();
         }

@@ -8,8 +8,15 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Changed
+
+- **Recordings keep the settled throttle value.** A replayed engine ends on the throttle you left it
+  at, not up to 5% off; new flights only. (ENGINE-THROTTLE-EVENT-STEP)
+
 ### Fixed
 
+- **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
+  vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 
