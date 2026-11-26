@@ -359,7 +359,7 @@ class CommittedWatchLaneSyncTests(unittest.TestCase):
                              "%s differs from its generator output; re-run "
                              "python harness/tools/make_watch_lane.py %s"
                              % (name, " ".join(argv)))
-        self.assertGreaterEqual(found, 4, "the four committed watch lanes")
+        self.assertGreaterEqual(found, 3, "the committed watch lanes")
 
 
 class HoldSmokeTests(unittest.TestCase):

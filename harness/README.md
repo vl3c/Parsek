@@ -2711,7 +2711,6 @@ What a hold does and does not do:
 |---|---|---|---|
 | `WL-1-liftoff-kerbin` | liftoff | `refly-a-recorded` (the Flea on the pad is the camera's vessel) | watch camera from 5 s after the launch |
 | `WL-2-landing-mun` | landing | `mun-landing-recorded` (the real landed Kerbal X is the camera's vessel) | watch camera from 60 s before touchdown |
-| `WL-3-docking-bdock` | docking | `bdock-recorded`, tree 2 (Kerbal X #2) | watch camera from 120 s before the dock |
 | `WL-4-transfer-duna` | transfer | `duna-park-recorded` | map view framed on the Sun at the re-aimed transfer's mid-coast |
 
 **Making one** (`tools/make_watch_lane.py`, pure half `lib/watchlane.py`):
