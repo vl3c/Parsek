@@ -22,6 +22,15 @@ namespace Parsek.Patches
                 ParsekLog.Warn("ReFlySettle",
                     $"FloatingOrigin.setOffset postfix failed: {ex.GetType().Name}: {ex.Message}");
             }
+            try
+            {
+                GhostWorldSpaceEmitter.OnOriginShifted(refPos, nonFrame);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited("GhostVisual", "ghost-smoke-origin-shift",
+                    $"ghost smoke origin shift failed: {ex.GetType().Name}: {ex.Message}", 60.0);
+            }
         }
     }
 }

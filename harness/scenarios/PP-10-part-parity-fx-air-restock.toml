@@ -38,7 +38,7 @@ tier = "operator"
 #
 # READING THE RESULT. As PP-9, from `harness/results/<runId>_partparity/pp10/`. Findings join todo
 # PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23. Its ReStock smoke is the one place that layer can be
-# judged: in orbit it is noise (todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE).
+# judged standing: in orbit the real side leaves it behind (todo GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
 #
 # FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied (this
 # install has no other air lane); (2) no warp at all; (3) the time box is the measurement; (4)/(5)

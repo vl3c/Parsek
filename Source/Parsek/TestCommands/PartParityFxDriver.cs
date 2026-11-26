@@ -744,6 +744,11 @@ namespace Parsek.TestCommands
             // ctl-fx-smoke-dropped needs a ghost that draws smoke in orbit, where the fade hides it
             // in vacuum: with no body the fade returns before it writes and the smoke stays as built.
             bool leaveFade = wc.Fx.Control == TestCommandPartParitySweep.ControlFxSmokeDropped;
+            // In orbit that smoke is also left behind (GhostWorldSpaceEmitter), as the real part's is;
+            // the control drops the one thing that moves it, on both its ghosts.
+            if (leaveFade)
+                foreach (GhostWorldSpaceEmitter e in state.ghost.GetComponentsInChildren<GhostWorldSpaceEmitter>(true))
+                    e.enabled = false;
             state.lastInterpolatedBodyName = leaveFade || wc.Real.mainBody == null ? null : wc.Real.mainBody.name;
             state.lastInterpolatedAltitude = wc.Real.altitude;
             // The held vessel's own ground speed, which playback's SetInterpolated gives a ghost:
