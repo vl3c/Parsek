@@ -306,22 +306,64 @@ By reading the callers only; none of these has its own lane. The two promotions 
 redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
 Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
 
-## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+## ~~PART-STATES-LOST-AT-PROMOTION~~: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; owner approved the fix 2026-11-24; FIXED 2026-11-24, branch `part-states-promotion`; LIVE-PROVEN 2026-11-26 (PSP-1 `2026-11-26_1811`); visual, low]
 
-The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
-engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
-ladders, fairings, animation groups and aero surfaces are post-switch triggers
-(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
-trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
-lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
-way. The fix shape is the same (compare the live state with the recording's last word); it needs its
-own pass because deployables are exactly the family bug A / #263 is about. Since
-SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
-polled by the background recorder up to and including the trigger frame, so its changes are recorded;
-what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
-headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
-mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
-recorder clears `thrustingJetpackParts`. No flight has shown any of these.
+What was really lost, family by family, by reading every promotion caller (`StartRecording(isPromotion: true)`):
+
+- A TRACKED member (post-switch watch, board promotion): since SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER
+  the background recorder polls it up to and including the trigger frame, so parachutes (EVA too), lamps,
+  shrouds, fairings, panels, gear, bays, ladders, animation groups, surfaces, wheels, heat and the deployable
+  that fired the trigger are recorded. The one family it does not poll is a cabin light (ModuleColorChanger,
+  `BackgroundRecorder.CheckLightState` reads ModuleLight only): LOST.
+- A FRESH recording (the five `BindLiveRecorderToSwitchSegment` routes, a split's active half, a seat
+  dismount, a merge): its ghost spawns from the start snapshot captured in the same recorder start
+  (`SnapshotPartBaseline`, the #290 shroud read, the fairing `fsm`), so panels, broken panels, wheels, gear,
+  bays, ladders, animations, surfaces, parachutes, lights, shrouds and fairings were drawn right with no event.
+  Three states are in no snapshot key the ghost reads: part heat (ModuleAnimateHeat), an EVA kerbal's
+  parachute (the reader matches `ModuleParachute` by name, his is `ModuleEvaChute`) and a robot arm
+  scanner: LOST.
+- A RESUMED recording (in-place resume of a committed recording, F9 restore): the ghost snapshot is the old
+  start, so every family that changed with no recorder running is LOST, and one quickload case too: an F5
+  taken while a panel, bay or gear was moving back leaves the resumed recorder with nothing to close, so
+  the ghost keeps it out for good.
+
+Stock keeps all of these across a save (heat follows the part temperature), so the live vessel shows the new
+state in each case and the ghost did not.
+
+Fix (`PartStateSeeder.EmitPromotionStateEvents`, last step of the promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): the states the recording's ghost would show (its start
+snapshot, then its recorded events, `BuildShownStates`) are diffed with the live parts through the rails-span
+differ, and only the differences are written, in both directions (a repair, a retraction, a light off, heat
+gone, a chute cut or repacked write their own event; a shroud and a fairing are one-way). Nothing is written for
+a state the snapshot or an event already carries, so most promotions write nothing. `SnapshotPartBaseline`'s
+reader moved from the Ghost module to Recording (`PartStateSeeder.SnapshotBaseline.cs`, the ghost builder
+forwards to it) so the recorder and the ghost read one snapshot the same way. UT: the recording's last interesting moment
+when it lies before the promotion, else the part's own last event, else the recording's start. It is later
+than the jetpack seed's rule on purpose: a deploy event at a recording's start redraws the whole recorded
+flight with a panel that opened later (a jetpack event alone draws nothing); the last interesting moment is
+the latest UT that cannot move the tail trim (bug A / #263). A do-nothing visit is still discarded: those UTs
+lie before the visit, and the checks that read from a segment's start (`IsNoOpSegment`) or a committed
+recording's end (`RefusedResumedCopyTail`) ignore such an event exactly there. No format change. Tests: `PromotionPartStateTests` (16 families, both directions, snapshot and event evidence, trim and
+no-op), and `PromotionConverterSeedInGameTest` also resets over an unchanged live vessel and expects nothing.
+
+Live proof (Debug automation DLL sha256 prefix 077cbda8, evidence `logs/flights/part-states/`): PSP-1 PASS attempt 1
+on `2026-11-26_1811`. A wheel broken while recording, the panel broken while no recorder ran, a save and reload: the
+in-place resume wrote `Seed event: DeployableBroken pid=2967988029 midx=0 part='solarPanels2' ut=36.18 (promotion)`
+(the recording's last interesting moment) and nothing else, the two unchanged resumes wrote nothing, and the replay
+applied both breaks. On the same DLL MINE-15 (an unchanged rover with drills, panels and lights writes nothing), EVA-17
+and S0.16 (an F9 inside a switch segment writes nothing) passed attempt 1.
+
+Left as is: a kerbal's helmet and headlamp have no part event at all, on any path (a recording-format question).
+The mid-burst quickload is QUICKLOAD-LEAVES-A-BURST-OPEN.
+
+## QUICKLOAD-LEAVES-A-BURST-OPEN: a quickload taken in mid-burst leaves a jetpack or RCS start with no stop until the next burst ends [FILED 2026-11-24, split from PART-STATES-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+An F5 while a kerbal's pack (or an RCS block) is firing saves `EvaJetpackThrustStarted` / `RCSActivated`
+without its stop; after the F9 nothing fires, the resumed recorder's `thrustingJetpackParts` /
+`activeRcsKeys` start without it, so no poll ever writes the stop and the ghost's plume runs until the next
+burst ends. A separate mechanism from a lost part state: the truth is an interval that ended at the load, so its
+stop belongs at the quicksave UT, not at the recording's last interesting moment, and a burst that is open at
+the end of a committed recording must not be drawn across the gap to a later resume. No flight has shown it.
 
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
@@ -517,9 +559,21 @@ Tests: `EngineFxBuilderTests` (`EngineWithoutStandIn_ScansExactlyItsOwnEffects`,
 
 Flown: PPS-14a `2026-11-23_1706` (stock-minimal, DLL 8b67133f, INVALID on controls only: the spec plans none), 17 cases 14 pass / 3 warn / 0 fail (PP-7 `2026-11-23_1027`: 17 fail). `fxExtraOnGhost` empty and `fxMissingOnGhost` only the two unrendered flameout sparks on all nine; every `engine-fx start` line `source=effects-node supplementSystems=0`, no `fallback ... added` / `forced` line. Side core real / event ghost: `Size2LFB` full 5249 / 34981 -> 5255 / 5264, 30 % 2965 / 29697 -> 2909 / 2904; `Size3EngineCluster` 43525 / 68046 -> 43500 / 43561; `Size3AdvancedEngine` 30 % 30869 / 5954 -> 30755 / 30865; `MassiveBooster` hue L1 0.72 -> 0.07, length 1.15 -> 1.00; SSME bottom area 1.38 -> 1.00; `omsEngine` hue 0.87 -> 0.01; `microEngine.v2` length 0.47 -> 1.02, lateral -119 -> -0.4 px; `radialEngineMini.v2` 0.41 -> 0.99. Warns left: `omsEngine` full far length 0.842, `radialEngineMini.v2` 30 % length 0.86 to 0.87 and hue 0.35, `Size3EngineCluster` 30 % chroma 0.016 (start). Same on the full lane, PP-7 `2026-11-23_1732` (all nine pass or warn). The smoke of `Size3AdvancedEngine` and `MassiveBooster` in the air: flown `2026-11-23_1951` (PPS-15, stock-minimal, DLL 7a603868: main 82dc51fb with a throwaway one-line instrument change that gives these two parts the air context, since the air run plans air-breathing engines only; INVALID on controls only, recompute 0). Both draw `fx_smokeTrail_veryLarge`, which is additive, so it is measured in the flame layer and the smoke layer is empty on both sides; inventories equal, `fxDiffers` empty. Core real / event ghost: Kickback full side-a 20327 / 20587, far 18119 / 18295, length 1.00, pass; Rhino full 37286 / 37364, far 22864 / 23210, pass; Rhino 30 % 31375 / 31406, far 18888 / 19864, warn (bottom hue L1 0.14).
 
-## ENGINE-THROTTLE-EVENT-STEP: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; OPEN; low (recorded data is immutable)]
+## ~~ENGINE-THROTTLE-EVENT-STEP~~: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; FIXED 2026-11-24, branch `throttle-settle`, flown `2026-11-24_1845` / `_1852`; low; existing recordings keep their events]
 
 What: the recorder writes an EngineThrottle event only when the throttle has moved more than 0.05 since the last one (`FlightRecorder.EngineAndRcs.cs`), so a slow spool to 0.29 ends on a recorded 0.25. Where stock's curve or per-frame threshold is steep the ghost shows it: RAPIER in air mode at 30 % `fx-far` flame real 20746, event ghost 321 (its trail draws nothing), Whiplash 18000 / 15002. The start route, seeded at 0.30, reads 20816 and 17945. A recorded flight cannot be changed; a settled-throttle event would be a recorder change for new flights.
+
+Owner ruling (2026-11-24): record the settled value: keep the 5 % step while it moves, and add one event when the throttle stops moving; new recordings only, few extra events.
+
+Fix: `FlightRecorder.CheckEngineTransition` (both recorders, engines only, RCS unchanged) writes one more EngineThrottle when the power has stayed within 0.001 of one value for 1.0 s of game time and is more than 0.01 off the last recorded value. The window's reference is the value it started at, so a drift faster than 0.001 per second never settles. Numbers: stock writes a resting throttle exactly (decompiled `ModuleEngines.UpdateThrottle`: instant engines copy the request, `useEngineResponseTime` closes by `Lerp` and snaps at 0.0001), so there is no jitter at rest; simulated on stock's formula, every stock jet spool gets one settled event within 0.008 of the target (Panther, RAPIER, Whiplash, Juno, Wheesley) and the Goliath (0.06 /s) two; a looser 0.002 gives the Wheesley two and the Goliath four, 0.5 s gives the Goliath four.
+
+Only an engine that wrote its own EngineIgnited / EngineThrottle in this recording session is armed, and both values must be positive, so a settled event always sits inside a burn of the same engine, before its shutdown: `FindLastInterestingUT`, the no-op classifiers and the phase analyzer read what they read before, and the post-switch activity watch runs without the rule. The optimizer's split rules read no part events. Left as it was: a seeded engine (a recording that starts mid-burn, an F9 resume, a background promotion) trimmed by less than 0.05 keeps the seed until its first step. A copy refused on resume (`RefusedResumedCopyTail`) whose engine runs in a surface-stationary tail can read the settled event as its one meaningful tail event and is then kept, never discarded.
+
+Cost, fixture recordings replayed offline (312 recordings, 4953 engine events, 763 ignitions): +34 to +205 settled events (+0.7 % to +4.1 %, 0.04 to 0.27 per ignition, the range being whether an unrecorded stretch ramps or rests); one for every throttle event held 1 s or more would be +486. The part-parity FX sweep polls with the same rule and holds a spooling case until its settled value is in.
+
+Flown (DLL 4d91d9d4, evidence `<umbrella>/logs/flights/throttle-settle/`). Held-air sweep `2026-11-24_1845`, PASS attempt 1, `fx-far` flame real / event ghost: RAPIER air 30 % 20746 / 321 before, 21129 / 21954 now; Whiplash 30 % 18000 / 15002 before, 17871 / 18069 now (before `2026-11-23_1201`; the sweep now also waits for the settled event). One settled event per case on every jet, at the simulated values (RAPIER 0.2963, Goliath 0.2843), and on each control solid booster (0.982 to 1.000, stock spools them too). AIR-1 `2026-11-24_1852`, PASS attempt 1, the ordinary flight: 14 settled of 136 EngineThrottle events, 7 per engine over a 405 s mission and 42 throttle commands; above the offline range because every command on a spooling jet that rests off a step writes one. Seen, not this entry's: the Juno's full-throttle `fx-far` ghost smoke (real 632, event 5445, start 5652) now matches its start route (852 / 1135 / 5434 before).
+
+Gate: `EngineThrottleSettleTests`.
 
 ## ~~GHOST-NOZZLE-GLOW-WRONG-SOURCE~~: the ghost's nozzle glow follows the wrong signal on the Whiplash, the wet Panther and seven ReStock boosters, and ReStock's RCS glow is missing [FILED 2026-11-23 from `ghost-fx-3`'s `2026-11-23_1201`, PPS-12b `2026-11-23_1656`, PP-10 `2026-11-23_1712` and `_1718` / `_1725`; FIXED 2026-11-23, branch `ghost-fx-6`, flown `2026-11-23_1927` / `_1934` / `_1940` / `_1946`; low (visual only)]
 
@@ -595,6 +649,56 @@ Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 
 
 Fix (not started here): the writer order of the part's modules decides which level shows.
 
+## ~~GHOST-RCS-FX-STOCK-RULES~~: a ghost's RCS puffs follow the old linear power rule, not stock's effect curves [FOUND 2026-11-24 while triaging PP-7 / PP-8 / PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1829` / `_1834`; low (visual only)]
+
+What: GHOST-ENGINE-FX-STOCK-RULES gave engine effects stock's own curves; RCS kept the S1 rule: particle rate and velocity times the recorded power, floored at 0.2 (`GhostPlaybackLogic.SetRcsEmissionWithOutcome` -> `ComputeFxMagnitudeRatio`). The scan looked for the EFFECTS curves as sub-nodes, which a stock node writes as values, so they were never read (`curves=em0/sp0`). PP-9 `restock-rcs-block-triple-angled-1` (all three nozzles firing, recorded 0.569, ratio 1.000): particle speed real 6.78, ghost 4.08 (0.569 x 7).
+
+Stock (decompiled `ModuleRCS.FixedUpdate` -> `ModuleRCSFX.UpdatePowerFX` -> `ModelMultiParticleFX.OnEvent(power, nozzle)`): power = clamp(force / thrusterPower, 0.1, 1); rate = floor(asset * emission(power)), energy and velocity by their curves, size untouched. Every stock node authors `emission 0.1 -> 0, 1 -> 1` and `speed 0 -> 0.8, 1 -> 1`; on ReStock 24 nodes do, and the second node of twelve ReStock+ systems (the triple-angled blocks among them) `emission 0.2 -> 0, 1 -> 1` and `speed 0 -> 1, 1 -> 1`, full speed at any power.
+
+Fix: each RCS model instance takes that rule (`GhostVisualBuilder.AddRcsFxRule`, `GhostPlaybackLogic.ApplyRcsFxRules`) and leaves the S1 ratio, which stays for SmokeScreen nodes. Two things the recording's mean power forces, neither touching recorded data:
+- The mean is over every thruster transform, those of other part variants included (RCSBlock.v2 4 of 9, ReStock's 4 of 18), which never fire. The ghost takes them out (`RcsNozzlePower`).
+- Stock's emission curve at a mean would all but switch a block off (one nozzle of four at full: 0.25 -> 0.07, and 0 below 0.1). A module of several active nozzles emits max(curve, mean) (`RcsEmission`): the mean keeps the total of nozzles that fire hard, the curve is above it from about 0.63 (0.72 for the 0.2 nodes), where most must be firing. A one-nozzle module is exactly stock's. Which nozzles fire is still RCS-PER-NOZZLE-RECORDING (R4).
+
+Tests: `GhostRcsFxPowerTests`; in-game `RcsPlumeMagnitudeSurvivesSuppressAndRestore` now sums the emitters.
+
+Flown: PPS-19a `2026-11-26_1829` (stock-minimal, 7 rcs cases) and PPS-19b `_1834` (modded-restock, 19) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), both INVALID on the controls they do not plan, no `[Parsek][ERROR]`. Particle speed real / ghost, before (PP-7 / PP-9 `2026-11-24_0735`) -> now: ReStock `triple-angled-1` 6.78 / 4.08 -> 6.80 / 6.63, `triple-angled-mini-1` 3.22 / 2.00 -> 3.37 / 3.32, `quint-1` 6.74 / 2.36 -> 6.77 / 6.52, `RCSBlock.v2` 6.70 / 1.60 -> 6.50 / 5.96, `RCSblock.01.small` 3.51 / 1.15 -> 3.58 / 3.03; stock `RCSBlock.v2` 3.13 / 3.32 -> 3.52 / 3.25. Side-a flame length ratio on the ReStock blocks 0.52 to 0.88 -> 0.93 to 1.16; the one-nozzle parts and linear ports stay within 3 %. Particle counts stay higher on the blocks (every drawn nozzle fires, R4) and their mean direction reads off by up to 46 deg on the angled minis (R4 too: all nozzles where stock fires 3).
+
+## ~~GHOST-JET-THROTTLE-CLIP~~: a jet's variable nozzle never moves on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low to medium (visible on every Panther and Whiplash)]
+
+What: `FXModuleAnimateThrottle` plays `TurboRamJetNozzle` (Whiplash, 3 bones) and `TurboJetNozzleDry` / `TurboJetNozzleWet` (Panther, 6 bones), clips that move the petals, at the engine's throttle. The ghost sampled such a clip for its colours only (`GhostVisualBuilder.SampleNozzleGlowClip`; a clip with none was skipped whole). Seen on both installs, both routes alike (PP-5 `2026-11-24_0628`, PP-10 `_0758`): `turboJet` dry full side blob 1971 / 1973 px, bottom colour 12986; dry 30 % 625; wet 30 % 310; `turboFanEngine` 30 % 763.
+
+Fix: the same sampling also reads the transforms (33 poses a clip, only the channels that move, cached per part type) and `GhostPlaybackLogic.UpdateNozzlePoses` drives them from the glow's level, so recorded power, the main-throttle rule, response speed, persisted state, rewinds and loops are the glow's own. Two clips on one part blend as Unity's layers do with stock's `weightOnOperational` weights (3 x responseSpeed); the engine that runs owns the pose, and while none runs the last one keeps it (the recording does not tell an idle engine from a shut-down one). Writes only while a level or weight moves: a settled part costs one flag read a frame. Nothing new is recorded. Not covered: the clips' `Point light` intensity (a ghost's engine lights nothing) and `FXModuleAnimateRCS` poses.
+
+Tests: `GhostNozzlePoseTests` (Pose_*, Blend_*).
+
+Flown: PPS-19c `2026-11-26_1846` (stock-minimal, air, 8 jet cases) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), INVALID on the controls it does not plan, no `[Parsek][ERROR]`. Event / start route, before (PP-5 `2026-11-24_0628`) -> now: `turboJet` dry full side shape blob 1971 / 1971 -> 0 / 0, bottom colour 12986 / 12986 -> 9 / 2; dry 30 % shape 625 -> 4 / 0, bottom 11144 -> 1739 / 3; wet 30 % shape 310 -> 0 / 0, bottom 6376 -> 657 / 2; wet full 0 / 0 as before; `turboFanEngine` 30 % shape 763 / 746 -> 2 / 0, colour 2972 -> 27 / 1. Log: `Nozzle pose pid=... settled: 'TurboJetNozzleDry' at 0.298 weight 1.000` and the wet case's dry weight 0 / wet weight 1. Left: the event route's bottom colour at 30 % (1739 dry, 657 wet; start route 3 and 2) is not a pose (no shape px).
+
+## ~~GHOST-GOLIATH-FAN-STATIC~~: the Goliath's fan does not turn on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low (visual only)]
+
+What: `turboFanSize2`'s `FXModuleAnimateThrottle` plays `TF2FanSpin` with `affectTime = false`, `animWrapMode = 2` (loop); `CollectNozzleGlowPlans` skipped any module with `affectTime` off, so `FanCone` and `FanBlades` stood still on both routes (top view colour 405 to 10654 px: the real fan's phase at that moment).
+
+Stock (decompiled): the clip's speed moves toward `baseAnimSpeed + throttle * baseAnimSpeedMult` (0.01 + 100 x) by `responseSpeed * dt` a step and is capped at 1, the clip's own rate: one turn a second from 0.2 s after a full-throttle start, 20 s time constant on the way down.
+
+Fix: `GhostVisualBuilder.BuildEngineSpin` samples the loop (the converter loops' sampler) and `GhostPlaybackLogic.EngineSpinPhaseAt` is that law in closed form over the recorded power; one transform write a frame while it turns. An engine shut down while spinning coasts as an idle one does (stock freezes a shut-down fan after 1.8 s, when its weight reaches 0; the recording reads both as a shutdown). The phase is not the real fan's, so a still picture of it stays noise (PARTPARITY-SPIN-PHASE).
+
+Tests: `GhostNozzlePoseTests` (Spin*).
+
+Flown: PPS-19c `2026-11-26_1846` (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `EngineSpin 'turboFanSize2': sampled 1 looping transform(s) from 'TF2FanSpin' over 12 phases (clip=1.00s)`, `spins=1`. Top view px differing by 24 or more between the event ghost and the stowed ghost (fan at rest): before 0 at full and 30 %, now 7313 and 9116; event against start ghost 4923 and 5756 (two fans at different phases). The real-against-ghost top view stays phase noise (10492, 10658), as filed (script `after/fan.py`).
+
+## ~~GHOST-NOZZLE-GLOW-EVENT-RAMP~~: the Caravel's bell is hot at once on the real part and ramps on its ghost [FOUND 2026-11-24 while triaging PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1834`; low (visual only, ReStock+)]
+
+What: `restock-engine-caravel-1` at full, event route `color-blob-px` bottom 3113, side-a 198; start route 4: the real bell stands at the hot end while the event ghost plays `heatColor`'s 0.025 /s ramp.
+
+Cause (cfg and decompile): `FXModuleThrottleEffects` sets its modules in `Update`, as `ModuleColorChanger` shows its ramp (and KSPCommunityFixes' replacement too), so the later module of the part wins. The Caravel is the one part of ReStock / ReStock+ whose `heatColor` changer stands before its setter: its bell shows the throttle, hot at once. The ghost assumed the ramp writes last.
+
+Fix: the ghost compares the two modules' places in the part (`ThrottleGlowSetterOrder`, `ThrottleGlowRampOrder`; `ShownNozzleGlow` takes the last write of the frame).
+
+Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 0 to 2. Both ramps are done there and the settled bell shows the setter's level: real 0.991, ghost 0.96, the last recorded `EngineThrottle` (PP-9 log, 5 % step). ENGINE-THROTTLE-EVENT-STEP (PR #2821); nothing to change in the ghost.
+
+Tests: `GhostNozzleGlowTests` (WriteOrder_*).
+
+Flown: PPS-19b `2026-11-26_1834` (modded-restock) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `restock-engine-caravel-1` full, event route `color-blob-px` bottom 3113 -> 3, side-a 198 -> 0; 30 % 1 -> 0. `restock-engine-boar` (setter first, unchanged rule) event 0 at both powers. `MassiveBooster` full event bottom 466 -> 0 on main's settled-throttle recorder (#2821), as read. The start routes of the boar (34729) and the Kickback (1066) are PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED, not this.
+
 ## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, flown `2026-11-23_2149`; low (visual only, stock)]
 
 What: stock draws five `Squad/FX/LES_Thruster` emitters (one per `thrustTransform`) by the engine's thrust (`powerEffectName = running_closed`), dark below 5 %, so it burns on abort and on jettison. The ghost drew nothing; ReStock's tower passed.
@@ -615,13 +719,24 @@ Cause (decompiled): the two keys end in `true`, which makes `PartLoader` add `(K
 
 Fix: `EngineFxBuilder.LegacyFxLocalPosition`. Tests: `GhostFxStockPlacementTests`. Flown: PPS-16d `2026-11-23_1946`, 30 % side-b width 0.381 -> 0.991, core 4900 / 3943 -> 4896 / 4994, side-a origin 16 -> 0 px, both powers pass, `fxDiffers` empty.
 
-## PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; OPEN; instrument, low]
+## ~~PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN~~: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; FIXED 2026-11-24, branch `fx-rig-main-throttle`, flown `2026-11-24_1901` / `_1911` / `_1917`; instrument, low]
 
-What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: today the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judge a cold bell against a cold bell; the ordinary flight, bell hot on both sides, is not measured.
+What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judged a cold bell against a cold bell; the ordinary flight, bell hot on both sides, was not measured.
 
-Seen 2026-11-23: PPS-16a / PPS-16b (`2026-11-23_1927` / `_1934`) read 0 px on both bells against the cold real side (16355 to 18272 px before GHOST-NOZZLE-GLOW-WRONG-SOURCE), which agrees with the rig's reading and measures nothing about the ordinary case.
+Fix: two state words, `main-full` and `main-low`, for every throttleable engine (`independentThrottle = False`, the vessel's own throttle held through its `OnPreAutopilotUpdate`, 60 s of burn for the engines whose glow reads it), planned by `fx=plume` only for those two engines (four cases more in each air lane) and for every engine by `fx=plume-main`. Design: "Main-throttle cases as built" in E.2. The independent-throttle cases keep their ids and their waves.
 
-Fix (not started): also author `CTRLSTATE { mainThrottle = <the case's throttle> }` on the case vessel (the independent throttle stays, so nothing else moves) and expect both bells hot.
+Flown (DLL sha256 prefix 106a6702, origin/main at #2820, so without `throttle-settle`; evidence `<umbrella>/logs/flights/fx-rig/`; each lane's INVALID is the labels run with `controls=false`, the two air labels and the orbit label that ran controls read them ok; no `[Parsek][ERROR]`). Glow clip level at the capture and body `color-blob-px` on `bottom`, stock (ReStock within 0.001 of a level and 6 px):
+
+| Case | Real level | Event ghost | Start ghost | bottom px, event / start |
+| --- | --- | --- | --- | --- |
+| Whiplash `main-full` | 0.557 | 0.513 (target 0.973) | 0.557 | 0 / 0 |
+| Whiplash `main-low` | 0.170 | 0.138 (target 0.253) | 0.170 | 2951 / 2951, its nozzle's shape (`burn-low` 2954) |
+| Panther wet `main-full` | 0.556 | 0.538 (target 0.980) | 0.556 | 1 / 1 |
+| Panther wet `main-low` | 0.170 | 0.146 (target 0.261) | 0.170 | 6337 / 6334, its nozzle's shape (`burn-low` 6380) |
+
+The hot bell is hot: the real `bottom` view differs from its `burn-full` twin by 20228 px (Whiplash) and 20045 px (Panther) over 12 levels; the Whiplash's mean red is 109.9 real, 98.3 event, 109.8 start against 42.2 cold. The start route is exact. The event route is 0.02 to 0.04 of the clip dimmer, under every threshold: the spool the recording holds and the vessel throttle it does not (E.2, "What the ghost cannot know"), and the last throttle step the recorder drops (ENGINE-THROTTLE-EVENT-STEP, `throttle-settle`'s). The Whiplash's clip adds no colour below about 0.17. Controls: the Wheesley and the LV-T45 read the same main as independent (0 px), the RAPIER too (0 px; its 30 % air flame fails as it does independently). `burn-*` re-flown beside them moved nothing: `turboFanEngine` full 0 / 0, low 2954, `turboJet` m1 12985 / 11139, m2 1 / 6380 (2972, 12986, 11142, 6376 in `2026-11-23_1718`). The host and the player's input stayed at 0.000; every case vessel released at 0.000.
+
+Left: the glow of an engine that ignores the main throttle (independent or locked) while the main throttle moves in flight is not recorded and stays a limit.
 
 ## GHOST-NOZZLE-GLOW-REAIM-HISTORY: a re-aimed loop row cut at a burn's end starts with a cold nozzle [FILED 2026-11-23 from the `ghost-fx-2` review; OPEN; low (visual only)]
 

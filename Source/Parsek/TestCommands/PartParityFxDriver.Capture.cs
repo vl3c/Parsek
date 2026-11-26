@@ -33,7 +33,10 @@ namespace Parsek.TestCommands
             bool solo = wave.Count == 1 && wave[0].Solo;
             PartParitySweepRunner.WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
             foreach (var wc in wave)
+            {
                 if (wc.Fx != null && wc.Fx.Stochastic) EnsureCheat(ctx, wc);
+                if (wc.Fx != null) NoteMainThrottle(ctx, wc);
+            }
             for (int i = 0; i < wave.Count; i++)
             {
                 WaveCase wc = wave[i];
@@ -761,6 +764,8 @@ namespace Parsek.TestCommands
                         yield return new WaitForEndOfFrame();
                         if (PartParitySweepRunner.CaseVesselLost(wc)) { LoseVessel(wc); yield break; }
                         PartParitySweepRunner.Guard(ctx, wc, "fx-nozzle-glow", () => AdvanceNozzleGlows(wc));
+                        if (wc.Fx.Engine != null && view == wc.Views[0])
+                            PartParitySweepRunner.Guard(ctx, wc, "fx-glow-log", () => LogGlow(wc));
                         PartParitySweepRunner.Guard(ctx, wc, "capture-" + view, () => PartParityCaseCapture.CaptureView(ctx, wc, view));
                     }
                 }
@@ -811,6 +816,30 @@ namespace Parsek.TestCommands
             GhostPlaybackLogic.UpdateNozzleGlows(wc.Ghost?.State, ut);
             GhostPlaybackLogic.UpdateNozzleGlows(wc.State?.StartGhost?.State, ut);
             GhostPlaybackLogic.UpdateNozzleGlows(wc.Fx?.BrokenGhost?.State, ut);
+        }
+
+        /// <summary>One line on an engine case's glow at its first body view: how far each of the real
+        /// part's throttle clips stands and how far each ghost's glows do, with the throttle they follow.</summary>
+        private static void LogGlow(WaveCase wc)
+        {
+            double ut = Planetarium.GetUniversalTime();
+            var sb = new StringBuilder();
+            foreach (PartModule m in wc.Real.rootPart.Modules)
+                if (m is FXModuleAnimateThrottle clip)
+                    sb.Append(" real[").Append(clip.animationName).Append("]=").Append(clip.animState.ToString("0.000", Ic));
+            AppendGlows(sb, "event", wc.Ghost?.State, ut);
+            AppendGlows(sb, "start", wc.State?.StartGhost?.State, ut);
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: glow burnS={(Time.realtimeSinceStartup - wc.State.PressRealtime).ToString("0.0", Ic)} " +
+                $"mainThrottle={wc.Real.ctrlState.mainThrottle.ToString("0.000", Ic)} currentThrottle={wc.Fx.Engine.currentThrottle.ToString("0.000", Ic)}{sb}");
+        }
+
+        private static void AppendGlows(StringBuilder sb, string route, GhostPlaybackState state, double ut)
+        {
+            if (state?.nozzleGlows == null) return;
+            foreach (NozzleGlowInfo g in state.nozzleGlows)
+                sb.Append(' ').Append(route).Append('[').Append(g.animationName ?? g.moduleName).Append("]=")
+                    .Append(GhostPlaybackLogic.NozzleGlowScalarAt(g, ut).ToString("0.000", Ic)).Append("->")
+                    .Append(g.targetLevel.ToString("0.000", Ic));
         }
 
         private static void LoseVessel(WaveCase wc)
@@ -1066,6 +1095,7 @@ namespace Parsek.TestCommands
                 { "cullingMask", PartParityJson.Int(fx.CullingMask) },
                 { "reference", o.Reference == null ? "null" : PartParityJson.Str(o.Reference) },
             };
+            ReadThrottle(wc);
             if (fx.Engine != null || fx.Rcs != null)
                 d["drive"] = PartParityJson.KeyedBlock(PartParityJson.FxDriveKeys, new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -1074,6 +1104,8 @@ namespace Parsek.TestCommands
                     { "currentThrottle", PartParityJson.Num(fx.DriveCurrentThrottle) },
                     { "recordedPower", PartParityJson.Num(fx.DriveRecordedPower) },
                     { "cheat", PartParityJson.Bool(ctx.FxCheatBefore.HasValue) },
+                    { "mainThrottle", PartParityJson.Num(fx.DriveMainThrottle) },
+                    { "independentThrottle", fx.DriveIndependentThrottle.HasValue ? PartParityJson.Bool(fx.DriveIndependentThrottle.Value) : "null" },
                 });
             if (fx.Hold != null)
                 d["hold"] = PartParityJson.KeyedBlock(PartParityJson.FxHoldKeys, new Dictionary<string, string>(StringComparer.Ordinal)

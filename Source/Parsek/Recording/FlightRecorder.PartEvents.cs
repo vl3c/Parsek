@@ -1853,11 +1853,13 @@ namespace Parsek
                 // (GhostPlaybackLogic.AutoStartOrphanEnginePlayback / BuildEngineEventKeySet)
                 // only inspects engine events — if a chain-promoted recording reaches
                 // playback with zero engine events, every engine on the ghost auto-starts
-                // at full power, even ones the recorder captured as shut down. Non-engine
-                // seeds (DeployableExtended, LightOn, ParachuteDeployed, etc.) are still
-                // skipped on promotion to preserve the bug A / #263 FindLastInterestingUT
-                // invariant — re-emitting them at a late promotion UT is what blocked
-                // rover boring-tail trim. Engine-only seeds are scoped narrowly enough
+                // at full power, even ones the recorder captured as shut down. The full
+                // non-engine seed set (DeployableExtended, LightOn, ParachuteDeployed, etc.)
+                // is still skipped on promotion to preserve the bug A / #263
+                // FindLastInterestingUT invariant — re-emitting it at a late promotion UT is
+                // what blocked rover boring-tail trim; only a state the recording's ghost
+                // would show wrongly is written (EmitPartStateEventsForPromotion, below), at
+                // a UT that cannot move it. Engine-only seeds are scoped narrowly enough
                 // that they cannot recreate that failure mode: every other recording type
                 // (Quickload-resume, BG promote, normal continuation) lands on an
                 // activeRec that already has engine events, so the engine gate skips too;
@@ -1899,6 +1901,7 @@ namespace Parsek
                 // promotion, so his recording's last word can be out of date.
                 if (v.isEVA)
                     EmitEvaStateSeedEventsForPromotion(v, activeRec, activeRecId);
+                EmitPartStateEventsForPromotion(v, activeRec, activeRecId);
                 return;
             }
 
@@ -1967,7 +1970,7 @@ namespace Parsek
                 $"seed event(s) for chain promotion (activeRec='{activeRecId ?? "(none)"}' had 0 " +
                 $"engine events of {totalEventCount} total — seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} — " +
-                $"non-engine seeds still skipped to preserve bug A / #263 invariant)");
+                $"full seed set still skipped to preserve bug A / #263 invariant)");
         }
 
         /// <summary>
@@ -2031,6 +2034,45 @@ namespace Parsek
                 $"ResetPartEventTrackingState: emitted {emitted} EVA seed event(s) for chain " +
                 $"promotion (activeRec='{activeRecId ?? "(none)"}' " +
                 $"jetpack={jetpackDeployedParts.Count} ragdoll={ragdollParts.Count} " +
+                $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// Emits the part states (parachutes, lights, shrouds, fairings, deployables, gear, bays,
+        /// wheels, heat) that no recorder wrote and the recording's ghost would show wrongly from
+        /// here on (<see cref="PartStateSeeder.EmitPromotionStateEvents"/>). A tracked background
+        /// member is polled up to its promotion and a fresh recording's ghost spawns from the
+        /// snapshot this start captures, so most promotions emit nothing. Runs before
+        /// CaptureStartSnapshots: a recording with no ghost snapshot yet is one whose ghost will
+        /// spawn as the vessel is now. The recorder's own buffer holds only engine, converter and
+        /// EVA seeds here, so the active recording's events are all that has been recorded of
+        /// these families.
+        /// </summary>
+        private void EmitPartStateEventsForPromotion(Vessel v, Recording activeRec, string activeRecId)
+        {
+            if (activeRec == null)
+            {
+                ParsekLog.Verbose("Recorder",
+                    "ResetPartEventTrackingState: part state reconcile skipped (chain promotion, " +
+                    $"no active recording '{activeRecId ?? "(none)"}')");
+                return;
+            }
+
+            double currentUT = Planetarium.GetUniversalTime();
+            double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
+            double lastInterestingUT = RecordingOptimizer.FindLastInterestingUT(activeRec);
+            List<PromotionPartFacts> facts =
+                PartStateSeeder.CollectPromotionPartFacts(v, activeRec.GhostVisualSnapshot);
+            int emitted = PartStateSeeder.EmitPromotionStateEvents(
+                BuildCurrentTrackingSets(), facts, activeRec.PartEvents, PartEvents,
+                seedUT, lastInterestingUT, currentUT, "Recorder");
+            ParsekLog.Verbose("Recorder",
+                $"ResetPartEventTrackingState: part state reconcile emitted {emitted} event(s) for " +
+                $"chain promotion (activeRec='{activeRecId}' parts={facts.Count} " +
+                $"startSnapshot={(activeRec.GhostVisualSnapshot != null ? "recorded" : "pending")} " +
+                $"recordedEvents={activeRec.PartEvents?.Count ?? 0} " +
+                $"lastInterestingUT={lastInterestingUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
         }

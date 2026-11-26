@@ -111,6 +111,8 @@ namespace Parsek
         public Dictionary<uint, HeatGhostInfo> heatInfos;
         // Every heat info's nozzle glows, flat; null when the ghost has none.
         internal List<NozzleGlowInfo> nozzleGlows;
+        // The variable nozzles among them, one per part; null when the ghost has none.
+        internal List<NozzlePoseInfo> nozzlePoses;
         internal double nozzleGlowStartUT = double.NaN;
         public Dictionary<uint, LightGhostInfo> lightInfos;
         public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
@@ -244,6 +246,7 @@ namespace Parsek
             evaRagdoll = false;
             heatInfos = null;
             nozzleGlows = null;
+            nozzlePoses = null;
             nozzleGlowStartUT = double.NaN;
             lightInfos = null;
             lightPlaybackStates = null;

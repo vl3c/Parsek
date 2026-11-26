@@ -227,6 +227,10 @@ namespace Parsek.Tests
             Assert.Equal("fx:Burn", PartParityStateWave.WaveKind(FxKey("plume")));
             Assert.Equal("fx:Spool", PartParityStateWave.WaveKind(FxKey("plume", responseTime: true)));
             Assert.Equal("fx:Rcs", PartParityStateWave.WaveKind(FxKey("rcs")));
+            PartParityCaseKey main = FxKey("plume", responseTime: true);
+            main.FxOption.MainThrottle = true;
+            Assert.Equal("fx:Spool:main", PartParityStateWave.WaveKind(main));
+            Assert.True(PartParityStateWave.IsFxKind("fx:Spool:main"));
             Assert.Equal("fx:Heat", PartParityStateWave.WaveKind(FxKey("heat")));
             Assert.Equal("fx:Plate", PartParityStateWave.WaveKind(FxKey("light")));
             Assert.True(PartParityStateWave.IsFxKind("fx:Burn"));

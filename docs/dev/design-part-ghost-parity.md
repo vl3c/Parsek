@@ -2052,7 +2052,7 @@ nodes.
 
 | Family | Predicate (the recorder's own) | State words | What is compared | stock-minimal / modded-compat / modded-restock cases |
 | --- | --- | --- | --- | --- |
-| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
+| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked; `main-full` / `main-low` (E.2, not in the counts here) | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
 | `rcs` | every `as ModuleRCS` module (`FlightRecorder` RCS cache) | `rcs-fire` | puffs of the nozzles stock fires (E.2); the body atlas carries `FXModuleAnimateRCS` glow | 7 / 19 / 19 |
 | `heat` | `ModuleAnimateHeat` (`PartStatePoller.PollAnimateHeat`) | `heat-medium`, `heat-hot` | the heat clip's colour and pose on the body, P6 rows and judge | 32 / 26 / 26 |
 | `light` in context `plate` | the recorder's light check (P6 S2, `PartStatePoller.PollLights`) | `lit` | the light the lamp casts on a matte plate (E.2), plus the part's `Light` components structurally | 15 / 18 / 18 |
@@ -2145,7 +2145,9 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. After it, an engine
+  case holds (inside the press timeout) while the recorder still owes the settled-throttle event
+  (`IsEngineSettlePending`), so a jet is read at rest and not on the last 0.05 step. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
@@ -2464,6 +2466,61 @@ no Parsek ERROR, and the produced save holds the fixture's two vessels with the 
 as before. Wall: `f7fx` 336 s (waves 29, 84, 77, 114 and 32 s: the slowest spool of a wave sets it),
 over E.8's 210 s estimate, inside one 480 s step. First readings: todo
 PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23.
+
+Main-throttle cases as built (2026-11-24, owner's choice of the same day, todo
+PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN). Every plume case above burns on the independent throttle
+with the vessel's at 0, so what stock drives by the vessel's throttle stays cold on the real side.
+Two new state words, `main-full` and `main-low` (30 %), burn the same engine on the vessel's main
+throttle, as ordinary play does. The independent-throttle cases and their ids do not change.
+
+- What depends on it: `FXModuleAnimateThrottle` and `FXModuleThrottleEffects` (decompiled) aim at
+  their engine's output or throttle under `dependOnEngineState` with `dependOnOutput` /
+  `dependOnThrottle`, and at `vessel.ctrlState.mainThrottle` otherwise
+  (`PartParityFxRules.GlowReadsMainThrottle`). Over the three installs that is two clips: the
+  Whiplash's `TRJ_Heat` and the wet Panther's `TurboJetHeat`. All 109 `FXModuleThrottleEffects` of
+  ReStock and ReStock+ name `dependOnThrottle`, and neither touches the two jets' clips. No plume
+  reads it: stock's engine FX read the engine's own `currentThrottle`, `requestedThrottle` and
+  thrust. (A `ModuleRCS` with `useThrottle`, a tweakable no part sets, would.)
+- Planning: every engine that plans a `burn-low` plans the two, in the same context. `fx=plume`
+  (so `fx=all`) selects them only where a glow reads the main throttle, four air cases per install;
+  `fx=plume-main`, which `all` does not stand for, selects every engine's, for the controls.
+- Drive: `independentThrottle = False`, and from the press the case vessel's own
+  `OnPreAutopilotUpdate` writes `mainThrottle` into that vessel's `ctrlState` every physics step
+  (stock zeroes the stick and the RCS axes of a non-active vessel there, not its throttle). A lone
+  engine has no command module, so stock's `UpdateThrottle` would not hand the throttle on
+  (`part.isControllable`) and would keep the engine's last `requestedThrottle`; the same callback
+  writes stock's own value there, `mainThrottle * thrustPercentage * 0.01`. Done: E.2's signal, and
+  the vessel holds the throttle and the engine does not ignore it.
+- Burn time: both clips close on the throttle by 1/80 a second (`responseSpeed` 0.0005), so a case
+  whose glow reads it burns 60 s from its press before its ghosts are built (the bell is at 0.53 of
+  the throttle); the other main-throttle cases wait for their spool only. The wave bound reads it.
+- Isolation: a main-throttle case shares no wave with an independent-throttle one
+  (`fx:<bucket>:main`), so those waves keep their cases and their burn times. The throttle written
+  is the case vessel's alone, pinned in source
+  (`TheMainThrottle_IsWrittenOnTheCaseVesselOnly_AndReleasedToZero`): the host's and the player's
+  input are only read, before the step's first such case and after its teardown, and the step's
+  `main throttle: cases=<n> stillArmed=0 releasedAt=0.000 host=<a>-><b> input=<a>-><b>` line carries
+  them. `Release` takes the callback off and puts the vessel's throttle back to 0 before the vessel
+  dies. `fx.drive` gains `mainThrottle` and `independentThrottle`, written by every plume case, and
+  the judge errors a case whose state word they contradict (`fx_throttle_problem`), so a throttle
+  that reached an independent-throttle case could not pass.
+- What the ghost should read. The snapshot's engine module says `independentThrottle = False`, so
+  the glow's source is the recorded engine power over the thrust limiter
+  (`ResolveVesselThrottleSource`), and at a limiter of 100 % that is the main throttle once the
+  engine has spooled up to it. Event route: the stowed snapshot's persisted `animState` (0), then
+  the recorded power events. Start route: the snapshot at the capture carries the clip's
+  `animState` and its UT, and the seed carries the power. `CTRLSTATE mainThrottle` is read for
+  neither: it stands in only when every engine of the glow is independent or throttle-locked
+  (#2806), the one case whose main throttle no recorded power tells.
+- What the ghost cannot know, because the recording holds the engine's power and not the vessel's
+  throttle: while a jet spools, the real bell already follows the full throttle and the ghost's the
+  engine's (the Whiplash and the Panther spool at 0.2 /s and faster, so the ghost's bell trails by
+  up to 5 s of its 80 s climb); a limiter, a throttle mode or a vessel throttle changed in flight on
+  an engine that ignores the main throttle; an idling main throttle over a running independent
+  engine. The recorder does not gain the vessel's throttle for this.
+- Flown 2026-11-24 (throwaway lanes, todo PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN): both hot bells
+  read 0 px on both routes at full throttle (1 px on the Panther's bottom view), the start route
+  exactly at the real level (0.557) and the event route 0.02 to 0.04 of the clip below it.
 
 ### E.3 Capture changes
 
@@ -2792,7 +2849,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   not apply). `liquidengine2.v2--default--burn-full--<hash>`,
   `turbojet--default--burn-low-m1--air--<hash>` (the D.1 same-word tiebreak),
   `spotlight1--default--lit--plate--<hash>`. Stowed, P6 state and P6 context ids cannot move.
-- Args: `fx=none|all|<csv of plume, rcs, heat, plate>` (refused `fx-arg-invalid`), mirrored in
+- Args: `fx=none|all|<csv of plume, rcs, heat, plate, plume-main>` (refused `fx-arg-invalid`; `all`
+  is the first four, `plume-main` is E.2's main-throttle cases of every engine), mirrored in
   hlib's `validate_part_parity_sweep_step`. With `fx=none` (the default) every run plans exactly
   what it plans today. A run with `fx=` plans ONLY the FX keys of its families (no stowed, no P6
   state case), filtered by `contexts=` (`air` plans the air-breathing plume cases, `none` the
@@ -3192,6 +3250,10 @@ margin; the orbit lanes still use three. One case fewer on the modded installs (
 `telescopicLadderBay` is excluded (`fx-no-light`). PP-9 read 128 fails before the ghost fixes and 65
 after; what they are: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
 
+Since 2026-11-24 an air FX label plans 18 cases, the 14 and the four main-throttle ones of the
+Whiplash and the wet Panther ("Main-throttle cases as built" in E.2), one more wave of about 100 s;
+the orbit lanes plan what they did.
+
 ### E.9 Work breakdown
 
 Rule (D.10): two pieces in flight never touch one file, each is green on its own, and every C#
@@ -3319,6 +3381,21 @@ drift up to twice that), so the smoke stays where it was emitted; the ghost's wa
 (todo GHOST-SMOKE-RIDES-ACTIVE-VESSEL). Answered by F3: the stock spot light's plate gap is a
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
+
+### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`, flown 2026-11-26: PPS-19a / b / c, readings in the todo entries)
+
+What the sweeps of 2026-11-24 read as real ghost differences, and what the next readings mean:
+
+- RCS (GHOST-RCS-FX-STOCK-RULES). The ghost runs stock's EFFECTS rule. A one-nozzle module is judged
+  as before; a block's nozzle power is the recorded mean without the transforms of other variants, so
+  `rcsPowerRatio` (recorded mean over the fired nozzles' mean) understates what its puffs run at, and
+  the puffs' speed is the node's own curve at the mean (0.8 to 1 of full, or 1). R4 stands.
+- Variable nozzles (GHOST-JET-THROTTLE-CLIP). `AdvanceNozzleGlows` brings the petals to the capture's
+  time too (they are part of `UpdateNozzleGlows`).
+- The Goliath's fan (GHOST-GOLIATH-FAN-STATIC) turns on the ghost at stock's rate; its phase is its
+  own, so `transformDiffers` on `FanCone` / `FanBlades` and the top view stay (PARTPARITY-SPIN-PHASE).
+- The Caravel's bell (GHOST-NOZZLE-GLOW-EVENT-RAMP) is hot at once, as stock's. The Kickback's 466 px
+  was the recorded throttle's 5 % step (ENGINE-THROTTLE-EVENT-STEP).
 
 ## Appendix F. P5: baselines, the accepted list and the regression gate (2026-11-23)
 

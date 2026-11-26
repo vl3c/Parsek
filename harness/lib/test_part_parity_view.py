@@ -1325,10 +1325,11 @@ class FxPageDataTests(_FxSetMixin, unittest.TestCase):
                 for s, f, c in (("heat-hot", "heat", "alone"), ("burn-full", "plume", "alone"),
                                 ("lit", "light", "plate"), ("jettisoned", "jettison", "alone"),
                                 ("stowed", None, "alone"), ("rcs-fire", "rcs", "alone"),
+                                ("main-full", "plume", "alone"),
                                 ("burn-low", "plume", "alone"))]
         rows.sort(key=ppv.state_order_key)
-        self.assertEqual(["stowed", "jettisoned", "burn-full", "burn-low", "rcs-fire", "heat-hot",
-                          "lit"], [r["state"] for r in rows])
+        self.assertEqual(["stowed", "jettisoned", "burn-full", "burn-low", "main-full", "rcs-fire",
+                          "heat-hot", "lit"], [r["state"] for r in rows])
         skins = [g for g in self.data["groups"] if g["part"] == "engineRef"][0]["skins"]
         self.assertEqual([[self.by_id[FX_REF]["id"], self.by_id[FX_REF_OK]["id"]]],
                          [s["cases"] for s in skins])

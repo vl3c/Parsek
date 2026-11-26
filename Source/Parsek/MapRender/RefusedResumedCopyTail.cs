@@ -128,7 +128,8 @@ namespace Parsek
                 r.TailFromUT = MinIgnoringNaN(r.TailFromUT, from);
                 r.TailToUT = MaxIgnoringNaN(r.TailToUT, double.IsNaN(tailTo) ? from : tailTo);
 
-                if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(rec, anchor, out string tailKeep))
+                if (!SwitchSegmentNoOpClassifier.IsNoOpResumeTail(
+                        rec, anchor, out string tailKeep, sinceIsCommittedEnd: true))
                 {
                     r.KeepReason = "meaningful-tail:" + kvp.Key + ":" + (tailKeep ?? "<none>");
                     return r;

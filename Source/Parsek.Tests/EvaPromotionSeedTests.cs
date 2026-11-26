@@ -355,10 +355,10 @@ namespace Parsek.Tests
             int branch = text.IndexOf("if (!emitSeedEvents)\n", System.StringComparison.Ordinal);
             int call = text.IndexOf(
                 "if (v.isEVA)\n                    EmitEvaStateSeedEventsForPromotion(v, activeRec, activeRecId);\n"
-                + "                return;", System.StringComparison.Ordinal);
+                + "                EmitPartStateEventsForPromotion(", System.StringComparison.Ordinal);
             int full = text.IndexOf("PartStateSeeder.EmitSeedEvents(", System.StringComparison.Ordinal);
             Assert.True(branch >= 0 && call > branch && full > call,
-                "the EVA promotion seeds must be the last step of the promotion branch");
+                "the EVA promotion seeds must stay on the promotion branch, before the part state reconcile");
         }
     }
 }
