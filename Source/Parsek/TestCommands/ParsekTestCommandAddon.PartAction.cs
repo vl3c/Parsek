@@ -237,6 +237,19 @@ namespace Parsek.TestCommands
                         }
                         continue;
                     }
+                    if (TestCommandPartAction.IsDeployKind(kind))
+                    {
+                        // Only the deploy families, each through its own stock event, and a
+                        // one-event toggle only from the opposite end.
+                        TestCommandPartAction.DeployButtonFamily family =
+                            ResolveDeployButtonFamily(p, m, module, out bool? retractedNow);
+                        string deployEvent = TestCommandPartAction.DeployButtonEventName(kind, family, retractedNow);
+                        if (deployEvent == null || module.Events == null) continue;
+                        BaseEvent dev = module.Events[deployEvent];
+                        if (dev == null || !dev.active || !dev.guiActive) continue;
+                        found.Add(new PartActionCandidate { Part = p, Event = dev, EventName = deployEvent });
+                        continue;
+                    }
                     if (radiatorKind)
                     {
                         // Only the radiator module's Activate / Shutdown: other modules on
@@ -767,6 +780,48 @@ namespace Parsek.TestCommands
         {
             ParsekLog.Warn(Tag, $"partaction rejected reason={reason} {detail}");
             SetExecResult("REJECTED", null, reason);
+        }
+
+        /// <summary>
+        /// The deploy family of one module and, for the one-event toggles, whether the recorder's
+        /// own classifier reads it retracted (a cargo bay through its bay classifier, a standalone
+        /// ModuleAnimateGeneric through its animTime, a wheel through its stateString).
+        /// </summary>
+        private static TestCommandPartAction.DeployButtonFamily ResolveDeployButtonFamily(
+            Part p, int moduleIndex, PartModule module, out bool? retractedNow)
+        {
+            retractedNow = null;
+            if (module == null) return TestCommandPartAction.DeployButtonFamily.None;
+            if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                return TestCommandPartAction.DeployButtonFamily.AnimationGroup;
+            if (string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                return TestCommandPartAction.DeployButtonFamily.RetractableLadder;
+            if (module is ModuleDeployablePart)
+                return TestCommandPartAction.DeployButtonFamily.DeployablePart;
+            if (module is ModuleWheels.ModuleWheelDeployment wheel)
+            {
+                FlightRecorder.ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
+                if (isDeployed || isRetracted) retractedNow = isRetracted;
+                return TestCommandPartAction.DeployButtonFamily.WheelDeployment;
+            }
+            if (module is ModuleAnimateGeneric anim)
+            {
+                ModuleCargoBay bay = p.FindModuleImplementing<ModuleCargoBay>();
+                if (bay != null && bay.DeployModuleIndex == moduleIndex)
+                {
+                    FlightRecorder.ClassifyCargoBayState(anim.animTime, bay.closedPosition,
+                        FlightRecorder.ResolveCargoBayDeployLimitStop(anim, bay.closedPosition),
+                        out bool isOpen, out bool isClosed);
+                    if (isOpen || isClosed) retractedNow = isClosed;
+                }
+                else if (FlightRecorder.TryClassifyAnimateGenericState(anim, out bool isDeployed, out bool isRetracted)
+                    && (isDeployed || isRetracted))
+                {
+                    retractedNow = isRetracted;
+                }
+                return TestCommandPartAction.DeployButtonFamily.AnimateGeneric;
+            }
+            return TestCommandPartAction.DeployButtonFamily.None;
         }
     }
 }
