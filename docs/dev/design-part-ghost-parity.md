@@ -923,7 +923,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
 | P5 (DONE 2026-11-23, Appendix F) | Baseline + accepted list; gate armed after a second matching reading run. BUILT: `partparity.gate_sweep` (10), `harness/partparity/baseline-<profile>.json` for all six labels, `accepted.toml` (72 entries), `part_parity_baseline.py`, the viewer's `--pinned` mode (8), the real-vs-real control's noise allowance (4.5). PP-1 to PP-4 armed; PP-5 / PP-6 report-only (canopy airflow). | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. PLANNED 2026-11-22 (Appendix D, rev 2): 12 transformation families, two ghost routes per state case, the jettison node contexts, chutes deployed for real in the air near KSC, the FGV fairing contexts, new report-only lanes PP-3 / PP-4 (orbit) and PP-5 / PP-6 (air). | Chute and deployables covered: every in-scope state case on both installs has a sidecar or a recorded setup fault, the state controls behave, the press gate holds, the owner reads stowed and deployed side by side. |
-| P7 | Animation strips + GIF / APNG (9.2). PLANNED 2026-11-26 (Appendix G, rev 1): motion cases for the P6 families reached by motion plus servos and control surfaces; the real clip live, frames every T / 8 from the press, the ghost primed afterwards at each real frame's UT (same time) and at the same progress; timing measures (lag, duration ratio, curve shape, snap, steps) judged, per-frame pictures report-only; timing controls (real-vs-real, slowed and late ghosts); new report-only lanes PP-11 / PP-12 and an air label in PP-5 / PP-6; four motion defects read from the code (G.6). | Antennas, panels, robotics scrubbed in lock-step. |
+| P7 | Animation strips + GIF / APNG (9.2). PLANNED 2026-11-26 (Appendix G, rev 1): motion cases for the P6 families reached by motion plus servos and control surfaces; the real clip live, frames every T / 8 from the press, the ghost primed afterwards at each real frame's UT (same time) and at the same progress; timing measures (lag, duration ratio, curve shape, snap, steps) judged, per-frame pictures report-only; timing controls (real-vs-real, slowed and late ghosts); new report-only lanes PP-12 / PP-13 and an air label in PP-5 / PP-6; four motion defects read from the code (G.6). | Antennas, panels, robotics scrubbed in lock-step. |
 | P8 | Plumes and FX (9.3). PLANNED 2026-11-22 (Appendix E, rev 2): engine plumes and smoke, RCS puffs (the ghost's all-nozzle firing a known difference, owner ruling R4), engine and RCS glow (body atlas), `ModuleAnimateHeat` glow, the light a lamp casts on a plate; stochastic effects compared as accumulated coverage and colour from 8-bit tiles with split-half convergence and broken-plume controls; Waterfall cases reference-only; a Waterfall-free `modded-restock` profile; new report-only lanes PP-7 / PP-8 / PP-9 (orbit), PP-10 and a jet label in PP-5 / PP-6 (air); a later flight-camera reentry reference lane (R1). | Engine plumes compared on stock and on ReStock without Waterfall; reference-only on Waterfall: every in-scope FX case on every install has a sidecar or a recorded setup fault, the FX controls behave, the owner reads real and ghost plumes side by side. |
 
 ## 13. Open questions
@@ -3468,7 +3468,7 @@ presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to 
 | `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
 | `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
 | `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
-| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons, rotors) | `motion-swept` | 22 parts (D.1), counted per install by M1 | target swept (G.2); rotors report-only (spin phase) |
+| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 22 `BaseServo` parts with the rotors (D.1), counted per install by M1 | target swept (G.2); rotors excluded (`rotor-spin-not-primed`, below) |
 | `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 parts (D.1), counted per install by M1 | the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
 
 Not in P7, each a manifest exclusion with its reason (never silently dropped):
@@ -3485,6 +3485,12 @@ Not in P7, each a manifest exclusion with its reason (never silently dropped):
 - `loop-phase`: running drills, converters and spinning scanners (`ConverterLoopGhostInfo`), whose
   phase depends on the start time (PARTPARITY-SPIN-PHASE); their period is a later P7 piece.
 - `ground-scan`: `ModuleRobotArmScanner` (extends only while scanning a surface feature).
+- `rotor-spin-not-primed`: rotors (`ModuleRoboticServoRotor`). A primed ghost never spins one:
+  `PrimeHiddenPartStateAtUT` re-walks every event from the first
+  (`Ghost/GhostPlaybackEngine.InRangeRender.cs:678-690`), `ApplyRoboticEvent` stamps
+  `lastUpdateUT` with the prime UT on each (`GhostPlaybackLogic.Robotics.cs:293`), and
+  `UpdateActiveRobotics` then advances nothing (`deltaSeconds <= 0`). A rotor needs a ghost
+  stepped frame to frame past its last event, a later P7 piece.
 
 Case ids: the 5.2 rule with the motion word as the state (`longantenna--default--motion-deployed--
 <hash>`, `parachutesingle--default--motion-semi--air--<hash>`), so no P6 id moves. Motion cases run
@@ -3547,18 +3553,23 @@ ghost is destroyed before the ghost rows are built.
 Ghost side, after the real motion: once the window has ended,
 
 1. A SCOUT ghost (event route: the stowed snapshot, the stowed seeds at `t0`, the polled events at
-   their UTs) is primed through `GhostPlaybackEngine.PrimeHiddenPartStateAtUT` at every 50 ms over
-   the window, in increasing UT, unrendered, reading its own pose progress at each prime. That gives
-   p_ghost(u) on a dense grid with no shortcut.
+   their UTs) is primed through `GhostPlaybackEngine.PrimeHiddenPartStateAtUT` at the union of a
+   50 ms grid over the window and every real frame's own UT, in increasing UT, unrendered, reading
+   its own pose progress at each prime. That gives p_ghost(u) densely, and exactly at every
+   same-time UT, with no shortcut.
 2. For each real frame k: the same-time UT is the real frame's own UT; the matched UT is the first
-   scout UT where p_ghost reaches the real frame's progress (interpolated between grid points; at
-   p = 0 and 1 the ghost's own first and last pose; none when the ghost never reaches it: tile left
-   empty, flag `no-match` on that frame).
+   scout UT where p_ghost reaches the real frame's progress (interpolated between the two scout
+   points that bracket it; at p = 0 and 1 the ghost's own first and last pose; none when the ghost
+   never reaches it, or when the bracketing interval holds a jump (its two points differ by more
+   than 0.25, a snap or a servo step): tile left empty, flag `no-match` on that frame).
 3. A RENDER ghost, built the same way, is primed once at every UT of the merged, increasing list of
    same-time and matched UTs, and each primed pose is captured into its row with the real side's
-   renderers `forceRenderingOff` (4.4), two clears. Its pose progress at each render must equal the
-   scout's at that UT within 1e-4 (else the instrument flag `scout-render-disagree`). Primes go only
-   forward in UT, because a re-applied event answers `AlreadyInState` (D.5); for a part with a sun
+   renderers `forceRenderingOff` (4.4), two clears. A same-time render's pose progress must equal
+   the scout's at that exact UT within 1e-4, and a matched render's must be the progress it targeted
+   within the scout's own change across the interval it was interpolated in (else the instrument flag
+   `scout-render-disagree`), so a snap or a step the defects of G.6 predict is never read as an
+   instrument fault. Primes go only forward in UT, and each re-walk lands on the same pose because
+   the pose is a pure function of the event UTs (D.5); for a part with a sun
    tracker, uncaptured sub-primes keep every step under `MaxSynthSampleSeconds` (1 s,
    `GhostPlaybackLogic.SynthesizedMotion.cs:19`).
 
@@ -3582,8 +3593,7 @@ Robotics: the real servo is unlocked and driven the way its PAW slider does (the
 `targetAngle` / `targetExtension` field set through its `BaseField`, motor engaged, authored
 electric charge), from its rest value to the nearer of +45 deg (hinge, rotation servo; half the
 travel for a piston) and its range limit, at its own `traverseVelocity`. Done: the moving signal
-false and the position within the module deadband of the target. A rotor is spun to a third of its
-`rpmLimit` for 3 s; only its rate is compared (report-only, `rotor-phase`).
+false and the position within the module deadband of the target. Rotors are excluded (G.1).
 
 Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler's radial node so the
 centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
@@ -3632,7 +3642,7 @@ Report-only from the start, never in a verdict: the per-frame picture verdicts (
 every in-between frame; the timing measures carry that finding once), `staggerDev`, `travelRatio`
 (`travel-differs` outside [0.9, 1.1]), picture progress and its disagreement with pose progress
 (`progress-disagree`, an instrument hint, when the two t50 differ by more than two frame intervals),
-`motion-clipped-at-border`, `frame-jitter`, rotors, the chute pictures (canopy aim, D.4), and the
+`motion-clipped-at-border`, `frame-jitter`, the chute pictures (canopy aim, D.4), and the
 last frame of every family P6 already judges.
 
 Gates, as P6 / P8, in the same order: host-damaged > controls (the motion set) > state-press (the
@@ -3655,8 +3665,8 @@ estimate ran 50 % low).
 
 | Lane | Install | Cases (motion + controls) | Sweep estimate | Steps (480 s, +50 %) | `budgetSeconds` |
 | --- | --- | --- | --- | --- | --- |
-| PP-11 (new, `pp11`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
-| PP-12 (new, `pp12`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
+| PP-12 (new, `pp12`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
+| PP-13 (new, `pp13`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
 | PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
 
 Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
@@ -3668,9 +3678,10 @@ label with its own reset and run step, since 70 s of sweep does not earn its own
 (fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s).
 No modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the ReStock
 models. Each lane's first flight is a `limit=20` reading flight and its step count is set from its
-`wall=` (D.8). The ids PP-11 and PP-12 are free on `origin/main`, on every open PR branch and on the
-102 most recent remote branches (checked 2026-11-26). Expected wall per full pass: about 700 s
-(PP-11), 760 s (PP-12), plus about 90 s on each of PP-5 / PP-6.
+`wall=` (D.8). PP-11 is taken (the mod-parts lane, open PR #2836); PP-12 and PP-13 are free on
+`origin/main`, on every open PR branch and on the 200 most recent remote branches (re-checked
+2026-11-26). Expected wall per full pass: about 700 s (PP-12), 760 s (PP-13), plus about 90 s on
+each of PP-5 / PP-6.
 
 Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
 300 m terrain guard ends a case `died-settling`. If the reading flight shows it, the motion label
@@ -3765,7 +3776,7 @@ subsection.
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (keeps the `DecideAdmission(args, active,` call the hlib cell reads), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
 | M5 | Viewer and `--gif` (G.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
-| M6 | Orbit lanes PP-11 / PP-12: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-11-*.toml`, `PP-12-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
+| M6 | Orbit lanes PP-12 / PP-13: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-12-*.toml`, `PP-13-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
 | M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
 
 Order: M0; then M1 and M2 together; M3 and M4 together (M4 on M1's synthetic helpers); M5 after
