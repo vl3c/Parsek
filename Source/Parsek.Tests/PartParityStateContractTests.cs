@@ -387,6 +387,7 @@ namespace Parsek.Tests
             ["wc.GhostTiles"] = "ghost",
             ["wc.GhostStartTiles"] = "ghost-start",
             ["wc.GhostStowedTiles"] = "ghost-stowed",
+            ["wc.RealStartTiles"] = "real-start",
         };
 
         /// <summary>
@@ -410,17 +411,20 @@ namespace Parsek.Tests
                     .Cast<System.Text.RegularExpressions.Match>().Select(t => t.Value).ToArray())
                 .ToList();
             Assert.NotEmpty(compositions);
-            bool sawStowed = false;
+            bool sawStowed = false, sawReloaded = false;
             foreach (string[] lists in compositions)
             {
                 foreach (string l in lists)
                     Assert.True(TileListOfRow.ContainsKey(l), "an atlas row from an unknown tile list: " + l);
                 string[] rows = lists.Select(l => TileListOfRow[l]).ToArray();
                 bool stowed = rows.SequenceEqual(PartParityJson.AtlasRowsFor(false));
-                Assert.True(stowed || rows.SequenceEqual(PartParityJson.AtlasRowsFor(true)),
+                bool reloaded = rows.SequenceEqual(PartParityJson.AtlasRowsFor(true, true));
+                Assert.True(stowed || reloaded || rows.SequenceEqual(PartParityJson.AtlasRowsFor(true)),
                     "atlas composed as [" + string.Join(", ", rows) + "], not an AtlasRowsFor order");
                 sawStowed |= stowed;
+                sawReloaded |= reloaded;
             }
+            Assert.True(sawReloaded, "no reloaded start-route composition in the capture");
             Assert.True(sawStowed, "no stowed (real, ghost) composition in the capture");
         }
 
