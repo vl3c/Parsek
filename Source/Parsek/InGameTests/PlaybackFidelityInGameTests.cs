@@ -340,16 +340,19 @@ namespace Parsek.InGameTests
                 Vector3 deployedPos = moving.deployedPos;
                 double t0 = Planetarium.GetUniversalTime();
 
-                // ARM 1 — the ANIMATED path. Half a clip in, the transform must be interior.
+                // ARM 1 — the ANIMATED path. Half a motion in, the transform must be interior. A
+                // family whose recorded event marks the END of stock's motion (panels, gear, bays,
+                // ladders, standalone animate generics) is handed an event one motion after t0,
+                // so its motion runs [t0, event]; any other family starts at its event.
+                double motion = GhostPlaybackLogic.DeployMotionSecondsFor(deployable, true);
                 var extend = new PartEvent
                 {
-                    ut = t0,
+                    ut = t0 + GhostPlaybackLogic.EndMarkedMotionSecondsFor(deployable, true),
                     partPersistentId = deployable.partPersistentId,
                     eventType = PartEventType.DeployableExtended
                 };
                 GhostPlaybackLogic.ApplyDeployableState(state, extend, deployed: true, immediate: false);
-                GhostPlaybackLogic.UpdateActiveDeployables(
-                    state, t0 + deployable.clipLengthSeconds * 0.5);
+                GhostPlaybackLogic.UpdateActiveDeployables(state, t0 + motion * 0.5);
 
                 Vector3 midPos = moving.t.localPosition;
                 float toStowed = (midPos - stowedPos).magnitude;
@@ -358,11 +361,11 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(span > 0f, "fixture is vacuous: stowed and deployed poses coincide");
                 InGameAssert.IsGreaterThan(toStowed, span * 0.1f,
-                    "S2: half a clip after the event the panel must have LEFT the stowed pose. " +
+                    "S2: half a motion in the panel must have LEFT the stowed pose. " +
                     "'" + usedPart + "' is still " + toStowed + "m from stowed over a " + span +
                     "m span — the transition is not being advanced by UpdateActiveDeployables.");
                 InGameAssert.IsGreaterThan(toDeployed, span * 0.1f,
-                    "S2: half a clip after the event the panel must NOT have arrived yet. " +
+                    "S2: half a motion in the panel must NOT have arrived yet. " +
                     "'" + usedPart + "' is already " + toDeployed + "m from deployed over a " + span +
                     "m span — this is the snap S2 exists to remove.");
                 InGameAssert.IsTrue(deployable.transitionActive,
@@ -435,13 +438,13 @@ namespace Parsek.InGameTests
 
                 var extend = new PartEvent
                 {
-                    ut = t0,
+                    ut = t0 + GhostPlaybackLogic.EndMarkedMotionSecondsFor(deployable, true),
                     partPersistentId = deployable.partPersistentId,
                     eventType = PartEventType.DeployableExtended
                 };
                 GhostPlaybackLogic.ApplyDeployableState(state, extend, deployed: true, immediate: false);
                 GhostPlaybackLogic.UpdateActiveDeployables(
-                    state, t0 + deployable.clipLengthSeconds * 0.5);
+                    state, t0 + GhostPlaybackLogic.DeployMotionSecondsFor(deployable, true) * 0.5);
                 InGameAssert.IsTrue(deployable.transitionActive,
                     "fixture precondition: the panel must be mid-transition before the loop cycle");
 

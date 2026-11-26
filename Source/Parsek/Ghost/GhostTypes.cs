@@ -321,7 +321,26 @@ namespace Parsek
         /// reads, and so a null transform still carries a truthful "this part is broken" answer.
         /// </summary>
         public bool breakSubtreeHidden;
+
+        /// <summary>
+        /// Stock's full stowed -&gt; deployed motion time in seconds, set only for a family whose
+        /// recorder poller emits its event when stock's motion ENDS (ModuleDeployablePart, gear,
+        /// RetractableLadder, cargo bay, standalone ModuleAnimateGeneric): the clip at the
+        /// module's own speed over the travel it plays. NaN for every other family, whose event
+        /// marks the START and which keeps the clip-from-the-event transition.
+        /// </summary>
+        public double extendMotionSeconds = double.NaN;
+        /// <summary>The same for deployed -&gt; stowed (gear retracts at its own factor).</summary>
+        public double retractMotionSeconds = double.NaN;
+        /// <summary>
+        /// The in-flight transition's own length when it ENDS at its event UT (an end-marked
+        /// family); NaN for a transition that starts at its event and runs the clip.
+        /// </summary>
+        public double transitionDurationSeconds = double.NaN;
+        /// <summary>The recorded event UT an end-marked transition ends at; NaN otherwise.</summary>
+        public double transitionEventUT = double.NaN;
     }
+
 
     /// <summary>
     /// The ghost side of a stock <c>ModuleWheelDamage</c> wheel: the cloned transforms stock

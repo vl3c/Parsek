@@ -8,6 +8,11 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Fixed
+
+- **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and
+  ladders opened only once the recorded part had finished. (GHOST-DEPLOY-MOTION-TIMING-2026-11-26)
+
 ## 1.0.3
 
 ### Added
