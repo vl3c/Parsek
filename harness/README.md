@@ -2748,6 +2748,27 @@ off the log, regenerates it with `--at`, and then asks you to sit at the screen 
 runs `run.py --spec ... --hold`. You close KSP when you have seen enough; the result says
 `OBSERVED` and nothing counts it.
 
+**Agent checklist for a hold** (learned on the first owner-watched holds, 2026-11-26):
+
+- Fly the lane unattended once first (no `--hold`) and look at its screenshot: a hold that
+  fails in setup wastes the owner's time at the screen.
+- Hand over well before the moment: `--at` at least two to three minutes ahead of the event.
+  The game runs at 1x from the hand-over, and a 64 s lead meant the dock was over before the
+  owner looked.
+- Tell the owner the instant the harness log prints `[Hold] HOLDING` (and push a
+  notification): say what the camera is on and when the event happens.
+- Check the camera target is the vessel the owner means (the screenshot header reads
+  `Watching: <name> (<distance>)`); a watch ends when its recordings end and drops back to the
+  active vessel, which reads as "the camera lost the anchor".
+- A loop replays a mission at a later time. A ghost recorded next to a real vessel (a station,
+  a base) meets it only if that stretch was recorded relative to it; an absolute approach plays
+  far from where the vessel is by then (the withdrawn WL-3: 208 km).
+- Take the machine only through the lock and say so to the sessions that are queued; send
+  "done" when the hold ends. Never provision under another session's run.
+- File what the owner sees as a todo entry with the log lines and the run id; a hold result
+  lives only in the worktree's `results/`, so copy the run folder to
+  `<umbrella>/logs/flights/<label>/` before the worktree goes.
+
 ## Fixture saves and the shared craft library
 
 `fixtures/saves/<name>/` holds committed KSP save templates; `run.py::stage_fixture`
