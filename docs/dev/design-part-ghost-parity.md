@@ -3323,6 +3323,21 @@ drift up to twice that), so the smoke stays where it was emitted; the ghost's wa
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 
+### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`, flown 2026-11-26: PPS-19a / b / c, readings in the todo entries)
+
+What the sweeps of 2026-11-24 read as real ghost differences, and what the next readings mean:
+
+- RCS (GHOST-RCS-FX-STOCK-RULES). The ghost runs stock's EFFECTS rule. A one-nozzle module is judged
+  as before; a block's nozzle power is the recorded mean without the transforms of other variants, so
+  `rcsPowerRatio` (recorded mean over the fired nozzles' mean) understates what its puffs run at, and
+  the puffs' speed is the node's own curve at the mean (0.8 to 1 of full, or 1). R4 stands.
+- Variable nozzles (GHOST-JET-THROTTLE-CLIP). `AdvanceNozzleGlows` brings the petals to the capture's
+  time too (they are part of `UpdateNozzleGlows`).
+- The Goliath's fan (GHOST-GOLIATH-FAN-STATIC) turns on the ghost at stock's rate; its phase is its
+  own, so `transformDiffers` on `FanCone` / `FanBlades` and the top view stay (PARTPARITY-SPIN-PHASE).
+- The Caravel's bell (GHOST-NOZZLE-GLOW-EVENT-RAMP) is hot at once, as stock's. The Kickback's 466 px
+  was the recorded throttle's 5 % step (ENGINE-THROTTLE-EVENT-STEP).
+
 ## Appendix F. P5: baselines, the accepted list and the regression gate (2026-11-23)
 
 Built on branch `part-parity-p5-gate` (rules in section 10, viewer mode in section 8). Every

@@ -19,6 +19,8 @@ Not released yet.
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
+- **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
+  speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
 
 ## 1.0.3
 
