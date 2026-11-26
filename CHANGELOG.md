@@ -19,6 +19,8 @@ Not released yet.
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
+- **In an overlapping loop each ghost ends when its own recording ends.** It no longer stands frozen
+  until the next launch, or explodes a launch late. (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END)
 - **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
   speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
 - **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and

@@ -1458,7 +1458,7 @@ function IsIntermediateChainLink(chains, recording):
 Looped recordings that include interactions with pre-existing vessels follow a different rule:
 
 - The **first run** of a looped recording is the real run — it follows the ghost chain logic described above. The vessel spawns as real at completion of the first run.
-- **All subsequent loops** are purely visual. Ghosts appear and disappear on the loop cycle. They do not affect gameplay, do not spawn real vessels, and do not extend the ghost chain.
+- **All subsequent loops** are purely visual. Ghosts appear and disappear on the loop cycle. They do not affect gameplay, do not spawn real vessels, and do not extend the ghost chain. In a mission that overlaps itself the cycle is each copy's own: a copy ends at its own recorded (or trimmed) end, exploding there once when the recording ended Destroyed and just going otherwise, and the next row's copy carries on (owner ruling 2026-11-24; built 2026-11-24 on branch `loop-own-end`, held for 1.0.4, not merged; `parsek-missions-design.md` section 7.2, with the watch camera at an end).
 
 **Definition of "first run":** The first chronological playback of the recording after its commit point. If the recording was committed at UT=1000, the first playback spanning UT=1000 to 1600 is the real run. If the player rewinds to before UT=1000 and fast-forwards again, the playback starting at UT=1000 is still the first run — "first" is defined by the recording's timeline position, not by how many times the player has rewound. The real run always corresponds to the recording's original UT span. Every subsequent loop iteration is visual only.
 
