@@ -3397,7 +3397,7 @@ both installs until the next session re-provisioned them.
 
 ## Appendix G. P7 plan: motion over time (rev 1, 2026-11-26)
 
-Status: PLAN, not built. Owner approval to plan: 2026-11-26. One clean-context review (G.9). P6
+Status: PLAN, not built. Owner approval to plan: 2026-11-26. Review: G.9. P6
 compares a moving part's two END states (stowed, and the state after its done signal) and P8 its
 effects; neither looks at the motion between them. P7 photographs the motion itself, real and ghost,
 at fixed times after the press, and measures when it starts, how fast it runs, the shape of its
@@ -3430,8 +3430,9 @@ Per side the case reads a PROGRESS curve p(t) in [0, 1] over the time t since th
   mismatch pixels (section 6) between frame t and frame 0 of the same row, b(t) = against the row's
   last frame, p = a / (a + b) (0 when both are 0).
 
-From each curve, by linear interpolation between frames, the first crossing times t02 (start),
-t10, t50, t90 and t98 (end). Measures per case:
+From each curve, by linear interpolation, the first crossing times t02 (start), t10, t50, t90 and
+t98 (end): the real's between its frames (T / 8 apart, G.2), the ghost's on its 50 ms scout grid
+(G.2), which the sidecar carries so Python recomputes both. Measures per case:
 
 | Measure | Definition | What it catches |
 | --- | --- | --- |
@@ -3513,8 +3514,9 @@ Frame schedule (pure, `PartParityMotionRules.PlanFrameTargets`):
   Capture continues at that spacing until the real done signal (P6's rule, D.3) plus the GHOST's own
   expected run (its built clip length, known before the press from the framing ghost below; a
   servo's 0.25 s stop hold) plus 0.5 s, so a ghost that starts when the real ends is still in the
-  window. Default 17 frames (0 to 2 T); past 33 frames the spacing doubles; a 40 s cap ends the
-  window (flag `motion-window-capped`).
+  window: about 17 to 25 frames for a clip (a window of about 2 T + 1 s); past 33 frames the
+  spacing doubles; a 40 s cap ends the window (flag `motion-window-capped`). A control's altered
+  route (G.3) extends the window by its own change (its doubled clip, its 1 s shift).
 - A target is taken on the first end-of-frame at or after it; the actual offset is recorded
   (`realS`), and a frame later than T / 16 is tagged `frame-jitter:<ms>`. The ghost rows use the
   actual offsets, so the same-time pair has no time skew at all.
@@ -3534,12 +3536,13 @@ the events are those `FlightRecorder` would append. Servos poll through the shar
 
 Framing box: the motion sweeps through poses neither end state shows, and the box must be known
 before the first real frame. Before the press the case builds a FRAMING GHOST from the stowed
-snapshot (the D2 seam) and reads its stowed and fully deployed boxes (its deploy infos snapped to
-1 through the baseline overload, a pose used for framing only, never measured or shown); the shared
-box is the union of the real stowed box (the 4.2 rule) and both framing-ghost boxes, grown 20 %. A
-frame whose real or ghost coverage touches the border is tagged `motion-clipped-at-border`
-(report-only; the reading flight re-pins the margin). The framing ghost is destroyed before the
-ghost rows are built.
+snapshot (the D2 seam) and reads its box stowed and at the motion's target (posed through the
+family's own applier: the deploy infos snapped to 1 through the baseline overload, a servo at its
+target value, a canopy at its stage's pose; a pose used for framing only, never measured or
+shown); the shared box is the union of the real stowed box (the 4.2 rule) and both framing-ghost
+boxes, grown 20 %. A frame whose real or ghost coverage touches the border is tagged
+`motion-clipped-at-border` (report-only; the reading flight re-pins the margin). The framing
+ghost is destroyed before the ghost rows are built.
 
 Ghost side, after the real motion: once the window has ended,
 
@@ -3590,7 +3593,8 @@ hidden and left out of the records like a stacked filler. Press: the module's de
 Sidecar (`parsek-part-parity-case/1`, additive keys, every key always written, null when not
 measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` block (`family`,
 `kind` `clip|servo|surface|canopy`, `pressUT`, `predictedS`, `ghostClipS`, `eventDelayS`,
-`ghostStartDelayS`, `window` {`endS`, `spacingS`, `capped`}, `frames[]` {`k`, `targetS`, `realS`,
+`ghostStartDelayS`, `window` {`endS`, `spacingS`, `capped`}, `scout` {`stepS`, the ghost's pose
+progress at every grid UT}, `frames[]` {`k`, `targetS`, `realS`,
 `realClock`, `realProgress`, `ghostProgress`, `matchedS`, `imgProgress` per row and view, `views[]`
 with `same` and `matched` measure blocks}, `transforms[]` {`path`, `travelReal`, `travelGhost`, the
 per-frame fractions of both sides}, `timing` {`real` and `ghost` crossings, the G.1 measures and
@@ -3653,7 +3657,7 @@ estimate ran 50 % low).
 | --- | --- | --- | --- | --- | --- |
 | PP-11 (new, `pp11`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
 | PP-12 (new, `pp12`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
-| PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s, full 4.9 to 13 s after the semi, D.4) | 1 | 3000 (from 2400) |
+| PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
 
 Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
 motion=all controls=true maxSeconds=480`, quit without saving; tier `operator`, report-only,
@@ -3731,7 +3735,7 @@ checks the first live); filed as todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26.
    (`Ghost/GhostPlaybackLogic.PartEvents.cs:916-919`, `:1702-1705`), while stock plays its clips
    over seconds: the five stock-minimal chutes carry `semiDeploymentSpeed = 0.5` and
    `deploymentSpeed = 0.12` / `0.16667` (the install's ConfigCache; that they are the clip speeds is
-   M0 U6), and P6 measured semi done 1.7 to 3.5 s and full 4.9 to 13 s after the press (D.4).
+   M0 U6), and P6 measured semi done 1.7 to 3.5 s after the press and full 4.9 to 13 s (D.4).
    `motion-snap`.
 4. Servos move in 4 Hz steps. A hinge, rotation servo or piston ghost is posed only when an event
    is applied (`Ghost/GhostPlaybackLogic.Robotics.cs:287-300`); the per-frame pass advances only
@@ -3790,5 +3794,6 @@ None block the plan. Three decisions follow the reading flight, each about a fix
 
 ### G.9 Review disposition
 
-One clean-context review of rev 1 (merge-blocking findings only); its findings and how each was
-checked are listed in the PR.
+Rev 1 had a self-review against the code (the window for a late or slowed control route, the
+ghost crossings read from the scout grid, the framing pose per family); the clean-context review
+(merge-blocking findings only) is owed on the PR, since none could start when rev 1 was written.
