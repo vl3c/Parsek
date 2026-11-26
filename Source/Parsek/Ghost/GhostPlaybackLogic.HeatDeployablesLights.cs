@@ -798,7 +798,8 @@ namespace Parsek
             uint partPersistentId,
             bool on,
             out GhostPartEventOutcome lightOutcome,
-            out GhostPartEventOutcome colorChangerOutcome)
+            out GhostPartEventOutcome colorChangerOutcome,
+            double eventUT = double.NaN)
         {
             if (state == null)
             {
@@ -808,16 +809,31 @@ namespace Parsek
             }
 
             LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            bool changed = playbackState.isOn != on;
             playbackState.isOn = on;
+            // A recorded change fades as stock's does, timed from the event's own UT, so a lamp
+            // switched long before the ghost appeared is already settled. A change with no UT (the
+            // snapshot baseline) is settled at once.
+            bool fades = false;
+            if (changed)
+            {
+                LightGhostInfo info = null;
+                if (state.lightInfos != null) state.lightInfos.TryGetValue(partPersistentId, out info);
+                fades = ShouldStartLightFade(eventUT, info != null ? info.brightenSpeed : 0f);
+                playbackState.fadeStartUT = fades ? eventUT : double.NaN;
+                playbackState.fadeStartLevel = info != null ? info.level : 0f;
+            }
             if (!on)
             {
                 SetLightStateWithOutcomes(
-                    state, partPersistentId, false, out lightOutcome, out colorChangerOutcome);
+                    state, partPersistentId, false, out lightOutcome, out colorChangerOutcome,
+                    writeUnityLight: !fades);
             }
             else if (!playbackState.blinkEnabled)
             {
                 SetLightStateWithOutcomes(
-                    state, partPersistentId, true, out lightOutcome, out colorChangerOutcome);
+                    state, partPersistentId, true, out lightOutcome, out colorChangerOutcome,
+                    writeUnityLight: !fades);
             }
             else
             {
@@ -887,15 +903,146 @@ namespace Parsek
                 bool shouldEnable = playbackState.isOn;
                 if (shouldEnable && playbackState.blinkEnabled)
                 {
+                    // Stock's Blink snaps the lamp; a fade in progress ends there.
+                    playbackState.fadeStartUT = double.NaN;
                     float rateHz = playbackState.blinkRateHz > 0f ? playbackState.blinkRateHz : 1f;
                     double cycle = currentUT * rateHz;
                     double frac = cycle - Math.Floor(cycle);
                     shouldEnable = frac < 0.5;
                 }
+                else if (!double.IsNaN(playbackState.fadeStartUT)
+                    && DriveLightFade(state, partPersistentId, playbackState, currentUT))
+                {
+                    WriteColorChangerLightState(state, partPersistentId, shouldEnable);
+                    continue;
+                }
 
                 SetLightState(state, partPersistentId, shouldEnable);
             }
         }
+
+        /// <summary>Below this distance from its end a lamp's fade is over (stock's lerp never quite gets there).</summary>
+        internal const float LightFadeSettleLevel = 0.002f;
+
+        /// <summary>
+        /// Pure: whether a recorded lamp change fades. It needs the event's UT (the snapshot
+        /// baseline has none and settles at once) and a module that fades at all.
+        /// </summary>
+        internal static bool ShouldStartLightFade(double eventUT, float brightenSpeed)
+            => !double.IsNaN(eventUT) && !double.IsInfinity(eventUT) && brightenSpeed > 0f;
+
+        /// <summary>
+        /// Pure: stock <c>ModuleLight.FixedUpdate</c> (KSP 1.12.5, decompiled) <paramref name="elapsed"/>
+        /// game seconds after a lamp switched. Its lights' intensity moves from where it stood
+        /// (<paramref name="startLevel"/>) toward on or off by <c>Lerp(current, target, speed * dt)</c>
+        /// each physics step, an exponential at rate <c>lightBrightenSpeed</c> going up and
+        /// <c>lightDimSpeed</c> going down; switching off disables them at once unless
+        /// <c>useAnimationDim</c>, which lets them dim lit. The lens emissive and the flare tint go
+        /// linearly from the old state's colour to the new over <c>lightBrightenSpeed</c> seconds
+        /// (<c>currentTime / lightBrightenSpeed</c>). A negative or unknown time (a scrub back) is
+        /// the settled state.
+        /// </summary>
+        internal static LightFadeFrame ResolveLightFade(
+            bool on, double elapsed, float startLevel, float brightenSpeed, float dimSpeed, bool animationDim)
+        {
+            float target = on ? 1f : 0f;
+            if (!(elapsed >= 0.0) || double.IsInfinity(elapsed))
+                return new LightFadeFrame { level = target, lightsEnabled = on, lensFraction = 1f, settled = true };
+
+            float speed = startLevel < target ? brightenSpeed : dimSpeed;
+            double level = speed > 0f
+                ? target + (startLevel - target) * Math.Exp(-speed * elapsed)
+                : target;
+            bool levelDone = Math.Abs(level - target) < LightFadeSettleLevel;
+            if (levelDone) level = target;
+            double lens = brightenSpeed > 0f ? Math.Min(1.0, elapsed / brightenSpeed) : 1.0;
+            return new LightFadeFrame
+            {
+                level = (float)level,
+                lightsEnabled = on || (animationDim && level > 0.0),
+                lensFraction = (float)lens,
+                settled = levelDone && lens >= 1.0
+            };
+        }
+
+        /// <summary>
+        /// Writes one frame of a lamp's fade; false when the lamp has no light info (the settled
+        /// writer then runs). A settled frame ends the fade.
+        /// </summary>
+        private static bool DriveLightFade(
+            GhostPlaybackState state, uint partPersistentId, LightPlaybackState playbackState, double currentUT)
+        {
+            LightGhostInfo info;
+            if (state.lightInfos == null
+                || !state.lightInfos.TryGetValue(partPersistentId, out info)
+                || info == null || info.lights == null)
+            {
+                playbackState.fadeStartUT = double.NaN;
+                return false;
+            }
+            double elapsed = currentUT - playbackState.fadeStartUT;
+            LightFadeFrame frame = ResolveLightFade(playbackState.isOn, elapsed,
+                playbackState.fadeStartLevel, info.brightenSpeed, info.dimSpeed, info.animationDim);
+            WriteLightFadeFrame(info, playbackState.isOn, frame);
+            if (frame.settled)
+            {
+                playbackState.fadeStartUT = double.NaN;
+                ParsekLog.VerboseRateLimited("GhostVisual", $"light-fade-settled-{partPersistentId}",
+                    $"Light fade settled: pid={partPersistentId} on={playbackState.isOn} after " +
+                    $"{elapsed.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                    $"from level {playbackState.fadeStartLevel.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}", 30.0);
+            }
+            return true;
+        }
+
+        private static void WriteLightFadeFrame(LightGhostInfo info, bool on, LightFadeFrame frame)
+        {
+            for (int i = 0; i < info.lights.Count; i++)
+            {
+                Light light = info.lights[i];
+                if (light == null) continue;
+                if (IsStockDrivenLight(info, i))
+                    WriteLight(light, frame.lightsEnabled, true, info.onIntensities[i] * frame.level);
+                else
+                    WriteLight(light, on, false, 0f);
+            }
+            info.level = frame.level;
+
+            Color lensFrom = on ? Color.black : info.lensOnColor;
+            Color lensTo = on ? info.lensOnColor : Color.black;
+            if (info.lensMaterials != null)
+                WriteMaterialColor(info.lensMaterials, "_EmissiveColor",
+                    Color.Lerp(lensFrom, lensTo, frame.lensFraction));
+            if (info.flareMaterials != null)
+                WriteMaterialColor(info.flareMaterials, "_TintColor",
+                    Color.Lerp(ResolveLightFlareTint(!on), ResolveLightFlareTint(on), frame.lensFraction));
+            // The last fade frame wrote the settled colours; until then the settled writer must write.
+            info.lensFlareWritten = frame.lensFraction >= 1f;
+            info.lensFlareWrittenOn = on;
+        }
+
+        // The Unity writes, kept out of the methods a headless test drives with no components.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void WriteLight(Light light, bool enabled, bool writeIntensity, float intensity)
+        {
+            light.enabled = enabled;
+            if (writeIntensity) light.intensity = intensity;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void WriteMaterialColor(List<Material> materials, string property, Color color)
+        {
+            for (int i = 0; i < materials.Count; i++)
+                if (materials[i] != null)
+                    materials[i].SetColor(property, color);
+        }
+
+        private static bool IsStockDrivenLight(LightGhostInfo info, int index)
+            => info.stockDriven != null && info.onIntensities != null
+               && index < info.stockDriven.Count && index < info.onIntensities.Count
+               && info.stockDriven[index];
 
         /// <summary>
         /// THE DRIVER PATH, and it stays CLASSIFY-FREE on purpose.
@@ -925,11 +1072,13 @@ namespace Parsek
             uint partPersistentId,
             bool on,
             out GhostPartEventOutcome lightOutcome,
-            out GhostPartEventOutcome colorChangerOutcome)
+            out GhostPartEventOutcome colorChangerOutcome,
+            bool writeUnityLight = true)
         {
-            // Toggle Unity Light components (existing behavior)
+            // Toggle Unity Light components; a fading lamp is written by UpdateBlinkingLights,
+            // which runs after the event walk in the same frame.
             lightOutcome = ClassifyUnityLightApply(state, partPersistentId);
-            if (lightOutcome == GhostPartEventOutcome.Applied)
+            if (lightOutcome == GhostPartEventOutcome.Applied && writeUnityLight)
                 WriteUnityLightState(state, partPersistentId, on);
 
             // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
@@ -945,11 +1094,17 @@ namespace Parsek
             if (!state.lightInfos.TryGetValue(partPersistentId, out info)
                 || info == null || info.lights == null)
                 return;
+            // A fade that stopped short (a blink, a loop reset) left the module's lights dimmed.
+            float target = on ? 1f : 0f;
+            bool restore = on && info.level != target;
             for (int i = 0; i < info.lights.Count; i++)
             {
-                if (info.lights[i] != null)
-                    info.lights[i].enabled = on;
+                Light light = info.lights[i];
+                if (light == null) continue;
+                bool driven = restore && IsStockDrivenLight(info, i);
+                WriteLight(light, on, driven, driven ? info.onIntensities[i] : 0f);
             }
+            info.level = target;
             WriteLightLensAndFlare(info, on);
         }
 
@@ -1067,23 +1222,10 @@ namespace Parsek
             info.lensFlareWritten = true;
             info.lensFlareWrittenOn = on;
             if (info.lensMaterials != null)
-            {
-                Color emissive = ResolveLightLensEmissive(on, info.lensOnColor);
-                for (int i = 0; i < info.lensMaterials.Count; i++)
-                {
-                    if (info.lensMaterials[i] != null)
-                        info.lensMaterials[i].SetColor("_EmissiveColor", emissive);
-                }
-            }
+                WriteMaterialColor(info.lensMaterials, "_EmissiveColor",
+                    ResolveLightLensEmissive(on, info.lensOnColor));
             if (info.flareMaterials != null)
-            {
-                Color tint = ResolveLightFlareTint(on);
-                for (int i = 0; i < info.flareMaterials.Count; i++)
-                {
-                    if (info.flareMaterials[i] != null)
-                        info.flareMaterials[i].SetColor("_TintColor", tint);
-                }
-            }
+                WriteMaterialColor(info.flareMaterials, "_TintColor", ResolveLightFlareTint(on));
         }
 
         /// <summary>

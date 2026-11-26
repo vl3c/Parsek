@@ -186,6 +186,15 @@ namespace Parsek
                 if (!ShouldApplyThrustFraction(info.thrustFraction, fraction)) continue;
                 info.thrustFraction = fraction;
                 ApplyEngineFxRules(info);
+                // The share sets a thrust-driven plume's power (stock's finalThrust / maxThrust);
+                // a reading against the real engine needs it.
+                ParsekLog.VerboseRateLimited("GhostVisual",
+                    $"engine-thrust-share-{info.partPersistentId}-{info.moduleIndex}",
+                    $"Engine FX thrust share: part='{info.partName}' pid={info.partPersistentId} " +
+                    $"midx={info.moduleIndex} throttle={info.currentPower.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"share={fraction.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"mach={air.mach.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"density={air.density.ToString("F3", CultureInfo.InvariantCulture)}", 5.0);
             }
         }
 

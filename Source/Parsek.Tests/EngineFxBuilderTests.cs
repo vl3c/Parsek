@@ -22,6 +22,21 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
+        [Theory]
+        // The solid boosters' running sparks burn with the flame (stock running FXGroup).
+        [InlineData("fx_exhaustsparks_yellow", true, false)]
+        [InlineData("fx_exhaustsparks_yellow", false, true)]
+        [InlineData("fx_exhaustsparks_flameout", true, true)]
+        [InlineData("fx_exhaustsparks_flameout", false, true)]
+        [InlineData("fx_debris_small", true, true)]
+        [InlineData("fx_exhaustflame_yellow", true, false)]
+        [InlineData("fx_smoketrail_medium", false, false)]
+        public void IsTransientLegacyFx_SparksFollowStocksGroupNotTheirName(
+            string lowerName, bool inRunningOrPower, bool expected)
+        {
+            Assert.Equal(expected, EngineFxBuilder.IsTransientLegacyFx(lowerName, inRunningOrPower));
+        }
+
         [Fact]
         public void FilterEffectGroups_MatchingModuleGroups_ReturnsOnlySelectedGroups()
         {

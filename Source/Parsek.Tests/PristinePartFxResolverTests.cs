@@ -227,6 +227,9 @@ namespace Parsek.Tests
             part.AddValue("fx_exhaustFlame_yellow_medium", "0.0, -2, 0.0, 0.0, 1.0, 0.0, running");
             part.AddValue("fx_smokeTrail_light", "0.0, -2, 0.0, 0.0, 1.0, 0.0, running");
             part.AddValue("fx_exhaustSparks_flameout", "0.0, -2, 0.0, 0.0, 1.0, 0.0, flameout");
+            // The solid boosters' sparks burn in the running group (Flea, Hammer): kept.
+            part.AddValue("fx_exhaustSparks_yellow", "0.0, -0.6756, 0.0, 0.0, 1.0, 0.0, running");
+            part.AddValue("fx_exhaustSparks_white", "0.0, -0.6756, 0.0, 0.0, 1.0, 0.0, decouple");
             part.AddValue("fx_exhaustLight_yellow", "0.0, -2, 0.0, 0.0, 0.0, 1.0, deactivate");
             part.AddValue("fx_exhaustLight_blue", "0.0, -2, 0.0, 0.0, 0.0, 1.0, running");
             part.AddValue("fx_gasBurst_white", "0.0, 0.0, 0.0, 0.0, 1.0, 0.0, decouple");
@@ -243,12 +246,13 @@ namespace Parsek.Tests
                 {
                     "fx_exhaustFlame_yellow_medium",
                     "fx_smokeTrail_light",
+                    "fx_exhaustSparks_yellow",
                     "fx_exhaustFlame_yellow_mini",
                     "fx_exhaustFlame_yellow_mini"
                 },
                 kept);
             Assert.Contains(logLines, l => l.Contains("[WaterfallCompat]") &&
-                l.Contains("kept=4") && l.Contains("skippedTransient=1") && l.Contains("skippedLight=2"));
+                l.Contains("kept=5") && l.Contains("skippedTransient=2") && l.Contains("skippedLight=2"));
         }
 
         [Fact]

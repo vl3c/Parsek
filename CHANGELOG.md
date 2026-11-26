@@ -8,6 +8,14 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Fixed
+
+- **Ghost explosions, puffs, launch dust and reentry fire stay in the air they were made in.**
+  They no longer ride along with your own vessel while it flies.
+- **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
+  boosters with sparks showed only their flame and smoke.
+- **Ghost lamps fade on and off as the real lamp does** instead of snapping.
+
 ## 1.0.3
 
 ### Added

@@ -193,6 +193,63 @@ namespace Parsek.Tests
             Assert.Contains("Object.Destroy(behaviours[i]);", source.Substring(strip, attach - strip));
         }
 
+        // ---- the FX Parsek builds itself (GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL)
+
+        [Theory]
+        [InlineData(true, false, true)]
+        [InlineData(false, false, false)]  // local space moves with its parent
+        [InlineData(true, true, false)]    // already moved once
+        public void ShouldAttach_WorldSpaceSystemsOnceEach(bool worldSpace, bool attached, bool expected)
+        {
+            Assert.Equal(expected, GhostWorldSpaceEmitter.ShouldAttach(worldSpace, attached));
+        }
+
+        [Theory]
+        [InlineData("GhostVisualBuilder.TransientFx.cs", "GhostWorldSpaceEmitter.AttachOwn(obj);", 2)]
+        [InlineData("GhostVisualBuilder.TransientFx.cs", "GhostWorldSpaceEmitter.AttachOwn(dustObj);", 1)]
+        [InlineData("GhostVisualBuilder.HeatAndReentryFx.cs", "GhostWorldSpaceEmitter.AttachOwn(fireObj);", 1)]
+        public void Wiring_EveryParsekBuiltWorldSpaceFxFollowsTheOrigin(string file, string call, int count)
+        {
+            Assert.Equal(count, Count(Source(Path.Combine("Ghost", file)), call));
+        }
+
+        [Fact]
+        public void Wiring_TheWorldSpaceSystemsParsekBuildsAreTheOnesAttached()
+        {
+            // Five in TransientFx (explosion fireball and smoke, puff smoke and sparks, launch
+            // dust: three AttachOwn roots) and the reentry fire; the EVA plume is local. A new
+            // world-space system reds here until it is attached.
+            string transient = Source(Path.Combine("Ghost", "GhostVisualBuilder.TransientFx.cs"));
+            string reentry = Source(Path.Combine("Ghost", "GhostVisualBuilder.HeatAndReentryFx.cs"));
+            Assert.Equal(5, Count(transient, "simulationSpace = ParticleSystemSimulationSpace.World;"));
+            Assert.Equal(1, Count(reentry, "simulationSpace = ParticleSystemSimulationSpace.World;"));
+        }
+
+        private static int Count(string source, string needle)
+        {
+            int found = 0;
+            for (int i = source.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+                 i = source.IndexOf(needle, i + 1, StringComparison.Ordinal))
+                found++;
+            return found;
+        }
+
+        [Fact]
+        public void Wiring_ParsekBuiltSystemsShiftWithoutDriftAndAFreeRootMovesItself()
+        {
+            string source = Source(Path.Combine("Ghost", "GhostWorldSpaceEmitter.cs"));
+            int own = source.IndexOf("internal static int AttachOwn(GameObject fxObject)", StringComparison.Ordinal);
+            int should = source.IndexOf("internal static bool ShouldAttach(", StringComparison.Ordinal);
+            Assert.True(own >= 0 && own < should);
+            string body = source.Substring(own, should - own);
+            Assert.Contains("e.drifts = false;", body);
+            Assert.Contains("root.movesTransform = true;", body);
+            int move = source.IndexOf("private static void MoveParticles(", StringComparison.Ordinal);
+            Assert.Contains("if (e.movesTransform)", source.Substring(move));
+            int late = source.IndexOf("private void LateUpdate()", StringComparison.Ordinal);
+            Assert.Contains("if (!drifts) return;", source.Substring(late, 300));
+        }
+
         [Fact]
         public void OwnersReplaceSetOffset_ReadsKspCommunityFixesOnly()
         {

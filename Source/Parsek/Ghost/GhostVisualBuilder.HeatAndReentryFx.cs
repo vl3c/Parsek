@@ -738,6 +738,10 @@ namespace Parsek
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             ps.Clear(true);
 
+            // The streaks are the hull moving away from fire left in the air, so the fire has to
+            // stay in the world when the floating origin shifts.
+            GhostWorldSpaceEmitter.AttachOwn(fireObj);
+
             info.fireParticles = ps;
             info.combinedEmissionMesh = combinedMesh;
 

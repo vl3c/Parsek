@@ -238,7 +238,8 @@ namespace Parsek
                     continue;
 
                 string lower = key.ToLowerInvariant();
-                if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
+                if (EngineFxBuilder.IsTransientLegacyFx(
+                        lower, LegacyFxValueIncludesRunningOrPower(partNode.values[v].value)))
                 {
                     skippedTransient++;
                     continue;

@@ -574,6 +574,28 @@ namespace Parsek
         // Last lens / flare write, so the every-frame light driver skips unchanged writes.
         public bool lensFlareWritten;
         public bool lensFlareWrittenOn;
+        // Stock ModuleLight's fade (decompiled FixedUpdate): its own lights (stockDriven) move
+        // toward their on intensity at brightenSpeed and toward 0 at dimSpeed, and an
+        // animationDim lamp stays lit while it dims. onIntensities is each light's level-1 value.
+        public List<bool> stockDriven;
+        public List<float> onIntensities;
+        public float brightenSpeed;
+        public float dimSpeed;
+        public bool animationDim;
+        // The fade level last written to the module's lights (0 off, 1 on).
+        public float level;
+    }
+
+    /// <summary>One frame of a ghost lamp's stock fade (<see cref="GhostPlaybackLogic.ResolveLightFade"/>).</summary>
+    internal struct LightFadeFrame
+    {
+        // Fraction of each module light's on intensity.
+        public float level;
+        // Whether the module's lights draw.
+        public bool lightsEnabled;
+        // How far the lens / flare colour has gone from the old state to the new, 0 to 1.
+        public float lensFraction;
+        public bool settled;
     }
 
     internal struct ColorChangerMaterialState
