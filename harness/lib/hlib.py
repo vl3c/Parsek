@@ -13624,6 +13624,9 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "tree-handle-no-trees": "driver-arg",
     "tree-handle-no-match": "driver-arg",
     "tree-handle-ambiguous": "driver-arg",
+    # EnterWatchMode `vessel=<launch guid>`: not a guid, or an index= pick beside it.
+    "vessel-arg-invalid": "driver-arg",
+    "vessel-with-index": "driver-arg",
     "index-arg-invalid": "driver-arg",
     "index-out-of-range": "driver-arg",
     "loop-arg-invalid": "driver-arg",

@@ -355,6 +355,15 @@ DEFAULT_MAP_HOLD_SECONDS = 4.5
 INSTANT_SETTLE_SECONDS = 5.0
 
 WATCH_TAGS: Tuple[str, ...] = ("watch-lane", "loop-playback", "screenshots")
+# A replay lane (rewind to a separation, coast, watch the ordinary replay) loops
+# nothing, so it carries its own mode tag in place of loop-playback.
+REPLAY_TAGS: Tuple[str, ...] = ("watch-lane", "rewind-replay", "screenshots")
+
+# Rails coast budget of a replay lane (WDK-1's measured 8230 s at the 50x
+# parking-orbit cap fits inside it) and the handle grammar ListHandles prints.
+REPLAY_COAST_BUDGET_SECONDS = 540
+RP_HANDLE_RE = re.compile(r"^rp[0-9]+$")
+VESSEL_GUID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 # The header line that records the generator command (make_watch_lane.recorded_argv).
 GENERATED_WITH_PREFIX = "# Generated with: python harness/tools/make_watch_lane.py "
@@ -379,6 +388,16 @@ class WatchLaneParams:
     count_max: Optional[int] = None
     extra_tags: Tuple[str, ...] = ()
     notes: Tuple[str, ...] = field(default_factory=tuple)
+    # Replay mode (replay_rp set): rewind to that rewind point's slot instead of
+    # looping the tree, coast on rails to coast_ut, ride 1x to at_ut. The ghost is
+    # then the ordinary replay at its recorded time, the player's own path.
+    replay_rp: str = ""
+    replay_slot: Optional[int] = None
+    coast_ut: Optional[float] = None
+    # Watch this vessel launch (EnterWatchMode vessel=<launch guid>) instead of the
+    # tree's first watchable member: a recording id is re-cut on load, the launch
+    # guid is not.
+    watch_vessel: str = ""
     # The generator command line the header records (make_watch_lane.py writes
     # its canonical argv here; the sync test re-runs it).
     command: str = ""
@@ -409,7 +428,25 @@ def validate_params(p: WatchLaneParams) -> List[str]:
         errors.append("budget must be positive")
     if (p.count_min is None) != (p.count_max is None):
         errors.append("give both --count-min and --count-max, or neither")
+    if p.watch_vessel and not VESSEL_GUID_RE.match(p.watch_vessel):
+        errors.append("watch vessel %r is not a 32-hex launch guid" % (p.watch_vessel,))
+    if p.replay_rp:
+        if not RP_HANDLE_RE.match(p.replay_rp):
+            errors.append("replay rewind point %r is not a ListHandles rp handle (rp1, rp2, ...)"
+                          % (p.replay_rp,))
+        if p.replay_slot is None or p.replay_slot < 0:
+            errors.append("a replay lane needs --replay-slot (the slot the rewind re-flies)")
+        if p.at_ut is None:
+            errors.append("a replay lane needs --at (the UT the view starts at)")
+        if p.coast_ut is not None and p.at_ut is not None and p.coast_ut >= p.at_ut:
+            errors.append("--coast-to must be before --at")
+    elif p.replay_slot is not None or p.coast_ut is not None:
+        errors.append("--replay-slot / --coast-to need --replay-rp")
     return errors
+
+
+def is_replay(p: WatchLaneParams) -> bool:
+    return bool(p.replay_rp)
 
 
 def _fmt_num(value: float) -> str:
@@ -440,10 +477,41 @@ def _step(cmd: str, args: Optional[Dict[str, str]] = None, expect: str = "OK",
     return s
 
 
+def replay_setup_steps(p: WatchLaneParams) -> List[Dict]:
+    """WDK-1's shape: load, rewind to a separation (Re-Fly, the slot re-flown),
+    wait until OnFlightReady built the ghost chains and the re-fly recorder is
+    live, coast on rails (a TimeJump would shift the live vessel's epoch and leave
+    it where it is), then ride 1x to the instant so the ghost is placed before the
+    camera asks for it."""
+    load_args = {"save": "${runSave}", "name": "persistent"}
+    if p.focus_pid is not None:
+        load_args["focusPid"] = str(int(p.focus_pid))
+    steps = [
+        _step("LoadGame", load_args, budget=300),
+        _step("SetSetting", {"name": "autoRecordOnLaunch", "value": "false"}),
+        _step("SetSetting", {"name": "ghostRenderTracing", "value": "true"}),
+        _step("SetSetting", {"name": "mapRenderTracing", "value": "true"}),
+        _step("SetSetting", {"name": "verboseLogging", "value": "true"}),
+        _step("StopRecording"),
+        _step("ListHandles", {"kind": "rewindpoints"}, label="handles"),
+        _step("InvokeRewind", {"rp": "${handles.%s}" % p.replay_rp,
+                               "slot": str(int(p.replay_slot))}, budget=300),
+        _step("ListHandles", {"kind": "chains"}),
+        _step("RecordingState", {"awaitRecorderLive": "refly"}),
+    ]
+    if p.coast_ut is not None:
+        steps.append(_step("WarpToUT", {"ut": _fmt_num(p.coast_ut)},
+                           budget=REPLAY_COAST_BUDGET_SECONDS))
+    steps.append(_step("WarpToUT", {"ut": _fmt_num(p.at_ut), "maxRate": "1"}, budget=120))
+    return steps
+
+
 def setup_steps(p: WatchLaneParams) -> List[Dict]:
     """Load, quiet the recorder, arm the loop, start it (the clock lands 15 s
     before the next launch), then jump to the instant, or without one ride the
-    15 s to the launch at 1x."""
+    15 s to the launch at 1x. A replay lane rewinds instead (replay_setup_steps)."""
+    if is_replay(p):
+        return replay_setup_steps(p)
     load_args = {"save": "${runSave}", "name": "persistent"}
     if p.focus_pid is not None:
         load_args["focusPid"] = str(int(p.focus_pid))
@@ -477,8 +545,10 @@ def view_preamble_steps(p: WatchLaneParams) -> List[Dict]:
     leaves for review: a screenshot, and in map view the frame's geometry."""
     label = shot_label(p.lane_id, p.scene)
     if SCENE_VIEW[p.scene] == VIEW_FLIGHT:
+        pick = ({"vessel": p.watch_vessel} if p.watch_vessel
+                else {"tree": p.tree_id})
         return [
-            _step("EnterWatchMode", {"tree": p.tree_id}, budget=120),
+            _step("EnterWatchMode", pick, budget=120),
             _step("CaptureScreenshot", {"label": label}),
         ]
     return [
@@ -497,10 +567,19 @@ def watch_lane_steps(p: WatchLaneParams) -> List[Dict]:
 
 def required_log_contracts(p: WatchLaneParams) -> List[str]:
     label = shot_label(p.lane_id, p.scene)
-    req = ["missionconfig applied:", "startloopplayback initiated:",
-           "capturescreenshot ok label=%s bytes=" % label]
+    if is_replay(p):
+        req = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke: ",
+               "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT "
+               "awaitRecorderLive=refly reFlyMarker=true",
+               "capturescreenshot ok label=%s bytes=" % label]
+    else:
+        req = ["missionconfig applied:", "startloopplayback initiated:",
+               "capturescreenshot ok label=%s bytes=" % label]
     if SCENE_VIEW[p.scene] == VIEW_FLIGHT:
         req.insert(2, "enterwatchmode initiated:")
+        if p.watch_vessel:
+            req.append("\\[Watch\\] Watch session identity: #[0-9]+ .* identity=%s"
+                       % p.watch_vessel)
     else:
         req.insert(2, "entermapview ok mapOpen=true")
         req.append("dumpmapgeometry ok label=%s scene=FLIGHT " % label)
@@ -538,6 +617,14 @@ def default_description(p: WatchLaneParams) -> str:
     where = ("map view framed on %s" % p.map_focus if SCENE_VIEW[p.scene] == VIEW_MAP
              else "flight camera in watch mode on the ghost")
     when = ("at UT %s" % _fmt_num(p.at_ut)) if p.at_ut is not None else "from the launch"
+    if is_replay(p):
+        if p.watch_vessel:
+            where = "flight camera in watch mode on vessel launch %s" % p.watch_vessel
+        return ("WATCH LANE (%s): replay of tree %s after a rewind to %s slot %d on %s, "
+                "%s, %s. Unattended it takes one picture and quits; with run.py --hold "
+                "it holds the game open for the owner to watch."
+                % (p.scene, p.tree_id, p.replay_rp, int(p.replay_slot),
+                   os.path.basename(p.save_template), where, when))
     return ("WATCH LANE (%s): loop tree %s on %s, %s, %s. Unattended it takes one "
             "picture and quits; with run.py --hold it holds the game open for the "
             "owner to watch." % (p.scene, p.tree_id, os.path.basename(p.save_template),
@@ -551,7 +638,7 @@ def build_watch_spec(p: WatchLaneParams) -> str:
     if errors:
         raise ValueError("; ".join(errors))
     description = p.description or default_description(p)
-    tags = list(WATCH_TAGS) + [p.scene, SCENE_VIEW[p.scene] + "-view"] + list(p.extra_tags)
+    tags = list(REPLAY_TAGS if is_replay(p) else WATCH_TAGS) + [p.scene, SCENE_VIEW[p.scene] + "-view"] + list(p.extra_tags)
     lines: List[str] = []
     lines.append("schema = 1")
     lines.append("id = %s" % _toml_str(p.lane_id))

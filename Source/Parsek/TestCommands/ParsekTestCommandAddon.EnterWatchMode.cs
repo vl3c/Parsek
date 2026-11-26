@@ -25,8 +25,14 @@ namespace Parsek.TestCommands
     /// </para>
     ///
     /// <para>
-    /// ARGS. <c>index=&lt;committed recording index&gt;</c> (OPTIONAL) and
-    /// <c>tree=&lt;treeId&gt;</c> (OPTIONAL). With no <c>index</c> the verb
+    /// ARGS. <c>index=&lt;committed recording index&gt;</c> (OPTIONAL),
+    /// <c>tree=&lt;treeId&gt;</c> (OPTIONAL) and <c>vessel=&lt;launch guid&gt;</c>
+    /// (OPTIONAL, exclusive with <c>index</c>): narrow the auto-select to the
+    /// recordings of one vessel launch (<c>Recording.RecordedVesselGuid</c>). A lane
+    /// that must watch one ship names it this way: the committed index moves with
+    /// every split, and the optimizer pass on load re-cuts a recording into pieces with
+    /// fresh ids, but every piece keeps its launch guid
+    /// (<see cref="TestCommandEnterWatchMode.TryParseVesselArg"/>). With no <c>index</c> the verb
     /// AUTO-SELECTS product-style, replicating
     /// <c>MissionsWindowUI.ResolveMissionWatchTarget</c>'s conjunction verbatim -
     /// the first candidate with <c>HasActiveGhost &amp;&amp; IsGhostOnSameBody
@@ -74,8 +80,17 @@ namespace Parsek.TestCommands
         {
             string indexArg = ArgOrNull(cmd, "index");
             string treeArg = ArgOrNull(cmd, "tree");
+            string vesselArg = ArgOrNull(cmd, "vessel");
             if (!TryResolveTreeHandleArg("enterwatchmode", treeArg, out treeArg))
                 return;
+            if (!TestCommandEnterWatchMode.TryParseVesselArg(
+                    vesselArg, indexArg, out string vesselGuid, out string vesselReason))
+            {
+                ParsekLog.Warn(Tag,
+                    $"enterwatchmode rejected reason={vesselReason} vessel={vesselArg ?? string.Empty}");
+                SetExecResult("REJECTED", null, vesselReason);
+                return;
+            }
 
             if (!TestCommandEnterWatchMode.TryParseIndexArg(indexArg, out int requestedIndex))
             {
@@ -126,10 +141,13 @@ namespace Parsek.TestCommands
                 for (int i = 0; i < count; i++)
                 {
                     Recording rec = committed[i];
-                    bool inScope = scope == null
+                    bool inScope = (scope == null
                         || (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
                             && scope.Recordings != null
-                            && scope.Recordings.ContainsKey(rec.RecordingId));
+                            && scope.Recordings.ContainsKey(rec.RecordingId)))
+                        && (vesselGuid == null
+                            || (rec != null && TestCommandEnterWatchMode.VesselGuidMatches(
+                                rec.RecordedVesselGuid, vesselGuid)));
                     // The three engine probes are sampled ONLY for in-scope entries:
                     // each is a live ghost-state read, and an out-of-scope entry's
                     // answer can never change the selection.
@@ -153,6 +171,7 @@ namespace Parsek.TestCommands
                     // reason. Reporting only; the decision above is untouched.
                     ParsekLog.Warn(Tag,
                         $"enterwatchmode rejected reason=no-watchable-ghost committed={count} tree={treeArg ?? "(any)"} " +
+                        $"vessel={vesselGuid ?? "(any)"} " +
                         $"candidates={TestCommandEnterWatchMode.DescribeWatchCandidates(candidates)}");
                     SetExecResult("REJECTED", null, "no-watchable-ghost");
                     return;
@@ -319,6 +338,66 @@ namespace Parsek.TestCommands
         /// a different vessel than the one the scope names would certify the wrong
         /// thing.
         /// </summary>
+        internal const string VesselWithIndexReason = "vessel-with-index";
+        internal const string VesselArgInvalidReason = "vessel-arg-invalid";
+
+        /// <summary>
+        /// The optional <c>vessel=&lt;launch guid&gt;</c> scope. Absent parses as a null
+        /// guid (no vessel scope) and returns true. A present value is a launch guid in
+        /// either spelling (32 hex, or the dashed form), normalized to the 32-hex
+        /// lowercase form <c>Recording.RecordedVesselGuid</c> stores; anything else is
+        /// <c>vessel-arg-invalid</c>. It scopes the auto-select, so it cannot be
+        /// combined with an explicit <c>index</c> (<c>vessel-with-index</c>): two picks
+        /// that could disagree are refused, never ranked.
+        /// </summary>
+        internal static bool TryParseVesselArg(string raw, string indexArg,
+            out string guid, out string reason)
+        {
+            guid = null;
+            reason = null;
+            if (string.IsNullOrEmpty(raw))
+                return true;
+            if (!string.IsNullOrEmpty(indexArg))
+            {
+                reason = VesselWithIndexReason;
+                return false;
+            }
+            string normalized = NormalizeVesselGuid(raw);
+            if (normalized == null)
+            {
+                reason = VesselArgInvalidReason;
+                return false;
+            }
+            guid = normalized;
+            return true;
+        }
+
+        /// <summary>True when a recording's stored launch guid names the wanted
+        /// (already normalized) guid. An unknown stored guid never matches.</summary>
+        internal static bool VesselGuidMatches(string recordedGuid, string wantedNormalized)
+        {
+            if (string.IsNullOrEmpty(wantedNormalized))
+                return false;
+            string have = NormalizeVesselGuid(recordedGuid);
+            return have != null && string.Equals(have, wantedNormalized, System.StringComparison.Ordinal);
+        }
+
+        internal static string NormalizeVesselGuid(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return null;
+            string v = raw.Trim().Replace("-", string.Empty).ToLowerInvariant();
+            if (v.Length != 32)
+                return null;
+            for (int i = 0; i < v.Length; i++)
+            {
+                char c = v[i];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                    return null;
+            }
+            return v;
+        }
+
         internal static int ResolveAutoWatchIndex(IReadOnlyList<WatchCandidate> candidates)
         {
             if (candidates == null)

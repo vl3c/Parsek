@@ -59,6 +59,17 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--map-distance", type=float, default=0.0,
                     help="transfer: camera distance in metres from the focus body's centre")
     ap.add_argument("--map-pitch", type=float, default=wl.DEFAULT_MAP_PITCH)
+    ap.add_argument("--replay-rp",
+                    help="replay mode: rewind to this rewind point (a ListHandles handle, "
+                         "rp1, rp2, ...) instead of looping the tree")
+    ap.add_argument("--replay-slot", type=int,
+                    help="replay mode: the slot the rewind re-flies")
+    ap.add_argument("--coast-to", type=float,
+                    help="replay mode: coast on rails to this UT before the 1x ride to --at")
+    ap.add_argument("--watch-vessel",
+                    help="watch this vessel launch guid (EnterWatchMode vessel=; the "
+                         "recordedVesselGuid in the save) instead of the tree's first "
+                         "watchable member")
     ap.add_argument("--budget", type=int, default=900, help="unattended run budget, seconds")
     ap.add_argument("--count-min", type=int)
     ap.add_argument("--count-max", type=int)
@@ -80,6 +91,14 @@ def canonical_argv(ns) -> List[str]:
         out += ["--at", wl._fmt_num(ns.at)]
     if ns.focus_pid is not None:
         out += ["--focus-pid", str(ns.focus_pid)]
+    if ns.replay_rp:
+        out += ["--replay-rp", ns.replay_rp]
+    if ns.replay_slot is not None:
+        out += ["--replay-slot", str(ns.replay_slot)]
+    if ns.coast_to is not None:
+        out += ["--coast-to", wl._fmt_num(ns.coast_to)]
+    if ns.watch_vessel:
+        out += ["--watch-vessel", ns.watch_vessel]
     if wl.SCENE_VIEW.get(ns.scene) == wl.VIEW_MAP:
         out += ["--map-focus", ns.map_focus, "--map-distance", wl._fmt_num(ns.map_distance)]
         if ns.map_pitch != wl.DEFAULT_MAP_PITCH:
@@ -128,6 +147,8 @@ def params_from(ns, harness_dir: str) -> wl.WatchLaneParams:
         at_ut=ns.at, map_focus=ns.map_focus, map_distance=ns.map_distance,
         map_pitch=ns.map_pitch, budget_seconds=ns.budget, count_min=ns.count_min,
         count_max=ns.count_max, extra_tags=tuple(ns.tag), notes=tuple(ns.note),
+        replay_rp=ns.replay_rp or "", replay_slot=ns.replay_slot, coast_ut=ns.coast_to,
+        watch_vessel=ns.watch_vessel or "",
         command=_quote(canonical_argv(ns)))
 
 

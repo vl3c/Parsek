@@ -137,5 +137,36 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty,
                 TestCommandEnterWatchMode.BuildCompletePayload(0, null)[1].Value);
         }
+
+        [Theory]
+        [InlineData(null, null, true, null, null)]
+        [InlineData("", null, true, null, null)]
+        [InlineData("270d1da540774c93926d6193080883a6", null, true, "270d1da540774c93926d6193080883a6", null)]
+        [InlineData(" 270D1DA5-4077-4C93-926D-6193080883A6 ", "", true, "270d1da540774c93926d6193080883a6", null)]
+        [InlineData("270d1da540774c93926d6193080883a6", "10", false, null, "vessel-with-index")]
+        [InlineData("270d1da5", null, false, null, "vessel-arg-invalid")]
+        [InlineData("zz0d1da540774c93926d6193080883a6", null, false, null, "vessel-arg-invalid")]
+        public void Vessel_arg_parses_a_launch_guid_and_refuses_a_second_pick(
+            string raw, string indexArg, bool ok, string wantGuid, string wantReason)
+        {
+            Assert.Equal(ok, TestCommandEnterWatchMode.TryParseVesselArg(
+                raw, indexArg, out string guid, out string reason));
+            Assert.Equal(wantGuid, guid);
+            Assert.Equal(wantReason, reason);
+        }
+
+        [Fact]
+        public void Vessel_scope_matches_every_spelling_of_the_stored_guid_and_never_an_unknown()
+        {
+            const string want = "270d1da540774c93926d6193080883a6";
+            Assert.True(TestCommandEnterWatchMode.VesselGuidMatches(want, want));
+            Assert.True(TestCommandEnterWatchMode.VesselGuidMatches(
+                "270D1DA5-4077-4C93-926D-6193080883A6", want));
+            Assert.False(TestCommandEnterWatchMode.VesselGuidMatches(
+                "97813bb6c0de4c1e8f00aa11bb22cc33", want));
+            Assert.False(TestCommandEnterWatchMode.VesselGuidMatches(null, want));
+            Assert.False(TestCommandEnterWatchMode.VesselGuidMatches("", want));
+            Assert.False(TestCommandEnterWatchMode.VesselGuidMatches(want, null));
+        }
     }
 }

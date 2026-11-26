@@ -2713,6 +2713,7 @@ What a hold does and does not do:
 | `WL-2-landing-mun` | landing | `mun-landing-recorded` (the real landed Kerbal X is the camera's vessel) | watch camera from 60 s before touchdown |
 | `WL-3-docking-bdock` | docking | `bdock-recorded`, tree 2 (Kerbal X #2) | watch camera from 120 s before the dock |
 | `WL-4-transfer-duna` | transfer | `duna-park-recorded` | map view framed on the Sun at the re-aimed transfer's mid-coast |
+| `WL-5-docking-approach-bdock` | docking (replay) | `bdock-recorded`, rewind to the Interceptor separation (rp1, slot 1) | watch camera on the docking ship from 64 s before the dock, next to the real station |
 
 **Making one** (`tools/make_watch_lane.py`, pure half `lib/watchlane.py`):
 
@@ -2748,6 +2749,20 @@ camera vessel (`--focus-pid`, the base), flies it once unattended to read the in
 off the log, regenerates it with `--at`, and then asks you to sit at the screen before it
 runs `run.py --spec ... --hold`. You close KSP when you have seen enough; the result says
 `OBSERVED` and nothing counts it.
+
+**Replay lanes (`--replay-rp`).** A loop replays a mission at a later time, so a ghost
+recorded next to a real vessel (a station, a base) plays far from where that vessel is
+by then unless its approach was recorded relative to it. To see such a moment next to
+the real vessel, replay it at its recorded time instead: `--replay-rp rp<N>
+--replay-slot <S>` rewinds to that rewind point (a `ListHandles kind=rewindpoints`
+handle; Re-Fly, slot S re-flown), waits for the ghost chains and the re-fly recorder,
+`--coast-to UT` coasts on rails (never a TimeJump: it would leave the re-flown vessel
+where it is), and the lane rides 1x to `--at UT`. `--watch-vessel <launch guid>` (the
+`recordedVesselGuid` in the save; also usable on a loop lane) points the camera at that
+vessel's ghost through `EnterWatchMode vessel=`: a recording id is no good there, because
+the optimizer pass on load re-cuts a recording into pieces with fresh ids. `WL-5` is the
+example. A held replay plays once; to see it again press F5 as soon as the hold starts,
+F9 to go back to that moment, then Watch on the ship's row.
 
 ## Fixture saves and the shared craft library
 

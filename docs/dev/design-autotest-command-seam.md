@@ -411,6 +411,16 @@ the updates below record how each verb arrived.
 > `driver-arg` either way, because `hlib._SEAM_REFUSAL_SUBKINDS` maps the msg token and
 > never reads the verdict.
 
+> Update (watch lanes, 2026-11-26): `EnterWatchMode` also takes `vessel=<launch guid>`
+> (32 hex or the dashed form, normalized to `Recording.RecordedVesselGuid`'s spelling): it
+> narrows the auto-select to that launch's recordings, alongside any `tree=` scope. It is
+> the stable name for one ship: the committed index moves with every split, and the
+> optimizer pass on load re-cuts a recording into pieces with fresh ids, but every piece
+> keeps its launch guid. Refusals: `REJECTED vessel-arg-invalid` (not a guid) and
+> `REJECTED vessel-with-index` (beside an explicit `index=`), both subkind `driver-arg`;
+> no watchable piece of that launch is the existing `no-watchable-ghost`, whose log line
+> now names `vessel=`.
+
 > Update (watch lanes, 2026-11-22): `tree=` on `MissionConfig`, `StartLoopPlayback` and
 > `EnterWatchMode` also takes a TREE HANDLE (`TestCommandTreeHandle`): `first` / `latest`
 > (the first / last committed tree in `RecordingStore.CommittedTrees` order, the save's

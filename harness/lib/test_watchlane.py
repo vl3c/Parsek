@@ -330,6 +330,85 @@ class GeneratorTests(unittest.TestCase):
     def test_deterministic(self):
         self.assertEqual(wl.build_watch_spec(_params()), wl.build_watch_spec(_params()))
 
+    REPLAY = dict(scene="docking", save_template="fixtures/saves/bdock-recorded",
+                  tree_id="8c677bba0ec04e558c6ebec4ad8c3c9f", replay_rp="rp1",
+                  replay_slot=1, coast_ut=8870, at_ut=8885,
+                  watch_vessel="270d1da540774c93926d6193080883a6")
+
+    def test_replay_rewinds_coasts_and_watches_the_launch(self):
+        text, spec = self._parse(_params(**self.REPLAY))
+        steps = spec["driver"]["steps"]
+        cmds = [s["cmd"] for s in steps]
+        self.assertEqual(["LoadGame", "SetSetting", "SetSetting", "SetSetting", "SetSetting",
+                          "StopRecording", "ListHandles", "InvokeRewind", "ListHandles",
+                          "RecordingState", "WarpToUT", "WarpToUT", "EnterWatchMode",
+                          "CaptureScreenshot", "FlushAndQuit"], cmds)
+        self.assertNotIn("MissionConfig", cmds)
+        self.assertNotIn("TimeJump", cmds)
+        self.assertEqual({"rp": "${handles.rp1}", "slot": "1"}, steps[7]["args"])
+        self.assertEqual("handles", steps[6]["label"])
+        self.assertEqual({"ut": "8870"}, steps[10]["args"])          # rails, no maxRate
+        self.assertEqual(wl.REPLAY_COAST_BUDGET_SECONDS, steps[10]["budget"])
+        self.assertEqual({"ut": "8885", "maxRate": "1"}, steps[11]["args"])
+        self.assertEqual({"vessel": "270d1da540774c93926d6193080883a6"}, steps[12]["args"])
+        self.assertIn("rewind-replay", spec["tags"])
+        self.assertNotIn("loop-playback", spec["tags"])
+        req = spec["expectations"]["logContracts"]["required"]
+        self.assertFalse(any("missionconfig" in r for r in req))
+        self.assertTrue(any("identity=270d1da540774c93926d6193080883a6" in r for r in req))
+        self.assertIsNone(wl.hold_refusal(spec))
+        self.assertEqual(len(cmds) - 1, wl.plan_hold(spec).hold_index)
+        registry = tomllib.load(open(os.path.join(HARNESS, "coverage", "registry.toml"), "rb"))
+        self.assertEqual([], list(hlib.validate_spec(spec, registry, [], None).errors))
+        self.assertTrue(text.isascii())
+
+    def test_replay_without_a_coast_rides_1x_only(self):
+        p = dict(self.REPLAY, coast_ut=None)
+        _text, spec = self._parse(_params(**p))
+        warps = [s for s in spec["driver"]["steps"] if s["cmd"] == "WarpToUT"]
+        self.assertEqual([{"ut": "8885", "maxRate": "1"}], [w["args"] for w in warps])
+
+    def test_a_loop_lane_can_watch_one_launch_too(self):
+        _text, spec = self._parse(_params(at_ut=1272933,
+                                          watch_vessel="270d1da540774c93926d6193080883a6"))
+        watch = [s for s in spec["driver"]["steps"] if s["cmd"] == "EnterWatchMode"]
+        self.assertEqual([{"vessel": "270d1da540774c93926d6193080883a6"}],
+                         [w["args"] for w in watch])
+        self.assertIn("MissionConfig", [s["cmd"] for s in spec["driver"]["steps"]])
+
+    def test_replay_params_refuse(self):
+        for bad in (dict(replay_rp="first"),                   # not an rp handle
+                    dict(replay_slot=None),                    # no slot
+                    dict(at_ut=None, coast_ut=None),           # no instant
+                    dict(coast_ut=8885),                       # coast not before --at
+                    dict(watch_vessel="270d1da5")):            # not a guid
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                wl.build_watch_spec(_params(**dict(self.REPLAY, **bad)))
+        with self.assertRaises(ValueError):                    # slot without an rp
+            wl.build_watch_spec(_params(at_ut=1, replay_slot=1))
+        with self.assertRaises(ValueError):                    # coast without an rp
+            wl.build_watch_spec(_params(at_ut=10, coast_ut=1))
+
+
+class EnterWatchModeVesselSourceSyncTests(unittest.TestCase):
+    """The generator writes EnterWatchMode vessel=<guid> and a required pin on the
+    Watch session identity line; hlib maps the vessel refusals to driver-arg. All of
+    it must stay the C# literals."""
+
+    def test_the_vessel_arg_reasons_and_identity_line_are_the_csharp_ones(self):
+        src_dir = os.path.join(os.path.dirname(HARNESS), "Source", "Parsek")
+        with open(os.path.join(src_dir, "TestCommands",
+                               "ParsekTestCommandAddon.EnterWatchMode.cs"),
+                  encoding="utf-8") as fh:
+            applier = fh.read()
+        self.assertIn('ArgOrNull(cmd, "vessel")', applier)
+        for reason in ("vessel-with-index", "vessel-arg-invalid"):
+            self.assertIn('"%s"' % reason, applier)
+            self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS.get(reason))
+        with open(os.path.join(src_dir, "Controllers", "WatchModeController.cs"),
+                  encoding="utf-8") as fh:
+            self.assertIn("Watch session identity: ", fh.read())
+
 
 class CommittedWatchLaneSyncTests(unittest.TestCase):
     """Every committed spec with a [watch] table is the generator's output for
