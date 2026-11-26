@@ -76,7 +76,7 @@ namespace Parsek
         // The end-marked deploy events of the trajectory this state replays, with the previous
         // same-part event's UT (GhostPlaybackLogic.BuildEndMarkedDeploySchedule), built once per
         // PartEvents list and count; and the look-ahead horizon over the deployable infos.
-        internal List<GhostPlaybackLogic.EndMarkedDeployEntry> endMarkedDeploySchedule;
+        internal List<EndMarkedDeployEntry> endMarkedDeploySchedule;
         internal object endMarkedDeployScheduleSource;
         internal int endMarkedDeployScheduleCount = -1;
         internal object endMarkedHorizonSource;

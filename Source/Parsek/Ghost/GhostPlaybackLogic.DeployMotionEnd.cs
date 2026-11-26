@@ -15,6 +15,19 @@ namespace Parsek
     // of the recorded UTs, so a spawn, a scrub, a loop cycle and a warp jump show the same pose.
     // The families whose event marks the START (animation groups, aero and control surfaces,
     // the robot arm scanner) keep the transition that starts at the event and runs the clip.
+    // A top-level type, not nested in GhostPlaybackLogic: GhostPlaybackState holds a list of
+    // them, and a state field naming GhostPlaybackLogic would close a type cycle.
+    /// <summary>One end-markable deploy event of a trajectory.</summary>
+    internal struct EndMarkedDeployEntry
+    {
+        public int eventIndex;
+        public double eventUT;
+        public uint partPersistentId;
+        public bool deployed;
+        /// <summary>The UT of the previous end-markable event of the same part; NaN when none.</summary>
+        public double floorUT;
+    }
+
     internal static partial class GhostPlaybackLogic
     {
         /// <summary>
@@ -25,17 +38,6 @@ namespace Parsek
 
         /// <summary>A speed factor at or below this is unreadable; the clip then plays at 1.</summary>
         internal const float MinEndMarkedSpeedFactor = 0.01f;
-
-        /// <summary>One end-markable deploy event of a trajectory.</summary>
-        internal struct EndMarkedDeployEntry
-        {
-            public int eventIndex;
-            public double eventUT;
-            public uint partPersistentId;
-            public bool deployed;
-            /// <summary>The UT of the previous end-markable event of the same part; NaN when none.</summary>
-            public double floorUT;
-        }
 
         /// <summary>The transition an end-marked event asks for.</summary>
         internal struct EndMarkedTransitionPlan
