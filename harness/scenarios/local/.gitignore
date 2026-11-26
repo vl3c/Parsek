@@ -1,0 +1,5 @@
+# Operator-local watch-lane specs (tools/make_watch_lane.py on a fixtures/local-saves/
+# save). Never committed: the host save is the operator's own. Fly with
+# python harness/run.py --spec harness/scenarios/local/<id>.toml [--hold].
+*
+!.gitignore

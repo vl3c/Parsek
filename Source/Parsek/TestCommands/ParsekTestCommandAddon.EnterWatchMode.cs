@@ -74,6 +74,8 @@ namespace Parsek.TestCommands
         {
             string indexArg = ArgOrNull(cmd, "index");
             string treeArg = ArgOrNull(cmd, "tree");
+            if (!TryResolveTreeHandleArg("enterwatchmode", treeArg, out treeArg))
+                return;
 
             if (!TestCommandEnterWatchMode.TryParseIndexArg(indexArg, out int requestedIndex))
             {
