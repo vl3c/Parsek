@@ -2628,7 +2628,7 @@ not recomputable from the files, and become judged only after a reading run show
 as the picture measures.
 
 Start-route reload (2026-11-24, branch `parity-noise`, todo PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED;
-not flown). The start-route ghost is built from a snapshot of the burning part, so it shows what
+flown 2026-11-26 on throwaway lanes, start-route `color-blob-px` 0 on ReStock, stock unchanged). The start-route ghost is built from a snapshot of the burning part, so it shows what
 stock shows after a load; a ReStock bell on the stand is mid-ramp. 46 PP-9 and 8 PP-8 plume cases of
 `2026-11-24_0735` failed on the start route's `color-blob-px`, the event route right. The real side of
 the start route is now the part as a load leaves it.
