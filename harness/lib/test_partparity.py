@@ -19,6 +19,7 @@ pixel-by-pixel transcription of ``PartParityMetrics.Measure``.
 Run: ``cd harness && python -m unittest discover -s lib -q``.
 """
 
+import contextlib
 import copy
 import gzip
 import json
@@ -3345,8 +3346,23 @@ def _flame_of(rgb):
     return {"flame": (_plume(rgb=rgb), _disc(rgb=rgb))}
 
 
+@contextlib.contextmanager
+def owner_flagged(reason="smoke-extra", todo="PARTPARITY-ORBIT-SMOKE-PUFF-NOISE"):
+    """An owner's mark on ``reason`` while the block runs (the committed set may be empty)."""
+    saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {reason: todo}
+    try:
+        yield
+    finally:
+        pp.OWNER_FLAGGED_REASONS = saved
+
+
 class OwnerFlagTests(unittest.TestCase):
-    """``smoke-extra`` stays in sight whatever the case's verdict, and moves none."""
+    """A flagged reason stays in sight whatever the case's verdict, and moves none."""
+
+    def setUp(self):
+        flag = owner_flagged()
+        flag.__enter__()
+        self.addCleanup(flag.__exit__, None, None, None)
 
     def _case(self, **kw):
         real = dict(REAL_FX, smoke=FX_DARK)
@@ -3382,13 +3398,18 @@ class OwnerFlagTests(unittest.TestCase):
             pp.OWNER_FLAGGED_REASONS = saved
         self.assertEqual((plain.verdict, plain.reasons), (flagged.verdict, flagged.reasons))
 
-    def test_the_todo_that_owns_the_flag_is_open(self):
+    def test_the_todo_that_owns_a_committed_flag_is_open(self):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "dev",
                             "todo-and-known-bugs.md")
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
-        for todo in pp.OWNER_FLAGGED_REASONS.values():
+        committed = self._committed
+        for todo in committed.values():
             self.assertIn("\n## %s:" % todo, text, "flag a reason only while its todo is open")
+        # The booster smoke is the ghost's fixed defect, its rest noise: no mark on it.
+        self.assertNotIn("smoke-extra", committed)
+
+    _committed = dict(pp.OWNER_FLAGGED_REASONS)
 
 
 def _fx_control(cid):

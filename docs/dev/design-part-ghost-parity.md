@@ -2359,7 +2359,9 @@ air run waited for F7 ("F7 as built" below). Decisions:
   `lastInterpolatedSurfaceVelocity` (the held vessel's `srf_velocity`, source `Positions`), as
   playback's `SetInterpolated` does for a playing ghost: a jet's thrust share follows mach, and a
   ghost whose ground speed is unknown keeps its share. `ctl-fx-smoke-dropped` leaves the body name unset on both ghosts, so
-  their smoke draws as built (F4 noted the control could not be met otherwise). A start ghost's
+  their smoke draws as built (F4 noted the control could not be met otherwise), and since 2026-11-24
+  switches `GhostWorldSpaceEmitter` off on them, or the smoke is left behind in orbit as a real
+  part's is and there is none to drop (PP-9 `2026-11-24_2040` read the control bad). A start ghost's
   "first frame at the target" is read again after the visible prime, which is the frame that lights
   its engine.
 - A renderer counts as drawn only when its system plays or has particles: stock leaves idle systems
@@ -2664,7 +2666,8 @@ pair first, each with a drawn ghost system before a hidden one; a drawn system t
 lacks still reads missing, and one it draws too many extra.
 
 The owner's mark (2026-11-24). A finding the owner wants kept in sight until its todo is settled
-(`OWNER_FLAGGED_REASONS`, today `smoke-extra`: PARTPARITY-ORBIT-SRB-SMOKE-NOISE) puts
+(`OWNER_FLAGGED_REASONS`, a reason and its OPEN todo; empty since the ghost smoke fix: the
+`smoke-extra` it held was GHOST-SMOKE-RIDES-ACTIVE-VESSEL, its rest is PARTPARITY-ORBIT-SMOKE-PUFF-NOISE) puts
 `owner-flagged:<reason>` on its case, capped or not, judged cases only; it moves no verdict, no cap and
 no rule, and `test_the_todo_that_owns_the_flag_is_open` reds once that todo is closed.
 
@@ -3160,8 +3163,10 @@ F6 as built (2026-11-23). The three orbit lanes, specs `PP-7-part-parity-fx-stoc
   the two separation-motor tanks fail nothing measured there. So `PlumeControlParts`
   is `liquidEngine2.v2`, `liquidEngine`, `sepMotor1`, `solidBooster.sm.v2`, in that order, each
   unmeetable one skipped; stock-minimal and modded-restock keep the LV-T45. All 11 controls (the
-  point-light one `n/a` on both modded installs) read ok on all three full flights. ReStock booster
-  smoke in orbit: todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+  point-light one `n/a` on both modded installs) read ok on all three full flights. The real side was
+  right: stock leaves that smoke behind, and the ghost's `smoke-extra` was a defect (todo
+  GHOST-SMOKE-RIDES-ACTIVE-VESSEL, fixed 2026-11-24). What is left is a puff or two of the newest
+  frame on either side, which is why the Flea's smoke stays a poor real-vs-real control.
 
 F7 lanes as authored (2026-11-23): the second labels `pp5fx` /
 `pp6fx` of PP-5 / PP-6 after their chute step (reset and runs carry `contexts=air fx=all`) and
@@ -3308,9 +3313,10 @@ ReStock's Hammer matches to 0.3 % (68641 against 68867 px), so a matching pair r
 `FlameValueMin`: the envelope at max channel 8 is 10 to 20 % larger than at 16 and the core moves
 less; 16 is the starting value.
 
-Still unknown after E0: why the real world-space particles in orbit drift kilometres away (seen
-on every stock legacy world-space system; the plan does not depend on it, since it frames from
-near particles and judges smoke in the air). Answered by F3: the stock spot light's plate gap is a
+Answered 2026-11-24: the real world-space particles in orbit drift kilometres away because stock
+moves them back by the Krakensbane frame velocity every physics step (45 m at orbital speed, with
+drift up to twice that), so the smoke stays where it was emitted; the ghost's was moved by nothing
+(todo GHOST-SMOKE-RIDES-ACTIVE-VESSEL). Answered by F3: the stock spot light's plate gap is a
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 

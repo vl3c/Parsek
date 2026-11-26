@@ -1509,7 +1509,10 @@ class PageStateTests(_FxSetMixin, unittest.TestCase):
                         half["real"]["corePx"] = 0
         self._edit(FX_BURN, flag)
         self.sweep = dict(ppv.load_sweep(self.dir), imageUrl=self.sweep["imageUrl"])
-        data = self._build(self._lists("ruled", FX_BURN))
+        with _tpp().owner_flagged():
+            data = self._build(self._lists("ruled", FX_BURN))
+        plain = {c["caseId"]: c for c in self._build(self._lists("ruled", FX_BURN))["cases"]}[FX_BURN]
+        self.assertEqual([], plain["ownerFlags"])  # the committed set marks nothing today
         c = {c["caseId"]: c for c in data["cases"]}[FX_BURN]
         self.assertEqual((["smoke-extra"], pp.VERDICT_FAIL), (c["ownerFlags"], c["verdict"]))
         self.assertEqual(1, data["counts"]["ownerFlagged"])
@@ -1657,7 +1660,8 @@ class FxPageTests(unittest.TestCase):
         lists = {"baselines": _fx_baselines(sweep), "errors": [], "accepted": [
             pp.AcceptedEntry(FX_SHORT, "*", g, "owner ruling: fine", "SOME-TODO-1", kind="ruled")
             for g in {f.group for f in pp.fail_reasons(cv)}]}
-        data = ppv.build_site_data([sweep], lists=lists)
+        with _tpp().owner_flagged():
+            data = ppv.build_site_data([sweep], lists=lists)
         path = os.path.join(tmp, "data.js")
         with open(path, "w", encoding="ascii") as fh:
             fh.write(ppv.render_data_js(data))

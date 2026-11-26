@@ -686,9 +686,11 @@ FLAG_FX_NO_REAL_EFFECT = "fx-no-real-effect"
 FLAG_FX_WEAK_CORE = "fx-weak-core"
 # Findings the owner looked at and wants kept in sight until a todo settles them, whatever the
 # case's verdict (``owner-flagged:<reason>``; it moves no verdict, no cap and no rule). Reason
-# -> the todo that owns it.
+# -> the OPEN todo that owns it. Empty since 2026-11-24: ``smoke-extra`` was the ghost's smoke
+# riding the active vessel (GHOST-SMOKE-RIDES-ACTIVE-VESSEL, fixed); what is left of it is a puff
+# either side draws now and then (PARTPARITY-ORBIT-SMOKE-PUFF-NOISE), noise, not an owner's finding.
 FLAG_OWNER_FLAGGED_PREFIX = "owner-flagged:"
-OWNER_FLAGGED_REASONS: Dict[str, str] = {FX_REASON_SMOKE_EXTRA: "PARTPARITY-ORBIT-SRB-SMOKE-NOISE"}
+OWNER_FLAGGED_REASONS: Dict[str, str] = {}
 # Flag kinds: the part of a flag before its first ``:``.
 FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
     FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT,
