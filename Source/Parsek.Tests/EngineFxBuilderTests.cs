@@ -34,7 +34,7 @@ namespace Parsek.Tests
         public void IsTransientLegacyFx_SparksFollowStocksGroupNotTheirName(
             string lowerName, bool inRunningOrPower, bool expected)
         {
-            Assert.Equal(expected, EngineFxBuilder.IsTransientLegacyFx(lowerName, inRunningOrPower));
+            Assert.Equal(expected, PristinePartFxResolver.IsTransientLegacyFx(lowerName, inRunningOrPower));
         }
 
         [Fact]

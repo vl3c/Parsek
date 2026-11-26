@@ -436,7 +436,7 @@ namespace Parsek
 
                 bool inRunning = IsInFxGroup(prefab, "running", ps);
                 bool inPower = IsInFxGroup(prefab, "power", ps);
-                if (IsTransientLegacyFx(childName, inRunning || inPower))
+                if (PristinePartFxResolver.IsTransientLegacyFx(childName, inRunning || inPower))
                 {
                     LogHotPathVerbose($"legacy-transient-{partName}-{moduleIndex}-{childName}",
                         $"'{partName}' midx={moduleIndex}: legacy fx='{child.name}' left out " +
@@ -533,17 +533,6 @@ namespace Parsek
         /// The group whose power sizes a legacy <c>fx_*</c> child. A child in neither is read as a
         /// running effect; so is one in both, which stock draws twice and no stock part authors.
         /// </summary>
-        /// <summary>
-        /// Whether a legacy <c>fx_*</c> effect is a transient one the ghost leaves out: a flameout
-        /// or debris effect by its name, and sparks unless stock's running or power group holds
-        /// them. The solid boosters name <c>fx_exhaustSparks_yellow</c> in their running group
-        /// (Flea, Hammer, Thumper, Kickback, Shrimp, Mite), and stock burns it with the flame; a
-        /// flameout's sparks carry the word flameout. Takes the lower-case name.
-        /// </summary>
-        internal static bool IsTransientLegacyFx(string lowerName, bool inRunningOrPower)
-            => lowerName.Contains("flameout") || lowerName.Contains("debris")
-               || (lowerName.Contains("sparks") && !inRunningOrPower);
-
         internal static GhostEngineFxRuleKind ResolveLegacyFxRuleKind(bool inRunning, bool inPower)
             => inPower && !inRunning ? GhostEngineFxRuleKind.LegacyPower : GhostEngineFxRuleKind.LegacyRunning;
 

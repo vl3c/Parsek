@@ -716,7 +716,7 @@ What: the real Flea and Hammer draw `fx_exhaustSparks_yellow` in the air (SMK-3 
 
 Cause: the legacy `fx_*` child loop in `EngineFxBuilder` (and the Waterfall pristine path `PristinePartFxResolver.ParseLegacyFxKeys`) skipped every name containing `sparks` as a transient effect. The solid boosters (Flea, Hammer, Thumper, Kickback, Thoroughbred, Clydesdale, Shrimp, Mite) name `fx_exhaustSparks_yellow` in their `running` group, and stock's running `FXGroup` burns it with the flame; a flameout's sparks carry the word flameout.
 
-Fix: `EngineFxBuilder.IsTransientLegacyFx` leaves out flameout and debris effects by name and sparks only when stock's running or power group does not hold them; the clone takes the legacy running rule like the flame and, world-space with its `FXPrefab` stripped, the floating-origin mover. Tests: `EngineFxBuilderTests.IsTransientLegacyFx_*`, `PristinePartFxResolverTests.ParseLegacyFxKeys_*`.
+Fix: `PristinePartFxResolver.IsTransientLegacyFx` (read by both paths) leaves out flameout and debris effects by name and sparks only when stock's running or power group does not hold them; the clone takes the legacy running rule like the flame and, world-space with its `FXPrefab` stripped, the floating-origin mover. Tests: `EngineFxBuilderTests.IsTransientLegacyFx_*`, `PristinePartFxResolverTests.ParseLegacyFxKeys_*`.
 
 ## GHOST-FX-SMALL-READINGS-UNPROVEN-2026-11-26: three single FX readings with no cause found [FILED 2026-11-26 while fixing ghost-fx-9; OPEN; low (tooling or visual)]
 

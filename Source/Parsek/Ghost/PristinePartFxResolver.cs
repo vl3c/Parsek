@@ -223,6 +223,17 @@ namespace Parsek
         /// Keeps running/power exhaust FX only, mirroring the name filtering of the
         /// legacy prefab-children path (ProcessEngineLegacyFx).
         /// </summary>
+        /// <summary>
+        /// Whether a legacy <c>fx_*</c> effect is a transient one the ghost leaves out: a flameout
+        /// or debris effect by its name, and sparks unless stock's running or power group holds
+        /// them. The solid boosters name <c>fx_exhaustSparks_yellow</c> in their running group
+        /// (Flea, Hammer, Thumper, Kickback, Shrimp, Mite), and stock burns it with the flame; a
+        /// flameout's sparks carry the word flameout. Takes the lower-case name. The legacy child loop in EngineFxBuilder reads it too.
+        /// </summary>
+        internal static bool IsTransientLegacyFx(string lowerName, bool inRunningOrPower)
+            => lowerName.Contains("flameout") || lowerName.Contains("debris")
+               || (lowerName.Contains("sparks") && !inRunningOrPower);
+
         internal static List<string> ParseLegacyFxKeys(ConfigNode partNode, string runtimePartName)
         {
             var result = new List<string>();
@@ -238,7 +249,7 @@ namespace Parsek
                     continue;
 
                 string lower = key.ToLowerInvariant();
-                if (EngineFxBuilder.IsTransientLegacyFx(
+                if (IsTransientLegacyFx(
                         lower, LegacyFxValueIncludesRunningOrPower(partNode.values[v].value)))
                 {
                     skippedTransient++;
