@@ -421,11 +421,10 @@ namespace Parsek
 
             info.currentPower = power;
 
-            // S1: MAGNITUDE. Same choke point as the engine side, but the ratio runs through
+            // MAGNITUDE, as on the engine side: an emitter stock drives takes stock's rule
+            // (ApplyRcsFxRules), a SmokeScreen node the S1 ratio, which runs through
             // ComputeScaledRcsEmissionRate / ComputeScaledRcsSpeed so the showcase visibility
-            // FLOORS survive: at low power the floor lifts the numerator, which lifts the ratio,
-            // which is exactly what "stays visible on a showcase rig" means once the write is
-            // relative rather than absolute.
+            // FLOORS survive: at low power the floor lifts the numerator, which lifts the ratio.
             if (power > 0f)
             {
                 ApplyFxMagnitudeScale(
@@ -439,6 +438,7 @@ namespace Parsek
                         ComputeScaledRcsSpeed(info.speedCurve, 1f, info.speedScale),
                         power),
                     "rcs", info.partPersistentId, info.moduleIndex, power);
+                ApplyRcsFxRules(info);
             }
 
             // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle

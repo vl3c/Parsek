@@ -624,6 +624,56 @@ What: the start-route ghost is built from a snapshot of the real part while it b
 
 Fix (not started), either: let the real bell arrive (hold until the ramp stands, up to 40 s a case at 0.025 /s) before the start snapshot; or save and reload the real vessel before the start-route picture; or report the start route's bell on a ramping part as a known difference. No ghost change makes these right: the only data that says where a ramp stood is the engine events before the snapshot, and the rig's start route has none.
 
+## ~~GHOST-RCS-FX-STOCK-RULES~~: a ghost's RCS puffs follow the old linear power rule, not stock's effect curves [FOUND 2026-11-24 while triaging PP-7 / PP-8 / PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1829` / `_1834`; low (visual only)]
+
+What: GHOST-ENGINE-FX-STOCK-RULES gave engine effects stock's own curves; RCS kept the S1 rule: particle rate and velocity times the recorded power, floored at 0.2 (`GhostPlaybackLogic.SetRcsEmissionWithOutcome` -> `ComputeFxMagnitudeRatio`). The scan looked for the EFFECTS curves as sub-nodes, which a stock node writes as values, so they were never read (`curves=em0/sp0`). PP-9 `restock-rcs-block-triple-angled-1` (all three nozzles firing, recorded 0.569, ratio 1.000): particle speed real 6.78, ghost 4.08 (0.569 x 7).
+
+Stock (decompiled `ModuleRCS.FixedUpdate` -> `ModuleRCSFX.UpdatePowerFX` -> `ModelMultiParticleFX.OnEvent(power, nozzle)`): power = clamp(force / thrusterPower, 0.1, 1); rate = floor(asset * emission(power)), energy and velocity by their curves, size untouched. Every stock node authors `emission 0.1 -> 0, 1 -> 1` and `speed 0 -> 0.8, 1 -> 1`; on ReStock 24 nodes do, and the second node of twelve ReStock+ systems (the triple-angled blocks among them) `emission 0.2 -> 0, 1 -> 1` and `speed 0 -> 1, 1 -> 1`, full speed at any power.
+
+Fix: each RCS model instance takes that rule (`GhostVisualBuilder.AddRcsFxRule`, `GhostPlaybackLogic.ApplyRcsFxRules`) and leaves the S1 ratio, which stays for SmokeScreen nodes. Two things the recording's mean power forces, neither touching recorded data:
+- The mean is over every thruster transform, those of other part variants included (RCSBlock.v2 4 of 9, ReStock's 4 of 18), which never fire. The ghost takes them out (`RcsNozzlePower`).
+- Stock's emission curve at a mean would all but switch a block off (one nozzle of four at full: 0.25 -> 0.07, and 0 below 0.1). A module of several active nozzles emits max(curve, mean) (`RcsEmission`): the mean keeps the total of nozzles that fire hard, the curve is above it from about 0.63 (0.72 for the 0.2 nodes), where most must be firing. A one-nozzle module is exactly stock's. Which nozzles fire is still RCS-PER-NOZZLE-RECORDING (R4).
+
+Tests: `GhostRcsFxPowerTests`; in-game `RcsPlumeMagnitudeSurvivesSuppressAndRestore` now sums the emitters.
+
+Flown: PPS-19a `2026-11-26_1829` (stock-minimal, 7 rcs cases) and PPS-19b `_1834` (modded-restock, 19) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), both INVALID on the controls they do not plan, no `[Parsek][ERROR]`. Particle speed real / ghost, before (PP-7 / PP-9 `2026-11-24_0735`) -> now: ReStock `triple-angled-1` 6.78 / 4.08 -> 6.80 / 6.63, `triple-angled-mini-1` 3.22 / 2.00 -> 3.37 / 3.32, `quint-1` 6.74 / 2.36 -> 6.77 / 6.52, `RCSBlock.v2` 6.70 / 1.60 -> 6.50 / 5.96, `RCSblock.01.small` 3.51 / 1.15 -> 3.58 / 3.03; stock `RCSBlock.v2` 3.13 / 3.32 -> 3.52 / 3.25. Side-a flame length ratio on the ReStock blocks 0.52 to 0.88 -> 0.93 to 1.16; the one-nozzle parts and linear ports stay within 3 %. Particle counts stay higher on the blocks (every drawn nozzle fires, R4) and their mean direction reads off by up to 46 deg on the angled minis (R4 too: all nozzles where stock fires 3).
+
+## ~~GHOST-JET-THROTTLE-CLIP~~: a jet's variable nozzle never moves on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low to medium (visible on every Panther and Whiplash)]
+
+What: `FXModuleAnimateThrottle` plays `TurboRamJetNozzle` (Whiplash, 3 bones) and `TurboJetNozzleDry` / `TurboJetNozzleWet` (Panther, 6 bones), clips that move the petals, at the engine's throttle. The ghost sampled such a clip for its colours only (`GhostVisualBuilder.SampleNozzleGlowClip`; a clip with none was skipped whole). Seen on both installs, both routes alike (PP-5 `2026-11-24_0628`, PP-10 `_0758`): `turboJet` dry full side blob 1971 / 1973 px, bottom colour 12986; dry 30 % 625; wet 30 % 310; `turboFanEngine` 30 % 763.
+
+Fix: the same sampling also reads the transforms (33 poses a clip, only the channels that move, cached per part type) and `GhostPlaybackLogic.UpdateNozzlePoses` drives them from the glow's level, so recorded power, the main-throttle rule, response speed, persisted state, rewinds and loops are the glow's own. Two clips on one part blend as Unity's layers do with stock's `weightOnOperational` weights (3 x responseSpeed); the engine that runs owns the pose, and while none runs the last one keeps it (the recording does not tell an idle engine from a shut-down one). Writes only while a level or weight moves: a settled part costs one flag read a frame. Nothing new is recorded. Not covered: the clips' `Point light` intensity (a ghost's engine lights nothing) and `FXModuleAnimateRCS` poses.
+
+Tests: `GhostNozzlePoseTests` (Pose_*, Blend_*).
+
+Flown: PPS-19c `2026-11-26_1846` (stock-minimal, air, 8 jet cases) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), INVALID on the controls it does not plan, no `[Parsek][ERROR]`. Event / start route, before (PP-5 `2026-11-24_0628`) -> now: `turboJet` dry full side shape blob 1971 / 1971 -> 0 / 0, bottom colour 12986 / 12986 -> 9 / 2; dry 30 % shape 625 -> 4 / 0, bottom 11144 -> 1739 / 3; wet 30 % shape 310 -> 0 / 0, bottom 6376 -> 657 / 2; wet full 0 / 0 as before; `turboFanEngine` 30 % shape 763 / 746 -> 2 / 0, colour 2972 -> 27 / 1. Log: `Nozzle pose pid=... settled: 'TurboJetNozzleDry' at 0.298 weight 1.000` and the wet case's dry weight 0 / wet weight 1. Left: the event route's bottom colour at 30 % (1739 dry, 657 wet; start route 3 and 2) is not a pose (no shape px).
+
+## ~~GHOST-GOLIATH-FAN-STATIC~~: the Goliath's fan does not turn on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low (visual only)]
+
+What: `turboFanSize2`'s `FXModuleAnimateThrottle` plays `TF2FanSpin` with `affectTime = false`, `animWrapMode = 2` (loop); `CollectNozzleGlowPlans` skipped any module with `affectTime` off, so `FanCone` and `FanBlades` stood still on both routes (top view colour 405 to 10654 px: the real fan's phase at that moment).
+
+Stock (decompiled): the clip's speed moves toward `baseAnimSpeed + throttle * baseAnimSpeedMult` (0.01 + 100 x) by `responseSpeed * dt` a step and is capped at 1, the clip's own rate: one turn a second from 0.2 s after a full-throttle start, 20 s time constant on the way down.
+
+Fix: `GhostVisualBuilder.BuildEngineSpin` samples the loop (the converter loops' sampler) and `GhostPlaybackLogic.EngineSpinPhaseAt` is that law in closed form over the recorded power; one transform write a frame while it turns. An engine shut down while spinning coasts as an idle one does (stock freezes a shut-down fan after 1.8 s, when its weight reaches 0; the recording reads both as a shutdown). The phase is not the real fan's, so a still picture of it stays noise (PARTPARITY-SPIN-PHASE).
+
+Tests: `GhostNozzlePoseTests` (Spin*).
+
+Flown: PPS-19c `2026-11-26_1846` (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `EngineSpin 'turboFanSize2': sampled 1 looping transform(s) from 'TF2FanSpin' over 12 phases (clip=1.00s)`, `spins=1`. Top view px differing by 24 or more between the event ghost and the stowed ghost (fan at rest): before 0 at full and 30 %, now 7313 and 9116; event against start ghost 4923 and 5756 (two fans at different phases). The real-against-ghost top view stays phase noise (10492, 10658), as filed (script `after/fan.py`).
+
+## ~~GHOST-NOZZLE-GLOW-EVENT-RAMP~~: the Caravel's bell is hot at once on the real part and ramps on its ghost [FOUND 2026-11-24 while triaging PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1834`; low (visual only, ReStock+)]
+
+What: `restock-engine-caravel-1` at full, event route `color-blob-px` bottom 3113, side-a 198; start route 4: the real bell stands at the hot end while the event ghost plays `heatColor`'s 0.025 /s ramp.
+
+Cause (cfg and decompile): `FXModuleThrottleEffects` sets its modules in `Update`, as `ModuleColorChanger` shows its ramp (and KSPCommunityFixes' replacement too), so the later module of the part wins. The Caravel is the one part of ReStock / ReStock+ whose `heatColor` changer stands before its setter: its bell shows the throttle, hot at once. The ghost assumed the ramp writes last.
+
+Fix: the ghost compares the two modules' places in the part (`ThrottleGlowSetterOrder`, `ThrottleGlowRampOrder`; `ShownNozzleGlow` takes the last write of the frame).
+
+Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 0 to 2. Both ramps are done there and the settled bell shows the setter's level: real 0.991, ghost 0.96, the last recorded `EngineThrottle` (PP-9 log, 5 % step). ENGINE-THROTTLE-EVENT-STEP (PR #2821); nothing to change in the ghost.
+
+Tests: `GhostNozzleGlowTests` (WriteOrder_*).
+
+Flown: PPS-19b `2026-11-26_1834` (modded-restock) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `restock-engine-caravel-1` full, event route `color-blob-px` bottom 3113 -> 3, side-a 198 -> 0; 30 % 1 -> 0. `restock-engine-boar` (setter first, unchanged rule) event 0 at both powers. `MassiveBooster` full event bottom 466 -> 0 on main's settled-throttle recorder (#2821), as read. The start routes of the boar (34729) and the Kickback (1066) are PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED, not this.
+
 ## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, flown `2026-11-23_2149`; low (visual only, stock)]
 
 What: stock draws five `Squad/FX/LES_Thruster` emitters (one per `thrustTransform`) by the engine's thrust (`powerEffectName = running_closed`), dark below 5 %, so it burns on abort and on jettison. The ghost drew nothing; ReStock's tower passed.
@@ -804,6 +854,10 @@ What: the puffs of the newest rendered frame sit at the nozzle until the next ph
 ## GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL: the ghost FX Parsek builds itself (explosion smoke, part puffs, launch dust, the reentry fire) are world-space and do not follow the floating origin [FILED 2026-11-24 while fixing GHOST-SMOKE-RIDES-ACTIVE-VESSEL; OPEN; low (visual only)]
 
 What: `GhostVisualBuilder.TransientFx.cs` and the reentry fire (`GhostVisualBuilder.HeatAndReentryFx.cs`) create their particle systems with `simulationSpace = World` and nothing moves them when the origin shifts, so beside a flying active vessel they drift along with it for their 1 to 4 s. Read from the source, not seen in a flight. Fix: attach `GhostWorldSpaceEmitter` there too (an unparented one does not drift), and look at the reentry fire first, whose streaks were tuned to what they are now.
+
+## GHOST-TRANSIENT-FX-STOCK-DIFFERENCES-2026-11-26: the effects Parsek builds itself differ from what stock draws in the same situation [FILED 2026-11-26 by code and decompile reading for the part parity P9 plan (`docs/dev/design-part-ghost-parity.md` Appendix G, G.8); OPEN; not flown, each to be confirmed by the P9 captures; low (visual only)]
+
+What, from reading (file:line in G.8): the reentry fire's intensity is not stock's `AerodynamicsFX` curve (no 0.5 factor, no `p0` threshold and slope, no Mach-FX density fade, and a Mach 2.5 gate that stock applies only in air thinner than 0.0875 kg/m3), so it is weaker than stock's through most of a reentry and the white condensation of a fast pass in dense air never shows; a ghost part explosion has no speed term; the launch dust sits at the ghost root as a vertical additive disc, reads AGL against one latched launch-site altitude and ignores the pad and water, where stock's `ModuleSurfaceFX` puts dust at the thrust axis's ground hit; the decouple puff (smoke and sparks) sits on the joint child of every joint break, where stock bursts a white gas cloud on the decoupler only; water splash and the reentry light are missing. Fix: none yet; P9 measures each against stock first (lanes PP-11 / PP-12, FXC-1 / FXC-2), owner rulings 2026-11-26 (G.9): a ghost shows reentry fire wherever stock would draw it on the real vessel, and the Space Center explosion uses stock's own prefab; each fix is its own PR with before / after pictures (G.7, Y1 to Y7).
 
 ## PARTPARITY-FX-FIRST-READINGS-2026-11-23: what the first FX sweep (P8 F3 acceptance) saw on the ghosts [FILED 2026-11-23; OPEN; triage belongs to the P8 F6 reading runs, nothing judged yet]
 
