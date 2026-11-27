@@ -124,6 +124,8 @@ namespace Parsek.Tests
             int smoke = fx.IndexOf("private static ParticleSystem BuildFallbackExplosionSmoke(", StringComparison.Ordinal);
             string smokeBody = fx.Substring(smoke, fx.IndexOf("private static ParticleSystem BuildFallbackExplosionFire(", smoke, StringComparison.Ordinal) - smoke);
             Assert.Contains("new Color(0.5f, 0.5f, 0.5f, 0.5f)", smokeBody);
+            Assert.Contains("new Color(dark, dark, dark,", smokeBody);
+            Assert.Contains("new Color(light, light, light,", smokeBody);
             foreach (Match m in Regex.Matches(smokeBody, @"new Color\(([0-9.]+)f, ([0-9.]+)f, ([0-9.]+)f"))
             {
                 double r = double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
