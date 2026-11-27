@@ -1,0 +1,3 @@
+# [Parsek] WARN/ERROR lines between 22:10:32 and 22:10:52
+[LOG 22:10:47.337] [Parsek][WARN][TestRunner] FAILED: PartParityBurstSpikeInGameTests.BurstSpike - 
+[LOG 22:10:48.493] [Parsek][WARN][TestRunner] Late vessel switch to '#autoLOC_501224' inside the reload commit window (armedBy='CommitValidatedGameLoad:b1-pad-craft/ptb-fb0a818b'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
