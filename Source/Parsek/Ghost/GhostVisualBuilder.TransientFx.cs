@@ -380,6 +380,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The explosion a ghost crash draws when <c>FXMonger.Explode</c> cannot be used (the Space
+        /// Center view, the flight pause menu, a stock call that failed): a silent copy of stock's
+        /// own explosion for <paramref name="power"/>, kept from the flight scene by
+        /// <see cref="StockExplosionPrefabCache"/>, so the crash looks the same as in flight. Only a
+        /// session that has never been in flight (no copies kept) draws Parsek's hand-built
+        /// <see cref="SpawnExplosionFx"/>.
+        /// </summary>
+        internal static GameObject SpawnFallbackExplosionFx(Vector3 worldPosition, double power, float vesselLength)
+        {
+            GameObject blast = StockExplosionPrefabCache.TrySpawn(worldPosition, power, out string why);
+            if (blast != null)
+            {
+                GhostTransientFxRecord.Note(
+                    GhostTransientFxKind.StockCopyExplosion, worldPosition, power, vesselLength, blast);
+                return blast;
+            }
+            ParsekLog.VerboseRateLimited("ExplosionFx", "stock-copy-unavailable",
+                $"Stock explosion copy unavailable ({why}); drawing Parsek's hand-built explosion", 10.0);
+            return SpawnExplosionFx(worldPosition, vesselLength);
+        }
+
+        /// <summary>
         /// Spawns a fire-and-forget explosion particle effect at the given world position.
         /// The returned GameObject auto-destroys after particles expire.
         /// Used when ghost playback reaches the end of a destroyed recording.

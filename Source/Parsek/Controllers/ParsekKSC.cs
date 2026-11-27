@@ -2282,9 +2282,9 @@ namespace Parsek
             else
             {
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-unavailable-{recIdx}",
-                    $"Stock explosion FX unavailable for {context}; spawning custom visual FX and using independent explosion audio",
+                    $"Stock explosion FX unavailable for {context}; spawning a silent copy of the stock explosion and using independent explosion audio",
                     10.0);
-                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+                GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);
             }
 
             if (ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult))

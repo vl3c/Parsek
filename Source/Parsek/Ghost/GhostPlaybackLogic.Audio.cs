@@ -320,7 +320,7 @@ namespace Parsek
                 ?? ((Vector3 pos, double pwr, out string failure) =>
                     GhostVisualBuilder.TryTriggerStockExplosionFx(pos, pwr, out failure));
             Action<Vector3, float> spawnCustom =
-                spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnExplosionFx(pos, len));
+                spawnExplosionFx ?? ((pos, len) => GhostVisualBuilder.SpawnFallbackExplosionFx(pos, power, len));
 
             if (triggerStock(worldPosition, power, out string stockFxFailure))
             {

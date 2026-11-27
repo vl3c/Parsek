@@ -733,6 +733,13 @@ tsTailPositionLogKeys = "process: rate-limit keys of the per-frame tail line, co
 tsTailSlideLogKeys = "process: rate-limit keys of the per-frame tail-slide line, composed from the recording id alone, so an entry never goes stale"
 
 [[type]]
+name = "Parsek.StockExplosionPrefabCache"
+reason = "silent copies of stock's explosion prefabs kept from the flight scene"
+[type.fields]
+holder = "process: the inactive DontDestroyOnLoad holder of the kept copies, taken once from the first live FXMonger"
+copies = "process: the kept copies under that holder, one per FXMonger.explosions entry"
+
+[[type]]
 name = "Parsek.GhostVisualBuilder"
 reason = "the ghost mesh builder; only the statics below are tagged, the rest stay in the untagged pin set"
 [type.fields]
