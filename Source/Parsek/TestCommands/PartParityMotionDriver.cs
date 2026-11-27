@@ -371,9 +371,12 @@ namespace Parsek.TestCommands
         /// Frame 0 and the last frame of a real-vs-real control within the real-vs-real
         /// allowance of 4.5 (the <c>ctl-real-vs-real</c> predicate, D.2), as partparity.py
         /// <c>motion_end_frames_within_allowance</c> reads it: in both frames every view has a
-        /// same-time block with no real-only or ghost-only pixel and at most
+        /// same-time block with no real-only or ghost-only pixel outside the edge tolerance
+        /// (<c>RealOnlyTolPx</c> / <c>GhostOnlyTolPx</c>) and at most
         /// <see cref="PartParitySweepPlan.RealVsRealColorNoisePx"/> colour pixels over the line,
-        /// and some view has real coverage.
+        /// and some view has real coverage. The edge tolerance, not the raw count: the two copies
+        /// sit at different places in one wave, so their silhouettes can differ by a pixel along
+        /// an edge (1 to 2 px on the 2026-11-27 re-fly) with identical timing.
         /// </summary>
         internal static bool EndFramesWithinAllowance(IList<PartParityMotionFrame> frames)
         {
@@ -385,7 +388,7 @@ namespace Parsek.TestCommands
                 foreach (PartParityMotionFrameView v in f.Views)
                 {
                     PartParityViewMeasures mm = v?.Same?.Measures;
-                    if (mm == null || mm.RealOnlyPx != 0 || mm.GhostOnlyPx != 0
+                    if (mm == null || mm.RealOnlyTolPx != 0 || mm.GhostOnlyTolPx != 0
                         || mm.ColorOverPx > PartParitySweepPlan.RealVsRealColorNoisePx)
                         return false;
                     if (mm.RealPx > 0) covered = true;

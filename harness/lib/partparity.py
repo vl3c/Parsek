@@ -4239,8 +4239,10 @@ def judge_motion_ghost_late(normal: Optional[Dict], late: Optional[Dict],
 def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
     """Frame 0 and the last frame of a real-vs-real control within the real-vs-real allowance
     of 4.5 (``PartParitySweepPlan`` ``ctl-real-vs-real``): every view's same-time block has no
-    real-only or ghost-only pixel and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over
-    the threshold, and some view has coverage."""
+    real-only or ghost-only pixel outside the edge tolerance (``realOnlyTolPx`` /
+    ``ghostOnlyTolPx``; the two copies sit at different places, so an edge can differ by a
+    pixel) and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over the threshold, and some
+    view has coverage."""
     frames = motion_frames(block)
     if not frames:
         return False
@@ -4250,7 +4252,7 @@ def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
             return False
         for v in views:
             m = v.get("same")
-            if not isinstance(m, dict) or m.get("realOnlyPx") != 0 or m.get("ghostOnlyPx") != 0 \
+            if not isinstance(m, dict) or m.get("realOnlyTolPx") != 0 or m.get("ghostOnlyTolPx") != 0 \
                     or (_num(m.get("colorOverPx")) or 0) > REAL_VS_REAL_COLOR_NOISE_PX:
                 return False
         if not any((_num((v.get("same") or {}).get("realPx")) or 0) > 0 for v in views):
