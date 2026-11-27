@@ -4649,9 +4649,10 @@ copy B's live frames as its ghost rows and scout (no matched row). The slow and 
 write TWO motion sidecars over the same real frames: the ALTERED route under the control's id (its
 rows show the slowed or late ghost) and the normal route under `<controlId>--normal`, each with its
 own motion atlas; a missing or faulted normal route is `bad`. The real-vs-real end-frame allowance
-is read from frame 0 and the last frame: every view's same-time block with `realOnlyPx = 0`,
-`ghostOnlyPx = 0` and `colorOverPx <= 8` (`RealVsRealColorNoisePx`, the 4.5 rule) and some view
-covered. The slow route's last frame passes when its same-time pictures and the case's `structure`
+is read from frame 0 and the last frame: every view's same-time block with `realOnlyTolPx = 0`,
+`ghostOnlyTolPx = 0` (the edge-tolerant counts: the two copies sit at different places in one wave,
+so a silhouette edge can differ by a pixel with identical timing) and `colorOverPx <= 8`
+(`RealVsRealColorNoisePx`, the 4.5 rule) and some view covered. The slow route's last frame passes when its same-time pictures and the case's `structure`
 do not fail the P6 rules (`judge_route`). A control the manifest records `ok` that Python judges
 `bad` is INVALID(parity-controls).
 
@@ -4665,7 +4666,8 @@ inside the fail line by construction, and asking for a fail there would make the
 correct rig. "Frame 0 and the last frame within the real-vs-real allowance" and "its last frame
 passes the P6 end-state rules" are the same derivations as `partparity`'s
 `motion_end_frames_within_allowance` (every view's `same` block in frame 0 and the last frame with
-no real-only or ghost-only pixel, at most 8 colour-over pixels, and some real coverage) and
+no real-only or ghost-only pixel outside the edge tolerance, at most 8 colour-over pixels, and some
+real coverage) and
 `motion_last_frame_route` (the `judge_route` view rules over the last frame's `same` blocks plus
 the sidecar `structure`; a context-dependent tag caps a view failure at warn; a rendered,
 non-nonVisual missing or extra entry fails), in C# `PartParityMotionControls.EndFramesWithinAllowance`

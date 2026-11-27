@@ -4925,16 +4925,24 @@ class MotionControlJudgeTests(unittest.TestCase):
         outcome, detail = pp.judge_motion_control(cid, lagging)
         self.assertEqual(pp.CONTROLS_BAD, outcome)
         self.assertIn("lagS=0.5", detail)
+        # Copy B already fully out at frame 0: six columns outside the edge tolerance.
         self.assertIn("end frames differ", pp.judge_motion_control(cid, {cid: _motion_case(
-            cid, ghost_mask=lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6),
+            cid, ghost_mask=lambda k, p: _motion_mask(p) if k else _motion_mask(1.0),
             matched=False)[0]})[1])
+        # A one-pixel edge shift between the copies (the 2026-11-27 re-fly's 1 to 2 px) is
+        # inside the edge tolerance, so it is noise, not a difference.
+        shifted = {cid: _motion_case(
+            cid, ghost_mask=lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6),
+            matched=False)[0]}
+        self.assertTrue(pp.motion_end_frames_within_allowance(pp.motion_block(shifted[cid])))
+        self.assertEqual(pp.CONTROLS_OK, pp.judge_motion_control(cid, shifted)[0])
         rate = {cid: _motion_case(cid, ghost=_ramp(0.5, 2.2), matched=False)[0]}
         self.assertIn("durationRatio=1.1", pp.judge_motion_control(cid, rate)[1])
 
     def test_the_air_real_vs_real_judges_the_canopy_curves_only(self):
         # H.3: the air control reads the canopy-scale curves only; stock aims each open canopy
         # along its own airflow, so its end frames are never compared (C# passes true too).
-        mask = lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6)
+        mask = lambda k, p: _motion_mask(p) if k else _motion_mask(1.0)
         air = pp.CONTROL_MOTION_REAL_VS_REAL_AIR
         side = _motion_case(air, part="parachuteSingle", family="parachute", kind="canopy",
                             state="motion-semi", context="air", matched=False,
