@@ -676,14 +676,23 @@ namespace Parsek.InGameTests
             }
 
             // Far-watch drone ids a test left behind (design-far-watch.md 6.1): a live far
-            // watch is ended first so its own teardown runs; stale ids are then dropped.
+            // watch is ended at once (switch to the ship, destroy the drone); its ids are dropped
+            // only when no drone vessel is left, since a live drone with no identity would be
+            // saved and flown as an ordinary vessel.
             try
             {
                 FarWatchController fw = ParsekFlight.Instance != null ? ParsekFlight.Instance.FarWatch : null;
-                if (fw != null && fw.IsRunning)
-                    fw.OnSceneExit();
-                CameraDroneIdentity.ResetBetweenTestRuns(reason);
-                FarWatchAwardScope.Clear();
+                bool ended = fw == null || fw.EndForTestRunnerReset(reason);
+                if (ended)
+                {
+                    CameraDroneIdentity.ResetBetweenTestRuns(reason);
+                    FarWatchAwardScope.Clear();
+                }
+                else
+                {
+                    ParsekLog.Warn(Tag,
+                        $"PerformBetweenRunCleanup: far watch could not end at once; drone ids kept reason={reason}");
+                }
             }
             catch (Exception ex)
             {

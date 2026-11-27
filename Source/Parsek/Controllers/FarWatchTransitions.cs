@@ -55,6 +55,29 @@ namespace Parsek
         GhostGone,
         CameraLost,
         ControllerDestroyed,
+        TestRunnerReset,
+    }
+
+    /// <summary>How the in-game test runner's between-run reset ends a far watch at once.</summary>
+    internal enum FarWatchImmediateEnd
+    {
+        /// <summary>No drone vessel: end the watch and drop the ids.</summary>
+        NoDrone,
+        /// <summary>The drone exists but is not active: destroy it, end the watch, drop the ids.</summary>
+        DestroyInactiveDrone,
+        /// <summary>The drone is active and the ship is loaded: switch to the ship, then destroy it.</summary>
+        SwitchToShipThenDestroy,
+        /// <summary>The drone is active and no ship can take over: keep the watch and its ids
+        /// (a live drone with no identity would be saved and flown as an ordinary vessel).</summary>
+        KeepUntilGone,
+    }
+
+    /// <summary>What a follow tick does with watch mode's current target (see DecideFollowRekey).</summary>
+    internal enum FarWatchFollowRekey
+    {
+        Keep,
+        Rekey,
+        WatchGone,
     }
 
     /// <summary>
@@ -146,6 +169,53 @@ namespace Parsek
                     return false;
             }
             return false;
+        }
+
+        /// <summary>
+        /// A follow watch's ghost against the watch-mode target, read every follow tick: Keep
+        /// while watch mode watches the drone's ghost, Rekey when it watches another recording (a
+        /// chain segment transfer or a ghost switch keeps the watch, so the drone follows the new
+        /// recording), WatchGone when watch mode watches nothing (an exit that did not reach the
+        /// far-watch teardown).
+        /// </summary>
+        internal static FarWatchFollowRekey DecideFollowRekey(
+            bool watching, int watchedIndex, string watchedRecordingId, int ghostIndex, string ghostRecordingId)
+        {
+            if (!watching || watchedIndex < 0)
+                return FarWatchFollowRekey.WatchGone;
+            if (watchedIndex == ghostIndex && string.Equals(watchedRecordingId, ghostRecordingId, StringComparison.Ordinal))
+                return FarWatchFollowRekey.Keep;
+            return FarWatchFollowRekey.Rekey;
+        }
+
+        /// <summary>
+        /// Stock's flight-ended screen after a ship loss with the drone active (7.6, V2): once,
+        /// while the watch is still aborted, a few frames after the loss so the ship is gone from
+        /// the vessel list when the screen's save runs.
+        /// </summary>
+        internal static bool ShouldShowShipLostScreen(FarWatchState state, bool pending, int framesInState, int delayFrames)
+        {
+            return pending && state == FarWatchState.Aborted && framesInState >= delayFrames;
+        }
+
+        /// <summary>The between-run reset's choice (see <see cref="FarWatchImmediateEnd"/>).</summary>
+        internal static FarWatchImmediateEnd DecideImmediateEnd(bool droneExists, bool droneActive, bool shipLoaded)
+        {
+            if (!droneExists)
+                return FarWatchImmediateEnd.NoDrone;
+            if (!droneActive)
+                return FarWatchImmediateEnd.DestroyInactiveDrone;
+            return shipLoaded ? FarWatchImmediateEnd.SwitchToShipThenDestroy : FarWatchImmediateEnd.KeepUntilGone;
+        }
+
+        /// <summary>
+        /// The per-frame camera net runs in every state the drone may exist in, spawning and
+        /// teardown included: a watch exit there restores the camera to the active vessel, and a
+        /// camera left under a ghost transform must still be caught.
+        /// </summary>
+        internal static bool CameraNetRuns(FarWatchState state)
+        {
+            return IsRunning(state);
         }
 
         /// <summary>True in every state where the drone may exist (everything but Idle).</summary>

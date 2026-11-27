@@ -27,6 +27,10 @@ namespace Parsek
             /// <summary>Far-watch drone ids are set but no surviving ProtoVessel carries the ship's
             /// Guid: fail closed (-1), never 0.</summary>
             ShipMissing = 5,
+            /// <summary>No ship to point at (it was lost, or the ids are the scene-exit
+            /// leftovers): the index names a removed entry (the drone or a ghost), so it is -1
+            /// (stock's value for an active vessel missing from the list), never 0.</summary>
+            ActiveRemoved = 6,
         }
 
         // Reason string handed to RemoveAllGhostVessels on the pre-stock far Switch-To strip.
@@ -132,6 +136,73 @@ namespace Parsek
             removedBefore = removed;
             outcome = ActiveVesselIdxOutcome.ShipMissing;
             return -1;
+        }
+
+        /// <summary>
+        /// PURE. The far-watch strip with no ship to point at (the ship was lost, 7.6 V2, or the
+        /// ids are only the scene-exit leftovers): the ghosts AND the drone (pid and Guid) are
+        /// removed and the captured index follows its own entry. It moves down by the removed
+        /// entries before it (<see cref="ActiveVesselIdxOutcome.Shifted"/> or
+        /// <see cref="ActiveVesselIdxOutcome.Unchanged"/>); when it names a removed entry it is
+        /// -1 (<see cref="ActiveVesselIdxOutcome.ActiveRemoved"/>), never 0; an out-of-range index
+        /// is left as it was. Never refuses the save.
+        /// </summary>
+        internal static int ResolveActiveVesselIdxAfterStripWithoutShip(
+            IReadOnlyList<uint> pidsBefore,
+            IReadOnlyList<Guid> guidsBefore,
+            ICollection<uint> ghostPids,
+            int oldIdx,
+            uint dronePid,
+            Guid droneGuid,
+            out int removedBefore,
+            out ActiveVesselIdxOutcome outcome)
+        {
+            removedBefore = 0;
+            if (pidsBefore == null || oldIdx < 0 || oldIdx >= pidsBefore.Count)
+            {
+                outcome = ActiveVesselIdxOutcome.OutOfRange;
+                return oldIdx;
+            }
+            bool haveGuids = guidsBefore != null && guidsBefore.Count == pidsBefore.Count;
+            for (int i = 0; i <= oldIdx; i++)
+            {
+                bool isGhost = ghostPids != null && ghostPids.Contains(pidsBefore[i]);
+                bool isDrone = haveGuids && IsDroneProtoVessel(pidsBefore[i], guidsBefore[i], dronePid, droneGuid);
+                if (!isGhost && !isDrone)
+                    continue;
+                if (i == oldIdx)
+                {
+                    outcome = ActiveVesselIdxOutcome.ActiveRemoved;
+                    return -1;
+                }
+                removedBefore++;
+            }
+            outcome = removedBefore > 0 ? ActiveVesselIdxOutcome.Shifted : ActiveVesselIdxOutcome.Unchanged;
+            return oldIdx - removedBefore;
+        }
+
+        /// <summary>
+        /// Applies <see cref="ResolveActiveVesselIdxAfterStripWithoutShip"/> to a flight state the
+        /// strip is about to run on and logs it. Call BEFORE the removal.
+        /// </summary>
+        internal static int ComputeActiveVesselIdxForStripWithoutShip(
+            List<ProtoVessel> protoVessels, int oldIdx, uint dronePid, Guid droneGuid, bool shipLost)
+        {
+            var pids = new List<uint>(protoVessels.Count);
+            var guids = new List<Guid>(protoVessels.Count);
+            for (int i = 0; i < protoVessels.Count; i++)
+            {
+                pids.Add(protoVessels[i] != null ? protoVessels[i].persistentId : 0u);
+                guids.Add(protoVessels[i] != null ? protoVessels[i].vesselID : Guid.Empty);
+            }
+            int newIdx = ResolveActiveVesselIdxAfterStripWithoutShip(
+                pids, guids, ghostMapVesselPids, oldIdx, dronePid, droneGuid,
+                out int removedBefore, out ActiveVesselIdxOutcome outcome);
+            ParsekLog.Info(Tag, string.Format(ic,
+                "Save activeVesselIdx {0}->{1} removedBefore={2} outcome={3} shipLost={4} - " +
+                "no ship ProtoVessel; drone stripped with no ship repair",
+                oldIdx, newIdx, removedBefore, outcome, shipLost));
+            return newIdx;
         }
 
         /// <summary>The removal predicate of the far-watch strip: the drone by pid AND Guid.</summary>

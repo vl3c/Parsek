@@ -50,6 +50,11 @@ namespace Parsek
         private bool followGhost;
         private bool destroyingDrone;
         private bool switchedOut;
+        // The ship was lost after the hand-over out (7.6, V2): stock's flight-ended screen shows
+        // once the ship is gone from the vessel list (a save taken inside onVesselWillDestroy
+        // would still find it).
+        private bool shipLostScreenPending;
+        internal const int ShipLostScreenDelayFrames = 2;
         private bool cameraLost;
 
         // Hold point (beside the ship, or the last written point).
@@ -184,6 +189,7 @@ namespace Parsek
 
         private void ResetPerWatchState()
         {
+            shipLostScreenPending = false;
             drone = null;
             destroyingDrone = false;
             switchedOut = false;
@@ -218,6 +224,11 @@ namespace Parsek
                 return;
             framesInState++;
             CheckCamera();
+            if (FarWatchTransitions.ShouldShowShipLostScreen(state, shipLostScreenPending, framesInState, ShipLostScreenDelayFrames))
+            {
+                shipLostScreenPending = false;
+                ShowShipLostFlightResults();
+            }
             switch (state)
             {
                 case FarWatchState.Spawning:
@@ -460,6 +471,8 @@ namespace Parsek
         private void TickFollow()
         {
             var committed = RecordingStore.CommittedRecordings;
+            if (!RekeyToWatchedRecording(committed))
+                return;
             int index = ResolveGhostIndex(committed);
             if (index < 0)
             {
@@ -528,6 +541,42 @@ namespace Parsek
             if (dev > winMaxDev) winMaxDev = dev;
             if (CameraDrone.WriteState(drone, body, world, vObt))
                 winWrites++;
+        }
+
+        /// <summary>
+        /// Keeps a follow watch on watch mode's target: a chain segment transfer or a ghost switch
+        /// moves the watch to another recording and the drone follows it; a watch that ended
+        /// without reaching the far-watch teardown ends the far watch. False when the tick stops.
+        /// </summary>
+        private bool RekeyToWatchedRecording(IReadOnlyList<Recording> committed)
+        {
+            bool watching = host.IsWatchingGhost;
+            int watchedIndex = watching ? host.WatchedRecordingIndex : -1;
+            string watchedId = watchedIndex >= 0 && watchedIndex < committed.Count && committed[watchedIndex] != null
+                ? committed[watchedIndex].RecordingId : null;
+            FarWatchFollowRekey decision = FarWatchTransitions.DecideFollowRekey(
+                watching, watchedIndex, watchedId, ghostIndex, ghostRecordingId);
+            switch (decision)
+            {
+                case FarWatchFollowRekey.Keep:
+                    return true;
+                case FarWatchFollowRekey.Rekey:
+                    ParsekLog.Info(Tag, string.Format(ic,
+                        "follow re-keyed to the watched recording from=#{0} id={1} to=#{2} id={3}",
+                        ghostIndex, ghostRecordingId ?? "(null)", watchedIndex, watchedId ?? "(null)"));
+                    ghostIndex = watchedIndex;
+                    ghostRecordingId = watchedId;
+                    prevBody = null;
+                    prevUT = double.NaN;
+                    invalidStreak = 0;
+                    return true;
+                default:
+                    ParsekLog.Warn(Tag, string.Format(ic,
+                        "follow watch lost its watch-mode target rec=#{0} id={1}; ending the watch",
+                        ghostIndex, ghostRecordingId ?? "(null)"));
+                    RequestEnd(FarWatchEndReason.WatchExit);
+                    return false;
+            }
         }
 
         private int ResolveGhostIndex(IReadOnlyList<Recording> committed)
@@ -681,6 +730,51 @@ namespace Parsek
         /// save / load strip. The hold and autosave go with the scene; the input lock is global
         /// and is removed here.
         /// </summary>
+        /// <summary>
+        /// The in-game test runner's between-run reset: end a far watch in this frame, with no
+        /// hand-back wait. The drone is destroyed only once it is not the active vessel (a switch
+        /// to the loaded ship first); with no ship to switch to the watch and its ids are kept and
+        /// false returned, so the caller must not drop the ids of a drone that still exists.
+        /// </summary>
+        internal bool EndForTestRunnerReset(string reason)
+        {
+            if (!IsRunning)
+                return true;
+            Vessel active = null;
+            try { active = FlightGlobals.ActiveVessel; } catch (Exception) { }
+            bool droneActive = drone != null && active == drone;
+            bool shipLoaded = ship != null && ship.loaded;
+            FarWatchImmediateEnd decision = FarWatchTransitions.DecideImmediateEnd(drone != null, droneActive, shipLoaded);
+            ParsekLog.Info(Tag, string.Format(ic,
+                "test-runner reset reason={0} state={1} decision={2} droneActive={3} shipLoaded={4}",
+                reason ?? "(none)", state, decision, droneActive, shipLoaded));
+            if (decision == FarWatchImmediateEnd.KeepUntilGone)
+            {
+                ParsekLog.Warn(Tag, "test-runner reset: the drone is active and no loaded ship can take over; far watch and drone ids kept");
+                RequestEnd(FarWatchEndReason.TestRunnerReset);
+                return false;
+            }
+            if (decision == FarWatchImmediateEnd.SwitchToShipThenDestroy)
+            {
+                if (!ForceSwitch(ship, "ship"))
+                {
+                    ParsekLog.Warn(Tag, "test-runner reset: switch to the ship failed; far watch and drone ids kept");
+                    RequestEnd(FarWatchEndReason.TestRunnerReset);
+                    return false;
+                }
+                RestoreShipCamera();
+            }
+            if (drone != null)
+                DestroyDrone("test-runner-reset");
+            RemoveInputLock();
+            RestartAutosave();
+            Transition(FarWatchTrigger.SceneExit, FarWatchEndReason.TestRunnerReset);
+            CameraDroneIdentity.Clear("test-runner-reset");
+            FarWatchAwardScope.Clear();
+            ClearRefs();
+            return true;
+        }
+
         internal void OnSceneExit()
         {
             if (!IsRunning)
@@ -735,11 +829,58 @@ namespace Parsek
             ParsekLog.Error(Tag, string.Format(ic, "player ship lost during far watch state={0} shipPid={1}",
                 state, v.persistentId));
             ship = null;
+            // From here no save may look for the ship: the strip removes the drone with no ship
+            // repair and never refuses the save (stock's flight-ended screen saves on its exits).
+            CameraDroneIdentity.MarkShipLost();
             if (FarWatchTransitions.TryTransition(state, FarWatchTrigger.ShipLost, out FarWatchState _))
             {
                 Transition(FarWatchTrigger.ShipLost, FarWatchEndReason.ShipLost);
                 followGhost = false;
                 ResolveAbort();
+                // Still aborted: the drone is the active vessel and no ship is left to hand back
+                // to. Stock shows nothing (the ship was not active), so Parsek shows its screen.
+                shipLostScreenPending = state == FarWatchState.Aborted;
+                if (shipLostScreenPending)
+                    ParsekLog.Info(Tag, string.Format(ic,
+                        "ship lost with the drone active: stock's flight-ended screen shows in {0} frames",
+                        ShipLostScreenDelayFrames));
+            }
+        }
+
+        /// <summary>
+        /// Stock's flight-ended screen, shown the way <c>FlightLogger.waitAndEndFlight</c> shows it
+        /// (decompiled 1.12.5): the persistent save, then <c>FlightResultsDialog.Display</c> with
+        /// its exit controls (Revert and Space Center) and the catastrophic-failure message. Both
+        /// buttons leave the flight through stock code; every save strips the drone (9.1).
+        /// </summary>
+        private void ShowShipLostFlightResults()
+        {
+            try
+            {
+                Game game = HighLogic.CurrentGame;
+                if (game == null)
+                {
+                    ParsekLog.Warn(Tag, "ship-lost screen: no current game; nothing shown");
+                    return;
+                }
+                if (game.Mode == Game.Modes.MISSION)
+                {
+                    ParsekLog.Info(Tag, "ship-lost screen: mission mode, stock shows no flight results; nothing shown");
+                    return;
+                }
+                GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                KSP.UI.Dialogs.FlightResultsDialog.showExitControls = true;
+                KSP.UI.Dialogs.FlightResultsDialog.allowClosingDialog = true;
+                KSP.UI.Dialogs.FlightResultsDialog.Display(
+                    KSP.Localization.Localizer.Format("#autoLOC_135586",
+                        KSP.Localization.Localizer.Format("#autoLOC_135143")));
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "ship-lost screen shown (stock FlightResultsDialog, exit controls on) ship='{0}'",
+                    shipName ?? "(unknown)"));
+            }
+            catch (Exception e)
+            {
+                ParsekLog.Error(Tag, "ship-lost screen failed: " + e.GetType().Name + ": " + e.Message);
             }
         }
 
@@ -922,6 +1063,26 @@ namespace Parsek
             ParsekLog.Info(CameraTag, "far-watch camera re-targeted to the drone context=" + (context ?? "(none)"));
         }
 
+        /// <summary>
+        /// The camera net's re-target (7.5): the active vessel in Vessel mode, the drone while it
+        /// is active and the ship in every other state the drone exists in, never a ghost.
+        /// </summary>
+        private static void RetargetCameraToActiveVessel(string context)
+        {
+            FlightCamera cam = FlightCamera.fetch;
+            if (cam == null) return;
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null)
+            {
+                ParsekLog.Warn(CameraTag, "far-watch camera net: no active vessel to re-target to context=" + (context ?? "(none)"));
+                return;
+            }
+            cam.TargetActiveVessel();
+            ParsekLog.Info(CameraTag, string.Format(ic,
+                "far-watch camera re-targeted to the active vessel pid={0} drone={1} context={2}",
+                active.persistentId, CameraDrone.Is(active), context ?? "(none)"));
+        }
+
         private void CheckCamera()
         {
             FlightCamera cam = FlightCamera.fetch;
@@ -934,12 +1095,12 @@ namespace Parsek
                 }
                 return;
             }
-            if (state == FarWatchState.Spawning || state == FarWatchState.Teardown)
+            if (!FarWatchTransitions.CameraNetRuns(state))
                 return;
             Transform target = cam.Target;
             if (target == null)
             {
-                RetargetCameraToDrone("net-null-target");
+                RetargetCameraToActiveVessel("net-null-target");
                 return;
             }
             GhostPlaybackEngine engine = host.Engine;
@@ -953,9 +1114,9 @@ namespace Parsek
                 if (target.IsChildOf(kv.Value.ghost.transform))
                 {
                     ParsekLog.Warn(CameraTag, string.Format(ic,
-                        "far-watch camera net: camera under unowned ghost #{0} '{1}'; re-targeting to the drone",
-                        kv.Key, kv.Value.ghost.name));
-                    RetargetCameraToDrone("net-unowned-ghost");
+                        "far-watch camera net: camera under unowned ghost #{0} '{1}' state={2}; re-targeting to the active vessel",
+                        kv.Key, kv.Value.ghost.name, state));
+                    RetargetCameraToActiveVessel("net-unowned-ghost");
                     return;
                 }
             }

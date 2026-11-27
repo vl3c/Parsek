@@ -29,6 +29,13 @@ namespace Parsek
         /// <summary>The drone ids were kept across a scene exit for the next save / load strip (7.5).</summary>
         internal static bool StripPending { get; private set; }
 
+        /// <summary>
+        /// The player ship was lost while the drone exists (7.6, V2): there is no ship to point a
+        /// save's active index at, so the strip removes the drone with no ship repair and never
+        /// refuses the save (stock's flight-ended screen saves on both of its exits).
+        /// </summary>
+        internal static bool ShipLost { get; private set; }
+
         /// <summary>True only while Parsek itself is inside its own ForceSetActiveVessel call.</summary>
         internal static bool SwitchTokenHeld { get; private set; }
 
@@ -39,6 +46,7 @@ namespace Parsek
             DronePid = pid;
             DroneGuid = guid;
             StripPending = false;
+            ShipLost = false;
             ParsekLog.Info("CameraDrone", string.Format(CultureInfo.InvariantCulture,
                 "identity set dronePid={0} droneGuid={1}", pid, guid.ToString("N")));
         }
@@ -61,18 +69,36 @@ namespace Parsek
                 "identity kept for the next save/load strip dronePid={0} shipPid={1}", DronePid, ShipPid));
         }
 
+        /// <summary>The player ship is gone while the drone exists (7.6, V2).</summary>
+        internal static void MarkShipLost()
+        {
+            if (!Exists)
+                return;
+            ShipLost = true;
+            ParsekLog.Info("CameraDrone", string.Format(CultureInfo.InvariantCulture,
+                "player ship lost; saves strip the drone with no ship repair dronePid={0} shipPid={1}",
+                DronePid, ShipPid));
+        }
+
+        /// <summary>
+        /// A save that finds no ProtoVessel for the ship may still be written: the ids are only
+        /// the scene-exit leftovers, or the ship is known lost. Otherwise the strip refuses it.
+        /// </summary>
+        internal static bool SaveMayProceedWithoutShip => StripPending || ShipLost;
+
         internal static void Clear(string reason)
         {
-            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld)
+            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld && !ShipLost)
                 return;
             ParsekLog.Info("CameraDrone", string.Format(CultureInfo.InvariantCulture,
-                "identity cleared reason={0} dronePid={1} shipPid={2} stripPending={3}",
-                reason ?? "(none)", DronePid, ShipPid, StripPending));
+                "identity cleared reason={0} dronePid={1} shipPid={2} stripPending={3} shipLost={4}",
+                reason ?? "(none)", DronePid, ShipPid, StripPending, ShipLost));
             DronePid = 0;
             DroneGuid = Guid.Empty;
             ShipPid = 0;
             ShipGuid = Guid.Empty;
             StripPending = false;
+            ShipLost = false;
             SwitchTokenHeld = false;
         }
 
@@ -93,7 +119,7 @@ namespace Parsek
         /// </summary>
         internal static void ClearOnLoad(string context)
         {
-            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld)
+            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld && !ShipLost)
                 return;
             Clear("load:" + (context ?? "(none)"));
         }
@@ -101,7 +127,7 @@ namespace Parsek
         /// <summary>The in-game test runner's between-run reset.</summary>
         internal static void ResetBetweenTestRuns(string reason)
         {
-            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld)
+            if (!Exists && ShipPid == 0 && !StripPending && !SwitchTokenHeld && !ShipLost)
                 return;
             Clear("between-test-runs:" + (reason ?? "(none)"));
         }
@@ -141,6 +167,7 @@ namespace Parsek
             ShipPid = 0;
             ShipGuid = Guid.Empty;
             StripPending = false;
+            ShipLost = false;
             SwitchTokenHeld = false;
         }
     }

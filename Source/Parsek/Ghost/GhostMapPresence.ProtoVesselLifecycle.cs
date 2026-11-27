@@ -1308,16 +1308,18 @@ namespace Parsek
 
             if (droneIds && outcome == ActiveVesselIdxOutcome.ShipMissing)
             {
-                if (!CameraDroneIdentity.StripPending)
+                if (!CameraDroneIdentity.SaveMayProceedWithoutShip)
                 {
-                    // A live drone and no ship in the save: never write index 0 (it would focus
-                    // some other vessel on load). The caller's fail-closed handler aborts the save.
+                    // A live drone and no ship in the save while the ship is not known lost:
+                    // never write index 0 (it would focus some other vessel on load). The
+                    // caller's fail-closed handler aborts the save.
                     throw new InvalidOperationException(
                         "far-watch strip: the player ship's ProtoVessel is missing while the camera drone exists");
                 }
-                // The ids are only the scene-exit leftovers: keep stock's index arithmetic.
-                newActiveIdx = ComputeActiveVesselIdxForStrip(
-                    flightState.protoVessels, oldIdx, IsFlightSceneForSaveIndexLog());
+                // The ship is lost (7.6, V2: stock's flight-ended screen saves on both exits) or
+                // the ids are only the scene-exit leftovers: strip the drone, no ship repair.
+                newActiveIdx = ComputeActiveVesselIdxForStripWithoutShip(
+                    flightState.protoVessels, oldIdx, dronePid, droneGuid, CameraDroneIdentity.ShipLost);
             }
 
             int stripped = ghostMapVesselPids.Count == 0 ? 0 : flightState.protoVessels.RemoveAll(
@@ -1333,9 +1335,10 @@ namespace Parsek
             if (droneIds)
                 ParsekLog.Info("CameraDrone",
                     string.Format(ic,
-                        "activeVesselIdx {0} -> {1} ghostsStripped={2} droneStripped={3} targetByGuid={4} stripPending={5}",
+                        "activeVesselIdx {0} -> {1} ghostsStripped={2} droneStripped={3} targetByGuid={4} stripPending={5} shipLost={6}",
                         oldIdx, newActiveIdx, stripped, droneStripped > 0,
-                        outcome == ActiveVesselIdxOutcome.ShipByGuid, CameraDroneIdentity.StripPending));
+                        outcome == ActiveVesselIdxOutcome.ShipByGuid, CameraDroneIdentity.StripPending,
+                        CameraDroneIdentity.ShipLost));
 
             return stripped + droneStripped;
         }

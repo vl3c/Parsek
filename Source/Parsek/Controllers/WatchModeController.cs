@@ -2207,15 +2207,19 @@ namespace Parsek
         internal void ExitWatchMode(bool skipCameraRestore = false, bool preserveLineageProtection = false)
         {
             if (watchedRecordingIndex < 0) return;
-            // While the camera drone exists the normal restore would go to the drone (the active
-            // vessel) or a ghost transform: skip it and re-target the drone in this same frame
-            // below; the ship's camera comes back at the far-watch hand-back (design 7.5).
+            // While the camera drone is the active vessel the normal restore would go to the drone
+            // or a ghost transform: skip it and re-target the drone in this same frame below; the
+            // ship's camera comes back at the far-watch hand-back (design 7.5). While the drone
+            // exists but is not active (spawning, hand-over, teardown, abort) the camera goes back
+            // to the active vessel as on any exit, never left under a ghost.
             bool droneExists = CameraDroneIdentity.Exists;
-            if (droneExists && !skipCameraRestore)
-            {
-                ParsekLog.Info("CameraFollow", "watch exit while the camera drone exists: normal camera restore skipped");
-                skipCameraRestore = true;
-            }
+            bool droneActive = droneExists && IsActiveVesselCameraDrone();
+            bool skipRestore = ShouldSkipCameraRestoreOnWatchExit(skipCameraRestore, droneExists, droneActive);
+            if (skipRestore && !skipCameraRestore)
+                ParsekLog.Info("CameraFollow", "watch exit while the camera drone is the active vessel: normal camera restore skipped");
+            else if (droneExists && !droneActive && !skipCameraRestore)
+                ParsekLog.Info("CameraFollow", "watch exit while the camera drone exists but is not active: camera restored to the active vessel");
+            skipCameraRestore = skipRestore;
             RestoreCameraAfterWatchExit(skipCameraRestore);
 
             // Remove input locks
@@ -2236,6 +2240,22 @@ namespace Parsek
                 if (host != null)
                     host.EndFarWatchOnWatchExit();
             }
+        }
+
+        /// <summary>
+        /// A watch exit skips the normal camera restore when the caller asked for it (a switch or
+        /// a transfer) or while the camera drone is the active vessel; a drone that exists but is
+        /// not active does not skip it (the camera would stay under the ghost).
+        /// </summary>
+        internal static bool ShouldSkipCameraRestoreOnWatchExit(bool requestedSkip, bool droneExists, bool droneActive)
+        {
+            return requestedSkip || (droneExists && droneActive);
+        }
+
+        private static bool IsActiveVesselCameraDrone()
+        {
+            Vessel active = GetActiveVesselSafe();
+            return active != null && CameraDroneIdentity.IsDrone(active.persistentId, active.id);
         }
 
         /// <summary>Far watch: the map camera follows the watched ghost again after the hand-over (12.1).</summary>
@@ -2684,8 +2704,17 @@ namespace Parsek
             // The session keeps following the vessel it started on across the transfer.
             string preservedIdentityGuid = watchedIdentityGuid;
 
-            // Switch watch mode: exit old (preserving camera position), enter new
-            ExitWatchMode(skipCameraRestore: true);
+            // Switch watch mode: exit old (preserving camera position), enter new. A segment
+            // transfer keeps the watch, so a far watch survives it and re-keys to the new segment.
+            exitingForWatchSwitch = true;
+            try
+            {
+                ExitWatchMode(skipCameraRestore: true);
+            }
+            finally
+            {
+                exitingForWatchSwitch = false;
+            }
 
             // Set up new watch state
             watchedRecordingIndex = nextIndex;

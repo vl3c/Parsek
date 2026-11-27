@@ -42,8 +42,10 @@ members = [
 "Parsek.CrewReservationManager::RemoveReservedEvaVessels(System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "B Crew/CrewReservationManager.cs:760" }
 "Parsek.CrewReservationManager::SwapReservedCrewInFlight()" = { count = 7, codes = ["PLAYER-SHIP"], audit = "B Crew/CrewReservationManager.cs:102; B Crew/CrewReservationManager.cs:131,132,133; B Crew/CrewReservationManager.cs:154; B Crew/CrewReservationManager.cs:254,255" }
 "Parsek.FarWatchAwardScope::ReadDroneActiveCore()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the award belt asks whether the drone is the active vessel (records nodes, 10.3)" }
+"Parsek.FarWatchController::EndForTestRunnerReset(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the test runner's immediate end reads whether the drone holds focus before it destroys it" }
 "Parsek.FarWatchController::OnDroneWillDestroy(Vessel)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the drone-lost branch reads whether focus had moved to the drone (7.6)" }
 "Parsek.FarWatchController::ResolveAbort()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the abort resolution reads which vessel holds focus (7.6)" }
+"Parsek.FarWatchController::RetargetCameraToActiveVessel(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the camera net re-targets to whichever vessel holds focus (drone or ship), never a ghost (7.5)" }
 "Parsek.FarWatchController::RetargetCameraToDrone(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the same-frame camera re-target on a watch exit while the drone exists (7.5)" }
 "Parsek.FarWatchController::TryStart(int32,bool,string&)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the entry reads the player ship before the drone exists" }
 "Parsek.FarWatchPlayerVessel::ReadActiveVesselCore()" = { count = 1, codes = ["PLAYER-SHIP"], audit = "H2 (step 2): the player ship is the active vessel while no drone exists" }
@@ -300,6 +302,7 @@ members = [
 "Parsek.GhostMapPresence::.cctor()" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.cs:196" }
 "Parsek.GhostMapPresence::BuildAndLoadGhostProtoVesselCore(Parsek.IPlaybackTrajectory,Orbit,CelestialBody,string,string,string)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:1770" }
 "Parsek.GhostMapPresence::ComputeActiveVesselIdxForStrip(System.Collections.Generic.List`1<ProtoVessel>,int32,bool,uint32,System.Guid,System.Guid,Parsek.GhostMapPresence/ActiveVesselIdxOutcome&)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "step 2: the drone-aware overload the 3-argument one delegates to; the save strip repair targets the ship by Guid (C GhostMapPresence.ProtoVesselLifecycle.cs:1295, 1299)" }
+"Parsek.GhostMapPresence::ComputeActiveVesselIdxForStripWithoutShip(System.Collections.Generic.List`1<ProtoVessel>,int32,uint32,System.Guid,bool)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "step 2 review: the strip with no ship to point at (ship lost, 7.6 V2, or the scene-exit leftovers) counts the ghosts and the drone it removes" }
 "Parsek.GhostMapPresence::CreateOverlapInstanceVessel(int32,Parsek.Recording,int64,float64,float64,Parsek.GhostMapPresence/TrackingStationGhostSource&,Parsek.OrbitSegment&,bool)" = { count = 1, codes = ["DRONE-NA"], audit = "C Ghost/GhostMapPresence.OverlapInstances.cs:584, 691, 767" }
 "Parsek.GhostMapPresence::IsGhostMapVessel(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Ghost/GhostMapPresence.cs:733, 735" }
 "Parsek.GhostMapPresence::IsGhostOrDroneVessel(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "H1 (step 2): the ghost-or-drone helper itself" }
@@ -327,6 +330,7 @@ members = [
 [sites.wrapper]
 "Parsek.PredictedCrashReconcilerHost::ReadLiveFacts(Parsek.Recording,System.Collections.Generic.Dictionary`2<string,Vessel>,float64)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "A PredictedCrashReconcilerHost.cs:363" }
 "Parsek.WatchModeController::GetActiveVesselSafe()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.Runtime.cs:46 (the wrapper's own hand-off to ReadActiveVesselCore, passed as a delegate to the exception guard; the row decides the read behind it)" }
+"Parsek.WatchModeController::IsActiveVesselCameraDrone()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: a watch exit skips the camera restore only while the drone is the active vessel (7.5)" }
 "Parsek.WatchModeController::RestoreCameraAfterWatchExit(bool)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:2058, 2116" }
 "Parsek.WatchModeController::RestoreCameraToAnchorVessel(Vessel,float32,float32,float32,string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "A WatchModeController.cs:2058, 2116" }
 
