@@ -1566,6 +1566,7 @@ namespace Parsek
             spawnSuppressedByReason.Clear();
             int spawnSuppressedCount = 0;
             int liveAnchorSuppressedCount = 0;
+            int loopSyncedChildCount = 0;
             // The recording the player is flying right now never spawns its terminal
             // vessel (todo REFLY-FORK-SELF-SPAWN-AFTER-QUICKSAVE): the Re-Fly session's
             // recording and the live recorder's recording (a split in progress keeps the
@@ -1587,9 +1588,11 @@ namespace Parsek
                 // Loop-membership term, mirroring the map side's loopMemberInWindow gate.
                 // Computed here (the later BUG-B dormancy block reuses it) so the Step-2
                 // suppression below can scope itself to loop members only.
-                bool loopingLike = rec.LoopPlayback
-                    || chainLooping
-                    || (host.cachedLoopUnits != null && host.cachedLoopUnits.IsMember(i));
+                bool loopingLike = GhostPlaybackLogic.ResolveLoopingLike(
+                    rec, i, chainLooping, committed, host.cachedLoopUnits,
+                    out bool loopSyncedChild);
+                if (loopSyncedChild)
+                    loopSyncedChildCount++;
                 // Step 2 (Logistics route live-anchor bind): suppress a LOOP MEMBER's OWN
                 // loop ghost as a live-anchor duplicate ONLY while its launch-matched live
                 // vessel is loaded AND it was resolved as the LIVE docking anchor of an
@@ -1831,8 +1834,30 @@ namespace Parsek
                     () => BuildStep2LiveAnchorDoubleSummary(suppressedThisFrame),
                     2.0);
             }
+            // Loop-synced children (booster debris riding a looping parent's clock) that the
+            // loop term exempted from the BUG-B dormancy gate this frame (todo
+            // MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL): one aggregate, shared key.
+            if (loopSyncedChildCount > 0)
+            {
+                int childrenThisFrame = loopSyncedChildCount;
+                ParsekLog.VerboseRateLimited(
+                    "Loop",
+                    "loop-synced-children-dormancy-exempt",
+                    () => BuildLoopSyncedChildrenSummary(childrenThisFrame),
+                    5.0);
+            }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
+        }
+
+        /// <summary>
+        /// The aggregate line for loop-synced children that replay on their looping parent's
+        /// clock instead of staying dormant as unreplayed history. Pure.
+        /// </summary>
+        internal static string BuildLoopSyncedChildrenSummary(int count)
+        {
+            return "Loop-synced children on a looping parent: " + count.ToString(CultureInfo.InvariantCulture)
+                + " recording(s) replay on the parent's loop clock (dormancy exempt)";
         }
 
         /// <summary>

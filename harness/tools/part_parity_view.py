@@ -360,7 +360,7 @@ _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], .
     (re.compile(r"^skin-not-applied:requested=(.*) real=(.*)$"),
      lambda m: "skin not applied: requested=%s real=%s" % (m.group(1), m.group(2))),
     (re.compile(r"^skin-not-modelled:b9$"),
-     lambda m: "skin not modelled: the ghost applies no B9 subtype (prefab look)"),
+     lambda m: "skin not modelled: the ghost shows this B9 subtype only in part (texture, material or module rules)"),
     (re.compile(r"^setup:(.*)$"), lambda m: "setup fault: %s" % m.group(1)),
     (re.compile(r"^(%s):(%s):(.+)$" % ("|".join(pp.FX_VIEWS), "|".join(pp.FX_LAYERS))),
      lambda m: "%s in %s" % (fx_measure_phrase(m.group(2), m.group(3)), m.group(1))),
