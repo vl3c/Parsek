@@ -1207,6 +1207,8 @@ namespace Parsek
                 ParsekLog.Verbose("GameStateRecorder", "OnProgressComplete: empty node Id — skipped");
                 return;
             }
+            if (FarWatchAwardScope.ShouldRefuseAward(node, "OnProgressComplete", milestoneId))
+                return;
 
             // Route to the testable helper with a live UT from Planetarium. Production
             // is the only call site that touches Unity statics; tests call
