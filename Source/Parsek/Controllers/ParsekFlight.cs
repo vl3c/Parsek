@@ -1226,6 +1226,7 @@ namespace Parsek
             GameEvents.OnEVAConstructionModePartAttached.Add(OnEvaConstructionPartAttached);
             GameEvents.OnEVAConstructionModePartDetached.Add(OnEvaConstructionPartDetached);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
+            GameEvents.onVesselSwitchingToUnloaded.Add(OnVesselSwitchingToUnloaded);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted += OnTreeCommittedFromMergeDialog;
@@ -1681,6 +1682,7 @@ namespace Parsek
             GameEvents.OnEVAConstructionModePartAttached.Remove(OnEvaConstructionPartAttached);
             GameEvents.OnEVAConstructionModePartDetached.Remove(OnEvaConstructionPartDetached);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+            GameEvents.onVesselSwitchingToUnloaded.Remove(OnVesselSwitchingToUnloaded);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
             MergeDialog.OnTreeCommitted -= OnTreeCommittedFromMergeDialog;
