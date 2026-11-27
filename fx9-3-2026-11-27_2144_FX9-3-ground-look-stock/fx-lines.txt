@@ -1,0 +1,32 @@
+[LOG 23:45:05.748] [Parsek][INFO][ExplosionFx] Kept 7/7 stock explosion copies for the Space Center and pause-menu ghost crashes (audio sources muted=7; names=Thud 0,Explosion 0,Explosion 1,Explosion 2,Explosion 4,Explosion 5,Explosion 6)
+[LOG 23:48:54.742] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #1 "Fx9 boom-stock" at (-155.1,-79.9,-368.1) vesselLength=4.0m power=0.20
+[LOG 23:49:18.779] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #2 "Fx9 boom-built" at (-159.4,-79.0,-382.0) vesselLength=2.0m power=0.10
+[LOG 23:49:18.779] [Parsek][WARN][ExplosionFx] FXMonger.Explode did not queue stock FX for ghost #2 "Fx9 boom-built"; falling back to custom FX: no live FXMonger instance
+[LOG 23:49:18.779] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy unavailable (no stock explosion copies kept (not in flight yet this session)); drawing Parsek's hand-built explosion
+[LOG 23:49:18.783] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='GhostExplosionFx' systems=2 rootMoves=True registered=2
+[LOG 23:49:18.783] [Parsek][VERBOSE][ExplosionFx] Spawned at (-159.4,-79.0,-382.0) vesselLength=2.0m
+[LOG 23:49:18.786] [Parsek][INFO][GhostFx9] before free fx spawned GhostExplosionFx id=-464644 ut=67.96 alt=65.2
+[LOG 23:49:19.014] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k02 GhostExplosionFx n=406 age=0.24s centroidFromSpawnPoint=0.0m
+[LOG 23:49:19.265] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k03 GhostExplosionFx n=406 age=0.50s centroidFromSpawnPoint=0.1m
+[LOG 23:49:19.518] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k04 GhostExplosionFx n=406 age=0.74s centroidFromSpawnPoint=0.1m
+[LOG 23:49:19.769] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k05 GhostExplosionFx n=406 age=1.00s centroidFromSpawnPoint=0.2m
+[LOG 23:49:20.005] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k06 GhostExplosionFx n=406 age=1.24s centroidFromSpawnPoint=0.2m
+[LOG 23:49:20.275] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k07 GhostExplosionFx n=406 age=1.50s centroidFromSpawnPoint=0.2m
+[LOG 23:49:20.512] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k08 GhostExplosionFx n=348 age=1.74s centroidFromSpawnPoint=0.3m
+[LOG 23:49:20.763] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k09 GhostExplosionFx n=289 age=2.00s centroidFromSpawnPoint=0.3m
+[LOG 23:49:21.014] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k10 GhostExplosionFx n=220 age=2.24s centroidFromSpawnPoint=0.4m
+[LOG 23:49:21.265] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k11 GhostExplosionFx n=141 age=2.50s centroidFromSpawnPoint=0.1m
+[LOG 23:49:21.520] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k12 GhostExplosionFx n=99 age=2.74s centroidFromSpawnPoint=0.3m
+[LOG 23:49:21.770] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k13 GhostExplosionFx n=71 age=3.00s centroidFromSpawnPoint=0.4m
+[LOG 23:50:05.328] [Parsek][VERBOSE][GhostVisual] Launch dust built for 'Fx9 dust'
+[LOG 23:50:05.329] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" laid flat on the ground 3.3 m below the ghost, up from body, ground from surface-hit 'Kerbin Zn1232223323'
+[LOG 23:50:05.329] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" intensity=0.883 power=1.00 alt=67.4 groundRef=62.8
+[LOG 23:52:08.671] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #1 "Fx9 boom-stock" at (-155.1,-79.9,-368.1) vesselLength=4.0m power=0.20
+[LOG 23:52:32.703] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #2 "Fx9 boom-built" at (-156.2,-79.0,-377.5) vesselLength=2.0m power=0.10
+[LOG 23:52:32.703] [Parsek][WARN][ExplosionFx] FXMonger.Explode did not queue stock FX for ghost #2 "Fx9 boom-built"; falling back to custom FX: no live FXMonger instance
+[LOG 23:52:32.703] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='GhostStockExplosionFx' systems=0 rootMoves=True registered=1
+[LOG 23:52:32.704] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Thud 0' (index 0/7) played silently at (-156.2,-79.0,-377.5) power=0.10
+[LOG 23:52:32.705] [Parsek][INFO][GhostFx9] after free fx spawned GhostStockExplosionFx id=-501500 ut=67.96 alt=65.2
+[LOG 23:53:19.297] [Parsek][VERBOSE][GhostVisual] Launch dust built for 'Fx9 dust'
+[LOG 23:53:19.297] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" laid flat on the ground 3.3 m below the ghost, up from body, ground from surface-hit 'Kerbin Zn1232223323' | suppressed=80
+[LOG 23:53:19.297] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" intensity=0.883 power=1.00 alt=67.4 groundRef=62.8 | suppressed=80
