@@ -52,7 +52,9 @@ POLICY 2 -- NEVER AUTO-PROVISION. ``NEEDS-PROVISION`` reports and stops. The
 provisioner DEPLOYs whatever ``Source/Parsek/bin/Debug/Parsek.dll`` the invoking
 worktree currently holds, which is as likely to be a half-finished build as a
 release candidate -- and whoever requested this run walked away. Deciding which
-worktree's DLL the automation instance should carry is a human call, always:
+worktree's DLL the automation instance should carry is the session's explicit
+choice, made while it holds the PC turn (Vlad's standing approval in
+.claude/CLAUDE.md), never this runner's:
 
     cd harness && python provision/provision.py --profile stock-minimal
 
