@@ -50,8 +50,9 @@ namespace Parsek.Tests
                 bool fiery = tier >= 2;
                 Assert.Equal(fiery, look.HasFlash);
                 Assert.Equal(fiery, look.HasFire);
-                Assert.True(look.SmokeCount > 0, $"tier {tier} has smoke");
-                Assert.True(look.SmokeSizeMin > 0f && look.SmokeSizeMax >= look.SmokeSizeMin);
+                Assert.True(look.SmokeCount > 0 && look.SmokeDiameter > 0f, $"tier {tier} has smoke");
+                Assert.True(look.SmokeDarkGrey > 0.15f && look.SmokeLightGrey > look.SmokeDarkGrey
+                    && look.SmokeLightGrey < 0.8f, $"tier {tier} smoke is grey");
                 Assert.True(look.SmokeLifetimeMax >= look.SmokeLifetimeMin && look.SmokeLifetimeMin > 0f);
                 if (look.HasSparks)
                     Assert.True(look.SparkSpeedMax >= look.SparkSpeedMin && look.SparkLifetime > 0f);
@@ -67,11 +68,14 @@ namespace Parsek.Tests
             Assert.False(FallbackExplosionLook.Resolve(PowerForTier(4)).HasSparks);
             foreach (int tier in new[] { 0, 1, 2, 3, 5, 6 })
                 Assert.True(FallbackExplosionLook.Resolve(PowerForTier(tier)).HasSparks, $"tier {tier}");
-            // The biggest blasts make the biggest cloud and flash.
-            Assert.True(FallbackExplosionLook.Resolve(1.0).SmokeSizeMax
-                > FallbackExplosionLook.Resolve(0.0).SmokeSizeMax * 3f);
-            Assert.True(FallbackExplosionLook.Resolve(PowerForTier(5)).FlashSize
-                > FallbackExplosionLook.Resolve(PowerForTier(2)).FlashSize);
+            // Sizes measured off stock's prefabs on the ground (FX9-4): a Thud's puff is about
+            // 7 m, a tier 2 fireball about 15 m, tier 5's flash about 40 m, tier 6's fire 30 m.
+            Assert.InRange(FallbackExplosionLook.Resolve(0.0).SmokeDiameter, 5f, 9f);
+            Assert.InRange(FallbackExplosionLook.Resolve(PowerForTier(2)).FireDiameter, 12f, 18f);
+            Assert.InRange(FallbackExplosionLook.Resolve(PowerForTier(5)).FlashDiameter, 30f, 45f);
+            Assert.InRange(FallbackExplosionLook.Resolve(1.0).FireDiameter, 24f, 34f);
+            Assert.True(FallbackExplosionLook.Resolve(1.0).SmokeDiameter
+                > FallbackExplosionLook.Resolve(0.0).SmokeDiameter * 2.5f);
         }
 
         [Theory]
@@ -92,9 +96,9 @@ namespace Parsek.Tests
             try
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
-                Assert.Equal("tier=0 flash=none fire=0 sparks=12 smoke=14 size=0.8-1.6m",
+                Assert.Equal("tier=0 flash=none fire=none sparks=12 smoke=7m",
                     FallbackExplosionLook.Resolve(0.0).Describe());
-                Assert.Equal("tier=6 flash=9.0m fire=18 sparks=90 smoke=40 size=4.0-7.0m",
+                Assert.Equal("tier=6 flash=12m fire=28m sparks=90 smoke=22m",
                     FallbackExplosionLook.Resolve(1.0).Describe());
             }
             finally
@@ -113,12 +117,12 @@ namespace Parsek.Tests
             string body = fx.Substring(start, fx.IndexOf("private static int AddIfBuilt(", start, StringComparison.Ordinal) - start);
             Assert.Contains("FallbackExplosionLook.Resolve(usedPower)", body);
             Assert.Matches(@"if \(look\.HasFlash\)[^;]*BuildFallbackExplosionFlash\(", body);
-            Assert.Matches(@"if \(look\.HasFire\)[^;]*BuildFallbackExplosionFlames\(", body);
+            Assert.Matches(@"if \(look\.HasFire\)[^;]*BuildFallbackExplosionFire\(", body);
             Assert.Matches(@"if \(look\.HasSparks\)[^;]*BuildFallbackExplosionSparks\(", body);
             Assert.Contains("Object.Destroy(obj, look.DestroyAfterSeconds);", body);
             // The cloud is grey: a neutral tint, a dark and a light grey start colour, no brown.
             int smoke = fx.IndexOf("private static ParticleSystem BuildFallbackExplosionSmoke(", StringComparison.Ordinal);
-            string smokeBody = fx.Substring(smoke, fx.IndexOf("private static ParticleSystem BuildFallbackExplosionFlash(", smoke, StringComparison.Ordinal) - smoke);
+            string smokeBody = fx.Substring(smoke, fx.IndexOf("private static ParticleSystem BuildFallbackExplosionFire(", smoke, StringComparison.Ordinal) - smoke);
             Assert.Contains("new Color(0.5f, 0.5f, 0.5f, 0.5f)", smokeBody);
             foreach (Match m in Regex.Matches(smokeBody, @"new Color\(([0-9.]+)f, ([0-9.]+)f, ([0-9.]+)f"))
             {

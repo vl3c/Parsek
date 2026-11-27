@@ -310,8 +310,9 @@ namespace Parsek
         /// Parsek's hand-built explosion, drawn only when no silent copy of stock's explosion is
         /// kept (see <see cref="SpawnFallbackExplosionFx"/>). It copies the stock explosion
         /// FXMonger would pick for <paramref name="power"/> (<see cref="FallbackExplosionLook"/>):
-        /// a flash and fire only for the bigger blasts, white streak sparks, and a translucent cloud
-        /// of dark and light grey smoke. A NaN power falls back to the craft length's power.
+        /// a fireball and a flash only for the bigger blasts, white streak sparks, and a cloud of
+        /// dark and lighter grey smoke, each at stock's measured size for that blast. A NaN power
+        /// falls back to the craft length's power.
         /// The returned GameObject destroys itself once its particles are gone.
         /// </summary>
         internal static GameObject SpawnExplosionFx(Vector3 worldPosition, float vesselLength, double power)
@@ -333,15 +334,18 @@ namespace Parsek
             var obj = new GameObject("GhostExplosionFx");
             obj.transform.position = worldPosition;
 
-            // Smoke first, so the additive flash, fire and sparks draw over it.
+            // The smoke and the fireball are alpha-blended (the fire sorted over the smoke); the
+            // flash and the sparks are additive on top.
             var systems = new List<ParticleSystem>(4);
             int built = 0;
             if (alphaShader != null)
+            {
                 built += AddIfBuilt(systems, BuildFallbackExplosionSmoke(obj, alphaShader, look));
+                if (look.HasFire) built += AddIfBuilt(systems, BuildFallbackExplosionFire(obj, alphaShader, look));
+            }
             if (additiveShader != null)
             {
                 if (look.HasFlash) built += AddIfBuilt(systems, BuildFallbackExplosionFlash(obj, additiveShader, look));
-                if (look.HasFire) built += AddIfBuilt(systems, BuildFallbackExplosionFlames(obj, additiveShader, look));
                 if (look.HasSparks) built += AddIfBuilt(systems, BuildFallbackExplosionSparks(obj, additiveShader, look));
             }
 
@@ -357,8 +361,8 @@ namespace Parsek
                 $"Spawned hand-built explosion at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) " +
                 $"vesselLength={vesselLength:F1}m power={usedPower.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"{look.Describe()} systems={built.ToString(CultureInfo.InvariantCulture)}" +
-                (alphaShader == null ? " (no smoke: alpha shader missing)" : "") +
-                (additiveShader == null ? " (no flash/fire/sparks: additive shader missing)" : ""));
+                (alphaShader == null ? " (no smoke/fire: alpha shader missing)" : "") +
+                (additiveShader == null ? " (no flash/sparks: additive shader missing)" : ""));
 
             GhostTransientFxRecord.Note(
                 GhostTransientFxKind.CustomExplosion, worldPosition, usedPower, vesselLength, obj);
@@ -407,33 +411,38 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The grey cloud: a translucent mix of dark and light grey puffs that swell, drift up a
-        /// little and fade. The neutral 0.5 tint leaves the particle colours as they are (the KSP
-        /// particle shaders double the tint), so the cloud stays grey, never black or brown.
+        /// The smoke cloud: dense puffs picked between a dark and a lighter grey that swell, drift
+        /// up a little and fade, about <see cref="FallbackExplosionLook.SmokeDiameter"/> across.
+        /// The neutral 0.5 tint leaves the particle colours as they are (the KSP particle shaders
+        /// double the tint), so the cloud stays grey, never brown. Its alpha rises after the
+        /// fireball has had its moment, as stock's cloud takes over from its fire.
         /// </summary>
         private static ParticleSystem BuildFallbackExplosionSmoke(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
         {
             var ps = NewExplosionPart(parent, "Smoke", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
                 look.SmokeCount, out ParticleSystemRenderer renderer);
-            renderer.maxParticleSize = 2f;
+            renderer.maxParticleSize = 3f;
 
+            float d = look.SmokeDiameter;
             var main = ps.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.SmokeLifetimeMin, look.SmokeLifetimeMax);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(look.SmokeSpeedMax * 0.3f, look.SmokeSpeedMax);
-            main.startSize = new ParticleSystem.MinMaxCurve(look.SmokeSizeMin, look.SmokeSizeMax);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.08f, d * 0.2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.35f, d * 0.5f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.gravityModifier = -0.02f;
+            main.gravityModifier = -0.03f;
+            float dark = look.SmokeDarkGrey, light = look.SmokeLightGrey;
             main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(0.32f, 0.32f, 0.33f, 0.75f),    // dark grey
-                new Color(0.72f, 0.72f, 0.72f, 0.6f));    // light grey
+                new Color(dark, dark, dark, 0.9f),
+                new Color(light, light, light, 0.8f));
 
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = look.SmokeSizeMin * 0.35f;
+            shape.radius = d * 0.15f;
 
-            // A smaller blast's cloud follows its flash a moment later, as stock's does.
-            SetSingleBurst(ps, look.HasFlash ? 0.08f : 0f, look.SmokeCount);
+            SetSingleBurst(ps, 0.05f, look.SmokeCount);
 
+            // Under a fireball the cloud shows once the fire burns down; alone it shows at once.
+            float rise = look.HasFire ? Mathf.Clamp01(look.FireLifetime * 0.6f / look.SmokeLifetimeMin) : 0.1f;
             var color = ps.colorOverLifetime;
             color.enabled = true;
             var gradient = new Gradient();
@@ -446,8 +455,8 @@ namespace Parsek
                 new GradientAlphaKey[]
                 {
                     new GradientAlphaKey(0f, 0f),
-                    new GradientAlphaKey(0.85f, 0.08f),
-                    new GradientAlphaKey(0.55f, 0.5f),
+                    new GradientAlphaKey(0.95f, rise),
+                    new GradientAlphaKey(0.75f, Mathf.Lerp(rise, 1f, 0.5f)),
                     new GradientAlphaKey(0f, 1f)
                 });
             color.color = gradient;
@@ -455,29 +464,90 @@ namespace Parsek
             var size = ps.sizeOverLifetime;
             size.enabled = true;
             size.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.3f, 1.2f), new Keyframe(1f, 1.8f)));
+                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.3f, 1f), new Keyframe(1f, 1.3f)));
 
             var velocity = ps.limitVelocityOverLifetime;
             velocity.enabled = true;
             velocity.dampen = 0.15f;
-            velocity.limit = look.SmokeSpeedMax * 0.4f;
-
+            velocity.limit = d * 0.05f;
             return ps;
         }
 
-        /// <summary>The opening flash: a few large yellow-white glows that swell and fade fast.</summary>
+        /// <summary>
+        /// The fireball: dense yellow puffs that swell to about
+        /// <see cref="FallbackExplosionLook.FireDiameter"/> and burn through orange to a dark
+        /// red-brown as they fade. Alpha-blended, so it stays a saturated yellow against a bright
+        /// sky (an additive one washes out to white), and sorted over the smoke.
+        /// </summary>
+        private static ParticleSystem BuildFallbackExplosionFire(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
+        {
+            var ps = NewExplosionPart(parent, "Fire", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
+                look.FireCount, out ParticleSystemRenderer renderer);
+            renderer.maxParticleSize = 3f;
+            renderer.sortingFudge = -20f;
+
+            float d = look.FireDiameter;
+            var main = ps.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FireLifetime * 0.7f, look.FireLifetime);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.15f, d * 0.4f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.4f, d * 0.55f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.97f, 0.6f, 1f), new Color(1f, 0.82f, 0.35f, 1f));
+
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = d * 0.12f;
+
+            SetSingleBurst(ps, 0f, look.FireCount);
+
+            var color = ps.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(1f, 0.75f, 0.35f), 0.45f),
+                    new GradientColorKey(new Color(0.55f, 0.3f, 0.22f), 0.8f),
+                    new GradientColorKey(new Color(0.35f, 0.3f, 0.28f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(1f, 0.5f),
+                    new GradientAlphaKey(0.6f, 0.8f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = gradient;
+
+            var size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.45f), new Keyframe(0.4f, 1f), new Keyframe(1f, 1.1f)));
+
+            var velocity = ps.limitVelocityOverLifetime;
+            velocity.enabled = true;
+            velocity.dampen = 0.2f;
+            velocity.limit = d * 0.08f;
+            return ps;
+        }
+
+        /// <summary>The opening flash: a few large white glows that swell and fade fast.</summary>
         private static ParticleSystem BuildFallbackExplosionFlash(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
         {
-            var ps = NewExplosionPart(parent, "Flash", additiveShader, new Color(1f, 0.85f, 0.55f, 0.5f),
+            var ps = NewExplosionPart(parent, "Flash", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
                 4, out ParticleSystemRenderer renderer);
             renderer.maxParticleSize = 3f;
+            renderer.sortingFudge = -40f;
 
+            float d = look.FlashDiameter;
             var main = ps.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlashLifetime * 0.7f, look.FlashLifetime);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlashLifetime * 0.8f, look.FlashLifetime);
             main.startSpeed = 0f;
-            main.startSize = new ParticleSystem.MinMaxCurve(look.FlashSize * 0.7f, look.FlashSize);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.9f, d * 1.2f);
             main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(1f, 0.97f, 0.8f, 1f), new Color(1f, 0.8f, 0.4f, 1f));
+                new Color(1f, 1f, 0.95f, 1f), new Color(1f, 0.95f, 0.8f, 1f));
 
             var shape = ps.shape;
             shape.enabled = false;
@@ -490,13 +560,13 @@ namespace Parsek
             gradient.SetKeys(
                 new GradientColorKey[]
                 {
-                    new GradientColorKey(new Color(1f, 1f, 0.9f), 0f),
-                    new GradientColorKey(new Color(1f, 0.65f, 0.25f), 1f)
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(1f, 0.9f, 0.7f), 1f)
                 },
                 new GradientAlphaKey[]
                 {
                     new GradientAlphaKey(1f, 0f),
-                    new GradientAlphaKey(0.6f, 0.4f),
+                    new GradientAlphaKey(0.8f, 0.5f),
                     new GradientAlphaKey(0f, 1f)
                 });
             color.color = gradient;
@@ -504,53 +574,7 @@ namespace Parsek
             var size = ps.sizeOverLifetime;
             size.enabled = true;
             size.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(0.3f, 1f), new Keyframe(1f, 1.2f)));
-            return ps;
-        }
-
-        /// <summary>The fire: orange tongues that burn out inside the cloud within a second.</summary>
-        private static ParticleSystem BuildFallbackExplosionFlames(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
-        {
-            var ps = NewExplosionPart(parent, "Flames", additiveShader, new Color(1f, 0.6f, 0.25f, 0.5f),
-                look.FlameCount, out ParticleSystemRenderer renderer);
-            renderer.maxParticleSize = 1.5f;
-
-            var main = ps.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlameLifetime * 0.5f, look.FlameLifetime);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(look.FlameSize * 0.3f, look.FlameSize * 1.2f);
-            main.startSize = new ParticleSystem.MinMaxCurve(look.FlameSize * 0.5f, look.FlameSize);
-            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(1f, 0.75f, 0.3f, 1f), new Color(1f, 0.45f, 0.12f, 1f));
-
-            var shape = ps.shape;
-            shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = look.FlameSize * 0.3f;
-
-            SetSingleBurst(ps, 0.02f, look.FlameCount);
-
-            var color = ps.colorOverLifetime;
-            color.enabled = true;
-            var gradient = new Gradient();
-            gradient.SetKeys(
-                new GradientColorKey[]
-                {
-                    new GradientColorKey(new Color(1f, 0.85f, 0.5f), 0f),
-                    new GradientColorKey(new Color(1f, 0.4f, 0.1f), 0.5f),
-                    new GradientColorKey(new Color(0.5f, 0.15f, 0.05f), 1f)
-                },
-                new GradientAlphaKey[]
-                {
-                    new GradientAlphaKey(0.9f, 0f),
-                    new GradientAlphaKey(0.5f, 0.5f),
-                    new GradientAlphaKey(0f, 1f)
-                });
-            color.color = gradient;
-
-            var size = ps.sizeOverLifetime;
-            size.enabled = true;
-            size.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(1f, 1.3f)));
+                new AnimationCurve(new Keyframe(0f, 0.4f), new Keyframe(0.5f, 1f), new Keyframe(1f, 1.1f)));
             return ps;
         }
 
@@ -563,14 +587,14 @@ namespace Parsek
             var ps = NewExplosionPart(parent, "Sparks", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
                 look.SparkCount, out ParticleSystemRenderer renderer);
             renderer.renderMode = ParticleSystemRenderMode.Stretch;
-            renderer.velocityScale = 0.06f;
+            renderer.velocityScale = 0.1f;
             renderer.lengthScale = 1f;
             renderer.maxParticleSize = 0.5f;
 
             var main = ps.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.SparkLifetime * 0.5f, look.SparkLifetime);
             main.startSpeed = new ParticleSystem.MinMaxCurve(look.SparkSpeedMin, look.SparkSpeedMax);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.06f, 0.14f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.1f, 0.2f);
             main.gravityModifier = 0.25f;
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(1f, 1f, 1f, 1f), new Color(1f, 0.92f, 0.75f, 1f));
