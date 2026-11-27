@@ -15,6 +15,8 @@ Not released yet.
 
 ### Fixed
 
+- **Looped missions show their dropped boosters.** A looping launch's debris now shows on every
+  loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed

@@ -65,7 +65,17 @@ id = "GS-12-kerbalx-loop-cycles"
 #
 # WHAT MUST NOT RED THIS LANE (known, filed): LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS
 # (fixed 2026-09-27; this tree has no chain), LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (the loop is
-# not anchored to the watcher), and booster debris does not loop.
+# not anchored to the watcher).
+#
+# THE BOOSTER DEBRIS LOOPS (2026-11-27, todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL).
+# This line used to say "booster debris does not loop", a known-but-unfiled note, and no
+# token ever checked a loop copy's debris. The six side-booster pieces ride their parent's
+# loop clock (`Recording.LoopSyncParentIdx`); the required token after the stage-1
+# `missionconfig applied:` asks for one debris MeshSpawned from a loop copy (the lazy
+# regex walks the log in order, so the first run's debris cannot meet it). Here the
+# rewind puts the flight in replay scope, so the dormancy gate that hid looped debris on
+# a loaded save (LDL-1's subject) does not apply; if this token reds, looped debris is
+# broken on the rewind path too: file it, do not loosen the token. NOT YET FLOWN.
 #
 # THE WARP IS 10x, NEVER HIGHER: past 50x the flight engine hides every overlap copy
 # (WarpThresholds.GhostHide). The kx shell permits rails warp only inside the
@@ -244,6 +254,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=[0-9]+ overlapCadence=10 overlaps=yes",
              "Loop cadence #[0-9]+ \"Kerbal X\": requested=10\\.00s duration=[0-9.]+s cap=20 effective=10\\.00s \\(cycles=1[01]\\) no adjustment",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired",
+             "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=150 [\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris reason=",
              "SetLoopEnabled: loop ON for 'Kerbal X' \\(tree=[0-9a-f]{32}\\); anchorUT=",
              "Watch UT resolved via Mission span clock: rec #0 rawUT=[0-9.]+ loopUT="]
 # The per-recording cap never raises a loop member's cadence (the fall's copies end quietly

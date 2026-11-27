@@ -11001,6 +11001,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
+        "LDL-1-looped-debris-no-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WL-1's no-rewind loop setup on refly-a-recorded, two loop launches at 1x with the ghost tracer on, requiring the six booster debris ghosts on each launch (todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL). AUTHORED 2026-11-27 with the fix, NEVER FLOWN; owed: the reading run, then the ordinary tier call",
         "WL-1-liftoff-kerbin.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
         "WL-2-landing-mun.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
         "WL-4-transfer-duna.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
@@ -15109,6 +15110,15 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     arming is a per-scenario operator decision and this lane has never
         #     flown.
         "GS-6-part-event-applier-sweep.toml",
+        # [D] THE NO-REWIND LOOP DEBRIS HOST (2026-11-27, todo
+        #     MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL): a mission loop armed from a
+        #     loaded save, with no Rewind-to-Launch putting the flight in replay scope,
+        #     so the six loop-synced booster debris recordings are the subject. The
+        #     per-launch claim gates through logContracts; the block counts the debris
+        #     spawn / destroy lines over two launches (6 recordings, 12 + 12 lines,
+        #     derived from the fixture's six debris recordings). REPORT-ONLY until its
+        #     reading run; the lane has never flown.
+        "LDL-1-looped-debris-no-rewind.toml",
         # [D] THE SECOND DECLARER, and the first whose census IS the point rather
         #     than a balance check: the synthetic PART SHOWCASE corpus (243
         #     ghost-only, one-part recordings standing in front of the KSC pad,

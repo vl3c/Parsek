@@ -1,0 +1,100 @@
+schema = 1
+id = "LDL-1-looped-debris-no-rewind"
+# =====================================================================================
+# LOOPED DEBRIS WITH NO REWIND (todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL).
+#
+# THE PLAYER PATH THIS LANE FLIES. A flight is committed, the player plays on (or loads
+# the save later), and only then turns Loop on in the Missions window. No rewind ever
+# puts the flight's recordings back in replay scope, so every one of them is "historical"
+# to the BUG-B dormancy gate (`PlaybackScopeTracker.IsHistoricalNeverReplayed`). The loop
+# members are exempt from that gate; the six booster debris pieces ride their parent's
+# loop clock through `Recording.LoopSyncParentIdx` instead of being members, and before
+# the fix they were parked as `historical-not-replayed`, so a looped Kerbal X launched
+# with no boosters falling away (seen by the owner on WL-1 held, 2026-11-26).
+#
+# WHY NO EXISTING LANE SAW IT. GS-7 / GS-8 / GS-9 / GS-12 all reach playback through a
+# Rewind-to-Launch, which latches every recording of the flight into replay scope; a
+# loop armed after that rewind (GS-12) draws the debris. Lanes that loop a loaded fixture
+# (WL-1, V22M, V23M, V12, GS-13) never counted debris ghosts.
+#
+# SHAPE. WL-1's setup on `refly-a-recorded` (tree 47cea2fe..., mission 'Kerbal X With
+# Probe', 4 loop members + 6 debris: separations 14.2 s, 29.7 s and 48.5 s after the
+# 32.94 launch, the last piece ends 85.8 s after it), with the tracer on BEFORE the loop
+# is armed so every mesh line is counted. Two loop launches, each reached through
+# StartLoopPlayback (the Missions window's "Warp to" production path) and played at 1x
+# from 15 s before the relaunch to 95 s after it, so every debris piece is born and
+# retired inside the window. The first launch is watched (EnterWatchMode), the second is
+# not (a second EnterWatchMode on a live watch is not part of this lane's question).
+#
+# GATES (logContracts; armed from the first flight). Per launch: at least one debris
+# MeshSpawned line after each `startloopplayback initiated:` (the lazy regex walks the
+# log in order, so the second token is satisfied only by a spawn after the second jump).
+# The fix's own witness: the flight host's aggregate `Loop-synced children on a looping
+# parent: N` line, and the debris' skip state moving to `skip=False reason=none`.
+# REPORT-ONLY until a reading run: the ghostLifecycle windows (6 debris recordings, 12
+# debris spawn and destroy lines over the two launches).
+#
+# NEVER FLOWN. Built 2026-11-27 with the fix (branch claude/project-thread-c6kuqc).
+# =====================================================================================
+tier = "operator"
+description = "Looped debris with no rewind: loop refly-a-recorded's Kerbal X With Probe from a loaded save (no Rewind-to-Launch), play two loop launches at 1x with the ghost tracer on, and require the six side-booster debris ghosts to spawn on each launch (todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)."
+instanceProfile = "stock-minimal"
+tags = ["loop-playback", "debris", "ghost-lifecycle", "watch-mode", "mission-loop", "no-rewind"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-a-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41" }, label = "slp1", expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "${slp1.relaunchUt+5}", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "EnterWatchMode", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT", args = { ut = "${slp1.relaunchUt+95}", maxRate = "1" }, expect = "OK", budget = 240 },
+  { cmd = "StartLoopPlayback", args = { tree = "47cea2fe7d9e4e9eb6a729a7e280cc41" }, label = "slp2", expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "${slp2.relaunchUt+95}", maxRate = "1" }, expect = "OK", budget = 240 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "enterwatchmode initiated:",
+  "Loop-synced children on a looping parent: [1-9][0-9]* recording\\(s\\)",
+  "Ghost playback skip state: #[0-9]+ id=\\S+ vessel=\"Kerbal X With Probe Debris\" skip=False reason=none",
+  "startloopplayback initiated:[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X With Probe Debris reason=",
+  "startloopplayback initiated:[\\s\\S]*?startloopplayback initiated:[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X With Probe Debris reason=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+]
+
+# REPORT-ONLY (no gating key) until the first flight's reading: 6 debris recordings, two
+# launches of 6 spawns each, every spawn destroyed by the quit.
+[expectations.ghostLifecycle]
+spawned = { min = 10 }
+vessels = { "Kerbal X With Probe Debris" = { spawned = { min = 6 }, spawnLines = { min = 12 }, destroyLines = { min = 12 } } }
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
