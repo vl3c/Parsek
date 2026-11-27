@@ -213,9 +213,9 @@ namespace Parsek
             // is attributed to the reentry bucket rather than leaking into "other". If
             // the scan dominated and we lumped it into "other", Phase B would see a big
             // residual and pick the wrong fix branch.
-            // Gate reentry FX build: stationary part-showcase ghosts, EVA walks, and slow
-            // suborbital hops below Mach 1.5 can never produce reentry visuals, so we skip
-            // the mesh-combine + ParticleSystem + glow-material clone work entirely. With
+            // Gate reentry FX build: stationary part-showcase ghosts, EVA walks and slow
+            // rovers never reach the speed stock's effect needs in any stock air, so we skip
+            // the glow-material clone and sheath mesh work entirely. With
             // hundreds of ghosts looping, rebuilding reentry FX on every loop-cycle
             // boundary was the dominant cost in the map-view perf tank (#406).
             long reentryPre = buildReentryFxStopwatch.ElapsedTicks;
@@ -224,8 +224,8 @@ namespace Parsek
             {
                 // Bug #450 B3: defer the ~7 ms TryBuildReentryFx work to the first
                 // in-atmosphere frame. Ghosts that never enter atmosphere (orbital-only
-                // fly-bys, pad ghosts that never launch, sub-400 m/s suborbital hops
-                // that stay above the boundary) save the entire build cost. The lazy
+                // fly-bys, pad ghosts that never launch, slow hops that stay above the
+                // boundary) save the entire build cost. The lazy
                 // build fires from inside UpdateReentryFx after its body lookup so
                 // there is no duplicate FlightGlobals.Bodies.Find.
                 state.reentryFxInfo = null;

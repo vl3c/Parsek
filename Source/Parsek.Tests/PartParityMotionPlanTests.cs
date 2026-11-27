@@ -250,11 +250,11 @@ namespace Parsek.Tests
         }
 
         private static PartParityViewMeasures M(int realPx = 100, int realOnly = 0, int ghostOnly = 0, int colorOver = 0,
-            int shapeBlob = 0, int colorBlob = 0)
+            int shapeBlob = 0, int colorBlob = 0, int realOnlyTol = 0, int ghostOnlyTol = 0)
             => new PartParityViewMeasures
             {
                 RealPx = realPx, GhostPx = realPx, RealOnlyPx = realOnly, GhostOnlyPx = ghostOnly, ColorOverPx = colorOver,
-                RealOnlyBlobPx = shapeBlob, ColorBlobPx = colorBlob,
+                RealOnlyBlobPx = shapeBlob, ColorBlobPx = colorBlob, RealOnlyTolPx = realOnlyTol, GhostOnlyTolPx = ghostOnlyTol,
             };
 
         [Fact]
@@ -265,8 +265,14 @@ namespace Parsek.Tests
             // An in-between frame is not read.
             ok[1] = Frame(M(ghostOnly: 50));
             Assert.True(PartParityMotionControls.EndFramesWithinAllowance(ok));
+            // Edge noise between the two copies (raw real-only / ghost-only pixels all inside the
+            // edge tolerance) passes; a pixel outside the tolerance on either side does not.
+            Assert.True(PartParityMotionControls.EndFramesWithinAllowance(
+                new List<PartParityMotionFrame> { Frame(M(ghostOnly: 2)), Frame(M(), M(realOnly: 2, ghostOnly: 1)) }));
             Assert.False(PartParityMotionControls.EndFramesWithinAllowance(
-                new List<PartParityMotionFrame> { Frame(M()), Frame(M(), M(realOnly: 1)) }));
+                new List<PartParityMotionFrame> { Frame(M()), Frame(M(), M(realOnly: 1, realOnlyTol: 1)) }));
+            Assert.False(PartParityMotionControls.EndFramesWithinAllowance(
+                new List<PartParityMotionFrame> { Frame(M(ghostOnly: 1, ghostOnlyTol: 1)), Frame(M()) }));
             Assert.False(PartParityMotionControls.EndFramesWithinAllowance(
                 new List<PartParityMotionFrame> { Frame(M()), Frame(M(colorOver: PartParitySweepPlan.RealVsRealColorNoisePx + 1)) }));
             Assert.False(PartParityMotionControls.EndFramesWithinAllowance(
