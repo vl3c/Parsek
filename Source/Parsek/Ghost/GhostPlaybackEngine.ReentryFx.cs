@@ -490,7 +490,33 @@ namespace Parsek
             float heat = GhostAeroFx.ThermalShare(intensity, info.aeroState);
             float glowIntensity = ReentryIsolationGlowIntensity(heat, isolation);
 
-            // Layer A: Heat glow (material emission)
+            // Layer A: Heat glow (material emission). The material writes are Unity calls, so they
+            // sit in a helper the JIT cannot inline back into this body, called only when there is
+            // a material to write (the JIT compiles the helper, and whatever it inlines, on its
+            // first call).
+            if (info.glowMaterials != null && info.glowMaterials.Count > 0)
+                ApplyReentryGlowLayer(info, glowIntensity);
+
+            // Apply ablation char to heat shield parts
+            if (state != null)
+                GhostPlaybackLogic.ApplyColorChangerCharState(state, heat);
+
+            // The sheath: stock's FX shaders on this ghost's meshes, drawn by the renderer this
+            // frame unless stock's own effect is on, the ghost is out of its reach or an
+            // isolation frame leaves it out.
+            GhostAeroFxRenderer.OfferSheath(info, state?.ghost, intensity, info.aeroState,
+                surfaceVel, recIdx, isolateFire);
+        }
+
+        /// <summary>
+        /// Layer A: drives each glow material from cold to hot by <paramref name="glowIntensity"/>.
+        /// Not inlined: <c>Material.SetColor</c> and the material null checks reach Unity
+        /// internalcalls, and a Release JIT that inlined them into <c>DriveReentryLayers</c> would
+        /// make that method fail to compile on the Windows .NET test host (SecurityException).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ApplyReentryGlowLayer(ReentryFxInfo info, float glowIntensity)
+        {
             if (info.glowMaterials != null)
             {
                 for (int i = 0; i < info.glowMaterials.Count; i++)
@@ -519,16 +545,6 @@ namespace Parsek
                     }
                 }
             }
-
-            // Apply ablation char to heat shield parts
-            if (state != null)
-                GhostPlaybackLogic.ApplyColorChangerCharState(state, heat);
-
-            // The sheath: stock's FX shaders on this ghost's meshes, drawn by the renderer this
-            // frame unless stock's own effect is on, the ghost is out of its reach or an
-            // isolation frame leaves it out.
-            GhostAeroFxRenderer.OfferSheath(info, state?.ghost, intensity, info.aeroState,
-                surfaceVel, recIdx, isolateFire);
         }
 
         /// <summary>

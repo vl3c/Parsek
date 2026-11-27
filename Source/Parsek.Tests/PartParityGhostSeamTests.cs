@@ -593,14 +593,25 @@ namespace Parsek.Tests
             Assert.Contains("ReentryIsolation isolation = ConsumeReentryIsolation(info, recIdx);", body);
             Assert.Contains("float heat = GhostAeroFx.ThermalShare(intensity, info.aeroState);", body);
             Assert.Contains("float glowIntensity = ReentryIsolationGlowIntensity(heat, isolation);", body);
-            Assert.Contains("if (glowIntensity <= GhostVisualBuilder.ReentryLayerAThreshold)", body);
-            Assert.Contains("Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, glowIntensity)", body);
+            // Layer A's material writes sit in a NoInlining helper, so this body holds no Unity
+            // internalcall a Release JIT could inline (the Windows host throws SecurityException).
+            Assert.Contains("if (info.glowMaterials != null && info.glowMaterials.Count > 0)\n                ApplyReentryGlowLayer(info, glowIntensity);",
+                body.Replace("\r\n", "\n"));
+            string glow = Body(Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs"),
+                "private static void ApplyReentryGlowLayer(");
+            Assert.Contains("if (glowIntensity <= GhostVisualBuilder.ReentryLayerAThreshold)", glow);
+            Assert.Contains("Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, glowIntensity)", glow);
+            Assert.Contains("[MethodImpl(MethodImplOptions.NoInlining)]\n        private static void ApplyReentryGlowLayer(",
+                Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs").Replace("\r\n", "\n"));
+            Assert.DoesNotContain(".SetColor(", body);
+            Assert.DoesNotContain("Graphics.", body);
+            Assert.DoesNotContain("ParticleSystem", body);
             // The sheath offer carries the isolation, so the renderer logs it as Isolated.
             Assert.Contains("GhostAeroFxRenderer.OfferSheath(info, state?.ghost, intensity, info.aeroState,", body);
             Assert.Contains("surfaceVel, recIdx, isolateFire);", body);
             // The char is the body, not an effect: it keeps the heat share, not the glow isolation.
             Assert.Contains("GhostPlaybackLogic.ApplyColorChangerCharState(state, heat);", body);
-            Assert.Equal(2, Regex.Matches(body, @"\bglowIntensity\b").Count - 1);
+            Assert.Equal(1, Regex.Matches(body, @"\bglowIntensity\b").Count - 1);
         }
 
         #endregion
