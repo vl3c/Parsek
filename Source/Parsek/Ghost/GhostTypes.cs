@@ -915,6 +915,24 @@ namespace Parsek
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
         public float vesselLength;
+        // Test-only isolation frame (GhostPlaybackEngine.ArmReentryIsolationForOneFrame): the
+        // mode the next DriveReentryLayers of this ghost applies, consumed by that drive; None
+        // unless a test or the parity rig armed it.
+        public ReentryIsolation isolationArmed;
+        // True while an isolation frame has the fire particle renderer off; the next drive that
+        // does not isolate turns it back on.
+        public bool fireHiddenForIsolation;
+    }
+
+    /// <summary>
+    /// What a test-only reentry isolation frame leaves out of one ghost's reentry drive: the fire
+    /// particles and the shell, or those and Layer A's glow (the char stays: it is the body).
+    /// </summary>
+    internal enum ReentryIsolation
+    {
+        None = 0,
+        FireAndShell = 1,
+        FireShellAndGlow = 2,
     }
 
     internal enum VariantPropertyType { Texture, Color, Float, Skip }
