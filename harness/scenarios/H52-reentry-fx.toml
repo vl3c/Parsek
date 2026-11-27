@@ -42,9 +42,10 @@ tier = "nightly"
 # printed ONLY by a run in which TryBuildReentryFx collected a live ghost mesh, the
 # production UpdateReentryFx computed stock's scalar past one half with full reentry
 # heat (state 1.00) on live Kerbin atmospheric parameters, and GhostAeroFxRenderer's
-# LateUpdate decided the offered sheath. The decision may read Draw, StockDraws,
-# DetailOff (this install's AERO_FX_QUALITY is 0) or NoStockAssets: only stock's own
-# gates can refuse an in-reach ghost with one mesh, and the regex pins that set.
+# LateUpdate decided the offered sheath. The decision may read Draw, DetailOff (this
+# install's AERO_FX_QUALITY is 0) or NoStockAssets: only stock's own gates can refuse
+# an in-reach ghost with one mesh (stock's own fire being on no longer stops the
+# ghost's, owner ruling 2026-11-28 01:06), and the regex pins that set.
 #
 # WHAT THE TOKEN PROVES, AND WHAT IT DOES NOT. It proves the ghost engine's reentry
 # FX DRIVER and the sheath offer against live Kerbin atmospheric parameters on a
@@ -112,7 +113,7 @@ count = { min = 0, max = 0 }
 #    `state` full reentry heat, the decision one of stock's own gates or Draw, and at
 #    least one mesh.
 required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=ReentryFx scene=FLIGHT",
-             "\\[ReentryFx\\] Y1_ReentrySheath: stock scalar drove the ghost sheath on Kerbin: fx=(?:0\\.[5-9][0-9]{2}|1\\.000) state=1\\.00 decision=(?:Draw|StockDraws|DetailOff|NoStockAssets) meshes=[1-9][0-9]* speed=[0-9]+m/s"]
+             "\\[ReentryFx\\] Y1_ReentrySheath: stock scalar drove the ghost sheath on Kerbin: fx=(?:0\\.[5-9][0-9]{2}|1\\.000) state=1\\.00 decision=(?:Draw|DetailOff|NoStockAssets) meshes=[1-9][0-9]* speed=[0-9]+m/s"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

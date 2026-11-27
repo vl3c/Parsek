@@ -30,6 +30,8 @@ namespace Parsek
         internal void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName, float warpRate)
         {
             if (state == null || state.ghost == null) return;
+            // Every driven ghost, burning or not, is kept out of stock's own fire (G.7 masking).
+            GhostAeroFxRenderer.NoteGhost(state.ghost);
             if (state.reentryFxInfo == null && !state.reentryFxPendingBuild) return;
             if (ShouldSuppressLazyReentryUntilPlaybackSync(state))
             {
@@ -86,12 +88,11 @@ namespace Parsek
             }
 
             // Resolve surface velocity BEFORE the lazy-build decision so the speed
-            // gate can fire. `ReentryPotentialSpeedFloor` (400 m/s ≈ Mach 1.2 at
-            // sea-level Kerbin) is shared with `HasReentryPotential` and gates out
-            // pad launches where the ghost starts at 0 m/s — without this gate,
-            // ghosts whose first playback point is already in-atmosphere (every
-            // KSC launch recording) would still pay the full 7 ms build on frame 1,
-            // just attributed to mainLoop instead of spawn.
+            // gate can fire. `ReentryPotentialSpeedFloor` (the lowest speed at which
+            // stock's FxScalar can rise above 0 in the densest stock surface air, Eve's,
+            // less a margin) is shared with `HasReentryPotential` and gates out pad
+            // launches where the ghost starts at 0 m/s: without it, every ghost whose
+            // first playback point is already in atmosphere would build on frame 1.
             //
             // The recorded velocity is surface-relative down here (below the body's
             // inverse-rotation threshold), so it must not have the body's rotating-frame
@@ -121,9 +122,8 @@ namespace Parsek
                         altitude, body.atmosphereDepth,
                         speed, TrajectoryMath.ReentryPotentialSpeedFloor))
                 {
-                    // In-atmosphere but still too slow for FX to be imminent
-                    // (typical KSC launch below ~Mach 1.2). Return — info is null,
-                    // nothing to drive. Next frame will re-check.
+                    // In atmosphere but slower than stock's effect can start anywhere.
+                    // Return: info is null, nothing to drive. Next frame will re-check.
                     return;
                 }
                 TryPerformLazyReentryBuild(recIdx, state, vesselName, bodyName, altitude);

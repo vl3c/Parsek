@@ -4382,7 +4382,15 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   switches on and off where stock's would (stock's `FxScalar` rule from Mach, air density and the
   `PhysicsGlobals` constants, on the ghost's recorded speed and altitude on its body), about as
   bright, about stock's size. Stock's own pass reads only the active vessel (in watch mode it sits
-  on the pad), so the ghost has its own pass and never drives stock's.
+  on the pad), so the ghost has its own pass and never drives stock's. (3) 01:06, on the first
+  build's rule that a ghost beside a hot active vessel wears stock's fire: "that does not sound
+  good: 'Only the direction and strength come from your ship. If the ghost is flying a different
+  way, its flames still stream along your ship's direction of travel.'" Every ghost always draws
+  its own fire, with its own direction and strength, even while stock's is on, and stock's fire
+  must not paint ghosts, so nothing doubles up. (4) 01:07: "ok, lets make it look correct first
+  and worry about perf optimization later": the look wins over ruling 1's cost limit, so the
+  4-ghost cap, the shared 256 px atlas tile and the stock-ownership gates are gone (a render
+  texture per ghost is allowed); the cost stays logged.
 
 - What stock does (decompiled `AerodynamicsFX`, `FXCamera`, `FXDepthCamera`, KSP 1.12.5).
   `AerodynamicsFX.Update` reads the active vessel's `atmDensity`, surface speed and Mach;
@@ -4406,40 +4414,73 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   `Update` + `LateUpdate` arithmetic on the ghost's own density, surface speed and Mach, with the
   constants from `PhysicsGlobals` (read once; Physics.cfg's values when it is not there); the
   engine smooths the clamped scalar as before. When the result is above 0 the ghost asks
-  `GhostAeroFxRenderer` (Ghost module, one per flight scene, parented to the flight camera) for a
-  sheath this frame. The renderer copies stock's two cameras (`Camera.CopyFrom` of `FXCamera` and
+  `GhostAeroFxRenderer` (Ghost module, one per flight scene on its own object; only its two
+  camera copies are parented beside stock's cameras under the flight camera) for a sheath this
+  frame. The renderer copies stock's two cameras (`Camera.CopyFrom` of `FXCamera` and
   `FXDepthCamera`, the same replacement shaders at the same LOD), but its FX camera sees only
   layer 6, a Unity built-in layer KSP leaves unnamed. In its own LateUpdate (execution order
   10000, so after the ghosts' final placement and after stock's `AerodynamicsFX.LateUpdate` has
-  switched stock's effect on or off) it renders the ghost's own velocity depth map (one shared
-  velocity camera built as stock's, boxed on the ghost's bounds, into the ghost's 256 px tile of
-  one shared 1024 x 256 depth atlas; the tile offset is folded into `_FXDepthProjMatrix`, and the
-  tiles sit side by side so no platform's vertical flip reorders them) and submits each visible ghost
-  mesh with `Graphics.DrawMesh` on that layer and that camera, with the ghost's own materials (so
-  `RenderType` picks the subshader stock would) and a `MaterialPropertyBlock` carrying every value
-  stock sets as a global (the first drawn ghost also sets them as globals, as stock does). One
-  light with `fxLight`'s colour, power, culling mask and render mode, shadows off, goes to the
-  nearest ghost that offers one.
+  switched stock's effect on or off) it renders each drawing ghost's own velocity depth map (one
+  velocity camera built as stock's, boxed on the ghost's bounds, into that ghost's own depth
+  render texture at stock's `FXCamera.occlusionMapResolution`, 256 / 512 / 1024 / 2048 by
+  `AERO_FX_QUALITY`; pooled by drawing slot, a slot idle 5 s is released, a size change releases
+  them all) and submits each visible ghost mesh with `Graphics.DrawMesh` on that layer and that
+  camera, with the ghost's own materials and a `MaterialPropertyBlock` carrying every value stock
+  sets as a global. The variant: the draw does not use the replacement shader as its material;
+  the FX copy carries `SetReplacementShader(ReplacementShaders[lod], "RenderType")`, so Unity
+  picks the subshader from each part material's own `RenderType` tag, opaque and transparent
+  alike, exactly as stock's camera does. While stock's camera is off, the first drawn ghost also
+  sets the values as globals, as stock does; while it is on, the renderer writes no global
+  (stock's `OnPreRender` owns them for the active vessel) and every ghost value rides in its own
+  block. The copies render just after stock's two cameras (depth `max(stock depth camera, stock
+  FX camera) + 0.01`, FX copy one step later; stock sits at 2 or 3, `FXCamera.OnCameraChange`),
+  so stock's pass and the ghosts' never interleave. No ghost cap. One light with `fxLight`'s
+  colour, power, culling mask and render mode, shadows off, goes to the nearest ghost that offers
+  one (a ghost with no visible mesh, a loop pause, offers none); stock's own light being on does
+  not stop it.
+- Masking (ruling 3). Stock's FX camera and its velocity camera re-render layers 0 and 17 / 0
+  in their reach, so a ghost beside a hot active vessel would also wear the active vessel's fire.
+  Both are enabled cameras in Unity's normal loop (decompile: no `Camera.Render`,
+  `RenderWithShader` or command buffer; `AerodynamicsFX.LateUpdate` enables `fxCamera` and the
+  depth camera, `FXCamera.LateUpdate` makes `velocityCam` follow). Every ghost the engine drives
+  (`UpdateReentryFx`, burning or not) is noted; while stock's camera is on, each such ghost
+  within stock's reach has its active renderers on a layer either camera draws collected, and in
+  `Camera.onPreCull` for exactly those two cameras (the velocity camera is read from the private
+  `FXCamera.velocityCam` by reflection) each one not already off gets
+  `Renderer.forceRenderingOff = true` (present in KSP's Unity 2019.4 CoreModule). The pure
+  `StockFxMaskLedger` remembers exactly the renderers it switched and restores them on that
+  camera's `onPostRender`, on any other camera's cull (so the main camera's next cull finds every
+  ghost visible even if stock's post-render never came, a camera disabled mid-frame or an
+  exception), at the start of the renderer's next LateUpdate, and on its disable and destroy
+  (scene change); a renderer something else switched off is never touched. Stock's scene depth
+  camera still sees the ghosts, so a ghost hull in front of the ship still hides its flames.
+  Stock's `fxLight` still lights a ghost in its range in the main render (`forceRenderingOff`
+  cannot mask a light; accepted). The `_FX*` globals reach only the replacement shaders, so
+  ghost materials are untouched by stock's globals.
 - Stock-sourced: the scalar and state arithmetic and its constants, the blend, both look sets,
   the shaders and LOD rule, the texture and its speed / scale / obliqueness / bias, the camera
   settings, the occlusion map setup, the reach, the light's settings and drive, and the gates
   (detail level 0 draws no sheath, map view draws nothing, `ThermalColorsDebug` draws nothing).
 - Approximated: the density is `body.GetDensity` at the standard temperature, not the vessel's
   `atmDensity` (the ghost has no flight integrator; G.8 item 1); the occlusion box is the ghost's
-  bounds (stock boxes the camera distance around the active vessel) at a fixed 256 px; the light
+  bounds (stock boxes the camera distance around the active vessel), at stock's own size; the light
   is a point light one and a half ghost radii ahead of the ghost along its flow, reaching four
   radii (stock's `fxLight`, when it is a directional light, would light the whole scene from the
   ghost's direction), and has no shadows; the glow and char layers
   (rows 7, 8) are driven by the thermal share `FxScalar * state`, as dark below Mach 2.5 as
   before, and stay a later piece.
-- Two fires. Stock's camera paints whatever it sees within its reach, so a ghost beside a hot
-  active vessel already wears stock's fire (the left flame of `fxr-real-m6-mainA`). While stock's
-  `FXCamera` is on (`stockLive`), no ghost draws its own sheath and, while stock's light is on, no
-  ghost light: a ghost inside stock's reach wears stock's fire, as any real vessel there would,
-  and one outside it is beyond the reach a ghost uses too. Open question for the owner: a ghost
-  beside a hot active vessel but flying another way (or slower) then wears the active vessel's
-  fire, not its own; that is what a real vessel there shows, but it differs from "keys on its
-  own conditions" in ruling 1.
+- Two fires (first build, retired by ruling 3). The first build drew no ghost sheath while
+  stock's camera was on, so a ghost beside a hot active vessel wore the active vessel's fire,
+  streaming along the active vessel's flow; now the ghost always draws its own and is masked out
+  of stock's.
+- Build floor. Stock's scalar has no Mach gate: in dense air it rises above 0 at the speed where
+  `0.5 * densityFactor(rho) * v^3.5 = p0` (about 198 m/s at Kerbin sea level, full by about
+  350 m/s; about 80 m/s on Eve). The old 400 m/s floor (`TrajectoryMath.ReentryPotentialSpeedFloor`,
+  read by `HasReentryPotential` at spawn and `ShouldBuildLazyReentryFx` in flight) left a
+  300 to 390 m/s low pass with no fire where stock shows 0.6 to 1.0. The floor is now derived from
+  stock's own formula: `TrajectoryMath.MinimumAeroFxSpeed` at the densest stock surface air
+  (Eve's sea level, 6.24 kg/m^3), less 5 %, about 76 m/s; a unit test keeps its Physics.cfg
+  constants equal to the live effect's. More ghosts now build the (particle-free) reentry info.
 - Activation against stock's own numbers. The ghost rule fed the 48 in-atmosphere trace lines of
   the `PPS-20c` real side (`log-FxReentryRig.txt`: the vessel's `atmDensity`, Mach, surface speed
   and stock's `FxScalar` / `state`) switches on and off on the same lines and reads within 0.041
@@ -4454,26 +4495,31 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     (up to 2000 live particles, 600 to 4000 emitted a second, noise module, world-space
     simulation, one batched draw) and the shell, 4 `DrawMesh` passes over every mesh (4 x N draw
     calls a frame); the build combined every ghost mesh into one emission mesh.
-  - After, only for a ghost whose scalar is above 0, within stock's reach of the camera (300 m,
-    or camera distance + 100), while stock's own effect is off, and at most 4 ghosts a frame: no
+  - After, only for a ghost whose scalar is above 0 and within stock's reach of the camera (300 m,
+    or camera distance + 100), whether or not stock's own effect is on, with no ghost cap: no
     particles; one draw call per submesh with a material (about N) on the shared FX camera; one
-    depth render of the ghost's box into its atlas tile (depth only, the ghost's meshes and
-    whatever sits in the box). No camera or render texture per ghost. Any other ghost keeps only
-    its glow and char (material colour writes, as before).
+    depth render of the ghost's box into its own depth texture at stock's occlusion size (512 px,
+    1 MB of 32-bit depth, at quality 1 up to 2048 px, 16 MB, at quality 3; depth only, the
+    ghost's meshes and whatever sits in the box). Any other ghost keeps only its glow and char (material
+    colour writes, as before).
+  - While stock's fire is on, per ghost in reach (burning or not): one `GetComponentsInChildren`
+    walk and two `forceRenderingOff` writes per renderer per stock camera (mask and restore, two
+    cameras), about 4 x R writes for R renderers; every other camera's cull pays one early-out.
   - Shared, once a frame while any ghost draws (never per ghost): the copied depth camera's scene
     depth pass (the pass stock itself pays whenever the active vessel is hot), the copied FX
     camera, which culls only layer 6, and one point light. Created once per scene: the three
-    cameras, the light and the 1 MB atlas.
+    cameras and the light; the depth textures as ghosts need them.
   - Logged: each build writes `Reentry FX built for ghost #<n> "<vessel>": particles=0
     glowMaterials= sheathMeshes=; per frame while its sheath draws: drawCalls= velocityDepthRenders=1
-    ...`, and the rate-limited frame line carries `cpuMs=` (the renderer's main-thread time).
+    ...`, and the rate-limited frame line carries `cpuMs=` (the renderer's main-thread time,
+    including the mask collection) with the mask and depth-map counts.
 - Timing probe (for the before / after rig flight; it belongs in the rig on `fx-x0-spike`, which
   owns the marks, the poses and the isolation seam, not in this PR as a test command, which would
   ship automation for a one-off measurement): at each mark, hold the ghost frame and read 120
   frames of `Time.unscaledDeltaTime` with the sheath on, then 120 with
   `ArmReentryIsolationForOneFrame(st, ReentryIsolation.FireAndShell)` armed every frame (sheath
   off), and log mean and p95 milliseconds plus the renderer's `cpuMs=`; repeat with the same
-  recording replayed as 4 and as 8 overlapping ghosts a few seconds apart (8 shows the cap), and
+  recording replayed as 4 and as 8 overlapping ghosts a few seconds apart (no cap: 8 shows the per-ghost scaling), and
   fly the same marks on main's DLL (particles and shell on against the old `fxOff`) for the before
   numbers. The answer is the on minus off difference per mark and per ghost count, before and
   after.
@@ -4484,9 +4530,12 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
 - Logs (`ReentryFx`): `Ghost aero FX renderer ready: shaders= detailLevel= layer= stockFxMask=
   stockLight=` once per scene; `Ghost #<n> reentry sheath: <decision> (fx= state= dist= reach=)`
   on every change of a ghost's decision; `Ghost #<n> sheath drawn: fx= state= submeshes= lod=
-  alpha= length= color= box=` and `Ghost aero FX frame: offers= drawn= stockDraws= outOfReach=
-  capped= isolated= other= light= reach= stockOn= ready=` rate-limited; the camera and light
-  owner changes. The in-game cell `Y1_ReentrySheath_StockScalarDrivesTheGhostSheath` (category
+  alpha= length= color= box=` and `Ghost aero FX frame: offers= drawn= outOfReach= isolated=
+  other= light= reach= stockOn= ready= maskGhosts= maskRenderers= lastMasked= maskWriteFailures=
+  depthMaps= depthRes= cpuMs=` rate-limited; `Ghost aero FX: hiding <n> ghost(s) (<r> renderers)
+  from stock's FX and velocity cameras while stock's fire is on` and its end on a change; the
+  depth map creates, releases and resizes; a mask restore on disable / destroy / rebuild; the
+  camera and light owner changes. The in-game cell `Y1_ReentrySheath_StockScalarDrivesTheGhostSheath` (category
   `ReentryFx`, in place of the Bug538 particle cell) drives a one-cube ghost root through
   `UpdateReentryFx` on Kerbin and asserts a renderer decision that only stock's gates can refuse.
 - Pictures. The rig on `fx-x0-spike` (`FxReentryRig.cs`) captures what Y1 needs, with two
@@ -4500,8 +4549,9 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   `DetailOff`). The after sheet is the re-flown `PPS-20c` `mainA` pair at every mark (`m6`,
   `m375`, `m3`, `m25`, `m2`) plus `mainB` (sheath isolated) to show the ghost's difference is the
   sheath and not the glow; the flight's KSP.log must carry `Ghost aero FX renderer ready:` and, at
-  each ghost mark with a scalar above 0, `Ghost #<n> reentry sheath: Draw` (a `StockDraws` there
-  means the active vessel was hot and the picture shows stock's fire on the ghost, not the ghost's).
+  each ghost mark with a scalar above 0, `Ghost #<n> reentry sheath: Draw` (`StockDraws` is gone:
+  with the active vessel hot the ghost still draws its own, and the frame line's `lastMasked=`
+  reads above 0 while stock's camera is on).
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 

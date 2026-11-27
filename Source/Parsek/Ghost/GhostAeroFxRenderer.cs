@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
@@ -15,8 +16,13 @@ namespace Parsek
     /// <c>AerodynamicsFX</c>. Its FX camera sees only <see cref="SheathLayer"/>, on which the ghost
     /// meshes are submitted with <c>Graphics.DrawMesh</c> for that camera alone, each with a
     /// <c>MaterialPropertyBlock</c> carrying the values stock's <c>FXCamera.OnPreRender</c> sets as
-    /// globals, computed from the ghost's own conditions. While stock's FX camera is on, no ghost
-    /// draws: stock already paints every vessel in its reach, ghosts included.
+    /// globals, computed from the ghost's own conditions, and each ghost renders its own velocity
+    /// depth map at stock's occlusion size. Every ghost wears its own fire even while stock's is
+    /// on (owner ruling 2026-11-28 01:06); stock's FX camera and velocity camera would also paint
+    /// the active vessel's fire on a ghost in their reach, so while they are on, the ghost
+    /// renderers in reach are switched off (<c>Renderer.forceRenderingOff</c>) for those two
+    /// cameras' renders only, through <see cref="StockFxMaskLedger{T}"/>. Stock's scene depth
+    /// camera still sees the ghosts, so a ghost hull still hides the ship's flames behind it.
     /// Runs its LateUpdate after the ghosts' final placement (ParsekFlight's LateUpdate) and after
     /// stock's <c>AerodynamicsFX.LateUpdate</c>, which decides whether stock's own effect is on.
     /// </summary>
@@ -45,16 +51,33 @@ namespace Parsek
             public bool isolated;
         }
 
+        // FXCamera.velocityCam is private; it is the second stock camera a ghost is hidden from.
+        private static readonly FieldInfo StockVelocityCamField = typeof(FXCamera).GetField(
+            "velocityCam", BindingFlags.Instance | BindingFlags.NonPublic);
+
         private readonly List<Offer> offers = new List<Offer>();
         private int offersFrame = -1;
-        // One depth atlas for the scene, one tile per sheath slot: no render texture per ghost.
-        private RenderTexture velocityAtlas;
-        private readonly MaterialPropertyBlock[] blocks = new MaterialPropertyBlock[GhostAeroFx.MaxSheathsPerFrame];
+        // Every ghost the engine drove this frame, burning or not: stock's fire must paint none.
+        private readonly List<GameObject> maskGhosts = new List<GameObject>();
+        private int maskGhostsFrame = -1;
+        private readonly List<Renderer> rendererScratch = new List<Renderer>();
+        private readonly StockFxMaskLedger<Renderer> mask = new StockFxMaskLedger<Renderer>(
+            r => r == null || r.forceRenderingOff,
+            (r, off) => { if (r != null) r.forceRenderingOff = off; });
+        private bool subscribed;
+        private bool maskingLogged;
+        // One depth map per ghost drawn this frame, at stock's occlusion size, pooled across frames.
+        private readonly List<RenderTexture> depthPool = new List<RenderTexture>();
+        private readonly List<float> depthPoolLastUsed = new List<float>();
+        private int depthPoolResolution;
+        private readonly List<MaterialPropertyBlock> blocks = new List<MaterialPropertyBlock>();
 
         private AerodynamicsFX stockFx;
         private FXCamera stockCamera;
         private Camera stockCameraComponent;
         private FXDepthCamera stockDepth;
+        private Camera stockVelocityCamera;
+        private bool velocityCamMissingLogged;
         private Light stockLight;
         private Camera fxCamera;
         private Camera depthCamera;
@@ -167,6 +190,31 @@ namespace Parsek
             });
         }
 
+        /// <summary>
+        /// The engine drove this ghost this frame (any ghost, burning or not): while stock's fire
+        /// is on, its renderers in stock's reach are hidden from stock's two FX cameras.
+        /// </summary>
+        internal static void NoteGhost(GameObject ghost)
+        {
+            if (ReferenceEquals(ghost, null)) return;
+            NoteGhostCore(ghost);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void NoteGhostCore(GameObject ghost)
+        {
+            if (ghost == null) return;
+            GhostAeroFxRenderer renderer = EnsureInstance();
+            if (renderer == null) return;
+            int frame = Time.frameCount;
+            if (renderer.maskGhostsFrame != frame)
+            {
+                renderer.maskGhosts.Clear();
+                renderer.maskGhostsFrame = frame;
+            }
+            renderer.maskGhosts.Add(ghost);
+        }
+
         private static GhostAeroFxRenderer EnsureInstance()
         {
             if (instance != null) return instance;
@@ -177,20 +225,117 @@ namespace Parsek
             return instance;
         }
 
+        private void OnEnable()
+        {
+            if (subscribed) return;
+            Camera.onPreCull += OnAnyCameraPreCull;
+            Camera.onPostRender += OnAnyCameraPostRender;
+            subscribed = true;
+        }
+
+        private void OnDisable()
+        {
+            Unsubscribe();
+            RestoreMask("disable");
+        }
+
         private void OnDestroy()
         {
-            if (velocityCamera != null) velocityCamera.targetTexture = null;
-            if (velocityAtlas != null)
+            Unsubscribe();
+            RestoreMask("destroy");
+            DestroyCopies();
+            if (instance == this) instance = null;
+            ParsekLog.Verbose("ReentryFx", "Ghost aero FX renderer destroyed");
+        }
+
+        private void Unsubscribe()
+        {
+            if (!subscribed) return;
+            Camera.onPreCull -= OnAnyCameraPreCull;
+            Camera.onPostRender -= OnAnyCameraPostRender;
+            subscribed = false;
+        }
+
+        /// <summary>
+        /// Every camera's cull: stock's FX or velocity camera hides the candidate ghost
+        /// renderers, any other camera (the main camera first of all) restores them.
+        /// </summary>
+        private void OnAnyCameraPreCull(Camera cam)
+        {
+            bool stockCam = !ReferenceEquals(cam, null)
+                && (ReferenceEquals(cam, stockCameraComponent) || ReferenceEquals(cam, stockVelocityCamera));
+            if (mask.MaskedCount == 0 && (!stockCam || mask.CandidateCount == 0)) return;
+            try
             {
-                velocityAtlas.Release();
-                Destroy(velocityAtlas);
-                velocityAtlas = null;
+                mask.PreCull(stockCam);
             }
+            catch (Exception e)
+            {
+                RestoreMask("pre-cull failure");
+                ParsekLog.WarnRateLimited("ReentryFx", "aero-mask-failed",
+                    $"Ghost aero FX mask failed, ghosts restored: {e.GetType().Name}: {e.Message}", 30.0);
+            }
+        }
+
+        private void OnAnyCameraPostRender(Camera cam)
+        {
+            if (mask.MaskedCount == 0) return;
+            try
+            {
+                mask.PostRender();
+            }
+            catch (Exception e)
+            {
+                ParsekLog.WarnRateLimited("ReentryFx", "aero-mask-restore-failed",
+                    $"Ghost aero FX mask restore failed: {e.GetType().Name}: {e.Message}", 30.0);
+            }
+        }
+
+        private void RestoreMask(string reason)
+        {
+            try
+            {
+                int restored = mask.Restore();
+                if (restored > 0 && reason != null)
+                    ParsekLog.Verbose("ReentryFx", string.Format(CultureInfo.InvariantCulture,
+                        "Ghost aero FX mask restored {0} renderer(s) on {1}", restored, reason));
+            }
+            catch (Exception e)
+            {
+                ParsekLog.WarnRateLimited("ReentryFx", "aero-mask-restore-failed",
+                    $"Ghost aero FX mask restore failed: {e.GetType().Name}: {e.Message}", 30.0);
+            }
+        }
+
+        /// <summary>Destroys the camera copies, the light and every pooled depth map.</summary>
+        private void DestroyCopies()
+        {
+            if (velocityCamera != null) velocityCamera.targetTexture = null;
+            ReleaseDepthPool();
             // The two copies live beside stock's cameras, not under this object.
             if (fxCamera != null) Destroy(fxCamera.gameObject);
             if (depthCamera != null) Destroy(depthCamera.gameObject);
-            if (instance == this) instance = null;
-            ParsekLog.Verbose("ReentryFx", "Ghost aero FX renderer destroyed");
+            if (velocityCamera != null) Destroy(velocityCamera.gameObject);
+            if (ghostLight != null) Destroy(ghostLight.gameObject);
+            fxCamera = null;
+            depthCamera = null;
+            velocityCamera = null;
+            ghostLight = null;
+            camerasOn = false;
+            lightOwnerRecIdx = int.MinValue;
+        }
+
+        private void ReleaseDepthPool()
+        {
+            for (int i = 0; i < depthPool.Count; i++)
+            {
+                RenderTexture rt = depthPool[i];
+                if (rt == null) continue;
+                rt.Release();
+                Destroy(rt);
+            }
+            depthPool.Clear();
+            depthPoolLastUsed.Clear();
         }
 
         /// <summary>Finds stock's pieces and builds the copies once; names the first missing piece.</summary>
@@ -238,6 +383,8 @@ namespace Parsek
             stockCameraComponent = stockCamera.GetComponent<Camera>();
             stockDepth = stockFx.fxDepthCamera;
             stockLight = stockFx.fxLight;
+            stockVelocityCamera = null;
+            velocityCamMissingLogged = false;
             if (stockCameraComponent == null)
             {
                 missingPiece = "FXCamera camera";
@@ -284,6 +431,9 @@ namespace Parsek
 
         private void BuildCopies()
         {
+            // A second resolve (stock's pieces replaced) builds fresh copies; drop the old ones.
+            RestoreMask("rebuild");
+            DestroyCopies();
             Transform parent = stockCameraComponent.transform.parent;
 
             var depthGo = new GameObject("Parsek ghost aero depth camera");
@@ -333,6 +483,8 @@ namespace Parsek
 
         private void LateUpdate()
         {
+            // Nothing stays masked into a new frame, whatever happened to the last render.
+            RestoreMask("late-update");
             try
             {
                 DriveFrame();
@@ -340,8 +492,10 @@ namespace Parsek
             catch (Exception e)
             {
                 // A failure here must not repeat as an exception every frame: drop the frame's
-                // sheaths, switch the copies off and say why at most every 30 s.
+                // sheaths and masks, switch the copies off and say why at most every 30 s.
                 offers.Clear();
+                maskGhosts.Clear();
+                mask.ClearCandidates();
                 SetCameras(false);
                 SetLight(false, int.MinValue);
                 ParsekLog.WarnRateLimited("ReentryFx", "aero-frame-failed",
@@ -353,11 +507,14 @@ namespace Parsek
         {
             int frame = Time.frameCount;
             if (offersFrame != frame) offers.Clear();
+            if (maskGhostsFrame != frame) maskGhosts.Clear();
+            mask.ClearCandidates();
 
-            if (offers.Count == 0)
+            if (offers.Count == 0 && maskGhosts.Count == 0)
             {
                 SetCameras(false);
                 SetLight(false, int.MinValue);
+                TrimDepthPool(0, Time.unscaledTime);
                 return;
             }
 
@@ -367,12 +524,12 @@ namespace Parsek
             int detailLevel = stockFx != null ? stockFx.detailLevel : 0;
             bool stockOn = ready && stockCameraComponent != null && stockCameraComponent.enabled;
             bool stockLightAvailable = ready && stockLight != null;
-            bool stockLightOn = stockLightAvailable && stockLight.enabled;
             FlightCamera flightCamera = FlightCamera.fetch;
             Camera mainCamera = flightCamera != null ? flightCamera.mainCamera : null;
             if (mainCamera == null)
             {
                 offers.Clear();
+                maskGhosts.Clear();
                 SetCameras(false);
                 SetLight(false, int.MinValue);
                 return;
@@ -381,8 +538,11 @@ namespace Parsek
             frameWatch.Start();
             float reach = GhostAeroFx.StockReach(flightCamera.Distance);
             Vector3 cameraPos = mainCamera.transform.position;
+            float now = Time.unscaledTime;
 
-            int drawn = 0, stockDraws = 0, outOfReach = 0, capped = 0, isolated = 0, other = 0;
+            int maskedGhosts = CollectMaskCandidates(stockOn, cameraPos, reach);
+
+            int drawn = 0, outOfReach = 0, isolated = 0, other = 0;
             bool haveLight = false;
             float lightDistance = 0f;
             Offer lightOffer = default;
@@ -398,12 +558,13 @@ namespace Parsek
                 float distance = Vector3.Distance(cameraPos, center);
                 bool inReach = GhostAeroFx.WithinReach(distance, radius, reach);
                 int meshCount = o.info.fireShellMeshes != null ? o.info.fireShellMeshes.Count : 0;
+                int visibleMeshes = haveBounds ? meshCount : 0;
 
                 GhostAeroSheathDecision decision = GhostAeroFx.DecideSheath(o.fx, mapView, thermalDebug,
-                    detailLevel, ready, stockOn, inReach, haveBounds ? meshCount : 0, o.isolated, drawn);
+                    detailLevel, ready, inReach, visibleMeshes, o.isolated);
                 if (decision == GhostAeroSheathDecision.Draw)
                 {
-                    if (DrawSheath(o, bounds, drawn))
+                    if (DrawSheath(o, bounds, drawn, stockOn, now))
                         drawn++;
                     else
                         decision = GhostAeroSheathDecision.NoMeshes;
@@ -411,39 +572,158 @@ namespace Parsek
                 switch (decision)
                 {
                     case GhostAeroSheathDecision.Draw: break;
-                    case GhostAeroSheathDecision.StockDraws: stockDraws++; break;
                     case GhostAeroSheathDecision.OutOfReach: outOfReach++; break;
-                    case GhostAeroSheathDecision.FrameCap: capped++; break;
                     case GhostAeroSheathDecision.Isolated: isolated++; break;
                     default: other++; break;
                 }
                 NoteDecision(o, decision, distance, reach);
 
                 GhostAeroLightDecision light = GhostAeroFx.DecideLight(o.fx, mapView,
-                    stockLightAvailable, stockLightOn, inReach);
+                    stockLightAvailable, inReach, visibleMeshes);
                 if (light == GhostAeroLightDecision.Offer && !o.isolated
                     && GhostAeroFx.LightOfferWins(haveLight, lightDistance, distance))
                 {
                     haveLight = true;
                     lightDistance = distance;
                     lightOffer = o;
-                    lightBounds = haveBounds ? bounds : new Bounds(center, Vector3.one * (radius * 2f));
+                    lightBounds = bounds;
                 }
             }
 
             SetCameras(drawn > 0);
-            if (drawn > 0) DriveCameras(flightCamera, mainCamera, reach);
+            if (drawn > 0) DriveCameras(mainCamera, reach);
             if (haveLight) DriveLight(lightOffer, lightBounds);
             else SetLight(false, int.MinValue);
+            TrimDepthPool(drawn, now);
 
             frameWatch.Stop();
+            int failedMaskWrites = mask.TakeFailedWrites();
             ParsekLog.VerboseRateLimited("ReentryFx", "aero-frame", string.Format(CultureInfo.InvariantCulture,
-                "Ghost aero FX frame: offers={0} drawn={1} stockDraws={2} outOfReach={3} capped={4} " +
-                "isolated={5} other={6} light={7} reach={8:F0}m stockOn={9} ready={10} cpuMs={11:F3}",
-                offers.Count, drawn, stockDraws, outOfReach, capped, isolated, other,
+                "Ghost aero FX frame: offers={0} drawn={1} outOfReach={2} isolated={3} other={4} " +
+                "light={5} reach={6:F0}m stockOn={7} ready={8} maskGhosts={9} maskRenderers={10} " +
+                "lastMasked={11} maskWriteFailures={12} depthMaps={13} depthRes={14} cpuMs={15:F3}",
+                offers.Count, drawn, outOfReach, isolated, other,
                 haveLight ? "#" + lightOffer.recIdx.ToString(CultureInfo.InvariantCulture) : "none",
-                reach, stockOn, ready, frameWatch.Elapsed.TotalMilliseconds), 5.0);
+                reach, stockOn, ready, maskedGhosts, mask.CandidateCount, mask.LastMaskedCount,
+                failedMaskWrites, depthPool.Count, depthPoolResolution,
+                frameWatch.Elapsed.TotalMilliseconds), 5.0);
             offers.Clear();
+            maskGhosts.Clear();
+        }
+
+        /// <summary>
+        /// Gathers the renderers to hide from stock's FX and velocity cameras this frame: every
+        /// active renderer, on a layer either camera draws, of each ghost within stock's reach,
+        /// only while stock's effect is on. Returns how many ghosts are masked.
+        /// </summary>
+        private int CollectMaskCandidates(bool stockOn, Vector3 cameraPos, float reach)
+        {
+            if (!stockOn || maskGhosts.Count == 0) { NoteMasking(0); return 0; }
+            if (stockVelocityCamera == null && StockVelocityCamField != null && stockCamera != null)
+                stockVelocityCamera = StockVelocityCamField.GetValue(stockCamera) as Camera;
+            if (stockVelocityCamera == null && !velocityCamMissingLogged)
+            {
+                velocityCamMissingLogged = true;
+                ParsekLog.Verbose("ReentryFx",
+                    "Ghost aero FX: stock velocity camera not found yet; ghosts are hidden from stock's FX camera only");
+            }
+            int fxMask = stockCameraComponent.cullingMask;
+            int velocityMask = stockVelocityCamera != null ? stockVelocityCamera.cullingMask : 0;
+            int ghosts = 0;
+            for (int g = 0; g < maskGhosts.Count; g++)
+            {
+                GameObject ghost = maskGhosts[g];
+                if (ghost == null || !ghost.activeInHierarchy) continue;
+                rendererScratch.Clear();
+                ghost.GetComponentsInChildren(false, rendererScratch);
+                bool any = false;
+                Bounds bounds = default;
+                for (int r = 0; r < rendererScratch.Count; r++)
+                {
+                    Renderer rend = rendererScratch[r];
+                    if (rend == null || !rend.enabled) continue;
+                    if (!GhostAeroFx.LayerSeenByStockFx(rend.gameObject.layer, fxMask, velocityMask)) continue;
+                    if (!any) { bounds = rend.bounds; any = true; }
+                    else bounds.Encapsulate(rend.bounds);
+                }
+                if (!any) continue;
+                float distance = Vector3.Distance(cameraPos, bounds.center);
+                if (!GhostAeroFx.ShouldMaskFromStockFx(true,
+                        GhostAeroFx.WithinReach(distance, bounds.extents.magnitude, reach)))
+                    continue;
+                for (int r = 0; r < rendererScratch.Count; r++)
+                {
+                    Renderer rend = rendererScratch[r];
+                    if (rend == null || !rend.enabled) continue;
+                    if (!GhostAeroFx.LayerSeenByStockFx(rend.gameObject.layer, fxMask, velocityMask)) continue;
+                    mask.AddCandidate(rend);
+                }
+                ghosts++;
+            }
+            rendererScratch.Clear();
+            NoteMasking(ghosts);
+            return ghosts;
+        }
+
+        private void NoteMasking(int ghosts)
+        {
+            bool masking = ghosts > 0;
+            if (masking == maskingLogged) return;
+            maskingLogged = masking;
+            ParsekLog.Verbose("ReentryFx", masking
+                ? string.Format(CultureInfo.InvariantCulture,
+                    "Ghost aero FX: hiding {0} ghost(s) ({1} renderers) from stock's FX and velocity cameras " +
+                    "while stock's fire is on", ghosts, mask.CandidateCount)
+                : "Ghost aero FX: no ghost hidden from stock's FX cameras");
+        }
+
+        /// <summary>This drawing slot's own velocity depth map, at stock's occlusion size.</summary>
+        private RenderTexture AcquireDepthMap(int slot, int resolution, float now)
+        {
+            if (depthPoolResolution != resolution)
+            {
+                if (depthPool.Count > 0)
+                    ParsekLog.Verbose("ReentryFx", string.Format(CultureInfo.InvariantCulture,
+                        "Ghost aero depth maps resized {0} -> {1}: released {2}",
+                        depthPoolResolution, resolution, depthPool.Count));
+                ReleaseDepthPool();
+                depthPoolResolution = resolution;
+            }
+            while (depthPool.Count <= slot)
+            {
+                var rt = new RenderTexture(resolution, resolution, 32, RenderTextureFormat.Depth);
+                rt.name = "Parsek ghost aero velocity depth " + depthPool.Count.ToString(CultureInfo.InvariantCulture);
+                rt.Create();
+                depthPool.Add(rt);
+                depthPoolLastUsed.Add(now);
+                ParsekLog.Verbose("ReentryFx", string.Format(CultureInfo.InvariantCulture,
+                    "Ghost aero depth map {0} created at {1}x{1}", depthPool.Count - 1, resolution));
+            }
+            RenderTexture map = depthPool[slot];
+            if (!map.IsCreated()) map.Create();
+            depthPoolLastUsed[slot] = now;
+            return map;
+        }
+
+        private void TrimDepthPool(int drawn, float now)
+        {
+            int released = 0;
+            for (int i = depthPool.Count - 1; i >= 0; i--)
+            {
+                if (!GhostAeroFx.ShouldReleasePooledDepthMap(i, drawn, depthPoolLastUsed[i], now)) break;
+                RenderTexture rt = depthPool[i];
+                if (rt != null)
+                {
+                    rt.Release();
+                    Destroy(rt);
+                }
+                depthPool.RemoveAt(i);
+                depthPoolLastUsed.RemoveAt(i);
+                released++;
+            }
+            if (released > 0)
+                ParsekLog.Verbose("ReentryFx", string.Format(CultureInfo.InvariantCulture,
+                    "Ghost aero depth maps released: {0} idle, {1} kept", released, depthPool.Count));
         }
 
         private static void NoteDecision(Offer o, GhostAeroSheathDecision decision, float distance, float reach)
@@ -473,7 +753,7 @@ namespace Parsek
             return any;
         }
 
-        private bool DrawSheath(Offer o, Bounds bounds, int slot)
+        private bool DrawSheath(Offer o, Bounds bounds, int slot, bool stockOn, float now)
         {
             AeroFxDrawValues v = GhostAeroFx.Blend(condensation, heat, o.fx, o.aeroState);
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
@@ -481,40 +761,29 @@ namespace Parsek
 
             // The ghost's own occlusion map: stock's velocity camera, boxed on the ghost.
             GhostAeroFx.VelocityCamBox(bounds.size.magnitude, out float box, out float far);
-            // Each drawing ghost renders into its own tile of the one shared atlas; the tile's
-            // offset is folded into the projection the shader reads, so its lookups land there.
-            if (velocityAtlas == null)
-            {
-                velocityAtlas = new RenderTexture(
-                    GhostAeroFx.VelocityDepthResolution * GhostAeroFx.MaxSheathsPerFrame,
-                    GhostAeroFx.VelocityDepthResolution, 32, RenderTextureFormat.Depth);
-                velocityAtlas.name = "Parsek ghost aero velocity depth atlas";
-                velocityAtlas.Create();
-            }
-            GhostAeroFx.VelocityAtlasTile(slot, GhostAeroFx.MaxSheathsPerFrame,
-                out float rectX, out float rectWidth, out float ndcScaleX, out float ndcOffsetX);
-            RenderTexture depthMap = velocityAtlas;
+            // Each drawing ghost renders its own depth map at stock's occlusion size; the map must
+            // live until the FX copy renders, which is why it is not shared between ghosts.
+            RenderTexture depthMap = AcquireDepthMap(slot,
+                GhostAeroFx.OcclusionResolution(stockCamera.occlusionMapResolution), now);
             Transform vt = velocityCamera.transform;
             vt.position = bounds.center - effectDirection * box;
             vt.forward = effectDirection;
             velocityCamera.orthographicSize = box;
             velocityCamera.farClipPlane = far;
-            velocityCamera.targetTexture = velocityAtlas;
-            velocityCamera.rect = new Rect(rectX, 0f, rectWidth, 1f);
+            velocityCamera.targetTexture = depthMap;
+            velocityCamera.rect = new Rect(0f, 0f, 1f, 1f);
             velocityCamera.aspect = 1f;
             velocityCamera.Render();
 
-            MaterialPropertyBlock mpb = blocks[slot] ?? (blocks[slot] = new MaterialPropertyBlock());
+            while (blocks.Count <= slot) blocks.Add(new MaterialPropertyBlock());
+            MaterialPropertyBlock mpb = blocks[slot];
             mpb.Clear();
             Vector3 vp = vt.position;
             var fxColor = new Color(1f, 1f, 1f, GhostAeroFx.FxColorAlpha(v.Intensity, lod));
             Matrix4x4 world2Velocity = Matrix4x4.TRS(Vector3.zero,
                 Quaternion.FromToRotation(Vector3.up, effectDirection), Vector3.one);
             Matrix4x4 depthCamMatrix = velocityCamera.worldToCameraMatrix;
-            Matrix4x4 tile = Matrix4x4.identity;
-            tile.m00 = ndcScaleX;
-            tile.m03 = ndcOffsetX;
-            Matrix4x4 depthProjMatrix = tile * velocityCamera.projectionMatrix;
+            Matrix4x4 depthProjMatrix = velocityCamera.projectionMatrix;
             var cameraPos = new Vector4(vp.x, vp.y, vp.z, 0f);
             mpb.SetVector("_LightDirection0", effectDirection);
             mpb.SetColor("_FXColor", fxColor);
@@ -537,11 +806,12 @@ namespace Parsek
             mpb.SetFloat("_FXFalloff2", v.Falloff2);
             mpb.SetFloat("_FXFalloff3", v.Falloff3);
             mpb.SetFloat("_FXWobble", v.Wobble);
-            if (slot == 0)
+            if (slot == 0 && !stockOn)
             {
                 // The same values as globals, as FXCamera.OnPreRender sets them, for whatever the
-                // replacement shaders read outside the per-draw block. Stock's camera is off on
-                // every frame a ghost draws and sets its own before it renders again.
+                // replacement shaders read outside the per-draw block, only while stock's camera
+                // is off (it sets its own before it renders again). While it is on, the globals
+                // are the active vessel's and every ghost value rides in its own block.
                 Shader.SetGlobalVector("_LightDirection0", effectDirection);
                 Shader.SetGlobalColor("_FXColor", fxColor);
                 Shader.SetGlobalColor("_MyLightColor0", v.Color);
@@ -595,7 +865,7 @@ namespace Parsek
             return submitted > 0;
         }
 
-        private void DriveCameras(FlightCamera flightCamera, Camera mainCamera, float reach)
+        private void DriveCameras(Camera mainCamera, float reach)
         {
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
             float fov = mainCamera.fieldOfView;
@@ -610,6 +880,13 @@ namespace Parsek
             fxCamera.fieldOfView = fov;
             fxCamera.farClipPlane = reach;
             fxCamera.SetReplacementShader(stockCamera.ReplacementShaders[lod], "RenderType");
+
+            // Stock's two cameras share depth 2 or 3 (FXCamera.OnCameraChange) with the copies
+            // CopyFrom just made; render strictly after them so stock's pass and ours never
+            // interleave, depth copy first.
+            float after = GhostAeroFx.CopyCameraDepth(stockDepth.depthCamera.depth, stockCameraComponent.depth);
+            depthCamera.depth = after;
+            fxCamera.depth = after + GhostAeroFx.CopyCameraDepthStep;
         }
 
         private void SetCameras(bool on)

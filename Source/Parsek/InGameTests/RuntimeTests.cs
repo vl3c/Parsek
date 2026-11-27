@@ -22591,10 +22591,10 @@ namespace Parsek.InGameTests
                 "GhostAeroFxRenderer's LateUpdate should have decided the offered sheath");
             GhostAeroSheathDecision decision = info.lastSheathDecision.Value;
             // The ghost sits at the active vessel with its scalar above 0 and one mesh, so only
-            // stock's own gates can refuse it: stock already drawing, a detail level of 0 (the
-            // harness default AERO_FX_QUALITY), or a stock piece missing on this install.
+            // stock's own gates can refuse it: a detail level of 0 (the harness default
+            // AERO_FX_QUALITY) or a stock piece missing on this install. Stock's own fire being
+            // on is no reason: the ghost always draws its own (owner ruling 2026-11-28 01:06).
             InGameAssert.IsTrue(decision == GhostAeroSheathDecision.Draw
-                    || decision == GhostAeroSheathDecision.StockDraws
                     || decision == GhostAeroSheathDecision.DetailOff
                     || decision == GhostAeroSheathDecision.NoStockAssets,
                 $"Unexpected sheath decision {decision} for an in-reach ghost with one mesh and a full scalar");
@@ -22611,7 +22611,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
-            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the floor derived from stock's FxScalar in Eve's sea-level air (about 76 m/s).")]
         public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
         {
             // Pin the cross-file contract between the B3 helper's speed floor and
@@ -22620,8 +22620,8 @@ namespace Parsek.InGameTests
             // pending-forever state at spawn, or vice versa. The constant lives in
             // TrajectoryMath so the floor is a single source of truth.
             float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
-            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
-                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+            InGameAssert.IsTrue(floor >= 50f && floor <= 198f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 50-198 m/s range (below stock's Kerbin sea-level start); B3 speed gate may be miscalibrated");
 
             // Just at the floor → build fires.
             InGameAssert.IsTrue(

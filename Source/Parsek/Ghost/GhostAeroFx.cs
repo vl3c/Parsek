@@ -86,12 +86,10 @@ namespace Parsek
         MapView = 2,
         ThermalColorsDebug = 3,
         DetailOff = 4,
-        StockDraws = 5,
         OutOfReach = 6,
         NoStockAssets = 7,
         NoMeshes = 8,
         Isolated = 9,
-        FrameCap = 10,
     }
 
     /// <summary>Why a ghost may or may not own the reentry light this frame.</summary>
@@ -100,9 +98,9 @@ namespace Parsek
         Offer = 0,
         NoEffect = 1,
         MapView = 2,
-        StockLightOn = 3,
         OutOfReach = 4,
         NoStockLight = 5,
+        NoMeshes = 6,
     }
 
     /// <summary>
@@ -128,29 +126,73 @@ namespace Parsek
         /// <summary>The velocity camera's starting orthographic size in <c>FXCamera.Start</c>.</summary>
         internal const float StockVelocityCamMinBox = 3f;
 
-        /// <summary>Most ghosts that draw their own sheath in one frame.</summary>
-        internal const int MaxSheathsPerFrame = 4;
+        /// <summary>
+        /// <c>FXCamera.Start</c>'s occlusion map size when <c>GameSettings.AERO_FX_QUALITY</c> is
+        /// outside 0..3 (its switch's default branch), and the size range the switch covers.
+        /// </summary>
+        internal const int StockOcclusionResolutionDefault = 512;
+        internal const int StockOcclusionResolutionMin = 256;
+        internal const int StockOcclusionResolutionMax = 2048;
 
-        /// <summary>The ghost velocity camera's depth map size (stock's lowest occlusion setting).</summary>
-        internal const int VelocityDepthResolution = 256;
+        /// <summary>How long a pooled ghost depth map may sit unused before it is released.</summary>
+        internal const float DepthMapIdleReleaseSeconds = 5f;
 
         /// <summary>
-        /// Sheath slot <paramref name="slot"/>'s tile in the shared velocity depth atlas, a strip
-        /// of <paramref name="slots"/> square tiles side by side (horizontal only, so no platform
-        /// flips the order): the camera rect (<paramref name="rectX"/>, width
-        /// <paramref name="rectWidth"/>, full height) and the clip-space x scale and offset that
-        /// map the full camera view into that tile (<c>x' = scale * x + offset * w</c>).
+        /// The size of a ghost's own velocity depth map: stock's <c>FXCamera.occlusionMapResolution</c>
+        /// (256 / 512 / 1024 / 2048 by <c>AERO_FX_QUALITY</c>), so a ghost's flame edges are as
+        /// clean as the active vessel's. An unread or out-of-range value falls back to stock's
+        /// default branch.
         /// </summary>
-        internal static void VelocityAtlasTile(int slot, int slots,
-            out float rectX, out float rectWidth, out float ndcScaleX, out float ndcOffsetX)
+        internal static int OcclusionResolution(int stockResolution)
         {
-            if (slots < 1) slots = 1;
-            if (slot < 0) slot = 0;
-            if (slot >= slots) slot = slots - 1;
-            rectWidth = 1f / slots;
-            rectX = slot * rectWidth;
-            ndcScaleX = rectWidth;
-            ndcOffsetX = -1f + (2f * slot + 1f) / slots;
+            if (stockResolution < StockOcclusionResolutionMin || stockResolution > StockOcclusionResolutionMax)
+                return StockOcclusionResolutionDefault;
+            return stockResolution;
+        }
+
+        /// <summary>
+        /// Whether the pooled depth map in the last slot can be released: it is past the slots
+        /// this frame drew and has sat unused for <see cref="DepthMapIdleReleaseSeconds"/>.
+        /// </summary>
+        internal static bool ShouldReleasePooledDepthMap(int slot, int drawnThisFrame,
+            float lastUsedTime, float now)
+        {
+            if (slot < drawnThisFrame) return false;
+            if (float.IsNaN(lastUsedTime) || float.IsNaN(now)) return true;
+            return now - lastUsedTime >= DepthMapIdleReleaseSeconds;
+        }
+
+        /// <summary>
+        /// Whether a ghost is hidden from stock's FX camera and velocity camera this frame:
+        /// only while stock's effect is on and the ghost is within its reach (stock paints nothing
+        /// beyond its far clip, so masking a farther ghost would buy nothing).
+        /// </summary>
+        internal static bool ShouldMaskFromStockFx(bool stockFxCameraOn, bool withinReach)
+            => stockFxCameraOn && withinReach;
+
+        /// <summary>How far after stock's FX cameras the Parsek copies render (camera depth).</summary>
+        internal const float CopyCameraDepthStep = 0.01f;
+
+        /// <summary>
+        /// The depth of the Parsek depth copy: just after both of stock's FX cameras (they sit at
+        /// 2 or 3, <c>FXCamera.OnCameraChange</c>), so a frame renders stock's pass, then ours; the
+        /// FX copy renders one step later still.
+        /// </summary>
+        internal static float CopyCameraDepth(float stockDepthCameraDepth, float stockFxCameraDepth)
+        {
+            if (float.IsNaN(stockDepthCameraDepth)) stockDepthCameraDepth = stockFxCameraDepth;
+            if (float.IsNaN(stockFxCameraDepth)) stockFxCameraDepth = stockDepthCameraDepth;
+            if (float.IsNaN(stockDepthCameraDepth)) return 3f + CopyCameraDepthStep;
+            return Mathf.Max(stockDepthCameraDepth, stockFxCameraDepth) + CopyCameraDepthStep;
+        }
+
+        /// <summary>
+        /// Whether a renderer on this layer is one stock's FX or velocity camera could draw.
+        /// </summary>
+        internal static bool LayerSeenByStockFx(int layer, int stockFxMask, int stockVelocityMask)
+        {
+            if (layer < 0 || layer > 31) return false;
+            return ((stockFxMask | stockVelocityMask) & (1 << layer)) != 0;
         }
 
         /// <summary>
@@ -170,10 +212,10 @@ namespace Parsek
             return string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "Reentry FX built for ghost #{0} \"{1}\": particles=0 glowMaterials={2} sheathMeshes={3}; " +
                 "per frame while its sheath draws: drawCalls={4} velocityDepthRenders=1 " +
-                "(a {5}x{5} tile of the shared depth atlas); shared per frame while any ghost draws: " +
-                "sceneDepthPass=1 light=1, at most {6} ghosts",
-                ghostIndex, vesselName ?? "?", glowMaterials, sheathMeshes, sheathDrawCalls,
-                VelocityDepthResolution, MaxSheathsPerFrame);
+                "(its own depth map at stock's occlusion size); shared per frame while any ghost draws: " +
+                "sceneDepthPass=1 light=1, no ghost cap; while stock's fire is on: its renderers are " +
+                "hidden from stock's FX and velocity cameras",
+                ghostIndex, vesselName ?? "?", glowMaterials, sheathMeshes, sheathDrawCalls);
         }
 
         /// <summary>
@@ -296,46 +338,139 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Whether a ghost draws its own sheath this frame. Stock's gates come first (scalar above
-        /// 0, map closed, thermal-colour debug off, detail level above 0), then the two ownership
-        /// rules: while stock's FX camera is on, it already paints every vessel in its reach, so the
-        /// ghost wears that fire and draws none of its own; beyond the reach no stock fire shows.
+        /// Whether a ghost draws its own sheath this frame (owner rulings 2026-11-28 01:06 and
+        /// 01:07: every ghost always wears its own fire, with its own direction and strength, even
+        /// while stock's fire is on; no ghost cap). Stock's gates come first (scalar above 0, map
+        /// closed, thermal-colour debug off, detail level above 0), then stock's reach (its FX
+        /// camera's far clip), visible meshes and the isolation test mode.
         /// </summary>
         internal static GhostAeroSheathDecision DecideSheath(float fxScalar, bool mapView,
-            bool thermalColorsDebug, int detailLevel, bool assetsReady, bool stockFxCameraOn,
-            bool withinReach, int meshCount, bool isolated, int drawnThisFrame)
+            bool thermalColorsDebug, int detailLevel, bool assetsReady, bool withinReach,
+            int meshCount, bool isolated)
         {
             if (!(fxScalar > 0f)) return GhostAeroSheathDecision.NoEffect;
             if (mapView) return GhostAeroSheathDecision.MapView;
             if (thermalColorsDebug) return GhostAeroSheathDecision.ThermalColorsDebug;
             if (detailLevel <= 0) return GhostAeroSheathDecision.DetailOff;
             if (!assetsReady) return GhostAeroSheathDecision.NoStockAssets;
-            if (stockFxCameraOn) return GhostAeroSheathDecision.StockDraws;
             if (!withinReach) return GhostAeroSheathDecision.OutOfReach;
             if (meshCount <= 0) return GhostAeroSheathDecision.NoMeshes;
             if (isolated) return GhostAeroSheathDecision.Isolated;
-            if (drawnThisFrame >= MaxSheathsPerFrame) return GhostAeroSheathDecision.FrameCap;
             return GhostAeroSheathDecision.Draw;
         }
 
         /// <summary>
         /// Whether a ghost may own the reentry light this frame. Stock lights at any detail level
-        /// while its scalar is above 0 and the map is closed; the ghost light stays off while
-        /// stock's own is on, and beyond the FX reach.
+        /// while its scalar is above 0 and the map is closed; the ghost light also needs the FX
+        /// reach and a visible mesh (a hidden ghost, a loop pause, lights nothing). Stock's own
+        /// light being on does not stop it: the ghost's fire is its own.
         /// </summary>
         internal static GhostAeroLightDecision DecideLight(float fxScalar, bool mapView,
-            bool stockLightAvailable, bool stockLightOn, bool withinReach)
+            bool stockLightAvailable, bool withinReach, int visibleMeshCount)
         {
             if (!(fxScalar > 0f)) return GhostAeroLightDecision.NoEffect;
             if (mapView) return GhostAeroLightDecision.MapView;
             if (!stockLightAvailable) return GhostAeroLightDecision.NoStockLight;
-            if (stockLightOn) return GhostAeroLightDecision.StockLightOn;
             if (!withinReach) return GhostAeroLightDecision.OutOfReach;
+            if (visibleMeshCount <= 0) return GhostAeroLightDecision.NoMeshes;
             return GhostAeroLightDecision.Offer;
         }
 
         /// <summary>The nearer offer wins the one light; ties keep the first.</summary>
         internal static bool LightOfferWins(bool haveCurrent, float currentDistance, float offerDistance)
             => !haveCurrent || offerDistance < currentDistance;
+    }
+
+    /// <summary>
+    /// Keeps ghost renderers out of stock's FX and velocity cameras without touching what any
+    /// other camera sees (G.7 "Y1 design", masking). Before one of stock's two cameras culls,
+    /// <see cref="PreCull"/> sets <c>Renderer.forceRenderingOff</c> on each candidate that is not
+    /// already off and remembers exactly those; every other camera's cull, every post-render, the
+    /// renderer's next LateUpdate and its disable / destroy restore them. A renderer something else
+    /// switched off is never touched, and a mask can never outlive the stock camera's render: the
+    /// main camera's next cull restores it first even if stock's post-render never came. Pure over
+    /// the two delegates, so the ledger is unit-tested with plain objects.
+    /// </summary>
+    internal sealed class StockFxMaskLedger<T> where T : class
+    {
+        private readonly System.Func<T, bool> isOff;
+        private readonly System.Action<T, bool> setOff;
+        private readonly System.Collections.Generic.List<T> candidates = new System.Collections.Generic.List<T>();
+        private readonly System.Collections.Generic.List<T> masked = new System.Collections.Generic.List<T>();
+
+        internal StockFxMaskLedger(System.Func<T, bool> isOff, System.Action<T, bool> setOff)
+        {
+            this.isOff = isOff ?? throw new System.ArgumentNullException(nameof(isOff));
+            this.setOff = setOff ?? throw new System.ArgumentNullException(nameof(setOff));
+        }
+
+        internal int CandidateCount => candidates.Count;
+        internal int MaskedCount => masked.Count;
+
+        /// <summary>Renderers masked by the last stock-camera cull (for the frame line).</summary>
+        internal int LastMaskedCount { get; private set; }
+
+        /// <summary>Writes that failed (a destroyed renderer), summed since the last read.</summary>
+        internal int FailedWrites { get; private set; }
+
+        internal void ClearCandidates() => candidates.Clear();
+
+        internal void AddCandidate(T item)
+        {
+            if (item != null) candidates.Add(item);
+        }
+
+        internal int TakeFailedWrites()
+        {
+            int n = FailedWrites;
+            FailedWrites = 0;
+            return n;
+        }
+
+        /// <summary>
+        /// A camera is about to cull. Stock's FX or velocity camera masks the candidates; any
+        /// other camera restores whatever is still masked. Returns how many are masked after.
+        /// </summary>
+        internal int PreCull(bool stockFxCamera)
+        {
+            Restore();
+            if (!stockFxCamera) return 0;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                T item = candidates[i];
+                bool alreadyOff;
+                try { alreadyOff = isOff(item); }
+                catch (System.Exception) { FailedWrites++; continue; }
+                if (alreadyOff) continue;
+                try
+                {
+                    setOff(item, true);
+                    masked.Add(item);
+                }
+                catch (System.Exception) { FailedWrites++; }
+            }
+            LastMaskedCount = masked.Count;
+            return masked.Count;
+        }
+
+        /// <summary>A camera finished rendering: restore everything masked.</summary>
+        internal int PostRender() => Restore();
+
+        /// <summary>Switches every masked renderer back on; always empties the masked list.</summary>
+        internal int Restore()
+        {
+            int restored = 0;
+            for (int i = 0; i < masked.Count; i++)
+            {
+                try
+                {
+                    setOff(masked[i], false);
+                    restored++;
+                }
+                catch (System.Exception) { FailedWrites++; }
+            }
+            masked.Clear();
+            return restored;
+        }
     }
 }

@@ -144,14 +144,13 @@ namespace Parsek.Tests
 
         private static GhostAeroSheathDecision Sheath(
             float fx = 0.8f, bool map = false, bool debug = false, int detail = 3, bool assets = true,
-            bool stockOn = false, bool inReach = true, int meshes = 5, bool isolated = false, int drawn = 0)
-            => GhostAeroFx.DecideSheath(fx, map, debug, detail, assets, stockOn, inReach, meshes, isolated, drawn);
+            bool inReach = true, int meshes = 5, bool isolated = false)
+            => GhostAeroFx.DecideSheath(fx, map, debug, detail, assets, inReach, meshes, isolated);
 
         [Fact]
         public void DecideSheath_DrawsWhenEveryGateIsOpen()
         {
             Assert.Equal(GhostAeroSheathDecision.Draw, Sheath());
-            Assert.Equal(GhostAeroSheathDecision.Draw, Sheath(drawn: GhostAeroFx.MaxSheathsPerFrame - 1));
         }
 
         [Fact]
@@ -163,43 +162,51 @@ namespace Parsek.Tests
             Assert.Equal(GhostAeroSheathDecision.ThermalColorsDebug, Sheath(debug: true));
             Assert.Equal(GhostAeroSheathDecision.DetailOff, Sheath(detail: 0));
             Assert.Equal(GhostAeroSheathDecision.NoStockAssets, Sheath(assets: false));
-            Assert.Equal(GhostAeroSheathDecision.StockDraws, Sheath(stockOn: true));
             Assert.Equal(GhostAeroSheathDecision.OutOfReach, Sheath(inReach: false));
             Assert.Equal(GhostAeroSheathDecision.NoMeshes, Sheath(meshes: 0));
             Assert.Equal(GhostAeroSheathDecision.Isolated, Sheath(isolated: true));
-            Assert.Equal(GhostAeroSheathDecision.FrameCap, Sheath(drawn: GhostAeroFx.MaxSheathsPerFrame));
         }
 
         [Fact]
-        public void DecideSheath_StocksGatesComeBeforeTheOwnershipRules()
+        public void DecideSheath_StocksGatesComeFirst()
         {
             // Each pair: the earlier gate wins over every later one.
             Assert.Equal(GhostAeroSheathDecision.NoEffect,
-                Sheath(fx: 0f, map: true, debug: true, detail: 0, assets: false, stockOn: true, inReach: false));
+                Sheath(fx: 0f, map: true, debug: true, detail: 0, assets: false, inReach: false));
             Assert.Equal(GhostAeroSheathDecision.MapView, Sheath(map: true, debug: true, detail: 0));
             Assert.Equal(GhostAeroSheathDecision.ThermalColorsDebug, Sheath(debug: true, detail: 0));
-            Assert.Equal(GhostAeroSheathDecision.DetailOff, Sheath(detail: 0, assets: false, stockOn: true));
-            Assert.Equal(GhostAeroSheathDecision.NoStockAssets, Sheath(assets: false, stockOn: true));
-            Assert.Equal(GhostAeroSheathDecision.StockDraws, Sheath(stockOn: true, inReach: false));
+            Assert.Equal(GhostAeroSheathDecision.DetailOff, Sheath(detail: 0, assets: false));
+            Assert.Equal(GhostAeroSheathDecision.NoStockAssets, Sheath(assets: false, inReach: false));
             Assert.Equal(GhostAeroSheathDecision.OutOfReach, Sheath(inReach: false, meshes: 0));
             Assert.Equal(GhostAeroSheathDecision.NoMeshes, Sheath(meshes: 0, isolated: true));
-            Assert.Equal(GhostAeroSheathDecision.Isolated,
-                Sheath(isolated: true, drawn: GhostAeroFx.MaxSheathsPerFrame));
+        }
+
+        [Fact]
+        public void DecideSheath_HasNoStockOwnershipGateAndNoGhostCap()
+        {
+            // Owner rulings 2026-11-28 01:06 / 01:07: a ghost draws its own fire whether or not
+            // stock's is on, and every ghost in reach draws (the signature has neither input).
+            var parameters = typeof(GhostAeroFx).GetMethod("DecideSheath",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).GetParameters();
+            Assert.DoesNotContain(parameters, p => p.Name.IndexOf("stock", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.DoesNotContain(parameters, p => p.Name.IndexOf("drawn", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.False(System.Enum.IsDefined(typeof(GhostAeroSheathDecision), "StockDraws"));
+            Assert.False(System.Enum.IsDefined(typeof(GhostAeroSheathDecision), "FrameCap"));
         }
 
         // --- DecideLight and the nearest offer ---
 
         [Fact]
-        public void DecideLight_OffersOnlyWhileStocksLightIsOffAndInReach()
+        public void DecideLight_NeedsTheEffectReachAndAVisibleMesh()
         {
-            Assert.Equal(GhostAeroLightDecision.Offer, GhostAeroFx.DecideLight(0.5f, false, true, false, true));
-            Assert.Equal(GhostAeroLightDecision.NoEffect, GhostAeroFx.DecideLight(0f, false, true, false, true));
-            Assert.Equal(GhostAeroLightDecision.MapView, GhostAeroFx.DecideLight(0.5f, true, true, false, true));
-            Assert.Equal(GhostAeroLightDecision.NoStockLight, GhostAeroFx.DecideLight(0.5f, false, false, false, true));
-            Assert.Equal(GhostAeroLightDecision.StockLightOn, GhostAeroFx.DecideLight(0.5f, false, true, true, true));
-            Assert.Equal(GhostAeroLightDecision.OutOfReach, GhostAeroFx.DecideLight(0.5f, false, true, false, false));
-            // Stock's light needs no detail level: the light is not gated on it.
-            Assert.Equal(GhostAeroLightDecision.StockLightOn, GhostAeroFx.DecideLight(0.5f, false, true, true, false));
+            Assert.Equal(GhostAeroLightDecision.Offer, GhostAeroFx.DecideLight(0.5f, false, true, true, 3));
+            Assert.Equal(GhostAeroLightDecision.NoEffect, GhostAeroFx.DecideLight(0f, false, true, true, 3));
+            Assert.Equal(GhostAeroLightDecision.MapView, GhostAeroFx.DecideLight(0.5f, true, true, true, 3));
+            Assert.Equal(GhostAeroLightDecision.NoStockLight, GhostAeroFx.DecideLight(0.5f, false, false, true, 3));
+            Assert.Equal(GhostAeroLightDecision.OutOfReach, GhostAeroFx.DecideLight(0.5f, false, true, false, 3));
+            // A ghost whose renderers are hidden (a loop pause while intensity decays) lights nothing.
+            Assert.Equal(GhostAeroLightDecision.NoMeshes, GhostAeroFx.DecideLight(0.5f, false, true, true, 0));
+            Assert.False(System.Enum.IsDefined(typeof(GhostAeroLightDecision), "StockLightOn"));
         }
 
         [Fact]
@@ -211,27 +218,174 @@ namespace Parsek.Tests
             Assert.False(GhostAeroFx.LightOfferWins(true, 100f, 150f));
         }
 
-        // --- The velocity depth atlas ---
+        // --- Per-ghost depth maps ---
 
         [Theory]
-        [InlineData(0, 4, 0f, 0.25f, -0.75f)]
-        [InlineData(1, 4, 0.25f, 0.25f, -0.25f)]
-        [InlineData(3, 4, 0.75f, 0.25f, 0.75f)]
-        [InlineData(0, 1, 0f, 1f, 0f)]
-        [InlineData(9, 4, 0.75f, 0.25f, 0.75f)]
-        [InlineData(-2, 4, 0f, 0.25f, -0.75f)]
-        public void VelocityAtlasTile_MapsTheFullViewIntoItsTile(int slot, int slots,
-            float rectX, float width, float offset)
+        [InlineData(256, 256)]
+        [InlineData(512, 512)]
+        [InlineData(1024, 1024)]
+        [InlineData(2048, 2048)]
+        [InlineData(0, 512)]
+        [InlineData(-1, 512)]
+        [InlineData(4096, 512)]
+        [InlineData(128, 512)]
+        public void OcclusionResolution_IsStocksOwnSize(int stock, int expected)
         {
-            GhostAeroFx.VelocityAtlasTile(slot, slots, out float gotX, out float gotW,
-                out float scale, out float gotOffset);
-            Assert.InRange(gotX, rectX - 1e-6f, rectX + 1e-6f);
-            Assert.InRange(gotW, width - 1e-6f, width + 1e-6f);
-            Assert.InRange(scale, width - 1e-6f, width + 1e-6f);
-            Assert.InRange(gotOffset, offset - 1e-6f, offset + 1e-6f);
-            // The view's edges land on the tile's edges in NDC (rect x -> 2x - 1).
-            Assert.InRange(scale * -1f + gotOffset, 2f * gotX - 1f - 1e-5f, 2f * gotX - 1f + 1e-5f);
-            Assert.InRange(scale * 1f + gotOffset, 2f * (gotX + gotW) - 1f - 1e-5f, 2f * (gotX + gotW) - 1f + 1e-5f);
+            Assert.Equal(expected, GhostAeroFx.OcclusionResolution(stock));
+        }
+
+        [Theory]
+        [InlineData(0, 1, 0f, 100f, false)]    // drawn this frame
+        [InlineData(1, 1, 99f, 100f, false)]   // idle 1 s
+        [InlineData(1, 1, 95f, 100f, true)]    // idle 5 s
+        [InlineData(3, 0, 0f, 100f, true)]
+        [InlineData(2, 3, 0f, 100f, false)]
+        [InlineData(1, 0, float.NaN, 100f, true)]
+        public void ShouldReleasePooledDepthMap_OnlyIdleSlotsPastTheFrame(int slot, int drawn,
+            float lastUsed, float now, bool expected)
+        {
+            Assert.Equal(expected, GhostAeroFx.ShouldReleasePooledDepthMap(slot, drawn, lastUsed, now));
+        }
+
+        // --- Masking ghosts out of stock's fire ---
+
+        [Fact]
+        public void ShouldMaskFromStockFx_OnlyWhileStockIsOnAndInReach()
+        {
+            Assert.True(GhostAeroFx.ShouldMaskFromStockFx(true, true));
+            Assert.False(GhostAeroFx.ShouldMaskFromStockFx(false, true));
+            Assert.False(GhostAeroFx.ShouldMaskFromStockFx(true, false));
+            Assert.False(GhostAeroFx.ShouldMaskFromStockFx(false, false));
+        }
+
+        [Theory]
+        [InlineData(0, 0x20001, 1, true)]
+        [InlineData(17, 0x20001, 1, true)]
+        [InlineData(6, 0x20001, 1, false)]
+        [InlineData(15, 0x20001, 1, false)]
+        [InlineData(0, 0, 1, true)]
+        [InlineData(-1, 0x20001, 1, false)]
+        [InlineData(32, -1, -1, false)]
+        public void LayerSeenByStockFx_ReadsBothCamerasMasks(int layer, int fxMask, int velocityMask, bool expected)
+        {
+            Assert.Equal(expected, GhostAeroFx.LayerSeenByStockFx(layer, fxMask, velocityMask));
+        }
+
+        [Theory]
+        [InlineData(2f, 3f, 3.01f)]
+        [InlineData(3f, 2f, 3.01f)]
+        [InlineData(float.NaN, 2f, 2.01f)]
+        [InlineData(float.NaN, float.NaN, 3.01f)]
+        public void CopyCameraDepth_RendersAfterBothStockCameras(float depthCam, float fxCam, float expected)
+        {
+            float got = GhostAeroFx.CopyCameraDepth(depthCam, fxCam);
+            Assert.InRange(got, expected - 1e-5f, expected + 1e-5f);
+            if (!float.IsNaN(depthCam)) Assert.True(got > depthCam);
+            if (!float.IsNaN(fxCam)) Assert.True(got > fxCam);
+        }
+
+        private sealed class FakeRenderer
+        {
+            public bool Off;
+            public bool Throws;
+            public int Writes;
+        }
+
+        private static StockFxMaskLedger<FakeRenderer> Ledger() => new StockFxMaskLedger<FakeRenderer>(
+            r => r.Off,
+            (r, off) => { if (r.Throws) throw new System.InvalidOperationException("destroyed"); r.Off = off; r.Writes++; });
+
+        [Fact]
+        public void MaskLedger_StockCameraMasksAndPostRenderRestores()
+        {
+            var a = new FakeRenderer();
+            var b = new FakeRenderer();
+            var ledger = Ledger();
+            ledger.AddCandidate(a);
+            ledger.AddCandidate(b);
+            ledger.AddCandidate(null);
+
+            Assert.Equal(2, ledger.PreCull(stockFxCamera: true));
+            Assert.True(a.Off);
+            Assert.True(b.Off);
+            Assert.Equal(2, ledger.LastMaskedCount);
+
+            Assert.Equal(2, ledger.PostRender());
+            Assert.False(a.Off);
+            Assert.False(b.Off);
+            Assert.Equal(0, ledger.MaskedCount);
+        }
+
+        [Fact]
+        public void MaskLedger_AnyOtherCamerasCullRestoresAMissedPostRender()
+        {
+            // Stock's camera masked, its post-render never came (disabled mid-frame, an
+            // exception): the main camera's next cull must find the ghost visible.
+            var a = new FakeRenderer();
+            var ledger = Ledger();
+            ledger.AddCandidate(a);
+            ledger.PreCull(stockFxCamera: true);
+            Assert.True(a.Off);
+
+            Assert.Equal(0, ledger.PreCull(stockFxCamera: false));
+            Assert.False(a.Off);
+            Assert.Equal(0, ledger.MaskedCount);
+        }
+
+        [Fact]
+        public void MaskLedger_TwoStockCullsInARowNeverLoseARenderer()
+        {
+            // FX camera then velocity camera with no post-render between: the second cull
+            // restores and re-masks, so the one restore after still finds every renderer.
+            var a = new FakeRenderer();
+            var ledger = Ledger();
+            ledger.AddCandidate(a);
+            ledger.PreCull(true);
+            ledger.PreCull(true);
+            Assert.True(a.Off);
+            Assert.Equal(1, ledger.MaskedCount);
+            ledger.Restore();
+            Assert.False(a.Off);
+        }
+
+        [Fact]
+        public void MaskLedger_NeverTouchesARendererSomethingElseSwitchedOff()
+        {
+            var hiddenByOthers = new FakeRenderer { Off = true };
+            var ledger = Ledger();
+            ledger.AddCandidate(hiddenByOthers);
+            Assert.Equal(0, ledger.PreCull(true));
+            ledger.PostRender();
+            Assert.True(hiddenByOthers.Off);
+            Assert.Equal(0, hiddenByOthers.Writes);
+        }
+
+        [Fact]
+        public void MaskLedger_AFailingWriteIsCountedAndTheRestStillRestore()
+        {
+            var a = new FakeRenderer();
+            var b = new FakeRenderer();
+            var ledger = Ledger();
+            ledger.AddCandidate(a);
+            ledger.AddCandidate(b);
+            ledger.PreCull(true);
+            a.Throws = true;   // destroyed between the cull and the restore
+            Assert.Equal(1, ledger.Restore());
+            Assert.False(b.Off);
+            Assert.Equal(0, ledger.MaskedCount);
+            Assert.Equal(1, ledger.TakeFailedWrites());
+            Assert.Equal(0, ledger.TakeFailedWrites());
+        }
+
+        [Fact]
+        public void MaskLedger_ClearedCandidatesMaskNothing()
+        {
+            var a = new FakeRenderer();
+            var ledger = Ledger();
+            ledger.AddCandidate(a);
+            ledger.ClearCandidates();
+            Assert.Equal(0, ledger.PreCull(true));
+            Assert.False(a.Off);
         }
 
         // --- The build cost line ---
@@ -259,8 +413,9 @@ namespace Parsek.Tests
                 string line = GhostAeroFx.FormatBuildCost(12000, "Probe", 7, 6, 9);
                 Assert.Equal("Reentry FX built for ghost #12000 \"Probe\": particles=0 glowMaterials=7 " +
                     "sheathMeshes=6; per frame while its sheath draws: drawCalls=9 velocityDepthRenders=1 " +
-                    "(a 256x256 tile of the shared depth atlas); shared per frame while any ghost draws: " +
-                    "sceneDepthPass=1 light=1, at most 4 ghosts", line);
+                    "(its own depth map at stock's occlusion size); shared per frame while any ghost draws: " +
+                    "sceneDepthPass=1 light=1, no ghost cap; while stock's fire is on: its renderers are " +
+                    "hidden from stock's FX and velocity cameras", line);
                 Assert.Contains("\"?\"", GhostAeroFx.FormatBuildCost(1, null, 0, 0, 0));
             }
             finally
