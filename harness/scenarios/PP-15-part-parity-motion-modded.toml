@@ -1,0 +1,154 @@
+schema = 1
+id = "PP-15-part-parity-motion-modded"
+tier = "operator"
+# PART GHOST PARITY, MODDED INSTALL, MOTION OVER TIME IN ORBIT (PP-14 on modded-compat:
+# ReStock, ReStock+, Waterfall, B9PartSwitch; phase P7 of
+# docs/dev/design-part-ghost-parity.md, Appendix H, work row M6 of H.7). PP-4 photographs
+# every transforming part's two END states (stowed, and the state after its done signal);
+# this lane photographs the MOTION between them. Each case presses one transforming part
+# for real and photographs it LIVE, in game time, on target frames every T / 8 from the
+# press (T = the predicted motion time), until its window ends (about 2 T + 1 s, capped at
+# 40 s). After the window, the ghost is built on the event route (the stowed snapshot plus
+# the events the recorder's own pollers emitted during that motion) and posed at exactly
+# the UT each real frame was taken (same time) and at the real frame's progress (same
+# progress). Each side reads a progress curve p(t); the judge measures its lag, duration
+# ratio, curve shape, snap and steps (H.1 / H.3). Base skin only (owner ruling R2). The
+# parachutes move in the air: their motion cases are PP-6's label `pp6mo`. No
+# modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the
+# ReStock models (H.4).
+#
+# WHAT THE LANE FLIES. PP-4's host and setup: `eva2-lko-crewed` (sandbox, every part
+# available, the 13-part Kerbal X Probe ORBITING Kerbin at ~100 km) boots into FLIGHT, turns
+# every auto-record setting off (no case vessel may be recorded), turns verbose logging on
+# (the per-case lines are verbose-tier), warps on rails to UT 1900 (FGV-1's sunlit window),
+# clears the label directory (`op=reset motion=all`), runs THREE time-boxed `op=run
+# motion=all` steps and quits without saving. A `motion=` run names no `states=`, no `fx=`
+# and no `contexts=` and plans ONLY the motion cases of its families (H.1), so nothing of
+# PP-2 / PP-4 / PP-8 is repeated; `frames=` is not passed (8 frames per motion time, the
+# default). `controls=true` runs the orbit motion control set (H.3): `ctl-empty`,
+# `ctl-ghost-absent`, `ctl-real-vs-real`, `ctl-motion-real-vs-real` (two Communotron 16
+# pressed in one frame: the timing noise floor), `ctl-motion-ghost-slow` (the airbrake with
+# its event-route ghost's clip doubled after the build) and `ctl-motion-ghost-late` (the
+# Communotron 16 with every polled event moved 1.0 s later), the last two each judged
+# RELATIVE to its own normal route `<controlId>--normal`.
+#
+# CASES (design H.1, counted by M1 over `motion-parts-modded-compat.txt`): 101 orbit motion
+# cases (22 deployable, 9 gear, 2 ladder, 4 animation-group, 9 cargo-bay, 17
+# animate-generic, 1 airbrake, 13 robotics servos, 24 control surfaces in the radial
+# context) plus the 6 controls: 107. The reading-only light fades are left out (`motion=all`
+# never holds `light`). Each step logs the exact counts on its `motion cases:` Info line.
+#
+# STEP SIZING (design H.4). Planned at 5 s per case (P6's measured 3.3 s per case at waves of
+# 4, plus the second motion time each window waits, with P6's lesson that the first
+# estimate ran 50 % low): about 565 s of sweep. Three `op=run maxSeconds=480` steps hold
+# 1440 s; a step with nothing left answers `done=true` at once. The step count is re-set
+# from the reading flight's `wall=` (design D.8).
+#
+# GATES. (1) The partParity verifier row, from the start: the run's control set (recomputed
+# from the manifest's settings) behaved, every motion control re-judged from its sidecars
+# (else INVALID(parity-controls)); no family's press path broke (more than half of one
+# family's motion cases action-failed / state-timeout is INVALID(parity-state-press)); the
+# Python recompute of the motion atlases and of every case's crossings and measures from
+# its per-frame arrays agrees with the C# sidecars (else INVALID(parity-instrument)); the
+# sweep reached done and every planned case has a complete sidecar or a recorded setup
+# fault (else INVALID(parity-incomplete)); the host survived (else
+# INVALID(parity-host-damaged)). (2) The motion verdicts are REPORT-ONLY
+# (`[expectations.partParity] gating = false`): every H.3 threshold is a starting guess the
+# reading flights re-pin, and arming follows the P5 rule (two matching reading runs, a
+# `pp15` baseline section). (3) The log pins as a second guard: the run-step summary line
+# with `crashed=0` and `controls=ok`, the seam applier's OK line, the step's `motion cases:`
+# line (proof the step planned a motion run), and no `[Parsek][ERROR]`: an ERROR a modded
+# part provokes is a finding to file, never a suppression (design 10).
+#
+# WHY A NEW LANE, NOT A LABEL IN PP-4. PP-4 is ARMED: the P5 regression gate reds a label
+# with no baseline section (`no-baseline`, Appendix F), so a motion label there would red
+# every PP-4 flight until a motion baseline exists.
+#
+# READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp15/` into
+# `harness/results/<runId>_partparity/pp15/`, where the row writes
+# `partparity-verdicts.json`. The viewer (`harness/tools/part_parity_view.py modded=<pp4 dir>
+# modded=<pp15 dir>`) shows each part's motion strips beside its state cases (H.5). Every
+# ghost-visual defect a case shows is filed in docs/dev/todo-and-known-bugs.md with its case
+# id (the four expected ones of H.6 under todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26).
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - PP-4
+# flies the same host, but it is armed (above) and its three 540 s steps are in use. (2) No
+# idle waits: the one game-time wait is an explicit-UT WarpToUT on rails; a step with
+# nothing left to sweep answers `done=true` at once. (3) The time box is the measurement
+# itself. (4)/(5) no mission burns, no coasts. (6) `[retry] policy = "none"`: a retry's
+# `op=reset` would clear the files a reading run exists to keep. (7) Recording count pinned
+# at 0. (8)/(9) tier operator by purpose (a report-only reading lane), flight_efficiency.py
+# after the first green flight.
+#
+# NEVER FLOWN (authored 2026-11-27, branch `claude/project-thread-sif2cl-m6`). Its first
+# flight is a `limit=20` reading flight on a local copy of this spec (20 cases + the 6
+# controls), then the full flight; the live engine is work row M3 of H.7.
+description = "AUTHORED 2026-11-27, NEVER FLOWN (part ghost parity P7 M6): PP-14 on modded-compat: every transforming modded-compat part (ReStock, ReStock+, Waterfall, B9PartSwitch) pressed for real in LKO and photographed LIVE through its motion beside its Parsek event-route ghost posed at each real frame's UT and progress, over three PartParitySweep motion=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; motion verdicts report-only)."
+instanceProfile = "modded-compat"
+tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-15"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in. The reset carries the run's
+  # own kind (the applier admits every step by its run kind: an orbit run, an orbiting host).
+  { cmd = "PartParitySweep", args = { label = "pp15", op = "reset", motion = "all" }, expect = "OK", budget = 120 },
+  # Three time-boxed motion steps over every orbit motion case; each resumes.
+  { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp15", op = "run", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 claim: the motion verdicts are report-only, so no part-event family is gated here.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only motion verdicts (design H.3); the instrument gates regardless.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line: every control ok, no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp15 op=run ok=true label=pp15 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp15 elapsed=[0-9.]+s label=pp15 done=(true|false) ",
+  # The step planned an orbit motion run (design H.1, PartParityMotionRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] motion cases: motion=all contexts=none install=[1-9][0-9]* \\(",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# The step budgets: LoadGame 300, the warp 120, the reset 120, three 540 s run steps
+# (2160 s; PP-4's 2400).
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
