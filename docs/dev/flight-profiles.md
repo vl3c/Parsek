@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 549 |
-| LIVE-PROVEN date in status row | 595 |
-| no LIVE-PROVEN date | 119 |
+| LIVE-PROVEN date in status row | 596 |
+| no LIVE-PROVEN date | 118 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -126,7 +126,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RVR | 19 | 1 | 18 | - | - | - | 18 |
 | RW | 25 | - | - | 25 | - | 1 | 25 |
 | S | 20 | 12 | 3 | 5 | - | - | 14 |
-| SAVE | 2 | - | - | 2 | - | - | - |
+| SAVE | 2 | - | - | 2 | - | - | 1 |
 | SB | 1 | - | 1 | - | - | - | 1 |
 | SCI | 1 | - | - | 1 | - | 1 | 1 |
 | SD | 1 | - | - | 1 | - | 1 | 1 |
@@ -363,7 +363,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 458 | 134 | 388 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +100 |
+| Kerbin | 458 | 134 | 389 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +100 |
 | Mun | 73 | 15 | 63 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +16 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1930,8 +1930,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SAVE-IDX-1-quickload-keeps-eva-focus | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | reload, save, warp | - | stock-minimal; never flown |
-| SAVE-IDX-2-far-switch-focuses-target | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | warp, vessel-switch | - | stock-minimal; never flown |
+| SAVE-IDX-1-quickload-keeps-eva-focus | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | reload, save, warp | - | LIVE-PROVEN 2026-11-27 |
+| SAVE-IDX-2-far-switch-focuses-target | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | warp, vessel-switch | - | FIRST FLIGHT 2026-11-27 2026-11-27_1710 P... |
 
 ### SB (1)
 
