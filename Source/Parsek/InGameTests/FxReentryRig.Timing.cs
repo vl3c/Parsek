@@ -41,6 +41,9 @@ namespace Parsek.InGameTests
         private static ConfigNode timingCopySnapshot;
         private static bool timingSlowActive;
         private static float timingSavedTimeScale = 1f;
+        // Sampling runs with vsync and the frame limiter off, or every frame reads the 60 FPS cap.
+        private static int timingSavedVSync = 1;
+        private static int timingSavedTargetFps = -1;
         private static bool timingSuppressActive;
         private static bool timingSuppressPrev;
 
@@ -195,8 +198,10 @@ namespace Parsek.InGameTests
             if (timingSlowActive)
             {
                 Time.timeScale = timingSavedTimeScale;
+                QualitySettings.vSyncCount = timingSavedVSync;
+                Application.targetFrameRate = timingSavedTargetFps;
                 timingSlowActive = false;
-                ParsekLog.Info(Tag, $"timing time scale restored ({why}): {timingSavedTimeScale.ToString("0.00", Ic)}");
+                ParsekLog.Info(Tag, $"timing time scale restored ({why}): {timingSavedTimeScale.ToString("0.00", Ic)} vSync={timingSavedVSync.ToString(Ic)} targetFps={timingSavedTargetFps.ToString(Ic)}");
             }
         }
 
@@ -245,8 +250,13 @@ namespace Parsek.InGameTests
                 ParsekLog.Info(Tag, $"timing mark={mark} warm frames={wf.ToString(Ic)} ut={Ut().ToString("0.000", Ic)} {TimingFireState(ghosts, ghosts.Count)}");
 
                 timingSavedTimeScale = Time.timeScale;
+                timingSavedVSync = QualitySettings.vSyncCount;
+                timingSavedTargetFps = Application.targetFrameRate;
                 Time.timeScale = TimingTimeScale;
+                QualitySettings.vSyncCount = 0;
+                Application.targetFrameRate = -1;
                 timingSlowActive = true;
+                ParsekLog.Info(Tag, $"timing mark={mark} uncapped: vSync {timingSavedVSync.ToString(Ic)}->0 targetFps {timingSavedTargetFps.ToString(Ic)}->-1");
 
                 foreach (int want in TimingGhostCounts)
                 {
