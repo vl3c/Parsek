@@ -1,0 +1,130 @@
+schema = 1
+id = "SAVE-IDX-1-quickload-keeps-eva-focus"
+# =====================================================================================
+# SAVE-IDX-1: F5 / F9 KEEPS THE PLAYER ON THE VESSEL THEY SAVED ON WHEN A GHOST MAP VESSEL
+# WAS CREATED BEFORE IT (todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP, far-watch audit F, fix
+# PR #2842).
+#
+# WHY. Stock's save builds the game's FlightState (activeVesselIdx = the active vessel's index
+# in the LIVE vessel list) before ParsekScenario.OnSave strips the ghost map vessels from that
+# list. Every ghost that sits ahead of the active vessel shifts it one slot down in the saved
+# list, so before the fix the saved index named the vessel one slot AFTER the active one per
+# ghost ahead of it, and the load focused that vessel. The live list is in creation order, so
+# the cases are every vessel made after a ghost appeared: an EVA kerbal, a flag, a decoupled
+# stage, a Parsek spawn. The fix moves the index with the strip
+# (`GhostMapPresence.ComputeActiveVesselIdxForStrip`, one `Save activeVesselIdx a->b` Info line).
+#
+# THE HOST. CN-1's: gloops-airshow (sandbox, the crewed mk1-capsule on the pad, UT 21.16) plus
+# the `ghost-commnet-relay` preset. Relay A's window opens at save + 1 s and A is the one preset
+# relay with a map ghost in FLIGHT (CN-5: B is playback-disabled, C is out of replay scope), so
+# A's map ghost is created in the first second of flight, AFTER the asteroid and the capsule.
+#
+# THE TIMELINE:
+#   ~21      LoadGame boots FLIGHT on the pad capsule. Live list [asteroid, capsule].
+#   ~22      A's map ghost is created. Live list [asteroid, capsule, Ghost: CN Relay A].
+#   EVA      EvaExit release=true: Jebediah steps off the ladder onto the pad and becomes the
+#            active vessel, appended after the ghost: [asteroid, capsule, ghost, Jeb].
+#   flag     PlantFlag: the flag is appended after him: [..., ghost, Jeb, flag].
+#   save     SaveGame quicksave. Stock's index for Jeb is 3; the strip leaves [asteroid,
+#            capsule, Jeb, flag], where 3 is the FLAG. The fix writes 2:
+#            `Save activeVesselIdx 3->2 ghostsBefore=1 activePid=<Jeb>`.
+#   load     LoadGame quicksave playerLoad=true with no focusPid, so the seam flies the save's
+#            own activeVesselIdx, as stock's F9 does. `Flight ready focus:` (an Info line
+#            ParsekFlight.OnFlightReady writes for every flight start) must name the pid the
+#            save line named, as Jebediah's EVA vessel. Before the fix it named the flag.
+#
+# WHAT GATES. The save line's activePid is captured and back-referenced into the focus line of
+# the loaded scene, so the lane reds when the save is written with the wrong index, when the
+# load focuses another vessel, and when no ghost was ahead of the active vessel (then there is
+# no Shifted line and the lane proves nothing, which must not read green). The index pair is
+# regexed (ghostsBefore must be at least 1), not pinned at 3->2: the pinned claim is that the
+# loaded focus is the saved vessel, whatever the preset's ghost count.
+#
+# NOTHING RECORDS. autoRecordOnLaunch and autoRecordOnEva are off, so the recordings stay the
+# preset's three and no merge dialog or tree commit takes part in the save.
+#
+# PRE-REGISTERED READINGS (never flown):
+#   - No `Save activeVesselIdx ... ghostsBefore=` line after the save mark, and no `Created
+#     ghost vessel 'Ghost: CN Relay A'` before the EVA mark: A's map ghost was not live at the
+#     save (a host premise, not the fix); read the `[GhostMap]` lines first.
+#   - The focus line names `type=Flag`: the fix is not in the deployed DLL (check the DLL for
+#     the `Save activeVesselIdx` literal before reading anything else).
+#   - `savegame` refused: stock refused the quicksave with the kerbal still moving; add a
+#     RecordingState settle after PlantFlag.
+#   - Recordings other than 3: something recorded after all; read the `Recording started`
+#     lines (the lane's claim does not depend on it, the count only keeps the host quiet).
+#
+# FAST-LANE CHECKLIST: (1) reuse: CN-1 / CN-5's host and preset, EVA-1's EvaExit / PlantFlag
+# pair, CN-5's save / player-load pair; (2) no warp; (3) no dwell beyond the verbs' own
+# completion; (4)-(5) no burn or coast; (6) retry `once`; (7) recordings exactly the preset's 3;
+# (8) operator until measured; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "F5 / F9 keeps the player on the vessel they saved on when a ghost map vessel was created before it: on gloops-airshow plus the ghost-commnet-relay preset, Jebediah EVAs onto the pad and plants a flag after relay A's map ghost exists, a quicksave is written and loaded back as the player's load; the save must move activeVesselIdx past the stripped ghost and the loaded scene must focus Jebediah, not the flag."
+instanceProfile = "stock-minimal"
+tags = ["SAVE-IDX-1", "save-load", "quickload", "ghost-map", "eva", "flag-plant",
+        "injected-recordings", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },                      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" },                  expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva", value = "false" },                     expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },                       expect = "OK" },
+
+  # ---- a vessel and a flag created after the ghost ----
+  { cmd = "MissionMark",  args = { label = "save-idx1-eva" },                                       expect = "OK" },
+  { cmd = "EvaExit",      args = { release = "true" },                                              expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                                              expect = "OK", budget = 180 },
+
+  # ---- F5 ----
+  { cmd = "MissionMark",  args = { label = "save-idx1-save" },                                      expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "quicksave" },                                            expect = "OK", budget = 120 },
+
+  # ---- F9: the save's own activeVesselIdx is flown ----
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "save-idx1-loaded" },                                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- the host premise: A's map ghost is live before the kerbal exists ----
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: CN Relay A' ghostPid=[0-9]+ [\\s\\S]*?MISSIONMARK label=save-idx1-eva ut=",
+
+  # ---- the save moves the index past the stripped ghost, and the load flies that vessel ----
+  "MISSIONMARK label=save-idx1-save ut=[\\s\\S]*?\\[GhostMap\\] Save activeVesselIdx [0-9]+->[0-9]+ ghostsBefore=[1-9][0-9]* activePid=([0-9]+) - kept the saved active vessel on the same craft after the ghost strip[\\s\\S]*?loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*?\\[Flight\\] Flight ready focus: pid=\\1 name='Jebediah Kerman' type=EVA index=[0-9]+ vessels=[0-9]+[\\s\\S]*?MISSIONMARK label=save-idx1-loaded ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame rejected",
+  # The pre-fix outcome: the load flies the flag the stale index named.
+  "MISSIONMARK label=save-idx1-save ut=[\\s\\S]*?Flight ready focus: pid=[0-9]+ name='[^']*' type=Flag ",
+  # The index named a ghost (a vessel that cannot be active): stock's fallback, never here.
+  "Save activeVesselIdx [0-9]+->0: the index named ghost map vessel",
+]
+
+[runtime]
+# Budget arithmetic: 300 LoadGame + 120 EvaExit + 180 PlantFlag + 120 SaveGame + 300 LoadGame
+# = 1020, plus the fast verbs (SetSetting x3, MissionMark x3, FlushAndQuit) and a margin.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

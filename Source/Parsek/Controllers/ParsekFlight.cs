@@ -1938,6 +1938,44 @@ namespace Parsek
         /// </summary>
         internal bool FlightReadyObserved { get; private set; }
 
+        /// <summary>
+        /// One Info line naming the vessel the scene start focused. Stock focuses a load (F9,
+        /// the Load menu, a far Switch-To reload) by an index into the saved vessel list, so this
+        /// is the record of which vessel that index named (todo
+        /// SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP).
+        /// </summary>
+        private static void LogFlightReadyFocus()
+        {
+            try
+            {
+                LogFlightReadyFocusCore();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Flight",
+                    $"Flight ready focus: read failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void LogFlightReadyFocusCore()
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            int count = FlightGlobals.Vessels != null ? FlightGlobals.Vessels.Count : 0;
+            if (active == null)
+            {
+                ParsekLog.Info("Flight",
+                    $"Flight ready focus: no active vessel vessels={count.ToString(CultureInfo.InvariantCulture)}");
+                return;
+            }
+            ParsekLog.Info("Flight",
+                $"Flight ready focus: pid={active.persistentId.ToString(CultureInfo.InvariantCulture)} " +
+                $"name='{active.vesselName}' type={active.vesselType} " +
+                $"index={FlightGlobals.Vessels.IndexOf(active).ToString(CultureInfo.InvariantCulture)} " +
+                $"vessels={count.ToString(CultureInfo.InvariantCulture)}");
+        }
+
         void OnFlightReady()
         {
             FlightReadyObserved = true;
@@ -1952,6 +1990,7 @@ namespace Parsek
             // From here on an onVesselSwitching in this scene is a real focus change;
             // the scene-entry initial focus fired before this point and was ignored.
             ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();
+            LogFlightReadyFocus();
             Log("Flight ready. Checking for pending recordings...");
             RecorderStateLog.RecState("OnFlightReady", CaptureRecorderState());
 
