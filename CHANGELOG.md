@@ -17,6 +17,8 @@ Not released yet.
 
 - **Looped missions show their dropped boosters.** A looping launch's debris now shows on every
   loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
+- **F9 loads onto the vessel you saved on.** With a ghost replaying in orbit, a quickload or far
+  Switch-To could focus a later vessel, such as your flag. (SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP)
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
