@@ -4343,11 +4343,11 @@ presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to 
 | `deployable` (panels, antennas, radiators) | `motion-deployed` | 19 / 22 | sun trackers: the tracking pivot is left out of the progress transforms (its slew after the done signal is P6's, D.3) |
 | `gear` (gear, legs, deploying wheels) | `motion-deployed` | 8 / 9 | free-fall droop as P6 (`context-dependent`), which moves no deploy transform |
 | `ladder` | `motion-deployed` | 2 / 2 | |
-| `animation-group` (drills, in orbit) | `motion-deployed` | 4 / 4 | the stock ISRU stays `auto-deploy` (D.1) |
+| `animation-group` (drills, in orbit) | `motion-deployed` | 4 / 4 in the committed lists, 3 / 3 live | the stock ISRU stays `auto-deploy` (D.1); a `ModuleAnimationGroup` whose config names no `deployAnimationName` (the orbital scanner: only its running loop, which is `loop-phase`) is `no-animation`, since stock flips its deployed state at once (P7 instrument fix, todo PARTPARITY-P7-READING-INSTRUMENT); a fixture line that carries no config keeps its case |
 | `cargo-bay` | `motion-open` | 8 / 9 | |
 | `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
-| `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
-| `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
+| `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform; its deploy flag flips on the press frame while the surface still turns, so its real motion is done at P6's settle (the surface still for 0.5 s), and T reads `aeroDeployAngle / actuatorSpeed` |
+| `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; a rigged canopy (ReStock: the ghost's parachute info carries animated canopy bones, the canopy root never scales) from those bones in full pose, paired by path; `realClock` stays the canopy root's mean scale; pictures report-only (canopy aim, D.4) |
 | `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 13 / 13 (4 rotation servos, 5 hinges, 4 pistons; the 22 `BaseServo` parts less 9 rotors) | target swept (H.2); the servo modules by the robotic poll's exact names (`FlightRecorder.IsRoboticModuleName` less the rotor); rotors excluded (`rotor-spin-not-primed`, below), any other `BaseServo` `not-polled` |
 | `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 / 24 | every module named exactly `ModuleControlSurface` (PollControlSurfaces); the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
 
@@ -4517,7 +4517,12 @@ Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler'
 the filler sits along the subject's `srfAttachNode.orientation`, at the filler's own radius) so the
 centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
 hidden and left out of the records like a stacked filler. Press: the module's deploy action
-(KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3).
+(KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3). The deflection
+read is stock's own `deflection` field (what turns the transform), not `currentDeployAngle`, which
+is the deploy TARGET and jumps at the press. A surface whose ghost builds no deploy info (no
+`transformName` in its config, the R8 winglet) still has a real progress transform: the module's
+own `ctrlSurface`, paired by path with whatever the ghost holds there, so that ghost reads
+`motion-not-modelled` instead of a window-rule setup fault.
 
 Sidecar (`parsek-part-parity-case/1`, additive keys, every key always written, null when not
 measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` block (`family`,
@@ -4563,7 +4568,9 @@ subject) and the slow control on `airbrake1` (below), each judged RELATIVE to it
 | `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02; the late route failing on lag only when the 1.0 s shift is past that motion's lag fail line, `max(0.5 s, 0.25 T_real)`, i.e. for T_real under 4 s, since a longer real motion holds a 1 s lag inside its line and the relative requirement is then the whole test |
 
 An air motion run records `ctl-empty`, `ctl-ghost-absent` and `ctl-motion-real-vs-real-air` (two
-`parachuteSingle` pressed together, the canopy-scale curves only). A control that does not behave
+`parachuteSingle` pressed together, the canopy-scale curves only: its end frames are not compared,
+since stock aims each open canopy along its own airflow every tick; the C# judge and
+`judge_motion_control` both pass the end-frame check for it). A control that does not behave
 is INVALID(parity-controls). The C# judges of the three motion controls are pure
 (`PartParityMotionRules.JudgeRealVsReal`, `JudgeGhostSlow`, `JudgeGhostLate`, M1) over two routes'
 timing blocks; the slow and late ones compare the altered route with the same subject's normal
