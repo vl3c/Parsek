@@ -5202,6 +5202,45 @@ class MotionSweepTests(MotionSweepFixture):
         self.assertEqual(2, len(sampled))
 
 
+class MotionWindowCompletenessTests(MotionSweepFixture):
+    """A motion case that fails the window rule (too few frames, a real part that never got
+    there, no same-time picture at its end) is not a record a verdict can stand on: the armed
+    sweep reads INVALID(incomplete), never PASS over an ``error`` case."""
+
+    def _hinge_without_pictures(self, keep_views):
+        cases = _motion_cases()
+        hinge = cases[2][0]
+        for f in hinge["motion"]["frames"]:
+            if keep_views:
+                for v in f["views"]:
+                    v["same"] = None
+                    v["matched"] = None
+            else:
+                f["views"] = []
+        return cases, hinge["caseId"]
+
+    def test_a_case_with_no_last_frame_pictures_is_incomplete(self):
+        for keep_views in (True, False):
+            cases, hinge_id = self._hinge_without_pictures(keep_views)
+            res = self._eval(cases, gating=True)
+            self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND),
+                             (res.status, res.invalid_subkind), keep_views)
+            self.assertIn(hinge_id + ":motion-last-frame-no-pictures", " ".join(res.problems))
+            verdict = {c.case_id: c for c in res.cases}[hinge_id]
+            self.assertEqual(pp.VERDICT_ERROR, verdict.verdict)
+            self.assertIn("motion:last-frame-no-pictures", verdict.reasons)
+
+    def test_too_few_frames_or_an_unreached_real_part_is_incomplete(self):
+        cases = [_motion_case("longantenna--default--motion-deployed--0000aaa1", frames=3),
+                 _motion_case("gearsmall--default--motion-deployed--0000aaa2", part="GearSmall",
+                              family="gear", module="ModuleWheelDeployment", real=_ramp(10.0, 2.0))]
+        res = self._eval(cases, gating=True)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        text = " ".join(res.problems)
+        self.assertIn("longantenna--default--motion-deployed--0000aaa1:motion-frames=3<5", text)
+        self.assertIn("gearsmall--default--motion-deployed--0000aaa2:motion-real-not-reached=", text)
+
+
 class MotionNoneToleranceTests(unittest.TestCase):
     """A null progress value (the C# NaN a sidecar writes as null) is read as C# reads a NaN:
     every comparison with it is false and arithmetic through it is not measured, so the flag

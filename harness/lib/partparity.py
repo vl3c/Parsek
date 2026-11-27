@@ -3766,8 +3766,10 @@ def judge_motion(sidecar: Dict) -> MotionJudgement:
             raise_to(VERDICT_FAIL, "angleMaxDevDeg=%.3f>%.3f" % (angle, angle_line))
         elif angle > MOTION_WARN_FRACTION * angle_line:
             raise_to(VERDICT_WARN, "angleMaxDevDeg=%.3f>%.3f" % (angle, MOTION_WARN_FRACTION * angle_line))
+    if frames and not motion_frame_views(frames[-1], "same"):
+        raise_to(VERDICT_ERROR, "last-frame-no-pictures")
     last = motion_last_frame_route(sidecar)
-    if last is not None:
+    if last is not None and verdict != VERDICT_ERROR:
         if family in MOTION_LAST_FRAME_JUDGED_FAMILIES:
             for r in last.reasons:
                 reasons.append("motion:last-frame:" + r)
@@ -4844,8 +4846,21 @@ def motion_sidecar_incomplete(sidecar: Dict, atlases: Optional[Collection[str]])
     block = motion_block(sidecar)
     if block is None:
         return "no-motion-block"
-    if not motion_frames(block):
+    frames = motion_frames(block)
+    if not frames:
         return "no-motion-frames"
+    # The window rule (H.3): a case judged on fewer frames, on a real part that never got
+    # there, or with no same-time picture at its end has no evidence a verdict could stand on.
+    if len(frames) < MOTION_MIN_FRAMES:
+        return "motion-frames=%d<%d" % (len(frames), MOTION_MIN_FRAMES)
+    if not isinstance(block.get("timing"), dict):
+        return "no-motion-timing"
+    real_p = [_num(f.get("realProgress")) for f in frames]
+    reached = max([p for p in real_p if p is not None], default=None)
+    if reached is None or reached < MOTION_REAL_REACHED_PROGRESS:
+        return "motion-real-not-reached=%s<%.1f" % (_fmt3(reached), MOTION_REAL_REACHED_PROGRESS)
+    if not motion_frame_views(frames[-1], "same"):
+        return "motion-last-frame-no-pictures"
     if atlases is not None:
         meta = sidecar.get("motionAtlas")
         name = meta.get("file") if isinstance(meta, dict) else None
