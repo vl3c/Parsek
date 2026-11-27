@@ -54,6 +54,7 @@ namespace Parsek
                     "OnBackgroundPartDie: part or vessel is null");
                 return;
             }
+            if (GhostMapPresence.IsGhostOrDroneVessel(p.vessel.persistentId)) return;
 
             uint vesselPid = p.vessel.persistentId;
 

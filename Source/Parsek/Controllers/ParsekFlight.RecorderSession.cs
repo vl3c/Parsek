@@ -641,7 +641,7 @@ namespace Parsek
 
         void OnVesselWasModified(Vessel v)
         {
-            if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            if (v == null || GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                 return;
 
             // M5: the recorder's engine/RCS/robotic caches are built once at StartRecording and
@@ -663,7 +663,7 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             // Track pre-pack vessel state for phantom terrain crash detection
             if (v != null)
                 packStates[v.persistentId] = (Planetarium.GetUniversalTime(), v.situation);
@@ -673,7 +673,7 @@ namespace Parsek
 
         void OnVesselGoOffRails(Vessel v)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             if (v != null) packStates.Remove(v.persistentId);
             recorder?.OnVesselGoOffRails(v);
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
@@ -682,7 +682,7 @@ namespace Parsek
         void OnVesselLoaded(Vessel v)
         {
             if (v == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
 
             uint pid = v.persistentId;
             loadedAnchorVessels.Add(pid);
@@ -787,7 +787,7 @@ namespace Parsek
         void OnVesselUnloaded(Vessel v)
         {
             if (v == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             uint pid = v.persistentId;
             loadedAnchorVessels.Remove(pid);
 
@@ -810,7 +810,7 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
-            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
 
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);

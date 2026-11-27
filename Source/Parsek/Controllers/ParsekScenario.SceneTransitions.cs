@@ -321,6 +321,11 @@ namespace Parsek
 
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
+            if ((from != null && CameraDrone.Is(from)) || (to != null && CameraDrone.Is(to)))
+            {
+                ParsekLog.Info("Scenario", "OnVesselSwitching: far-watch drone hand-over, vessel switch flag not armed");
+                return;
+            }
             TryArmVesselSwitchFlag(from?.vesselName, to?.vesselName, UnityEngine.Time.frameCount);
         }
 

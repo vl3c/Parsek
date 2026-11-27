@@ -112,7 +112,7 @@ namespace Parsek
         /// </summary>
         internal bool TryStart(int recordingIndex, bool follow, out string refusal)
         {
-            refusal = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(recordingIndex, IsRunning));
+            refusal = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(recordingIndex, IsRunning, follow));
             if (refusal != null)
             {
                 ParsekLog.Info(Tag, string.Format(ic, "start refused reason={0} rec=#{1}", refusal, recordingIndex));
@@ -120,9 +120,11 @@ namespace Parsek
             }
 
             Vessel active = FlightGlobals.ActiveVessel;
-            if (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex)
+            // Follow needs the ghost camera; a hold watch keeps the camera on the drone beside
+            // the ship, so a ghost beyond the near-watch range (or on another body) is fine.
+            if (follow && (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex))
                 host.EnterWatchMode(recordingIndex);
-            if (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex)
+            if (follow && (!host.IsWatchingGhost || host.WatchedRecordingIndex != recordingIndex))
             {
                 refusal = "watch-entry-refused";
                 ParsekLog.Info(Tag, string.Format(ic, "start refused reason={0} rec=#{1}", refusal, recordingIndex));

@@ -56,7 +56,7 @@ namespace Parsek
             float recoveryFactor)
         {
             if (pv == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
             if (string.IsNullOrEmpty(pv.vesselName)) return;
 
@@ -117,7 +117,7 @@ namespace Parsek
         {
             if (pv == null) return;
             if (recoveryDialog == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
             if (string.IsNullOrEmpty(pv.vesselName)) return;
 
@@ -223,7 +223,7 @@ namespace Parsek
         private void OnVesselRecovered(ProtoVessel pv, bool quick)
         {
             if (pv == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId)) return;
 
             // During rewind, vessels are stripped from the save which fires onVesselRecovered.
             // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
@@ -504,7 +504,7 @@ namespace Parsek
         private void OnVesselTerminated(ProtoVessel pv)
         {
             if (pv == null) return;
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
             NoteFlagProtoRemoved(pv, "terminated");
             string launchGuid = VesselLaunchIdentity.ReadLaunchGuid(pv);

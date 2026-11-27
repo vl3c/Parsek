@@ -993,7 +993,11 @@ namespace Parsek
             SurfaceCapture.OnGroundSciencePartDeployed(deployedPart);
         void OnGroundSciencePartRemoved(ModuleGroundSciencePart removedPart) =>
             SurfaceCapture.OnGroundSciencePartRemoved(removedPart);
-        void OnNewVesselCreatedForGroundPart(Vessel v) => SurfaceCapture.OnNewVesselCreatedForGroundPart(v);
+        void OnNewVesselCreatedForGroundPart(Vessel v)
+        {
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
+            SurfaceCapture.OnNewVesselCreatedForGroundPart(v);
+        }
         void OnDeployGroundPart(string partName) => SurfaceCapture.OnDeployGroundPart(partName);
         void OnEditorPartEventForConstructionDrop(ConstructionEventType evt, Part part) =>
             SurfaceCapture.OnEditorPartEventForConstructionDrop(evt, part);
@@ -1805,7 +1809,7 @@ namespace Parsek
         }
 
         /// <summary>The far-watch entry inputs (design 8.3 pending windows, V1, scene and vessel).</summary>
-        internal FarWatchEntryInputs BuildFarWatchEntryInputs(int recordingIndex, bool alreadyActive)
+        internal FarWatchEntryInputs BuildFarWatchEntryInputs(int recordingIndex, bool alreadyActive, bool follow)
         {
             Vessel active = FlightGlobals.ActiveVessel;
             var committed = RecordingStore.CommittedRecordings;
@@ -1844,6 +1848,7 @@ namespace Parsek
                 SupplyRunProving = proving,
                 GhostResolvable = ghostResolvable,
                 GhostOnShipBody = sameBody,
+                FollowGhost = follow,
             };
         }
 

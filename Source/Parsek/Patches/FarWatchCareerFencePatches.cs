@@ -15,7 +15,7 @@ namespace Parsek.Patches
     /// </summary>
     internal static class FarWatchFencePolicy
     {
-        internal const string Tag = "FarWatch";
+        internal const string Tag = "FarWatchFence";
 
         /// <summary>The 18 polled parameter classes of audit D (OnUpdate reads the active vessel).</summary>
         internal static readonly string[] PolledParameterTypeNames =
@@ -111,8 +111,11 @@ namespace Parsek.Patches
         }
 
         /// <summary>How many patch points resolved at load, for the in-game FarWatch category.</summary>
-        internal static int ResolvedPollCount { get; set; }
-        internal static int ResolvedOtherCount { get; set; }
+        internal static int ResolvedPollCount { get; private set; }
+        internal static int ResolvedOtherCount { get; private set; }
+
+        internal static void NotePollTargetsResolved(int count) => ResolvedPollCount = count;
+        internal static void NoteOtherTargetResolved() => ResolvedOtherCount++;
     }
 
     /// <summary>OnUpdate prefixes on the 18 polled classes, resolved per declaring type.</summary>
@@ -132,7 +135,7 @@ namespace Parsek.Patches
                 else
                     targets.Add(m);
             }
-            FarWatchFencePolicy.ResolvedPollCount = targets.Count;
+            FarWatchFencePolicy.NotePollTargetsResolved(targets.Count);
             string line = FarWatchFencePolicy.FormatResolved("poll", targets.Count,
                 FarWatchFencePolicy.PolledParameterTypeNames.Length, missing);
             if (missing.Count > 0)
@@ -168,7 +171,7 @@ namespace Parsek.Patches
                     "career fence target missing " + site + " - that condition is not fenced during a far watch");
             else
             {
-                FarWatchFencePolicy.ResolvedOtherCount++;
+                FarWatchFencePolicy.NoteOtherTargetResolved();
                 ParsekLog.Info(FarWatchFencePolicy.Tag, "career fence target resolved " + site);
             }
             return m;

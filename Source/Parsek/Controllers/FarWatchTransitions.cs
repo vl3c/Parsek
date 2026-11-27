@@ -83,6 +83,8 @@ namespace Parsek
         internal bool SupplyRunProving;
         internal bool GhostResolvable;
         internal bool GhostOnShipBody;
+        /// <summary>Follow mode moves the drone with the ghost; hold mode keeps it beside the ship.</summary>
+        internal bool FollowGhost;
     }
 
     /// <summary>
@@ -177,7 +179,8 @@ namespace Parsek
             if (i.ReFlyActive) return "refly-active";
             if (i.SupplyRunProving) return "supply-run-proving";
             if (!i.GhostResolvable) return "ghost-not-resolvable";
-            if (!i.GhostOnShipBody) return "ghost-other-body";
+            // Step 2 moves the drone on the ship's body only; a hold watch never moves it.
+            if (i.FollowGhost && !i.GhostOnShipBody) return "ghost-other-body";
             return null;
         }
 

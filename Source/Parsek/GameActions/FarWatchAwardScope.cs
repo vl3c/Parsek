@@ -20,7 +20,7 @@ namespace Parsek
     /// </summary>
     internal static class FarWatchAwardScope
     {
-        internal const string Tag = "FarWatch";
+        internal const string Tag = "FarWatchFence";
 
         private static object stampNode;
         private static int stampFrame = -1;

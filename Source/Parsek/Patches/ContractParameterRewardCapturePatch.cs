@@ -56,7 +56,7 @@ namespace Parsek.Patches
             string typeName = p.GetType().FullName;
             if (!IsDroneCausedPolledCompletion(typeName, CameraDrone.IsActive()))
                 return false;
-            ParsekLog.Warn(Tag, "contract parameter completion not booked: " + typeName +
+            ParsekLog.Warn(FarWatchFencePolicy.Tag, "contract parameter completion not booked: " + typeName +
                 " completed while the far-watch camera drone is active (dronePid=" +
                 CameraDroneIdentity.DronePid.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                 "); a career fence did not hold");

@@ -2493,7 +2493,7 @@ namespace Parsek
             if (ShouldSkipExperienceCapture(
                     IsReplayingActions,
                     SuppressCrewEvents,
-                    GhostMapPresence.IsGhostMapVessel(pv.persistentId),
+                    GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId),
                     RewindContext.IsRewinding))
                 return;
 
