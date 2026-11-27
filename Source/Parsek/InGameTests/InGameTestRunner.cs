@@ -675,6 +675,22 @@ namespace Parsek.InGameTests
                     $"PerformBetweenRunCleanup: ResetBetweenTestRuns threw: {ex.Message}");
             }
 
+            // Far-watch drone ids a test left behind (design-far-watch.md 6.1): a live far
+            // watch is ended first so its own teardown runs; stale ids are then dropped.
+            try
+            {
+                FarWatchController fw = ParsekFlight.Instance != null ? ParsekFlight.Instance.FarWatch : null;
+                if (fw != null && fw.IsRunning)
+                    fw.OnSceneExit();
+                CameraDroneIdentity.ResetBetweenTestRuns(reason);
+                FarWatchAwardScope.Clear();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PerformBetweenRunCleanup: far-watch reset threw: {ex.Message}");
+            }
+
             int mapPidsAfter = GhostMapPresence.ghostMapVesselPids.Count;
             ParsekLog.Info(Tag,
                 $"PerformBetweenRunCleanup: end reason={reason} " +

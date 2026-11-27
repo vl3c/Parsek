@@ -1647,6 +1647,12 @@ namespace Parsek
         internal void HandleDeferredAutoRecordEva()
         {
             bool hasActiveVessel = FlightGlobals.ActiveVessel != null;
+            if (hasActiveVessel && CameraDrone.Is(FlightGlobals.ActiveVessel))
+            {
+                ParsekLog.Info("FarWatch",
+                    "HandleDeferredAutoRecordEva: skipped while the far-watch camera drone is active");
+                return;
+            }
             if (!ShouldStartDeferredAutoRecordEva(
                 host.pendingAutoRecord,
                 host.IsRecording,

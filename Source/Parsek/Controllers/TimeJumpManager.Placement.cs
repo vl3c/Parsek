@@ -297,6 +297,8 @@ namespace Parsek
             new Dictionary<string, ReadyEndEstimate>(StringComparer.Ordinal);
 
         internal static bool HasPendingPlacement => pendingPlacement != null;
+        /// <summary>A placement is being watched after its jump (far-watch entry refusal, design-far-watch.md 8.3).</summary>
+        internal static bool HasWatchedPlacement => watchedPlacement != null;
         internal static int ReadyEndCacheCount => readyEndCache.Count;
 
         /// <summary>

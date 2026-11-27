@@ -4133,12 +4133,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # ReplayedFlagCatchUp (todo FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24) is called
         # from the Space Center and the flight playback host and calls GhostPlaybackLogic's
         # flag walk, so it joins: 447.
+        # Far watch step 2: FarWatchController (held by the flight controller, which it
+        # calls back as its host) and CameraDrone (called from the flight controller and
+        # the patches, calling GhostMapPresence's vessel-node hardening) join: 449.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [447, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [449, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4148,12 +4151,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # used across many modules (see README, "Editing modules.toml").
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
         # split, which named it in the Core rule; file-placement PR 9 moved
-        # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # VesselSpawner.cs itself to Controllers, so the kernel is 8 files. Far watch
+        # step 2 adds CameraDroneIdentity.cs (the drone's plain ids, read by Recording,
+        # GameActions and Ghost below Controllers): 9.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
             "Core/BranchPoint.cs",
+            "Core/CameraDroneIdentity.cs",
             "Core/IPlaybackTrajectory.cs",
             "Core/VesselLaunchIdentity.cs",
             "Core/VesselSnapshotOps.cs",
@@ -4321,11 +4327,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the cut side of the first cut and eight on the uncut side of all three
         # (446 -> 413, 413 -> 391, 391 -> 373). ReplayedFlagCatchUp (see the knot sizes above)
         # leaves with GhostPlaybackLogic: one higher until the second cut, which lands where it
-        # did (447 -> 414, 414 -> 391).
+        # did (447 -> 414, 414 -> 391). Far watch step 2's two (see the knot sizes above) put
+        # FarWatchController on the cut side of the first cut and CameraDrone on the uncut
+        # side of the first two (449 -> 415, 415 -> 392).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 447)
-        self.assertEqual(first["sizeAfter"], 414)
+        self.assertEqual(first["sizeBefore"], 449)
+        self.assertEqual(first["sizeAfter"], 415)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4333,8 +4341,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 414)
-        self.assertEqual(second["sizeAfter"], 391)
+        self.assertEqual(second["sizeBefore"], 415)
+        self.assertEqual(second["sizeAfter"], 392)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4355,11 +4363,18 @@ class RealTreeSmokeTests(unittest.TestCase):
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
         # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
-        self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 391)
-        self.assertEqual(third["sizeAfter"], 373)
+        # Far watch step 2: CameraDrone leaves with the recorder cut, which now drops 18 like
+        # the route cut and wins the tie, so the recorder is third (392 -> 374) and the route
+        # fourth, landing where it did (374 -> 356).
+        self.assertEqual(third["sink"], "FlightRecorder")
+        self.assertEqual(third["sizeBefore"], 392)
+        self.assertEqual(third["sizeAfter"], 374)
+        fourth = self.model["knots"][0]["cuts"][3]
+        self.assertEqual(fourth["sink"], "Route")
+        self.assertEqual(fourth["sizeBefore"], 374)
+        self.assertEqual(fourth["sizeAfter"], 356)
         self.assertEqual(
-            third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
+            fourth["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave

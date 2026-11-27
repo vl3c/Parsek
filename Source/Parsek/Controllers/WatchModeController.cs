@@ -52,6 +52,7 @@ namespace Parsek
     internal partial class WatchModeController
     {
         private readonly ParsekFlight host;
+        private bool exitingForWatchSwitch;
 
         internal const string WatchModeLockId = "ParsekWatch";
         // PITCH is in the mask so W (and S, the stock pitch-up key) cannot act
@@ -1650,7 +1651,15 @@ namespace Parsek
             if (switching)
             {
                 ParsekLog.Info("CameraFollow", $"Switching watch from #{watchedRecordingIndex} to #{index} \"{committed[index].VesselName}\"");
-                ExitWatchMode(skipCameraRestore: true);
+                exitingForWatchSwitch = true;
+                try
+                {
+                    ExitWatchMode(skipCameraRestore: true);
+                }
+                finally
+                {
+                    exitingForWatchSwitch = false;
+                }
             }
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
@@ -2198,6 +2207,15 @@ namespace Parsek
         internal void ExitWatchMode(bool skipCameraRestore = false, bool preserveLineageProtection = false)
         {
             if (watchedRecordingIndex < 0) return;
+            // While the camera drone exists the normal restore would go to the drone (the active
+            // vessel) or a ghost transform: skip it and re-target the drone in this same frame
+            // below; the ship's camera comes back at the far-watch hand-back (design 7.5).
+            bool droneExists = CameraDroneIdentity.Exists;
+            if (droneExists && !skipCameraRestore)
+            {
+                ParsekLog.Info("CameraFollow", "watch exit while the camera drone exists: normal camera restore skipped");
+                skipCameraRestore = true;
+            }
             RestoreCameraAfterWatchExit(skipCameraRestore);
 
             // Remove input locks
@@ -2210,6 +2228,35 @@ namespace Parsek
             // do not, so a cycle in flight survives the internal switch.
             if (!skipCameraRestore)
                 watchCycleCursorRecordingId = null;
+
+            if (droneExists && !exitingForWatchSwitch)
+            {
+                // One teardown owns every far-watch exit (pattern A5).
+                FarWatchController fw = host != null ? host.FarWatch : null;
+                if (fw != null && fw.IsRunning)
+                    fw.RequestEnd(FarWatchEndReason.WatchExit);
+                FarWatchController.RetargetCameraToDrone("watch-exit");
+            }
+        }
+
+        /// <summary>Far watch: the map camera follows the watched ghost again after the hand-over (12.1).</summary>
+        internal void RequestMapFocusRestoreForFarWatch()
+        {
+            if (watchedRecordingIndex < 0) return;
+            pendingMapFocusRestore = true;
+            ensureGhostOrbitRenderersAttempted = false;
+            ParsekLog.Verbose("CameraFollow", "far watch requested a map focus restore on the watched ghost");
+        }
+
+        /// <summary>The camera values watch mode saved at entry (the player ship's), for the far-watch hand-back.</summary>
+        internal bool TryGetSavedCameraForFarWatch(
+            out Vessel vessel, out float distance, out float pitchDegrees, out float headingDegrees)
+        {
+            vessel = savedCameraVessel;
+            distance = savedCameraDistance;
+            pitchDegrees = savedCameraPitch;
+            headingDegrees = savedCameraHeading;
+            return watchedRecordingIndex >= 0 && savedCameraVessel != null;
         }
 
         /// <summary>

@@ -919,6 +919,7 @@ namespace Parsek
         private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
         internal WatchModeController watchMode;
+        internal FarWatchController farWatch;
         internal WatchModeController WatchMode => watchMode;
 
         // UI
@@ -1243,6 +1244,9 @@ namespace Parsek
 
             // Camera follow (watch mode)
             watchMode = new WatchModeController(this);
+            // Far watch (camera drone, design-far-watch.md); reachable only through the seam in step 2.
+            farWatch = new FarWatchController(this);
+            GameEvents.onVesselSwitching.Add(OnVesselSwitchingForFarWatch);
 
             // Ghost playback engine + policy (T25 extraction)
             engine = new GhostPlaybackEngine(Positioner);
@@ -1305,6 +1309,9 @@ namespace Parsek
             // After OnSceneChangeRequested, the scene is tearing down — skip all processing
             // to prevent ghost spawns and other work into the dying scene.
             if (sceneChangeInProgress) return;
+
+            // Far watch per-frame waits and the camera net (design-far-watch.md 7.5).
+            farWatch?.Update();
 
             // Frame F+1 of a Real Spawn Control placement jump: FixedUpdate has run since the
             // clock set, so body rotation and Zup are the new clock's.
@@ -1660,6 +1667,8 @@ namespace Parsek
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
             GameEvents.onFlightReady.Remove(OnFlightReady);
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
+            GameEvents.onVesselSwitching.Remove(OnVesselSwitchingForFarWatch);
+            farWatch?.Dispose();
             GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
             GameEvents.onStageActivate.Remove(OnStageActivate);
             GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
@@ -1714,6 +1723,10 @@ namespace Parsek
                 "Scene change requested: " + scene + " at UT=" +
                 preChangeUT.ToString("F2", CultureInfo.InvariantCulture));
             RecorderStateLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
+
+            // Far watch: scene-exit teardown (no hand-back, ids kept for the strip, design 7.5)
+            // BEFORE the watch exit below, so that exit sees an idle far watch.
+            farWatch?.RequestEnd(FarWatchEndReason.SceneExit);
 
             // Exit watch mode on scene change
             if (watchMode.IsWatchingGhost)
@@ -1776,9 +1789,95 @@ namespace Parsek
         /// </summary>
         internal RecordingTree ActiveTreeForDisplay => activeTree;
 
+        /// <summary>
+        /// Physics tick for the far watch (design-far-watch.md 6.3): the unpack hold is renewed
+        /// and the drone moved every tick while the drone exists.
+        /// </summary>
+        void FixedUpdate()
+        {
+            if (sceneChangeInProgress) return;
+            farWatch?.Tick();
+        }
+
+        void OnVesselSwitchingForFarWatch(Vessel from, Vessel to)
+        {
+            farWatch?.OnVesselSwitching(from, to);
+        }
+
+        /// <summary>The far-watch entry inputs (design 8.3 pending windows, V1, scene and vessel).</summary>
+        internal FarWatchEntryInputs BuildFarWatchEntryInputs(int recordingIndex, bool alreadyActive)
+        {
+            Vessel active = FlightGlobals.ActiveVessel;
+            var committed = RecordingStore.CommittedRecordings;
+            bool ghostResolvable = recordingIndex >= 0 && recordingIndex < committed.Count
+                && committed[recordingIndex] != null
+                && engine != null && engine.ghostStates.ContainsKey(recordingIndex);
+            bool sameBody = ghostResolvable && watchMode.IsGhostOnSameBody(recordingIndex);
+            bool proving = false;
+            if (activeTree != null && activeTree.ActiveRecordingId != null
+                && activeTree.Recordings.TryGetValue(activeTree.ActiveRecordingId, out Recording activeRec)
+                && activeRec != null)
+            {
+                proving = activeRec.RouteRunManifest != null && !activeRec.RunManifestVoided;
+            }
+            return new FarWatchEntryInputs
+            {
+                InFlightScene = HighLogic.LoadedScene == GameScenes.FLIGHT,
+                AlreadyActive = alreadyActive || CameraDroneIdentity.Exists,
+                HasActiveVessel = active != null,
+                ActiveVesselIsEva = active != null && active.isEVA,
+                ActiveVesselIsGhostOrDrone = active != null
+                    && (GhostMapPresence.IsGhostOrDroneVessel(active.persistentId) || CameraDrone.Is(active)),
+                PendingSplitInProgress = pendingSplitInProgress,
+                PendingSplitRecorder = pendingSplitRecorder != null,
+                DeferredJointBreakCheckInFlight = deferredJointBreakCheckInFlight
+                    || (recorder != null && recorder.HasPendingJointBreakCheck),
+                CrashCoalescerPendingBreakup = crashCoalescer != null && crashCoalescer.HasPendingBreakup,
+                PendingTreeDockMerge = pendingTreeDockMerge,
+                PendingAutoRecord = pendingAutoRecord,
+                ChainToVesselPending = recorder != null && recorder.ChainToVesselPending,
+                TransitionToBackgroundPending = recorder != null && recorder.TransitionToBackgroundPending,
+                TimeJumpPlacementArmed = TimeJumpManager.HasPendingPlacement,
+                TimeJumpPlacementWatched = TimeJumpManager.HasWatchedPlacement,
+                RestoringActiveTree = restoringActiveTree,
+                ReFlyActive = ParsekScenario.Instance != null && ParsekScenario.Instance.ActiveReFlySessionMarker != null,
+                SupplyRunProving = proving,
+                GhostResolvable = ghostResolvable,
+                GhostOnShipBody = sameBody,
+            };
+        }
+
+        /// <summary>HandoverOut: a post-switch watch armed for the ship is disarmed (the hand-back re-arms it).</summary>
+        internal void DisarmPostSwitchAutoRecordForFarWatch()
+        {
+            if (!HasArmedPostSwitchAutoRecordWatch)
+                return;
+            ParsekLog.Info("FarWatch", "disarming the post-switch auto-record watch armed for the ship");
+            PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("far-watch hand-over");
+        }
+
+        /// <summary>HandoverOut -> Following: the ship's recorder is backgrounded (or there is none).</summary>
+        internal bool IsRecorderBackgroundedOrIdleForFarWatch()
+        {
+            return recorder == null || recorder.IsBackgrounded || !recorder.IsRecording;
+        }
+
+        internal void RequestWatchMapFocusForFarWatch() => watchMode.RequestMapFocusRestoreForFarWatch();
+
+        internal bool TryGetWatchSavedCameraForFarWatch(
+            out Vessel vessel, out float distance, out float pitchDegrees, out float headingDegrees)
+            => watchMode.TryGetSavedCameraForFarWatch(out vessel, out distance, out pitchDegrees, out headingDegrees);
+
         void OnVesselWillDestroy(Vessel v)
         {
             if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            // Drone lost (H8b, design 7.6): no tree-destruction dialog, the far watch owns it.
+            if (v != null && CameraDrone.Is(v))
+            {
+                farWatch?.OnDroneWillDestroy(v);
+                return;
+            }
+            farWatch?.OnVesselWillDestroy(v);
 
             // A flag picked up by a kerbal, recovered or destroyed here is never planted again
             // by a replay (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG). Before the restore guard:
@@ -2541,6 +2640,7 @@ namespace Parsek
         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
         internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
+        internal FarWatchController FarWatch => farWatch;
         internal void ExitWatchMode(bool skipCameraRestore = false) => watchMode.ExitWatchMode(skipCameraRestore);
 
         // Static methods forwarded to WatchModeController for test compatibility

@@ -2306,6 +2306,10 @@ namespace Parsek
         {
             if (currentVesselId == recordingVesselId)
                 return VesselSwitchDecision.None;
+            // A far-watch hand-over to the camera drone always backgrounds the recording
+            // (H3, design-far-watch.md 7.4), whatever the recording started as.
+            if (CameraDroneIdentity.IsDrone(currentVesselId))
+                return VesselSwitchDecision.TransitionToBackground;
             // Avoid mixed-mode tracks (ship trajectory followed by EVA walking).
             // Continue-on-EVA is only valid for recordings that started as EVA.
             if (currentIsEva && recordingStartedAsEva)

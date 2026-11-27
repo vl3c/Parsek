@@ -424,7 +424,22 @@ namespace Parsek.Patches
                 LogBlockedOffRails(__instance.persistentId, __instance.vesselName);
                 return false; // skip original — keep ghost on rails
             }
+            // Belt for the far-watch drone (design-far-watch.md 6.4): one missed hold renewal
+            // must not drop the active drone into physics at orbital speed. Keyed on a LIVE
+            // drone, so a dead, still-active drone is not refused every frame.
+            if (ShouldRefuseDroneOffRails(CameraDrone.Is(__instance), __instance.state == Vessel.State.DEAD))
+            {
+                ParsekLog.InfoRateLimited("CameraDrone", "drone-offrails-belt",
+                    $"Blocked GoOffRails for the far-watch camera drone pid={__instance.persistentId} (hold belt)", 5.0);
+                return false;
+            }
             return true;
+        }
+
+        /// <summary>The drone GoOffRails belt: refuse for a live drone only.</summary>
+        internal static bool ShouldRefuseDroneOffRails(bool isDrone, bool isDead)
+        {
+            return isDrone && !isDead;
         }
 
         // Extracted so the spam-coalescing contract is testable without a live
@@ -455,7 +470,15 @@ namespace Parsek.Patches
     {
         static void Postfix(Vessel __instance)
         {
-            if (__instance == null || !ShouldMakeInert(__instance.persistentId))
+            if (__instance == null)
+                return;
+            if (CameraDrone.Is(__instance))
+            {
+                // The drone's inert twin: colliders AND renderers off, parts hardened (6.2).
+                CameraDrone.MakeInert(__instance, "Vessel.Load");
+                return;
+            }
+            if (!ShouldMakeInert(__instance.persistentId))
                 return;
             GhostMapPresence.MakeLoadedGhostVesselPhysicsInert(__instance, "Vessel.Load");
         }

@@ -535,3 +535,7 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
 # ERS. Both files carry a file-level [ERS-exempt] header comment.
 Source/Parsek/Missions/VesselIdentity.cs
 Source/Parsek/Missions/VesselNameStore.cs
+# The far-watch controller resolves the watched ghost by watch index and by recording id
+# in the committed list, the same index space WatchModeController and the playback engine
+# key on; the ERS would de-align it (file-level [ERS-exempt] header).
+Source/Parsek/Controllers/FarWatchController.cs

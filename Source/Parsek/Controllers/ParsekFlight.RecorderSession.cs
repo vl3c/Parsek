@@ -497,6 +497,12 @@ namespace Parsek
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
             if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            if (data.host != null && CameraDrone.Is(data.host))
+            {
+                ParsekLog.VerboseRateLimited("FarWatch", "drone-situation-skip",
+                    "OnVesselSituationChange: skipped for the far-watch camera drone", 5.0);
+                return;
+            }
             double currentUT = Planetarium.GetUniversalTime();
             bool suppressLaunchAutoRecordForTimeJump =
                 TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
@@ -575,6 +581,12 @@ namespace Parsek
         {
             Vessel av = FlightGlobals.ActiveVessel;
             if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
+            if (av != null && CameraDrone.Is(av))
+            {
+                ParsekLog.Info("FarWatch", "OnStageActivate: skipped stage=" + stage +
+                    " while the far-watch camera drone is active");
+                return;
+            }
 
             // Staging changes what the vessel can still do; the recorder reads the settled
             // delta-v after stock recalculates. A split that follows writes its own snapshots.
@@ -1220,6 +1232,12 @@ namespace Parsek
             }
 
             uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
+            if (CameraDroneIdentity.IsDrone(activePid))
+            {
+                // H3 (design-far-watch.md 7.4): nothing records the far-watch camera drone.
+                ParsekLog.Info("Flight", "StartRecording refused: the active vessel is the far-watch camera drone");
+                return;
+            }
             string invalidHeadReason;
             if (!CanStartRecorderWithActiveTreeHead(activeTree, activePid, out invalidHeadReason))
             {

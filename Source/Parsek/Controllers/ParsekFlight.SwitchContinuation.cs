@@ -68,6 +68,10 @@ namespace Parsek
             bool newVesselIsGhost =
                 newVessel != null && GhostMapPresence.IsGhostMapVessel(newVessel.persistentId);
             if (newVesselIsGhost) return;
+            // The far-watch camera drone (design-far-watch.md 7.1 step 5): the old recorder
+            // still goes to the background, but the drone gets no landed seed, no intent
+            // consume, no boarding branch and above all no post-switch auto-record arm.
+            bool newVesselIsDrone = newVessel != null && CameraDrone.Is(newVessel);
 
             // #267: skip if restore coroutine is mid-yield — it owns activeTree/recorder
             if (restoringActiveTree)
@@ -93,7 +97,7 @@ namespace Parsek
             // Spawned vessels (from recordings) are created directly in LANDED — no
             // onVesselSituationChange fires, so the settle timer is never initialized.
             // Without this, auto-record fails because settledTime computes as 0.
-            if (newVessel != null &&
+            if (newVessel != null && !newVesselIsDrone &&
                 (newVessel.situation == Vessel.Situations.LANDED ||
                  newVessel.situation == Vessel.Situations.SPLASHED))
             {
@@ -141,7 +145,8 @@ namespace Parsek
             // physics frame runs in between — so DecideOnVesselSwitch (in OnPhysicsFrame)
             // never gets a chance to set ChainToVesselPending. Detect this case here and
             // set the flag so HandleTreeBoardMerge runs in Update() (#248).
-            if (recorder != null && recorder.IsRecording
+            if (!newVesselIsDrone
+                && recorder != null && recorder.IsRecording
                 && pendingBoardingTargetPid != 0
                 && recorder.RecordingStartedAsEva
                 && newVessel.persistentId == pendingBoardingTargetPid)
@@ -215,6 +220,22 @@ namespace Parsek
 
             uint newPid = newVessel.persistentId;
 
+            if (newVesselIsDrone)
+            {
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("far-watch drone arrival");
+                ParsekLog.Info("FarWatch",
+                    "OnVesselSwitchComplete: drone arrival dronePid=" + newPid.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    " activeRecId=" + (activeTree?.ActiveRecordingId ?? "<null>") +
+                    " recorderNull=" + (recorder == null) +
+                    " skipped=landed-seed,intent-consume,boarding,post-switch-arm");
+                farWatch?.OnDroneArrival();
+                LogOnVesselSwitchCompleteRecState(
+                    "OnVesselSwitchComplete:post",
+                    CaptureRecorderState(),
+                    currentVesselSwitchRecoveryDiagnosticContext);
+                return;
+            }
+
             // Phase C consume: validate any armed stock-action intent marker
             // BEFORE the first-modification watcher arms, so a successful
             // immediate-start (committed-clone, BG-member, or standalone
@@ -240,7 +261,7 @@ namespace Parsek
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
-                    newVesselIsGhost),
+                    newVesselIsGhost || newVesselIsDrone),
                 trackedInActiveTree,
                 newVessel.isEVA);
 
