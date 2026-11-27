@@ -307,7 +307,7 @@ Control is handed back while everything is still packed, so the ship unpacks wit
 
 The player's recording is backgrounded into the same tree at step 7.1.5 and recorded in the on-rails background form for the whole watch (packed vessels emit no env-classified sections; the CLAUDE.md on-rails rule). It resumes as the same recording at 7.2.4. Guards that make sure nothing records the drone (pattern H3): `FlightRecorder.StartRecording` refuses while the drone is active (one log line), `PhysicsFramePatch`'s active branch returns for the drone, `ShouldArmPostSwitchAutoRecord` receives `isGhost || isDrone`, `DecideOnVesselSwitch` maps a drone arrival to `TransitionToBackground`, `ResumeAfterFalseAlarm` cannot be reached (entry refused while a split check is pending, section 8.3).
 
-A switch voids the flight's in-progress supply-route proof (`TransitionToBackground` -> `RouteProofCapture.VoidRunManifestForBackgroundTransition`). V1 (recommended, awaiting owner): a far watch is refused while the flight is proving a supply run (rule 2a in 8.2), so the proof is never voided by a watch.
+A switch voids the flight's in-progress supply-route proof (`TransitionToBackground` -> `RouteProofCapture.VoidRunManifestForBackgroundTransition`). V1 (owner ruling 2026-11-27): a far watch is refused while the flight is proving a supply run (rule 2a in 8.2), so the proof is never voided by a watch.
 
 ### 7.5 Single teardown
 
@@ -390,7 +390,7 @@ Rules, in order (the first refusal wins; refusal reasons are stock's wording whe
 |---|---|---|
 | 1 | `reFlyActive` | Refused `ReFly` |
 | 2 | any pending window (8.3) | Refused `Busy` (logged with the window name; hover text "Your ship is busy for a moment") |
-| 2a | `supplyRunProving` | Refused `SupplyRun` ("Finish the supply run first"; V1, recommended, awaiting owner) |
+| 2a | `supplyRunProving` | Refused `SupplyRun` ("Finish the supply run first"; V1, owner ruling 2026-11-27) |
 | 2b | the ship's `ending` is Failed | Refused `PathUnknown` (logged with the failure reason) |
 | 3 | `clearToSave` is `NOT_IN_ATMOSPHERE`, `NOT_UNDER_ACCELERATION`, `NOT_WHILE_MOVING_OVER_SURFACE`, `NOT_WHILE_ABOUT_TO_CRASH`, `NOT_WHILE_ON_A_LADDER`, `NOT_WHILE_THROTTLED_UP` | Refused with that status (stock's localized `#autoLOC_6002346`..`6002351` text) |
 | 4 | ship or any exposed vessel `dockingCaptureActive` | Refused `DockingCapture` |
@@ -807,7 +807,7 @@ Screenshots and the collected log go to `logs/flights/far-watch-proof/`; career 
 
 Both cards were posted on 2026-11-27; the design proceeds on the recommendations.
 
-**V1. A supply run being proven while you start a far watch** (recommended, awaiting owner). Starting a far watch is a vessel switch, and today any switch voids the run's route proof, so the run would not count as a supply route. Recommended: refuse the far watch while the current flight is proving a supply run, with the hover reason "Finish the supply run first"; the alternative is to let the watch void it as any switch does.
+**V1. A supply run being proven while you start a far watch** (decided by the owner 2026-11-27: refuse). Starting a far watch is a vessel switch, and today any switch voids the run's route proof, so the run would not count as a supply route. The far watch is refused while the current flight is proving a supply run, with the hover reason "Finish the supply run first".
 
 **V2. Your ship is lost while you watch far away** (recommended, awaiting owner; something the check could not foresee: a spawn landing on it, a mod). There is no ship to come back to. Recommended: the camera comes back to where the ship was and the game shows stock's own "flight ended" screen with its Revert and Space Center buttons, exactly as when a flown ship is lost; the alternative is to go straight to the Space Center.
 
