@@ -436,6 +436,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The loop-unit counterpart of the end-of-recording follow: the recording a watched
+        /// looped member's vessel went to when the member ended at a Dock, Board or Undock branch
+        /// point, by the same rules (<see cref="FindNextWatchTarget"/>), or -1. Only those three
+        /// types: there the vessel goes on under another launch guid (a merge keeps the
+        /// partner's, an undock gives the ship that leaves a fresh one), which the unit's own
+        /// same-guid handoff cannot see. Every other split keeps the guid, and the unit handoff
+        /// must go on refusing its peeled-off siblings.
+        /// </summary>
+        internal static int FindUnitBranchWatchTarget(
+            Recording watched,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingTree> trees,
+            Func<int, bool> isLive,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            string watchedIdentityGuid)
+        {
+            BranchPoint bp = FindChildBranchPoint(watched, trees);
+            if (bp == null
+                || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board
+                    && bp.Type != BranchPointType.Undock))
+                return -1;
+
+            return FindNextWatchTarget(watched, committed, trees, isLive, supersedes, watchedIdentityGuid);
+        }
+
+        private static BranchPoint FindChildBranchPoint(Recording rec, IReadOnlyList<RecordingTree> trees)
+        {
+            if (rec == null || trees == null || string.IsNullOrEmpty(rec.ChildBranchPointId)
+                || !rec.IsTreeRecording)
+                return null;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                if (trees[t].Id != rec.TreeId) continue;
+                for (int b = 0; b < trees[t].BranchPoints.Count; b++)
+                {
+                    if (trees[t].BranchPoints[b].Id == rec.ChildBranchPointId)
+                        return trees[t].BranchPoints[b];
+                }
+                return null;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// The child of an Undock branch point that continues the vessel the watch session
         /// started on: the one child (resolved through the supersede graph) whose launch guid is
         /// <paramref name="watchedIdentityGuid"/> or continues it through a link row

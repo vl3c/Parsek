@@ -21,7 +21,8 @@ tier = "operator"
 #
 # CASES (design E.1): the 14 air plume cases (7 air-breathing modules, burn-full and burn-low:
 # Wheesley, Juno, Whiplash, Panther in both modes, Goliath, RAPIER in air mode), none reference,
-# plus the 4 controls. Each step logs the exact counts on its `fx cases:` Info line.
+# and the Whiplash's and wet Panther's main-full and main-low on the vessel's main throttle (E.2,
+# never flown here), plus the 4 controls. Each step logs the exact counts on its `fx cases:` Info line.
 #
 # STEP SIZING. The F7 acceptance sweep took 336 s on stock-minimal (`2026-11-23_1014`; the Goliath's
 # 77 s spool sets its wave), so with D.8's 50 % margin two steps of maxSeconds=480 (budget 540).
@@ -37,7 +38,7 @@ tier = "operator"
 #
 # READING THE RESULT. As PP-9, from `harness/results/<runId>_partparity/pp10/`. Findings join todo
 # PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23. Its ReStock smoke is the one place that layer can be
-# judged: in orbit it is noise (todo PARTPARITY-ORBIT-SRB-SMOKE-NOISE).
+# judged standing: in orbit the real side leaves it behind (todo GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
 #
 # FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied (this
 # install has no other air lane); (2) no warp at all; (3) the time box is the measurement; (4)/(5)

@@ -64,21 +64,51 @@ namespace Parsek
             return models + prefabs + legacy;
         }
 
+        /// <summary>
+        /// Writes every stock-ruled emitter of a firing RCS module for its recorded power: stock's
+        /// <c>ModelMultiParticleFX.OnEvent(power, nozzle)</c>, from the asset baselines. Returns the
+        /// emitters written.
+        /// </summary>
+        internal static int ApplyRcsFxRules(RcsGhostInfo info)
+        {
+            if (info?.fxRules == null || info.fxRules.Count == 0 || !(info.currentPower > 0f)) return 0;
+            float power = GhostEngineFxPower.RcsNozzlePower(
+                info.currentPower, info.recordedNozzles, info.activeNozzles);
+            float emission = 0f;
+            for (int i = 0; i < info.fxRules.Count; i++)
+            {
+                GhostEngineFxRule rule = info.fxRules[i];
+                emission = GhostEngineFxPower.RcsEmission(
+                    rule.curves.emission.Value(power), power, info.activeNozzles);
+                WriteModelEmitter(rule, emission, power);
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"rcs-fx-power-{info.partPersistentId}-{info.moduleIndex}",
+                $"RCS FX power: pid={info.partPersistentId} midx={info.moduleIndex} " +
+                $"recorded={info.currentPower.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"nozzles={info.activeNozzles}/{info.recordedNozzles} " +
+                $"power={power.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"emission={emission.ToString("F3", CultureInfo.InvariantCulture)} models={info.fxRules.Count}", 10.0);
+            return info.fxRules.Count;
+        }
+
         // Particle ECalls; NoInlining keeps them out of ApplyEngineFxRules, which a headless test
         // may call with no rules.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void WriteModelEmitter(GhostEngineFxRule rule, float power)
+            => WriteModelEmitter(rule, rule.curves.emission.Value(power), power);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void WriteModelEmitter(GhostEngineFxRule rule, float emission, float power)
         {
             KSPParticleEmitter emitter = rule.emitter;
             if (emitter == null) return;
-            float emission = rule.curves.emission.Value(power);
             float energy = rule.curves.energy.Value(power);
             emitter.minEmission = GhostEngineFxPower.EmissionRate(rule.minEmission, emission);
             emitter.maxEmission = GhostEngineFxPower.EmissionRate(rule.maxEmission, emission);
             emitter.minEnergy = rule.minEnergy * energy;
             emitter.maxEnergy = rule.maxEnergy * energy;
-            emitter.localVelocity = ScaleEmitterLocalVelocity(
-                rule.localVelocity, rule.curves.speed.Value(power), rule.useWorldSpace);
+            emitter.localVelocity = rule.localVelocity * rule.curves.speed.Value(power);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

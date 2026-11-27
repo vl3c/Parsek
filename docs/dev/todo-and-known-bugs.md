@@ -20,13 +20,236 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-3 on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
+## ~~SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP~~: F5 then F9 (or a far map Switch-To) could focus the wrong vessel while a ghost replayed in orbit [FILED 2026-11-27 from the far watch decompile audit (`/mnt/project-files/far-watch/audits/F-save-index-drift.md`), not seen in game; FIXED 2026-11-27, PR #2842; lanes SAVE-IDX-1 / SAVE-IDX-2 authored 2026-11-27, first flights owed; product bug, medium (the player flies the wrong vessel after a quickload)]
+
+What: stock builds `FlightState` (and its `activeVesselIdx`, an index into `protoVessels`) in `Game.Updated` BEFORE `ScenarioRunner.GetUpdatedProtoModules` runs `ParsekScenario.OnSave`, so the index counts the ghost map ProtoVessels the strip then removes (`GhostMapPresence.StripFromSave`), and `FlightState.Save` writes it verbatim. A ghost map vessel is appended to `FlightGlobals.Vessels` at runtime, so any vessel created after it in the same scene (an EVA kerbal, a planted flag, a decoupled stage, a Parsek spawn) sits after it; when such a vessel is active and is not the last real one, F9 (`StartAndFocusVessel(game, activeVesselIdx)`) focused the vessel k slots later, k = ghosts before it. Cheapest case: an orbital ghost replays, EVA, plant a flag, F5, F9 -> the flag is focused. When the active vessel was last, the index pointed past the end and stock's clamp in `FlightDriver.Start` rescued it by luck (the harness `LoadGame` seam refuses that index). The far (unloaded) Switch-To had the same drift by another path: `setActiveVessel` calls `StartAndFocusVessel(HighLogic.CurrentGame.Updated(), vessels.IndexOf(v))`, where `Updated()` strips the ghosts from the game while `IndexOf` reads the live list that still holds them.
+
+Fix: `StripFromSave` moves `activeVesselIdx` down by the ghosts before the active entry (pure `GhostMapPresence.ResolveActiveVesselIdxAfterGhostStrip`, one Info line `Save activeVesselIdx a->b ghostsBefore=k`); an index that named a ghost falls back to 0 (stock's off-flight default; Warn in FLIGHT, Verbose elsewhere), an out-of-range one (stock's -1) is left alone. Every save goes through that one site (F5, persistent, the harness `SaveGame`, the rewind point author, PostInit `GameBackup`, whose `ActiveVesselID` is fixed with it). For the far switch, `ParsekFlight` subscribes `onVesselSwitchingToUnloaded` (fired right before stock's save and live `IndexOf`, no return path between, decompiled 1.12.5) and calls `GhostMapPresence.RemoveAllGhostVesselsBeforeFarSwitch`, which removes every ghost map vessel from the live list first (the scene reloads right after); a ghost target is left alone with a Warn. Tests: `SaveActiveVesselIndexTests` (each strip cell fails with the index write reverted).
+
+Lanes (authored 2026-11-27, never flown; both on gloops-airshow, nothing records): `SAVE-IDX-1-quickload-keeps-eva-focus` (the `ghost-commnet-relay` preset: Jebediah EVAs and plants a flag after relay A's map ghost exists, `SaveGame quicksave`, `LoadGame quicksave playerLoad=true` without `focusPid=`; the save line's `activePid` is back-referenced into the reloaded scene's new `Flight ready focus:` Info line, pre-fix it named the flag) and `SAVE-IDX-2-far-switch-focuses-target` (the `ghost-commnet-timeline` preset: warp past the held relay's spawn so it is a real vessel after the deploy relay's map ghost, EVA and flag after it so a one-slot drift cannot be rescued by the clamp, then `AlarmJump vessel="CN Held Relay"`, stock's own unloaded switch; the target pid is back-referenced into the strip line, `indexDriftAvoided` at least 1, and the reloaded focus line, pre-fix it named Jebediah). `ParsekFlight.OnFlightReady` logs `Flight ready focus: pid= name= type= index= vessels=` for every flight start for these lanes. Left: their first flights.
+
+## WATCH-LANE-REAIM-LAUNCH-NO-GHOST-AT-RELAUNCH: a re-aimed loop shows no watchable ghost at the launch its countdown names [FILED 2026-11-22 from the watch-lane flights `2026-11-22_2116` / `_2123` (WL-1 on `duna-park-recorded`, INVALID on EnterWatchMode); OPEN, needs a look; low-medium (the Missions "Warp to" may land the player at a launch with nothing on the pad)]
+
+What: on `duna-park-recorded` (tree `ced78481...`, re-aim ENGAGED Kerbin->Duna with LAUNCH HOLD to Kerbin rotation, "per-loop launch advance / SOI-exit repay"), `StartLoopPlayback` reports `relaunchUt=5336958314.5075293` (8,172 s before `phaseAnchorUt=5336966486.9446144`) and lands 15 s before it. `WarpToUT` to relaunch + 5 s then `EnterWatchMode tree=...` refuses `no-watchable-ghost` with `ghost=F` on all 14 members (`2026-11-22_2123_WL-1-liftoff-duna-park_a2_shots/KSP.log`). On a loop with no launch hold (`mun-landing-recorded`, `refly-a-recorded`) relaunch equals `phaseAnchorUt` and the ghost is there. Unknown: whether the advanced launch renders only as the secondary in-SOI ghost the launch-hold line names (not an indexed ghost state, so Watch cannot pick it) or whether nothing renders at the countdown's UT at all. Next: hold WL-style on the fixture (`make_watch_lane.py --save fixtures/saves/duna-park-recorded --tree first --scene liftoff`) and look at the pad, then read `GhostPlaybackEngine` spawn lines around relaunchUt. WL-1 moved to `refly-a-recorded` meanwhile.
+
+## GHOST-RCS-FIRES-CONTINUOUSLY-AFTER-ACTIVATION: a landing ghost shows every RCS nozzle firing for the whole descent and after touchdown [FILED 2026-11-26 from the owner watching WL-2 held; OPEN (recorder half; the playback half is GHOST-RCS-FX-STOCK-RULES, fixed); product bug, visible]
+
+What: WL-2 held (`2026-11-26_2151_WL-2-landing-mun`, `mun-landing-recorded`, automation DLL sha256 prefix d7a33d32): the owner saw the landing ghost's RCS nozzles firing all the time during the descent and after landing. Two halves, both read:
+
+- Recording: the lander's recording (`61f3775361fe4130a66a69b1425b7209`, span 34.5 -> 23148.9) carries 23 RCS events on the Mk1-3 pod's built-in RCS (pid 10668187): one `RCSActivated` at UT 21592.4 (value 0), 22 `RCSThrottle`, and NO `RCSStopped` at all; the last throttle is 0.067 at UT 23138.8, 10 s before the recording ends landed. So by the recording the RCS never stops.
+- Playback: the ghost applies those (`apply family=RCSActivated surface=rcs-fx rec=2 pid=10668187`, `RCSThrottle`) and draws a small power with a 20 % floor: `FX magnitude (rcs) pid=10668187 power=0.013 emissionRatio=0.200 speedRatio=0.200 emitters=8 systems=8`. A near-zero aggregate power therefore renders as steady visible plumes on all eight nozzles.
+
+Unknown: whether the live vessel really had RCS firing at that low level for the whole descent (SAS corrections with RCS on) or the recorder's stop threshold missed the quiet stretches; stock only shows RCS plumes on the thrusters that actually fire.
+
+Playback half already fixed on main: GHOST-RCS-FX-STOCK-RULES (fixed 2026-11-24, 1.0.4) replaced the 0.2 floor with stock's emission curve (`emission 0.1 -> 0`), so a power under 0.1 now draws nothing; the WL-2 DLL predates it (`emissionRatio=0.200` in its log). Left open: the recorder half, an `RCSActivated` with no `RCSStopped` in 1,550 s.
+
+Next: re-watch WL-2 held on a build with GHOST-RCS-FX-STOCK-RULES; if the nozzles still fire at rest, read the recorder's RCS poll (stop threshold / debounce, why no `RCSStopped` across 1,550 s).
+
+## MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL: a looped mission's booster debris is never drawn, kept dormant as unreplayed history [FILED 2026-11-26 from the owner watching WL-1 held; OPEN; product bug, visible on every looped launch that sheds debris]
+
+What: WL-1 held (`2026-11-26_2148_WL-1-liftoff-kerbin`, `refly-a-recorded`, mission 'Kerbal X With Probe', automation DLL sha256 prefix d7a33d32): the looped launch ghost flew, but the six side-booster debris pieces never appeared. The log: `Loop sync: linked 6 debris recording(s) to parent recordings (byParentAnchor=6)`, then `MissionLoopUnit: ... members=4` (the six debris are not members, by design: they ride the parent's clock through `Recording.LoopSyncParentIdx`), and every debris recording reads `Ghost playback skip state: #1..#6 ... skip=True reason=historical-not-replayed` with no ghost state ever built (`ghostBody=(null) ... no-state`) while the parent replays.
+
+Cause (read, not yet proven by a fix): `ParsekFlightPlaybackHost` (around line 1590) exempts a recording from the BUG-B dormancy gate (`PlaybackScopeTracker.IsHistoricalNeverReplayed` -> `GhostPlaybackSkipReason.HistoricalNotReplayed`) only when it is `loopingLike` = own `LoopPlayback` || chain looping || `cachedLoopUnits.IsMember(i)`. Loop-synced debris is none of the three, so while its parent replays in a mission loop the debris still counts as purely historical and is parked. The map side has the same shape (`GhostMapPresence.SourceResolution`, the `loopMemberInWindow` / `rec.LoopPlayback` exemption).
+
+Fix sketch: treat a recording as `loopingLike` when its loop-sync parent (`LoopSyncParentIdx`) is, on both the flight and map paths; then fly WL-1 (or an RL / GS lane with debris) and confirm the debris ghosts spawn on the parent's loop clock and retire where their recordings end.
+
+## REFLY-ACTIVE-VESSEL-DESPAWNED-BY-GHOSTER: re-flying a vessel that a later committed mission docks to despawns the vessel you are flying [FILED 2026-11-26 from the owner watching a station-view watch-lane prototype (closed PR #2840); OPEN; product bug, high: the player loses their own ship and the camera loses its anchor]
+
+What: on `bdock-recorded`, a Re-Fly of the station's own mission (tree 1, `rp_72ebafb509b943b6a353fa86eb3a4225` at UT 382.7, slot 0 = the station `Kerbal X`, pid 3620499050) hands the player the station (`[Rewind] Strip stripped=[] selected=3620499050`). 0.7 s later `VesselGhoster` despawns that same active vessel: `[Ghoster] Ghosting vessel: pid=3620499050 name=Kerbal X - snapshot captured, despawning` / `Vessel ghosted` / `Ghost chains evaluated: 8 chain(s), 1 vessel(s) ghosted`, because the chain walker lists the station as claimed by the LATER committed docking mission (tree 2, the capsule docks to it at UT 8949.268): `[ChainWalker] Vessel PID=3620499050 claimed by tree=8c677bba... via MERGE at UT=8949.3`. From then on every frame logs `ShouldSkipExternalVesselGhost: vessel pid=3620499050 is ghosted by chain` (34k lines in 3 min). On screen the flight camera has no vessel: `Camera: FREE`, empty sky, while the crew portraits and navball still read the station. Run `2026-11-26_2140_WL-5S-station-view-bdock` (operator-local spec, PASS by its light expectations; automation DLL sha256 prefix d7a33d32, branch `watch-lane-loop-window`, which carries no Ghoster change), log and spec kept in `logs/flights/wl5s-station-despawn-2026-11-26/`.
+
+Unknown: whether a plain rewind or a quickload onto such a station does the same (the claim is UT-keyed at 8949.3, far in the future, yet the ghosting fires at once), and what the replay should do at the dock when the player is re-flying the station on a different timeline (the recorded capsule docks to a vessel whose history the re-fly is rewriting).
+
+Next: read `VesselGhoster`'s chain-claim gate for why a claim 8,566 s in the future ghosts a vessel now, and whether it exempts the active vessel / the Re-Fly session's live slot vessel; then decide the dock-time behaviour with the owner.
+
+## WATCH-LANE-BDOCK-APPROACH-RECORDED-ABSOLUTE: the committed docking fixtures record the final approach to the station without a Relative section [FILED 2026-11-26 while building a docking watch lane (closed PR #2840); OPEN; recorder question, severity unknown; the WL-5 hold is where the owner looks at the result]
+
+What: in `bdock-recorded` the docking ship's recording (`5157d655`, Kerbal X #2, terminal Docked at UT 8949.268) has 30 track sections and every one is `ref = 0` (Absolute) or an on-rails checkpoint; the last 113 s before the dock (UT 8836.2 -> 8949.3, 92 points) are Absolute. The only Relative sections in the fixture are debris near their parent and the post-undock pieces. `bdock-second-dock-recorded` is the same. The station it docks with is tree 1's Kerbal X (pid 3620499050, its own recording ended Orbiting at UT 387), a real vessel that is out of the docking ship's tree, and the recorder's live-anchor scan (`FlightRecorder.AddLiveRecordingAnchorCandidates` -> `TryResolveLivePeerRecordingId`) is meant to take exactly such a vessel as a RELATIVE anchor inside `RelativeFrame.EntryMeters`. The fixtures were harvested 2026-08-11 (`60de84ac2`), so this may be a long-fixed gap rather than today's behaviour.
+
+Why it matters: an Absolute approach replays correctly only at its recorded time (a Re-Fly replay showed it there, closed PR #2840); any later replay (a mission loop) cannot follow the live station, which is why WL-3's looped approach plays 208 km from it (WATCH-LANE-LOOPED-DOCK-FAR-FROM-LIVE-TARGET).
+
+Next: fly a fresh BDOCK forge on today's build and read the docking ship's sections and the `[Anchor] RELATIVE entry:` lines; if it still records Absolute, find which gate in the live-peer resolve refused the station.
+
+## ~~WATCH-LANE-LOOPED-DOCK-FAR-FROM-LIVE-TARGET~~: the looped bdock approach plays 208 km from the vessel it docked with [FILED 2026-11-22 from WL-3 `2026-11-22_2131_WL-3-docking-bdock` (PASS, observation only); CLOSED 2026-11-27: lane withdrawn, the cause is the recording, not the loop]
+
+What: looping `bdock-recorded` tree 2 (Kerbal X #2, `scheduled=yes owner=9 phaseAnchor=65039.347`) and watching 120 s before the recorded dock (live UT 73597.5), the watch header reads `Watching: Kerbal X (208.6 km)` from the active vessel, which is tree 1's Kerbal X, the vessel the recording docked with. So the replayed approach does not meet the live target at that instant (night side; the screenshot shows the ghost alone). Owner question: should a mission loop whose dock partner is a live vessel phase-lock the approach to it, or is a ghost-only approach in the recorded orbit the intended replay? `python harness/run.py --id WL-3-docking-bdock --hold` shows it.
+
+Resolution (2026-11-27): the recorded approach on `bdock-recorded` has no Relative section (every track section of the docking ship's recording `5157d655` is Absolute or an on-rails checkpoint), so a loop, which replays it at a later UT, puts the ghost where the rendezvous happened on the original timeline while the live station has moved on along its orbit. Only a Relative-frame approach can loop next to the live target (the loop positioner anchors it to the live vessel, as RL-1 does). The owner withdrew WL-3; the recorder question is WATCH-LANE-BDOCK-APPROACH-RECORDED-ABSOLUTE. Watching a dock waits for the planned watch-any-ghost-at-any-distance feature (owner, 2026-11-27).
+
+## GHOST-DEPLOY-MOTION-TIMING-2026-11-26: a replayed deploy started when the real one had finished, and its in-between motion is not stock's [FILED 2026-11-26 from the part parity P7 plan (`docs/dev/design-part-ghost-parity.md` Appendix G.6, PR #2834), by code reading on main a3812a8d4; item 1 FIXED 2026-11-26 on playback (branch `motion-lag`), items 2 to 4 OPEN; product, medium]
+
+What:
+
+1. ~~One clip late.~~ The pollers emit a ModuleDeployablePart, gear, cargo bay, standalone ModuleAnimateGeneric or RetractableLadder event only at the END of stock's motion (`PartStatePoller.cs` skips EXTENDING / RETRACTING and "Deploying...", a bay mid-travel reads neither, an animate generic is deployed at `animTime >= 0.99`, a ladder's `Extending` reads unknown), and the ghost started its transition at that UT and ran one clip from there, so a ghost panel, leg, bay, door or ladder started moving when the real one had stopped. Confirmed from the archived PP-3 `2026-11-24_0235` log: for 43 parts of those five families the polled event came exactly one motion after the press (0.5 to 7.9 s; event delay equal to the sweep's own done wait), while animation groups, the airbrake and chutes record at the press. Stock's own motion time is the clip at the module's speed: speed 1 for panels, ladders, bays and animate generics (decompiled `ModuleDeployablePart.Extend`, `RetractableLadder`, `ModuleAnimateGeneric.UpdateAnimSwitch`), `extendDurationFactor` / `retractDurationFactor` for gear (the stock legs extend at 0.5: a 2.53 s clip took 5.05 s), and a deploy-limited bay travels only to its stop.
+2. Straight-line in-between poses: two clip samples (`GhostVisualBuilder.AnimationSampling.cs` `SampleAnimationStates`) and one shared Lerp / Slerp fraction for every transform (`GhostPlaybackLogic.HeatDeployablesLights.cs` `ApplyDeployableFraction`): stock's easing, staged clips and turns past 180 degrees are lost. OPEN.
+3. Chutes snap open (`GhostPlaybackLogic.PartEvents.cs` `ApplyParachuteSemiDeployedEvent` / `ApplyParachuteDeployedEvent`) where stock opens over seconds (semi 1.7 to 3.5 s, full 4.9 to 13 s, design D.4). OPEN.
+4. Servos step at 4 Hz: posed only at recorded samples (`GhostPlaybackLogic.Robotics.cs` `ApplyRoboticEvent`; the per-frame pass moves only rotors and wheels), sampled at most every 0.25 s (`FlightRecorder.cs`). OPEN.
+
+Fix (item 1, playback only, so every existing recording plays right; recorded data untouched): `Ghost/GhostPlaybackLogic.DeployMotionEnd.cs`. The deployable builders stamp the five end-marked families with stock's motion time per direction (`DeployableGhostInfo.extendMotionSeconds` / `retractMotionSeconds`: the part's own clip, the module's speed factor, the bay's travel to its limit stop). For those infos an event's motion is placed at [event UT - motion, event UT]: a look-ahead after each `ApplyPartEvents` walk arms an event still ahead of the cursor whose motion has begun, and the walk's own consumption of the event lands on the same window, so a spawn mid-motion, a scrub, a loop cycle and a warp jump show the same pose (a pure function of the recorded UTs). Clamps: a motion cannot start before the same part's previous end-marked event (derived from the recorded list, `BuildEndMarkedDeploySchedule`); when it would, it starts at that event and runs faster to still end at its own. A motion that would start before the recording's first UT is not clamped: the ghost first appears showing the pose stock had at that moment. A seed at the recording start therefore shows its state on the first frame, even where no snapshot baseline set it. Animation groups, aero and control surfaces and the robot arm scanner record at the start and keep the old transition; the snapshot baseline, the break snap and the loop reset are unchanged. Flight, KSC and the flight preview all go through `ApplyPartEvents`; the map draws no part poses. A recording segment boundary inside a motion still jumps: the earlier segment's ghost does not see the next segment's event. Flown 2026-11-26 on stock-minimal, two throwaway lanes (never committed: the PBR rover's SP-L 1x6 panel and MiniDrills; a splashed Mallard's reversers, small gear bay, Mk3 bays and ladders, watched from a crewless twin), recorded, Rewound-to-Launch and replayed with screenshots at the same UTs. Before (DLL 1807570bec52): each event logged when the real motion ended (panel +7.0 s, reversers +1.0 s, gear bay +3.0 s, Mk3 bays +3.6 s, ladders +6.7 s after the press; MiniDrills at the press) and each ghost transition started at that offset. After (DLL 1b605a81e8a4): each ghost motion was armed at the press UT and ended at the event (panel 32.86 -> 39.86 for a press at 32.84; the Mallard's bays at their 0.44 / 0.45 travel, 3.5 / 3.6 s). PP-3 on the fix: PASS, armed gate ok, reds 0. Pictures: `<umbrella>/logs/flights/motion-lag/sheets/`. The Mallard's GearMedium did not deploy in the water, so it recorded nothing. Seam: `PartAction button=deploy|retract` now presses every deploy family (Extend / Retract, EventToggle, Toggle). Tests: `DeployMotionEndTests`, `TestCommandPartActionTests.DeployButtons_PressEachDeployFamilysOwnEvent`; the two `PlaybackFidelity` in-game deployable cells moved to the new contract.
+
+## ~~PARTPARITY-FX-PAIRING-HIDDEN-VARIANTS~~: four ReStock RCS blocks read eight drawn effects missing that their ghosts draw [FOUND 2026-11-24 on PP-9 `2026-11-24_0735`; FIXED 2026-11-24, branch `parity-noise`, FLOWN 2026-11-26 on `RCSBlock.v2` only (PPN-1, no `missing-fx`); instrument, low]
+
+What: `missing-fx` 8 on `RCSBlock.v2`, `RCSblock.01.small`, `restock-rcs-block-multi-2` and `restock-rcs-block-multi-mini-2`. The real part keeps every variant's systems (`RCSBlock.v2`: 36, 8 of them drawn, under `B_RCS4xA`), the ghost only the live variant's 8, and the diff gave the ghost's to the first hidden ones in hierarchy order. Cause in `PartParityFxStructure.Diff`.
+
+Fix: drawn real systems pair first (design E.4, "Drawn systems pair first"). Cells with the real shape, and with 1, 4 and 8 drawn systems really missing. The four cases keep their RCS fails (GHOST-RCS-FX-STOCK-RULES, RCS-PER-NOZZLE-RECORDING).
+
+## GHOST-RCS-FX-STOCK-RULES: a ghost's RCS puffs still follow the old linear power rule, not stock's effect curves [FOUND 2026-11-24 while triaging PP-7 / PP-8 / PP-9 `2026-11-24_0735` (`parity-noise`); OPEN, branch `ghost-fx-8`; low (visual only)]
+
+What: GHOST-ENGINE-FX-STOCK-RULES gave engine effects stock's own curves; RCS kept the S1 rule: particle rate and velocity times the recorded power, floored at 0.2 (`GhostPlaybackLogic.SetRcsEmissionWithOutcome` -> `ComputeFxMagnitudeRatio`), and the EFFECTS curves are never read (`[FxFingerprint] ... kind=rcs ... curves=em0/sp0`). Stock (`ModuleRCS` -> `UpdatePowerFX(running, i, clamp(force / thrusterPower, 0.1, 1))` -> `ModelMultiParticleFX`) scales the rate by the node's `emission` curve and the velocity by its `speed` curve: ReStock's blocks author `speed 0 -> 0.8, 1 -> 1`, so a nozzle at half force keeps about 0.9 of its speed.
+
+Seen: where the mean power is not the question at all. The triple-angled blocks fire all three nozzles at 0.50 / 0.50 / 0.71, the recorded 0.569 is their mean (ratio 1.000), and the ghost's systems read speed 2.85 of 5.00 (its inventory's `size=0.57 speed=2.85`). PP-9 `restock-rcs-block-triple-angled-mini-1` side-a origin -34 / -36 px (event / start), `restock-rcs-block-triple-angled-1` bottom offset 0.276; PP-8 `...-triple-angled-mini-1` side-b origin -36 / -30, direction 17.4 deg. Every single-nozzle block and linear port at power 1.0 is within its lines. The same rule sits inside the 19 other failing RCS cases (PP-7 2, PP-8 4, PP-9 13), beside R4's mean power, so none of them reads as a known difference until this is fixed (coordinator, 2026-11-24).
+
+Fix (not started here): give the RCS infos the engine effects' stock rule, at the recorded power. Note that stock's own curve draws nothing below a force of 0.1, so a block at mean power under it needs a decision with RCS-PER-NOZZLE-RECORDING.
+
+## GHOST-JET-THROTTLE-CLIP: a jet's variable nozzle never moves on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); OPEN, branch `ghost-fx-8`; low to medium (visible on every Panther and Whiplash)]
+
+What: `FXModuleAnimateThrottle` plays `TurboRamJetNozzle` (Whiplash) and `TurboJetNozzleDry` / `TurboJetNozzleWet` (Panther), clips that move the nozzle petals, at the engine's throttle (decompiled). A ghost builds a throttle clip only for its colours: `ApplyAnimationRestStates` skips a clip that moves any transform (GHOST-ANIMATION-REST-STATE, closed) and the pose sampling never reads one. The petals stay at rest.
+
+Seen on both installs, both routes alike (PP-5 `2026-11-24_0628` pp5fx, PP-10 `_0758`): `turboJet` dry full side-a / side-b shape blob 1971 / 1973 px, bottom colour 12986; dry 30 % 625 / 627; wet 30 % 310 / 313; `turboFanEngine` 30 % 763 / 746. Earlier notes of it: PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23, Body.
+
+Fix (not started here): drive the clip's transforms from the recorded power at the module's response, as the heat clip's colours are.
+
+## GHOST-GOLIATH-FAN-STATIC: the Goliath's fan does not turn on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); OPEN, branch `ghost-fx-8`; low (visual only)]
+
+What: `turboFanSize2`'s `FXModuleAnimateThrottle` plays `TF2FanSpin` with `animWrapMode = 2` (loop). Same cause as GHOST-JET-THROTTLE-CLIP: the ghost never plays it, so `FanCone` and `FanBlades` stand at rest on both routes (structure: rotation 21.5 deg off in PP-5 `2026-11-24_0628`). Top view colour 405 px (PP-5 full), 10654 (PP-5 30 %), 10457 and 470 (PP-10): the size is the real fan's phase at that moment.
+
+Fix (not started here): spin it at the module's rate. A still frame cannot judge the phase afterwards (PARTPARITY-SPIN-PHASE), so the case then needs the spin rate or an accepted entry.
+
+## GHOST-NOZZLE-GLOW-EVENT-RAMP: the Caravel's bell is hot at once on the real part and ramps on its ghost [FOUND 2026-11-24 while triaging PP-9 `2026-11-24_0735` (`parity-noise`); OPEN, branch `ghost-fx-8`; low (visual only, ReStock+)]
+
+What: `restock-engine-caravel-1` at full, event route `color-blob-px` bottom 3113, side-a 198; start route 4, so the real bell already stands at the hot end while the event ghost plays `heatColor`'s 0.025 /s ramp. `ghost-fx-8` (cfg and decompile): it is the one part of ReStock and ReStock+ whose `heatColor` `ModuleColorChanger` stands BEFORE its `FXModuleThrottleEffects`, and the setter writes in its `Update`, so stock's setter overwrites the ramp every frame; the ghost assumes the ramp writes last. Named before in GHOST-RESTOCK-NOZZLE-GLOW (48958 -> 2951 px).
+
+Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 0. Both its ramps are done; the ghost holds the last recorded throttle 0.96 (the log's last `EngineThrottle`) where the real engine is at 0.99. That is ENGINE-THROTTLE-EVENT-STEP (PR #2821).
+
+Fix (not started here): the writer order of the part's modules decides which level shows.
+
+## ~~GHOST-RCS-FX-STOCK-RULES~~: a ghost's RCS puffs follow the old linear power rule, not stock's effect curves [FOUND 2026-11-24 while triaging PP-7 / PP-8 / PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1829` / `_1834`; low (visual only)]
+
+What: GHOST-ENGINE-FX-STOCK-RULES gave engine effects stock's own curves; RCS kept the S1 rule: particle rate and velocity times the recorded power, floored at 0.2 (`GhostPlaybackLogic.SetRcsEmissionWithOutcome` -> `ComputeFxMagnitudeRatio`). The scan looked for the EFFECTS curves as sub-nodes, which a stock node writes as values, so they were never read (`curves=em0/sp0`). PP-9 `restock-rcs-block-triple-angled-1` (all three nozzles firing, recorded 0.569, ratio 1.000): particle speed real 6.78, ghost 4.08 (0.569 x 7).
+
+Stock (decompiled `ModuleRCS.FixedUpdate` -> `ModuleRCSFX.UpdatePowerFX` -> `ModelMultiParticleFX.OnEvent(power, nozzle)`): power = clamp(force / thrusterPower, 0.1, 1); rate = floor(asset * emission(power)), energy and velocity by their curves, size untouched. Every stock node authors `emission 0.1 -> 0, 1 -> 1` and `speed 0 -> 0.8, 1 -> 1`; on ReStock 24 nodes do, and the second node of twelve ReStock+ systems (the triple-angled blocks among them) `emission 0.2 -> 0, 1 -> 1` and `speed 0 -> 1, 1 -> 1`, full speed at any power.
+
+Fix: each RCS model instance takes that rule (`GhostVisualBuilder.AddRcsFxRule`, `GhostPlaybackLogic.ApplyRcsFxRules`) and leaves the S1 ratio, which stays for SmokeScreen nodes. Two things the recording's mean power forces, neither touching recorded data:
+- The mean is over every thruster transform, those of other part variants included (RCSBlock.v2 4 of 9, ReStock's 4 of 18), which never fire. The ghost takes them out (`RcsNozzlePower`).
+- Stock's emission curve at a mean would all but switch a block off (one nozzle of four at full: 0.25 -> 0.07, and 0 below 0.1). A module of several active nozzles emits max(curve, mean) (`RcsEmission`): the mean keeps the total of nozzles that fire hard, the curve is above it from about 0.63 (0.72 for the 0.2 nodes), where most must be firing. A one-nozzle module is exactly stock's. Which nozzles fire is still RCS-PER-NOZZLE-RECORDING (R4).
+
+Tests: `GhostRcsFxPowerTests`; in-game `RcsPlumeMagnitudeSurvivesSuppressAndRestore` now sums the emitters.
+
+Flown: PPS-19a `2026-11-26_1829` (stock-minimal, 7 rcs cases) and PPS-19b `_1834` (modded-restock, 19) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), both INVALID on the controls they do not plan, no `[Parsek][ERROR]`. Particle speed real / ghost, before (PP-7 / PP-9 `2026-11-24_0735`) -> now: ReStock `triple-angled-1` 6.78 / 4.08 -> 6.80 / 6.63, `triple-angled-mini-1` 3.22 / 2.00 -> 3.37 / 3.32, `quint-1` 6.74 / 2.36 -> 6.77 / 6.52, `RCSBlock.v2` 6.70 / 1.60 -> 6.50 / 5.96, `RCSblock.01.small` 3.51 / 1.15 -> 3.58 / 3.03; stock `RCSBlock.v2` 3.13 / 3.32 -> 3.52 / 3.25. Side-a flame length ratio on the ReStock blocks 0.52 to 0.88 -> 0.93 to 1.16; the one-nozzle parts and linear ports stay within 3 %. Particle counts stay higher on the blocks (every drawn nozzle fires, R4) and their mean direction reads off by up to 46 deg on the angled minis (R4 too: all nozzles where stock fires 3).
+
+## ~~GHOST-JET-THROTTLE-CLIP~~: a jet's variable nozzle never moves on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low to medium (visible on every Panther and Whiplash)]
+
+What: `FXModuleAnimateThrottle` plays `TurboRamJetNozzle` (Whiplash, 3 bones) and `TurboJetNozzleDry` / `TurboJetNozzleWet` (Panther, 6 bones), clips that move the petals, at the engine's throttle. The ghost sampled such a clip for its colours only (`GhostVisualBuilder.SampleNozzleGlowClip`; a clip with none was skipped whole). Seen on both installs, both routes alike (PP-5 `2026-11-24_0628`, PP-10 `_0758`): `turboJet` dry full side blob 1971 / 1973 px, bottom colour 12986; dry 30 % 625; wet 30 % 310; `turboFanEngine` 30 % 763.
+
+Fix: the same sampling also reads the transforms (33 poses a clip, only the channels that move, cached per part type) and `GhostPlaybackLogic.UpdateNozzlePoses` drives them from the glow's level, so recorded power, the main-throttle rule, response speed, persisted state, rewinds and loops are the glow's own. Two clips on one part blend as Unity's layers do with stock's `weightOnOperational` weights (3 x responseSpeed); the engine that runs owns the pose, and while none runs the last one keeps it (the recording does not tell an idle engine from a shut-down one). Writes only while a level or weight moves: a settled part costs one flag read a frame. Nothing new is recorded. Not covered: the clips' `Point light` intensity (a ghost's engine lights nothing) and `FXModuleAnimateRCS` poses.
+
+Tests: `GhostNozzlePoseTests` (Pose_*, Blend_*).
+
+Flown: PPS-19c `2026-11-26_1846` (stock-minimal, air, 8 jet cases) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`), INVALID on the controls it does not plan, no `[Parsek][ERROR]`. Event / start route, before (PP-5 `2026-11-24_0628`) -> now: `turboJet` dry full side shape blob 1971 / 1971 -> 0 / 0, bottom colour 12986 / 12986 -> 9 / 2; dry 30 % shape 625 -> 4 / 0, bottom 11144 -> 1739 / 3; wet 30 % shape 310 -> 0 / 0, bottom 6376 -> 657 / 2; wet full 0 / 0 as before; `turboFanEngine` 30 % shape 763 / 746 -> 2 / 0, colour 2972 -> 27 / 1. Log: `Nozzle pose pid=... settled: 'TurboJetNozzleDry' at 0.298 weight 1.000` and the wet case's dry weight 0 / wet weight 1. Left: the event route's bottom colour at 30 % (1739 dry, 657 wet; start route 3 and 2) is not a pose (no shape px).
+
+## ~~GHOST-GOLIATH-FAN-STATIC~~: the Goliath's fan does not turn on its ghost [FOUND 2026-11-24 while triaging PP-5 / PP-10 (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1846`; low (visual only)]
+
+What: `turboFanSize2`'s `FXModuleAnimateThrottle` plays `TF2FanSpin` with `affectTime = false`, `animWrapMode = 2` (loop); `CollectNozzleGlowPlans` skipped any module with `affectTime` off, so `FanCone` and `FanBlades` stood still on both routes (top view colour 405 to 10654 px: the real fan's phase at that moment).
+
+Stock (decompiled): the clip's speed moves toward `baseAnimSpeed + throttle * baseAnimSpeedMult` (0.01 + 100 x) by `responseSpeed * dt` a step and is capped at 1, the clip's own rate: one turn a second from 0.2 s after a full-throttle start, 20 s time constant on the way down.
+
+Fix: `GhostVisualBuilder.BuildEngineSpin` samples the loop (the converter loops' sampler) and `GhostPlaybackLogic.EngineSpinPhaseAt` is that law in closed form over the recorded power; one transform write a frame while it turns. An engine shut down while spinning coasts as an idle one does (stock freezes a shut-down fan after 1.8 s, when its weight reaches 0; the recording reads both as a shutdown). The phase is not the real fan's, so a still picture of it stays noise (PARTPARITY-SPIN-PHASE).
+
+Tests: `GhostNozzlePoseTests` (Spin*).
+
+Flown: PPS-19c `2026-11-26_1846` (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `EngineSpin 'turboFanSize2': sampled 1 looping transform(s) from 'TF2FanSpin' over 12 phases (clip=1.00s)`, `spins=1`. Top view px differing by 24 or more between the event ghost and the stowed ghost (fan at rest): before 0 at full and 30 %, now 7313 and 9116; event against start ghost 4923 and 5756 (two fans at different phases). The real-against-ghost top view stays phase noise (10492, 10658), as filed (script `after/fan.py`).
+
+## ~~GHOST-NOZZLE-GLOW-EVENT-RAMP~~: the Caravel's bell is hot at once on the real part and ramps on its ghost [FOUND 2026-11-24 while triaging PP-9 `2026-11-24_0735` (`parity-noise`); FIXED 2026-11-24, branch `ghost-fx-8` (1.0.4), flown `2026-11-26_1834`; low (visual only, ReStock+)]
+
+What: `restock-engine-caravel-1` at full, event route `color-blob-px` bottom 3113, side-a 198; start route 4: the real bell stands at the hot end while the event ghost plays `heatColor`'s 0.025 /s ramp.
+
+Cause (cfg and decompile): `FXModuleThrottleEffects` sets its modules in `Update`, as `ModuleColorChanger` shows its ramp (and KSPCommunityFixes' replacement too), so the later module of the part wins. The Caravel is the one part of ReStock / ReStock+ whose `heatColor` changer stands before its setter: its bell shows the throttle, hot at once. The ghost assumed the ramp writes last.
+
+Fix: the ghost compares the two modules' places in the part (`ThrottleGlowSetterOrder`, `ThrottleGlowRampOrder`; `ShownNozzleGlow` takes the last write of the frame).
+
+Not this: `MassiveBooster` at full, event bottom 466 px on PP-8 and PP-9, start 0 to 2. Both ramps are done there and the settled bell shows the setter's level: real 0.991, ghost 0.96, the last recorded `EngineThrottle` (PP-9 log, 5 % step). ENGINE-THROTTLE-EVENT-STEP (PR #2821); nothing to change in the ghost.
+
+Tests: `GhostNozzleGlowTests` (WriteOrder_*).
+
+Flown: PPS-19b `2026-11-26_1834` (modded-restock) (throwaway lanes, DLL 84c1511d, evidence `<umbrella>/logs/flights/ghost-fx-8/`): `restock-engine-caravel-1` full, event route `color-blob-px` bottom 3113 -> 3, side-a 198 -> 0; 30 % 1 -> 0. `restock-engine-boar` (setter first, unchanged rule) event 0 at both powers. `MassiveBooster` full event bottom 466 -> 0 on main's settled-throttle recorder (#2821), as read. The start routes of the boar (34729) and the Kickback (1066) are PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED, not this.
+
+## GHOST-TRANSIENT-FX-STOCK-DIFFERENCES-2026-11-26: the effects Parsek builds itself differ from what stock draws in the same situation [FILED 2026-11-26 by code and decompile reading for the part parity P9 plan (`docs/dev/design-part-ghost-parity.md` Appendix G, G.8); OPEN; not flown, each to be confirmed by the P9 captures; low (visual only)]
+
+What, from reading (file:line in G.8): the reentry fire's intensity is not stock's `AerodynamicsFX` curve (no 0.5 factor, no `p0` threshold and slope, no Mach-FX density fade, and a Mach 2.5 gate that stock applies only in air thinner than 0.0875 kg/m3), so it is weaker than stock's through most of a reentry and the white condensation of a fast pass in dense air never shows; a ghost part explosion has no speed term; the launch dust sits at the ghost root as a vertical additive disc, reads AGL against one latched launch-site altitude and ignores the pad and water, where stock's `ModuleSurfaceFX` puts dust at the thrust axis's ground hit; the decouple puff (smoke and sparks) sits on the joint child of every joint break, where stock bursts a white gas cloud on the decoupler only; water splash and the reentry light are missing. Fix: none yet; P9 measures each against stock first (lanes PP-11 / PP-12, FXC-1 / FXC-2), owner rulings 2026-11-26 (G.9): a ghost shows reentry fire wherever stock would draw it on the real vessel, and the Space Center explosion uses stock's own prefab; each fix is its own PR with before / after pictures (G.7, Y1 to Y7).
+
+## ~~GHOST-SMOKE-RIDES-ACTIVE-VESSEL~~ (was PARTPARITY-ORBIT-SRB-SMOKE-NOISE): a ghost's world-space smoke rode along with the active vessel, so a booster ghost sat in a ball of its own smoke [FILED 2026-11-23 from PP-8 / PP-9 as instrument noise; the owner saw it on the pictures 2026-11-24; FIXED 2026-11-24, branch `srb-smoke`]
+
+What a player saw: beside his own ghost in the air, or with a vessel in orbit, every ReStock booster ghost hid in a ball or column of grey smoke the real booster does not draw, and stock smoke trails spread out around the ghost instead of behind it. The parity instrument read it as `smoke-extra` on 12 boosters of PP-8 / PP-9; this entry called it noise on the real side, inferred from the Krakensbane shear. Wrong: the real side was right, the ghost was not.
+
+Cause (IL of `FloatingOrigin.setOffset` and `EffectBehaviour.OffsetParticles`): while Krakensbane or continuous mode is on, stock moves every registered world-space particle by minus (origin offset + frame velocity * dt) each physics step, 45 m at orbital speed, so smoke stays where it was emitted; a `KSPParticleEmitter`'s particles also drift back by `(rb.velocity + frameVelocity) * Random * dt` (mean one half more). It finds a part's systems through the Part (`ModelMultiParticleFX` / `ModelParticleFX`, FXGroups) or stock's `FXPrefab`; a ghost has no Part, and `StripKspFxControllers` destroys `FXPrefab`. So nothing moved a ghost's smoke, and it kept the active vessel's velocity. Stock's own loops for plain systems (FXGroups, PREFAB_PARTICLE) move nothing: the particle is a copy that is never written back, and `FXPrefab`'s registration does the plain shift; KSPCommunityFixes' `FloatingOriginPerf` replaces `setOffset` with one that writes both the shift and the drift. This also answers E0's open question (why the real world-space particles drift kilometres in orbit).
+
+Fix: `Source/Parsek/Ghost/GhostWorldSpaceEmitter.cs`, one component on every world-space system of a ghost FX clone (`FXPrefab` stays stripped, so nothing moves twice), registered exactly while it is enabled, moved in the `setOffset` postfix with stock's rule: the shift always, the drift for an emitter-fed system and, when KSPCommunityFixes patches `setOffset`, for a plain one. The drift velocity is read off the ghost's own motion plus the shifts; a jump (loop restart) is rejected by taking the slower of two readings. Nothing happens while the active vessel is parked (no shift), as for a real vessel seen from there.
+
+Proof (throwaway lanes SMK-1 to SMK-6, kept with their rig in `<umbrella>/logs/flights/srb-smoke/`): free burns recorded by the real recorder, the ghost replayed from the same recording at the same UT and camera, before (registration removed) and after. Orbit, 9 ReStock boosters, smoke within 20 m of the nozzle of about 280 particles: real 2 to 4 on all 27 shots, before 34 to 294, after 2 to 4; spread across the plume real 2.9 to 3.4 km, after 2.9 to 3.3 km. Air, a real booster of the same kind 42 m beside the ghost (mean distance behind the nozzle): Hammer +5 s before 6.3 m, after 73.1 m, real in the same instant 67.9 m; Flea +7 s 6.5 / 136.6 / 138.0 m. Stock `fx_smokeTrail_medium` beside a Flea +7 s: before 165 m, after 473 m, real 466 m.
+
+The standing flow STAYS (owner ruling 2026-11-24; do not remove it without asking). `WorldSpaceEmitterFloorSpeed` gives a ReStock booster ghost's smoke 6 m/s exhaust-ward (commit d75cf8f27, 2026-06-12, made for the static showcase, where the asset's own 0 to 1 m/s "gathers in one point"). The real part does gather: a real Hammer held still in the air reads 1.0 m mean behind the nozzle (4.8 m at most), the flowing ghost 5.8 m (15.7 m); without the flow the ghost reads 1.0 / 4.9 m and the showcase shows a ball of smoke at each booster (both photographed, `showcase/` and `air-restock-nofloor/` in the flight folder; removal 97e052a12, reverted). Its limit, tightened with the ruling: the flow counts the ghost's own speed (`GhostWorldSpaceEmitter.StandingFlow`, smoke leaves at 6 m/s minus the ghost's speed when that is above its own), so only a booster that burns standing still differs from the real one and nothing from 6 m/s up is touched. Before that it reached launched flights too: Hammer +3 / +5 / +7 s 30.9 / 73.1 / 118.5 m with it, 25.3 / 68.7 / 114.6 m without, real beside it 25.0 / 67.9 / 114.5 m.
+
+Parity lanes on the fixed build (PP-9 `2026-11-24_2040` and `_2145`, PP-10 `_2101`, PP-7 `_2120`, PP-5 `_2137`, MC-2 `_2144` PASS; DLL 7164781e except `_2040` / `_2101`, which flew the build without the standing flow): ReStock booster smoke on PP-9, 10 boosters times 4 views, views with a ghost core of 256 px or more 40 of 40 before, 1 and 0 of 40 after (real 0, 0, 2); the instrument's own 95th-percentile spread across the axis real 155 / ghost 155 m on the Thumper (before 1.7 m). Verdicts against main `2026-11-24_0735` / `_0758` / `_0628` (pass / warn / fail): PP-9 68 / 31 / 65 -> 71 / 27 / 66, PP-7 105 / 19 / 4 -> 103 / 23 / 2, PP-10 2 / 5 / 7 -> 2 / 6 / 6, PP-5 2 / 5 / 7 -> 2 / 5 / 7, every control ok; the cases that moved the wrong way are flame-layer flicker at the rate two runs of one build show (PP-9 9 worse / 8 better / 2 to fail between `_1749` and `_0735`, 8 / 9 / 4 here) and two smoke views, see the next entry. `ctl-fx-smoke-dropped` was built on the defect (a ghost that keeps its smoke at the nozzle in orbit) and now switches the mover off on its own ghosts.
+
+Not changed: a ghost watched from a parked vessel draws its trail without the drift (as stock draws a real vessel from there), so it is denser than the one its pilot saw.
+
+## PARTPARITY-ORBIT-SMOKE-PUFF-NOISE: in orbit a fresh smoke puff lands in the near box now and then, on either side, so a booster's orbit smoke view can read `smoke-missing` or `smoke-extra` once in a while [FILED 2026-11-24 from PP-9 `_2040` / `_2145`; OPEN; low (tooling)]
+
+What: the puffs of the newest rendered frame sit at the nozzle until the next physics step carries them off, and a view counts them when a sample falls in that gap. After GHOST-SMOKE-RIDES-ACTIVE-VESSEL both sides do it alike: of 80 booster smoke views 1 had a ghost core (Flea side-a 924 px) and 2 a real one (Flea side-a 808, Thumper bottom 2279; the Thumper read 29 and 197 px there in the two runs before). With both halves settled the Thumper's bottom view reads `smoke-missing` and fails (PP-9 `_2145`); `smallRadialEngine.v2` at 30 % reads the same `smoke-extra` on its bottom view as before the fix and fails now that the cap for unsettled views no longer hides it. Fix: do not judge the smoke layer of an orbit case whose sides draw world-space smoke unless both cores pass the minimum in both halves, or make it a visible known-unjudged. Until then read a single orbit smoke reason on a booster as this.
+
+## GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL: the ghost FX Parsek builds itself (explosion smoke, part puffs, launch dust, the reentry fire) are world-space and do not follow the floating origin [FILED 2026-11-24 while fixing GHOST-SMOKE-RIDES-ACTIVE-VESSEL; OPEN; low (visual only)]
+
+What: `GhostVisualBuilder.TransientFx.cs` and the reentry fire (`GhostVisualBuilder.HeatAndReentryFx.cs`) create their particle systems with `simulationSpace = World` and nothing moves them when the origin shifts, so beside a flying active vessel they drift along with it for their 1 to 4 s. Read from the source, not seen in a flight. Fix: attach `GhostWorldSpaceEmitter` there too (an unparented one does not drift), and look at the reentry fire first, whose streaks were tuned to what they are now.
+
+## LOOP-FALL-KSC-TS-SINGLE-COPY: looped predicted falls at the Space Center, the Tracking Station and on the map are drawn less fully than in flight [FILED 2026-11-24 from LOOP-TIMING-READ-THE-PREDICTED-FALL's "KSC / Tracking Station" and "Not changed" notes; OPEN, product, low, for 1.0.4 or later]
+
+Left open by owner ruling R4c (option C), which fixed loop timing and the flight scene:
+- **Fall cut short:** in a loop that does not overlap itself, the Space Center and the Tracking Station draw one copy, and the next relaunch cuts its fall (`TryExtendRenderIntoFall`); in flight each launch's fall plays to its impact (`UpdateUnitMemberFallSchedule`). A self-overlapping loop draws one copy per launch there, falls included.
+- **No explosion:** a span-clock copy at the Space Center whose fall ends inside the wait ends with no explosion. Every span-clock member's end did so before, so it is not new.
+- **Map path:** the map and the Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost only).
+
+Related: OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END (copies with a recorded end, built on `loop-own-end`, held for 1.0.4).
+
+## SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24: a seated kerbal's replay shows no kerbal for about 0.1 s at the dismount [FILED 2026-11-24 from SEAT-4 `2026-11-24_0806` (PARSEK-FAIL(expectation), `longestMissing=2` against a pin of 0 or 1) against `2026-11-23_2114`; logs and code read; the red is recording frame timing, pin widened to 0-4 (0.040 s read 3 frames in `2026-11-24_1627`, two of them at one UT) on branch `seat4-handoff-pin`; OPEN; product, low: about 0.1 s at 1x, on every replayed dismount]
 
 **The red:** the missing frames are the recorded span from the undock event to the parent recording's end. `DeferredEvaBranch` waits one frame before the branch, so the span is one recorded frame: 44.861272 -> 44.901272 = 0.040 s, two physics steps, in the red run (3 slots, long frames); 45.052578 -> 45.072578 = 0.020 s, one step, in the green run. The pod ghost #3 hides the seated part at the event (`Applied 1 part events for ghost #3`) and stays until its end, which the replay drew as 2 and 1 frames. `minFrames=2` belongs to the EVA ghost #4 and runs after #3 is gone, so it is in neither number. Same code in both runs: no regression.
 
 **What a player sees:** the seated kerbal disappears at the event and the EVA ghost is first drawn at 44.96 (red, about 0.10 s) / 45.12 (green, about 0.06 s): the event-to-end span, then the frame that destroys #3 and builds #4 (#4 starts at the first sample after the branch), then the two-frame activation settle. SEAT-4's cell counts only frames where a live ghost carries him, so it sees the first part alone.
 
 **Possible fix (not done, small visual gain):** skip the activation settle for an EVA ghost whose parent recording ended on this kerbal's dismount, as chain seams already do (`state.spawnedAtChainSeam`), and keep a `kerbalEVA*` part drawn on the parent ghost until its end when the Decoupled event is within the last frames of the recording. The recorded event UT must not move (recordings are immutable).
+
+## ~~GHOST-BALANCE-CUT-BY-THE-QUIT~~: a ghost still playing at the quit reads as a leaked mesh when its teardown line does not reach KSP.log [FOUND 2026-11-24 on GS-6 `2026-11-24_1654` (release flights, PARSEK-FAIL(ghost-lifecycle), spawned 8 destroyed 7 unbalanced 1). FIXED 2026-11-24, branch `gs6-quit-balance`; harness evaluator only, checked over the archive, GS-6 re-flown green `2026-11-24_1811`; test gate, low]
+
+Not a Parsek defect: the teardown ran. GS-6's dropped core is still falling at the quit (PARENT-ANCHORED-TAIL-HIDDEN-IN-FLIGHT),
+so only `ParsekFlight.OnDestroy` -> `DestroyAllGhosts` closes its ghost. In `_1654` KSP.log ends at
+`GhostTrajectoryPolylineRenderer.Driver destroyed`, one object before ParsekFlight, while Player.log goes on:
+`OnDestroy: cleaning up ParsekFlight`, `DestroyAllGhosts: clearing 1 primary`. Player.log has no `MeshDestroyed`
+line either: `HighLogic` was already gone, so `ParsekSettings.Current` was null and the tracer read as off. Unity's quit
+order is not fixed, and it decides both halves. Of the 241 archived November runs that drew a ghost and quit from flight,
+132 carry the teardown in KSP.log and 109 end before it.
+
+Fix (`harness/lib/ghostlife.py`): the engine's own 1 Hz census (`[Engine] engine-frame-iter ... rec=<8> ... hs=T|F`, `hs` =
+`ghostStates` holds the ghost) says what it held when it was told to quit. The last census before the
+`flushandquit: Application.Quit` line, plus spawns after it, minus a `DestroyAllGhosts` after it, and at most 5 s old
+(1.00 s at most over 410 runs), is the held set; a recording with no destroy line that is in it rides the new
+`aliveAtQuit` facet instead of `unbalanced`. A mesh the engine lost during the run is not in its census and still reds; no
+quit line (a killed run), no census or a stale one excuse nothing, and when the quit's own `engine teardown` lines did
+reach the log they must close every held ghost, as before. Blind spots: a ghost whose destroy goes missing inside the
+last second before the quit, and, as before, an earlier missing destroy of a recording that is drawn again at the quit.
+
+Why not UNMEASURED when the log holds no `GhostPlaybackEngine disposed` after the quit line (the other rule considered):
+37 of the 72 November runs of the lanes with the balance on hold none, so it would switch the check off in half of them.
+The census rule never switches it off: without that evidence a ghost with no destroy line reds as before. It is no weaker
+than the old rule on a ghost nobody ended, because that ghost's teardown line always counted as its ending; the mesh both
+rules are there to catch, one the engine no longer holds, writes no teardown line and is in no census.
+
+Checked over the archive: on all 142 archived flights of the lanes with the block, the new evaluator's mismatches are the same with
+the log whole and cut at the quit line (the old one differed on 5), and only GS-6 `_1654` and two size-elided GS-12 logs
+change verdict, all to no mismatch. Cutting one ghost's destroy lines (one the
+census no longer holds at the quit) out of 114 GS / S1.9 / OC / RVC logs reds 698 of 698 times. No `logContracts.required` token of any lane's two
+latest flights is met only after the quit line. Guards: `test_ghostlife.HeldAtQuitTests` (16 mutations of the reader, all
+caught; its last cell holds the census line to the C# writers). GS-6 `2026-11-24_1811` (main DLL b86aa44d, this evaluator) PASS
+attempt 1, 8 spawned / 8 destroyed: this time the teardown line reached the log, so the flight proves the whole-log half;
+the cut half is `_1654` re-judged (PASS, `aliveAtQuit` 1) and `_1811` cut at its quit line.
 
 ## ~~GHOST-ENDING-TOKENS-MET-BY-THE-QUIT~~: five lanes required a ghost's destroy line that quitting the game writes by itself [FOUND 2026-11-24 on MC-4 `2026-11-24_0422` (release flights). FIXED 2026-11-24, branch mc4-chute-gate; specs only, offline over the archive, not re-flown; test gate, low]
 
@@ -90,7 +313,7 @@ six mutations, all red.
 
 Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vesselName ?? "unknown")`, at `GhostPlaybackLogic.SynthesizedMotion.cs` (the `VerboseRateLimited` call in `DriveConverterLoops`). Then `S1.9` can name the three vessels again. MINE-6 reads the line for `Mining Rover RC` and is exposed if another loop drives in the 5 s before it.
 
-## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused]
+## ~~MAP-ICON-SHOWN-BEFORE-DRIVEN-2026-11-24~~: a looped ghost's map icon is shown for one frame far from its orbit when the polyline hands it back on a frame with no physics step [FILED 2026-11-24 from TP-6 `2026-11-24_0531` (PARSEK-FAIL anomaly, 1 `icon-teleport`) against `2026-11-11_2248` / `2026-11-16_2234`; log and code read; FIXED 2026-11-24, branch `icon-driven`, not flown yet; product, low: looped ghosts, above 50 fps or paused; FLOWN 2026-11-24: S1.7 `2026-11-24_1630` PASS (22 / 21 / 0 / 1, IconRevealDrive stale 1472037 m, placed 0.000 m), TP-6 `2026-11-24_1625` PASS]
 
 **Seen:** right after a time jump (1,258,921 -> 1,268,401, into the Mun approach) the probe reported `TELEPORT dPos=448726384m ... frame=11069`, same orbit on both sides (Mun, sma -512034, ecc 1.6642), `dPosWorld` equal to `dPos`.
 
@@ -110,7 +333,7 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 
 **Gates:** `IconRevealDriveTests` (xUnit) and the in-game `IconRevealDriveInGameTest` (category `MapRender`, lane S1.7), which runs hide, stock step, seed and Postfix inside one frame, so no frame rate decides the outcome; S1.7 requires its `IconRevealDrive:` line. TP-6's zero `icon-teleport` allowance stays the flown check of the real handoff. Owed: one flight of S1.7 (its tally is a prediction until then) and one of TP-6.
 
-## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 authored, never flown]
+## ~~FLAG-LOST-WHEN-REPLAY-HAD-NO-GHOST-2026-11-24~~: a flag planted on a committed flight never comes back after a rewind when its recording passes without a ghost (high warp, the Tracking Station, a time jump) [FILED 2026-11-24 from WF-1 `2026-11-24_0504` against `2026-11-15_1521`; code read on main a3b28de11; product, medium: a committed flag is silently lost; FIXED 2026-11-24, branch `flag-no-ghost`; xUnit `ReplayedFlagCatchUpTests`; lane FLG-2 LIVE-PROVEN `2026-11-24_1641` (planted 1 at the first Space Center visit, alreadyPresent 1 at the next), WF-1 `2026-11-24_1624` and FLG-1 `2026-11-24_1630` green on the same build]
 
 **Seen:** WF-1 plants a flag in flight 1 (the EVA kerbal's recording, plant UT about 69-71, terminal Boarded), rewinds and warps the pad from UT 46 to 900 in flight 2. Every earlier WF-1 log that got that far (seven, 2026-10-26 to 2026-11-15) has no `Spawned flag vessel` line after the rewind: the kerbal's recording reads `PlaybackCompleted index=2 ... ghostWasActive=False` at the warp-down and again at every later scene load, and the flag is never planted. `2026-11-24_0504` is the first with a ghost for that recording, and the flag was planted at its timeline end (UT 652).
 
@@ -129,7 +352,7 @@ Proposed fix (smallest): key by vessel, `"converter-loop-drive-" + (state.vessel
 **Log:** `[FlagReplay] Flag catch-up: rec=... host=flight|ksc currentUT= endUT= eligible= planted= alreadyPresent= removedByPlayer= failed=` (Info when it planted, else Verbose), once per recording with flags per scene.
 **Proof:** each of seven mutations (walk off, gate dropped, due UT dropped, once-per-scene dropped, 3 m match dropped, Space Center unwired, flight history gate dropped) reds the tests. FLG-2 (never flown) passes the window in the Tracking Station between two Cold save-file loads (`playerLoad=true`, gated), so the replay scope comes back from the save, and requires the plant on the next Space Center visit and none on the one after.
 
-## FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision]
+## ~~FLAG-REPLAY-PLANTS-INTO-A-LIVE-VESSEL-2026-11-24~~: a replayed flag is planted through a craft that stands on its spot and can block its hatch [FILED 2026-11-24 from WF-1 `2026-11-24_0504`; OPEN; product, low; owner decision; RULED 2026-11-24 (owner): option 1, leave it; no code; design 4.13]
 
 **Seen:** flight 2's pod stands on the pad at flight 1's pose. Flight 1's flag was planted under the hatch, so the replayed flag (UT 652) stands against flight 2's pod: at the warp exit stock logs `[Flag]: ground contact from a Part! Moving upwards 0.500m`, and the next EVA is refused (`FlightEVA.spawnEVA` returned null). Decompiled (1.12.5): with the kerbal aboard and an airlock present, null means stock's hatch checks found every hatch obstructed (a screen message and no log line), and flight 1 left the same pod by the same hatch before the flag stood there.
 
@@ -272,27 +495,69 @@ By reading the callers only; none of these has its own lane. The two promotions 
 redundant are the post-switch watch's and the board promotion's (a tracked kerbal who boards). A
 Re-Fly promotes no kerbal (re-fly is for vessel separations), and a board merge ends on the craft.
 
-## PART-STATES-LOST-AT-PROMOTION: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+## ~~PART-STATES-LOST-AT-PROMOTION~~: other part states changed between a vessel switch and the promotion are not recorded [FILED 2026-11-24 from EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION, by code reading; owner approved the fix 2026-11-24; FIXED 2026-11-24, branch `part-states-promotion`; LIVE-PROVEN 2026-11-26 (PSP-1 `2026-11-26_1811`); visual, low]
 
-The promotion skip of EVA-JETPACK-DEPLOY-LOST-AT-PROMOTION applies to every seeded family except
-engines, converters and (now) an EVA kerbal's jetpack and ragdoll. Deployables, gear, cargo bays,
-ladders, fairings, animation groups and aero surfaces are post-switch triggers
-(`ParsekFlightPostSwitchAutoRecord.CapturePostSwitchPartStateTokens`), but the change that fires the
-trigger is itself only seeded, so it is in no event either. Parachutes (an EVA kerbal's included),
-lights, jettisoned shrouds, broken panels and wheels and heat are not triggers and are lost the same
-way. The fix shape is the same (compare the live state with the recording's last word); it needs its
-own pass because deployables are exactly the family bug A / #263 is about. Since
-SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER a TRACKED background member that is the active vessel is
-polled by the background recorder up to and including the trigger frame, so its changes are recorded;
-what is left is a recording with no background writer (a fresh start, a Switch-To or Fly segment). A kerbal's helmet and
-headlamp have no part event at all, on any path. Also by reading only: a quickload taken in
-mid-burst leaves EvaJetpackThrustStarted with no stop until the next burst ends, because the resumed
-recorder clears `thrustingJetpackParts`. No flight has shown any of these.
+What was really lost, family by family, by reading every promotion caller (`StartRecording(isPromotion: true)`):
+
+- A TRACKED member (post-switch watch, board promotion): since SWITCHED-TO-KERBAL-UNRECORDED-UNTIL-TRIGGER
+  the background recorder polls it up to and including the trigger frame, so parachutes (EVA too), lamps,
+  shrouds, fairings, panels, gear, bays, ladders, animation groups, surfaces, wheels, heat and the deployable
+  that fired the trigger are recorded. The one family it does not poll is a cabin light (ModuleColorChanger,
+  `BackgroundRecorder.CheckLightState` reads ModuleLight only): LOST.
+- A FRESH recording (the five `BindLiveRecorderToSwitchSegment` routes, a split's active half, a seat
+  dismount, a merge): its ghost spawns from the start snapshot captured in the same recorder start
+  (`SnapshotPartBaseline`, the #290 shroud read, the fairing `fsm`), so panels, broken panels, wheels, gear,
+  bays, ladders, animations, surfaces, parachutes, lights, shrouds and fairings were drawn right with no event.
+  Three states are in no snapshot key the ghost reads: part heat (ModuleAnimateHeat), an EVA kerbal's
+  parachute (the reader matches `ModuleParachute` by name, his is `ModuleEvaChute`) and a robot arm
+  scanner: LOST.
+- A RESUMED recording (in-place resume of a committed recording, F9 restore): the ghost snapshot is the old
+  start, so every family that changed with no recorder running is LOST, and one quickload case too: an F5
+  taken while a panel, bay or gear was moving back leaves the resumed recorder with nothing to close, so
+  the ghost keeps it out for good.
+
+Stock keeps all of these across a save (heat follows the part temperature), so the live vessel shows the new
+state in each case and the ghost did not.
+
+Fix (`PartStateSeeder.EmitPromotionStateEvents`, last step of the promotion branch of
+`FlightRecorder.ResetPartEventTrackingState`): the states the recording's ghost would show (its start
+snapshot, then its recorded events, `BuildShownStates`) are diffed with the live parts through the rails-span
+differ, and only the differences are written, in both directions (a repair, a retraction, a light off, heat
+gone, a chute cut or repacked write their own event; a shroud and a fairing are one-way). Nothing is written for
+a state the snapshot or an event already carries, so most promotions write nothing. `SnapshotPartBaseline`'s
+reader moved from the Ghost module to Recording (`PartStateSeeder.SnapshotBaseline.cs`, the ghost builder
+forwards to it) so the recorder and the ghost read one snapshot the same way. UT: the recording's last interesting moment
+when it lies before the promotion, else the part's own last event, else the recording's start. It is later
+than the jetpack seed's rule on purpose: a deploy event at a recording's start redraws the whole recorded
+flight with a panel that opened later (a jetpack event alone draws nothing); the last interesting moment is
+the latest UT that cannot move the tail trim (bug A / #263). A do-nothing visit is still discarded: those UTs
+lie before the visit, and the checks that read from a segment's start (`IsNoOpSegment`) or a committed
+recording's end (`RefusedResumedCopyTail`) ignore such an event exactly there. No format change. Tests: `PromotionPartStateTests` (16 families, both directions, snapshot and event evidence, trim and
+no-op), and `PromotionConverterSeedInGameTest` also resets over an unchanged live vessel and expects nothing.
+
+Live proof (Debug automation DLL sha256 prefix 077cbda8, evidence `logs/flights/part-states/`): PSP-1 PASS attempt 1
+on `2026-11-26_1811`. A wheel broken while recording, the panel broken while no recorder ran, a save and reload: the
+in-place resume wrote `Seed event: DeployableBroken pid=2967988029 midx=0 part='solarPanels2' ut=36.18 (promotion)`
+(the recording's last interesting moment) and nothing else, the two unchanged resumes wrote nothing, and the replay
+applied both breaks. On the same DLL MINE-15 (an unchanged rover with drills, panels and lights writes nothing), EVA-17
+and S0.16 (an F9 inside a switch segment writes nothing) passed attempt 1.
+
+Left as is: a kerbal's helmet and headlamp have no part event at all, on any path (a recording-format question).
+The mid-burst quickload is QUICKLOAD-LEAVES-A-BURST-OPEN.
+
+## QUICKLOAD-LEAVES-A-BURST-OPEN: a quickload taken in mid-burst leaves a jetpack or RCS start with no stop until the next burst ends [FILED 2026-11-24, split from PART-STATES-LOST-AT-PROMOTION, by code reading; OPEN; visual, low]
+
+An F5 while a kerbal's pack (or an RCS block) is firing saves `EvaJetpackThrustStarted` / `RCSActivated`
+without its stop; after the F9 nothing fires, the resumed recorder's `thrustingJetpackParts` /
+`activeRcsKeys` start without it, so no poll ever writes the stop and the ghost's plume runs until the next
+burst ends. A separate mechanism from a lost part state: the truth is an interval that ended at the load, so its
+stop belongs at the quicksave UT, not at the recording's last interesting moment, and a burst that is open at
+the end of a committed recording must not be drawn across the gap to a later resume. No flight has shown it.
 
 ## ~~SEAT-REPLAY-KERBAL-VISIBILITY-2026-11-23~~: no lane replays a command seat, so a seated kerbal could be drawn twice or not at all [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN GREEN 2026-11-23 (`2026-11-23_2114`, branch `b4-eva`); DONE]
 
 Reading: frames=359 framesWithKerbal=354 once=353 twice=0 missing=1, longestTwice=0 longestMissing=1
-(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 3 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
+(one frame drawn on neither ghost at the handoff; the pin allowed 0 or 1, and 0 to 4 since 2026-11-24, see SEAT-DISMOUNT-KERBAL-BLINK-2026-11-24).
 
 SEAT-1 / SEAT-2 assert the recording structure of a seat board and dismount; nothing replays it.
 New FLIGHT category `SeatGhostKerbal` (`GhostKerbalVisibility.cs` pure, xUnit
@@ -317,27 +582,50 @@ the probe selected and recorded, then back to Kerbal X by `SimulateStockSwitchCl
 (`SWC-2-cycle-own-committed-case-c`). Both pin the Case C detection, the auto-resolve and the
 committed-clone route; recordings 2..3 is a reading window until the first flight.
 
-## WATCH-ACROSS-DOCK-LANE-2026-11-23: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN TWICE 2026-11-23, RED ON THE LANE SHAPE (branch `b4-eva`); OPEN: reshape WDK-1; test gap, low]
+## ~~LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP~~: in a looped mission, watch mode does not follow a docking ship into the merged vessel [FOUND 2026-11-24 answering WATCH-ACROSS-DOCK-LANE's open question, by code and xUnit. FIXED 2026-11-24, branch `wdk1-watch-dock`, for 1.0.4 (owner ruling 2026-11-24); xUnit `WatchAcrossDockTests.LoopUnit_*`, no live lane yet; low (camera choice, the player can pick the ship again)]
 
-Flown: `2026-11-23_2118` PARSEK-FAIL (the jump landed 17242.8 s before the dock: the phasing knob keeps
+A looped mission moves the watch camera by the loop unit's own handoff
+(`GhostPlaybackEngine.LogUnitTransitionIfChanged`): when the watched member's window ends it goes only to a
+member with the same raw launch guid (`IsSameWatchedVessel`; the name decides when a guid is unknown). A dock
+keeps one side's guid, so a watched ship that docks into the side that keeps it (and a kerbal that boards) was "a different vessel":
+`unit watch handoff suppressed ... is a different vessel`, and the camera stayed on the ended ship's hidden
+ghost. The ordinary path follows (`FindNextWatchTarget`: the merged vessel is the only child). The undock
+after it was wrong too: the merged leg and the station's leg share a guid, so the unit handoff would have
+picked the station over the watched ship (the owner ruling of 2026-11-20, WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION).
+
+Fix: when the watched member's window ends, the engine first asks its host
+(`ResolveWatchedBranchContinuation` -> `WatchModeController.FindWatchedBranchContinuation` ->
+`GhostPlaybackLogic.FindUnitBranchWatchTarget`), which applies the ordinary rules with the session's watched
+identity, only at a Dock, Board or Undock branch point and only to members the unit clock is in. -1 keeps the
+guid handoff: every other split still refuses its peeled-off siblings. The host answers for the index
+it is asked about, not only the current one: every unit member asks with the frame's index, and a transfer the
+first answer caused has already landed when the others ask. The retarget line gains
+` via=branch` / ` via=same-vessel`. Without the fix six `LoopUnit_` cells fail.
+
+## ~~WATCH-ACROSS-DOCK-LANE-2026-11-23~~: no lane holds watch mode across a replayed dock and undock [FILED 2026-11-23 from the test-gap list, batch 4; FLOWN RED THREE TIMES ON THE LANE SHAPE; RESHAPED AND LIVE-PROVEN 2026-11-24 (branch `wdk1-watch-dock`, WDK-1 `2026-11-24_1828` PASS attempt 1); test gap, low]
+
+The loop shape flew red: `2026-11-23_2118` (the jump landed 17242.8 s before the dock: the phasing knob keeps
 12 parking revolutions on cycle 0 where the flight recorded 3, `knob window: launch#0 k=3 d=9
-keptRevs=12`; WL-3's instant, PR #2782, has the same error) and `2026-11-23_2205` PARSEK-FAIL (the dock
+keptRevs=12`; WL-3's instant, PR #2782, has the same error), `2026-11-23_2205` and `2026-11-24_0808` (the dock
 and undock did play, `Ghost #18 spawned` at the dock, #19 / #20 at the undock, but no undock decision
-line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10); and
-in a looped mission the camera moves by the loop unit's own handoff (`IsSameWatchedVessel`, raw launch
-guids, `GhostPlaybackEngine.LoopUnits`), which never asks `FindNextWatchTarget` /
-`FindWatchedIdentityChild`, the code this lane pins. No product defect shown.
-Fix: fly it as an ordinary replay (no loop: an isolated Rewind-to-Launch of tree 2, or a host whose
-clock is before the dock) with the watched recording named by `index=`. To check at the same time (not
-proven by these runs): whether the loop unit's raw-guid comparison leaves the camera on the ended ship
-at a replayed dock, where the ordinary path follows it.
+line). Two causes: `EnterWatchMode tree=` picked `Kerbal X Probe` (#17), not the docking ship (#10), which it
+had to: #10 was 1047 km from the active vessel (the two jumps shift the live vessel's epoch and leave it where
+it is) and the watch entry cutoff is 300 km; and in a looped mission
+the camera moves by the loop unit's own handoff, which never asks `FindNextWatchTarget` /
+`FindWatchedIdentityChild`, the code this lane pins (and which lost the ship at a dock:
+LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP). No product defect in what the lane pins.
 
-WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION is xUnit only. Lane `WDK-1-watch-across-bdock-dock-undock`
-(operator, bdock-recorded) loops tree 2, jumps to WL-3's instant, enters watch mode and plays the
-recorded dock and undock 1.3 s apart at 1x, pinning the session identity line and the undock
-decision line with the outcome regexed. The fixture predates the dock-absorb link rows, so the
-live FOLLOW outcome needs a BDOCK re-harvest that records them (flight work, not filed as a
-defect).
+Reshaped as an ordinary replay: RF-8's rewind on `bdock-recorded` (the Interceptor separation, slot 1), a rails
+warp to UT 8925 (a TimeJump would leave the probe about 1084 km off; coasting, it is 82 km from the dock by both
+recorded orbits), watch mode on the ship's ghost by `index=10` (the identity pin names its launch guid), then 1x
+across the dock (UT 8949.268) and the undock (8950.588). Pins the session identity, the camera transfer to the merged vessel and the undock decision line. The fixture
+predates the dock-absorb link rows, so the live FOLLOW outcome needs a BDOCK re-harvest that records them
+(flight work, not filed as a defect). First flight of the reshape, `2026-11-24_1821`: PARSEK-FAIL(expectation) on one setup token
+this reshape wrote wrong (`warptout complete reachedUT=892[5-9]`; the verb ends about 0.2 s before its target, 8924.806),
+every subject token matched and every other verifier green. The spec then pins the warp's target (`ut=8925`), the landed
+transfer (`Watch hold timer set ... (watched #18)`: `Auto-following` also prints for a deferred one) and the undock
+outcome that run read, the pre-registered `no child continues`; `2026-11-24_1828` PASS attempt 1. Left: a live lane for the loop handoff, which needs an active vessel
+within 300 km of the looped dock.
 
 ## LIVE-GHOST-REENTRY-FX-NO-VIEWER-2026-11-23: the reentry glow of a real flown recording cannot be checked in flight, because no lane can place a viewer near a replayed descent [FILED 2026-11-23 from the test-gap list, batch 4; BLOCKED, category built (branch `b4-eva`); test gap, low]
 
@@ -460,9 +748,21 @@ Tests: `EngineFxBuilderTests` (`EngineWithoutStandIn_ScansExactlyItsOwnEffects`,
 
 Flown: PPS-14a `2026-11-23_1706` (stock-minimal, DLL 8b67133f, INVALID on controls only: the spec plans none), 17 cases 14 pass / 3 warn / 0 fail (PP-7 `2026-11-23_1027`: 17 fail). `fxExtraOnGhost` empty and `fxMissingOnGhost` only the two unrendered flameout sparks on all nine; every `engine-fx start` line `source=effects-node supplementSystems=0`, no `fallback ... added` / `forced` line. Side core real / event ghost: `Size2LFB` full 5249 / 34981 -> 5255 / 5264, 30 % 2965 / 29697 -> 2909 / 2904; `Size3EngineCluster` 43525 / 68046 -> 43500 / 43561; `Size3AdvancedEngine` 30 % 30869 / 5954 -> 30755 / 30865; `MassiveBooster` hue L1 0.72 -> 0.07, length 1.15 -> 1.00; SSME bottom area 1.38 -> 1.00; `omsEngine` hue 0.87 -> 0.01; `microEngine.v2` length 0.47 -> 1.02, lateral -119 -> -0.4 px; `radialEngineMini.v2` 0.41 -> 0.99. Warns left: `omsEngine` full far length 0.842, `radialEngineMini.v2` 30 % length 0.86 to 0.87 and hue 0.35, `Size3EngineCluster` 30 % chroma 0.016 (start). Same on the full lane, PP-7 `2026-11-23_1732` (all nine pass or warn). The smoke of `Size3AdvancedEngine` and `MassiveBooster` in the air: flown `2026-11-23_1951` (PPS-15, stock-minimal, DLL 7a603868: main 82dc51fb with a throwaway one-line instrument change that gives these two parts the air context, since the air run plans air-breathing engines only; INVALID on controls only, recompute 0). Both draw `fx_smokeTrail_veryLarge`, which is additive, so it is measured in the flame layer and the smoke layer is empty on both sides; inventories equal, `fxDiffers` empty. Core real / event ghost: Kickback full side-a 20327 / 20587, far 18119 / 18295, length 1.00, pass; Rhino full 37286 / 37364, far 22864 / 23210, pass; Rhino 30 % 31375 / 31406, far 18888 / 19864, warn (bottom hue L1 0.14).
 
-## ENGINE-THROTTLE-EVENT-STEP: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; OPEN; low (recorded data is immutable)]
+## ~~ENGINE-THROTTLE-EVENT-STEP~~: a throttle that settles inside one recorder step replays up to 0.05 off [FILED 2026-11-23 from the ghost-fx-3 air flight `2026-11-23_1201`; FIXED 2026-11-24, branch `throttle-settle`, flown `2026-11-24_1845` / `_1852`; low; existing recordings keep their events]
 
 What: the recorder writes an EngineThrottle event only when the throttle has moved more than 0.05 since the last one (`FlightRecorder.EngineAndRcs.cs`), so a slow spool to 0.29 ends on a recorded 0.25. Where stock's curve or per-frame threshold is steep the ghost shows it: RAPIER in air mode at 30 % `fx-far` flame real 20746, event ghost 321 (its trail draws nothing), Whiplash 18000 / 15002. The start route, seeded at 0.30, reads 20816 and 17945. A recorded flight cannot be changed; a settled-throttle event would be a recorder change for new flights.
+
+Owner ruling (2026-11-24): record the settled value: keep the 5 % step while it moves, and add one event when the throttle stops moving; new recordings only, few extra events.
+
+Fix: `FlightRecorder.CheckEngineTransition` (both recorders, engines only, RCS unchanged) writes one more EngineThrottle when the power has stayed within 0.001 of one value for 1.0 s of game time and is more than 0.01 off the last recorded value. The window's reference is the value it started at, so a drift faster than 0.001 per second never settles. Numbers: stock writes a resting throttle exactly (decompiled `ModuleEngines.UpdateThrottle`: instant engines copy the request, `useEngineResponseTime` closes by `Lerp` and snaps at 0.0001), so there is no jitter at rest; simulated on stock's formula, every stock jet spool gets one settled event within 0.008 of the target (Panther, RAPIER, Whiplash, Juno, Wheesley) and the Goliath (0.06 /s) two; a looser 0.002 gives the Wheesley two and the Goliath four, 0.5 s gives the Goliath four.
+
+Only an engine that wrote its own EngineIgnited / EngineThrottle in this recording session is armed, and both values must be positive, so a settled event always sits inside a burn of the same engine, before its shutdown: `FindLastInterestingUT`, the no-op classifiers and the phase analyzer read what they read before, and the post-switch activity watch runs without the rule. The optimizer's split rules read no part events. Left as it was: a seeded engine (a recording that starts mid-burn, an F9 resume, a background promotion) trimmed by less than 0.05 keeps the seed until its first step. A copy refused on resume (`RefusedResumedCopyTail`) whose engine runs in a surface-stationary tail can read the settled event as its one meaningful tail event and is then kept, never discarded.
+
+Cost, fixture recordings replayed offline (312 recordings, 4953 engine events, 763 ignitions): +34 to +205 settled events (+0.7 % to +4.1 %, 0.04 to 0.27 per ignition, the range being whether an unrecorded stretch ramps or rests); one for every throttle event held 1 s or more would be +486. The part-parity FX sweep polls with the same rule and holds a spooling case until its settled value is in.
+
+Flown (DLL 4d91d9d4, evidence `<umbrella>/logs/flights/throttle-settle/`). Held-air sweep `2026-11-24_1845`, PASS attempt 1, `fx-far` flame real / event ghost: RAPIER air 30 % 20746 / 321 before, 21129 / 21954 now; Whiplash 30 % 18000 / 15002 before, 17871 / 18069 now (before `2026-11-23_1201`; the sweep now also waits for the settled event). One settled event per case on every jet, at the simulated values (RAPIER 0.2963, Goliath 0.2843), and on each control solid booster (0.982 to 1.000, stock spools them too). AIR-1 `2026-11-24_1852`, PASS attempt 1, the ordinary flight: 14 settled of 136 EngineThrottle events, 7 per engine over a 405 s mission and 42 throttle commands; above the offline range because every command on a spooling jet that rests off a step writes one. Seen, not this entry's: the Juno's full-throttle `fx-far` ghost smoke (real 632, event 5445, start 5652) now matches its start route (852 / 1135 / 5434 before).
+
+Gate: `EngineThrottleSettleTests`.
 
 ## ~~GHOST-NOZZLE-GLOW-WRONG-SOURCE~~: the ghost's nozzle glow follows the wrong signal on the Whiplash, the wet Panther and seven ReStock boosters, and ReStock's RCS glow is missing [FILED 2026-11-23 from `ghost-fx-3`'s `2026-11-23_1201`, PPS-12b `2026-11-23_1656`, PP-10 `2026-11-23_1712` and `_1718` / `_1725`; FIXED 2026-11-23, branch `ghost-fx-6`, flown `2026-11-23_1927` / `_1934` / `_1940` / `_1946`; low (visual only)]
 
@@ -496,11 +796,11 @@ Tests: `GhostNozzleGlowTests` (`Split_*`; `Split_ARecordedBoosterTakesItsRampFro
 
 Flown: PPS-17c `2026-11-23_2156` (throwaway, modded-restock, DLL 1d211ee6, evidence `<umbrella>/logs/flights/ghost-fx-7/`), a Kerbal X ascent, Rewind-to-Launch and replay: `Nozzle glow at a split` fired for each of the six `Kerbal X Debris` ghosts with rows=1 ramps=2/2, headUT 30.9 and splitUT 61.5 / 63.7 / 65.9, no `[Parsek][ERROR]`. The heat each bell started at is not in the log: the per-glow line is rate limited and only the first pair (ramp 0.000, engines off for 17 s, so 0 either way) printed. The flown recordings replayed offline through the same code give 0 / 0.625 / 0.580 (before: 0 / 0 / 0). The split line now prints the hottest ramp; that build has not flown. Run verdict PARSEK-FAIL on `recordings.count 9 > max 8`, a bound copied from GPOS-1 (stock): the ninth is the "Kerbal X Probe" row the optimizer cut where it left the atmosphere. PPS-17b `_2152` (modded-restock): event-route bells at most 2 px on Mite, `liquidEngine2`, RAPIER, `ionEngine` and `toroidalAerospike` at every power flown; the start routes stay hot as filed (Mite bottom 10530, aerospike 132302, RAPIER 24966, `liquidEngine2` side-a 10635). Its controls are absent by spec, so it is INVALID on controls only.
 
-## PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the parity start route compares a loaded ghost with a real bell that was never loaded [FILED 2026-11-23 from `ghost-fx-7`; OPEN; instrument, low]
+## ~~PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED~~: the parity start route compares a loaded ghost with a real bell that was never loaded [FILED 2026-11-23 from `ghost-fx-7`; FIXED 2026-11-24, branch `parity-noise`, FLOWN 2026-11-26 (throwaway PPN-1 / PPN-2); instrument, low]
 
 What: the start-route ghost is built from a snapshot of the real part while it burns. For ReStock's ramping `ModuleColorChanger` that snapshot means the hot end (stock's own load, GHOST-NOZZLE-GLOW-SPLIT-RAMP), while the real part on the stand is mid-ramp: 40 PP-9 plume cases fail on `color-blob-px` of the start route alone, bells right on the event route.
 
-Fix (not started), either: let the real bell arrive (hold until the ramp stands, up to 40 s a case at 0.025 /s) before the start snapshot; or save and reload the real vessel before the start-route picture; or report the start route's bell on a ramping part as a known difference. No ghost change makes these right: the only data that says where a ramp stood is the engine events before the snapshot, and the rig's start route has none.
+Fix (`parity-noise`): the start route's real side is the part as a load leaves it. After the body views the ramps of a mid-ramp case are set to what `ModuleColorChanger.Start()` sets on a load (`animState ? 1 : 0`, decompiled; the one non-persisted ramp field), the game runs one frame of its own writers, the start pair is photographed again into a fifth atlas row, and the ramps are put back before any light or FX read. Design E.4, "Start-route reload". Tests: `PartParityStartReloadTests`, `StartReloadTests`. Archived sweeps keep their reds (they hold no such picture): PP-9 `2026-11-24_0735` 46 cases, PP-8 8. Flown 2026-11-26 (throwaway lanes, evidence `<umbrella>/logs/flights/parity-noise/`): PPN-1 `2026-11-26_1927` (modded-restock, 8 parts): every burn-full engine case (7) carries `start-route-reloaded:1` and the fifth row, and its start route reads `color-blob-px` 0 (PP-9 `2026-11-24_2145`: LV-T91 36484 / 36474 / 4614, `toroidalAerospike` 127684 / 36416 / 36399); burn-low cases and `RCSBlock.v2` are not reloaded (no ramp a load moves). PPN-2 (stock-minimal, 6 parts): no flag, no fifth row, nothing moved. Both INVALID on controls only (absent by spec).
 
 ## ~~GHOST-LES-NO-PLUME~~: a stock launch escape tower burns without a plume on its ghost [FILED 2026-11-23 from PP-7 `2026-11-23_1732` (`LaunchEscapeSystem` full: real core 1485 / 1482 / 10277 / 2010 px on side-a / side-b / bottom / far, ghost 0); FIXED 2026-11-23, branch `ghost-fx-7`, flown `2026-11-23_2149`; low (visual only, stock)]
 
@@ -522,13 +822,24 @@ Cause (decompiled): the two keys end in `true`, which makes `PartLoader` add `(K
 
 Fix: `EngineFxBuilder.LegacyFxLocalPosition`. Tests: `GhostFxStockPlacementTests`. Flown: PPS-16d `2026-11-23_1946`, 30 % side-b width 0.381 -> 0.991, core 4900 / 3943 -> 4896 / 4994, side-a origin 16 -> 0 px, both powers pass, `fxDiffers` empty.
 
-## PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; OPEN; instrument, low]
+## ~~PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN~~: no parity case burns an engine on the vessel's main throttle [FILED 2026-11-23 from `ghost-fx-6`; FIXED 2026-11-24, branch `fx-rig-main-throttle`, flown `2026-11-24_1901` / `_1911` / `_1917`; instrument, low]
 
-What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: today the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judge a cold bell against a cold bell; the ordinary flight, bell hot on both sides, is not measured.
+What: the FX rig authors `independentThrottle = True` and leaves the case vessel's `ctrlState.mainThrottle` at 0, so anything stock drives by the vessel's throttle stays at rest on the real side: the Whiplash's and the wet Panther's heat clips (`TRJ_Heat`, `TurboJetHeat`). Their cases judged a cold bell against a cold bell; the ordinary flight, bell hot on both sides, was not measured.
 
-Seen 2026-11-23: PPS-16a / PPS-16b (`2026-11-23_1927` / `_1934`) read 0 px on both bells against the cold real side (16355 to 18272 px before GHOST-NOZZLE-GLOW-WRONG-SOURCE), which agrees with the rig's reading and measures nothing about the ordinary case.
+Fix: two state words, `main-full` and `main-low`, for every throttleable engine (`independentThrottle = False`, the vessel's own throttle held through its `OnPreAutopilotUpdate`, 60 s of burn for the engines whose glow reads it), planned by `fx=plume` only for those two engines (four cases more in each air lane) and for every engine by `fx=plume-main`. Design: "Main-throttle cases as built" in E.2. The independent-throttle cases keep their ids and their waves.
 
-Fix (not started): also author `CTRLSTATE { mainThrottle = <the case's throttle> }` on the case vessel (the independent throttle stays, so nothing else moves) and expect both bells hot.
+Flown (DLL sha256 prefix 106a6702, origin/main at #2820, so without `throttle-settle`; evidence `<umbrella>/logs/flights/fx-rig/`; each lane's INVALID is the labels run with `controls=false`, the two air labels and the orbit label that ran controls read them ok; no `[Parsek][ERROR]`). Glow clip level at the capture and body `color-blob-px` on `bottom`, stock (ReStock within 0.001 of a level and 6 px):
+
+| Case | Real level | Event ghost | Start ghost | bottom px, event / start |
+| --- | --- | --- | --- | --- |
+| Whiplash `main-full` | 0.557 | 0.513 (target 0.973) | 0.557 | 0 / 0 |
+| Whiplash `main-low` | 0.170 | 0.138 (target 0.253) | 0.170 | 2951 / 2951, its nozzle's shape (`burn-low` 2954) |
+| Panther wet `main-full` | 0.556 | 0.538 (target 0.980) | 0.556 | 1 / 1 |
+| Panther wet `main-low` | 0.170 | 0.146 (target 0.261) | 0.170 | 6337 / 6334, its nozzle's shape (`burn-low` 6380) |
+
+The hot bell is hot: the real `bottom` view differs from its `burn-full` twin by 20228 px (Whiplash) and 20045 px (Panther) over 12 levels; the Whiplash's mean red is 109.9 real, 98.3 event, 109.8 start against 42.2 cold. The start route is exact. The event route is 0.02 to 0.04 of the clip dimmer, under every threshold: the spool the recording holds and the vessel throttle it does not (E.2, "What the ghost cannot know"), and the last throttle step the recorder drops (ENGINE-THROTTLE-EVENT-STEP, `throttle-settle`'s). The Whiplash's clip adds no colour below about 0.17. Controls: the Wheesley and the LV-T45 read the same main as independent (0 px), the RAPIER too (0 px; its 30 % air flame fails as it does independently). `burn-*` re-flown beside them moved nothing: `turboFanEngine` full 0 / 0, low 2954, `turboJet` m1 12985 / 11139, m2 1 / 6380 (2972, 12986, 11142, 6376 in `2026-11-23_1718`). The host and the player's input stayed at 0.000; every case vessel released at 0.000.
+
+Left: the glow of an engine that ignores the main throttle (independent or locked) while the main throttle moves in flight is not recorded and stays a limit.
 
 ## GHOST-NOZZLE-GLOW-REAIM-HISTORY: a re-aimed loop row cut at a burn's end starts with a cold nozzle [FILED 2026-11-23 from the `ghost-fx-2` review; OPEN; low (visual only)]
 
@@ -554,7 +865,7 @@ Clusters, each with its entry:
 - Heat: `heat-hot` fails on colour on 13 of 16 stock parts and 12 of 13 ReStock ones, `heat-medium` passes on all but the JetEngine and (stock) the nuclear engine: the ghost draws the generic emissive where stock plays the part's own clip (PARTPARITY-FX-FIRST-READINGS-2026-11-23, Heat). On the nuclear engine the ghost lights the bell, which stock's clip leaves dark (`nuclearengine--default--heat-medium--6b86bbe4`, bottom 18457 px).
 - RCS (R4 known difference on 7 / 19 cases). Beyond it: `vernierEngine`'s flame starts 38 to 46 px farther from the nozzle than stock's (origin fail, stock only, `vernierengine--default--rcs-fire--589b225a`; ReStock's passes). On ReStock 17 of 19 rcs cases fail origin (`restock-rcs-single-mini-1` -188 px with one nozzle firing at full power), the ghost misses rendered `restock-fx-rcs-1` / `restock-fx-rcs-mini-1` systems on `RCSBlock.v2`, `RCSblock.01.small` and the two multi blocks, and its systems sit at another local position on 17 parts (the position and the scale are fixed with GHOST-FX-MODEL-SCALE, not flown).
 - `fx_smokeTrail_veryLarge` is emitted along another axis than stock's on 10 ReStock engines and boosters (structure only, the smoke is hidden in vacuum; GHOST-FLAME-Z-DIRECTION).
-- ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9): PARTPARITY-ORBIT-SRB-SMOKE-NOISE.
+- ~~ReStock solid booster smoke: the ghost draws it in orbit where the real side draws none (`smoke-extra` on 10 boosters of PP-9)~~: GHOST-SMOKE-RIDES-ACTIVE-VESSEL (fixed 2026-11-24).
 - Stock `LaunchEscapeSystem` draws no particles (GHOST-LES-NO-PLUME, fixed and flown); the ReStock tower passes. `Size1p5.Tank.05` (separation motors) smoke width 0.45 and flame directions off by 90 degrees (GHOST-FLAME-Z-DIRECTION, fixed and flown).
 - `sepMotor1` (stock) flame origin 34 px late, width 0.76.
 
@@ -651,6 +962,8 @@ The numbers behind each fix are in design E.4, "FX instrument fixes". The C# hal
 - ~~An FX fail had no band.~~ FIXED 2026-11-24 (`pp7-arm`): the baseline stores a band per entry and measure, capped or not, and a standing fail reds only past it; a fail stands only when both sample halves repeat it, in every case, not only in one with an unsettled entry; and a fail that rule caps is `unmeasured` far past its band. The numbers are in design Appendix F.
 - ~~A skipped weak layer (design E.4, weak cores) reads `pass` on its own entry; the case's `fx-weak-core:*` flag is what says it was skipped.~~ FIXED: the entry reads `skipped`.
 - ~~The real-vs-real controls compared 8 samples a side with 8.~~ FIXED (16 a side, flown on PP-5, PP-6 and PP-10): the air one read 1.264 and 1.345 on the Flea's far flame width against itself (line 1.30), so `2026-11-23_1201` was INVALID on it. If it still crosses at 16 a side, the lanes PP-5 / PP-6 (second label) and PP-10 read INVALID(parity-controls) now and then and the subject or the far view's width must be re-decided.
+- OPEN (found 2026-11-24, `parity-noise`). A grey flame's hue is its 8-bit rounding: ReStock `omsEngine` at 30 % reads mean colours (25.3, 25.0, 24.4) and (25.1, 24.7, 23.9), chromaticity 0.003 apart (line 0.06) and hue L1 0.71 to 0.85 on every view and route, PP-9 `2026-11-23_1749` and `2026-11-24_0735`. A judge rule was built and dropped in review: the sidecar's colours are the core's, the histogram the whole envelope's, so "both sides grey" cannot tell a grey flame from a grey core with a coloured fringe (real tiles of 21 other views, their ghost's fringe painted orange, went `fail` to `warn`). What works is per pixel: a pixel whose channels lie within two levels has no hue, in `PartParityFxMetrics.HueBin` and its Python mirror, with the histogram's fixture and every FX baseline re-pinned. Left red.
+- OPEN, read again after GHOST-SMOKE-RIDES-ACTIVE-VESSEL. `liquidEngineLV-T91`'s orbit smoke is 20 to 36 px long: direction 52 deg on cores of 162 / 141 px (PP-9 `2026-11-24_0735` 30 %, event side-a) and lateral -4.6 px / direction -24 deg on the start route at full. Named noise in design E.4; left red.
 - OPEN. The cross-section offset of small RCS puffs is noise at its fail line (0.1 of the nozzle box): one ghost against a second one of the same case fails it on 4 to 6 of 19 ReStock rcs cases (0.107 to 0.425). Re-pin it from the reading runs, not from one case.
 
 ## PARTPARITY-SPARK-FLAME-ORIGIN: the Spark's sparse flame starts in a different place from run to run [FILED 2026-11-24 from the PP-7 baseline (branch `pp7-arm`); OPEN; low; instrument]
@@ -811,7 +1124,7 @@ Interpretations taken without asking (micro-choices): the periapsis floor (`Orbi
 
 New persisted markers, all additive (no format or generation bump, absent = false / old behaviour): `terminalPredicted`, `terminalRemnantSurvives`, `quietEnd`, `stockHeldUT` and the `RECOVERED_CREW` child node on the recording, and `TrackSectionSource.Predicted` (= 3) on a track section.
 
-## ~~LOOP-TIMING-READ-THE-PREDICTED-FALL~~: a looped mission's span, period and supply-route clock included a dropped stage's predicted fall [FILED + FIXED 2026-11-24 from GS-12 `2026-11-23_2013` (PARSEK-FAIL), branch `loop-timing-predicted-falls`, owner ruling R4c; xUnit `MissionLoopFallTimingTests`, `LoopFallPlaybackTests`, `LoopFallEndTests`, `RouteBackingMissionTests`, `RouteBuilderTests`; lanes GS-12 (re-cut) and LF-3 (new) OWED a flight]
+## ~~LOOP-TIMING-READ-THE-PREDICTED-FALL~~: a looped mission's span, period and supply-route clock included a dropped stage's predicted fall [FILED + FIXED 2026-11-24 from GS-12 `2026-11-23_2013` (PARSEK-FAIL), branch `loop-timing-predicted-falls`, owner ruling R4c; xUnit `MissionLoopFallTimingTests`, `LoopFallPlaybackTests`, `LoopFallEndTests`, `RouteBackingMissionTests`, `RouteBuilderTests`; lanes GS-12 (re-cut) and LF-3 (new) FLOWN GREEN `2026-11-24_0228`]
 
 **Seen:** since ABANDONED-STAGE-D1 a dropped stage keeps its predicted fall (minutes, days, or the 50-year horizon), and the loop unit took its span from the members' drawn ends: GS-12's 150 s loop of a 110 s flight read `span 109.86 -> 301.46`, `cadence=305` instead of 150, and the 5 s stage was raised to 20 s by span/20. The same span set the first-play floor (a loop waited for the fall to end), the Space Center and Tracking Station clock, a supply route's cadence, and refused a shuttle route whose dropped stage's fall outlived a dock (`origin-span-mismatch`).
 **Fix:** `PredictedEndingTakeover.ResolveRecordedEndUT` (Recording module) is the one reading of "last non-predicted UT": the recording's end when it has no predicted tail (an explicit end past the last sample stays recorded time), else the last real sample, section or non-predicted orbit segment. Every tail shape is a predicted orbit segment (a fall, an escape followed to its final orbit with the settle span, a ground-scan or horizon cap, a predicted coast that stays up), a predicted track section (a chute descent), or a predicted Destroyed end UT with no segment; a piece with predicted data only holds no recorded time. `MissionLoopUnitBuilder.ComputeTimingSpanEndUT` makes `LoopUnit.SpanEndUT` from it (window-clipped), so the cadences, the overlap cap, the floor, the periodicity windows (`ComputeTimingMemberWindows`), re-aim, the Missions period cell and the route clock follow with no change of their own; `MissionCompositionNode.TimingEndUT` does the same for the route's origin-span check and start trim. `LoopUnit.RenderSpanEndUT` carries the drawn end and the member windows keep their tails.
@@ -824,14 +1137,21 @@ New persisted markers, all additive (no format or generation bump, absent = fals
 - KSC / Tracking Station: the single copy plays its fall through the wait and the next relaunch cuts it (`TryExtendRenderIntoFall`). A self-overlapping unit keeps drawing one copy per launch there, falls included, as it did.
 - Logs: `MissionLoopUnit:` keeps every token (`span` / `spanDur` / `cadence` / `overlapCadence` / `overlaps` now read the recorded span) and gains `renderSpanEnd= fallMembers= fallOverlaps=` only when a member falls past it; `missionconfig applied:` gains `renderSpanSeconds=`.
 
-**Not changed (product questions, not decided here):** a copy whose end is recorded is still held at it between launches (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END); the map and Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost), and a span-clock copy at KSC that ends inside the wait still ends with no explosion, as every span-clock member's end did.
+**Not changed (product questions, not decided here):** a copy whose end is recorded is still held at it between launches (ruled since, OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END, built for 1.0.4 on branch `loop-own-end`); the map and Tracking Station do not turn a looped predicted path with the planet (R4b covers the flight mesh and the KSC ghost), and a span-clock copy at KSC that ends inside the wait still ends with no explosion, as every span-clock member's end did.
 
-## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; OPEN, owner question; low]
+## OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END: in an overlapping loop a ghost with a RECORDED end is held at that end until the next launch [FILED 2026-11-24 from the review of LOOP-TIMING-READ-THE-PREDICTED-FALL; RULED 2026-11-24; BUILT 2026-11-24 on branch `loop-own-end`, held for 1.0.4 (owner ruling), not merged; xUnit `LoopFallEndTests` (OwnEnds, NextRow); a watched flight across a row change LIVE-PROVEN 2026-11-26 (WRC-1 `2026-11-26_2012`, on the build before #2825 was merged in); the staging seam and crash flights OWED before the merge, and WRC-1 / WDK-1 re-flown on the combined build]
 
-**Cause:** `UpdateOverlapPlayback` (and `ParsekKSC.UpdateOverlapKsc`) clamps its newest cycle's playback UT to the recording's end and only expires OLDER cycles, so a member, debris or standalone loop whose own length is shorter than the launch cadence stays drawn at its last frame until the next launch; in flight its explosion comes only then, the watch clock stays on it, and the flight map lists no copy meanwhile. Reachable in a self-overlapping mission for every stage or debris shorter than the period (GS-12 stage 1's shape before R4c: 57 s debris at a 150 s cadence). The code is the same on main before the branch (9559614ea); the archived GS-12 log starts its loop lines at stage 2 (cadence 30, under the debris' 57 s), so it shows none.
-**Done:** recordings whose end is PREDICTED no longer do this (LOOP-TIMING-READ-THE-PREDICTED-FALL). Nothing changed for a recording without a predicted tail: R4c promises those stay as they were, so `SelfOverlappingDebris_EndsWhenPredicted_IsHeldWhenRecorded` / `SelfOverlappingMember_...` (`LoopFallEndTests`) pin the hold.
-**Same path, same scope line:** raising the period of a self-overlapping mission leaves copies with a recorded end numbered above the newest launch; they are clamped at their start until the schedule reaches that number, as on main. Falls end quietly instead (LOOP-TIMING-READ-THE-PREDICTED-FALL, B3).
-**Question for the owner:** should a copy with a recorded end also end at its end (explode or vanish) instead of standing there until the next launch? The change is to pass `endAtOwnEnd: true` at the remaining `UpdateOverlapPlayback` / `UpdateOverlapKsc` calls.
+**Ruling (owner, 2026-11-24):** in an overlapping loop EVERY copy ends at its own recorded end, in flight and at the Space Center: a Destroyed ending explodes on time once, every other ending just goes, the next row's copy carries on. No parked final Landed copy. Ruled for 1.0.3, then held for 1.0.4, where camera work is planned (the watch camera at a row change is the risk).
+**Cause:** `UpdateOverlapPlayback` (and `ParsekKSC.UpdateOverlapKsc`) clamped its newest cycle's playback UT to the recording's end and only expired OLDER cycles, so a mission member or ride-along debris whose own length is shorter than the launch cadence stayed drawn at its last frame until the next launch; its explosion came only then, the watch clock stayed on it, and the flight map listed no copy meanwhile. An accident, not a rule: single-recording overlap clamp 7f12ceb9e, reused by mission self-overlap f0f4e23f5. A STANDALONE loop never reached the hold, although this entry used to list it: it takes the overlap path only when its period is shorter than its loop, and the cap's raised cadence stays below the loop too, so its newest copy never reaches its end.
+**Seen:** V8F `2026-11-22_1225` and `2026-11-24_0718` (a 152 s ascent row on a 788,200 s period) and GS-12 `2026-09-24_1925` (a 21 s member on 30 s, before R4c). A scan of every lane's last two archived runs for `Mission self-overlap ... memberDur / debrisDur` below `overlapCadence` finds V8F only.
+**Built:** `OverlapCopyEnds` (`GhostPlaybackLogic.LoopCopyEnds.cs`) replaces the `endAtOwnEnd` flag; members, debris and the Space Center always pass it, so `HasOverlapCopyEnded` ends the newest copy of any of them as it ended falls, and the stale-copy rule of R4c (B3) ends quietly every copy a period edit renumbers (a raised period no longer leaves copies at their start). A copy is placed, played out (part events; the flag walk at the Space Center) and expired at its WINDOW's end, so a trimmed member ends quietly at the trim and explodes only when the window reaches the recording's end (`ExplodesAtWindowEnd`, 0.05 s): older copies of a trimmed member used to jump to the recording's end and explode there. `MemberOverlapCycleSeconds` is the one spacing the engine, the watch clock and the map schedule read. Falls keep their lines and rules; only the standalone overlap loop passes the default (no own end).
+- Watch camera: design `docs/parsek-missions-design.md` 7.2. Row change: the ended copy stays as an invisible target (`endedCopyHeld`, in its slot so high warp keeps it; a mesh built later is hidden too) only while that launch's copy of the next row exists, is the newest one, or starts within 3 s (`DecideNextRowCopy` / `FindWatchedNextRow`; review blocker below), and `UnitHandoffRetarget` names the launch (`RequiredCycleIndex`), so the transfer lands only on that launch's copy; before, the handoff took whatever launch the next row's slot still showed. Crash: the explosion hold, with the handoff suppressed while it lasts (`WatchHoldCycleIndex`). Any other end: `EndHoldStart`, the same 3 s; an end whose anchor is gone raises it too, with the anchor where the camera is (`AnchorUnresolved`), where main raised nothing and the watch lost its target that frame. The restart (`TryResolveSelfOverlapRestart`) replaces the root-only retarget, because the mission's first row may have no copy; with none at all the hold goes on instead of ending the session, and a bridge that finds no copy of its row becomes a hold.
+- Combined with LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP (#2825, merged into the branch 2026-11-26): at a watched row's end the engine asks, in order, (1) the instance ended or a hold runs: no handoff; (2) a dock, boarding or undock: the host's branch answer (`FindWatchedBranchRow` over the members whose copy of that launch is within reach, then `DecideNextRowCopy` and the 120-frame bound on THAT member), so the ship follows that launch's copy of the docked vessel, and at an undock the ship, never the station leg that shares the merged guid; a branch answer that cannot be followed is `HoldThenRestart`, never the same-guid row; (3) the same vessel's next row; (4) the window picker. The retarget line keeps `via=branch` / `via=same-vessel`. A loop that does not overlap itself, and an overlapping one watched with no launch named, keep #2825's window-based branch lookup unchanged. xUnit `LoopFallEndTests` (Branch); each step reverted reds a cell (8 of 8 mutations killed).
+- Review blocker (2026-11-24, fixed on the branch): "the row continues" was read from the row windows alone, while the engine builds only each row's NEWEST launch. A watched launch warped over 50x past its next row's start, with the row longer than the period, had no copy to go to: the hidden copy was held and the handoff re-fired every frame until that launch's row ended (possibly days), past the 300 km watch cutoff, printing `unit watch retarget owner=` per member per frame. An unticked next row did the same. Now such an end is `HoldThenRestart` (3 s, then a drawn copy), and the wait for a row that started is capped at 120 frames whatever the cause (a copy that never builds, an overlap copy unloaded by distance). The cap drop cannot be reached inside a launch's span (the launch cadence keeps 20 copies in it); it is covered anyway. `LoopFallEndTests` (NextRow).
+- Open, 1.0.4 camera work: a hold (-2) with no copy of the mission to follow has no distance or time limit, so it can wait for the next launch far from the active vessel; a limit would be a new exit in ordinary play. A hold that ends above 50x may still land on a warp-hidden copy, as main's restart does.
+- Logs: one Verbose line per ended copy (rate-limited per index and watch outcome, 5 s), `Loop copy ended at its own end: #i "name" cycle= loopUT= endUT= reason=destroyed|destroyed-quietly|recorded-end|trimmed-end watch=` (`[Engine]`; `[KSCGhost]` without `watch=`); `Loop copy ended quietly the loop's schedule changed under it` / `reason=loop schedule changed`, `reason=loop copy ended under high warp`, `reason=loop copy past its end`; `[CameraFollow]` `unit watch: copy ended, holding its end for the next row`, `unit watch: no copy of the next row to follow: #i "name" cycle= reason=SkippedAtStart|NotDrawn|WarpHidden|PastCopyCap|WaitedTooLong|OutOfReach waitedFrames=`, `unit watch retarget owner=` (unchanged text, now once per handoff instead of every frame it is pending), `Overlap: camera holding at the end of`, `Overlap: hold ended, restarted mission watch on #i cycle=`, `Overlap: hold of #i goes on`. Every fall line and `reason=overlap expired` are unchanged.
+**Lanes:** V8F changes for certain: its ascent row has no copy between its ends, so it gains `Loop copy ended at its own end` and loses that row's `overlap-demote` / held spawns; none of its pins names them. No other lane's last two archived runs have a row or debris shorter than the period. A watched copy that ends now holds 3 s (a quiet end bridged at once before); the self-overlapping lanes that enter watch (GS-12, LX-2, MC-5; V16M and V20M ask and are refused) end none of their watched copies in their last archived runs (`Overlap: camera bridged` / `camera holding` 0). No spec, schema or `harness/lib` token names a changed line, so nothing is re-pinned. New lane `WRC-1-watch-row-change-overlap-loop` (2026-11-26, operator, AIR-1's harvest `air-circuit-recorded`: the Mallard's 362 s flight row and 34 s afloat row looped at 120 s, launch 0 watched across its row change at 1x). Reading flight `2026-11-26_1944` (DLL 83d64343): the row-0 copy of cycle 0 ended `watch=HoldForNextRow`, `unit watch retarget owner=0 member #0->#1` and `TransferWatch re-target: ghost #1 ... cycle=0` in one frame while launches 1-3 were still on row 0, then row 1 ended `watch=HoldThenRestart`, held 3 s and restarted on cycle 3, with no watch exit; red only on two spec tokens that ordered same-frame lines the wrong way, re-cut. LIVE-PROVEN on `2026-11-26_2012` (PASS attempt 1, DLL c00bbf32, same source): the same lines, the cycle-0 transfer and the cycle-3 restart.
+**Owed:** a staging seam and a crash watched in an overlapping loop (no committed host near a watcher has either on a row change; the row change itself is WRC-1, green), V8F re-flown, and WRC-1 and WDK-1 re-flown on the build that combines the dock rule (the hand-off code moved), before the merge. No live lane watches a dock inside an overlapping loop; the combined rule there is xUnit only.
 
 ## ~~ABANDONED-STAGE-D1~~: every ignored spent stage exploded in mid-air at the moment Parsek stopped watching it [FILED 2026-11-18 (review finding D1, high, design); FIXED 2026-11-21, branch `asr-destroy` 14250a907, with c219f487e and 9d1694dd4; xUnit `BackgroundRecorderTests`, `RecordingFinalizationCacheProducerTests`; lanes ASR-1 / ASR-5 read the debris and the probe core ending at the ground; GS-8 / GS-9 re-pinned for the probe core's Destroyed ending 2026-11-23, branch `lane-repins-1023`; RF-14 re-pinned 2026-11-24 for the same ending (slot 1 promoted `crashed`, not `stableLeafUnconcluded`), branch `lane-repins3-1124`]
 
@@ -12113,8 +12433,8 @@ Open items, highest leverage first:
   magnitude, and `ComputeScaledRcsEmissionRate`/`...Speed` had ZERO production call
   sites. **Fix:** both `Set*Emission` choke points now scale the plume as a RATIO of a
   baseline captured once at build time (`GhostVisualBuilder.CaptureFxMagnitudeBaselines`,
-  run AFTER the #383 size boost and the world-space velocity floor so scaling composes
-  with them rather than overwriting them), written into the cloned `KSPParticleEmitter`'s
+  run AFTER the #383 size boost so scaling composes
+  with it rather than overwriting it), written into the cloned `KSPParticleEmitter`'s
   own persistent fields plus the `ParticleSystem` multipliers. Persistent fields, not a
   per-event computation, because `RestoreAllRcsEmissions` re-enables emitters WITHOUT
   going through `SetRcsEmission` — a per-event scale would restore a full-magnitude plume
@@ -12122,14 +12442,9 @@ Open items, highest leverage first:
   are the ratio's numerator and denominator, which gives them production callers with
   their showcase visibility floors intact. Degradation is one-directional: an unreadable
   baseline answers ratio 1.0, i.e. today's boolean behaviour, never a zero plume. Audio
-  untouched (it already consumed the magnitude; touching it would double-apply). Review
-  follow-up: the one baseline the ratio cannot scale freely is a WORLD-SPACE emitter's
-  `localVelocity`, because that baseline may BE the minimum-flow floor
-  (`ApplyWorldSpaceEmitterVelocityFloor`, 6 m/s) rather than a magnitude — a 0.2 ratio would
-  write 1.2 m/s, back under the 4 m/s pooling threshold the floor exists to clear.
-  `GhostPlaybackLogic.ScaleEmitterLocalVelocity` re-clamps that one write to the floor (never
-  above the baseline's own magnitude) and leaves every other write a plain ratio; reachable only
-  on ReStock's world-space SRB smoke at genuine partial throttle.
+  untouched (it already consumed the magnitude; touching it would double-apply). The special case
+  for world-space emitters (a 6 m/s minimum flow held through a throttle ratio) was removed
+  2026-11-24: the flow is now a standing ghost's only (GHOST-SMOKE-RIDES-ACTIVE-VESSEL).
   **FLIGHT FOLLOW-UP 2026-08-12: the whole of the above was a SILENT NO-OP in the live game
   until now.** The H36 run of 2026-08-11 logged, for engine midx=0, engine midx=1 AND rcs
   midx=0, `FX magnitude write failed ... Object of type 'System.Single' cannot be converted to

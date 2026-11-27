@@ -37,7 +37,11 @@ skin like a state case. Under its body rows the page shows the plume strip (the 
 real and ghost rows playing in lock step), one row per FX view and layer (REAL, GHOST event,
 GHOST start, DIFFERENCE crops of the FX atlas) with the judged entries of ``cv.fx``
 (partparity's ``judge_fx``), and for an rcs case the known-difference row. A Waterfall case's
-verdict ``reference`` and an optional control's ``n/a`` are neither good nor bad.
+verdict ``reference`` and an optional control's ``n/a`` are neither good nor bad. A failing case
+every reason of which ``harness/partparity/accepted.toml`` explains (``partparity.page_state``) reads
+``known`` (the owner ruled on it by name) or ``accepted`` (a known cause that is not the ghost's),
+counted apart from the fails; its judged verdict, the verdicts file and the gate are unchanged. An
+``owner-flagged:<reason>`` chip stays on its case whatever the verdict.
 
 Layout of this module: a PURE core (``build_site_data`` and the helpers it calls:
 profile naming, case rows, facets, regression diff, cross-profile links,
@@ -99,7 +103,8 @@ VERDICT_CONTROL_BAD = "control-bad"
 VERDICT_CONTROL_NA = "control-na"
 VERDICT_ORDER: Tuple[str, ...] = (
     VERDICT_CONTROL_BAD, VERDICT_CONTROL_OK, VERDICT_CONTROL_NA, pp.VERDICT_ERROR,
-    pp.VERDICT_FAIL, pp.VERDICT_WARN, pp.VERDICT_PASS, pp.VERDICT_REFERENCE,
+    pp.VERDICT_FAIL, pp.VERDICT_WARN, pp.PAGE_ACCEPTED, pp.PAGE_KNOWN, pp.VERDICT_PASS,
+    pp.VERDICT_REFERENCE,
 )
 # The judged verdicts; ``reference`` (E.6) is counted beside them, never among them.
 PART_VERDICTS: Tuple[str, ...] = (pp.VERDICT_PASS, pp.VERDICT_WARN, pp.VERDICT_FAIL,
@@ -107,9 +112,11 @@ PART_VERDICTS: Tuple[str, ...] = (pp.VERDICT_PASS, pp.VERDICT_WARN, pp.VERDICT_F
 
 # The page's reading order (owner): flagged first - fail, then warn, then error (a setup
 # fault, not a ghost finding) - then pass. A part group's verdict is its worst skin by
-# this order, so a part with one failing skin and one setup fault reads fail. A reference
-# case (E.6) judges nothing, so any judged case outranks it.
-SEVERITY: Dict[str, int] = {pp.VERDICT_FAIL: 3, pp.VERDICT_WARN: 2, pp.VERDICT_ERROR: 1,
+# this order, so a part with one failing skin and one setup fault reads fail. An accepted or
+# known difference ranks under every finding and over pass. A reference case (E.6) judges
+# nothing, so any judged case outranks it.
+SEVERITY: Dict[str, int] = {pp.VERDICT_FAIL: 5, pp.VERDICT_WARN: 4, pp.VERDICT_ERROR: 3,
+                            pp.PAGE_ACCEPTED: 2, pp.PAGE_KNOWN: 1,
                             pp.VERDICT_PASS: 0, pp.VERDICT_REFERENCE: -1}
 
 SKIN_BASE = "base"
@@ -169,8 +176,9 @@ STATE_ORDER: Tuple[str, ...] = pp.KNOWN_STATES + tuple(
 CONTEXT_ORDER: Tuple[str, ...] = pp.KNOWN_CONTEXTS + (pp.CONTEXT_PLATE,)
 # The FX flag kinds the page filters on (the part before the first ``:`` of cv.fx.flags).
 FX_FLAG_KNOWN_DIFFERENCE = pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX.rstrip(":")
+FX_FLAG_OWNER_FLAGGED = pp.FLAG_OWNER_FLAGGED_PREFIX.rstrip(":")
 FX_FLAG_FILTER_KINDS: Tuple[str, ...] = (
-    FX_FLAG_KNOWN_DIFFERENCE, pp.CAP_FX_UNSETTLED, pp.TAG_FX_NOT_PLATEAUED_PREFIX.rstrip(":"),
+    FX_FLAG_OWNER_FLAGGED, FX_FLAG_KNOWN_DIFFERENCE, pp.CAP_FX_UNSETTLED, pp.TAG_FX_NOT_PLATEAUED_PREFIX.rstrip(":"),
     pp.FLAG_FX_FRAMING_CLAMPED,
 ) + pp.FX_FLAGS_RAISE_TO_WARN
 # The Reference filter (E.7): what an FX case's verdict is worth.
@@ -688,6 +696,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         worst_view, blob_px, blob_pct = None, int(summ.get("maxShapeBlobPx") or 0), None
         color_px = int(summ.get("maxColorBlobPx") or 0)
     part_verdict = verdict
+    owner_flagged = [] if sc is None or is_control else list(pp.owner_flags(cv))
     judged = judged_detail = None
     if is_control:
         outcome = (control or {}).get("outcome")
@@ -799,6 +808,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         "ghostRootOffsetM": (sc or {}).get("ghostRootOffsetM"),
         "log": [str(l) for l in (sc or {}).get("log") or []],
         "accepted": None,
+        "ownerFlags": owner_flagged,
         "strips": None,
         "regression": None,
         "links": [],
@@ -1083,6 +1093,7 @@ def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
                      if any((r.get("fx") or {}).get("refClass") == k for r in ordered)],
             "counts": {v: sum(1 for r in ordered if r["verdict"] == v) for v in PART_VERDICTS},
             "reference": sum(1 for r in ordered if r["verdict"] == pp.VERDICT_REFERENCE),
+            "ownerFlags": list(dict.fromkeys(f for r in ordered for f in r.get("ownerFlags") or [])),
         })
     groups.sort(key=lambda g: (-SEVERITY.get(g["verdict"], 0),
                                str(g.get("title") or g.get("part") or "").lower(), g["id"]))
@@ -1099,8 +1110,9 @@ def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
 
 def page_counts(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, Any]:
     """The header counter: part CASES by verdict (pass / warn / fail / error), the part
-    groups by verdict, the reference cases and groups (E.6, never among the judged ones),
-    and the controls ok / bad / not applicable."""
+    groups by verdict, the reference cases and groups (E.6, never among the judged ones), the
+    known and accepted cases and groups (``apply_page_states``, never among the fails), the
+    owner-flagged cases, and the controls ok / bad / not applicable."""
     parts = [r for r in rows if r["kind"] == KIND_PART]
     ctl = [r for r in rows if r["kind"] == KIND_CONTROL]
     return {
@@ -1109,6 +1121,10 @@ def page_counts(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, Any]:
         "reference": {
             "cases": sum(1 for r in parts if r["verdict"] == pp.VERDICT_REFERENCE),
             "parts": sum(1 for g in groups if g["verdict"] == pp.VERDICT_REFERENCE)},
+        "page": {st: {"cases": sum(1 for r in parts if r["verdict"] == st),
+                      "parts": sum(1 for g in groups if g["verdict"] == st)}
+                 for st in pp.PAGE_STATES},
+        "ownerFlagged": sum(1 for r in parts if r.get("ownerFlags")),
         "controls": {"ok": sum(1 for r in ctl if r["verdict"] == VERDICT_CONTROL_OK),
                      "bad": sum(1 for r in ctl if r["verdict"] not in (VERDICT_CONTROL_OK, VERDICT_CONTROL_NA))},
         "controlsNa": sum(1 for r in ctl if r["verdict"] == VERDICT_CONTROL_NA),
@@ -1136,7 +1152,8 @@ def facets(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, List[List[
     fx_flags = tally(f for g in groups for f in g.get("fxFlags") or [])
     return {
         "verdict": [[v, verdicts[v]] for v in (pp.VERDICT_FAIL, pp.VERDICT_WARN,
-                                               pp.VERDICT_ERROR, pp.VERDICT_PASS,
+                                               pp.VERDICT_ERROR, pp.PAGE_ACCEPTED,
+                                               pp.PAGE_KNOWN, pp.VERDICT_PASS,
                                                pp.VERDICT_REFERENCE)
                     if v in verdicts],
         "source": [[k, sources[k]] for k in sorted(sources, key=lambda s: s.lower())],
@@ -1381,6 +1398,47 @@ def apply_pinned_regression(rows: List[Dict], sweeps: Sequence[Dict], keys: Sequ
             "gates": gates, "errors": list(pinned.get("errors") or [])}
 
 
+def apply_page_states(rows: List[Dict], headers: Sequence[Dict], sweeps: Sequence[Dict],
+                      keys: Sequence[str], lists: Dict[str, Any]) -> None:
+    """A failing part case the accepted list explains whole (``partparity.page_state``) reads
+    ``known`` or ``accepted``: its ``verdict`` (and its sweep header's count) becomes that, its
+    ``partVerdict`` stays the judged one, ``accepted`` says by which entries. ``lists`` is
+    ``load_pinned``'s dict; only a case its label's baseline measured can read so, after the gate
+    judged it. In place, after the regression marks (which compare judged verdicts)."""
+    head = {h["sweep"]: h for h in headers}
+    by_sweep: Dict[str, List[Dict]] = {}
+    for r in rows:
+        if r["kind"] == KIND_PART and r["verdict"] == pp.VERDICT_FAIL:
+            by_sweep.setdefault(r.get("sweep"), []).append(r)
+    for k, s in enumerate(sweeps):
+        manifest = s.get("manifest") if isinstance(s.get("manifest"), dict) else None
+        if manifest is None or not by_sweep.get(keys[k]):
+            continue
+        profile = pp.profile_of(manifest, None)
+        doc = (lists.get("baselines") or {}).get(profile)
+        label = manifest.get("label")
+        section = ((doc or {}).get("labels") or {}).get(label) if doc else None
+        if section is None:
+            continue
+        sidecars = {cid: sc for cid, sc in (s.get("sidecars") or {}).items() if isinstance(sc, dict)}
+        accepted = lists.get("accepted") or []
+        verdicts = [pp.judge_case(sc) for cid, sc in sidecars.items()
+                    if cid not in pp.ALL_CONTROL_IDS]
+        gate = pp.gate_sweep(str(label), profile, manifest, sidecars, verdicts, section, accepted)
+        states = pp.sweep_page_states(verdicts, sidecars, profile, accepted, section, gate)
+        for r in by_sweep[keys[k]]:
+            st = states.get(r["caseId"])
+            if st is None:
+                continue
+            r["accepted"] = st.to_dict()
+            r["verdict"] = st.state
+            r["trigger"] = "%s (%s): %s" % (st.state, ", ".join(st.todos), r["trigger"])
+            counts = (head.get(keys[k]) or {}).get("counts")
+            if isinstance(counts, dict):
+                counts[pp.VERDICT_FAIL] = counts.get(pp.VERDICT_FAIL, 0) - 1
+                counts[st.state] = counts.get(st.state, 0) + 1
+
+
 def apply_cross_links(rows: List[Dict]) -> None:
     """Link each case to the same case in every OTHER loaded profile (same ``regKey``:
     the case id, or for a control its set kind and id), else to that profile's cases of
@@ -1438,7 +1496,8 @@ def sweep_keys(sweeps: Sequence[Dict]) -> List[str]:
 
 def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] = None,
                     generated_utc: Optional[str] = None,
-                    pinned: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                    pinned: Optional[Dict[str, Any]] = None,
+                    lists: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The whole ``data.js`` payload. Each sweep is a dict with ``profile``,
     ``profileNote``, ``dir``, ``manifest``, ``manifestError``, ``sidecars`` (case id ->
     parsed / None / SIDECAR_UNREADABLE), ``imageUrl`` (callable or None) and optional
@@ -1446,7 +1505,8 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
     Sweeps of one profile merge (shards, or a stowed sweep and its state sweeps); a part
     case id seen twice in one profile keeps the first and is listed in the later sweep's
     ``duplicates``. Controls are exempt: each sweep's controls keep their own ids and
-    their own entry in ``controlSets``."""
+    their own entry in ``controlSets``. ``lists`` (``load_pinned``'s dict) gives the failing
+    cases their known / accepted state (``apply_page_states``); None shows every fail as one."""
     rows: List[Dict] = []
     headers: List[Dict] = []
     control_sets: List[Dict] = []
@@ -1482,6 +1542,8 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
         regression = apply_regression(rows, base_rows, [b.get("dir") or "" for b in baseline])
     elif pinned is not None:
         regression = apply_pinned_regression(rows, sweeps, keys, pinned)
+    if lists is not None:
+        apply_page_states(rows, headers, sweeps, keys, lists)
     apply_cross_links(rows)
     apply_stowed_pairs(rows)
     groups = group_parts(rows)
@@ -1749,7 +1811,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("part_parity_view: --pinned and --baseline are two regression modes; pass one",
               file=sys.stderr)
         return 2
-    pinned = load_pinned(args.pinned, sweeps) if args.pinned else None
+    lists = load_pinned(args.pinned or DEFAULT_PINNED_DIR, sweeps)
+    pinned = lists if args.pinned else None
+    for err in lists["errors"]:
+        if err.endswith(": absent") and not args.pinned:
+            continue  # a profile with no baseline (the FX lanes) still has its accepted list
+        print("part_parity_view: accepted list / baseline: %s" % err, file=sys.stderr)
 
     out_dir = os.path.abspath(args.out) if args.out else os.path.join(sweeps[0]["dir"],
                                                                        DEFAULT_OUT_LEAF)
@@ -1765,7 +1832,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     import datetime
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    data = build_site_data(sweeps, baseline if args.baseline else None, stamp, pinned)
+    data = build_site_data(sweeps, baseline if args.baseline else None, stamp, pinned, lists)
     copied, kept = copy_images(copies)
     data_js = render_data_js(data)
     _write_text(os.path.join(out_dir, DATA_JS_FILE), data_js)
@@ -1802,7 +1869,7 @@ INDEX_HTML = r"""<!doctype html>
   /* identity: which side a picture is. Deliberately not a verdict colour. */
   --real: #1d5fd6; --real-fg: #ffffff; --ghost: #a1239f; --ghost-fg: #ffffff; --diff: #3a3f46; --diff-fg: #ffffff;
   /* verdicts */
-  --pass: #2f9a4f; --warn: #d39200; --fail: #d22f2f; --error: #8b9099;
+  --pass: #2f9a4f; --warn: #d39200; --fail: #d22f2f; --error: #8b9099; --known: #4d6fa8;
   --pass-soft: #e2f4e7; --warn-soft: #fcf1d2; --fail-soft: #fbe1e1; --error-soft: #eceef1;
   --warn-text: #8a5d00; --tilebg: #8f959c; --t: min(200px, calc((100vw - 132px) / 3));
   --ts: min(170px, calc((100vw - 150px) / 5));
@@ -1812,7 +1879,7 @@ INDEX_HTML = r"""<!doctype html>
     --bg: #121519; --fg: #e3e6ea; --muted: #9aa3ae; --card: #1a1f25; --border: #323a44; --code: #222930;
     --focus: #8fbdf5;
     --real: #4f8ff7; --real-fg: #08152b; --ghost: #d257cf; --ghost-fg: #23061f; --diff: #5b626b; --diff-fg: #ffffff;
-    --pass: #49c06b; --warn: #f0b429; --fail: #f05252; --error: #8e949d;
+    --pass: #49c06b; --warn: #f0b429; --fail: #f05252; --error: #8e949d; --known: #7f9fd6;
     --warn-text: #f0b429; --pass-soft: #163521; --warn-soft: #3d300c; --fail-soft: #431919; --error-soft: #262b31;
   }
 }
@@ -1844,6 +1911,14 @@ main { padding: 8px 16px 40px; }
 /* not a verdict: a reference case or entry (design E.6), a not-applicable control, an entry
    whose measures were skipped (weak cores, E.4) or that neither side drew */
 .vc.reference, .vc.na, .vc.skipped, .vc.empty { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
+/* a fail the accepted list explains whole: known = ruled by the owner, accepted = a known cause
+   that is not the ghost's. Counted apart from the fails; what was judged stays, unfilled. */
+.vc.known, .vc.accepted { background: transparent; color: var(--fg); border: 2px solid var(--known); line-height: 14px; }
+.vc.accepted { border-style: dashed; }
+.tr-known, .tr-accepted { color: var(--muted); font-weight: 600; }
+.quiet .vc.fail { background: transparent; color: var(--fail); border: 1px dashed var(--fail); line-height: 16px; }
+.quiet .tr-fail { color: var(--muted); }
+.chip.owner { border: 2px solid var(--fail); color: var(--fail); font-weight: 700; line-height: 14px; }
 .chip { display: inline-block; font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 9px;
   background: var(--code); border: 1px solid var(--border); white-space: nowrap; }
 .chip.moved { border-color: var(--warn); }
@@ -1875,6 +1950,8 @@ details.box.bad > summary { color: var(--fail); }
 .skin.warn { border-color: var(--warn); } .skin.fail { border-color: var(--fail); } .skin.error { border-color: var(--error); }
 .skin.ctl-ok { border-color: var(--pass); } .skin.ctl-bad { border-color: var(--fail); } .skin.ctl-na { border-color: var(--border); }
 .group.reference, .skin.reference, .state.reference { border-color: var(--muted); border-style: dashed; }
+.group.known, .skin.known, .state.known { border-color: var(--known); }
+.group.accepted, .skin.accepted, .state.accepted { border-color: var(--known); border-style: dashed; }
 /* state sub-blocks inside a skin (design D.7) */
 .state { border: 2px solid var(--pass); border-radius: 8px; margin: 6px 0 0 10px; padding: 4px 8px; }
 .state.warn { border-color: var(--warn); } .state.fail { border-color: var(--fail); } .state.error { border-color: var(--error); }
@@ -1952,7 +2029,7 @@ dialog .tile { cursor: default; }
     <span class="idtag real">REAL part (stock KSP)</span>
     <span class="idtag ghost">GHOST (Parsek reconstruction)</span>
     <span class="idtag diff">DIFFERENCE (black = identical)</span>
-    <span class="note">Verdicts are automatic (harness/lib/partparity.py); the border colour of a part and of each skin is its verdict. Click a picture for 1:1. j / k: next / previous part.</span>
+    <span class="note">Verdicts are automatic (harness/lib/partparity.py); the border colour of a part and of each skin is its verdict. known / accepted (blue): a fail the accepted list explains whole, ruled by the owner / a known cause that is not the ghost's, counted apart. owner-flagged: open, kept in sight whatever the verdict. Click a picture for 1:1. j / k: next / previous part.</span>
   </div>
   <p class="note" id="statelegend" hidden>State cases (deployed, open, lit, semi, full, jettisoned): each view shows STOWED (the paired stowed case's REAL part when its sweep is loaded, else the case's own stowed ghost as a dashed reference, not judged), REAL in the state, GHOST event route (the stowed snapshot plus the recorded part events, as a flight replays it), GHOST start route (a recording that starts in the state) and the DIFFERENCE of real vs the event ghost. Both ghost routes are judged; the case takes the worse one.</p>
   <p class="note" id="fxlegend" hidden>Effect cases (engine plumes, RCS puffs, heat glow, lamps on a plate): under the body rows, the strip plays 12 frames of fx-side-a, body and effects together, REAL and GHOST (event route) in lock step (Play / Pause in the header). Then one row per effect view and layer: flame over black, smoke over the matte, each picture the mean of the samples with how often a pixel was covered as its opacity; a layer is rendered alone, so the body never hides the plume. The measures beside a row are ghost against real (1.00 = equal). A layer nothing draws has no row; the line under the rows names it. A dashed verdict is not judged: a Waterfall case reads reference, with the verdict it would have had. An RCS ghost fires every nozzle at the module's mean power (a known difference, owner ruling 2026-11-22), so the judged rows hide its nozzles the real part did not fire and the dashed block shows all of them, for information only.</p>
@@ -1975,7 +2052,7 @@ dialog .tile { cursor: default; }
     g.cases.forEach(function (id) { CASE_GROUP[id] = g; });
     g._text = [g.title, g.part, g.source, g.profile].concat(g.cases.map(function (id) { var c = CASE[id]; return [c.caseId, c.skin, c.stateLabel, c.family || ""].concat(c.tags || []).concat(c.stateFlags || []).concat(c.fx ? c.fx.flags : []).join(" "); })).join(" ").toLowerCase();
   });
-  var KNOWN_DIFF = "rcs-known-difference";
+  var KNOWN_DIFF = "rcs-known-difference", OWNER_FLAG = "owner-flagged", PAGE_STATES = ["accepted", "known"];
   var state = {verdict: "", source: "", q: "", sort: "severity", regression: "", stateWord: "", family: "", stateFlag: "", refClass: "", fxFlag: "", diff: true};
   var FILTER_KEYS = ["verdict", "source", "regression", "stateWord", "family", "stateFlag", "refClass", "fxFlag"];
   try { var saved = JSON.parse(localStorage.getItem("parity-view-2") || "null"); if (saved) Object.keys(state).forEach(function (k) { if (k in saved) state[k] = saved[k]; }); } catch (e) {}
@@ -1997,13 +2074,16 @@ dialog .tile { cursor: default; }
   function fmt(v, d) { if (v === null || v === undefined) return "-"; if (typeof v === "number") return d === undefined ? (Number.isInteger(v) ? String(v) : v.toFixed(4)) : v.toFixed(d); return String(v); }
   function vchip(v, title) { return el("span", {cls: "vc " + v, text: v, title: title || null}); }
 
-  var SELECTS = {}, knownBtn = null;
+  var SELECTS = {}, knownBtn = null, ownerBtn = null;
   // ---- header: counters + filters ----
   function buildTop() {
     var top = document.getElementById("top"), cc = D.counts.cases;
     var counters = el("div", {cls: "counters", title: "part cases (one per skin) by verdict"});
     ["fail", "warn", "error", "pass"].forEach(function (v) { counters.appendChild(el("span", {cls: "vc " + v, text: v + " " + cc[v]})); });
-    var ctl = D.counts.controls;
+    var ctl = D.counts.controls, page = D.counts.page;
+    if (page.accepted.cases) counters.appendChild(el("span", {cls: "vc accepted", text: "accepted " + page.accepted.cases, title: "failing cases with a known cause that is not the ghost's (harness/partparity/accepted.toml), not among the fails"}));
+    if (page.known.cases) counters.appendChild(el("span", {cls: "vc known", text: "known " + page.known.cases, title: "failing cases whose difference the owner ruled on by name, not among the fails"}));
+    if (D.counts.ownerFlagged) counters.appendChild(el("span", {cls: "chip owner", text: "owner-flagged " + D.counts.ownerFlagged, title: "cases the owner wants kept in sight, whatever their verdict"}));
     if (D.counts.reference.cases) counters.appendChild(el("span", {cls: "vc reference", text: "reference " + D.counts.reference.cases, title: "Waterfall effect cases: shown with the verdict they would have had, never judged"}));
     if (ctl.ok + ctl.bad) counters.appendChild(el("span", {cls: "chip", text: "controls " + ctl.ok + "/" + (ctl.ok + ctl.bad) + " ok" + (D.counts.controlsNa ? ", " + D.counts.controlsNa + " n/a" : ""), style: ctl.bad ? "border-color: var(--fail); color: var(--fail); font-weight: 700" : null}));
     top.appendChild(counters);
@@ -2021,6 +2101,11 @@ dialog .tile { cursor: default; }
     if (D.facets.stateFlag.length) select("stateFlag", "State flags", D.facets.stateFlag); else state.stateFlag = "";
     if (D.facets.reference.length) select("refClass", "Reference", D.facets.reference); else state.refClass = "";
     if (D.facets.fxFlag.length) select("fxFlag", "FX flags", D.facets.fxFlag); else state.fxFlag = "";
+    if (D.facets.fxFlag.some(function (x) { return x[0] === OWNER_FLAG; })) {
+      ownerBtn = el("button", {type: "button", text: "owner-flagged", title: "list every case the owner flagged", on: {click: function () {
+        state.fxFlag = state.fxFlag === OWNER_FLAG ? "" : OWNER_FLAG; SELECTS.fxFlag.value = state.fxFlag; save(); applyFilters(); }}});
+      top.appendChild(ownerBtn);
+    }
     if (D.facets.fxFlag.some(function (x) { return x[0] === KNOWN_DIFF; })) {
       knownBtn = el("button", {type: "button", text: "known difference", title: "list every RCS case that carries " + KNOWN_DIFF, on: {click: function () {
         state.fxFlag = state.fxFlag === KNOWN_DIFF ? "" : KNOWN_DIFF; SELECTS.fxFlag.value = state.fxFlag; save(); applyFilters(); }}});
@@ -2136,6 +2221,7 @@ dialog .tile { cursor: default; }
     var col = c.atlasCols.indexOf(v.view);
     if (!c.atlas || col < 0) return [el("div", {cls: "nopic", text: c.atlas ? "view not in the atlas" : "no atlas image"})];
     var R = rowIdx(c, "real", 0), G = rowIdx(c, "ghost", 1), GS = rowIdx(c, "ghost-start", 2), GR = rowIdx(c, "ghost-stowed", 3);
+    var loaded = c.atlasRows.indexOf("real-start") >= 0, RS = rowIdx(c, "real-start", R);
     var pair = c.stowedPair ? CASE[c.stowedPair] : null, pcol = pair && pair.atlas ? pair.atlasCols.indexOf(v.view) : -1;
     function one(owner, row, colIx, label) { return mkTile(c, [layerEl(owner, row, colIx)], label, v.view, s); }
     var ref = figure("ghost st ref", one(c, GR, col, "ghost stowed reference " + v.view), "GHOST stowed (reference, not judged)", "STOWED ref");
@@ -2144,11 +2230,12 @@ dialog .tile { cursor: default; }
     else out.push(ref);
     out.push(figure("real st", one(c, R, col, "real " + c.stateLabel + " " + v.view), "REAL " + c.stateLabel, "REAL"));
     out.push(figure("ghost st", one(c, G, col, "ghost event route " + v.view), "GHOST event route", "GHOST ev"));
+    if (loaded) out.push(figure("real st", one(c, RS, col, "real as a load leaves it " + v.view), "REAL as a load leaves it (the start route's real side)", "REAL st"));
     out.push(figure("ghost st", one(c, GS, col, "ghost start route " + v.view), "GHOST start route", "GHOST st"));
     var d = mkTile(c, [layerEl(c, R, col), layerEl(c, G, col, "blend")], "difference real vs event ghost " + v.view, v.view, s); d.classList.add("diff");
     out.push(figure("diff st", d, "DIFFERENCE real vs event ghost", "DIFF ev"));
     if (all) {
-      var d2 = mkTile(c, [layerEl(c, R, col), layerEl(c, GS, col, "blend")], "difference real vs start ghost " + v.view, v.view, s); d2.classList.add("diff");
+      var d2 = mkTile(c, [layerEl(c, RS, col), layerEl(c, GS, col, "blend")], "difference real vs start ghost " + v.view, v.view, s); d2.classList.add("diff");
       out.push(figure("diff st", d2, "DIFFERENCE real vs start ghost", "DIFF st"));
       if (pair && pcol >= 0) out.push(ref);
     }
@@ -2278,7 +2365,7 @@ dialog .tile { cursor: default; }
     var out = [];
     if (c.verdict === "reference") out.push(el("span", {cls: "chip", text: "would be " + fx.wouldBe}));
     ["event", "start"].forEach(function (r) { if (fx.routes[r]) out.push(el("span", {cls: "chip"}, ["effects " + r + " ", el("span", {cls: "vc " + (c.verdict === "reference" ? "reference" : fx.routes[r]), text: fx.routes[r]})])); });
-    return out.concat(fx.flags.map(function (f) { return el("span", {cls: f.indexOf(KNOWN_DIFF) === 0 ? "chip known" : "chip", text: f}); }));
+    return out.concat(fx.flags.map(function (f) { return el("span", {cls: f.indexOf(OWNER_FLAG) === 0 ? "chip owner" : f.indexOf(KNOWN_DIFF) === 0 ? "chip known" : "chip", text: f}); }));
   }
   function plainTable(head, rows) {
     return el("div", {cls: "tablewrap"}, [el("table", null, [el("thead", null, [el("tr", null, head.map(function (h) { return el("th", {text: h}); }))]),
@@ -2413,7 +2500,8 @@ dialog .tile { cursor: default; }
       headKids = [el("span", {cls: "skname", text: "skin " + c.skin}), el("span", {cls: "chip", text: c.skinKind || "-"}), vchip(c.verdict, c.reasons.join("\n") || null),
         setup, reg, c.trigger && !opts.single ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null];
     }
-    var blk = el("div", {cls: (opts.sub ? "state " : "skin ") + cls, id: "c-" + idOf(c.id)}, [el("div", {cls: "shead"}, headKids)]);
+    if (c.accepted) headKids.push(el("span", {cls: "chip", text: "judged " + c.partVerdict + ": " + c.accepted.todos.join(", "), title: c.accepted.reasons.join("\n")}));
+    var blk = el("div", {cls: (opts.sub ? "state " : "skin ") + cls + (c.accepted ? " quiet" : ""), id: "c-" + idOf(c.id)}, [el("div", {cls: "shead"}, headKids)]);
     if (c.verdict === "control-na") blk.appendChild(el("div", {cls: "note", text: "Not applicable: no part of this install can be its subject, so it writes no sidecar" + (c.control.detail ? " (" + c.control.detail + ")" : "") + "."}));
     else if (!c.views.length) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
     c.views.forEach(function (v) {
@@ -2463,6 +2551,7 @@ dialog .tile { cursor: default; }
       D.profiles.length > 1 ? el("span", {cls: "chip", text: g.profile}) : null,
       g.skins.length > 1 ? el("span", {cls: "chip", text: g.skins.length + " skins"}) : null,
       g.hasStates ? el("span", {cls: "chip", text: g.states.join(", ")}) : null,
+      (g.ownerFlags || []).length ? el("span", {cls: "chip owner", text: "owner-flagged: " + g.ownerFlags.join(", "), title: "open, kept in sight whatever the verdict"}) : null,
       g.regression && g.regression !== "same" ? el("span", {cls: "chip moved", text: g.regression}) : null]);
     (g.links || []).forEach(function (l) { head.appendChild(el("a", {href: "#case=" + encodeURIComponent(l["case"]), text: "same part in " + l.profile + " (" + l.verdict + ")"})); });
     if (g.trigger) head.appendChild(el("div", {cls: "trigger tr-" + g.verdict, text: g.trigger}));
@@ -2508,7 +2597,7 @@ dialog .tile { cursor: default; }
     host.appendChild(frag);
   }
   function matches(g) {
-    if (state.verdict === "flagged" && (g.verdict === "pass" || g.verdict === "reference")) return false;
+    if (state.verdict === "flagged" && (g.verdict === "pass" || g.verdict === "reference" || PAGE_STATES.indexOf(g.verdict) >= 0)) return false;
     if (state.verdict && state.verdict !== "flagged" && !g.cases.some(function (id) { return CASE[id].verdict === state.verdict; })) return false;
     if (state.source && (g.source || "(none)") !== state.source) return false;
     if (state.regression && g.regression !== state.regression) return false;
@@ -2525,6 +2614,7 @@ dialog .tile { cursor: default; }
     VISIBLE = [];
     ORDERED.forEach(function (g) { var ok = matches(g); GROUP_EL[g.id].hidden = !ok; if (ok) VISIBLE.push(g); });
     if (knownBtn) knownBtn.setAttribute("aria-pressed", state.fxFlag === KNOWN_DIFF ? "true" : "false");
+    if (ownerBtn) ownerBtn.setAttribute("aria-pressed", state.fxFlag === OWNER_FLAG ? "true" : "false");
     document.getElementById("shown").textContent = VISIBLE.length + " / " + D.groups.length + " part(s) shown";
   }
   function headerHeight() { return document.getElementById("top").getBoundingClientRect().height; }
