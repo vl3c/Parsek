@@ -1234,6 +1234,13 @@ namespace Parsek
         internal const int LaunchDustGroundLatchScanCap = 2000;
         /// <summary>How far above the ground the flat dust sheet sits, so its billboards are not half buried.</summary>
         internal const float LaunchDustGroundLiftMeters = 0.5f;
+        /// <summary>
+        /// The layers the dust looks for the ground on: stock <c>ModuleSurfaceFX</c>'s own raycast
+        /// mask (decompiled, <c>0x40008000</c>: layer 15 Local Scenery, which holds the terrain and
+        /// the KSC pad and runway, and layer 30), so the dust lands on the pad deck or a runway the
+        /// way stock's does instead of on the raw terrain under it.
+        /// </summary>
+        internal const int LaunchDustSurfaceLayerMask = 0x40008000;
 
         /// <summary>
         /// Sum of every engine module's commanded power on a ghost. Used as the dust driver's

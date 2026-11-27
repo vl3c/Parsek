@@ -307,6 +307,13 @@ namespace Parsek.Tests
             // The one ground-reference write left is the "never" latch of a failed build.
             Assert.Single(Regex.Matches(frame, @"state\.launchDustGroundRefAltitude\b").Cast<Match>());
             Assert.Contains("state.launchDustGroundRefAltitude = double.NegativeInfinity;", frame);
+            // The ground is the surface stock's ModuleSurfaceFX raycasts for (0x40008000), the
+            // terrain reference only when nothing is hit.
+            Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
+            string place = Body(text, "private static void PlaceLaunchDustOnGround(");
+            Assert.True(place.IndexOf("Physics.Raycast(", StringComparison.Ordinal)
+                < place.IndexOf("ComputeLaunchDustGroundPoint(", StringComparison.Ordinal));
+            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", place);
             // Every emitting frame lays the disc flat on the ground under the ghost first.
             Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(recIdx, state, altitude, groundRefAltitude\);\s*var emission", frame);
         }

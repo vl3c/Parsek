@@ -289,8 +289,9 @@ namespace Parsek
         /// disc lies on the ground and its particles run outward across it, as stock's ground dust
         /// does, instead of standing upright around the ghost and rising with it. Re-placed every
         /// frame because the ghost climbs away from the spot while the dust stays on the ground.
-        /// The normal comes from the ghost's body; without one (a held part parity slot, headless)
-        /// the ghost's own up axis stands in.
+        /// The ground is the first pad, runway or terrain surface straight below (stock
+        /// <c>ModuleSurfaceFX</c>'s layers), else the latched terrain reference. The normal comes
+        /// from the ghost's body; without one the ghost's own up axis stands in.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PlaceLaunchDustOnGround(
@@ -305,14 +306,31 @@ namespace Parsek
                 state.lastInterpolatedBodyName, ghostPos, out up);
             if (!fromBody) up = state.ghost.transform.up;
 
-            Vector3 ground = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(
-                ghostPos, up, altitude, groundRefAltitude);
+            // The surface first, as stock does: the pad deck and runways stand above the terrain
+            // altitude the AGL is measured against. The terrain reference is the fallback.
+            Vector3 ground;
+            bool hitSurface = false;
+            double agl = altitude - groundRefAltitude;
+            float reach = (float)Math.Min(GhostPlaybackLogic.LaunchDustMaxAglMeters,
+                double.IsNaN(agl) || agl < 0.0 ? 0.0 : agl) + 10f;
+            if (Physics.Raycast(ghostPos + up, -up, out RaycastHit hit, reach + 1f,
+                    GhostPlaybackLogic.LaunchDustSurfaceLayerMask))
+            {
+                ground = hit.point + up * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
+                hitSurface = true;
+            }
+            else
+            {
+                ground = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(
+                    ghostPos, up, altitude, groundRefAltitude);
+            }
             dust.transform.SetPositionAndRotation(ground, Quaternion.FromToRotation(Vector3.forward, up));
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-place-{recIdx}",
                 $"Launch dust ghost #{recIdx} \"{state.vesselName}\" laid flat on the ground " +
                 $"{Vector3.Distance(ghostPos, ground).ToString("F1", CultureInfo.InvariantCulture)} m " +
-                $"below the ghost, up from {(fromBody ? "body" : "ghost-axis")}", 5.0);
+                $"below the ghost, up from {(fromBody ? "body" : "ghost-axis")}, ground from " +
+                $"{(hitSurface ? "surface-hit '" + hit.collider.name + "'" : "terrain-ref")}", 5.0);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
