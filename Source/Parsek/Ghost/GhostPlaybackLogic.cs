@@ -301,6 +301,46 @@ namespace Parsek
             return RealVesselExistsForRecording(rec);
         }
 
+        /// <summary>
+        /// The flight host's loop-membership term (<c>loopingLike</c>): a recording that replays
+        /// on a loop clock rather than at its recorded time. It is a recording with its own loop,
+        /// a looping chain member, a member of a live mission loop unit, or a loop-synced child
+        /// (booster debris, <see cref="Recording.LoopSyncParentIdx"/>) whose parent is one of the
+        /// first or third kind. The child mirrors the engine's own loop-sync dispatch
+        /// (<c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>: the parent passes
+        /// <see cref="GhostPlaybackEngine.ShouldLoopPlayback"/> or owns a unit slot), so the
+        /// BUG-B dormancy gate never parks debris the engine would draw on its parent's clock.
+        /// <paramref name="loopSyncedChild"/> reports that the child term alone made it true.
+        /// Pure.
+        /// </summary>
+        internal static bool ResolveLoopingLike(
+            Recording rec,
+            int index,
+            bool chainLooping,
+            IReadOnlyList<Recording> committed,
+            LoopUnitSet loopUnits,
+            out bool loopSyncedChild)
+        {
+            loopSyncedChild = false;
+            if (rec == null)
+                return false;
+            if (rec.LoopPlayback || chainLooping || (loopUnits != null && loopUnits.IsMember(index)))
+                return true;
+            int parentIdx = rec.LoopSyncParentIdx;
+            if (committed == null || parentIdx < 0 || parentIdx >= committed.Count || parentIdx == index)
+                return false;
+            Recording parent = committed[parentIdx];
+            if (parent == null)
+                return false;
+            if (GhostPlaybackEngine.ShouldLoopPlayback(parent)
+                || (loopUnits != null && loopUnits.IsMember(parentIdx)))
+            {
+                loopSyncedChild = true;
+                return true;
+            }
+            return false;
+        }
+
         // Step-2 double-suppression (Logistics route live-anchor bind): a loop member's
         // OWN in-bubble/map ghost is hidden as a live-anchor duplicate ONLY while its
         // launch-matched live vessel is loaded AND it was the LIVE docking anchor of an

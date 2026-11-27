@@ -375,14 +375,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GhostSkin_TheBuilderVariantForAVariant_NullForB9()
+        public void GhostSkin_TheBuilderVariantForAVariant()
         {
+            var applied = new GhostAppliedSkin { variantName = "Dark" };
             Assert.Equal("Dark", PartParitySkinRules.GhostSkin(
-                new PartParitySkinProof { Module = PartParityCaseRules.VariantModuleName }, "Dark"));
+                new PartParitySkinProof { Module = PartParityCaseRules.VariantModuleName }, applied));
             Assert.Null(PartParitySkinRules.GhostSkin(
-                new PartParitySkinProof { Module = PartParityCaseRules.B9ModuleName }, "Dark"));
-            Assert.Null(PartParitySkinRules.GhostSkin(new PartParitySkinProof(), "Dark"));
-            Assert.Null(PartParitySkinRules.GhostSkin(null, "Dark"));
+                new PartParitySkinProof { Module = PartParityCaseRules.B9ModuleName }, applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(new PartParitySkinProof(), applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(null, applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(
+                new PartParitySkinProof { Module = PartParityCaseRules.VariantModuleName }, null));
+        }
+
+        [Fact]
+        public void GhostSkin_TheAppliedB9SubtypeOfTheProofsModule_NullWhenUnmodelledOrMissing()
+        {
+            var applied = new GhostAppliedSkin
+            {
+                b9Subtypes = new List<GhostAppliedB9Subtype>
+                {
+                    new GhostAppliedB9Subtype { moduleId = "B9PartSwitchMass", subtype = "5t", modelled = true },
+                    new GhostAppliedB9Subtype { moduleId = "B9PartSwitchSize", subtype = "2.5m", modelled = true },
+                    new GhostAppliedB9Subtype { moduleId = "plumeSwitch", subtype = "hydrolox", modelled = false },
+                },
+            };
+            PartParitySkinProof B9(string id) => new PartParitySkinProof { Module = PartParityCaseRules.B9ModuleName, ModuleId = id };
+            Assert.Equal("2.5m", PartParitySkinRules.GhostSkin(B9("B9PartSwitchSize"), applied));
+            Assert.Equal("5t", PartParitySkinRules.GhostSkin(B9(null), applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(B9("plumeSwitch"), applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(B9("nope"), applied));
+            Assert.Null(PartParitySkinRules.GhostSkin(B9("B9PartSwitchSize"), new GhostAppliedSkin { variantName = "Dark" }));
         }
 
         [Theory]

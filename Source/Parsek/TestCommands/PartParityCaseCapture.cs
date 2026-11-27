@@ -191,7 +191,7 @@ namespace Parsek.TestCommands
             if (pidText != null) uint.TryParse(pidText, NumberStyles.Integer, Ic, out pid);
             GhostAppliedSkin applied = null;
             bool recorded = build != null && build.TryGetAppliedSkin(pid, out applied);
-            proof.Ghost = PartParitySkinRules.GhostSkin(proof, recorded ? applied.variantName : null);
+            proof.Ghost = PartParitySkinRules.GhostSkin(proof, recorded ? applied : null);
             foreach (string f in PartParitySkinRules.GhostFlags(proof))
                 if (!wc.Flags.Contains(f)) wc.Flags.Add(f);
             ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: skin proof module={proof.Module ?? "<none>"} " +

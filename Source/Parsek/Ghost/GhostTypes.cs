@@ -1039,17 +1039,18 @@ namespace Parsek
         /// <summary>Which ghost parts ride which servo's moving half. Null when the ghost has no servo.</summary>
         public ServoFollowerPlan servoFollowerPlan;
         /// <summary>
-        /// The skin the builder applied to each part that has a <c>ModulePartVariants</c>, keyed
-        /// by persistentId. A read-only record of what <c>AddPartVisuals</c> resolved; nothing in
-        /// the build or in playback reads it. Null when no part of the snapshot has variants.
+        /// The skin the builder applied to each part that has a <c>ModulePartVariants</c> or a
+        /// <c>ModuleB9PartSwitch</c>, keyed by persistentId. A read-only record of what
+        /// <c>AddPartVisuals</c> resolved; nothing in the build or in playback reads it. Null when
+        /// no part of the snapshot has a variant or B9 module.
         /// Read it through <see cref="TryGetAppliedSkin"/>.
         /// </summary>
         public Dictionary<uint, GhostAppliedSkin> appliedSkins;
 
         /// <summary>The skin the builder applied to part <paramref name="persistentId"/>; false
-        /// when the part has no variant module or the build drew no visuals for it. The builder
-        /// models no other part switcher (B9PartSwitch subtypes are not applied), so a false here
-        /// for such a part is the answer, not a missing record.</summary>
+        /// when the part has neither a variant module nor a B9PartSwitch module, or the build drew
+        /// no visuals for it. The builder models no other part switcher, so a false here for such
+        /// a part is the answer, not a missing record.</summary>
         internal bool TryGetAppliedSkin(uint persistentId, out GhostAppliedSkin skin)
         {
             skin = null;
@@ -1072,5 +1073,24 @@ namespace Parsek
         /// <summary><c>snapshot</c>, <c>runtime</c>, <c>base</c>, <c>first-fallback</c>,
         /// <c>base-implicit</c>, or null when no variant was resolved.</summary>
         public string variantResolutionPath;
+
+        /// <summary>The subtype the builder applied for each <c>ModuleB9PartSwitch</c> module of the
+        /// part, in config order; null when the part has no B9 module.</summary>
+        public List<GhostAppliedB9Subtype> b9Subtypes;
+    }
+
+    /// <summary>One <c>ModuleB9PartSwitch</c> module's subtype as the ghost builder resolved it
+    /// (<see cref="GhostB9Subtypes.Resolve"/>).</summary>
+    internal sealed class GhostAppliedB9Subtype
+    {
+        /// <summary>The module's <c>moduleID</c>; null for a lone unnamed module.</summary>
+        public string moduleId;
+        /// <summary>The subtype shown; null when the module has no SUBTYPE.</summary>
+        public string subtype;
+        /// <summary><c>snapshot</c>, <c>default</c> or <c>snapshot-unknown</c>.</summary>
+        public string resolutionPath;
+        /// <summary>False when the subtype also carries texture, material or module rules the
+        /// ghost does not model, so the ghost shows it only in part.</summary>
+        public bool modelled;
     }
 }

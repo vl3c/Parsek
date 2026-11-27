@@ -85,8 +85,9 @@ namespace Parsek.TestCommands
         /// pictures match).</summary>
         internal const string FlagSkinMismatch = "skin-mismatch";
 
-        /// <summary>The ghost builder does not model this switcher (the B9 subtype is never
-        /// applied to the ghost), so the case's ghost skin is null by construction.</summary>
+        /// <summary>The ghost builder does not model this switcher option: no B9 subtype was
+        /// recorded for the module, or the subtype carries texture, material or module rules the
+        /// builder does not apply, so the case's ghost skin is null.</summary>
         internal const string FlagSkinNotModelledPrefix = "skin-not-modelled:";
         internal const string ModelledTokenB9 = "b9";
 
@@ -306,13 +307,29 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The ghost skin of the proof's module from what the builder recorded: the
-        /// variant it resolved; null for B9 (the builder applies no B9 subtype) and for a part
-        /// it recorded nothing for.</summary>
-        internal static string GhostSkin(PartParitySkinProof proof, string builderVariant)
-            => proof != null && proof.Module == VariantsModule ? builderVariant : null;
+        /// variant it resolved, or the subtype it applied to the proof's B9 module (matched by
+        /// <c>moduleID</c>; a proof with no module id takes the part's first B9 module). Null for a
+        /// part it recorded nothing for, and for a B9 subtype that also carries rules the builder
+        /// does not model (texture, material, module data), so such a case keeps
+        /// <c>skin-not-modelled:b9</c>.</summary>
+        internal static string GhostSkin(PartParitySkinProof proof, GhostAppliedSkin applied)
+        {
+            if (proof == null || applied == null) return null;
+            if (proof.Module == VariantsModule) return applied.variantName;
+            if (proof.Module != B9Module || applied.b9Subtypes == null || applied.b9Subtypes.Count == 0)
+                return null;
+            GhostAppliedB9Subtype match = null;
+            if (string.IsNullOrEmpty(proof.ModuleId))
+                match = applied.b9Subtypes[0];
+            else
+                foreach (GhostAppliedB9Subtype b in applied.b9Subtypes)
+                    if (b != null && b.moduleId == proof.ModuleId) { match = b; break; }
+            return match != null && match.modelled ? match.subtype : null;
+        }
 
         /// <summary>The ghost-defect flags of a proof whose case built a ghost:
-        /// <c>skin-not-modelled:b9</c> for a B9 module the builder recorded no subtype for;
+        /// <c>skin-not-modelled:b9</c> for a B9 module whose ghost skin is null (nothing recorded,
+        /// or a subtype the builder models only in part);
         /// otherwise <c>skin-mismatch</c> when the real skin is not the ghost's (variant names
         /// compare case-insensitively, the way the builder matches a VARIANT node). Empty for a
         /// proof that names no module.</summary>
