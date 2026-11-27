@@ -1,0 +1,338 @@
+[LOG 21:40:04.957] [Parsek][INFO][GhostFx9] mark fx9-real
+[LOG 21:40:04.976] [Parsek][INFO][GhostFx9] spawn Fx9 anchor pid=4055122291 lat=-0.09148 lon=-74.55768 alt=65.9 east=0 up=0.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:40:05.012] [Parsek][INFO][GhostFx9] anchor pid=4055122291 loaded=True
+[LOG 21:40:07.116] [Parsek][INFO][GhostFx9] case lead recording=True active=#autoLOC_501224 parts=8
+[LOG 21:40:08.208] [Parsek][INFO][GhostFx9] case lead committed tree=17559dd82adb4ffebb9550e8ca94a2db rec=bd55603330e9450597a8721db624c27b start=16.02 end=17.04 event=0.00
+[LOG 21:40:27.158] [Parsek][INFO][GhostFx9] spawn Fx9 boom-stock pid=3476151217 lat=-0.08288 lon=-74.55768 alt=68.7 east=0 up=0.0 depth=3.98 rangesExtended=True parts=0
+[LOG 21:40:31.264] [Parsek][INFO][GhostFx9] case boom-stock recording=True active=Fx9 boom-stock parts=3
+[LOG 21:40:35.269] [Parsek][INFO][GhostFx9] case boom-stock committed tree=09df4095750a404b8b9d95885654e101 rec=d260870b39724a9db03666995d3e9356 start=40.00 end=44.00 event=0.00
+[LOG 21:40:35.271] [Parsek][INFO][GhostFx9] spawn Viewer boom-stock pid=3212040194 lat=-0.07524 lon=-74.63407 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:40:35.336] [Parsek][INFO][GhostFx9] real origin shift ut=44.06 offset=811.2
+[LOG 21:40:35.766] [Parsek][INFO][GhostFx9] viewer boom-stock pid=3212040194 loaded=True lead=2.00
+[LOG 21:40:37.044] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k00 ut=45.76 t=-0.24 active=Viewer boom-stock activeSrf=267 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:40:37.278] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k01 ut=46.00 t=0.00 active=Viewer boom-stock activeSrf=257 frameVel=0.0 originOffset=0.0
+[LOG 21:40:37.292] [Parsek][INFO][GhostFx9] real event boom-stock exploded ut=46.00
+[LOG 21:40:37.537] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k02 ut=46.26 t=0.26 active=Viewer boom-stock activeSrf=246 frameVel=0.0 originOffset=0.0
+[LOG 21:40:37.789] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k03 ut=46.50 t=0.50 active=Viewer boom-stock activeSrf=236 frameVel=0.0 originOffset=0.0
+[LOG 21:40:38.041] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k04 ut=46.76 t=0.76 active=Viewer boom-stock activeSrf=228 frameVel=0.0 originOffset=0.0
+[LOG 21:40:38.277] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k05 ut=47.00 t=1.00 active=Viewer boom-stock activeSrf=220 frameVel=0.0 originOffset=0.0
+[LOG 21:40:38.544] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k06 ut=47.26 t=1.26 active=Viewer boom-stock activeSrf=212 frameVel=0.0 originOffset=0.0
+[LOG 21:40:38.781] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k07 ut=47.50 t=1.50 active=Viewer boom-stock activeSrf=206 frameVel=0.0 originOffset=0.0
+[LOG 21:40:39.034] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k08 ut=47.76 t=1.76 active=Viewer boom-stock activeSrf=199 frameVel=0.0 originOffset=0.0
+[LOG 21:40:39.288] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k09 ut=48.00 t=2.00 active=Viewer boom-stock activeSrf=193 frameVel=0.0 originOffset=0.0
+[LOG 21:40:39.542] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k10 ut=48.26 t=2.26 active=Viewer boom-stock activeSrf=188 frameVel=0.0 originOffset=0.0
+[LOG 21:40:39.778] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k11 ut=48.50 t=2.50 active=Viewer boom-stock activeSrf=183 frameVel=0.0 originOffset=0.0
+[LOG 21:40:40.047] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k12 ut=48.76 t=2.76 active=Viewer boom-stock activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 21:40:40.280] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k13 ut=49.00 t=3.00 active=Viewer boom-stock activeSrf=173 frameVel=0.0 originOffset=0.0
+[LOG 21:40:51.276] [Parsek][INFO][GhostFx9] spawn Fx9 boom-built pid=563308980 lat=-0.06856 lon=-74.55768 alt=69.2 east=0 up=0.0 depth=3.98 rangesExtended=True parts=0
+[LOG 21:40:51.336] [Parsek][INFO][GhostFx9] real origin shift ut=60.02 offset=781.4
+[LOG 21:40:55.377] [Parsek][INFO][GhostFx9] case boom-built recording=True active=Fx9 boom-built parts=1
+[LOG 21:40:59.398] [Parsek][INFO][GhostFx9] case boom-built committed tree=1b402b18905844ab92d4648345e00ea5 rec=fe5c2018e93e4a138d1543e99829bf41 start=64.00 end=68.02 event=0.00
+[LOG 21:40:59.400] [Parsek][INFO][GhostFx9] spawn Viewer boom-built pid=111044881 lat=-0.06092 lon=-74.63407 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:40:59.447] [Parsek][INFO][GhostFx9] real origin shift ut=68.06 offset=790.2
+[LOG 21:40:59.845] [Parsek][INFO][GhostFx9] viewer boom-built pid=111044881 loaded=True lead=2.00
+[LOG 21:41:01.145] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k00 ut=69.78 t=-0.24 active=Viewer boom-built activeSrf=267 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:41:01.397] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k01 ut=70.04 t=0.02 active=Viewer boom-built activeSrf=255 frameVel=0.0 originOffset=0.0
+[LOG 21:41:01.398] [Parsek][INFO][GhostFx9] real event boom-built exploded ut=70.04
+[LOG 21:41:01.633] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k02 ut=70.28 t=0.26 active=Viewer boom-built activeSrf=245 frameVel=0.0 originOffset=0.0
+[LOG 21:41:01.902] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k03 ut=70.54 t=0.52 active=Viewer boom-built activeSrf=235 frameVel=0.0 originOffset=0.0
+[LOG 21:41:02.137] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k04 ut=70.78 t=0.76 active=Viewer boom-built activeSrf=227 frameVel=0.0 originOffset=0.0
+[LOG 21:41:02.391] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k05 ut=71.04 t=1.02 active=Viewer boom-built activeSrf=219 frameVel=0.0 originOffset=0.0
+[LOG 21:41:02.643] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k06 ut=71.28 t=1.26 active=Viewer boom-built activeSrf=212 frameVel=0.0 originOffset=0.0
+[LOG 21:41:02.896] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k07 ut=71.54 t=1.52 active=Viewer boom-built activeSrf=205 frameVel=0.0 originOffset=0.0
+[LOG 21:41:03.131] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k08 ut=71.78 t=1.76 active=Viewer boom-built activeSrf=199 frameVel=0.0 originOffset=0.0
+[LOG 21:41:03.400] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k09 ut=72.04 t=2.02 active=Viewer boom-built activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:41:03.634] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k10 ut=72.28 t=2.26 active=Viewer boom-built activeSrf=187 frameVel=0.0 originOffset=0.0
+[LOG 21:41:03.904] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k11 ut=72.54 t=2.52 active=Viewer boom-built activeSrf=182 frameVel=0.0 originOffset=0.0
+[LOG 21:41:04.139] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k12 ut=72.78 t=2.76 active=Viewer boom-built activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 21:41:04.392] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k13 ut=73.04 t=3.02 active=Viewer boom-built activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:41:15.353] [Parsek][INFO][GhostFx9] spawn Fx9 puff pid=3423880427 lat=-0.05424 lon=-74.55768 alt=66.1 east=0 up=0.0 depth=2.81 rangesExtended=True parts=0
+[LOG 21:41:15.420] [Parsek][INFO][GhostFx9] real origin shift ut=84.02 offset=789.5
+[LOG 21:41:19.474] [Parsek][INFO][GhostFx9] case puff recording=True active=Fx9 puff parts=4
+[LOG 21:41:21.716] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k00 ut=90.28 t=-0.24 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:41:21.967] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k01 ut=90.54 t=0.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:21.980] [Parsek][INFO][GhostFx9] real event puff ut=90.54
+[LOG 21:41:22.216] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k02 ut=90.78 t=0.26 active=Fx9 puff activeSrf=1 frameVel=0.0 originOffset=0.0
+[LOG 21:41:22.470] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k03 ut=91.04 t=0.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:22.711] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k04 ut=91.28 t=0.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:22.966] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k05 ut=91.54 t=1.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:23.218] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k06 ut=91.78 t=1.26 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:23.471] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k07 ut=92.04 t=1.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:23.721] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k08 ut=92.28 t=1.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:23.972] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k09 ut=92.54 t=2.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:24.208] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k10 ut=92.78 t=2.26 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:24.477] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k11 ut=93.04 t=2.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:24.713] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k12 ut=93.28 t=2.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:24.965] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k13 ut=93.54 t=3.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:26.041] [Parsek][INFO][GhostFx9] case puff committed tree=4f038eb9361a4ca4a89dbfef17b0baef rec=82db5212c14149fba2da219f8cb2f175 start=88.02 end=94.54 event=90.52
+[LOG 21:41:39.497] [Parsek][INFO][GhostFx9] spawn Fx9 dust pid=3065833434 lat=-0.03991 lon=-74.55768 alt=67.0 east=0 up=0.0 depth=3.71 rangesExtended=True parts=0
+[LOG 21:41:43.611] [Parsek][INFO][GhostFx9] case dust recording=True active=Fx9 dust parts=3
+[LOG 21:41:45.838] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k00 ut=114.30 t=-0.24 active=Fx9 dust activeSrf=0 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:41:46.106] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k01 ut=114.56 t=0.02 active=Fx9 dust activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 21:41:46.107] [Parsek][INFO][GhostFx9] real event dust ut=114.56
+[LOG 21:41:46.344] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k02 ut=114.80 t=0.26 active=Fx9 dust activeSrf=8 frameVel=0.0 originOffset=0.0
+[LOG 21:41:46.598] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k03 ut=115.06 t=0.52 active=Fx9 dust activeSrf=17 frameVel=0.0 originOffset=0.0
+[LOG 21:41:46.851] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k04 ut=115.30 t=0.76 active=Fx9 dust activeSrf=25 frameVel=0.0 originOffset=0.0
+[LOG 21:41:47.104] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k05 ut=115.56 t=1.02 active=Fx9 dust activeSrf=34 frameVel=0.0 originOffset=0.0
+[LOG 21:41:47.339] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k06 ut=115.80 t=1.26 active=Fx9 dust activeSrf=43 frameVel=0.0 originOffset=0.0
+[LOG 21:41:47.608] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k07 ut=116.06 t=1.52 active=Fx9 dust activeSrf=52 frameVel=0.0 originOffset=0.0
+[LOG 21:41:47.843] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k08 ut=116.30 t=1.76 active=Fx9 dust activeSrf=60 frameVel=0.0 originOffset=0.0
+[LOG 21:41:48.113] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k09 ut=116.56 t=2.02 active=Fx9 dust activeSrf=69 frameVel=0.0 originOffset=0.0
+[LOG 21:41:48.349] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k10 ut=116.80 t=2.26 active=Fx9 dust activeSrf=78 frameVel=0.0 originOffset=0.0
+[LOG 21:41:48.601] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k11 ut=117.06 t=2.52 active=Fx9 dust activeSrf=87 frameVel=0.0 originOffset=0.0
+[LOG 21:41:48.838] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k12 ut=117.30 t=2.76 active=Fx9 dust activeSrf=95 frameVel=0.0 originOffset=0.0
+[LOG 21:41:49.106] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k13 ut=117.56 t=3.02 active=Fx9 dust activeSrf=104 frameVel=0.0 originOffset=0.0
+[LOG 21:41:49.644] [Parsek][INFO][GhostFx9] case dust committed tree=953446948a254657bb012d48d5ca70d7 rec=c8ab92529dc64895af6332b2c354ca81 start=112.04 end=118.06 event=114.54
+[LOG 21:41:49.650] [Parsek][INFO][GhostFx9] REAL DONE cases=5 ut=118.1
+[LOG 21:43:08.048] [Parsek][INFO][GhostFx9] mark fx9-ghost-before
+[LOG 21:43:46.893] [Parsek][INFO][GhostFx9] spawn Viewer boom-stock pid=955151101 lat=-0.07524 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:43:46.961] [Parsek][INFO][GhostFx9] before origin shift ut=41.76 offset=914.2
+[LOG 21:43:47.387] [Parsek][INFO][GhostFx9] viewer boom-stock pid=955151101 loaded=True lead=2.28
+[LOG 21:43:47.388] [Parsek][INFO][GhostFx9] ghost before boom-stock present=True active=True
+[LOG 21:43:48.448] [Parsek][INFO][GhostFx9] before origin shift ut=43.24 offset=505.4
+[LOG 21:43:48.953] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k00 ut=43.76 t=-0.24 active=Viewer boom-stock activeSrf=254 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:43:49.226] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k01 ut=44.02 t=0.02 active=Viewer boom-stock activeSrf=243 frameVel=0.0 originOffset=0.0
+[LOG 21:43:49.459] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k02 ut=44.26 t=0.26 active=Viewer boom-stock activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:43:49.729] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k03 ut=44.52 t=0.52 active=Viewer boom-stock activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 21:43:49.965] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k04 ut=44.76 t=0.76 active=Viewer boom-stock activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:43:50.216] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k05 ut=45.02 t=1.02 active=Viewer boom-stock activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 21:43:50.453] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k06 ut=45.26 t=1.26 active=Viewer boom-stock activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:43:50.586] [Parsek][INFO][GhostFx9] before origin shift ut=45.38 offset=503.6
+[LOG 21:43:50.721] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k07 ut=45.52 t=1.52 active=Viewer boom-stock activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 21:43:50.957] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k08 ut=45.76 t=1.76 active=Viewer boom-stock activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:43:51.208] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k09 ut=46.00 t=2.00 active=Viewer boom-stock activeSrf=187 frameVel=0.0 originOffset=0.0
+[LOG 21:43:51.459] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k10 ut=46.26 t=2.26 active=Viewer boom-stock activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:43:51.692] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k11 ut=46.50 t=2.50 active=Viewer boom-stock activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 21:43:51.965] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k12 ut=46.76 t=2.76 active=Viewer boom-stock activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:43:52.201] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-before-k13 ut=47.00 t=3.00 active=Viewer boom-stock activeSrf=168 frameVel=0.0 originOffset=0.0
+[LOG 21:43:53.494] [Parsek][INFO][GhostFx9] before origin shift ut=48.30 offset=501.7
+[LOG 21:44:10.923] [Parsek][INFO][GhostFx9] spawn Viewer boom-built pid=2503236033 lat=-0.06092 lon=-74.64553 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:44:10.982] [Parsek][INFO][GhostFx9] before origin shift ut=65.76 offset=1522.4
+[LOG 21:44:11.377] [Parsek][INFO][GhostFx9] viewer boom-built pid=2503236033 loaded=True lead=2.30
+[LOG 21:44:11.377] [Parsek][INFO][GhostFx9] ghost before boom-built present=True active=True
+[LOG 21:44:12.454] [Parsek][INFO][GhostFx9] before origin shift ut=67.24 offset=505.5
+[LOG 21:44:12.942] [Parsek][INFO][GhostFx9] fxmonger hidden ut=67.74 held=True
+[LOG 21:44:12.994] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k00 ut=67.78 t=-0.24 active=Viewer boom-built activeSrf=253 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:44:13.250] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k01 ut=68.04 t=0.02 active=Viewer boom-built activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 21:44:13.255] [Parsek][INFO][GhostFx9] before free fx spawned GhostExplosionFx id=-468774 ut=68.04 alt=65.2
+[LOG 21:44:13.481] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k02 ut=68.28 t=0.26 active=Viewer boom-built activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:44:13.481] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k02 GhostExplosionFx n=487 age=0.24s centroidFromSpawnPoint=0.0m
+[LOG 21:44:13.548] [Parsek][INFO][GhostFx9] fxmonger restored ut=68.34
+[LOG 21:44:13.749] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k03 ut=68.54 t=0.52 active=Viewer boom-built activeSrf=225 frameVel=0.0 originOffset=0.0
+[LOG 21:44:13.749] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k03 GhostExplosionFx n=487 age=0.50s centroidFromSpawnPoint=0.1m
+[LOG 21:44:13.985] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k04 ut=68.78 t=0.76 active=Viewer boom-built activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:44:13.985] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k04 GhostExplosionFx n=487 age=0.74s centroidFromSpawnPoint=0.1m
+[LOG 21:44:14.254] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k05 ut=69.04 t=1.02 active=Viewer boom-built activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 21:44:14.254] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k05 GhostExplosionFx n=487 age=1.00s centroidFromSpawnPoint=0.1m
+[LOG 21:44:14.488] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k06 ut=69.28 t=1.26 active=Viewer boom-built activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:44:14.488] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k06 GhostExplosionFx n=487 age=1.24s centroidFromSpawnPoint=0.2m
+[LOG 21:44:14.587] [Parsek][INFO][GhostFx9] before origin shift ut=69.38 offset=503.6
+[LOG 21:44:14.756] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k07 ut=69.54 t=1.52 active=Viewer boom-built activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 21:44:14.756] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k07 GhostExplosionFx n=487 age=1.50s centroidFromSpawnPoint=503.5m
+[LOG 21:44:14.990] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k08 ut=69.78 t=1.76 active=Viewer boom-built activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:44:14.990] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k08 GhostExplosionFx n=432 age=1.74s centroidFromSpawnPoint=503.7m
+[LOG 21:44:15.241] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k09 ut=70.04 t=2.02 active=Viewer boom-built activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 21:44:15.241] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k09 GhostExplosionFx n=366 age=2.00s centroidFromSpawnPoint=503.7m
+[LOG 21:44:15.494] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k10 ut=70.28 t=2.26 active=Viewer boom-built activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:44:15.494] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k10 GhostExplosionFx n=277 age=2.24s centroidFromSpawnPoint=503.7m
+[LOG 21:44:15.746] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k11 ut=70.54 t=2.52 active=Viewer boom-built activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 21:44:15.747] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k11 GhostExplosionFx n=161 age=2.50s centroidFromSpawnPoint=503.5m
+[LOG 21:44:15.983] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k12 ut=70.78 t=2.76 active=Viewer boom-built activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 21:44:15.983] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k12 GhostExplosionFx n=125 age=2.74s centroidFromSpawnPoint=503.5m
+[LOG 21:44:16.251] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-before-k13 ut=71.04 t=3.02 active=Viewer boom-built activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:44:16.251] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-before-k13 GhostExplosionFx n=83 age=3.00s centroidFromSpawnPoint=503.1m
+[LOG 21:44:17.512] [Parsek][INFO][GhostFx9] before origin shift ut=72.30 offset=501.7
+[LOG 21:44:33.452] [Parsek][INFO][GhostFx9] spawn Viewer puff pid=2530198006 lat=-0.04660 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:44:33.519] [Parsek][INFO][GhostFx9] before origin shift ut=88.28 offset=1506.6
+[LOG 21:44:33.919] [Parsek][INFO][GhostFx9] viewer puff pid=2530198006 loaded=True lead=2.28
+[LOG 21:44:33.919] [Parsek][INFO][GhostFx9] ghost before puff present=True active=True
+[LOG 21:44:34.980] [Parsek][INFO][GhostFx9] before origin shift ut=89.76 offset=505.4
+[LOG 21:44:35.503] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k00 ut=90.28 t=-0.24 active=Viewer puff activeSrf=254 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:44:35.756] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k01 ut=90.54 t=0.02 active=Viewer puff activeSrf=243 frameVel=0.0 originOffset=0.0
+[LOG 21:44:35.801] [Parsek][INFO][GhostFx9] before free fx spawned GhostPartPuffFx id=-471138 ut=90.56 alt=65.7
+[LOG 21:44:36.011] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k02 ut=90.78 t=0.26 active=Viewer puff activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:44:36.011] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k02 GhostPartPuffFx n=65 age=0.22s centroidFromSpawnPoint=0.0m
+[LOG 21:44:36.262] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k03 ut=91.04 t=0.52 active=Viewer puff activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 21:44:36.263] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k03 GhostPartPuffFx n=58 age=0.48s centroidFromSpawnPoint=0.1m
+[LOG 21:44:36.500] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k04 ut=91.28 t=0.76 active=Viewer puff activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:44:36.500] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k04 GhostPartPuffFx n=40 age=0.72s centroidFromSpawnPoint=0.1m
+[LOG 21:44:36.769] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k05 ut=91.54 t=1.02 active=Viewer puff activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 21:44:36.769] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k05 GhostPartPuffFx n=21 age=0.98s centroidFromSpawnPoint=0.1m
+[LOG 21:44:37.005] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k06 ut=91.78 t=1.26 active=Viewer puff activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:44:37.006] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k06 GhostPartPuffFx n=0
+[LOG 21:44:37.122] [Parsek][INFO][GhostFx9] before origin shift ut=91.90 offset=503.6
+[LOG 21:44:37.257] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k07 ut=92.04 t=1.52 active=Viewer puff activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 21:44:37.257] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k07 GhostPartPuffFx n=0
+[LOG 21:44:37.510] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k08 ut=92.28 t=1.76 active=Viewer puff activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:44:37.510] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k08 GhostPartPuffFx n=0
+[LOG 21:44:37.764] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k09 ut=92.54 t=2.02 active=Viewer puff activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 21:44:37.765] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k09 GhostPartPuffFx n=0
+[LOG 21:44:37.999] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k10 ut=92.78 t=2.26 active=Viewer puff activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:44:38.000] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k10 GhostPartPuffFx n=0
+[LOG 21:44:38.269] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k11 ut=93.04 t=2.52 active=Viewer puff activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 21:44:38.270] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k11 GhostPartPuffFx n=0
+[LOG 21:44:38.506] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k12 ut=93.28 t=2.76 active=Viewer puff activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:44:38.506] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k12 GhostPartPuffFx n=0
+[LOG 21:44:38.759] [Parsek][INFO][GhostFx9] shot fx9g-puff-before-k13 ut=93.54 t=3.02 active=Viewer puff activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:44:38.759] [Parsek][INFO][GhostFx9] stats fx9g-puff-before-k13 GhostPartPuffFx n=0
+[LOG 21:44:40.037] [Parsek][INFO][GhostFx9] before origin shift ut=94.82 offset=501.7
+[LOG 21:44:57.480] [Parsek][INFO][GhostFx9] spawn Viewer dust pid=2322597273 lat=-0.03227 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:44:57.538] [Parsek][INFO][GhostFx9] before origin shift ut=112.30 offset=1514.5
+[LOG 21:44:57.936] [Parsek][INFO][GhostFx9] viewer dust pid=2322597273 loaded=True lead=2.28
+[LOG 21:44:57.936] [Parsek][INFO][GhostFx9] ghost before dust present=True active=True
+[LOG 21:44:58.994] [Parsek][INFO][GhostFx9] before origin shift ut=113.78 offset=505.5
+[LOG 21:44:59.518] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k00 ut=114.30 t=-0.24 active=Viewer dust activeSrf=254 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:44:59.787] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k01 ut=114.56 t=0.02 active=Viewer dust activeSrf=243 frameVel=0.0 originOffset=0.0
+[LOG 21:45:00.023] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k02 ut=114.80 t=0.26 active=Viewer dust activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:45:00.024] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k02 dust n=45 centroidFromLaunchPoint=5.1m
+[LOG 21:45:00.275] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k03 ut=115.06 t=0.52 active=Viewer dust activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 21:45:00.276] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k03 dust n=99 centroidFromLaunchPoint=6.2m
+[LOG 21:45:00.527] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k04 ut=115.30 t=0.76 active=Viewer dust activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:45:00.527] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k04 dust n=146 centroidFromLaunchPoint=7.7m
+[LOG 21:45:00.779] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k05 ut=115.56 t=1.02 active=Viewer dust activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 21:45:00.779] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k05 dust n=183 centroidFromLaunchPoint=9.6m
+[LOG 21:45:01.015] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k06 ut=115.80 t=1.26 active=Viewer dust activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:45:01.015] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k06 dust n=204 centroidFromLaunchPoint=11.3m
+[LOG 21:45:01.149] [Parsek][INFO][GhostFx9] before origin shift ut=115.92 offset=503.6
+[LOG 21:45:01.284] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k07 ut=116.06 t=1.52 active=Viewer dust activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 21:45:01.285] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k07 dust n=211 centroidFromLaunchPoint=500.9m
+[LOG 21:45:01.520] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k08 ut=116.30 t=1.76 active=Viewer dust activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:45:01.521] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k08 dust n=211 centroidFromLaunchPoint=500.9m
+[LOG 21:45:01.790] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k09 ut=116.56 t=2.02 active=Viewer dust activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 21:45:01.790] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k09 dust n=211 centroidFromLaunchPoint=500.9m
+[LOG 21:45:02.027] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k10 ut=116.80 t=2.26 active=Viewer dust activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:45:02.027] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k10 dust n=211 centroidFromLaunchPoint=500.9m
+[LOG 21:45:02.279] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k11 ut=117.06 t=2.52 active=Viewer dust activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 21:45:02.280] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k11 dust n=211 centroidFromLaunchPoint=500.8m
+[LOG 21:45:02.516] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k12 ut=117.30 t=2.76 active=Viewer dust activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:45:02.516] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k12 dust n=168 centroidFromLaunchPoint=500.6m
+[LOG 21:45:02.786] [Parsek][INFO][GhostFx9] shot fx9g-dust-before-k13 ut=117.56 t=3.02 active=Viewer dust activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:45:02.786] [Parsek][INFO][GhostFx9] stats fx9g-dust-before-k13 dust n=109 centroidFromLaunchPoint=498.5m
+[LOG 21:45:02.821] [Parsek][INFO][GhostFx9] GHOST DONE before ut=117.6
+[LOG 21:45:04.061] [Parsek][INFO][GhostFx9] before origin shift ut=118.84 offset=501.8
+[LOG 21:46:21.786] [Parsek][INFO][GhostFx9] mark fx9-ghost-after
+[LOG 21:47:00.645] [Parsek][INFO][GhostFx9] spawn Viewer boom-stock pid=1452031417 lat=-0.07524 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:47:00.738] [Parsek][INFO][GhostFx9] after origin shift ut=41.74 offset=922.0
+[LOG 21:47:01.134] [Parsek][INFO][GhostFx9] viewer boom-stock pid=1452031417 loaded=True lead=2.28
+[LOG 21:47:01.134] [Parsek][INFO][GhostFx9] ghost after boom-stock present=True active=True
+[LOG 21:47:02.158] [Parsek][INFO][GhostFx9] after origin shift ut=43.20 offset=502.2
+[LOG 21:47:02.716] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k00 ut=43.76 t=-0.24 active=Viewer boom-stock activeSrf=254 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:47:02.986] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k01 ut=44.02 t=0.02 active=Viewer boom-stock activeSrf=243 frameVel=0.0 originOffset=0.0
+[LOG 21:47:03.220] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k02 ut=44.26 t=0.26 active=Viewer boom-stock activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:47:03.487] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k03 ut=44.52 t=0.52 active=Viewer boom-stock activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 21:47:03.722] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k04 ut=44.76 t=0.76 active=Viewer boom-stock activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:47:03.972] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k05 ut=45.02 t=1.02 active=Viewer boom-stock activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 21:47:04.225] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k06 ut=45.26 t=1.26 active=Viewer boom-stock activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:47:04.275] [Parsek][INFO][GhostFx9] after origin shift ut=45.32 offset=502.6
+[LOG 21:47:04.476] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k07 ut=45.52 t=1.52 active=Viewer boom-stock activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 21:47:04.711] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k08 ut=45.76 t=1.76 active=Viewer boom-stock activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:47:04.962] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k09 ut=46.00 t=2.00 active=Viewer boom-stock activeSrf=187 frameVel=0.0 originOffset=0.0
+[LOG 21:47:05.213] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k10 ut=46.26 t=2.26 active=Viewer boom-stock activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:47:05.464] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k11 ut=46.50 t=2.50 active=Viewer boom-stock activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 21:47:05.719] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k12 ut=46.76 t=2.76 active=Viewer boom-stock activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:47:05.954] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k13 ut=47.00 t=3.00 active=Viewer boom-stock activeSrf=168 frameVel=0.0 originOffset=0.0
+[LOG 21:47:07.178] [Parsek][INFO][GhostFx9] after origin shift ut=48.22 offset=501.9
+[LOG 21:47:24.679] [Parsek][INFO][GhostFx9] spawn Viewer boom-built pid=2906877303 lat=-0.06092 lon=-74.64553 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:47:24.754] [Parsek][INFO][GhostFx9] after origin shift ut=65.76 offset=1510.7
+[LOG 21:47:25.150] [Parsek][INFO][GhostFx9] viewer boom-built pid=2906877303 loaded=True lead=2.30
+[LOG 21:47:25.150] [Parsek][INFO][GhostFx9] ghost after boom-built present=True active=True
+[LOG 21:47:26.222] [Parsek][INFO][GhostFx9] after origin shift ut=67.24 offset=503.0
+[LOG 21:47:26.726] [Parsek][INFO][GhostFx9] fxmonger hidden ut=67.74 held=True
+[LOG 21:47:26.760] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k00 ut=67.78 t=-0.24 active=Viewer boom-built activeSrf=252 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:47:27.028] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k01 ut=68.04 t=0.02 active=Viewer boom-built activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 21:47:27.029] [Parsek][INFO][GhostFx9] after free fx spawned GhostExplosionFx id=-505598 ut=68.04 alt=65.2
+[LOG 21:47:27.261] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k02 ut=68.28 t=0.26 active=Viewer boom-built activeSrf=233 frameVel=0.0 originOffset=0.0
+[LOG 21:47:27.261] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k02 GhostExplosionFx n=521 age=0.24s centroidFromSpawnPoint=0.0m
+[LOG 21:47:27.328] [Parsek][INFO][GhostFx9] fxmonger restored ut=68.34
+[LOG 21:47:27.529] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k03 ut=68.54 t=0.52 active=Viewer boom-built activeSrf=224 frameVel=0.0 originOffset=0.0
+[LOG 21:47:27.529] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k03 GhostExplosionFx n=521 age=0.50s centroidFromSpawnPoint=0.1m
+[LOG 21:47:27.764] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k04 ut=68.78 t=0.76 active=Viewer boom-built activeSrf=217 frameVel=0.0 originOffset=0.0
+[LOG 21:47:27.764] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k04 GhostExplosionFx n=521 age=0.74s centroidFromSpawnPoint=0.1m
+[LOG 21:47:28.015] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k05 ut=69.04 t=1.02 active=Viewer boom-built activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 21:47:28.015] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k05 GhostExplosionFx n=521 age=1.00s centroidFromSpawnPoint=0.1m
+[LOG 21:47:28.266] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k06 ut=69.28 t=1.26 active=Viewer boom-built activeSrf=203 frameVel=0.0 originOffset=0.0
+[LOG 21:47:28.266] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k06 GhostExplosionFx n=521 age=1.24s centroidFromSpawnPoint=0.2m
+[LOG 21:47:28.366] [Parsek][INFO][GhostFx9] after origin shift ut=69.38 offset=502.0
+[LOG 21:47:28.518] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k07 ut=69.54 t=1.52 active=Viewer boom-built activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 21:47:28.518] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k07 GhostExplosionFx n=521 age=1.50s centroidFromSpawnPoint=0.2m
+[LOG 21:47:28.768] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k08 ut=69.78 t=1.76 active=Viewer boom-built activeSrf=191 frameVel=0.0 originOffset=0.0
+[LOG 21:47:28.768] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k08 GhostExplosionFx n=441 age=1.74s centroidFromSpawnPoint=0.3m
+[LOG 21:47:29.020] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k09 ut=70.04 t=2.02 active=Viewer boom-built activeSrf=185 frameVel=0.0 originOffset=0.0
+[LOG 21:47:29.020] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k09 GhostExplosionFx n=378 age=2.00s centroidFromSpawnPoint=0.3m
+[LOG 21:47:29.254] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k10 ut=70.28 t=2.26 active=Viewer boom-built activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:47:29.254] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k10 GhostExplosionFx n=295 age=2.24s centroidFromSpawnPoint=0.3m
+[LOG 21:47:29.523] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k11 ut=70.54 t=2.52 active=Viewer boom-built activeSrf=175 frameVel=0.0 originOffset=0.0
+[LOG 21:47:29.524] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k11 GhostExplosionFx n=183 age=2.50s centroidFromSpawnPoint=0.2m
+[LOG 21:47:29.759] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k12 ut=70.78 t=2.76 active=Viewer boom-built activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 21:47:29.759] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k12 GhostExplosionFx n=132 age=2.74s centroidFromSpawnPoint=0.4m
+[LOG 21:47:30.027] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k13 ut=71.04 t=3.02 active=Viewer boom-built activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:47:30.027] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k13 GhostExplosionFx n=94 age=3.00s centroidFromSpawnPoint=0.4m
+[LOG 21:47:31.288] [Parsek][INFO][GhostFx9] after origin shift ut=72.30 offset=500.6
+[LOG 21:47:47.227] [Parsek][INFO][GhostFx9] spawn Viewer puff pid=3148673182 lat=-0.04660 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:47:47.284] [Parsek][INFO][GhostFx9] after origin shift ut=88.28 offset=1501.4
+[LOG 21:47:47.685] [Parsek][INFO][GhostFx9] viewer puff pid=3148673182 loaded=True lead=2.28
+[LOG 21:47:47.685] [Parsek][INFO][GhostFx9] ghost after puff present=True active=True
+[LOG 21:47:48.741] [Parsek][INFO][GhostFx9] after origin shift ut=89.76 offset=505.4
+[LOG 21:47:49.263] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k00 ut=90.28 t=-0.24 active=Viewer puff activeSrf=254 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:47:49.516] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k01 ut=90.54 t=0.02 active=Viewer puff activeSrf=243 frameVel=0.0 originOffset=0.0
+[LOG 21:47:49.552] [Parsek][INFO][GhostFx9] after free fx spawned GhostPartPuffFx id=-507942 ut=90.56 alt=65.7
+[LOG 21:47:49.769] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k02 ut=90.78 t=0.26 active=Viewer puff activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:47:49.769] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k02 GhostPartPuffFx n=79 age=0.22s centroidFromSpawnPoint=0.1m
+[LOG 21:47:50.021] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k03 ut=91.04 t=0.52 active=Viewer puff activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 21:47:50.021] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k03 GhostPartPuffFx n=70 age=0.48s centroidFromSpawnPoint=0.1m
+[LOG 21:47:50.258] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k04 ut=91.28 t=0.76 active=Viewer puff activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:47:50.258] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k04 GhostPartPuffFx n=52 age=0.72s centroidFromSpawnPoint=0.1m
+[LOG 21:47:50.526] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k05 ut=91.54 t=1.02 active=Viewer puff activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 21:47:50.526] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k05 GhostPartPuffFx n=24 age=0.98s centroidFromSpawnPoint=0.1m
+[LOG 21:47:50.762] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k06 ut=91.78 t=1.26 active=Viewer puff activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:47:50.762] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k06 GhostPartPuffFx n=0
+[LOG 21:47:50.879] [Parsek][INFO][GhostFx9] after origin shift ut=91.90 offset=503.6
+[LOG 21:47:51.030] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k07 ut=92.04 t=1.52 active=Viewer puff activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 21:47:51.031] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k07 GhostPartPuffFx n=0
+[LOG 21:47:51.266] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k08 ut=92.28 t=1.76 active=Viewer puff activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:47:51.267] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k08 GhostPartPuffFx n=0
+[LOG 21:47:51.519] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k09 ut=92.54 t=2.02 active=Viewer puff activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 21:47:51.519] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k09 GhostPartPuffFx n=0
+[LOG 21:47:51.771] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k10 ut=92.78 t=2.26 active=Viewer puff activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:47:51.771] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k10 GhostPartPuffFx n=0
+[LOG 21:47:52.022] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k11 ut=93.04 t=2.52 active=Viewer puff activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 21:47:52.023] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k11 GhostPartPuffFx n=0
+[LOG 21:47:52.275] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k12 ut=93.28 t=2.76 active=Viewer puff activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 21:47:52.275] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k12 GhostPartPuffFx n=0
+[LOG 21:47:52.517] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k13 ut=93.54 t=3.02 active=Viewer puff activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:47:52.518] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k13 GhostPartPuffFx n=0
+[LOG 21:47:53.808] [Parsek][INFO][GhostFx9] after origin shift ut=94.82 offset=501.7
+[LOG 21:48:11.246] [Parsek][INFO][GhostFx9] spawn Viewer dust pid=641361059 lat=-0.03227 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 21:48:11.294] [Parsek][INFO][GhostFx9] after origin shift ut=112.30 offset=1514.5
+[LOG 21:48:11.692] [Parsek][INFO][GhostFx9] viewer dust pid=641361059 loaded=True lead=2.28
+[LOG 21:48:11.692] [Parsek][INFO][GhostFx9] ghost after dust present=True active=True
+[LOG 21:48:12.766] [Parsek][INFO][GhostFx9] after origin shift ut=113.78 offset=503.0
+[LOG 21:48:13.289] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k00 ut=114.30 t=-0.24 active=Viewer dust activeSrf=253 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 21:48:13.541] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k01 ut=114.56 t=0.02 active=Viewer dust activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 21:48:13.778] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k02 ut=114.80 t=0.26 active=Viewer dust activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 21:48:13.778] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k02 dust n=45 centroidFromLaunchPoint=5.5m
+[LOG 21:48:14.045] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k03 ut=115.06 t=0.52 active=Viewer dust activeSrf=225 frameVel=0.0 originOffset=0.0
+[LOG 21:48:14.045] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k03 dust n=103 centroidFromLaunchPoint=6.6m
+[LOG 21:48:14.281] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k04 ut=115.30 t=0.76 active=Viewer dust activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 21:48:14.281] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k04 dust n=147 centroidFromLaunchPoint=8.1m
+[LOG 21:48:14.549] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k05 ut=115.56 t=1.02 active=Viewer dust activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 21:48:14.550] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k05 dust n=185 centroidFromLaunchPoint=10.2m
+[LOG 21:48:14.785] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k06 ut=115.80 t=1.26 active=Viewer dust activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 21:48:14.786] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k06 dust n=206 centroidFromLaunchPoint=11.8m
+[LOG 21:48:14.902] [Parsek][INFO][GhostFx9] after origin shift ut=115.92 offset=502.0
+[LOG 21:48:15.037] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k07 ut=116.06 t=1.52 active=Viewer dust activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 21:48:15.038] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k07 dust n=212 centroidFromLaunchPoint=12.5m
+[LOG 21:48:15.290] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k08 ut=116.30 t=1.76 active=Viewer dust activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 21:48:15.290] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k08 dust n=212 centroidFromLaunchPoint=12.5m
+[LOG 21:48:15.542] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k09 ut=116.56 t=2.02 active=Viewer dust activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 21:48:15.542] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k09 dust n=212 centroidFromLaunchPoint=12.6m
+[LOG 21:48:15.777] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k10 ut=116.80 t=2.26 active=Viewer dust activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 21:48:15.778] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k10 dust n=212 centroidFromLaunchPoint=12.7m
+[LOG 21:48:16.045] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k11 ut=117.06 t=2.52 active=Viewer dust activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 21:48:16.046] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k11 dust n=212 centroidFromLaunchPoint=12.8m
+[LOG 21:48:16.281] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k12 ut=117.30 t=2.76 active=Viewer dust activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 21:48:16.282] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k12 dust n=166 centroidFromLaunchPoint=14.4m
+[LOG 21:48:16.551] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k13 ut=117.56 t=3.02 active=Viewer dust activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 21:48:16.551] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k13 dust n=108 centroidFromLaunchPoint=17.2m
+[LOG 21:48:16.584] [Parsek][INFO][GhostFx9] GHOST DONE after ut=117.6
+[LOG 21:48:17.825] [Parsek][INFO][GhostFx9] after origin shift ut=118.84 offset=500.7

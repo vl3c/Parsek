@@ -1,0 +1,424 @@
+[LOG 21:39:34.914] Load DDS texture: Squad/FX/smokepuff1
+[LOG 21:39:35.150] Load DDS texture: Squad/Parts/Engine/OMSEngine/Puff_diffuse
+[LOG 21:39:35.150] Load DDS texture: Squad/Parts/Engine/OMSEngine/Puff_emissive
+[LOG 21:39:35.150] Load DDS texture: Squad/Parts/Engine/OMSEngine/Puff_normal
+[LOG 21:39:35.150] Load DDS texture: Squad/Parts/Engine/OMSEngine/Puff_specular
+[LOG 21:39:35.239] Load DDS texture: Squad/Parts/Resources/MiniDrill/DustParticle
+[LOG 21:39:35.239] Load DDS texture: Squad/Parts/Resources/RadialDrill/DustParticle
+[LOG 21:39:35.635] Load DDS texture: SquadExpansion/Serenity/Parts/Science/RobotArmScanner/Assets/DustParticle
+[WRN 21:39:35.635] Duplicate PNG texture 'SquadExpansion/Serenity/Parts/Science/RobotArmScanner/Assets/DustParticle' with extension 'png' won't be loaded
+[LOG 21:39:35.790] Load MU model: Squad/Parts/Engine/OMSEngine/Puff_v2
+[LOG 21:39:36.177] Config(@PART[spacedust-gas-analyzer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch/@PART[spacedust-gas-analyzer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.177] Config(@PART[spacedust-spectrometer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch/@PART[spacedust-spectrometer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.177] Config(@PART[spacedust-telescope-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch/@PART[spacedust-telescope-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.177] Config(@PART[spacedust-atmosphere-processor-125-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch/@PART[spacedust-atmosphere-processor-125-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.177] Config(@PART[spacedust-atmosphere-processor-25-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch/@PART[spacedust-atmosphere-processor-25-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[Fert_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[Fert_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[Fert_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[Fert_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[Fert_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[Fert_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_Greenhouse_MiniCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_Greenhouse_MiniCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_Greenhouse_Cupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_Greenhouse_Cupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_Greenhouse_Inline]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_Greenhouse_Inline]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[LifeSupportMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[LifeSupportMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[FertilizerMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[FertilizerMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[MulchMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[MulchMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_Recycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_Recycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_LgRecycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_LgRecycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_SmCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_SmCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_ViewingCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_ViewingCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[LS_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[LS_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[LS_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[LS_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[LS_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[LS_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_CryoTank250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_CryoTank250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[USILS_CoolantTank]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch/@PART[USILS_CoolantTank]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[wbiSampleArm]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsWildBlueActuatorsPatch/@PART[wbiSampleArm]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:36.180] Config(@PART[wbiSampleCrane]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree]) ProbesBeforeCrew/Mod Support/ZsWildBlueActuatorsPatch/@PART[wbiSampleCrane]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree]
+[LOG 21:39:35.213] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch node: @PART[spacedust-gas-analyzer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.213] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch node: @PART[spacedust-spectrometer-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.213] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch node: @PART[spacedust-telescope-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.213] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch node: @PART[spacedust-atmosphere-processor-125-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.213] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsSpaceDustPatch node: @PART[spacedust-atmosphere-processor-25-1]:AFTER[SpaceDust]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[Fert_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[Fert_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[Fert_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_Greenhouse_MiniCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_Greenhouse_Cupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_Greenhouse_Inline]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[LifeSupportMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[FertilizerMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[MulchMiniPack]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_Recycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_LgRecycler]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_SmCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_ViewingCupola]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[LS_Tank_125]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[LS_Tank_250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[LS_Tank_375]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_CryoTank250]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsUSI-LSPatch node: @PART[USILS_CoolantTank]:AFTER[UmbraSpaceIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsWildBlueActuatorsPatch node: @PART[wbiSampleArm]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:35.215] Deleting root node in file ProbesBeforeCrew/Mod Support/ZsWildBlueActuatorsPatch node: @PART[wbiSampleCrane]:AFTER[WildBlueIndustries]:NEEDS[CommunityTechTree] as it can't satisfy its AFTER
+[LOG 21:39:47.227] cometdustmaterial.mat
+[LOG 21:40:37.279] probeCoreOcto.v2 (Fx9 boom-stock) Exploded!! - blast awesomeness: 0
+[LOG 21:40:37.288] [Parsek][INFO][RecState] [#20][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=46.0 scene=FLIGHT
+[LOG 21:40:37.290] fuelTank Exploded!! - blast awesomeness: 0.5
+[LOG 21:40:37.291] [Parsek][INFO][RecState] [#21][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=46.0 scene=FLIGHT
+[LOG 21:40:37.292] fuelTank Exploded!! - blast awesomeness: 0.5
+[LOG 21:40:37.292] [Parsek][INFO][RecState] [#22][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=46.0 scene=FLIGHT
+[LOG 21:40:42.702] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:40:52.179] fuelTank Exploded!! - blast awesomeness: 0.5
+[LOG 21:40:52.246] probeCoreOcto.v2 (Viewer boom-stock) Exploded!! - blast awesomeness: 0
+[LOG 21:40:52.246] [Parsek][INFO][RecState] [#25][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=61.0 scene=FLIGHT
+[LOG 21:40:53.072] fuelTank Exploded!! - blast awesomeness: 0.5
+[LOG 21:41:01.398] probeCoreOcto.v2 (Fx9 boom-built) Exploded!! - blast awesomeness: 0
+[LOG 21:41:01.398] [Parsek][INFO][RecState] [#33][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=70.0 scene=FLIGHT
+[LOG 21:41:06.783] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:41:06.783] probeCoreOcto.v2 (Viewer boom-built) Exploded!! - blast awesomeness: 0
+[LOG 21:41:06.783] [Parsek][INFO][RecState] [#34][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=75.4 scene=FLIGHT
+[LOG 21:41:15.353] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Fx9 puff' pid=3423880427 (0 → FLYING)
+[LOG 21:41:15.384] [FLIGHT GLOBALS]: Switching To Vessel Fx9 puff ---------------------- 
+[LOG 21:41:15.384] [Parsek][INFO][Scenario] Vessel switch detected: 'Fx9 anchor' → 'Fx9 puff' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=12126)
+[LOG 21:41:15.384] [PlanetariumCamera]: Focus: Fx9 puff
+[LOG 21:41:15.440] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Fx9 puff) on vessel Fx9 puff
+[LOG 21:41:15.440] [FlightIntegrator]: Vessel Fx9 puff has been unloaded 1.79769313486232E+308, applying analytic temperature 306.672095967456
+[LOG 21:41:15.810] Unpacking Fx9 puff
+[LOG 21:41:19.390] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=3423880427 vessel='Fx9 puff' on body 'Kerbin' (REF=1) | suppressed=4
+[LOG 21:41:19.390] [Parsek][INFO][Flight] Always-tree: created single-node tree id=4f038eb9361a4ca4a89dbfef17b0baef, root=82db5212c14149fba2da219f8cb2f175, vessel=Fx9 puff (pid=3423880427), ghostSnap=True
+[LOG 21:41:19.390] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='Fx9 puff' converters=0 (rebuild reason=start)
+[LOG 21:41:19.390] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'Fx9 puff' pid=3423880427: parts=4 modules=22 parachute=0 jettison=0 deployable=0 ladder=0 animationGroup=0 animateGeneric=0 lights=0 gear=0 cargoBay=0 fairing=0 aeroSurface=0 controlSurface=0 robotArmScanner=0 animateHeat=0 engine=0 rcs=0 robotics=0
+[LOG 21:41:19.393] [Parsek][INFO][RecState] [#39][OnSave:pre] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=88.0 scene=FLIGHT
+[LOG 21:41:19.430] [Parsek][INFO][RecState] [#40][FlushRecorderIntoActiveTree:entry] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=88.0 scene=FLIGHT
+[LOG 21:41:19.430] [Parsek][INFO][RecState] [#41][FlushRecorderIntoActiveTree:post] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=88.0 scene=FLIGHT
+[LOG 21:41:19.430] [Parsek][INFO][Scenario] OnSave: rewriting sidecars for recording='Fx9 puff' id=82db5212c14149fba2da219f8cb2f175 treeKind=active tree reason=trajectory-missing
+[LOG 21:41:19.441] [Parsek][INFO][Scenario] OnSave: wrote ACTIVE tree 'Fx9 puff' (1 recording(s), activeRecId=82db5212c14149fba2da219f8cb2f175) for quickload resume
+[LOG 21:41:19.463] [Parsek][INFO][RecState] [#42][OnSave:post] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=88.0 scene=FLIGHT
+[LOG 21:41:19.467] [Parsek][INFO][Recorder] Captured rewind save at UT 88.0199999999996: vessel "Fx9 puff" in LANDED (save: parsek_rw_a888f8)
+[LOG 21:41:19.468] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=3423880427 vessel='Fx9 puff' mergedPid=3423880427
+[LOG 21:41:19.468] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: no external coupling recId=3423880427 vessel='Fx9 puff' candidates=0 isEva=False
+[LOG 21:41:19.468] [Parsek][VERBOSE][Recorder] RouteRunManifest start: recId=3423880427 vessel='Fx9 puff' parts=4 res=2
+[LOG 21:41:19.469] [Parsek][INFO][Recorder] Recording started: vessel="Fx9 puff", parts=4, points=0, treeRec=rec[82db5212|Fx9 puff|tree|-]
+[LOG 21:41:19.474] [Parsek][INFO][RecState] [#43][StartRecording:post] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=T/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=88.0 scene=FLIGHT
+[LOG 21:41:21.970] [Parsek][VERBOSE][Recorder] OnPartJointBreak diagnostics: ut=90.540 breakForce=0.0 structural=T childAttachMatchesJoint=T childAttachJointPresent=T child='Decoupler.1' pid=3371508563 parentPid=2197011067 vesselPid=3423880427 vessel='Fx9 puff' origin=(0.266,-0.991,-0.349) rot=(-0.243,0.517,0.724,0.386) srfAttach=local=(0.000,0.000,0.000) world=(0.266,-0.991,-0.349) orient=(0.000,1.000,0.000) attachedPid=0 parent='fuelTankSmallFlat' pid=2197011067 parentPid=1370303033 vesselPid=3423880427 vessel='Fx9 puff' origin=(-0.023,-1.058,-0.147) rot=(-0.243,0.517,0.724,0.386) srfAttach=local=(0.625,0.000,0.000) world=(-0.388,-0.865,-0.616) orient=(1.000,0.000,0.000) attachedPid=0 host='Decoupler.1' pid=3371508563 parentPid=2197011067 vesselPid=3423880427 vessel='Fx9 puff' origin=(0.266,-0.991,-0.349) rot=(-0.243,0.517,0.724,0.386) srfAttach=local=(0.000,0.000,0.000) world=(0.266,-0.991,-0.349) orient=(0.000,1.000,0.000) attachedPid=0 target='fuelTankSmallFlat' pid=2197011067 parentPid=1370303033 vesselPid=3423880427 vessel='Fx9 puff' origin=(-0.023,-1.058,-0.147) rot=(-0.243,0.517,0.724,0.386) srfAttach=local=(0.625,0.000,0.000) world=(-0.388,-0.865,-0.616) orient=(1.000,0.000,0.000) attachedPid=0 hostAnchor=(0.000,0.050,0.000) targetAnchor=(0.000,-0.313,0.000)
+[LOG 21:41:21.979] [Parsek][INFO][Flight] Decouple created vessel during recording: pid=1843580484 name='Fx9 puff Debris' type=Debris parts=2 hasController=False rootPartPid=3371508563 seedSource=joint-child-part-origin pendingJointChildSeedPids=3371508563 splitUT=90.54 capturedSeed=T
+[LOG 21:41:21.988] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='Fx9 puff' converters=0 (rebuild reason=part-count)
+[LOG 21:41:21.992] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 puff snapshotUT=90.56 patchLimit=4 captureLimit=8
+[LOG 21:41:21.993] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 puff patchIndex=1 body=(missing-reference-body); truncated chain after 1 valid patch(es), keeping partial result
+[LOG 21:41:21.993] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 puff captured=1 hasTruncatedTail=True encounteredManeuverNode=False lastBody=Kerbin
+[LOG 21:41:22.005] [Parsek][WARN][Diagnostics] Recording frame exceeded budget: 17.22ms for vessel "Fx9 puff"
+[LOG 21:41:22.006] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="Fx9 puff", points=13, orbits=0, partEvents=1, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 21:41:22.017] [Parsek][INFO][RecState] [#44][ResumeSplitRecorder:entry] mode=tree tree=4f038eb9|Fx9 puff rec=82db5212|Fx9 puff|pid=3423880427 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=T/T ut=90.6 scene=FLIGHT
+[LOG 21:41:22.492] [Parsek][VERBOSE][Rewind] Re-Fly controllability: pid=3423880427 name='Fx9 puff' type=Ship parts=2 command=1 rock=0 controllable=True reason=command
+[LOG 21:41:22.501] [Parsek][VERBOSE][BgRecorder] Debris seed relative conversion diagnostics: pid=1843580484 recId=574ba5fe5af14fb1bdb692f72f92990d parentRecId=82db5212c14149fba2da219f8cb2f175 relativeApplied=T initUT=91.060 seedUT=90.540 init-seed-dt=0.520 anchorSource=queued-parent-seed frameContract=recorded seedFocusRecordingId=574ba5fe5af14fb1bdb692f72f92990d seedRecordedFallbackFrameContract=unresolved seedAbs=ut=90.540 body=Kerbin lla=(-0.0543,-74.5577,65.69) rot=(0.764,0.185,-0.020,-0.618) vel=(-0.003,0.024,0.009) seedWorld=(0.271,-0.991,-0.341) anchorWorld=(-0.423,-1.142,0.141) seed-anchor=(0.694,0.151,-0.482) relativeOffset=(0.004,-0.858,0.006) childVessel pid=1843580484 name='Fx9 puff Debris' vesselWorld=(1.094,-0.831,-0.916) root='Decoupler.1' rootPid=3371508563 rootWorld=(0.266,-0.989,-0.348) srfAttach=local=(0.000,0.000,0.000) world=(0.266,-0.989,-0.348) orient=(0.000,1.000,0.000) attachedPid=0 parentVessel pid=3423880427 name='Fx9 puff' vesselWorld=(-0.041,-1.279,-0.103) root='probeCoreOcto.v2' rootPid=1370303033 rootWorld=(-0.386,-1.348,0.134) srfAttach=local=(0.000,0.000,0.000) world=(-0.386,-1.348,0.134) orient=(0.000,1.000,0.000) attachedPid=0
+[LOG 21:41:22.504] [Parsek][INFO][Coalescer] ProcessBreakupEvent: debris child created: pid=1843580484, name='Fx9 puff Debris', recId=574ba5fe5af14fb1bdb692f72f92990d, alive=True seedPoint@90.54 body=Kerbin flags=1 lla=(-0.05,-74.56,65.69) vel=(0.00,0.02,0.01) liveRootUT=91.06 rootPart=Decoupler.1 pid=3371508563 rootLla=(-0.05,-74.56,65.69) seed-liveRoot=(0.01,0.00,0.01) seedLiveRootDist=0.01m
+[LOG 21:41:22.513] [Parsek][VERBOSE][BgRecorder] First debris ordinary sample diagnostics: pid=1843580484 recId=574ba5fe5af14fb1bdb692f72f92990d parentRecId=82db5212c14149fba2da219f8cb2f175 sampleUT=91.080 prevRecordedUT=90.540 sample-prev-dt=0.540 relativeApplied=T absolutePoint=ut=91.080 body=Kerbin lla=(-0.0543,-74.5577,65.69) rot=(0.762,0.188,-0.020,-0.619) vel=(-0.035,0.028,-0.020) recordedPoint=ut=91.080 body=Kerbin lla=(0.0858,-0.8583,0.21) rot=(0.000,-0.011,-0.001,1.000) vel=(-0.035,0.028,-0.020) absoluteWorld=(0.271,-0.990,-0.341) rootWorld=(0.266,-0.990,-0.349) absolute-root=(0.005,0.000,0.008) sampleVessel pid=1843580484 name='Fx9 puff Debris' vesselWorld=(1.093,-0.830,-0.916) root='Decoupler.1' rootPid=3371508563 rootWorld=(0.266,-0.990,-0.349) srfAttach=local=(0.000,0.000,0.000) world=(0.266,-0.990,-0.349) orient=(0.000,1.000,0.000) attachedPid=0
+[LOG 21:41:25.974] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="Fx9 puff", points=32, orbits=0, partEvents=1, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 21:41:25.981] [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='82db5212c14149fba2da219f8cb2f175' vessel='Fx9 puff' points=32 orbitSegs=0 terminal=SubOrbital maxDist=1m snapshot=True leaf=True termOrbit[body=Kerbin epoch=94.54 sma=300816.8 ecc=0.9948 periR=1567.5 apoR=600066.0 inc=0.19]
+[LOG 21:41:25.983] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=1843580484 vessel='Fx9 puff Debris' on body 'Kerbin' (REF=1) | suppressed=4
+[LOG 21:41:25.983] [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='574ba5fe5af14fb1bdb692f72f92990d' vessel='Fx9 puff Debris' points=17 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
+[LOG 21:41:25.983] [Parsek][INFO][Flight] FinalizeTreeRecordings: tree 'Fx9 puff' finalized (resource accounting via ledger; no tree-level delta captured).
+[LOG 21:41:25.983] [Parsek][VERBOSE][RecordingStore] MarkTreeAsApplied: tree id='4f038eb9361a4ca4a89dbfef17b0baef' name='Fx9 puff' recordingsAdvanced=2
+[LOG 21:41:25.983] [Parsek][INFO][Merger] MergeTree: starting merge for tree='Fx9 puff' recordings=2
+[LOG 21:41:25.984] [Parsek][INFO][Merger] MergeTree: vessel='Fx9 puff' id=82db5212c14149fba2da219f8cb2f175 inputSections=3 outputSections=3 overlapsResolved=0 active=3 background=0 checkpoint=0
+[LOG 21:41:25.984] [Parsek][INFO][Merger] MergeTree: vessel='Fx9 puff Debris' id=574ba5fe5af14fb1bdb692f72f92990d inputSections=1 outputSections=1 overlapsResolved=0 active=0 background=1 checkpoint=0
+[LOG 21:41:25.984] [Parsek][INFO][Merger] MergeTree: completed merge for tree='Fx9 puff' merged=2 recordings
+[LOG 21:41:25.986] [Parsek][VERBOSE][UnfinishedFlights] CommitTree: RP child rec=82db5212c14149fba2da219f8cb2f175 vessel='Fx9 puff' not promoted reason=noMatchingRP parentBp=<none> childBp=ace8ccef5bf54a34a1f23a3acb0f5937
+[LOG 21:41:25.987] [Parsek][VERBOSE][RecordingStore] GenerateUniqueGroupName: 'Fx9 puff' is unique, returning unchanged
+[LOG 21:41:25.987] [Parsek][INFO][GroupHierarchy] Group 'Fx9 puff / Debris' assigned to parent group 'Fx9 puff'
+[LOG 21:41:25.987] [Parsek][INFO][RecordingStore] Auto-grouped 1 main under 'Fx9 puff', 1 debris under 'Fx9 puff / Debris'
+[LOG 21:41:26.026] [Parsek][INFO][RecordingStore] Committed tree 'Fx9 puff' (2 recordings). Total committed: 5 recordings, 4 trees
+[LOG 21:41:26.026] [Parsek][VERBOSE][RecordingStore] CommitTree: child rec[82db5212|Fx9 puff|tree|-]
+[LOG 21:41:26.026] [Parsek][VERBOSE][RecordingStore] CommitTree: child rec[574ba5fe|Fx9 puff Debris|tree|-]
+[LOG 21:41:26.033] [Parsek][VERBOSE][KerbalsModule] PopulateCrewEndStates: recording='Fx9 puff' (id=82db5212c14149fba2da219f8cb2f175) has no crew in ghost snapshot -- resolved
+[LOG 21:41:26.033] [Parsek][VERBOSE][KerbalsModule] PopulateCrewEndStates: recording='Fx9 puff Debris' (id=574ba5fe5af14fb1bdb692f72f92990d) has no crew in ghost snapshot -- resolved
+[LOG 21:41:26.033] [Parsek][INFO][LedgerOrchestrator] NotifyLedgerTreeCommitted: filed rows for 2 recording(s) of tree 'Fx9 puff' before one ledger walk (chainSegments=0)
+[LOG 21:41:26.037] [Parsek][VERBOSE][LedgerOrchestrator] NotifyLedgerTreeCommitted: tree='Fx9 puff' recordings=2, chainSegments=0, gapsClosed=0, reFlyWindowsExtended=0, retiredProvisionalRows=0
+[LOG 21:41:26.038] [Parsek][INFO][Flight] SpawnTreeLeaves leaf 'Fx9 puff Debris': source vessel pid=1843580484 already exists - adopting instead of spawning duplicate
+[LOG 21:41:26.038] [Parsek][INFO][BgRecorder] DiscardWithoutPersist: cleared background states without flushing onRails=0 loaded=1 caches=1 reason='in-flight commit of tree 'Fx9 puff''
+[LOG 21:41:26.038] [Parsek][INFO][Flight] CommitTreeFlight: background recorder released after commit (tree='Fx9 puff', part events unsubscribed)
+[LOG 21:41:26.041] [Parsek][VERBOSE][Flight] CommitTreeFlight: committed tree "Fx9 puff" — 1 vessel(s) spawned
+[LOG 21:41:26.041] [Parsek][INFO][Flight] CommittedSpawnedRestoreSuppression: armed pid=3423880427 vessel='Fx9 puff' reason=fx9-rig previousPid=0 - committed-tree restore skips this vessel until a live tree or recorder exists, the active vessel changes, or the scene ends
+[LOG 21:41:26.045] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 puff' pid=3423880427 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock)
+[LOG 21:41:26.045] [Parsek][VERBOSE][Flight] Ghost playback skip state: #3 id=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff" skip=True reason=historical-not-replayed hasRenderableData=True playbackEnabled=True externalVesselSuppressed=False supersededByRelation=False rewindRetired=False
+[LOG 21:41:26.045] [Parsek][VERBOSE][Flight] Ghost playback skip state: #4 id=574ba5fe5af14fb1bdb692f72f92990d vessel="Fx9 puff Debris" skip=True reason=historical-not-replayed hasRenderableData=True playbackEnabled=True externalVesselSuppressed=False supersededByRelation=False rewindRetired=False
+[LOG 21:41:26.045] [Parsek][VERBOSE][GhostMap] Overlap gate decision rec=#3 "Fx9 puff": (a) loopPlayback=False autoIsOverlapLoop=False | (b) isMember=False overlapCadence=NaN span=NaN unitOverlaps=False | (none) | verdict shouldDrive=False (not-driven)
+[LOG 21:41:26.045] [Parsek][VERBOSE][GhostMap] Overlap gate decision rec=#4 "Fx9 puff Debris": (a) loopPlayback=False autoIsOverlapLoop=False | (b) isMember=False overlapCadence=NaN span=NaN unitOverlaps=False | (none) | verdict shouldDrive=False (not-driven)
+[LOG 21:41:26.046] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": real-vessel-relays
+[LOG 21:41:26.046] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=574ba5fe5af14fb1bdb692f72f92990d vessel="Fx9 puff Debris": debris
+[LOG 21:41:31.084] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 puff' pid=3423880427 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:41:36.122] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 puff' pid=3423880427 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:41:39.497] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Fx9 dust' pid=3065833434 (0 → FLYING)
+[LOG 21:41:39.532] [FLIGHT GLOBALS]: Switching To Vessel Fx9 dust ---------------------- 
+[LOG 21:41:39.532] Packing Fx9 puff for orbit
+[LOG 21:41:39.532] Packing Fx9 puff Debris for orbit
+[LOG 21:41:39.532] [Parsek][INFO][Scenario] Vessel switch detected: 'Fx9 puff' → 'Fx9 dust' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=13552)
+[LOG 21:41:39.532] [PlanetariumCamera]: Focus: Fx9 dust
+[LOG 21:41:39.543] [MechJeb2] Focus changed! Forcing Fx9 puff to save
+[LOG 21:41:39.580] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Fx9 dust) on vessel Fx9 dust
+[LOG 21:41:39.580] [FlightIntegrator]: Vessel Fx9 dust has been unloaded 1.79769313486232E+308, applying analytic temperature 309.437324740447
+[LOG 21:41:39.582] Unpacking Fx9 puff
+[LOG 21:41:39.582] Unpacking Fx9 puff Debris
+[LOG 21:41:39.949] Unpacking Fx9 dust
+[LOG 21:41:43.503] [Parsek][INFO][RecState] [#47][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:43.520] [Parsek][INFO][Policy] Spawned vessel recovered: #3 "Fx9 puff" pid=3423880427 evidence=terminal-recovered - spawn claim cleared, no respawn
+[LOG 21:41:43.521] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": historical-never-replayed
+[LOG 21:41:43.523] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=3065833434 vessel='Fx9 dust' on body 'Kerbin' (REF=1) | suppressed=1
+[LOG 21:41:43.523] [Parsek][INFO][Flight] Always-tree: created single-node tree id=953446948a254657bb012d48d5ca70d7, root=c8ab92529dc64895af6332b2c354ca81, vessel=Fx9 dust (pid=3065833434), ghostSnap=True
+[LOG 21:41:43.523] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='Fx9 dust' converters=0 (rebuild reason=start)
+[LOG 21:41:43.523] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'Fx9 dust' pid=3065833434: parts=3 modules=24 parachute=0 jettison=1 deployable=0 ladder=0 animationGroup=0 animateGeneric=0 lights=0 gear=0 cargoBay=0 fairing=0 aeroSurface=0 controlSurface=0 robotArmScanner=0 animateHeat=0 engine=1 rcs=0 robotics=0
+[LOG 21:41:43.526] [Parsek][INFO][RecState] [#48][OnSave:pre] mode=tree tree=95344694|Fx9 dust rec=c8ab9252|Fx9 dust|pid=3065833434 rec.prev=- rec.live=F/F rec.buf=0/1/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:43.543] [Parsek][INFO][Scenario] OnSave: advancing deferred sidecar epoch for recording='Fx9 puff' id=82db5212c14149fba2da219f8cb2f175 treeKind=committed tree epoch=1 (content was flushed out-of-band without advancing it)
+[LOG 21:41:43.574] [Parsek][INFO][RecState] [#49][FlushRecorderIntoActiveTree:entry] mode=tree tree=95344694|Fx9 dust rec=c8ab9252|Fx9 dust|pid=3065833434 rec.prev=- rec.live=F/F rec.buf=0/1/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:43.574] [Parsek][INFO][RecState] [#50][FlushRecorderIntoActiveTree:post] mode=tree tree=95344694|Fx9 dust rec=c8ab9252|Fx9 dust|pid=3065833434 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:43.574] [Parsek][INFO][Scenario] OnSave: rewriting sidecars for recording='Fx9 dust' id=c8ab92529dc64895af6332b2c354ca81 treeKind=active tree reason=trajectory-missing
+[LOG 21:41:43.586] [Parsek][INFO][Scenario] OnSave: wrote ACTIVE tree 'Fx9 dust' (1 recording(s), activeRecId=c8ab92529dc64895af6332b2c354ca81) for quickload resume
+[LOG 21:41:43.601] [Parsek][INFO][RecState] [#51][OnSave:post] mode=tree tree=95344694|Fx9 dust rec=c8ab9252|Fx9 dust|pid=3065833434 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:43.605] [Parsek][INFO][Recorder] Captured rewind save at UT 112.039999999995: vessel "Fx9 dust" in LANDED (save: parsek_rw_e4e795)
+[LOG 21:41:43.606] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=3065833434 vessel='Fx9 dust' mergedPid=3065833434
+[LOG 21:41:43.606] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: no external coupling recId=3065833434 vessel='Fx9 dust' candidates=0 isEva=False
+[LOG 21:41:43.606] [Parsek][VERBOSE][Recorder] RouteRunManifest start: recId=3065833434 vessel='Fx9 dust' parts=3 res=2
+[LOG 21:41:43.607] [Parsek][INFO][Recorder] Recording started: vessel="Fx9 dust", parts=3, points=0, treeRec=rec[c8ab9252|Fx9 dust|tree|-]
+[LOG 21:41:43.611] [Parsek][INFO][RecState] [#52][StartRecording:post] mode=tree tree=95344694|Fx9 dust rec=c8ab9252|Fx9 dust|pid=3065833434 rec.prev=- rec.live=T/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=112.0 scene=FLIGHT
+[LOG 21:41:46.157] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 dust snapshotUT=114.62 patchLimit=4 captureLimit=8
+[LOG 21:41:46.157] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 dust patchIndex=1 body=(missing-reference-body); truncated chain after 1 valid patch(es), keeping partial result
+[LOG 21:41:46.157] [Parsek][VERBOSE][PatchedSnapshot] SnapshotPatchedConicChain: vessel=Fx9 dust captured=1 hasTruncatedTail=True encounteredManeuverNode=False lastBody=Kerbin
+[LOG 21:41:49.612] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="Fx9 dust", points=19, orbits=0, partEvents=3, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 21:41:49.613] [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='c8ab92529dc64895af6332b2c354ca81' vessel='Fx9 dust' points=19 orbitSegs=0 terminal=SubOrbital maxDist=214m snapshot=True leaf=True termOrbit[body=Kerbin epoch=118.06 sma=301280.4 ecc=0.9950 periR=1516.7 apoR=601044.2 inc=0.21]
+[LOG 21:41:49.613] [Parsek][INFO][Flight] FinalizeTreeRecordings: tree 'Fx9 dust' finalized (resource accounting via ledger; no tree-level delta captured).
+[LOG 21:41:49.613] [Parsek][VERBOSE][RecordingStore] MarkTreeAsApplied: tree id='953446948a254657bb012d48d5ca70d7' name='Fx9 dust' recordingsAdvanced=1
+[LOG 21:41:49.613] [Parsek][INFO][Merger] MergeTree: starting merge for tree='Fx9 dust' recordings=1
+[LOG 21:41:49.613] [Parsek][INFO][Merger] MergeTree: vessel='Fx9 dust' id=c8ab92529dc64895af6332b2c354ca81 inputSections=2 outputSections=2 overlapsResolved=0 active=2 background=0 checkpoint=0
+[LOG 21:41:49.613] [Parsek][INFO][Merger] MergeTree: completed merge for tree='Fx9 dust' merged=1 recordings
+[LOG 21:41:49.613] [Parsek][VERBOSE][RecordingStore] GenerateUniqueGroupName: 'Fx9 dust' is unique, returning unchanged
+[LOG 21:41:49.613] [Parsek][INFO][RecordingStore] Auto-grouped 1 recordings under 'Fx9 dust'
+[LOG 21:41:49.634] [Parsek][INFO][RecordingStore] Committed tree 'Fx9 dust' (1 recordings). Total committed: 6 recordings, 5 trees
+[LOG 21:41:49.634] [Parsek][VERBOSE][RecordingStore] CommitTree: child rec[c8ab9252|Fx9 dust|tree|-]
+[LOG 21:41:49.637] [Parsek][VERBOSE][KerbalsModule] PopulateCrewEndStates: recording='Fx9 dust' (id=c8ab92529dc64895af6332b2c354ca81) has no crew in ghost snapshot -- resolved
+[LOG 21:41:49.637] [Parsek][INFO][LedgerOrchestrator] NotifyLedgerTreeCommitted: filed rows for 1 recording(s) of tree 'Fx9 dust' before one ledger walk (chainSegments=0)
+[LOG 21:41:49.641] [Parsek][VERBOSE][LedgerOrchestrator] NotifyLedgerTreeCommitted: tree='Fx9 dust' recordings=1, chainSegments=0, gapsClosed=0, reFlyWindowsExtended=0, retiredProvisionalRows=0
+[LOG 21:41:49.641] [Parsek][INFO][BgRecorder] DiscardWithoutPersist: cleared background states without flushing onRails=0 loaded=0 caches=0 reason='in-flight commit of tree 'Fx9 dust''
+[LOG 21:41:49.641] [Parsek][INFO][Flight] CommitTreeFlight: background recorder released after commit (tree='Fx9 dust', part events unsubscribed)
+[LOG 21:41:49.644] [Parsek][VERBOSE][Flight] CommitTreeFlight: committed tree "Fx9 dust" — 0 vessel(s) spawned
+[LOG 21:41:49.644] [Parsek][INFO][Flight] CommittedSpawnedRestoreSuppression: armed pid=3065833434 vessel='Fx9 dust' reason=fx9-rig previousPid=0 - committed-tree restore skips this vessel until a live tree or recorder exists, the active vessel changes, or the scene ends
+[LOG 21:41:49.650] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock)
+[LOG 21:41:49.650] [Parsek][VERBOSE][Flight] Ghost playback skip state: #5 id=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust" skip=True reason=historical-not-replayed hasRenderableData=True playbackEnabled=True externalVesselSuppressed=False supersededByRelation=False rewindRetired=False
+[LOG 21:41:49.650] [Parsek][VERBOSE][GhostMap] Overlap gate decision rec=#5 "Fx9 dust": (a) loopPlayback=False autoIsOverlapLoop=False | (b) isMember=False overlapCadence=NaN span=NaN unitOverlaps=False | (none) | verdict shouldDrive=False (not-driven)
+[LOG 21:41:49.650] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": real-vessel-relays
+[LOG 21:41:50.371] Packing Fx9 puff Debris for orbit
+[LOG 21:41:54.707] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:41:58.199] Fx9 puff Debris Unloaded
+[LOG 21:41:58.217] [Parsek][VERBOSE][RecoveryScope] Recovery scope opened: route=proto-vessel-clean vessel='Fx9 puff Debris' pid=1843580484 depth=1
+[LOG 21:41:58.220] [Parsek][VERBOSE][LedgerOrchestrator] Recovery crew reservation close: vessel='Fx9 puff Debris' pid=1843580484 ut=126.7 - no crew aboard, nothing to close
+[LOG 21:41:58.221] [Parsek][INFO][LedgerOrchestrator] Vessel recovered recorded: vessel='Fx9 puff Debris' pid=1843580484 recoveryUT=126.7 recordingId=574ba5fe5af14fb1bdb692f72f92990d terminal=Recovered spawnedPid=1843580484
+[LOG 21:41:58.221] [Parsek][INFO][LedgerOrchestrator] Vessel recovery rows: vessel='Fx9 puff Debris' pid=1843580484 ut=126.7 owners=1 written=1 deduped=0
+[WRN 21:41:58.226] Vessel Fx9 puff Debris was removed from the game: it was debris cluttering up KSC.
+[LOG 21:41:58.226] [Parsek][VERBOSE][RecoveryScope] Recovery scope closed: route=proto-vessel-clean vessel='Fx9 puff Debris' pid=1843580484 owner=unresolved recordingId=(none) taggedEvents=0 untaggedProgressEvents=0 depth=0
+[LOG 21:41:58.235] [Parsek][INFO][Policy] Spawned vessel recovered: #4 "Fx9 puff Debris" pid=1843580484 evidence=terminal-recovered - spawn claim cleared, no respawn
+[LOG 21:41:59.767] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:04.823] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:09.872] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:14.929] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:19.979] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:25.020] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:30.056] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:35.100] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:40.143] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:45.186] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:50.230] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:42:55.273] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:43:00.316] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Fx9 dust' pid=3065833434 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock) | suppressed=4
+[LOG 21:43:01.513] [Parsek][VERBOSE][Rewind] Rewind strip scope: strip spawned pid=3065833434 of 'Fx9 dust' (id=c8ab92529dc64895af6332b2c354ca81) via holder-replays
+[LOG 21:43:01.547] [Parsek][INFO][SceneExit] ShouldShowPendingTreeDialogBeforeSceneChangeLive: rewind scene load dest=SPACECENTER - resolving the live recording as auto-merge (setting is off); a rewind never waits on a merge dialog
+[LOG 21:43:03.455] [Parsek][INFO][Scenario] OnSave: advancing deferred sidecar epoch for recording='Fx9 dust' id=c8ab92529dc64895af6332b2c354ca81 treeKind=committed tree epoch=1 (content was flushed out-of-band without advancing it)
+[LOG 21:43:04.952] [Parsek][INFO][Scenario] OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=1.1399999999997474 planetariumUT=1.1399999999997474 isRevert=False loadedScene=FLIGHT loadedSceneSupportsCurrentUtCutoff=True planetariumReady=True hasPendingTree=False restoreMode=None hasLiveRecorder=False hasActiveUncommittedTree=False hasFutureLedgerActions=True
+[LOG 21:43:06.295] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": before-window
+[LOG 21:43:06.295] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": before-window
+[LOG 21:43:06.609] [Parsek][VERBOSE][Flight]   Recording #3: "Fx9 puff" UT 88-95, 32 pts, ghost
+[LOG 21:43:06.609] [Parsek][VERBOSE][Flight]   Recording #4: "Fx9 puff Debris" UT 91-94, 17 pts, ghost
+[LOG 21:43:06.609] [Parsek][VERBOSE][Flight]   Recording #5: "Fx9 dust" UT 112-118, 19 pts, ghost
+[LOG 21:43:47.387] [Parsek][INFO][RecState] [#70][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=42.2 scene=FLIGHT
+[LOG 21:43:49.225] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #1 "Fx9 boom-stock" at (-155.0,-79.9,-368.1) vesselLength=4.0m power=0.20
+[LOG 21:43:54.234] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:44:03.947] probeCoreOcto.v2 (Viewer boom-stock) Exploded!! - blast awesomeness: 0
+[LOG 21:44:03.947] [Parsek][INFO][RecState] [#71][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=58.7 scene=FLIGHT
+[LOG 21:44:13.246] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #2 "Fx9 boom-built" at (-155.5,-79.6,-376.8) vesselLength=2.0m power=0.10
+[LOG 21:44:13.246] [Parsek][WARN][ExplosionFx] FXMonger.Explode did not queue stock FX for ghost #2 "Fx9 boom-built"; falling back to custom FX: no live FXMonger instance
+[LOG 21:44:13.250] [Parsek][VERBOSE][ExplosionFx] Spawned at (-155.5,-79.6,-376.8) vesselLength=2.0m
+[LOG 21:44:18.203] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:44:27.292] probeCoreOcto.v2 (Viewer boom-built) Exploded!! - blast awesomeness: 0
+[LOG 21:44:27.293] [Parsek][INFO][RecState] [#74][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=82.1 scene=FLIGHT
+[LOG 21:44:33.266] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 puff' UT=88.1 resolved from point interpolation body='Kerbin' altitude=66.5
+[LOG 21:44:33.266] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 puff' lifecycle=StandardEnter UT=88.1 body='Kerbin' altitude=66.5
+[LOG 21:44:33.266] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #3 "Fx9 puff" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:44:33.266] [Parsek][VERBOSE][Zone] FX suppressed: ghost #3 "Fx9 puff" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(354.6281,68.9874,487.0086) anchorPos=(-170.3356,49.6386,-297.4747)
+[LOG 21:44:33.266] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" spawned (recording-start-snapshot, parts=3 engines=0 rcs=0)
+[LOG 21:44:33.267] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:44:33.267] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" initial activation hidden: reason=activation-settle ut=88.040 activationStart=88.040 relativeWindow=0.080s absoluteBridgeMax=1.000s debrisSeedBridgeMax=1.000s minFrames=2
+[LOG 21:44:33.267] [Parsek][VERBOSE][Policy] Skipped ghost map for #3 "Fx9 puff" rec=82db5212c14149fba2da219f8cb2f175 - terminal=Recovered
+[LOG 21:44:33.267] [Parsek][VERBOSE][GhostCommNet] Derived antennas: key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff" source=ghost-visual-snapshot type=Ship parts=4 relayAntennas=0 otherAntennas=1 deployGated=0 controlPoints=0 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=False
+[LOG 21:44:33.267] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": no-relay-or-control-capability
+[LOG 21:44:33.300] [Parsek][VERBOSE][GhostAppearance] Ghost #3 "Fx9 puff" appearance#1 reason=playback ut=88.10 requestedUT=88.10 firstFrameClamped=F activationStart=88.04 activationLead=0.06 zone=Physics dist=944m activeFrame=Absolute sectionUT=88.02-90.54 root=(354.63,68.99,487.01) rootRot=(-0.240,0.515,0.725,0.389) boundsCenter=(355.79,69.24,486.17) bounds-root=(1.16,0.25,-0.84) firstVisiblePart=ghost_part_1370303033:(354.63,68.99,487.01) part-root=(0.00,0.00,0.00) recordingStart@88.04 frame=Absolute body=Kerbin lla=(-0.05,-74.56,66.53) world=(354.63,68.99,487.01) recordingStart-root=(0.00,0.00,0.00) recordingStartRot=(-0.238,0.515,0.725,0.390) snapshotCoM=(0.00,-1.55,0.00) rootPart=probeCoreOcto.v2 pid=1370303033 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(354.63,68.99,487.01) rootPart-root=(0.00,0.00,0.00) visibleRenderers=5
+[LOG 21:44:33.452] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Viewer puff' pid=2530198006 (0 → FLYING)
+[LOG 21:44:33.500] [FLIGHT GLOBALS]: Switching To Vessel Viewer puff ---------------------- 
+[LOG 21:44:33.500] [Parsek][INFO][Scenario] Vessel switch detected: 'Viewer boom-built' → 'Viewer puff' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=23611)
+[LOG 21:44:33.500] [PlanetariumCamera]: Focus: Viewer puff
+[LOG 21:44:33.546] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Viewer puff) on vessel Viewer puff
+[LOG 21:44:33.546] [FlightIntegrator]: Vessel Viewer puff has been unloaded 1.79769313486232E+308, applying analytic temperature 312.191162349543
+[LOG 21:44:33.903] Unpacking Viewer puff
+[LOG 21:44:35.793] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='GhostPartPuffFx' systems=2 rootMoves=True registered=2
+[LOG 21:44:35.796] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 puff Debris' UT=90.6 resolved from relative body-fixed primary point interpolation body='Kerbin' altitude=65.7
+[LOG 21:44:35.796] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 puff Debris' lifecycle=StandardEnter UT=90.6 body='Kerbin' altitude=65.7
+[LOG 21:44:35.796] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #4 "Fx9 puff Debris" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:44:35.797] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=loaded-direct-authored-frame-gap playbackUT=90.559999999998865 bracketBeforeUT=90.539999999999125 bracketAfterUT=91.079999999999018 sectionIndex=0 bodyFixedFrames=17
+[LOG 21:44:35.797] [Parsek][VERBOSE][Zone] FX suppressed: ghost #4 "Fx9 puff Debris" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(-151.8448,-80.9160,-370.4853) anchorPos=(-122.1639,-0.0204,-174.2950)
+[LOG 21:44:35.797] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" spawned (recording-start-snapshot, parts=1 engines=0 rcs=0)
+[LOG 21:44:35.797] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:44:35.798] [Parsek][VERBOSE][GhostAppearance] Ghost #4 "Fx9 puff Debris" appearance#1 reason=playback ut=90.56 requestedUT=90.56 firstFrameClamped=F activationStart=90.54 activationLead=0.02 zone=Physics dist=214m activeFrame=Relative sectionUT=90.54-94.38 anchorRec=82db5212c14149fba2da219f8cb2f175 root=(-151.84,-80.92,-370.49) rootRot=(-0.243,0.517,0.724,0.386) boundsCenter=(-151.08,-80.76,-371.02) bounds-root=(0.77,0.16,-0.53) firstVisiblePart=ghost_part_3371508563:(-151.84,-80.92,-370.49) part-root=(0.00,0.00,0.00) recordingStart@90.54 frame=Relative offset=(0.00,-0.86,0.01) anchorRec=82db5212c14149fba2da219f8cb2f175 snapshotCoM=(0.00,-1.02,0.00) rootPart=Decoupler.1 pid=3371508563 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(-151.84,-80.92,-370.49) rootPart-root=(0.00,0.00,0.00) visibleRenderers=2
+[LOG 21:44:35.798] [Parsek][VERBOSE][Policy] Skipped ghost map for #4 "Fx9 puff Debris" - debris
+[LOG 21:44:36.803] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=91.579999999998662 bracketBeforeUT=91.51999999999893 bracketAfterUT=91.739999999998886 sectionIndex=0 bodyFixedFrames=17 | suppressed=60
+[LOG 21:44:37.815] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=92.59999999999846 bracketBeforeUT=92.399999999998755 bracketAfterUT=92.619999999998711 sectionIndex=0 bodyFixedFrames=17 | suppressed=59
+[LOG 21:44:38.825] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=93.599999999998261 bracketBeforeUT=93.499999999998536 bracketAfterUT=93.719999999998493 sectionIndex=0 bodyFixedFrames=17 | suppressed=59
+[LOG 21:44:39.616] [Parsek][VERBOSE][Policy] PlaybackCompleted index=4 vessel=Fx9 puff Debris ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:44:39.616] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" destroyed (playback completed)
+[LOG 21:44:39.616] [Parsek][VERBOSE][Policy] GhostDestroyed index=4 vessel=Fx9 puff Debris
+[LOG 21:44:39.631] [Parsek][VERBOSE][Policy] PlaybackCompleted index=4 vessel=Fx9 puff Debris ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:44:39.719] [Parsek][VERBOSE][Pipeline-Terrain] TailLift inactive: rec=82db5212c14149fba2da219f8cb2f175 vessel='Fx9 puff' reason=recorded-terrain-nan delta=NaNm (recTerrain=NaN curTerrain=62.9)
+[LOG 21:44:39.784] [Parsek][VERBOSE][Policy] PlaybackCompleted index=3 vessel=Fx9 puff ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:44:39.784] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" destroyed (playback completed)
+[LOG 21:44:39.784] [Parsek][VERBOSE][Policy] GhostDestroyed index=3 vessel=Fx9 puff
+[LOG 21:44:39.784] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": window-ended
+[LOG 21:44:39.800] [Parsek][VERBOSE][Policy] PlaybackCompleted index=3 vessel=Fx9 puff ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:44:40.543] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:44:43.475] probeCoreOcto.v2 (Viewer puff) Exploded!! - blast awesomeness: 0
+[LOG 21:44:43.475] [Parsek][INFO][RecState] [#77][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=98.3 scene=FLIGHT
+[LOG 21:44:57.304] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 dust' UT=112.1 resolved from point interpolation body='Kerbin' altitude=67.3
+[LOG 21:44:57.304] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 dust' lifecycle=StandardEnter UT=112.1 body='Kerbin' altitude=67.3
+[LOG 21:44:57.321] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #5 "Fx9 dust" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:44:57.322] [Parsek][VERBOSE][Zone] FX suppressed: ghost #5 "Fx9 dust" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(358.5150,70.1152,494.2345) anchorPos=(-178.5045,14.3759,-309.9966)
+[LOG 21:44:57.322] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" spawned (recording-start-snapshot, parts=2 engines=1 rcs=0)
+[LOG 21:44:57.322] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:44:57.322] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" initial activation hidden: reason=activation-settle ut=112.060 activationStart=112.060 relativeWindow=0.080s absoluteBridgeMax=1.000s debrisSeedBridgeMax=1.000s minFrames=2
+[LOG 21:44:57.322] [Parsek][VERBOSE][Policy] Skipped ghost map for #5 "Fx9 dust" rec=c8ab92529dc64895af6332b2c354ca81 - terminal=Recovered
+[LOG 21:44:57.323] [Parsek][VERBOSE][GhostCommNet] Derived antennas: key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust" source=ghost-visual-snapshot type=Ship parts=3 relayAntennas=0 otherAntennas=1 deployGated=0 controlPoints=0 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=False
+[LOG 21:44:57.323] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": no-relay-or-control-capability
+[LOG 21:44:57.345] [Parsek][VERBOSE][GhostAppearance] Ghost #5 "Fx9 dust" appearance#1 reason=playback ut=112.12 requestedUT=112.12 firstFrameClamped=F activationStart=112.06 activationLead=0.06 zone=Physics dist=969m activeFrame=Absolute sectionUT=112.04-115.14 root=(358.51,70.12,494.23) rootRot=(-0.326,0.627,0.628,0.325) boundsCenter=(359.95,70.12,493.24) bounds-root=(1.44,0.00,-0.99) firstVisiblePart=ghost_part_4016633923:(358.51,70.12,494.23) part-root=(0.00,0.00,0.00) recordingStart@112.06 frame=Absolute body=Kerbin lla=(-0.04,-74.56,67.34) world=(358.52,70.12,494.23) recordingStart-root=(0.00,0.00,0.00) recordingStartRot=(-0.326,0.627,0.628,0.325) snapshotCoM=(0.00,-1.49,0.00) rootPart=probeCoreOcto.v2 pid=4016633923 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(358.51,70.12,494.23) rootPart-root=(0.00,0.00,0.00) visibleRenderers=10
+[LOG 21:44:57.480] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Viewer dust' pid=2322597273 (0 → FLYING)
+[LOG 21:44:57.510] [FLIGHT GLOBALS]: Switching To Vessel Viewer dust ---------------------- 
+[LOG 21:44:57.510] Packing Viewer puff for orbit
+[LOG 21:44:57.510] [Parsek][INFO][Scenario] Vessel switch detected: 'Viewer puff' → 'Viewer dust' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=25041)
+[LOG 21:44:57.510] [PlanetariumCamera]: Focus: Viewer dust
+[LOG 21:44:57.564] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Viewer dust) on vessel Viewer dust
+[LOG 21:44:57.564] [FlightIntegrator]: Vessel Viewer dust has been unloaded 1.79769313486232E+308, applying analytic temperature 312.218986154544
+[LOG 21:44:57.919] Unpacking Viewer dust
+[LOG 21:44:59.824] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='ParsekLaunchDust' systems=1 rootMoves=False registered=2
+[LOG 21:44:59.824] [Parsek][VERBOSE][GhostVisual] Launch dust built for 'Fx9 dust'
+[LOG 21:44:59.824] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" intensity=0.883 power=1.00 alt=67.4 groundRef=62.8
+[LOG 21:44:59.825] [Parsek][VERBOSE][GhostVisual] Smoke trail fade: ghost "Fx9 dust" body=Kerbin alt=67 density=1.215 drawn=1 hidden=0 changed=1
+[LOG 21:44:59.956] [Parsek][VERBOSE][FxEmissionProbe] measured: part='liquidEngine2.v2' midx=0 fx='fx_smokeTrail_light(Clone)' particles=6 meanDirWorld=(0.82,0.00,-0.58) meanSpeed=45.84 angleFromDown=90.0 instLocalRotQ=(-0.71,0.00,0.00,0.71) parentUpWorld=(0.00,1.00,0.00) posWorld=(-150.6,-79.9,-371.1) root='Parsek_Timeline_5' rootRenderers=10
+[LOG 21:45:00.375] [Parsek][VERBOSE][Pipeline-Terrain] TailLift inactive: rec=c8ab92529dc64895af6332b2c354ca81 vessel='Fx9 dust' reason=recorded-terrain-nan delta=NaNm (recTerrain=NaN curTerrain=62.5)
+[LOG 21:45:03.308] [Parsek][VERBOSE][Policy] PlaybackCompleted index=5 vessel=Fx9 dust ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:45:03.308] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" destroyed (playback completed)
+[LOG 21:45:03.308] [Parsek][VERBOSE][Policy] GhostDestroyed index=5 vessel=Fx9 dust
+[LOG 21:45:03.308] [Parsek][VERBOSE][GhostAudio] Cleanup: stopped 1 audio source(s) for 'Fx9 dust'
+[LOG 21:45:03.308] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": window-ended
+[LOG 21:45:03.324] [Parsek][VERBOSE][Policy] PlaybackCompleted index=5 vessel=Fx9 dust ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:45:04.814] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:45:04.815] probeCoreOcto.v2 (Viewer dust) Exploded!! - blast awesomeness: 0
+[LOG 21:45:04.815] [Parsek][INFO][RecState] [#80][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=119.6 scene=FLIGHT
+[LOG 21:46:15.094] [Parsek][INFO][SceneExit] ShouldShowPendingTreeDialogBeforeSceneChangeLive: rewind scene load dest=SPACECENTER - resolving the live recording as auto-merge (setting is off); a rewind never waits on a merge dialog
+[LOG 21:46:18.896] [Parsek][INFO][Scenario] OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=True loadedUT=1.3199999999997476 planetariumUT=1.3199999999997476 isRevert=False loadedScene=FLIGHT loadedSceneSupportsCurrentUtCutoff=True planetariumReady=True hasPendingTree=False restoreMode=None hasLiveRecorder=False hasActiveUncommittedTree=False hasFutureLedgerActions=True
+[LOG 21:46:20.254] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": before-window
+[LOG 21:46:20.254] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": before-window
+[LOG 21:46:20.555] [Parsek][VERBOSE][Flight]   Recording #3: "Fx9 puff" UT 88-95, 32 pts, ghost
+[LOG 21:46:20.555] [Parsek][VERBOSE][Flight]   Recording #4: "Fx9 puff Debris" UT 91-94, 17 pts, ghost
+[LOG 21:46:20.556] [Parsek][VERBOSE][Flight]   Recording #5: "Fx9 dust" UT 112-118, 19 pts, ghost
+[LOG 21:47:01.134] [Parsek][INFO][RecState] [#98][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=42.2 scene=FLIGHT
+[LOG 21:47:02.985] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #1 "Fx9 boom-stock" at (-161.6,-79.9,-377.2) vesselLength=4.0m power=0.20
+[LOG 21:47:07.999] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:47:08.000] probeCoreOcto.v2 (Viewer boom-stock) Exploded!! - blast awesomeness: 0
+[LOG 21:47:08.000] [Parsek][INFO][RecState] [#99][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=49.0 scene=FLIGHT
+[LOG 21:47:27.028] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #2 "Fx9 boom-built" at (-157.0,-79.6,-378.8) vesselLength=2.0m power=0.10
+[LOG 21:47:27.028] [Parsek][WARN][ExplosionFx] FXMonger.Explode did not queue stock FX for ghost #2 "Fx9 boom-built"; falling back to custom FX: no live FXMonger instance
+[LOG 21:47:27.028] [Parsek][VERBOSE][ExplosionFx] Spawned at (-157.0,-79.6,-378.8) vesselLength=2.0m
+[LOG 21:47:31.959] probeCoreOcto.v2 (Viewer boom-built) Exploded!! - blast awesomeness: 0
+[LOG 21:47:31.960] [Parsek][INFO][RecState] [#102][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=73.0 scene=FLIGHT
+[LOG 21:47:31.963] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:47:31.964] [Parsek][INFO][RecState] [#103][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=73.0 scene=FLIGHT
+[LOG 21:47:47.042] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 puff' UT=88.1 resolved from point interpolation body='Kerbin' altitude=66.5
+[LOG 21:47:47.042] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 puff' lifecycle=StandardEnter UT=88.1 body='Kerbin' altitude=66.5
+[LOG 21:47:47.043] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #3 "Fx9 puff" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:47:47.043] [Parsek][VERBOSE][Zone] FX suppressed: ghost #3 "Fx9 puff" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(351.3364,68.9803,482.9735) anchorPos=(-37.5038,0.1702,-90.8565)
+[LOG 21:47:47.043] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" spawned (recording-start-snapshot, parts=3 engines=0 rcs=0)
+[LOG 21:47:47.043] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:47:47.043] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" initial activation hidden: reason=activation-settle ut=88.040 activationStart=88.040 relativeWindow=0.080s absoluteBridgeMax=1.000s debrisSeedBridgeMax=1.000s minFrames=2 | suppressed=1
+[LOG 21:47:47.043] [Parsek][VERBOSE][Policy] Skipped ghost map for #3 "Fx9 puff" rec=82db5212c14149fba2da219f8cb2f175 - terminal=Recovered | suppressed=1
+[LOG 21:47:47.043] [Parsek][VERBOSE][GhostCommNet] Derived antennas: key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff" source=ghost-visual-snapshot type=Ship parts=4 relayAntennas=0 otherAntennas=1 deployGated=0 controlPoints=0 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=False
+[LOG 21:47:47.043] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": no-relay-or-control-capability
+[LOG 21:47:47.075] [Parsek][VERBOSE][GhostAppearance] Ghost #3 "Fx9 puff" appearance#1 reason=playback ut=88.10 requestedUT=88.10 firstFrameClamped=F activationStart=88.04 activationLead=0.06 zone=Physics dist=697m activeFrame=Absolute sectionUT=88.02-90.54 root=(351.34,68.98,482.98) rootRot=(-0.240,0.515,0.725,0.389) boundsCenter=(352.50,69.23,482.14) bounds-root=(1.16,0.25,-0.84) firstVisiblePart=ghost_part_1370303033:(351.34,68.98,482.98) part-root=(0.00,0.00,0.00) recordingStart@88.04 frame=Absolute body=Kerbin lla=(-0.05,-74.56,66.53) world=(351.34,68.98,482.97) recordingStart-root=(0.00,0.00,0.00) recordingStartRot=(-0.238,0.515,0.725,0.390) snapshotCoM=(0.00,-1.55,0.00) rootPart=probeCoreOcto.v2 pid=1370303033 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(351.34,68.98,482.98) rootPart-root=(0.00,0.00,0.00) visibleRenderers=5
+[LOG 21:47:47.228] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Viewer puff' pid=3148673182 (0 → FLYING)
+[LOG 21:47:47.257] [FLIGHT GLOBALS]: Switching To Vessel Viewer puff ---------------------- 
+[LOG 21:47:47.257] [Parsek][INFO][Scenario] Vessel switch detected: 'Viewer boom-built' → 'Viewer puff' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=34884)
+[LOG 21:47:47.257] [PlanetariumCamera]: Focus: Viewer puff
+[LOG 21:47:47.300] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Viewer puff) on vessel Viewer puff
+[LOG 21:47:47.300] [FlightIntegrator]: Vessel Viewer puff has been unloaded 1.79769313486232E+308, applying analytic temperature 312.19114196854
+[LOG 21:47:47.674] Unpacking Viewer puff
+[LOG 21:47:49.550] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='GhostPartPuffFx' systems=2 rootMoves=True registered=2
+[LOG 21:47:49.550] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 puff Debris' UT=90.6 resolved from relative body-fixed primary point interpolation body='Kerbin' altitude=65.7
+[LOG 21:47:49.550] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 puff Debris' lifecycle=StandardEnter UT=90.6 body='Kerbin' altitude=65.7
+[LOG 21:47:49.551] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #4 "Fx9 puff Debris" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:47:49.551] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=loaded-direct-authored-frame-gap playbackUT=90.559999999998865 bracketBeforeUT=90.539999999999125 bracketAfterUT=91.079999999999018 sectionIndex=0 bodyFixedFrames=17 | suppressed=47
+[LOG 21:47:49.551] [Parsek][VERBOSE][Zone] FX suppressed: ghost #4 "Fx9 puff Debris" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(-151.8488,-80.9160,-370.4834) anchorPos=(-122.1663,-0.0203,-174.2934)
+[LOG 21:47:49.551] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" spawned (recording-start-snapshot, parts=1 engines=0 rcs=0)
+[LOG 21:47:49.551] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:47:49.551] [Parsek][VERBOSE][GhostAppearance] Ghost #4 "Fx9 puff Debris" appearance#1 reason=playback ut=90.56 requestedUT=90.56 firstFrameClamped=F activationStart=90.54 activationLead=0.02 zone=Physics dist=214m activeFrame=Relative sectionUT=90.54-94.38 anchorRec=82db5212c14149fba2da219f8cb2f175 root=(-151.85,-80.92,-370.48) rootRot=(-0.243,0.517,0.724,0.386) boundsCenter=(-151.08,-80.76,-371.01) bounds-root=(0.77,0.16,-0.53) firstVisiblePart=ghost_part_3371508563:(-151.85,-80.92,-370.48) part-root=(0.00,0.00,0.00) recordingStart@90.54 frame=Relative offset=(0.00,-0.86,0.01) anchorRec=82db5212c14149fba2da219f8cb2f175 snapshotCoM=(0.00,-1.02,0.00) rootPart=Decoupler.1 pid=3371508563 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(-151.85,-80.92,-370.48) rootPart-root=(0.00,0.00,0.00) visibleRenderers=2
+[LOG 21:47:49.551] [Parsek][VERBOSE][Policy] Skipped ghost map for #4 "Fx9 puff Debris" - debris | suppressed=1
+[LOG 21:47:50.559] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=91.579999999998662 bracketBeforeUT=91.51999999999893 bracketAfterUT=91.739999999998886 sectionIndex=0 bodyFixedFrames=17 | suppressed=60
+[LOG 21:47:51.568] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=92.579999999998464 bracketBeforeUT=92.399999999998755 bracketAfterUT=92.619999999998711 sectionIndex=0 bodyFixedFrames=17 | suppressed=59
+[LOG 21:47:52.584] [Parsek][VERBOSE][Anchor] body-fixed-primary-route: ghost #4 "Fx9 puff Debris"  phase=relative-section-direct playbackUT=93.599999999998261 bracketBeforeUT=93.499999999998536 bracketAfterUT=93.719999999998493 sectionIndex=0 bodyFixedFrames=17 | suppressed=59
+[LOG 21:47:53.391] [Parsek][VERBOSE][Policy] PlaybackCompleted index=4 vessel=Fx9 puff Debris ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:47:53.391] [Parsek][VERBOSE][Engine] Ghost #4 "Fx9 puff Debris" destroyed (playback completed)
+[LOG 21:47:53.391] [Parsek][VERBOSE][Policy] GhostDestroyed index=4 vessel=Fx9 puff Debris
+[LOG 21:47:53.407] [Parsek][VERBOSE][Policy] PlaybackCompleted index=4 vessel=Fx9 puff Debris ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:47:53.491] [Parsek][VERBOSE][Pipeline-Terrain] TailLift inactive: rec=82db5212c14149fba2da219f8cb2f175 vessel='Fx9 puff' reason=recorded-terrain-nan delta=NaNm (recTerrain=NaN curTerrain=62.9)
+[LOG 21:47:53.541] [Parsek][VERBOSE][Policy] PlaybackCompleted index=3 vessel=Fx9 puff ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:47:53.541] [Parsek][VERBOSE][Engine] Ghost #3 "Fx9 puff" destroyed (playback completed)
+[LOG 21:47:53.541] [Parsek][VERBOSE][Policy] GhostDestroyed index=3 vessel=Fx9 puff
+[LOG 21:47:53.541] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=82db5212c14149fba2da219f8cb2f175 vessel="Fx9 puff": window-ended
+[LOG 21:47:53.557] [Parsek][VERBOSE][Policy] PlaybackCompleted index=3 vessel=Fx9 puff ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:47:54.310] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[LOG 21:47:57.324] probeCoreOcto.v2 (Viewer puff) Exploded!! - blast awesomeness: 0
+[LOG 21:47:57.324] [Parsek][INFO][RecState] [#106][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=98.3 scene=FLIGHT
+[LOG 21:48:11.060] [Parsek][VERBOSE][Engine] Pending playback interpolation: vessel='Fx9 dust' UT=112.1 resolved from point interpolation body='Kerbin' altitude=67.3
+[LOG 21:48:11.060] [Parsek][VERBOSE][Engine] Pending spawn interpolation seed: vessel='Fx9 dust' lifecycle=StandardEnter UT=112.1 body='Kerbin' altitude=67.3
+[LOG 21:48:11.063] [Parsek][VERBOSE][ReentryFx] Skipped reentry FX build for ghost #5 "Fx9 dust" — trajectory peak speed below 400 m/s and no orbit segments (cannot produce reentry visuals)
+[LOG 21:48:11.063] [Parsek][VERBOSE][Zone] FX suppressed: ghost #5 "Fx9 dust" cycle=-1 anchorDist=0m renderDist=unresolved ghostPos=(358.5217,70.1151,494.2311) anchorPos=(-181.2633,17.3992,-313.7083)
+[LOG 21:48:11.063] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" spawned (recording-start-snapshot, parts=2 engines=1 rcs=0)
+[LOG 21:48:11.063] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" spawn-pending notify (state registered; mesh build may still be time-sliced)
+[LOG 21:48:11.064] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" initial activation hidden: reason=activation-settle ut=112.060 activationStart=112.060 relativeWindow=0.080s absoluteBridgeMax=1.000s debrisSeedBridgeMax=1.000s minFrames=2 | suppressed=1
+[LOG 21:48:11.064] [Parsek][VERBOSE][Policy] Skipped ghost map for #5 "Fx9 dust" rec=c8ab92529dc64895af6332b2c354ca81 - terminal=Recovered | suppressed=1
+[LOG 21:48:11.064] [Parsek][VERBOSE][GhostCommNet] Derived antennas: key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust" source=ghost-visual-snapshot type=Ship parts=3 relayAntennas=0 otherAntennas=1 deployGated=0 controlPoints=0 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=False
+[LOG 21:48:11.064] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": no-relay-or-control-capability
+[LOG 21:48:11.093] [Parsek][VERBOSE][GhostAppearance] Ghost #5 "Fx9 dust" appearance#1 reason=playback ut=112.10 requestedUT=112.10 firstFrameClamped=F activationStart=112.06 activationLead=0.04 zone=Physics dist=973m activeFrame=Absolute sectionUT=112.04-115.14 root=(358.52,70.12,494.23) rootRot=(-0.326,0.627,0.628,0.325) boundsCenter=(359.96,70.12,493.24) bounds-root=(1.44,0.00,-0.99) firstVisiblePart=ghost_part_4016633923:(358.52,70.12,494.23) part-root=(0.00,0.00,0.00) recordingStart@112.06 frame=Absolute body=Kerbin lla=(-0.04,-74.56,67.34) world=(358.52,70.12,494.23) recordingStart-root=(0.00,0.00,0.00) recordingStartRot=(-0.326,0.627,0.628,0.325) snapshotCoM=(0.00,-1.49,0.00) rootPart=probeCoreOcto.v2 pid=4016633923 rootPartLocal=(0.00,0.00,0.00) rootPartLocalRot=(0.000,0.000,0.000,1.000) rootPartWorld=(358.52,70.12,494.23) rootPart-root=(0.00,0.00,0.00) visibleRenderers=10
+[LOG 21:48:11.246] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Viewer dust' pid=641361059 (0 → FLYING)
+[LOG 21:48:11.275] [FLIGHT GLOBALS]: Switching To Vessel Viewer dust ---------------------- 
+[LOG 21:48:11.275] Packing Viewer puff for orbit
+[LOG 21:48:11.275] [Parsek][INFO][Scenario] Vessel switch detected: 'Viewer puff' → 'Viewer dust' — next FLIGHT→FLIGHT OnLoad within 60 frames will skip revert strip/cleanup (frame=36316)
+[LOG 21:48:11.275] [PlanetariumCamera]: Focus: Viewer dust
+[LOG 21:48:11.320] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto.v2 (Viewer dust) on vessel Viewer dust
+[LOG 21:48:11.320] [FlightIntegrator]: Vessel Viewer dust has been unloaded 1.79769313486232E+308, applying analytic temperature 312.218984062206
+[LOG 21:48:11.674] Unpacking Viewer dust
+[LOG 21:48:13.575] [Parsek][VERBOSE][GhostVisual] Parsek-built FX follow the floating origin: fx='ParsekLaunchDust' systems=1 rootMoves=False registered=2
+[LOG 21:48:13.576] [Parsek][VERBOSE][GhostVisual] Launch dust built for 'Fx9 dust'
+[LOG 21:48:13.576] [Parsek][VERBOSE][GhostVisual] Launch dust ghost #5 "Fx9 dust" intensity=0.883 power=1.00 alt=67.4 groundRef=62.8 | suppressed=81
+[LOG 21:48:13.576] [Parsek][VERBOSE][GhostVisual] Smoke trail fade: ghost "Fx9 dust" body=Kerbin alt=67 density=1.215 drawn=1 hidden=0 changed=1
+[LOG 21:48:14.146] [Parsek][VERBOSE][Pipeline-Terrain] TailLift inactive: rec=c8ab92529dc64895af6332b2c354ca81 vessel='Fx9 dust' reason=recorded-terrain-nan delta=NaNm (recTerrain=NaN curTerrain=62.5)
+[LOG 21:48:17.071] [Parsek][VERBOSE][Policy] PlaybackCompleted index=5 vessel=Fx9 dust ghostWasActive=True pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:48:17.071] [Parsek][VERBOSE][Engine] Ghost #5 "Fx9 dust" destroyed (playback completed)
+[LOG 21:48:17.071] [Parsek][VERBOSE][Policy] GhostDestroyed index=5 vessel=Fx9 dust
+[LOG 21:48:17.071] [Parsek][VERBOSE][GhostAudio] Cleanup: stopped 1 audio source(s) for 'Fx9 dust'
+[LOG 21:48:17.071] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=c8ab92529dc64895af6332b2c354ca81 vessel="Fx9 dust": window-ended
+[LOG 21:48:17.088] [Parsek][VERBOSE][Policy] PlaybackCompleted index=5 vessel=Fx9 dust ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 21:48:18.563] fuelTankSmallFlat Exploded!! - blast awesomeness: 0.5
+[WRN 21:48:28.240] [F: 37328]: Vessel Viewer dust crashed through terrain on Kerbin.
+[LOG 21:48:28.240] probeCoreOcto.v2 (Viewer dust) Exploded!! - blast awesomeness: 0
+[LOG 21:48:28.240] [Parsek][INFO][RecState] [#109][OnVesselWillDestroy:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=129.3 scene=FLIGHT
+[WRN 21:49:28.847] [FlightPersistence]: Vessel Viewer dust not saved because it was dead.
