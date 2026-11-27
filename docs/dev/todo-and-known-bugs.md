@@ -1011,7 +1011,7 @@ The numbers behind each fix are in design E.4, "FX instrument fixes". The C# hal
 
 What: `liquidEngineMini.v2` at full thrust (`liquidenginemini.v2--shroud--burn-full--7a689fdc`) reads its flame origin up to 58 px off in one run and inside the line in the next, on one route or both. PP-7 `2026-11-23_1732`: start route side-b -58 px (line 37) and, capped, event side-a -61 and side-b -46; `2026-11-24_0735`: event -14 / 8, start 13 / 18. PPS-12a `2026-11-23_1651` read -2 and 22. The origin and the length are the envelope's extremes: one stray particle behind the nozzle, drawn in one of 16 samples, moves both, and it is on both sample halves when it lives through several of them. The real side does it too (its own halves 352 and 393 px long in `2026-11-24_0735`). `LiquidEngineRV-1` at 30 % is the second one (capped -15 and -13 px in `_1732`).
 
-Accepted on PP-7 (`fx:origin`, noisy): an origin regression of the Spark's full-thrust flame alone is not caught by the gate; its presence, length, width, direction, colour, cross-section and assets still are.
+Accepted on PP-7 (`fx:origin`, noisy): an origin regression of the Spark's full-thrust flame alone is caught only far past its band (`FX_FAR` times the band limit, about 2 to 3.7 fail lines); its presence, length, width, direction, colour, cross-section and assets still are.
 
 Fix (not started): read origin and length off pixels covered by two samples or more (a C# measure change, so every baseline re-pins), or accept a part of the particle distribution instead of its extremes (the along-axis percentiles the sidecar already writes, report-only).
 

@@ -3646,8 +3646,10 @@ on each, lateral offset on side-a (-80 px) and far (-27 px full, -67 px low) and
 offset about 0.84 (8.4 lines) on bottom, on both routes. Nothing else red. The block was reverted,
 the DLL rebuilt and re-provisioned (no mutation marker in the automation DLL, prefix 72c76c79).
 
-Known soft spot: a plume cut to 0.6 to 0.7 of its length passes silently on 1 or 2 of the 74
-plume cases, whose length band is wide.
+Known soft spots: a plume cut to 0.6 to 0.7 of its length passes silently on 1 or 2 of the 74
+plume cases, whose length band is wide. And since the split-half rule reads the ghost's halves
+too, a ghost that flickers between its two halves has its fails held at `warn` and reads
+`unmeasured` only past 1.75 times its limit; a large flicker usually unsettles the entry anyway.
 
 ## Appendix G. P9 plan: effects Parsek builds itself (rev 1, 2026-11-26)
 
