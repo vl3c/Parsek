@@ -823,9 +823,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"stock-explode-paused-{recIdx}",
                     $"Stock explosion audio suppressed for ghost #{recIdx} \"{traj.VesselName}\" " +
-                    "because the pause menu is open; spawning custom visual FX only",
+                    "because the pause menu is open; spawning a silent copy of the stock explosion",
                     10.0);
-                GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+                GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);
             }
             else
             {

@@ -3875,6 +3875,73 @@ Each lane's first flight is a `limit=20` reading flight, its step count set from
 - U10 FXC-1 distances: the ghost-to-host distance at every mark on the reading flight, against
   the 300 km watch cutoff (G.2.3).
 
+#### X0 as run (2026-11-27)
+
+Two rounds of the three report-only lanes on the throwaway `fx-x0-spike` branch: PPS-20a (burst /
+dust cell, stock-minimal), PPS-20b (the same cell, modded-restock), PPS-20c (reentry rig,
+stock-minimal). The first flights (spike 2191dc953) answered little: the burst cell stopped after
+`U1 burst index=0` (its `Track()` read `.name` on an Explosion 0 object FXMonger had already
+destroyed), and the rig flew with stock aero FX off (below). The re-flight (spike 62f4cebd: every
+burst sub-case guarded, the rig raising `AERO_FX_QUALITY` for its legs, the ghost watched from
+its first recording) passed on all three lanes with `failures=0 [] exceptions=0`, and the table
+answers from it. Evidence: `docs/dev/research/p9-x0-spike-2026-11-27/reflight/` (README, per lane
+`log-*.txt`, `result-summary.json`); the first flights' text is one folder up; the pngs stay on
+branch `p9-x0-results` (commits 74e43cde0 and 4593ebe20) and only orient the reader. Below, `20a`,
+`20b` and `20c` mean `reflight/PPS-20a/log-PartParityBurstSpike.txt`,
+`reflight/PPS-20b/log-PartParityBurstSpike.txt` and `reflight/PPS-20c/log-FxReentryRig.txt`.
+
+`AERO_FX_QUALITY`. Every harness profile pins it to `"0"` (`harness/provision/profiles/*.toml`,
+`[settings]`, the low-detail pin). Decompiled: `AerodynamicsFX.OnSettingsUpdate` copies it into
+`detailLevel`, and the FX update takes its disable branch while `detailLevel <= 0` (the same branch
+as map view), so 0 = stock aero FX off (no reentry flames, no Mach streaks, the FX camera never
+runs); 1 to 3 = on, choosing `FXCamera`'s occlusion map (512 / 1024 / 2048 px) and the
+replacement shader; 3 is stock's default. The first rig flight logged `aeroFxQuality=0` on its env line and
+`fxCam enabled=False` on every line, so its real frames held no stock fire. The re-flight's rig
+raised it for each leg and put it back (20c `real aero fx quality: AERO_FX_QUALITY 0 -> 3
+detailLevel 0 -> 3 saved=0`, `aero fx quality restored (real leg done): AERO_FX_QUALITY 3 -> 0
+detailLevel 3 -> 0`, the same pair for the ghost leg), re-running the two private
+`OnSettingsUpdate` methods. With it at 3 the FX camera ran and `FxScalar` rose from ut 43.5
+(53.4 km, Mach 7.64) to 1.000 at Mach 7.17, held 1.000 down to Mach 4.13, and fell to 0.866 at
+Mach 3.79, 0.143 at Mach 3.00, 0.017 at Mach 2.62 and 0 (camera off) at Mach 2.39 (20c `trace`).
+At the marks: m6 1.000, m375 0.836, m3 0.143, m25 0.000, m2 camera off; the real frames show the
+stock flames at m6 and m375, a faint glow at m3 and none at m25 or m2 (`fxr-real-*-mainA.png`).
+
+| U | Status | What the re-flight shows |
+|---|---|---|
+| U1 | answered | `explosions[]` has 7 prefabs: Thud 0, Explosion 0, 1, 2, 4, 5, 6, all on layer 1, every renderer a `ParticleSystemRenderer` with a Legacy or Mobile particle shader, mixed Local / World simulation space, no KSP emitters, no lights (20a `U1 prefab[i]`). `minPower=0.001`, `minDistanceFromOtherBlasts=10`, `queueRemovalTimeMultiplier=5`. Merge: two blasts 5 m apart in the same frame make one instance at the midpoint; one or two frames apart, or 12 m apart, make two (20a `U1 merge`). `queuedExplosions` is back to 0 by the end of the call frame, so a later frame's blast never merges into an earlier one. Two merged 0.7 blasts spawn Explosion 4, the index of 0.7, not of the sum. Each power spawns the prefab of its expected index (the six that could still be named; index 1's object was already destroyed), and all seven draw in the capture camera (20a `U1 burst index=`, side view): peak coverage 6245 px at 0 s (Thud 0), 2383 at 1.0 s (Explosion 0), 5428 at 1.0 s (1), 6070 at 1.25 s (2), 16385 at 0 s (4), 32411 at 0.25 s (5), 10149 at 1.0 s (6); the last bin with pixels starts at 2.25, 1.75, 2.25, 3.5, 1.0, 1.25 and 3.0 s. Object lifetimes: Explosion 0's object is destroyed inside its 4 s capture window (`names=[destroyed]`, `prefab1:destroyed-before-track`); every other prefab's object outlives the window. The `U1 lifetimes` numbers are bounds, not lifetimes: the cell polls after each index and then only in the lifetimes section, so Thud 0, Explosion 1, 2 and 4 (4.51 s after their window) died within about 8.5 s of the spawn, Explosion 5 and 6 within about 21 and 16 s; the pixels are gone long before the objects. Parsek's stand-ins (`GhostExplosionFx` L=5 / L=20, `GhostPartPuffFx`) draw on layer 0 with `KSP/Particles` shaders; the puff reaches at most 5 px and is destroyed inside its 3 s window. 20b has the same structure, coverage within about 30 %. |
+| U2 | answered | The new `explosionObjects` entry is there at the end of the call frame (`newEntries=1`, `newEntries=2` for the 12 m pair), active, named `<prefab>(Clone)`, with 0 particles in that frame (20a `U2 same-frame`; the first flight read the same). |
+| U3 | answered | Three held cases at 1600 m (20a `U3`, `spawn u3-`). `u3-stacked-3part` (tank, `Decoupler.1`, tank): `onPartDeCouple`, `onPartJointBreak` (force 0) and `onPartDeCoupleComplete` all in the trigger frame, two vessels after, and the `decouple` FXGroup's one emitter `fx_gasBurst_white(Clone)` (`Legacy Shaders/Particles/Additive (Soft)`, layer 1, World space) holds 179 particles (194 on 20b) with FX pixels only in the first second (189 to 433 px per 0.25 s bin, 0 from 1.00 s). `u3-plain-2part` (`Part.decouple()` on a tank): the same three events, two vessels, no emitter, 0 FX px. `fxMongerNew=0` in every case: a decouple fires no FXMonger blast. Oddity: `u3-decoupler-root-2part` (the decoupler is the root, the tank its child, `explosiveNode=top`) logs `isDecoupled=True` and the gas burst (196 particles, 132 to 344 px; 182 on 20b) but `jointBreaks=0 decouples=0 decoupleCompletes=0`, no events and one 2-part vessel after: by reading, the top node it fired holds nothing, so the burst plays and nothing separates. |
+| U4 | partly | `ModuleSurfaceFX` runs on a held non-active engine and draws in the capture camera (20a `U4`, LV-T45 `maxDistance=30 falloff=1.70`, the active vessel on the pad): at 0.2 of the reach (6 m) over terrain a `SurfaceFX(Clone)` at `scaled=0.268` gives side `dustPx=8233` (7540 on 20b), top 0; at 0.7 (21 m) the object lives (`scaled=0.051`, three playing systems) but draws 0 px; at 1.2 (36 m) the raycast misses and no object exists (`srfFX=null`, 0 px); over the ocean at 0.4 (12 m, 2.1 km east of the pad) a `WaterFX(Clone)` at `scaled=0.164` gives 11822 side / 8946 top (10497 / 9050 on 20b). Colliders: of 1655 within 3000 m of the host, one carries `LaunchpadFX`, the pad's `PadFXReceiver` (layer 30, box 7.5 x 12.9 x 10.8 m). The pad slot never ran (`no LaunchpadFX surface found 18-40 m from the host`: the host stands on the pad itself), so whether a held case over the pad draws pad FX, and whether the runway carries the component, are still open. |
+| U5 | answered | `Graphics.DrawMesh` reaches a manual `Camera.Render` when submitted before the render in the same frame: from `Update` it is seen by a render later that frame and at end of frame (16384 px each, the same as the `MeshRenderer` control); from `LateUpdate` it is seen at end of frame but not by a render between `Update` and `LateUpdate` (0 px); an immediate `DrawMesh` with a null camera or the capture camera is seen (20a `U5 drawmesh`, identical to the first flight). |
+| U6 | partly | `ScreenCapture.CaptureScreenshotAsTexture` returns 1280x720 frames that include `FXCamera`'s composite: with the FX on, the real frames carry the stock flames (`fxr-real-m6-mainA.png`, `fxr-real-m375-mainA.png`). The camera shake switch works and is restored on both legs (20c `camera shake off: CAMERA_FX_EXTERNAL 1.00 -> 0, CAMERA_FX_INTERNAL 1.00 -> 0`, `camera shake restored`). The isolation frames do not isolate: disabling `AerodynamicsFX`'s cameras before the `mainB` frame leaves the flames in it (`fxr-real-m6-mainB.png`), the `aero-off` line read after it logs `fxCam enabled=True` and `velocityCam enabled=True`, and while the fire burns every pair differs about as much as two plain frames (m6: aero `mainA-mainB` 23290 px, probe 347; noise `mainA-mainA2..A4` 13883 to 20183, probe 259 to 290; m375: 13955 against 13016 to 16777). So the one-frame camera switch does not hold to the capture, and the blackbody step (`mainB2-mainC1`, 14626 at m6) cannot be read either. Above the atmosphere, at m25 and at m2 the aero pair (A-B) is 0 (`above` still shows `mainA-mainD: all=6`). |
+| U7 | partly | Unchanged from the first flight: the rig teleports a probe + HeatShield1 + booster stack to 95 km, 2.2 km/s, 35 degrees down instead of using a fixture. The re-flight: peak Mach 7.84 (`real end`), the heat shield leading (hottest part HeatShield1, 1885 K at m6, 1969 K at the peak), Mach 3.75 at 21.0 km (density 0.033, `FxScalar` 0.836), booster staged at 44.9 km and Mach 7.29, and under the chute at 482 m descending 3.9 m/s when the log ends. Which parked-orbit fixture does the same, and the splash, were not seen. |
+| U8 | partly | `FXCamera` renders layers 0 and 17 (`cullingMask=0x20001` on every line); the ghost's part materials are `Opaque` / `TransparentCutout` on layer 0, its particle renderers `Transparent` on layers 0 and 1 (20c `ghost renderers (main)`, `real side ghost renderers`). Booster: stock draws its fire on the staged booster, about 2.8 km from the hot active probe at m6, at every swept camera distance, 20, 60, 150, 400 and 1000 m (`fxr-real-m6-bst20A.png` to `bst1000A.png`; the booster rect shrinks from 74x146 to 2x4 px; `FXCamera`'s far plane follows the flight camera out to 3216.5), so no stop distance was found within 1000 m. The side ghost: stock's fire is painted on the ghost riding 10 m from the hot real probe (the right-hand object in `fxr-real-m6-mainA.png` and `fxr-real-m375-mainA.png`). That ghost is a bare snapshot build parented to the probe (`FxReentryRig.cs` on the spike), with no reentry FX of its own, so the fire on it is stock's. A playback ghost beside a hot active vessel therefore wears stock's fire as well as its own: an open product question for the owner, to raise at Y1. A reentering non-active vessel while the active vessel is slow was not flown (the booster was swept at m6 only; `booster=none` at the later marks). |
+| U9 | answered | 27 ghost frames, none late or missing (`GHOST DONE captured=27 late=0 missing=0`), each within 0.02 s of its real frame's UT. The framing matches: the real probe rect and the ghost's rect agree to 2 px (m6 real `[524,354,36,15]`, ghost `[524,352,36,17]`; m375 `[524,353,36,16]` / `[524,351,36,18]`), so the first flight's "ghost is smaller" was its rect union with the side ghost. Outside the masks the main pose differs on 0.45 to 0.50 % of pixels at m3, m25 and m2, about 4100 px of it in the top 52 rows: the watch-mode label (`Watching: FXR Probe (57.7 km)`) still drawn on the ghost frames; 0.69 % at `above`; 2.0 to 2.9 % at m6 and m375, all in the top half, where stock's flame trail on the real frame and the ghost's own fire leave the masks. The rear pose differs on 0.6 % at `above` and 1.9, 3.4, 3.8, 4.9, 6.6 % from m6 to m2, mostly in the bottom half (the planet). |
+| U10 | answered | The ghost is watched at every mark, `above` included (`ghost watch enter index=0`, `watching=True` on every shot). Ghost-to-host distance (`ghostToActive`): above 75.2 km, m6 50.2 km, m375 54.7 km, m3 56.0 km, m25 56.8 km, m2 57.7 km, the booster's ghost 51.7 km at m6; all inside the 300 km cutoff and the 120 km `ghostVisualRangeM`. |
+
+Also in the re-flight logs:
+
+- The ghost's reentry fire runs below stock's between Mach 6 and Mach 3.75: ghost `intensity` 0.940 at m6 (stock `FxScalar` 1.000), 0.274 at m375 (0.836), 0.156 at m3 (0.143), 0.007 at m25 (0) (20c `ghost shot ... flags[...]`), as G.8 reads from the code. At m6 the ghost carries `fireParticles=840 shellMeshes=6`; at `above` it has no reentry FX built yet (`pendingBuild=True`).
+- WARN lines are the first flight's kinds, on `FXR Probe Debris` or budgets, plus one `[TestRunner] Late vessel switch` line (`reflight/PPS-20c/log-warn-err.txt`): frame-budget overruns, `PatchedSnapshot solver unavailable`, the #419 flush stitch, three MergeTree boundary discontinuities over unrecorded gaps, two `recorded-relative-retired`.
+
+What the plan's later pieces take from this:
+
+- X8 and the FXC lanes raise `AERO_FX_QUALITY` (to 3) for the run and restore it, the way the
+  spike rig does (save, set, re-run both `OnSettingsUpdate` methods, log the setting and
+  `detailLevel` before and after, restore at the leg's end and in `OnDestroy`); the profiles keep
+  their pin. Under the pin there is no stock reference at all.
+- On this rig the reentry reference exists only between Mach 6 and about Mach 3: the stock FX run
+  from Mach 7.6 to Mach 2.6, but of the marks only m6 and m375 show the flames, m3 a faint glow,
+  m25 and m2 nothing. FXC-1's marks at Mach 2.5 and 2.0 compare no stock fire on such an entry.
+- X8 needs an aero switch that holds through the captured frame. Turning `AerodynamicsFX`'s
+  cameras off for one frame did not remove the flames, so `ctl-aero-hot` (G.4) would read the
+  fire's flicker, not the isolation; `ctl-aero-cold` (all 0 at `above`) holds.
+- U9's diff subtracts or hides the watch label before the harness reads it.
+- Y1 takes the side-ghost question (U8) to the owner.
+
+Still open after the re-flight: U7's fixture choice and the splash, U4's pad slot and runway,
+U8's slow active vessel beside a hot non-active one, and U6's aero and blackbody isolation.
+
 ### G.7 Work breakdown
 
 D.10's rule holds: two pieces in flight never touch one file, each is green on its own, a C#

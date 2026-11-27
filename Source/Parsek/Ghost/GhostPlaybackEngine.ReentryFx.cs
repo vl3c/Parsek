@@ -270,6 +270,8 @@ namespace Parsek
             ParticleSystem ps = state.launchDustInfo.particles;
             if (ps == null) return;
 
+            PlaceLaunchDustOnGround(recIdx, state, altitude, groundRefAltitude);
+
             var emission = ps.emission;
             emission.rateOverTimeMultiplier = GhostPlaybackLogic.LaunchDustEmissionMax * intensity;
             var main = ps.main;
@@ -285,6 +287,72 @@ namespace Parsek
                 $"alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"groundRef={groundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}",
                 5.0);
+        }
+
+        /// <summary>
+        /// Lays the dust emitter flat on the ground under the ghost. The emitter is a Circle shape,
+        /// which emits in its local XY plane, so its local Z is turned onto the surface normal: the
+        /// disc lies on the ground and its particles run outward across it, as stock's ground dust
+        /// does, instead of standing upright around the ghost and rising with it. Re-placed every
+        /// frame because the ghost climbs away from the spot while the dust stays on the ground.
+        /// The ground is the first pad, runway or terrain surface straight below (stock
+        /// <c>ModuleSurfaceFX</c>'s layers), else the latched terrain reference. The normal comes
+        /// from the ghost's body; without one the ghost's own up axis stands in.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void PlaceLaunchDustOnGround(
+            int recIdx, GhostPlaybackState state, double altitude, double groundRefAltitude)
+        {
+            GameObject dust = state.launchDustInfo?.dustObject;
+            if (dust == null || state.ghost == null) return;
+
+            Vector3 ghostPos = state.ghost.transform.position;
+            Vector3 up;
+            bool fromBody = TryResolveLaunchDustSurfaceUp(
+                state.lastInterpolatedBodyName, ghostPos, out up);
+            if (!fromBody) up = state.ghost.transform.up;
+
+            // The surface first, as stock does: the pad deck and runways stand above the terrain
+            // altitude the AGL is measured against. The terrain reference is the fallback.
+            Vector3 ground;
+            bool hitSurface = false;
+            double agl = altitude - groundRefAltitude;
+            float reach = (float)Math.Min(GhostPlaybackLogic.LaunchDustMaxAglMeters,
+                double.IsNaN(agl) || agl < 0.0 ? 0.0 : agl) + 10f;
+            if (Physics.Raycast(ghostPos + up, -up, out RaycastHit hit, reach + 1f,
+                    GhostPlaybackLogic.LaunchDustSurfaceLayerMask))
+            {
+                ground = hit.point + up * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
+                hitSurface = true;
+            }
+            else
+            {
+                ground = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(
+                    ghostPos, up, altitude, groundRefAltitude);
+            }
+            dust.transform.SetPositionAndRotation(ground, Quaternion.FromToRotation(Vector3.forward, up));
+
+            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-place-{recIdx}",
+                $"Launch dust ghost #{recIdx} \"{state.vesselName}\" laid flat on the ground " +
+                $"{Vector3.Distance(ghostPos, ground).ToString("F1", CultureInfo.InvariantCulture)} m " +
+                $"below the ghost, up from {(fromBody ? "body" : "ghost-axis")}, ground from " +
+                $"{(hitSurface ? "surface-hit '" + hit.collider.name + "'" : "terrain-ref")}", 5.0);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryResolveLaunchDustSurfaceUp(
+            string bodyName, Vector3 worldPosition, out Vector3 up)
+        {
+            up = Vector3.up;
+            if (string.IsNullOrEmpty(bodyName)) return false;
+            CelestialBody body;
+            try { body = FlightGlobals.GetBodyByName(bodyName); }
+            catch (Exception) { return false; }
+            if (body == null) return false;
+            Vector3 radial = worldPosition - (Vector3)body.position;
+            if (radial.sqrMagnitude < 1e-6f) return false;
+            up = radial.normalized;
+            return true;
         }
 
         /// <summary>
