@@ -1,0 +1,64 @@
+schema = 1
+id = "FX9-4-explosion-tiers-stock"
+tier = "operator"
+description = "THROWAWAY rig v4 for the hand-built explosion restyle: the FX9-3 real and after passes (after with the stock copies hidden), then the seven stock explosions beside the hand-built one of the same power on the grass"
+instanceProfile = "stock-minimal"
+tags = ["ghost-fx-9"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[[fixture.liveState]]
+pid    = 2774188063
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "14", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "fx9-real" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "190", maxRate = "1" }, expect = "OK", budget = 400 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "fx9-rw1" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "fx9-rw1" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "fx9-ghost-after" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "190", maxRate = "1" }, expect = "OK", budget = 400 },
+  { cmd = "MissionMark", args = { label = "fx9-tiers" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "250", maxRate = "1" }, expect = "OK", budget = 200 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 60 }
+
+[expectations.logContracts]
+required = []
+forbidden = []
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
