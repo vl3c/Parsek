@@ -4479,12 +4479,16 @@ E.8's 2.2 ms per render with readback. A motion case waits two motion times inst
 window of H.2) and adds its ghost rows after the window: 17 frames x 2 rows x 2 views x 2 clears =
 136 renders, about 0.3 s, plus about 200 unrendered scout primes per 10 s of window (under 0.1 s).
 Planning rate 5 s per case (P6's measured rate plus the second wait, with P6's lesson that the first
-estimate ran 50 % low).
+estimate ran 50 % low); an orbit sweep adds about 30 s for the slow and late controls' normal routes.
+Rev 1 estimated about 99 / 110 orbit cases (about 53 / 64 of P6's motion families plus all 22
+`BaseServo` parts); M1's count (H.1) is 91 / 101 (54 / 64 plus 13 servos, the 9 rotors being
+`rotor-spin-not-primed` exclusions), so the estimates below fell by about 40 s each (M6,
+2026-11-27); the step count stays 3, set again from each lane's reading-flight `wall=`.
 
 | Lane | Install | Cases (motion + controls) | Sweep estimate | Steps (480 s, +50 %) | `budgetSeconds` |
 | --- | --- | --- | --- | --- | --- |
-| PP-14 (new, `pp14`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
-| PP-15 (new, `pp15`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
+| PP-14 (new, `pp14`), orbit | stock-minimal | 54 + 13 servos + 24 control surfaces = 91 (counted by M1, H.1); 6 | about 515 s | 3 | 2400 |
+| PP-15 (new, `pp15`), orbit | modded-compat | 64 + 13 + 24 = 101 (M1); 6 | about 565 s | 3 | 2400 |
 | PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
 
 Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
@@ -4493,12 +4497,14 @@ motion=all controls=true maxSeconds=480`, quit without saving; tier `operator`, 
 lanes and not a label in PP-3 / PP-4, because those are ARMED and the P5 gate reds a label with no
 baseline section (`no-baseline`, Appendix F). The chutes join PP-5 / PP-6 (report-only) as a third
 label with its own reset and run step, since 70 s of sweep does not earn its own boot and LoadGame
-(fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s).
+(fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s:
+2820 s of steps). The motion label runs LAST, after the FX label, so a label never flown cannot
+stop the two flown ones (an unmet step ends the drive).
 No modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the ReStock
 models. Each lane's first flight is a `limit=20` reading flight and its step count is set from its
 `wall=` (D.8). PP-11 is taken (the mod-parts lane, branch `mod-parts`, PR #2836), so Appendix G's rig lanes,
 written as PP-11 / PP-12, move up when P9 builds them; PP-12 and PP-13 are left to them, and
-PP-14 and PP-15 are free on `origin/main` and on every remote branch (re-checked 2026-11-27). Expected wall per full pass: about 700 s (PP-14), 760 s (PP-15), plus about 90 s on
+PP-14 and PP-15 are free on `origin/main` and on every remote branch (re-checked 2026-11-27). Expected wall per full pass: about 660 s (PP-14), 715 s (PP-15), plus about 90 s on
 each of PP-5 / PP-6.
 
 Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
@@ -4598,8 +4604,8 @@ subsection.
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 (DONE 2026-11-27) | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before. BUILT (H.3 "Built"): a synthetic motion sidecar + atlas builder in the tests; every control's perturbation caught (and an unperturbed one bad); mutated atlas tiles and tampered arrays INVALID(parity-instrument); ten legacy stowed / state / FX / burst sweeps hash to their pre-M4 digests. For the C# side: `JudgeGhostLate` must require the lag fail only when the 1.0 s shift is past the line (its xUnit cell for a 10 s motion expects `bad`), and M3 writes the slow / late normal route as `<controlId>--normal` |
 | M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
-| M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
-| M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
+| M6 (BUILT 2026-11-27, NOT FLOWN) | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed. BUILT: `PP-14-part-parity-motion-stock` / `PP-15-part-parity-motion-modded` (tag `pending-flight`, H.4's steps and budget), `PartParityMotionLaneShapeTests` (the lane shapes, the log pins, the `motion cases:` literal; its runner half arms itself when M3's `PartParityMotionDriver.cs` is in the tree, so M3 must log `PartParityMotionRules.FormatCounts` on the PartParity tag at Info, as the state and FX counts are), `REVIEWED_UNTAGGED` rows, the status rows. Owed: the flights, after M3 |
+| M7 (lane half BUILT 2026-11-27, NOT FLOWN) | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames. BUILT with M6: the third label in both specs (an air reset and one `contexts=air motion=all` step, LAST in the lane, budget 2400 -> 3000, its own step, applier and `motion cases:` pins; report-only, so no P5 `no-baseline`), the air half of `PartParityMotionLaneShapeTests`, the two lane rows. Owed: the dev-install run and the flights, after M3 |
 
 Order: M0; then M1 and M2 together; M3 and M4 together (M4 on M1's synthetic helpers); M5 after
 M4; M6 after M3 and M4; M7 after M3 (its lanes after M6). The C# pieces get the end-of-task review;
