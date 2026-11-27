@@ -530,6 +530,19 @@ class LeaseRunTests(_SlotBox):
     admission against the lease's DLL pin, and the refusals that keep a lease from
     flying what it must not."""
 
+    def test_the_parallel_runner_loads_by_path_with_its_dataclasses(self):
+        # Live proof 2026-11-27: loaded without a sys.modules entry, the module's
+        # @dataclass raised on Python 3.13, the broad except swallowed it, and
+        # every leased run fell back to minimise on a PC with two desktops.
+        saved = run._parallel_runner_module
+        run._parallel_runner_module = None
+        try:
+            module = run._load_parallel_runner_module()
+            self.assertTrue(callable(module.read_virtual_desktops))
+            self.assertIs(module, run._load_parallel_runner_module())
+        finally:
+            run._parallel_runner_module = saved
+
     def setUp(self):
         super().setUp()
         import leaseio

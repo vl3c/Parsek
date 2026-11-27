@@ -822,7 +822,14 @@ def _load_parallel_runner_module():
     if spec is None or spec.loader is None:
         raise ImportError("cannot load parallel_runner from %s" % path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Registered BEFORE exec: its @dataclass declarations look their module up in
+    # sys.modules (Python 3.13 raises on a module missing there).
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
     _parallel_runner_module = module
     return module
 
@@ -7162,10 +7169,14 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
         if window_mode == slotrun.WINDOW_DESKTOP and not desktop_id:
             try:
                 desktops, current = runtime.virtual_desktops()
-            except Exception:  # noqa: BLE001 - an unreadable registry falls back below
+            except Exception as exc:  # noqa: BLE001 - an unreadable registry falls back below
+                print("[run] --lease window: cannot read the virtual desktops (%s: %s); "
+                      "falling back" % (type(exc).__name__, exc), flush=True)
                 desktops, current = [], None
             resolution = parallel.resolve_window_mode(window_mode, desktops, current)
             window_mode, desktop_id = resolution.mode, resolution.desktop_id
+            print("[run] --lease window=%s desktopId=%s (%d virtual desktop(s) read)"
+                  % (window_mode, desktop_id or "-", len(desktops)), flush=True)
     ctx = SelectionContext(slot=slot, window_mode=window_mode, desktop_id=desktop_id,
                            umbrella_root=umbrella_root, lease_requested=bool(args.lease),
                            lease=lease, lease_decision=lease_decision)

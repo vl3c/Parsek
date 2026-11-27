@@ -1667,7 +1667,7 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         # verified provision the harness may admit (design EC-6).
         _clear_incomplete_marker(ctx)
     log(ctx, "Info" if ok else "Error", "Verify",
-        "instance=%s result=%s drift=%d" % (ctx.profile_name, "OK" if ok else "DRIFT", len(drift)))
+        "instance=%s slot=%s result=%s drift=%d" % (ctx.profile_name, ctx.slot, "OK" if ok else "DRIFT", len(drift)))
     return ok
 
 
