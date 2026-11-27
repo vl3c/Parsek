@@ -1960,15 +1960,17 @@ def _site_data(root, dirs, site):
 
 class LegacyPagePinTests(unittest.TestCase):
     """The legacy sites' data.js and their built DOM hash to the digests taken before the
-    motion viewer (M5) was built; a motion case is the only thing that changes a page."""
+    motion viewer (M5) was built; a motion case is the only thing that changes a page.
+    The plain digests were re-taken once main reworded the B9 skin-not-modelled reason
+    (mod parts); with that one line restored they equal the pre-M5 digests."""
 
     DATA = {
-        "plain": "51f7f40f3ad6224974850ae3b23a27fa12218259a3b47553dc5dc0f864063516",
+        "plain": "6045cfac3b1e6a09b938060132872fc4b34c490dc9576c7f276a944ca7897e17",
         "state": "853d6b017d3e5fc37eebd85db86da1d4140b74bd91e2c33200a0430f9d036e7c",
         "fx": "4cfeec0569d6d589aabecad3fec781ec6f325a049f019da10900a8f31ad06629",
     }
     DOM = {
-        "plain": "8efa5528ff3db222d38931c923786b2c1e489d49754fca2571675523df9b003f",
+        "plain": "d16f23614d48ad33642cda72af6b8b2b8920245b68bc3a4177333026eac3921b",
         "state": "e5ca49e451efbebd82d1a76e64cd99d76a65084442c1470c4e063d956a850f19",
         "fx": "9e316dbdf1ffc1106ca4dac06a8fc521d7a579dd50cd8ebbe4705bd386b85cd6",
     }
