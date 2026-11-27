@@ -790,7 +790,9 @@ over its range in K steps, the ghost driven through its robotic playback with th
 The atlas gains a frame axis; per-frame measures give a curve. The viewer plays real and ghost in
 lock-step with a scrubber. GIF / APNG files are written by `part_parity_view.py --gif` (stdlib, the
 `gui_mirror.py` PNG codec plus a small LZW / palette writer), not in the browser, where `file://`
-blocks the pixel reads an encoder needs.
+blocks the pixel reads an encoder needs. The concrete P7 plan is Appendix H: it keeps the real
+side's clip live (a sampled real side cannot show a ghost that starts late or snaps) and poses the
+ghost afterwards at each real frame's exact UT.
 
 ### 9.3 Plumes and other FX
 
@@ -921,7 +923,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
 | P5 (DONE 2026-11-23, Appendix F) | Baseline + accepted list; gate armed after a second matching reading run. BUILT: `partparity.gate_sweep` (10), `harness/partparity/baseline-<profile>.json` for all six labels, `accepted.toml` (72 entries), `part_parity_baseline.py`, the viewer's `--pinned` mode (8), the real-vs-real control's noise allowance (4.5). PP-1 to PP-4 armed; PP-5 / PP-6 report-only (canopy airflow). | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. PLANNED 2026-11-22 (Appendix D, rev 2): 12 transformation families, two ghost routes per state case, the jettison node contexts, chutes deployed for real in the air near KSC, the FGV fairing contexts, new report-only lanes PP-3 / PP-4 (orbit) and PP-5 / PP-6 (air). | Chute and deployables covered: every in-scope state case on both installs has a sidecar or a recorded setup fault, the state controls behave, the press gate holds, the owner reads stowed and deployed side by side. |
-| P7 | Animation strips + GIF / APNG (9.2). | Antennas, panels, robotics scrubbed in lock-step. |
+| P7 | Animation strips + GIF / APNG (9.2). PLANNED 2026-11-26 (Appendix H, rev 1): motion cases for the P6 families reached by motion plus servos and control surfaces; the real clip live, frames every T / 8 from the press, the ghost primed afterwards at each real frame's UT (same time) and at the same progress; timing measures (lag, duration ratio, curve shape, snap, steps) judged, per-frame pictures report-only; timing controls (real-vs-real, slowed and late ghosts); new report-only lanes PP-14 / PP-15 and an air label in PP-5 / PP-6; four motion defects read from the code (H.6). | Antennas, panels, robotics scrubbed in lock-step. |
 | P8 | Plumes and FX (9.3). PLANNED 2026-11-22 (Appendix E, rev 2): engine plumes and smoke, RCS puffs (the ghost's all-nozzle firing a known difference, owner ruling R4), engine and RCS glow (body atlas), `ModuleAnimateHeat` glow, the light a lamp casts on a plate; stochastic effects compared as accumulated coverage and colour from 8-bit tiles with split-half convergence and broken-plume controls; Waterfall cases reference-only; a Waterfall-free `modded-restock` profile; new report-only lanes PP-7 / PP-8 / PP-9 (orbit), PP-10 and a jet label in PP-5 / PP-6 (air); a later flight-camera reentry reference lane (R1). | Engine plumes compared on stock and on ReStock without Waterfall; reference-only on Waterfall: every in-scope FX case on every install has a sidecar or a recorded setup fault, the FX controls behave, the owner reads real and ghost plumes side by side. |
 | P9 | Effects Parsek builds itself. PLANNED 2026-11-26 (Appendix G, rev 1): explosions (stock FXMonger on both sides and Parsek's stand-ins), the decouple / joint-break puff, launch dust against stock `ModuleSurfaceFX`, reentry fire, glow and char against stock `AerodynamicsFX` and blackbody; bursts sampled in time bins over repeated trials; rig lanes PP-11 / PP-12, flight lanes FXC-1 (reentry, splash) and FXC-2 (pad launch, crash), all report-only. | Every in-scope burst and dust case on stock-minimal and modded-restock has a sidecar or a recorded setup fault, the burst and dust controls behave, the owner reads the FXC reference pages. |
 
@@ -4113,3 +4115,431 @@ there). Definitions, which `partparity.py` transcribes (`burst_measure_bin`, `bu
 - Build. The comparison is built, then each mismatch it reads is fixed in its own PR with before /
   after pictures (Y1 to Y7), X0 first and X2 after ghost-fx-9 merges; flights run on the
   operator's go only.
+
+## Appendix H. P7 plan: motion over time (rev 1, 2026-11-26)
+
+Status: PLAN, not built. Owner approval to plan: 2026-11-26. Review: H.9. P6
+compares a moving part's two END states (stowed, and the state after its done signal) and P8 its
+effects; neither looks at the motion between them. P7 photographs the motion itself, real and ghost,
+at fixed times after the press, and measures when it starts, how fast it runs, the shape of its
+curve, the in-between pose, and when it ends.
+
+Section 9.2 planned the real side as a sampled clip (`normalizedTime = t`, `speed = 0`,
+`Animation.Sample()`). That is kept only as a per-frame READING of stock's own clock (H.2): a real
+side posed by Parsek cannot show a ghost that starts late, runs at the wrong speed or snaps, which
+is what the code already suggests (H.6). So the real part plays its motion live, in game time, and
+the ghost is posed afterwards at exactly the game UT each real frame was taken.
+
+### H.1 What "same over time" means, and which parts
+
+A MOTION CASE is one press of one transforming part, from its stowed state to its target state
+(`motion-<state>`, below), on the event route: the ghost built from the stowed snapshot plus the
+events the recorder's own pollers emitted during the real motion (D.5 `ghost` row), exactly what a
+recording made during that motion replays. The start route has no motion (it begins at the
+target) and the stowed reference does not move, so neither has a motion row.
+
+Per side the case reads a PROGRESS curve p(t) in [0, 1] over the time t since the press:
+
+- Pose progress (primary). The family's moved transforms (H.2: the ghost's own deploy transform
+  list, paired by part path with the real part's transforms; a servo's moving transform; a chute's
+  canopy transform). For each transform, its travel since frame 0, accumulated frame to frame (so a
+  turn past 180 degrees is not folded back), over its total travel on that side: position, rotation
+  and scale, whichever moved most. A transform that moves less than 0.5 deg and 1 mm on a side is
+  left out. The side's p(t) is the travel-weighted mean. Each side is normalised by its OWN frame 0
+  and its own final pose, so an end-pose difference (P6's finding) does not bend the curve.
+- Picture progress (secondary, recomputable in Python from the atlas). Per view, a(t) = tolerant
+  mismatch pixels (section 6) between frame t and frame 0 of the same row, b(t) = against the row's
+  last frame, p = a / (a + b) (0 when both are 0).
+
+From each curve, by linear interpolation, the first crossing times t02 (start), t10, t50, t90 and
+t98 (end): the real's between its frames (T / 8 apart, H.2), the ghost's on its 50 ms scout grid
+(H.2), which the sidecar carries so Python recomputes both. Measures per case:
+
+| Measure | Definition | What it catches |
+| --- | --- | --- |
+| `eventDelayS` | first polled event UT minus the press UT | when the recording says the motion happened |
+| `ghostStartDelayS` | the ghost's transition start UT (read from its own playback info after the event replay) minus the press UT | the event UT on the ghost against the real press time |
+| `lagS` | ghost t50 minus real t50 | a ghost that runs late or early |
+| `onsetLagS`, `endLagS` | the same at t02 and at t98 | start time, end time |
+| `durationRatio` | ghost (t90 - t10) over real (t90 - t10) | rate |
+| `curveShapeDev` | max over the real frames with 0.05 < p < 0.95 of `|p_ghost(t + lagS) - p_real(t)|` | the curve's shape once timing is taken out (a straight line against stock's eased or staged clip) |
+| `staggerDev` | the same per transform, the largest over transforms | a staged clip played all at once |
+| `travelRatio` | per transform, ghost total travel over real | a rotation that takes the short way round |
+| `motion-snap` | the ghost rises from under 0.1 to over 0.9 between two adjacent frames while the real takes 3 frames or more | a snap where stock animates |
+| `motion-stepped` | the ghost holds still over 2 or more adjacent frames, twice or more, while the real rises more than 0.05 per frame | a staircase (servo samples) |
+| `motion-not-modelled` | the real reaches 0.9 and the ghost never reaches 0.1 in the window | a motion the ghost does not show at all |
+| `angleMaxDevDeg` | servos only: max over frames of the angle (or travel) difference at the same time | servo pose over time |
+
+The in-between POSE at fixed fractions is compared in two rows (H.2): the ghost at the same time
+as the real frame (timing and pose together), and the ghost at the same PROGRESS as the real frame
+(pose only, timing removed). A ghost that is late but has the right in-between poses fails the
+first row and passes the second; a ghost on time with straight-line poses passes on timing and
+shows in the second row and in `curveShapeDev`.
+
+Families and cases. Every P6 family whose state is reached by motion, with P6's own predicates,
+presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to P7:
+
+| Family (P6 id) | Motion case | Stock / modded cases | Notes |
+| --- | --- | --- | --- |
+| `deployable` (panels, antennas, radiators) | `motion-deployed` | 19 / 22 | sun trackers: the tracking pivot is left out of the progress transforms (its slew after the done signal is P6's, D.3) |
+| `gear` (gear, legs, deploying wheels) | `motion-deployed` | 8 / 9 | free-fall droop as P6 (`context-dependent`), which moves no deploy transform |
+| `ladder` | `motion-deployed` | 2 / 2 | |
+| `animation-group` (drills, in orbit) | `motion-deployed` | 3 / 4 | the stock ISRU stays `auto-deploy` (D.1) |
+| `cargo-bay` | `motion-open` | 8 / 9 | |
+| `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
+| `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
+| `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
+| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 22 `BaseServo` parts with the rotors (D.1), counted per install by M1 | target swept (H.2); rotors excluded (`rotor-spin-not-primed`, below) |
+| `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 parts (D.1), counted per install by M1 | the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
+
+Not in P7, each a manifest exclusion with its reason (never silently dropped):
+
+- `motion-physics`: jettisons and fairings. The shroud or panels leave as free physical objects
+  and the ghost hides them at the event; there is no animation on either side (P6 covers the end).
+- `light-fade`: lights and cabin lights. A brightness ramp, not a motion, and the ghost snaps it on
+  by design (`GhostPlaybackLogic.HeatDeployablesLights.cs:1057-1060`); selectable by name
+  (`motion=light`) for a reading run, never in `motion=all`.
+- `synthesized-from-trajectory`: engine gimbals and control-surface flight deflection. The ghost
+  derives them from its own body rates (`GhostPlaybackLogic.SynthesizedMotion.cs:25-31`) and the
+  recorder records no gimbal, so a held lone part has nothing to compare; they need a flown vessel
+  (a later reference lane, like P8's R1).
+- `loop-phase`: running drills, converters and spinning scanners (`ConverterLoopGhostInfo`), whose
+  phase depends on the start time (PARTPARITY-SPIN-PHASE); their period is a later P7 piece.
+- `ground-scan`: `ModuleRobotArmScanner` (extends only while scanning a surface feature).
+- `rotor-spin-not-primed`: rotors (`ModuleRoboticServoRotor`). A primed ghost never spins one:
+  `PrimeHiddenPartStateAtUT` re-walks every event from the first
+  (`Ghost/GhostPlaybackEngine.InRangeRender.cs:678-690`), `ApplyRoboticEvent` stamps
+  `lastUpdateUT` with the prime UT on each (`GhostPlaybackLogic.Robotics.cs:293`), and
+  `UpdateActiveRobotics` then advances nothing (`deltaSeconds <= 0`). A rotor needs a ghost
+  stepped frame to frame past its last event, a later P7 piece.
+
+Case ids: the 5.2 rule with the motion word as the state (`longantenna--default--motion-deployed--
+<hash>`, `parachutesingle--default--motion-semi--air--<hash>`), so no P6 id moves. Motion cases run
+at the base skin (R2).
+
+### H.2 Capture
+
+Host and waves: P6's (4.1, D.3): the orbit host `eva2-lko-crewed`, every other slot (4 cases a
+wave, 80 m apart), the host guard, resume and `inflight.txt`; the air host and the showcase band of
+D.4 for chutes. Each wave is pressed in one frame. P6's preparation runs first on every case (the
+ReStock depth-mask repair, the colour-changer leak repair, stowed inputs, authored electric charge
+for servos as for lights).
+
+Holding the scene still: the P6 rig. The ghost is parented to the real part's root at zero offset,
+the views are fixed in the PART's frame (4.3) and the key light is camera-relative (D5), so a ghost
+tile taken after the real motion ended is the same picture it would have been at that frame: the
+part's drift between the real frame and the ghost render changes nothing in part space. The real
+side is the subject's own renderers; context fillers are hidden on every side (D.3).
+
+Frame schedule (pure, `PartParityMotionRules.PlanFrameTargets`):
+
+- `T`, the predicted motion time, read from the real part on the first frame after the press: its
+  playing `AnimationState` `length / |speed|` (stock's own clock); a servo `|target - start| /
+  traverseVelocity`; an airbrake or control surface `deployAngle / actuatorSpeed`; a chute the semi
+  or full clip over its module speed (confirmed by M0, U6). Clamped to [0.25, 30] s.
+- Targets `t_k = k T / 8` from the press (frame 0 at the press frame, before stock moves anything).
+  Capture continues at that spacing until the real done signal (P6's rule, D.3) plus the GHOST's own
+  expected run (its built clip length, known before the press from the framing ghost below; a
+  servo's 0.25 s stop hold) plus 0.5 s, so a ghost that starts when the real ends is still in the
+  window: about 17 to 25 frames for a clip (a window of about 2 T + 1 s); past 33 frames the
+  spacing doubles; a 40 s cap ends the window (flag `motion-window-capped`). A control's altered
+  route (H.3) extends the window by its own change (its doubled clip, its 1 s shift).
+- A target is taken on the first end-of-frame at or after it; the actual offset is recorded
+  (`realS`), and a frame later than T / 16 is tagged `frame-jitter:<ms>`. The ghost rows use the
+  actual offsets, so the same-time pair has no time skew at all.
+
+Real side, live: at each target frame, after `WaitForEndOfFrame`, the case renders ONLY the real
+side (the ghosts do not exist yet, apart from the framing ghost, hidden) through
+`PartParityCapture.CaptureSides` with one side, two clears, the motion views (below), and keeps the
+composed RGBA tiles in memory (256 px: 16 frames x 2 views is 4 MB a case). Each frame also records
+the game UT, stock's own clock (`realClock`: the module's `AnimationState.normalizedTime`, a
+servo's position, a surface's deflection, a canopy's scale), the module's state field, and the
+local pose of every progress transform. Per frame cost: 2 views x 2 clears at about 2.2 ms each
+with readback (E.8, U6), about 35 ms for a wave of 4 on a target frame, nothing in between.
+
+The recorder's pollers run every frame into the case's `PartParityPollSink` (D.3, unchanged), so
+the events are those `FlightRecorder` would append. Servos poll through the shared robotic poll
+(M2). The press gate, `action-failed` and `state-timeout` are P6's.
+
+Framing box: the motion sweeps through poses neither end state shows, and the box must be known
+before the first real frame. Before the press the case builds a FRAMING GHOST from the stowed
+snapshot (the D2 seam) and reads its box stowed and at the motion's target (posed through the
+family's own applier: the deploy infos snapped to 1 through the baseline overload, a servo at its
+target value, a canopy at its stage's pose; a pose used for framing only, never measured or
+shown); the shared box is the union of the real stowed box (the 4.2 rule) and both framing-ghost
+boxes, grown 20 %. A frame whose real or ghost coverage touches the border is tagged
+`motion-clipped-at-border` (report-only; the reading flight re-pins the margin). The framing
+ghost is destroyed before the ghost rows are built.
+
+Ghost side, after the real motion: once the window has ended,
+
+1. A SCOUT ghost (event route: the stowed snapshot, the stowed seeds at `t0`, the polled events at
+   their UTs) is primed through `GhostPlaybackEngine.PrimeHiddenPartStateAtUT` at the union of a
+   50 ms grid over the window and every real frame's own UT, in increasing UT, unrendered, reading
+   its own pose progress at each prime. That gives p_ghost(u) densely, and exactly at every
+   same-time UT, with no shortcut.
+2. For each real frame k: the same-time UT is the real frame's own UT; the matched UT is the first
+   scout UT where p_ghost reaches the real frame's progress (interpolated between the two scout
+   points that bracket it; at p = 0 and 1 the ghost's own first and last pose; none when the ghost
+   never reaches it, or when the bracketing interval holds a jump (its two points differ by more
+   than 0.25, a snap or a servo step): tile left empty, flag `no-match` on that frame).
+3. A RENDER ghost, built the same way, is primed once at every UT of the merged, increasing list of
+   same-time and matched UTs, and each primed pose is captured into its row with the real side's
+   renderers `forceRenderingOff` (4.4), two clears. A same-time render's pose progress must equal
+   the scout's at that exact UT within 1e-4, and a matched render's must be the progress it targeted
+   within the scout's own change across the interval it was interpolated in (else the instrument flag
+   `scout-render-disagree`), so a snap or a step the defects of H.6 predict is never read as an
+   instrument fault. Primes go only forward in UT, and each re-walk lands on the same pose because
+   the pose is a pure function of the event UTs (D.5); for a part with a sun
+   tracker, uncaptured sub-primes keep every step under `MaxSynthSampleSeconds` (1 s,
+   `GhostPlaybackLogic.SynthesizedMotion.cs:19`).
+
+Views: `side-a` and `side-b` (4.3) at 256 px by default (`views=` widens them, `tile=` sets the
+size); a motion row of 17 frames is a strip, not a still, and the end states at 512 px are P6's.
+
+The motion atlas `<caseId>.motion.png`: rows `real:<view>`, `ghost:<view>` (same time),
+`ghost-matched:<view>` (same progress) for each view, columns the frames in order: 6 rows x 17
+columns of 256 px (4352 x 1536 px) by default. It is the case's strip: the viewer crops and plays it
+(H.5) and `--gif` turns it into an animation. The P6 four-row still atlas is not written by a
+motion case.
+
+Measures per frame (C# `PartParityMotionMetrics`, pure, over the 8-bit tiles it writes, so Python
+recomputes them exactly): for the same-time and the matched pair of each view, P6's shape and colour
+measures (section 6: tolerant mismatch, largest blobs, IoU, colour blob), the picture progress of
+every row, and the pose progress values of both sides. The timing measures of H.1 are pure functions
+of the per-frame arrays (`PartParityMotionRules`, xUnit on synthetic curves) and are written beside
+them.
+
+Robotics: the real servo is unlocked and driven the way its PAW slider does (the module's
+`targetAngle` / `targetExtension` field set through its `BaseField`, motor engaged, authored
+electric charge), from its rest value to the nearer of +45 deg (hinge, rotation servo; half the
+travel for a piston) and its range limit, at its own `traverseVelocity`. Done: the moving signal
+false and the position within the module deadband of the target. Rotors are excluded (H.1).
+
+Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler's radial node so the
+centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
+hidden and left out of the records like a stacked filler. Press: the module's deploy action
+(KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3).
+
+Sidecar (`parsek-part-parity-case/1`, additive keys, every key always written, null when not
+measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` block (`family`,
+`kind` `clip|servo|surface|canopy`, `pressUT`, `predictedS`, `ghostClipS`, `eventDelayS`,
+`ghostStartDelayS`, `window` {`endS`, `spacingS`, `capped`}, `scout` {`stepS`, the ghost's pose
+progress at every grid UT}, `frames[]` {`k`, `targetS`, `realS`,
+`realClock`, `realProgress`, `ghostProgress`, `matchedS`, `imgProgress` per row and view, `views[]`
+with `same` and `matched` measure blocks}, `transforms[]` {`path`, `travelReal`, `travelGhost`, the
+per-frame fractions of both sides}, `timing` {`real` and `ghost` crossings, the H.1 measures and
+flags}), `motionAtlas` {`file`, `tile`, `rows`, `cols`}; the manifest's `settings` gain `motion` and
+`frames`. `stateProof` (D.2) keeps the press, done signal and events, so the press gate reads a
+motion case like a state case.
+
+### H.3 Controls, verdicts, report-only
+
+Controls (`TestCommandPartParitySweep.ControlSetFor` on both sides, as D.2). An orbit motion run
+records `ctl-empty`, `ctl-ghost-absent`, `ctl-real-vs-real` (the capture primitive, unchanged) and
+three motion controls, the real-vs-real and late controls on `longAntenna` (the P6 state controls'
+subject) and the slow control on `airbrake1` (below), each judged RELATIVE to its own normal event route, so the product's own timing (H.6) cannot move a control:
+
+| Control | Subject and change | Required |
+| --- | --- | --- |
+| `ctl-motion-real-vs-real` | two `longAntenna` in one wave, pressed in the same frame; copy B's live frames stand in for the ghost rows (same index; no matched row) | both copies' curves agree: `|lagS|` at most one frame interval or 0.02 T, `|durationRatio - 1| <= 0.05`, `curveShapeDev <= 0.05`; frame 0 and the last frame within the real-vs-real allowance of 4.5. This is the timing noise floor of the live capture. |
+| `ctl-motion-ghost-slow` | `airbrake1`, a START-marked family: its event marks the start of stock's motion, so the ghost's transition starts at the event and runs its built clip. The normal case plus a second event route whose built deploy info has its clip length doubled (the rig's own ghost instance, after the build; no production code changes). Not `longAntenna`: an END-marked family plays its motion over [event UT - motion, event UT] with the motion time stamped from the clip at build (#2838, `GhostPlaybackLogic.DeployMotionEnd.cs`), so a doubled clip after the build changes nothing and a doubled motion time moves the start before the press | `durationRatio(slow) / durationRatio(normal)` in [1.9, 2.1], the onset unchanged within one frame interval, the slow route failing on duration while its last frame passes the P6 end-state rules: an end-state comparison cannot see it, the motion judge does |
+| `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02, the late route failing on lag |
+
+An air motion run records `ctl-empty`, `ctl-ghost-absent` and `ctl-motion-real-vs-real-air` (two
+`parachuteSingle` pressed together, the canopy-scale curves only). A control that does not behave
+is INVALID(parity-controls).
+
+Verdicts (`harness/lib/partparity.py`, `judge_motion`; every threshold a constant at the top of the
+module, starting guesses re-pinned from the reading runs against the controls, no flight needed):
+
+| Level | Rule |
+| --- | --- |
+| `fail` | `motion-not-modelled`; `motion-snap`; `|lagS| > max(0.5 s, 0.25 T_real)` (T_real = real t98 - t02); `durationRatio` outside [0.6, 1.67]; `curveShapeDev > 0.30`; servos `angleMaxDevDeg > max(5 deg, 0.15 x sweep)`; on the two new families only (servos, control surfaces), the last frame judged by the P6 picture and structure rules |
+| `warn` | each numeric line at half its distance from the ideal value (lag and deviations at half, ratios outside [0.8, 1.25]); `motion-stepped` |
+| `error` | a P6 setup fault (`action-failed`, `state-timeout`, ...), `frames < 5`, or no real frame reaching 0.9 inside the window (the window rule failed) |
+
+Report-only from the start, never in a verdict: the per-frame picture verdicts (a late ghost fails
+every in-between frame; the timing measures carry that finding once), `staggerDev`, `travelRatio`
+(`travel-differs` outside [0.9, 1.1]), picture progress and its disagreement with pose progress
+(`progress-disagree`, an instrument hint, when the two t50 differ by more than two frame intervals),
+`motion-clipped-at-border`, `frame-jitter`, the chute pictures (canopy aim, D.4), and the
+last frame of every family P6 already judges.
+
+Gates, as P6 / P8, in the same order: host-damaged > controls (the motion set) > state-press (the
+motion families) > instrument > incomplete. The instrument gate recomputes, for every control and
+`ceil(2 %)` of the motion cases (at least one; `random.Random(<runId>)`), each frame's measures and
+picture progress from the motion atlas, and for EVERY motion case the H.1 crossings and measures
+from the sidecar's per-frame arrays (a pure function, exact to 1e-9); `scout-render-disagree` on
+any case is a mismatch. The lanes are report-only (`gating = false`); arming follows the P5 rule
+(two matching reading runs, a baseline section per label with regression keys
+`<caseId>/motion/<measure>`, an accepted list for the known differences of H.6).
+
+### H.4 Lanes and wall time
+
+Measured basis: P6 orbit state cases about 3.3 s per case at waves of 4 with one done wait (D.8);
+E.8's 2.2 ms per render with readback. A motion case waits two motion times instead of one (the
+window of H.2) and adds its ghost rows after the window: 17 frames x 2 rows x 2 views x 2 clears =
+136 renders, about 0.3 s, plus about 200 unrendered scout primes per 10 s of window (under 0.1 s).
+Planning rate 5 s per case (P6's measured rate plus the second wait, with P6's lesson that the first
+estimate ran 50 % low).
+
+| Lane | Install | Cases (motion + controls) | Sweep estimate | Steps (480 s, +50 %) | `budgetSeconds` |
+| --- | --- | --- | --- | --- | --- |
+| PP-14 (new, `pp14`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
+| PP-15 (new, `pp15`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
+| PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
+
+Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
+motion=all controls=true maxSeconds=480`, quit without saving; tier `operator`, report-only,
+`[retry] policy = "none"`, one slot each, on the installs PP-1 to PP-4 use. The orbit lanes are new
+lanes and not a label in PP-3 / PP-4, because those are ARMED and the P5 gate reds a label with no
+baseline section (`no-baseline`, Appendix F). The chutes join PP-5 / PP-6 (report-only) as a third
+label with its own reset and run step, since 70 s of sweep does not earn its own boot and LoadGame
+(fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s).
+No modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the ReStock
+models. Each lane's first flight is a `limit=20` reading flight and its step count is set from its
+`wall=` (D.8). PP-11 is taken (the mod-parts lane, branch `mod-parts`, PR #2836), so Appendix G's rig lanes,
+written as PP-11 / PP-12, move up when P9 builds them; PP-12 and PP-13 are left to them, and
+PP-14 and PP-15 are free on `origin/main` and on every remote branch (re-checked 2026-11-27). Expected wall per full pass: about 700 s (PP-14), 760 s (PP-15), plus about 90 s on
+each of PP-5 / PP-6.
+
+Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
+300 m terrain guard ends a case `died-settling`. If the reading flight shows it, the motion label
+spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
+
+### H.5 Viewer
+
+- A motion case joins its part's skin like a P6 state case (D.7), its family words after P6's and
+  P8's (`motion-*` states), with its chips: lag, duration ratio, curve shape, and the flags.
+- Strip block, per view: REAL | GHOST same time | GHOST same progress | DIFFERENCE (real against the
+  same-time ghost), CSS crops of the motion atlas. One JavaScript clock sets a single CSS variable
+  (the frame index) that every row's `background-position` reads, so all rows move in lock step;
+  Play / Pause plays the frames at their REAL offsets (true speed, with a 0.25x toggle), since the
+  frames are not evenly spaced in time (window extension, doubled spacing) and CSS `steps(K)` (the
+  F5 strips) assumes they are; a scrubber (`input type=range`) sets the frame; with
+  `prefers-reduced-motion` the strips start paused. No canvas, so it works on `file://`.
+- Timing chart, inline SVG per case: real and ghost pose progress against the seconds since the
+  press, the press and the event UT as ticks, t10 / t50 / t90 marks, the lag drawn between the two
+  t50 marks, and the scrubber's frame as a vertical line.
+- Details: the per-frame table (offset, stock clock, both progresses, the same-time and matched
+  measures per view), the per-transform travel and stagger, the press and event proof.
+- Filters: Family gains `robotics`, `control-surface`; a Motion flags filter (`motion-snap`,
+  `motion-stepped`, `motion-not-modelled`, `travel-differs`, `progress-disagree`). Regression:
+  per measure moves past its own warn distance, and flags added or dropped.
+- `--gif` (the reserved flag of section 8, built here): per motion case an animated PNG
+  `<caseId>.motion.apng` (default) or a GIF (`--gif-format gif`), each frame the `side-a` REAL |
+  GHOST same time | GHOST same progress tiles side by side, each frame shown for its real duration
+  (at least 20 ms). Stdlib only: the atlas decoded by `gui_mirror.py`'s `read_png`, APNG written as
+  zlib plus the `acTL` / `fcTL` / `fdAT` chunks, GIF through a median-cut 256-colour palette and an
+  LZW writer. Written under the site's `img/`, linked from the case; the case row's `strips` slot
+  (`part_parity_view.py`, now `None`) carries the motion atlas and the animation paths.
+  Round-trip decode tests in `harness/lib/test_part_parity_view.py`.
+
+### H.6 Motion defects visible from the code (to be measured by P7)
+
+Read on `origin/main` a3812a8d4. Each is a hypothesis until the reading flight measures it (M0
+checks the first live); filed as todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26. Item 1 was confirmed
+live and fixed on playback by PR #2838 (2026-11-26, owner approval), which also carries the todo entry: the five end-marked
+families now play their motion over [event UT - motion, event UT], the motion being the clip at the
+module's own speed over its travel. The motion lanes of H.4 keep measuring it, so a regression shows
+as lag again.
+
+1. A deploy plays one clip LATE on the ghost, for five of the seven in-orbit families. The pollers
+   emit only at the END of stock's motion: deployables skip `EXTENDING` / `RETRACTING`
+   (`Recording/PartStatePoller.cs:737-739`), gear skips "Deploying" / "Retracting" (`:776-777`), a
+   cargo bay mid-travel reads neither open nor closed (`Recording/FlightRecorder.Classifiers.cs:261-276`),
+   a standalone animate generic is deployed only at `animTime >= 0.99`
+   (`FlightRecorder.Classifiers.cs:86-90`, read at `FlightRecorder.ReflectionClassifiers.cs:856`),
+   a ladder's `Extending` name reads as unknown (`FlightRecorder.ReflectionClassifiers.cs:805`). The
+   ghost then STARTS its transition at that event UT
+   (`Ghost/GhostPlaybackLogic.HeatDeployablesLights.cs:615-618`) and runs one clip from there
+   (`:201`). So a replayed panel, gear leg, bay door or ladder begins to move when the real one had
+   finished, and finishes one clip after it: several seconds for a large panel or bay, and a gear
+   deployed just before touchdown is still swinging out when the ghost lands. P6's own event-route
+   prime at `tE = last event UT + clip + 1 s` (D.5) is consistent with this. Animation groups (their
+   `isDeployed` is set before the clip, D.3), the airbrake (read from its event activity at the
+   press, `FlightRecorder.ReflectionClassifiers.cs:886-905`) and chutes (state set at the start)
+   emit at the start, so they do not lag.
+2. The in-between pose is a straight line between two sampled ends. The ghost samples a clip at two
+   times only (`Ghost/GhostVisualBuilder.AnimationSampling.cs:523-536`, the scored branch `:470-508`)
+   and poses every transform at one shared fraction with `Lerp` / `Slerp`
+   (`GhostPlaybackLogic.HeatDeployablesLights.cs:249-254`). Stock's keyframe curves (ease in and
+   out), a staged clip (one panel segment after another) and a transform that turns more than 180
+   degrees (Slerp takes the short way) are lost: `curveShapeDev`, `staggerDev`, `travelRatio`.
+3. Chutes snap open. The semi and full canopy poses are written at once
+   (`Ghost/GhostPlaybackLogic.PartEvents.cs:916-919`, `:1702-1705`), while stock plays its clips
+   over seconds: the five stock-minimal chutes carry `semiDeploymentSpeed = 0.5` and
+   `deploymentSpeed = 0.12` / `0.16667` (the install's ConfigCache; that they are the clip speeds is
+   M0 U6), and P6 measured semi done 1.7 to 3.5 s after the press and full 4.9 to 13 s (D.4).
+   `motion-snap`.
+4. Servos move in 4 Hz steps. A hinge, rotation servo or piston ghost is posed only when an event
+   is applied (`Ghost/GhostPlaybackLogic.Robotics.cs:287-300`); the per-frame pass advances only
+   rotors and wheels (`:353`, `:371`, `:411`); the recorder samples a moving servo at most every
+   0.25 s on a deadband change (`Recording/FlightRecorder.cs:606`, `BackgroundRecorder.cs:209`). So a
+   sweep replays as a staircase up to one sample behind: `motion-stepped`, `angleMaxDevDeg`.
+
+To measure, not claimed: an airbrake or control surface has no Animation, so its ghost runs the
+3 s default clip (`GhostVisualBuilder.AnimationSampling.cs:732-740`,
+`GhostPlaybackLogic.HeatDeployablesLights.cs:150`) where stock moves at `actuatorSpeed` (the
+`airbrake1` config: 20 deg/s), so the duration is right only for a 60 degree deploy; a part with
+two clip-driven families shares one clip length, last written wins
+(`GhostVisualBuilder.AnimationSampling.cs:459`).
+
+### H.7 Work breakdown
+
+Rule (D.10, E.9): two pieces in flight never touch one file, each is green on its own, and every C#
+literal a Python cell mirrors changes in ONE piece with its mirror. M1 adds the mirrored
+`PartParityMotionRules.cs`, holding every motion constant. Docs: each piece edits only its own H
+subsection.
+
+| # | PR | Files | Runs alongside | Acceptance |
+| --- | --- | --- | --- | --- |
+| M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
+| M1 | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
+| M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs` | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green |
+| M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
+| M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
+| M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
+| M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
+| M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
+
+Order: M0; then M1 and M2 together; M3 and M4 together (M4 on M1's synthetic helpers); M5 after
+M4; M6 after M3 and M4; M7 after M3 (its lanes after M6). The C# pieces get the end-of-task review;
+M2 carries its IL fold proof as its review evidence.
+
+What P7 reuses from P6 and P8 unchanged: the D.1 family table, predicates, presses, done signals,
+timeouts and exclusions; `PartParityPollSink` and the shared pollers; the case preparation and its
+two repairs; `GhostCoOrbitalRig.TryBuildGhostFromSnapshot`, the D2 seam and
+`PrimeHiddenPartStateAtUT`; the capture primitive `CaptureSides`, the light rig and the double
+clear; section 6's measures and their Python recompute; the wave slots, worst-case admission, host
+guard, resume, harvest and archive; the press gate and the gate order; the air context; F5's strip
+crops and play button (extended to a clock).
+
+### H.8 Owner questions
+
+None block the plan. Item 1 of H.6 is decided (owner, 2026-11-26: fix on playback, done in #2838).
+Two decisions follow the reading flight, each about a fix, not about P7:
+
+- H.6 items 2 to 4 (curve, chute snap, servo steps): each is playback-only (more clip samples at
+  build, the canopy clip over stock's speeds, interpolation between servo samples) and records
+  nothing new; the reading flight shows how visible each is at playback speed.
+- Whether the P7 lanes are armed once two reading runs match (P5 rule), or stay report-only.
+
+### H.9 Review disposition
+
+Rev 1 had a self-review against the code (the window for a late or slowed control route, the
+ghost crossings read from the scout grid, the framing pose per family); the clean-context review
+(merge-blocking findings only) ran on 2026-11-27, after the merge with main that renumbered this
+plan from Appendix G to H and its orbit lanes from PP-12 / PP-13 to PP-14 / PP-15. Its findings and
+their fixes:
+
+- The slow control could not pass on `longAntenna`: since #2838 an end-marked family plays its
+  motion over [event UT - motion, event UT] with the motion time stamped at build, so doubling the
+  clip after the build changed nothing and doubling the motion time moved the start before the
+  press. Fixed: the slow control's subject is `airbrake1`, a start-marked family (H.3).
+- H.8 still listed the item 1 fix as open after H.6 recorded it fixed in #2838. Fixed (H.8).
+- H.4's sentence on Appendix G's lane ids disagreed with Appendix G, which names PP-11 / PP-12 while
+  the mod-parts branch already holds PP-11. Fixed: H.4 says G's ids move up when P9 builds them.
+- The todo entry GHOST-DEPLOY-MOTION-TIMING-2026-11-26 pointed at Appendix G.6. Fixed (H.6).
+- Minor: M3 named the wrong file for the `DecideAdmission` call the hlib cell reads. Fixed (H.7).

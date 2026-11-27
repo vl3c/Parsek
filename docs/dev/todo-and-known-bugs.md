@@ -75,7 +75,7 @@ What: looping `bdock-recorded` tree 2 (Kerbal X #2, `scheduled=yes owner=9 phase
 
 Resolution (2026-11-27): the recorded approach on `bdock-recorded` has no Relative section (every track section of the docking ship's recording `5157d655` is Absolute or an on-rails checkpoint), so a loop, which replays it at a later UT, puts the ghost where the rendezvous happened on the original timeline while the live station has moved on along its orbit. Only a Relative-frame approach can loop next to the live target (the loop positioner anchors it to the live vessel, as RL-1 does). The owner withdrew WL-3; the recorder question is WATCH-LANE-BDOCK-APPROACH-RECORDED-ABSOLUTE. Watching a dock waits for the planned watch-any-ghost-at-any-distance feature (owner, 2026-11-27).
 
-## GHOST-DEPLOY-MOTION-TIMING-2026-11-26: a replayed deploy started when the real one had finished, and its in-between motion is not stock's [FILED 2026-11-26 from the part parity P7 plan (`docs/dev/design-part-ghost-parity.md` Appendix G.6, PR #2834), by code reading on main a3812a8d4; item 1 FIXED 2026-11-26 on playback (branch `motion-lag`), items 2 to 4 OPEN; product, medium]
+## GHOST-DEPLOY-MOTION-TIMING-2026-11-26: a replayed deploy started when the real one had finished, and its in-between motion is not stock's [FILED 2026-11-26 from the part parity P7 plan (`docs/dev/design-part-ghost-parity.md` Appendix H.6, PR #2834), by code reading on main a3812a8d4; item 1 FIXED 2026-11-26 on playback (branch `motion-lag`), items 2 to 4 OPEN; product, medium]
 
 What:
 
