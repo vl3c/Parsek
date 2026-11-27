@@ -69,6 +69,15 @@ namespace Parsek.InGameTests
         private static uint rootPartPid, boosterPartPid;
         private static FxReentryRig live;
 
+        // GameSettings.AERO_FX_QUALITY: 0 = stock aero FX off (AerodynamicsFX takes its
+        // disable branch while detailLevel <= 0, the FX camera stays off: no reentry flames, no
+        // Mach streaks); 1..3 = on, picking FXCamera's occlusion map size (512 / 1024 / 2048;
+        // 0 maps to 256) and the replacement shader index. 3 is stock's default and the highest.
+        // Every harness profile pins 0 (GT-8 low-detail pin), so the rig raises it for its run.
+        private const int AeroFxQualityMax = 3;
+        private static bool aeroQualitySaved;
+        private static int aeroQualityBefore;
+
         private Transform poseFrame;
         private Vector3 poseDirLocal, poseFocusLocal;
         private float poseDist;
@@ -119,6 +128,7 @@ namespace Parsek.InGameTests
 
         private void OnDestroy()
         {
+            RestoreAeroQuality("rig destroyed");
             RestoreCameraFx();
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             if (sideGhost != null) GhostCoOrbitalRig.DestroyLiveGhost(sideGhost);
@@ -167,6 +177,53 @@ namespace Parsek.InGameTests
         // stock aero FX state
         // ===================================================================================
 
+        private static int DetailLevel(AerodynamicsFX a) => a != null ? a.detailLevel : -1;
+
+        /// <summary>Re-runs the private OnSettingsUpdate of AerodynamicsFX (copies
+        /// AERO_FX_QUALITY into detailLevel) and of FXCamera (occlusion map size) - what stock's
+        /// GameEvents.OnGameSettingsApplied does, without waking every other subscriber. Falls back
+        /// to firing that event when the reflection lookup fails.</summary>
+        private string ReapplyAeroSettings()
+        {
+            var sb = new StringBuilder();
+            bool ok = true;
+            const BindingFlags F = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            AerodynamicsFX a = Aero();
+            MethodInfo ma = typeof(AerodynamicsFX).GetMethod("OnSettingsUpdate", F, null, Type.EmptyTypes, null);
+            if (a != null && ma != null) { ma.Invoke(a, null); sb.Append("aero.OnSettingsUpdate "); }
+            else { ok = false; sb.Append($"aero.OnSettingsUpdate unavailable(aero={(a != null)} method={(ma != null)}) "); }
+            MethodInfo mc = typeof(FXCamera).GetMethod("OnSettingsUpdate", F, null, Type.EmptyTypes, null);
+            if (FXCamera.Instance != null && mc != null) { mc.Invoke(FXCamera.Instance, null); sb.Append("fxCamera.OnSettingsUpdate "); }
+            else { ok = false; sb.Append($"fxCamera.OnSettingsUpdate unavailable(fxCam={(FXCamera.Instance != null)} method={(mc != null)}) "); }
+            if (!ok) { GameEvents.OnGameSettingsApplied.Fire(); sb.Append("fallback GameEvents.OnGameSettingsApplied.Fire "); }
+            return sb.ToString();
+        }
+
+        private void RaiseAeroQuality(string leg)
+        {
+            AerodynamicsFX a = Aero();
+            int detailBefore = DetailLevel(a);
+            if (!aeroQualitySaved) { aeroQualityBefore = GameSettings.AERO_FX_QUALITY; aeroQualitySaved = true; }
+            int settingBefore = GameSettings.AERO_FX_QUALITY;
+            GameSettings.AERO_FX_QUALITY = AeroFxQualityMax;
+            string how = ReapplyAeroSettings();
+            ParsekLog.Info(Tag, $"{leg} aero fx quality: AERO_FX_QUALITY {settingBefore.ToString(Ic)} -> {GameSettings.AERO_FX_QUALITY.ToString(Ic)} " +
+                $"detailLevel {detailBefore.ToString(Ic)} -> {DetailLevel(a).ToString(Ic)} saved={aeroQualityBefore.ToString(Ic)} via {how}| {AeroLine()}");
+        }
+
+        private void RestoreAeroQuality(string why)
+        {
+            if (!aeroQualitySaved) return;
+            AerodynamicsFX a = Aero();
+            int detailBefore = DetailLevel(a);
+            int settingBefore = GameSettings.AERO_FX_QUALITY;
+            GameSettings.AERO_FX_QUALITY = aeroQualityBefore;
+            aeroQualitySaved = false;
+            string how = ReapplyAeroSettings();
+            ParsekLog.Info(Tag, $"aero fx quality restored ({why}): AERO_FX_QUALITY {settingBefore.ToString(Ic)} -> {GameSettings.AERO_FX_QUALITY.ToString(Ic)} " +
+                $"detailLevel {detailBefore.ToString(Ic)} -> {DetailLevel(a).ToString(Ic)} via {how}| {AeroLine()}");
+        }
+
         private AerodynamicsFX Aero()
         {
             if (aero == null) aero = FindObjectOfType<AerodynamicsFX>();
@@ -187,7 +244,7 @@ namespace Parsek.InGameTests
             if (a == null) sb.Append("aero=none ");
             else
             {
-                sb.Append($"FxScalar={a.FxScalar.ToString("0.000", Ic)} state={a.state.ToString("0.000", Ic)} mach={a.machNumber.ToString("0.00", Ic)} " +
+                sb.Append($"detailLevel={a.detailLevel.ToString(Ic)} FxScalar={a.FxScalar.ToString("0.000", Ic)} state={a.state.ToString("0.000", Ic)} mach={a.machNumber.ToString("0.00", Ic)} " +
                     $"airDensity={a.airDensity.ToString("0.00000", Ic)} densityFactor={a.densityFactor.ToString("0.00000", Ic)} ");
                 if (a.fxLight != null)
                     sb.Append($"fxLight={a.fxLight.enabled}/{a.fxLight.intensity.ToString("0.00", Ic)}/({a.fxLight.color.r.ToString("0.00", Ic)},{a.fxLight.color.g.ToString("0.00", Ic)},{a.fxLight.color.b.ToString("0.00", Ic)}) ");
@@ -511,6 +568,7 @@ namespace Parsek.InGameTests
                 $"thermalStart={PhysicsGlobals.AeroFXStartThermalFX.ToString("0.00", Ic)} thermalFull={PhysicsGlobals.AeroFXFullThermalFX.ToString("0.00", Ic)} " +
                 $"densityFadeStart={PhysicsGlobals.AeroFXDensityFadeStart.ToString("0.0000", Ic)} watchCutoffKm={DistanceThresholds.GhostFlight.DefaultWatchCameraCutoffKm.ToString("0", Ic)} " +
                 $"ghostVisualRangeM={DistanceThresholds.GhostVisualRangeMeters.ToString("0", Ic)} {AeroLine()}");
+            RaiseAeroQuality("real");
             ConfigNode node = AuthorStack(host, out string partsDesc);
             ParsekLog.Info(Tag, "real author: " + partsDesc);
             if (node == null) { ParsekLog.Info(Tag, "real: ABORT parts missing"); yield break; }
@@ -640,6 +698,7 @@ namespace Parsek.InGameTests
             ModuleParachute chute = v != null ? v.FindPartModuleImplementing<ModuleParachute>() : null;
             if (chute != null) { chute.Deploy(); ParsekLog.Info(Tag, "real chute armed"); }
             RestoreCameraFx();
+            RestoreAeroQuality("real leg done");
             GameEvents.onShowUI.Fire();
             ParsekLog.Info(Tag, $"REAL DONE shots={shots.Count.ToString(Ic)} storedFrames={realPx.Count.ToString(Ic)} files={files.ToString(Ic)} ut={Planetarium.GetUniversalTime().ToString("0.0", Ic)}");
             // U7 tail: the rest of the descent, until the rewind ends this scene.
@@ -679,7 +738,13 @@ namespace Parsek.InGameTests
             {
                 w = ww; h = hh; realW = ww; realH = hh;
                 s.Ut = Planetarium.GetUniversalTime();
-                RectInt rp = ScreenRect(RenderersOf(v), ww, hh);
+                // The side ghost is parented under the root part, so RenderersOf(v) also returns
+                // its renderers; PPS-20c's probe rect was the union of both (230 px wide against
+                // the ghost leg's 36 px), which read as a framing difference. Keep the probe alone.
+                List<Renderer> probeOnly = RenderersOf(v);
+                if (sideGhost != null && sideGhost.Build.root != null)
+                    probeOnly.RemoveAll(r => r == null || r.transform.IsChildOf(sideGhost.Build.root.transform));
+                RectInt rp = ScreenRect(probeOnly, ww, hh);
                 RectInt rb = ScreenRect(RenderersOf(booster), ww, hh);
                 RectInt rg = ScreenRect(sideGhost != null ? RenderersOf(sideGhost.Build.root) : new List<Renderer>(), ww, hh);
                 s.Masks.Add(rp); s.Masks.Add(rb); s.Masks.Add(rg);
@@ -810,6 +875,7 @@ namespace Parsek.InGameTests
         }
 
         private float lastWatchTry = -10f;
+        private float lastWatchWhyLog = -10f;
 
         private void EnsureWatch(int index)
         {
@@ -820,6 +886,39 @@ namespace Parsek.InGameTests
             lastWatchTry = Time.realtimeSinceStartup;
             f.EnterWatchMode(index);
             ParsekLog.Info(Tag, $"ghost watch enter index={index.ToString(Ic)} watching={f.IsWatchingGhost} watchedIndex={f.WatchedRecordingIndex.ToString(Ic)}");
+        }
+
+        /// <summary>
+        /// An unwatched ghost 50 km or more from the active vessel is hidden by the distance LOD
+        /// (GhostPlaybackLogic.ApplyDistanceLodPolicy, LoopSimplifiedMeters), and a hidden ghost
+        /// is only prewarmed inside 55 km, so at mark `above` (about 75 km from the pad host)
+        /// FindGhost, which needs an active ghost, could never see it and watch mode was never
+        /// entered (PPS-20c: four MISSING shots, watch entered at about 50 km). Watch mode forces
+        /// the watched ghost to full fidelity, so the main recording covering this UT is watched
+        /// by its committed index, from its own ghost state, without waiting for a visible ghost.
+        /// Returns a one-line reason per candidate recording.
+        /// </summary>
+        private string WatchMainByRecording(double ut)
+        {
+            ParsekFlight f = ParsekFlight.Instance;
+            if (f == null) return "no flight";
+            var sb = new StringBuilder();
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            int pick = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording r = committed[i];
+                if (r == null || !mainRecIds.Contains(r.RecordingId)) continue;
+                f.ghostStates.TryGetValue(i, out GhostPlaybackState st);
+                bool covers = r.StartUT <= ut && ut <= r.EndUT;
+                sb.Append($"[#{i.ToString(Ic)} {r.RecordingId} ut={r.StartUT.ToString("0.0", Ic)}..{r.EndUT.ToString("0.0", Ic)} covers={covers} " +
+                    $"state={(st != null)} ghost={(st != null && st.ghost != null)} active={(st != null && st.ghost != null && st.ghost.activeSelf)} " +
+                    $"zone={(st != null ? st.currentZone.ToString() : "-")} dist={(st != null ? st.lastDistance : -1).ToString("0", Ic)}m] ");
+                if (covers && st != null && pick < 0) pick = i;
+            }
+            if (pick >= 0) EnsureWatch(pick);
+            sb.Append($"pick={pick.ToString(Ic)} watching={f.IsWatchingGhost} watchedIndex={f.WatchedRecordingIndex.ToString(Ic)}");
+            return sb.ToString();
         }
 
         private static string GhostFlags(GhostPlaybackState s)
@@ -839,6 +938,7 @@ namespace Parsek.InGameTests
                 $"srfSpeed={(active != null ? active.srfSpeed : -1).ToString("0.0", Ic)} ut={Planetarium.GetUniversalTime().ToString("0.00", Ic)} firstShotUt={shots[0].Ut.ToString("0.00", Ic)} " +
                 $"mainRecs={mainRecIds.Count.ToString(Ic)} boosterRecs={boosterRecIds.Count.ToString(Ic)} {AeroLine()}");
             DisableCameraFx();
+            RaiseAeroQuality("ghost");
             if (FlightCamera.fetch != null) FlightCamera.fetch.DeactivateUpdate();
             bool loggedRenderers = false;
             int captured = 0, late = 0, missing = 0;
@@ -856,6 +956,15 @@ namespace Parsek.InGameTests
                         EnsureWatch(mi);
                         if (!s.BoosterFrame) SetPose(mt, s.DirLocal, s.FocusLocal, s.Dist);
                     }
+                    else
+                    {
+                        string why = WatchMainByRecording(Planetarium.GetUniversalTime());
+                        if (Time.realtimeSinceStartup - lastWatchWhyLog >= 1f)
+                        {
+                            lastWatchWhyLog = Time.realtimeSinceStartup;
+                            ParsekLog.Info(Tag, "ghost watch-by-recording ut=" + Planetarium.GetUniversalTime().ToString("0.00", Ic) + " " + why);
+                        }
+                    }
                     if (s.BoosterFrame && FindGhost(boosterRecIds, boosterPartPid, out int bi, out GhostPlaybackState bs, out Transform bt))
                         SetPose(bt, s.DirLocal, s.FocusLocal, s.Dist);
                     yield return null;
@@ -864,7 +973,13 @@ namespace Parsek.InGameTests
                 bool found = s.BoosterFrame
                     ? FindGhost(boosterRecIds, boosterPartPid, out idx, out st, out frame)
                     : FindGhost(mainRecIds, rootPartPid, out idx, out st, out frame);
-                if (!found) { missing++; ParsekLog.Info(Tag, $"ghost shot {s.Label} MISSING ghost ut={Planetarium.GetUniversalTime().ToString("0.000", Ic)}"); continue; }
+                if (!found)
+                {
+                    missing++;
+                    ParsekLog.Info(Tag, $"ghost shot {s.Label} MISSING ghost ut={Planetarium.GetUniversalTime().ToString("0.000", Ic)} why: " +
+                        WatchMainByRecording(Planetarium.GetUniversalTime()));
+                    continue;
+                }
                 SetPose(frame, s.DirLocal, s.FocusLocal, s.Dist);
                 List<ParticleSystemRenderer> offRenderers = null; List<FireShellMesh> savedShell = null; ReentryFxInfo info = st.reentryFxInfo;
                 if (s.GhostFxOff && info != null)
@@ -919,6 +1034,7 @@ namespace Parsek.InGameTests
             poseFrame = null;
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             RestoreCameraFx();
+            RestoreAeroQuality("ghost leg done");
             GameEvents.onShowUI.Fire();
             ParsekLog.Info(Tag, $"GHOST DONE captured={captured.ToString(Ic)} late={late.ToString(Ic)} missing={missing.ToString(Ic)} files={files.ToString(Ic)} ut={Planetarium.GetUniversalTime().ToString("0.0", Ic)}");
         }

@@ -146,6 +146,31 @@ namespace Parsek.InGameTests
 
         private static int filesWritten;
         private static List<string> failures;
+        private static List<string> exceptions;
+
+        /// <summary>Steps <paramref name="inner"/> and catches what it throws: logs the
+        /// exception type, message and full stack (the runner records only the message), notes it,
+        /// and ends just this step so the next sub-case still runs.</summary>
+        private static IEnumerator Guarded(string label, IEnumerator inner)
+        {
+            while (true)
+            {
+                object cur;
+                try
+                {
+                    if (!inner.MoveNext()) yield break;
+                    cur = inner.Current;
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(label + ": " + ex.GetType().FullName);
+                    failures.Add(label + ": threw " + ex.GetType().Name);
+                    ParsekLog.Warn(Tag, $"EXCEPTION in {label}: {ex.GetType().FullName}: '{ex.Message}' frame={Time.frameCount.ToString(Ic)}\n{ex}");
+                    yield break;
+                }
+                yield return cur;
+            }
+        }
 
         // ===================================================================================
         // capture camera
@@ -304,14 +329,17 @@ namespace Parsek.InGameTests
             if (host == null) InGameAssert.Skip("no active vessel");
             if (!(host.situation == Vessel.Situations.PRELAUNCH || host.situation == Vessel.Situations.LANDED))
                 InGameAssert.Skip("needs a host on the pad");
-            IEnumerator body = RunAll(host);
+            exceptions = new List<string>();
+            failures = new List<string>();
+            IEnumerator body = Guarded("RunAll", RunAll(host));
             while (body.MoveNext()) yield return body.Current;
+            if (exceptions.Count > 0)
+                InGameAssert.IsTrue(false, $"{exceptions.Count.ToString(Ic)} sub-case(s) threw (stacks in KSP.log, tag {Tag}): {string.Join("; ", exceptions.ToArray())}");
         }
 
         private IEnumerator RunAll(Vessel host)
         {
             filesWritten = 0;
-            failures = new List<string>();
             bool cheatBefore = CheatOptions.InfinitePropellant;
             CheatOptions.InfinitePropellant = true;
             ParsekLog.Info(Tag, $"env: host={host.vesselName} sit={host.situation} lat={host.latitude.ToString("0.00000", Ic)} lon={host.longitude.ToString("0.00000", Ic)} " +
@@ -322,17 +350,18 @@ namespace Parsek.InGameTests
             var sections = new List<string>();
             try
             {
+                // Each section is guarded on its own: one throwing section no longer loses the rest.
                 sections.Add("U5");
-                IEnumerator u5 = DrawMeshSection(cap, host);
+                IEnumerator u5 = Guarded("U5", DrawMeshSection(cap, host));
                 while (u5.MoveNext()) yield return u5.Current;
                 sections.Add("U1U2");
-                IEnumerator u1 = FxMongerSection(cap, host);
+                IEnumerator u1 = Guarded("U1U2", FxMongerSection(cap, host));
                 while (u1.MoveNext()) yield return u1.Current;
                 sections.Add("U3");
-                IEnumerator u3 = DecoupleSection(cap, host);
+                IEnumerator u3 = Guarded("U3", DecoupleSection(cap, host));
                 while (u3.MoveNext()) yield return u3.Current;
                 sections.Add("U4");
-                IEnumerator u4 = DustSection(cap, host);
+                IEnumerator u4 = Guarded("U4", DustSection(cap, host));
                 while (u4.MoveNext()) yield return u4.Current;
             }
             finally
@@ -342,7 +371,7 @@ namespace Parsek.InGameTests
                     $"renderMeanMs={(cap.RenderMs / Math.Max(1, cap.Renders)).ToString("0.00", Ic)}");
                 cap.Dispose();
             }
-            ParsekLog.Info(Tag, $"summary: sections={string.Join(",", sections.ToArray())} files={filesWritten.ToString(Ic)} failures={failures.Count.ToString(Ic)} [{string.Join("; ", failures.ToArray())}]");
+            ParsekLog.Info(Tag, $"summary: sections={string.Join(",", sections.ToArray())} files={filesWritten.ToString(Ic)} failures={failures.Count.ToString(Ic)} [{string.Join("; ", failures.ToArray())}] exceptions={exceptions.Count.ToString(Ic)}");
         }
 
         // ===================================================================================
@@ -602,7 +631,15 @@ namespace Parsek.InGameTests
 
         private static void Track(string label, List<GameObject> gos)
         {
-            foreach (GameObject g in gos) tracked.Add(new Tracked { Go = g, Name = g.name, Born = Time.realtimeSinceStartup, Label = label });
+            // A burst object FXMonger already destroyed (Explosion 0 lives about 3 s, inside the
+            // 4 s capture window) is Unity-null here: reading g.name on it threw, which is what
+            // stopped the X0 burst cell right after index 0 in PPS-20a / PPS-20b.
+            float now = Time.realtimeSinceStartup;
+            foreach (GameObject g in gos)
+            {
+                bool gone = g == null;
+                tracked.Add(new Tracked { Go = g, Name = gone ? "destroyed-before-track" : g.name, Born = now, Label = label, Died = gone ? now : -1f });
+            }
         }
 
         private static void PollTracked()
@@ -647,6 +684,22 @@ namespace Parsek.InGameTests
             var atlas = new List<List<Color32[]>>();
             for (int i = 0; i < n; i++)
             {
+                IEnumerator one = Guarded("U1 burst index=" + i.ToString(Ic), BurstIndex(cap, body, i, n, atlas));
+                while (one.MoveNext()) yield return one.Current;
+                PollTracked();
+                IEnumerator gap = Seconds(0.5f); while (gap.MoveNext()) yield return gap.Current;
+            }
+            WriteAtlas("ppb-u1-fxmonger.png", atlas);
+
+            IEnumerator si = Guarded("U1 standins", StandInsSection(cap, body));
+            while (si.MoveNext()) yield return si.Current;
+            IEnumerator lt = Guarded("U1 lifetimes", LifetimesSection());
+            while (lt.MoveNext()) yield return lt.Current;
+        }
+
+        private IEnumerator BurstIndex(Cap cap, CelestialBody body, int i, int n, List<List<Color32[]>> atlas)
+        {
+            {
                 double power = n == 1 ? 1.0 : (i == n - 1 ? 1.0 : (i + 0.5) / (n - 1));
                 Vector3 src = SlotPoint(body, 0, 1, PartParityStateRules.AirSpawnAltitudeM, out _, out _);
                 HashSet<int> before = LiveIds();
@@ -655,21 +708,21 @@ namespace Parsek.InGameTests
                 var rowSide = new List<Color32[]>(); var rowTop = new List<Color32[]>();
                 var bins = new StringBuilder();
                 List<GameObject> found = null;
-                IEnumerator cb = CaptureBurst(cap, body, src, () => found ?? (found = NewObjects(before)), BurstWindowS, rowSide, rowTop, bins,
+                IEnumerator cb = CaptureBurst(cap, body, src, () => found != null && found.Count > 0 ? found : (found = NewObjects(before)), BurstWindowS, rowSide, rowTop, bins,
                     ups => { });
                 while (cb.MoveNext()) yield return cb.Current;
-                if (found == null) found = NewObjects(before);
+                if (found == null || found.Count == 0) found = NewObjects(before);
                 Track("prefab" + i.ToString(Ic), found);
                 var names = new List<string>();
                 foreach (GameObject g in found) names.Add(g != null ? g.name : "destroyed");
                 ParsekLog.Info(Tag, $"U1 burst index={i.ToString(Ic)} power={power.ToString("0.000", Ic)} expectedIndex={((int)(Math.Min(1.0, power) * (n - 1))).ToString(Ic)} " +
                     $"spawned={found.Count.ToString(Ic)} names=[{string.Join(",", names.ToArray())}] frame0={frame0.ToString(Ic)} bins: {bins}");
                 atlas.Add(rowSide); atlas.Add(rowTop);
-                PollTracked();
-                IEnumerator gap = Seconds(0.5f); while (gap.MoveNext()) yield return gap.Current;
             }
-            WriteAtlas("ppb-u1-fxmonger.png", atlas);
+        }
 
+        private IEnumerator StandInsSection(Cap cap, CelestialBody body)
+        {
             // --- the stand-ins Parsek uses (G.1 rows 3 and 4b), for the record ---
             var standIns = new List<List<Color32[]>>();
             foreach (float len in new[] { 5f, 20f })
@@ -698,6 +751,10 @@ namespace Parsek.InGameTests
                 Track("puff", gos);
             }
             WriteAtlas("ppb-u1-standins.png", standIns);
+        }
+
+        private IEnumerator LifetimesSection()
+        {
 
             // --- lifetimes of every instance seen (U1: how long an explosion object lives) ---
             float waitEnd = Time.realtimeSinceStartup + 15f;
@@ -861,7 +918,7 @@ namespace Parsek.InGameTests
             foreach (string kind in new[] { "decoupler-root-2part", "stacked-3part", "plain-2part" })
             {
                 var row = new List<Color32[]>();
-                IEnumerator c = DecoupleCase(cap, host, kind, slot++, row);
+                IEnumerator c = Guarded("U3 " + kind, DecoupleCase(cap, host, kind, slot++, row));
                 while (c.MoveNext()) yield return c.Current;
                 atlas.Add(row);
             }
@@ -1186,7 +1243,7 @@ namespace Parsek.InGameTests
             for (int i = 0; i < cases.Count; i++)
             {
                 var row = new List<Color32[]>();
-                IEnumerator c = DustCase(cap, host, eng, maxD, nozzleLocal, cases[i].Key, cases[i].Value, heights[i], ocean[i], row);
+                IEnumerator c = Guarded("U4 " + cases[i].Key, DustCase(cap, host, eng, maxD, nozzleLocal, cases[i].Key, cases[i].Value, heights[i], ocean[i], row));
                 while (c.MoveNext()) yield return c.Current;
                 atlas.Add(row);
             }
