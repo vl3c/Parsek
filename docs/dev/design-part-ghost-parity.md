@@ -3969,6 +3969,10 @@ table, pinned by `PartParitySourceSyncTests`' `test_the_burst_*` cells and
   keys mixed in equal to the plan without them) and Python's
   `test_with_every_p8_fx_value_the_control_set_is_unchanged`.
 - No CHANGELOG entry: tooling only, as F1 and F1b.
+- Left for X4 / X5 (clean review, 2026-11-27): `JudgeBurstControl`'s `ctl-burst-off` asks for
+  `RealBlasts == 1`, so the schedule it reads counts blasts per trial, not per case (a case fires
+  four trials); and G.2's decouple row holds the decoupler with a neighbour below, which the
+  enumerated `air` decouple cases do not carry yet, so the X4 driver adds it.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
