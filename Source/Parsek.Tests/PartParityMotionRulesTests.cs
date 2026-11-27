@@ -540,7 +540,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheLateJudge_WantsTheShiftExactly_AndTheLagLineCrossed()
+        public void TheLateJudge_WantsTheShiftExactly_AndTheLagLineCrossedOnlyWhenTheShiftIsPastIt()
         {
             var normal = T(0.1, 1.0, 0.0);
             Assert.Equal("ok", PartParityMotionRules.JudgeGhostLate(normal, T(1.1, 1.0, 0.0), "ok", out _));
@@ -548,10 +548,24 @@ namespace Parsek.Tests
             Assert.Contains("lag shift", d);
             Assert.Equal("bad", PartParityMotionRules.JudgeGhostLate(normal, T(1.1, 1.05, 0.0), "ok", out d));
             Assert.Contains("durationRatio", d);
-            // The lag line is max(0.5 s, 0.25 T_real): a 10 s real motion holds a 1 s lag inside it.
-            Assert.Equal("bad", PartParityMotionRules.JudgeGhostLate(T(0.1, 1.0, 0.0, 0.0, 0.0, 10.0),
-                T(1.1, 1.0, 0.0, 0.0, 0.0, 10.0), "ok", out d));
+            // The lag line is max(0.5 s, 0.25 T_real): a 10 s real motion holds a 1 s lag inside
+            // it, so the relative requirement is the whole test there.
+            Assert.Equal("ok", PartParityMotionRules.JudgeGhostLate(T(0.1, 1.0, 0.0, 0.0, 0.0, 10.0),
+                T(1.1, 1.0, 0.0, 0.0, 0.0, 10.0), "ok", out _));
+            // A 2 s real motion has a 0.5 s line: the 1 s shift is past it and must fail on lag.
+            Assert.Equal("bad", PartParityMotionRules.JudgeGhostLate(T(-0.6, 1.0, 0.0, 0.0, 0.0, 2.0),
+                T(0.4, 1.0, 0.0, 0.0, 0.0, 2.0), "ok", out d));
             Assert.Contains("does not fail on lag", d);
         }
+
+        [Theory]
+        [InlineData(0.0, true)]
+        [InlineData(2.0, true)]
+        [InlineData(3.99, true)]
+        [InlineData(4.0, false)]
+        [InlineData(10.0, false)]
+        [InlineData(double.NaN, true)]
+        public void TheLateRoute_MustFailOnLag_OnlyBelowFourSecondsOfRealMotion(double realDurationS, bool must)
+            => Assert.Equal(must, PartParityMotionRules.LateMustFailOnLag(realDurationS));
     }
 }

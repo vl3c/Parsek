@@ -399,7 +399,7 @@ namespace Parsek.TestCommands
                 ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {d}");
         }
 
-        private static void AddCharge(ConfigNode part)
+        internal static void AddCharge(ConfigNode part)
         {
             ConfigNode r = part.AddNode("RESOURCE");
             r.AddValue("name", "ElectricCharge");
@@ -1224,9 +1224,9 @@ namespace Parsek.TestCommands
 
         private static Transform GhostPivot(GhostPlaybackState state, uint pid) => SunInfo(state, pid)?.pivotTransform;
 
-        private static string NewRecId() => "pp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        internal static string NewRecId() => "pp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-        private static void Place(GhostCoOrbitalRig.LiveGhost g, Transform partT)
+        internal static void Place(GhostCoOrbitalRig.LiveGhost g, Transform partT)
         {
             GameObject root = g.Build.root;
             root.transform.SetParent(partT, false);
@@ -1239,7 +1239,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The ghost's deployable clip for the subject part, clamped the way playback
         /// clamps it (the 3 s default when the ghost has no deployable info).</summary>
-        private static double ClampedClip(GhostPlaybackState state, uint pid)
+        internal static double ClampedClip(GhostPlaybackState state, uint pid)
         {
             if (state?.deployableInfos != null && state.deployableInfos.TryGetValue(pid, out DeployableGhostInfo d) && d != null)
                 return GhostPlaybackLogic.ClampDeployableClipSeconds(d.clipLengthSeconds);
@@ -1389,7 +1389,7 @@ namespace Parsek.TestCommands
 
         /// <summary>A ghost's renderers, split: the subject's shown, a context filler's
         /// (<c>ghost_part_&lt;fillerPid&gt;</c>) hidden.</summary>
-        private static void SplitGhost(GhostCoOrbitalRig.LiveGhost g, List<uint> fillerPids, List<Renderer> shown, List<Renderer> hidden)
+        internal static void SplitGhost(GhostCoOrbitalRig.LiveGhost g, List<uint> fillerPids, List<Renderer> shown, List<Renderer> hidden)
         {
             var fillerRoots = new List<Transform>();
             Transform root = g.Build.root.transform;
@@ -1406,7 +1406,7 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static Transform FindChildNamed(Transform root, string name)
+        internal static Transform FindChildNamed(Transform root, string name)
         {
             foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
                 if (t.name == name) return t;
