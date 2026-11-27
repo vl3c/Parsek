@@ -20165,7 +20165,7 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
     `fx=all` orbit run over the whole install (no `states=` and no `contexts=`, so the air
     cases stay F7's; no `skins=`, which governs stowed cases only), its own label so it never
     shares another lane's directory, the orbit FX control set, every step inside the S8 cap,
-    report-only verdicts and a budget covering every step. PP-9 flies PP-8's parts on the
+    the armed roster's verdict for it and a budget covering every step. PP-9 flies PP-8's parts on the
     Waterfall-free install, so its case list is the same and its steps are too."""
 
     LANES = {"PP-7-part-parity-fx-stock.toml": ("pp7", "stock-minimal", 4),
@@ -20200,7 +20200,8 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
                 self.assertEqual(load_spec("PP-3-part-parity-states-stock.toml")["driver"]["steps"][:len(pre)], pre)
                 self.assertEqual("WarpToUT", pre[-1]["cmd"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -20409,10 +20410,12 @@ class PartParityArmedRosterTests(unittest.TestCase):
     # Armed 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
     # each: PP-1 2026-11-22_2159 / _2317, PP-2 _2236 / _2343, PP-3 _2220 / _2328, PP-4
     # 2026-11-22_2359 / 2026-11-23_0016. PP-5 / PP-6 stay report-only: a canopy follows the
-    # airflow, so no measure band holds run to run.
+    # airflow, so no measure band holds run to run. PP-7 alone of the effects lanes armed
+    # 2026-11-24 (owner ruling; design Appendix F).
     PARTPARITY_ARMED_SPECS = {"PP-1-part-parity-stock.toml", "PP-2-part-parity-modded.toml",
                               "PP-3-part-parity-states-stock.toml",
-                              "PP-4-part-parity-states-modded.toml"}
+                              "PP-4-part-parity-states-modded.toml",
+                              "PP-7-part-parity-fx-stock.toml"}
 
     def test_no_committed_spec_arms_part_parity_gating(self):
         armed = []

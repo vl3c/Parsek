@@ -1298,6 +1298,9 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("FlagRcsKnownDifferencePrefix", pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX)):
             with self.subTest(const=name):
                 self.assertEqual(mirror, consts[name])
+        # The one view a plate case photographs (the gate owes it and no other).
+        plate = self._source("PartParityFxDriver.Plate.cs")
+        self.assertIn('internal const string ViewPlate = "%s";' % pp.PLATE_VIEW, plate)
         # FamilyForArg's switch, case by case: plate selects the lamps.
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
@@ -3390,13 +3393,15 @@ class FxJudgeTests(unittest.TestCase):
         # It counts as a pass: the flag raises the case, the routes read pass.
         self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
         self.assertNotIn(pp.VERDICT_SKIPPED, pp.VERDICTS)
-        # Two empty pictures agree, and are judged.
+        # Two empty pictures agree: nothing to compare, and the entry says so.
         smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
         for real, ghost, skipped in ((FX_DARK, FX_DARK, False), ((smear, smear), FX_DARK, True),
                                      (FX_DARK, (smear, smear), True)):
             e = pp.judge_case(_fx_case(real=dict(REAL_FX, smoke=real), event={"smoke": ghost})[0])
             got = {x.verdict for x in e.fx.entries if x.layer == "smoke" and x.route == "event"}
-            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_PASS}, got)
+            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_EMPTY}, got)
+            self.assertEqual((("event", "pass"), ("start", "pass")), e.fx.routes)
+        self.assertNotIn(pp.VERDICT_EMPTY, pp.VERDICTS)
         gone = pp.judge_case(_fx_case(event=_broken("off"))[0])
         self.assertIn(pp.VERDICT_FAIL, {x.verdict for x in gone.fx.entries if x.layer == "flame"})
 
@@ -3656,8 +3661,28 @@ class FxJudgeTests(unittest.TestCase):
                 else:
                     m["lengthPx"] *= 0.89
 
+    def test_the_cap_never_holds_a_missing_effect(self):
+        # size1p5.tank.05 draws smoke alone, and its real halves' width (79 / 88 px) unsettle all
+        # of it: the whole ghost smoke could go without a fail.
+        for layer, reason in (("flame", "fx-missing"), ("smoke", "smoke-missing")):
+            for side in ("real", "ghost"):
+                doc = _fx_case(event={layer: FX_DARK})[0]
+                self._loosen(doc, layer=layer, side=side)
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+                standing = {f.reason for e in c.fx.entries for f in e.findings if not f.capped}
+                self.assertEqual({reason}, standing)
+        # Shown by one half of the real side alone, it is that half's noise.
+        doc = _fx_case(event={"flame": FX_DARK})[0]
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["real"]["corePx"] = 0
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("capped:event:fx-far:flame:fx-missing", pp.fx_unmeasured(c))
+
     def test_an_unsettled_entry_caps_its_own_fails_at_warn(self):
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
         self._loosen(doc)
         c = pp.judge_case(doc)
@@ -3666,20 +3691,20 @@ class FxJudgeTests(unittest.TestCase):
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertTrue(c.fx.unsettled[0].startswith("event:fx-side-a:flame:real length even="))
         capped = [f for e in c.fx.entries if e.layer == "flame" and e.route == "event" for f in e.findings]
-        self.assertEqual({("presence", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
+        self.assertEqual({("direction", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
         self.assertEqual({True}, {r["capped"] for e in c.to_dict()["fx"]["entries"] for r in e["reasons"]})
-        # One unsettled entry says nothing about the others: the plume is missing in three views.
-        doc = _fx_case(event=_broken("off"))[0]
+        # One unsettled entry says nothing about the others: the plume is turned in two more views.
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc, views=("fx-side-a",))
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertEqual({"fx-side-a": pp.VERDICT_WARN, "fx-side-b": pp.VERDICT_FAIL,
-                          "fx-bottom": pp.VERDICT_FAIL, "fx-far": pp.VERDICT_FAIL},
+                          "fx-bottom": pp.VERDICT_PASS, "fx-far": pp.VERDICT_FAIL},
                          {e.view: e.verdict for e in c.fx.entries if (e.route, e.layer) == ("event", "flame")})
         # The other route's fails are not this one's.
-        doc = _fx_case(event=_broken("off"), start=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"), start=_broken("turned"))[0]
         self._loosen(doc)
         self.assertEqual((("event", pp.VERDICT_WARN), ("start", pp.VERDICT_FAIL)), pp.judge_case(doc).fx.routes)
 
@@ -3689,7 +3714,7 @@ class FxJudgeTests(unittest.TestCase):
         self._loosen(doc)
         c = pp.judge_case(doc)  # a rendered asset the ghost lacks
         self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_FAIL), (c.verdict, c.fx.verdict))
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc)
         doc["views"][0]["colorBlobPx"] = 10 ** 6  # the body route (PP-9's nozzle glow)
         c = pp.judge_case(doc)
@@ -3708,15 +3733,21 @@ class FxJudgeTests(unittest.TestCase):
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, c.verdict)
         self.assertEqual({"smoke-extra"}, {f.reason for e in c.fx.entries for f in e.findings if f.capped})
+        # Held, but said: the gate asks whether the baseline runs show it too.
+        self.assertEqual({"capped:%s:%s:smoke:smoke-extra" % (r, v) for r in ("event", "start") for v in pp.FX_VIEWS},
+                         set(pp.fx_unmeasured(c)))
         # A flame's views are judged apart (above), and smoke never caps a flame.
         doc = _fx_case(event=_broken("off"))[0]
         self._loosen(doc, layer="smoke")
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
 
-    def test_beside_an_unsettled_entry_a_fail_stands_only_when_both_halves_show_it(self):
-        def judged(name, spoil):
+    def test_a_fail_stands_only_when_both_halves_show_it(self):
+        # In every case, settled or not: whether the halves of another entry agree says nothing
+        # about this one.
+        def judged(name, spoil, loose):
             doc = _fx_case(event=_broken(name))[0]
-            self._loosen(doc, layer="smoke")  # the case has an unsettled entry
+            if loose:
+                self._loosen(doc, layer="smoke")  # the case has an unsettled entry
             for e in doc["fx"]["views"]:
                 if (e["route"], e["layer"]) == ("event", "flame"):
                     spoil(e)
@@ -3726,21 +3757,35 @@ class FxJudgeTests(unittest.TestCase):
                 ("wide", "widthRatio", 1.0, 0.5), ("shifted-along", "originDeltaPx", 0.0, -30.0),
                 ("shifted-across", "lateralOffsetPx", 0.0, -30.0), ("turned", "directionDeg", 0.0, -60.0)):
             with self.subTest(name):
-                self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None).verdict)
-                for value in (agree, other):  # one half passes, or fails the other way
-                    c = judged(name, lambda e: e["splitHalf"]["odd"]["compare"].update({key: value}))
-                    self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value))
-                    self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
-        # Without an unsettled entry the same halves decide nothing: no settled fail is lowered.
+                for loose in (True, False):
+                    self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None, loose).verdict)
+                    for value in (agree, other):  # one half passes, or fails the other way
+                        for half in pp.FX_SPLIT_HALF_KEYS:
+                            c = judged(name, lambda e: e["splitHalf"][half]["compare"].update({key: value}),
+                                       loose)
+                            self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value, half, loose))
+                            self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+                            self.assertEqual(loose, pp.CAP_FX_UNSETTLED in c.fx.flags)
+        # Presence too: an effect one half of the samples alone drew is not an extra one.
+        doc = _fx_case(real=dict(REAL_FX, flame=FX_DARK), event={"flame": REAL_FX["flame"]})[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["ghost"]["corePx"] = 0
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+
+    def test_the_half_rule_needs_the_halves(self):
+        # A fail whose halves were not written does not stand, and fx_block_problems
+        # (INVALID parity-instrument, every captured case) is what that sweep reads.
         doc = _fx_case(event=_broken("wide"))[0]
         for e in doc["fx"]["views"]:
-            e["splitHalf"]["odd"]["compare"]["widthRatio"] = 1.0
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+            e["splitHalf"] = None
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        self.assertTrue(pp.fx_block_problems(doc))
 
-    def test_beside_an_unsettled_entry_a_measure_noisy_against_itself_is_capped(self):
+    def test_a_measure_noisy_against_itself_is_capped(self):
         def doc_of(side, dx):
             doc = _fx_case(event=_broken("offset-section"))[0]
-            self._loosen(doc, layer="smoke")
             for e in doc["fx"]["views"]:
                 if e["view"] == "fx-bottom" and e["layer"] == "flame":
                     e["splitHalf"]["odd"][side]["coreCentroid"][0] += dx
@@ -3752,7 +3797,27 @@ class FxJudgeTests(unittest.TestCase):
             self.assertEqual(pp.VERDICT_WARN, c.verdict)
             e = next(e for e in doc_of(side, 20.0)["fx"]["views"]
                      if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
-            self.assertEqual({"cross-section"}, set(pp.fx_self_failing(e, False)))
+            self.assertEqual({"crossSectionOffset"}, set(pp.fx_self_failing(e, False)))
+            # A centre that jitters against itself says nothing about the area, nor a hue that
+            # does about the chromaticity.
+            doc = _fx_case(event=_broken("thin-section"))[0]
+            for e in doc["fx"]["views"]:
+                if e["view"] == "fx-bottom" and e["layer"] == "flame":
+                    e["splitHalf"]["odd"][side]["coreCentroid"][0] += 20.0
+            self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        doc = _fx_case(event=_broken("hue"))[0]
+        for e in doc["fx"]["views"]:
+            for h in pp.FX_SPLIT_HALF_KEYS:
+                if e["layer"] == "flame":
+                    e["splitHalf"][h]["real"]["hueHistogram"] = [1.0 if i == (h == "odd") else 0.0 for i in range(12)]
+        c = pp.judge_case(doc)
+        standing = {f.key for e in c.fx.entries for f in e.findings if f.level == pp.VERDICT_FAIL}
+        self.assertEqual({"chromaDistance"}, standing)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"):
+                self.assertEqual({"hueL1"}, set(pp.fx_self_failing(e, False)))
+        e = next(e for e in doc_of("ghost", 20.0)["fx"]["views"]
+                 if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
         # A malformed half proves no noise (fx_block_problems is the finding).
         e["splitHalf"]["odd"]["ghost"]["hueHistogram"] = "x"
         self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
@@ -4931,6 +4996,20 @@ class MotionControlJudgeTests(unittest.TestCase):
         rate = {cid: _motion_case(cid, ghost=_ramp(0.5, 2.2), matched=False)[0]}
         self.assertIn("durationRatio=1.1", pp.judge_motion_control(cid, rate)[1])
 
+    def test_the_air_real_vs_real_judges_the_canopy_curves_only(self):
+        # H.3: the air control reads the canopy-scale curves only; stock aims each open canopy
+        # along its own airflow, so its end frames are never compared (C# passes true too).
+        mask = lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6)
+        air = pp.CONTROL_MOTION_REAL_VS_REAL_AIR
+        side = _motion_case(air, part="parachuteSingle", family="parachute", kind="canopy",
+                            state="motion-semi", context="air", matched=False,
+                            module="ModuleParachute", ghost_mask=mask)[0]
+        self.assertFalse(pp.motion_end_frames_within_allowance(pp.motion_block(side)))
+        self.assertEqual(pp.CONTROLS_OK, pp.judge_motion_control(air, {air: side})[0])
+        orbit = pp.CONTROL_MOTION_REAL_VS_REAL
+        self.assertIn("end frames differ", pp.judge_motion_control(orbit, {orbit: _motion_case(
+            orbit, ghost_mask=mask, matched=False)[0]})[1])
+
     def test_the_slow_judge_reads_the_onset_and_the_last_frame(self):
         cid = pp.CONTROL_MOTION_GHOST_SLOW
         kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21)
@@ -5242,6 +5321,94 @@ class MotionWindowCompletenessTests(MotionSweepFixture):
         text = " ".join(res.problems)
         self.assertIn("longantenna--default--motion-deployed--0000aaa1:motion-frames=3<5", text)
         self.assertIn("gearsmall--default--motion-deployed--0000aaa2:motion-real-not-reached=", text)
+
+
+def _with_end_views(doc, real=None, ghost=None):
+    """A motion sidecar in the shape the C# capture writes it (PartParityStateRun.FourRows
+    false): its views carry the end frame's measures with ``start`` and ``stowedRef`` null, and
+    its ``atlas`` is null (the frames live in ``motionAtlas``)."""
+    real, ghost = real or _deployed(), ghost or _deployed()
+    views = []
+    for v in MOTION_VIEWS:
+        rec = fx.view_record(v, real, ghost, STILE)
+        rec["start"] = rec["stowedRef"] = None
+        views.append(rec)
+    doc["views"], doc["atlas"] = views, None
+    return doc
+
+
+class MotionCaseIsNotAFourRowStateCaseTests(MotionSweepFixture):
+    """A motion state is a state case for the press gate and the row cross-checks, but the
+    capture writes it with FourRows false (PartParityMotionDriver.Attach): no four-row state
+    atlas and no ``start`` / ``stowedRef`` view blocks. The P6 view-block and state-atlas
+    checks therefore skip it; its evidence is the motion block, which completeness owes."""
+
+    def test_a_motion_run_in_the_captured_shape_reports_clean(self):
+        cases = [(_with_end_views(d), t) for d, t in _motion_cases()]
+        controls = {cid: [(_with_end_views(d), t) for d, t in _motion_controls(cid)]
+                    for cid in pp.MOTION_CONTROL_IDS}
+        res = self._eval(cases, controls=controls)
+        self.assertEqual([], [m for m in res.recompute_mismatches if "block missing" in m or "atlas rows" in m])
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        for doc, _ in cases:
+            self.assertFalse(pp.is_four_row_case(doc))
+            self.assertEqual([], pp.state_view_block_problems(doc))
+
+    def test_a_motion_cases_two_row_p6_atlas_recomputes_as_two_rows(self):
+        doc = _with_end_views(_motion_cases()[0][0])
+        doc["atlas"] = {"file": doc["caseId"] + pp.ATLAS_SUFFIX, "thumb": None, "tile": STILE,
+                        "rows": list(pp.ATLAS_ROWS), "cols": list(MOTION_VIEWS)}
+        rows = [[_deployed()] * len(MOTION_VIEWS), [_deployed()] * len(MOTION_VIEWS)]
+        atlas = (len(MOTION_VIEWS) * STILE, 2 * STILE, 4, _atlas_rows(rows))
+        self.assertEqual([], pp.recompute_case(doc, atlas))
+
+    def test_a_p6_state_case_still_owes_its_four_rows_and_view_blocks(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        for v in doc["views"]:
+            v["start"] = v["stowedRef"] = None
+        self.assertTrue(pp.is_four_row_case(doc))
+        problems = pp.state_view_block_problems(doc)
+        for v in fx.VIEWS:
+            self.assertIn("%s.start: block missing" % v, problems)
+            self.assertIn("%s.stowedRef: block missing" % v, problems)
+        doc["atlas"]["rows"] = list(pp.ATLAS_ROWS)
+        rows = [[_deployed()] * len(fx.VIEWS)] * 2
+        diffs = pp.recompute_case(doc, (len(fx.VIEWS) * STILE, 2 * STILE, 4, _atlas_rows(rows)))
+        self.assertIn("atlas rows=%s (expected %s)" % (list(pp.ATLAS_ROWS), list(pp.ATLAS_ROWS_STATE)),
+                      diffs)
+        # The same views under a motion state: a motion case, so neither check applies.
+        doc["state"] = doc["stateProof"]["state"] = "motion-deployed"
+        self.assertFalse(pp.is_four_row_case(doc))
+        self.assertEqual([], pp.state_view_block_problems(doc))
+        self.assertTrue(pp.is_state_case(doc["state"]))
+
+    def test_a_motion_control_without_its_motion_block_is_still_flagged(self):
+        # The control shape a capture that skipped the motion run writes: a two-row P6 atlas,
+        # a motion state, null start / stowedRef blocks, no motion block, no motion atlas. The
+        # C# outcome is left ``ok`` so the judge's own reading is what flags it.
+        cid = pp.CONTROL_MOTION_REAL_VS_REAL
+        body = fx.rect_mask(STILE, 3, 3, 6, 6)
+
+        def broken(d):
+            for name in os.listdir(d):
+                if name.startswith(cid + "."):
+                    os.remove(os.path.join(d, name))
+            fx.write_case(d, cid, "longAntenna", [body] * len(fx.VIEWS), [body] * len(fx.VIEWS), STILE)
+
+            def change(doc):
+                doc["state"] = "motion-deployed"
+                doc["motion"] = doc["motionAtlas"] = None
+                for v in doc["views"]:
+                    v["start"] = v["stowedRef"] = None
+            _rewrite(d, cid, change)
+
+        res = self._eval([(_with_end_views(d), t) for d, t in _motion_cases()], mutate=broken)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        text = " ".join(res.problems)
+        self.assertIn("%s:no-motion-block" % cid, text)
+        self.assertIn(cid + ":recorded-ok-judged-", text)
+        # Flagged as a missing motion block, not as a P6 state case it never was.
+        self.assertEqual([], [m for m in res.recompute_mismatches if m.startswith(cid + " ")])
 
 
 class MotionNoneToleranceTests(unittest.TestCase):

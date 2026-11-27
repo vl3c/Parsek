@@ -2656,8 +2656,8 @@ main { padding: 8px 16px 40px; }
 .vc.pass { background: var(--pass); } .vc.warn { background: var(--warn); color: #1d1600; }
 .vc.fail { background: var(--fail); } .vc.error { background: var(--error); color: #111; }
 /* not a verdict: a reference case or entry (design E.6), a not-applicable control, an entry
-   whose measures were skipped (weak cores, E.4) */
-.vc.reference, .vc.na, .vc.skipped { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
+   whose measures were skipped (weak cores, E.4) or that neither side drew */
+.vc.reference, .vc.na, .vc.skipped, .vc.empty { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
 /* a fail the accepted list explains whole: known = ruled by the owner, accepted = a known cause
    that is not the ghost's. Counted apart from the fails; what was judged stays, unfilled. */
 .vc.known, .vc.accepted { background: transparent; color: var(--fg); border: 2px solid var(--known); line-height: 14px; }
@@ -3053,7 +3053,7 @@ dialog .tile { cursor: default; }
   function fxRows(c, zoom) { return c.kind === "control" ? FX_CTL_ROWS : (zoom ? FX_PART_ROWS.concat([FX_ZOOM_ROW]) : FX_PART_ROWS); }
   function ratioText(x) { return Object.keys(x).filter(function (k) { return x[k] !== null && x[k] !== undefined; }).map(function (k) { return k + " " + fmt(x[k], 2); }).join(", ") || "length, width and brightness not measured"; }
   function ratios(x) { return ratioText({length: x.lengthRatio, width: x.widthRatio, brightness: x.brightnessRatio}); }
-  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || (e.verdict === "skipped" ? "both cores are weak: only presence was judged" : null)); }
+  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || ({skipped: "both cores are weak: only presence was judged", empty: "neither side draws anything here"}[e.verdict] || null)); }
   function fxLine(c, name, e) {
     if (!e) return el("div", {cls: "note", text: name + ": not measured"});
     var x = e.compare, rcs = c.fx.family === "rcs";
@@ -3115,7 +3115,7 @@ dialog .tile { cursor: default; }
     fxLayers(c).forEach(function (layer) { fxViews(c).forEach(function (view) {
       var ev = fxEntry(c, "event", view, layer), st = fxEntry(c, "start", view, layer);
       if (!ev && !st) return;
-      if ((!ev || (ev.empty && ev.verdict === "pass")) && (!st || (st.empty && st.verdict === "pass"))) { empty.push(layer + " " + view); return; }
+      if ((!ev || (ev.empty && ev.verdict === "empty")) && (!st || (st.empty && st.verdict === "empty"))) { empty.push(layer + " " + view); return; }
       var meta = [fxLine(c, c.kind === "control" ? "real vs ghost" : "event route", ev)];
       if (c.kind !== "control") meta.push(fxLine(c, "start route", st));
       box.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: view + " " + layer})].concat(fxFigures(c, view, layer, fxRows(c))).concat([el("div", {cls: "vmeta"}, meta)])));
