@@ -216,10 +216,16 @@ namespace Parsek.Tests
         public void EveryAirWave_DispatchesToTheAirContext()
         {
             string runner = Source("PartParitySweepRunner.cs");
-            Assert.Contains("IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);", runner);
+            Assert.Contains("string flow = WaveFlow(kind, air);", runner);
+            Assert.Contains("case FlowAir: w = PartParityAirContext.RunWave(ctx, wave); break;", runner);
+            Assert.Contains("case FlowFx: w = PartParityFxDriver.RunWave(ctx, wave); break;", runner);
+            Assert.Contains("case FlowMotion: w = PartParityMotionDriver.RunWave(ctx, wave); break;", runner);
+            Assert.Contains("default: w = RunWave(ctx, wave); break;", runner);
+            Assert.Equal(PartParitySweepRunner.FlowAir, PartParitySweepRunner.WaveFlow(PartParityStateWave.KindStowed, true));
+            Assert.Equal(PartParitySweepRunner.FlowAir, PartParitySweepRunner.WaveFlow("state:quick", true));
             // An FX wave (design E.2) has its own flow, the air one included (its spawn is the
             // held one, TheAirFxWave_IsHeldFromItsFirstUnpackedFrame).
-            Assert.Contains("if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);", runner);
+            Assert.Equal(PartParitySweepRunner.FlowFx, PartParitySweepRunner.WaveFlow(PartParityStateWave.KindFxPrefix + "plume", true));
             Assert.Contains("air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases", runner);
         }
 

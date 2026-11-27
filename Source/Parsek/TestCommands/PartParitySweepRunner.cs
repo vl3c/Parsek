@@ -567,11 +567,19 @@ namespace Parsek.TestCommands
                 float waveStart = Time.realtimeSinceStartup;
                 // An FX wave (design E.2) runs its own flow: a hold, a press, the warm-up, the
                 // layered capture. The one dispatch hook of the air context (design D.4): every wave of an air
-                // run, its stowed controls included, spawns over the showcase band.
-                IEnumerator w = air ? PartParityAirContext.RunWave(ctx, wave) : RunWave(ctx, wave);
-                if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);
-                // A motion wave (Appendix H.2): the orbit flow here, the chute hook inside the air one.
-                if (motionKind && !air) w = PartParityMotionDriver.RunWave(ctx, wave);
+                // run, its stowed controls included, spawns over the showcase band. A motion wave
+                // (Appendix H.2): the orbit flow here, the chute hook inside the air one.
+                string flow = WaveFlow(kind, air);
+                ParsekLog.Verbose(Tag, $"wave {(ctx.WavesDone + 1).ToString(Ic)}: kind={kind} flow={flow} " +
+                    $"cases={wave.Count.ToString(Ic)} first={wave[0].CaseId}");
+                IEnumerator w;
+                switch (flow)
+                {
+                    case FlowAir: w = PartParityAirContext.RunWave(ctx, wave); break;
+                    case FlowFx: w = PartParityFxDriver.RunWave(ctx, wave); break;
+                    case FlowMotion: w = PartParityMotionDriver.RunWave(ctx, wave); break;
+                    default: w = RunWave(ctx, wave); break;
+                }
                 try { while (w.MoveNext()) yield return w.Current; }
                 finally { DisposeNested(w); }
                 lastWave = Time.realtimeSinceStartup - waveStart;
@@ -660,10 +668,26 @@ namespace Parsek.TestCommands
             return wc;
         }
 
+        internal const string FlowStowedOrState = "stowed-or-state";
+        internal const string FlowAir = "air";
+        internal const string FlowFx = "fx";
+        internal const string FlowMotion = "motion";
+
+        /// <summary>Which flow runs a wave of <paramref name="kind"/>: an FX kind the FX driver,
+        /// an orbit motion kind the motion driver (an air motion wave runs the air flow, which
+        /// hooks the motion phase itself), any other wave of an air run the air flow, else the
+        /// stowed / state flow. Pure.</summary>
+        internal static string WaveFlow(string kind, bool air)
+        {
+            if (PartParityStateWave.IsFxKind(kind)) return FlowFx;
+            if (PartParityMotionPlan.IsMotionKind(kind) && !air) return FlowMotion;
+            return air ? FlowAir : FlowStowedOrState;
+        }
+
         /// <summary>The queue positions the next wave takes (design D.3): a stowed wave as
         /// today, a state wave one bucket from the cursor on; the kind and the slowest sun
         /// tracker's cap (0 for none) come back for the admission.</summary>
-        private static List<int> PickWave(List<WaveCase> queue, int cursor, bool air, out string kind, out double trackerCap)
+        internal static List<int> PickWave(List<WaveCase> queue, int cursor, bool air, out string kind, out double trackerCap)
         {
             var kinds = queue.ConvertAll(WaveKindOf);
             var solo = queue.ConvertAll(c => c.Solo);
@@ -682,7 +706,7 @@ namespace Parsek.TestCommands
 
         /// <summary>A queued case's wave kind: a motion case (or a motion-only control without
         /// one) its motion kind, a real-vs-real pair a kind of its own; every other case P6's.</summary>
-        private static string WaveKindOf(WaveCase c)
+        internal static string WaveKindOf(WaveCase c)
         {
             if (c.Motion != null || (c.ControlId != null && PartParitySweepPlan.IsMotionOnlyControl(c.ControlId)))
                 return PartParityMotionPlan.WaveKind(c.Key, c.Motion?.Twin != null);
@@ -705,7 +729,13 @@ namespace Parsek.TestCommands
             return families;
         }
 
-        private static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor, string kind, int count, bool air)
+        /// <summary>Takes the wave <see cref="PickWave"/> chose (brought to the cursor): an air
+        /// wave as picked, a state wave on its slots, a stowed wave by slot planning over at most
+        /// the <paramref name="count"/> picked cases. The stowed run stops at the first case
+        /// whose wave kind (<see cref="WaveKindOf"/>, which knows a motion case and a motion
+        /// control) is not stowed, so a motion case never joins a stowed wave and runs the
+        /// state flow instead of the motion one (H.2).</summary>
+        internal static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor, string kind, int count, bool air)
         {
             if (air)
             {
@@ -729,9 +759,9 @@ namespace Parsek.TestCommands
                 return stateWave;
             }
             var soloFlags = new List<bool>();
-            for (int i = cursor; i < queue.Count && soloFlags.Count <= PartParitySweepPlan.MaxWaveCases; i++)
+            for (int i = cursor; i < queue.Count && soloFlags.Count < count; i++)
             {
-                if (PartParityStateWave.WaveKind(queue[i].Key) != PartParityStateWave.KindStowed) break;
+                if (WaveKindOf(queue[i]) != PartParityStateWave.KindStowed) break;
                 soloFlags.Add(queue[i].Solo);
             }
             int candidates = PartParitySweepPlan.WaveCandidateCount(soloFlags);
