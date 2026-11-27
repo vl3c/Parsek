@@ -623,7 +623,7 @@ Grouped; each says the scenario and the behaviour.
 11. **Docking capture in progress.** Refused (ruled).
 12. **Crewed ship nearby in air.** Refused (ruled); spent stage allowed and falls (ruled).
 13. **Ship was spinning or a kerbal stood on a slope.** Rails stop the spin; control is handed back before unpack (ruled).
-14. **Ship destroyed while away.** Owner question V2.
+14. **Ship destroyed while away.** Owner ruling V2 (2026-11-27): stock's flight-ended screen.
 15. **Re-Fly in progress.** Refused (ruled).
 
 **Ghost and spawns**
@@ -809,7 +809,7 @@ Both cards were posted on 2026-11-27; the design proceeds on the recommendations
 
 **V1. A supply run being proven while you start a far watch** (decided by the owner 2026-11-27: refuse). Starting a far watch is a vessel switch, and today any switch voids the run's route proof, so the run would not count as a supply route. The far watch is refused while the current flight is proving a supply run, with the hover reason "Finish the supply run first".
 
-**V2. Your ship is lost while you watch far away** (recommended, awaiting owner; something the check could not foresee: a spawn landing on it, a mod). There is no ship to come back to. Recommended: the camera comes back to where the ship was and the game shows stock's own "flight ended" screen with its Revert and Space Center buttons, exactly as when a flown ship is lost; the alternative is to go straight to the Space Center.
+**V2. Your ship is lost while you watch far away** (decided by the owner 2026-11-27: stock's flight-ended screen; something the check could not foresee: a spawn landing on it, a mod). There is no ship to come back to. The camera comes back to where the ship was and the game shows stock's own "flight ended" screen with its Revert and Space Center buttons, exactly as when a flown ship is lost.
 
 ### 19.2 Decided here (with reason)
 
