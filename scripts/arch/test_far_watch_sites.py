@@ -267,6 +267,32 @@ class HandlerDeciderTests(unittest.TestCase):
         self.assertEqual(fws.vessel_event_handlers(facts), {"Parsek.Flight::Start()": ["onVesselChange"]})
 
 
+class RequiredCallDeciderTests(unittest.TestCase):
+    def required_facts(self):
+        methods = {}
+        for caller, callee, _why in fws.REQUIRED_CALLS:
+            type_path, rest = caller.split("::", 1)
+            methods[caller] = method(type_path, rest.split("(")[0], calls={callee + "x)": 1})
+        return facts_model(methods)
+
+    def test_every_required_call_present_is_green(self):
+        self.assertEqual(fws.decide_required_calls(self.required_facts()), [])
+
+    def test_each_deleted_call_reds(self):
+        for caller, _callee, _why in fws.REQUIRED_CALLS:
+            facts = self.required_facts()
+            facts["methods"][caller]["calls"] = ["Parsek.Other::Thing()"]
+            findings = fws.decide_required_calls(facts)
+            self.assertEqual(len(findings), 1, findings)
+            self.assertIn(caller, findings[0])
+
+    def test_a_renamed_caller_reds(self):
+        facts = self.required_facts()
+        caller = fws.REQUIRED_CALLS[0][0]
+        del facts["methods"][caller]
+        self.assertEqual(len(fws.decide_required_calls(facts)), 1)
+
+
 class AllowlistTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -351,6 +377,18 @@ class RealTreeGateTests(unittest.TestCase):
         config["sites"][site]["count"] -= 1
         findings = fws.decide_sites(self.facts, config)
         self.assertEqual(kinds(findings), ["count"], findings)
+
+    def test_the_required_far_watch_calls_are_in_the_build(self):
+        findings = fws.decide_required_calls(self.facts)
+        self.assertEqual(findings, [], "\n" + "\n".join(findings))
+
+    def test_the_required_call_gate_reds_on_the_real_tree_when_a_call_is_dropped(self):
+        for caller, callee, _why in fws.REQUIRED_CALLS:
+            facts = {"methods": dict(self.facts["methods"])}
+            entry = dict(facts["methods"][caller])
+            entry["calls"] = [c for c in entry["calls"] if not c.startswith(callee)]
+            facts["methods"][caller] = entry
+            self.assertEqual(len(fws.decide_required_calls(facts)), 1, caller)
 
     def test_the_counted_members_exist(self):
         externals = {m for e in self.facts["methods"].values() for m in e.get("externalMemberCounts", {})}

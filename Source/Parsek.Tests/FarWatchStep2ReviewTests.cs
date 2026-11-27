@@ -226,6 +226,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GhostOrDronePidSet_NoDrone_IsTheGhostSetItself()
+        {
+            GhostMapPresence.RegisterGhostMapVesselPidForTesting(900u);
+            HashSet<uint> set = GhostMapPresence.GhostOrDronePidSet();
+            Assert.Same(GhostMapPresence.ghostMapVesselPids, set);
+            Assert.Equal(new[] { 900u }, set);
+        }
+
+        // Fails if: a route endpoint resolver could pick the drone (the set misses its pid), or
+        // the helper adds the drone to the live ghost set (every ghost guard would then see it).
+        [Fact]
+        public void GhostOrDronePidSet_Drone_IsACopyWithTheDrone()
+        {
+            GhostMapPresence.RegisterGhostMapVesselPidForTesting(900u);
+            ArmDrone();
+            HashSet<uint> set = GhostMapPresence.GhostOrDronePidSet();
+            Assert.NotSame(GhostMapPresence.ghostMapVesselPids, set);
+            Assert.True(set.Contains(900u));
+            Assert.True(set.Contains(DronePid));
+            Assert.False(GhostMapPresence.ghostMapVesselPids.Contains(DronePid));
+            Assert.Equal(2, set.Count);
+        }
+
+        [Fact]
+        public void GhostOrDronePidSet_EmptyGhostSetWithDrone_HoldsOnlyTheDrone()
+        {
+            ArmDrone();
+            HashSet<uint> set = GhostMapPresence.GhostOrDronePidSet();
+            Assert.Equal(new[] { DronePid }, set);
+            Assert.Empty(GhostMapPresence.ghostMapVesselPids);
+        }
+
+        [Fact]
         public void ShipLost_ClearedWithTheIdentity_AndNeedsADrone()
         {
             CameraDroneIdentity.MarkShipLost();

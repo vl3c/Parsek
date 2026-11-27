@@ -496,13 +496,15 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
-            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
+            // The drone first, so its skip is logged; the ghost-or-drone skip below then
+            // covers only ghosts and a drone matched by pid alone.
             if (data.host != null && CameraDrone.Is(data.host))
             {
                 ParsekLog.VerboseRateLimited("FarWatch", "drone-situation-skip",
                     "OnVesselSituationChange: skipped for the far-watch camera drone", 5.0);
                 return;
             }
+            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
             double currentUT = Planetarium.GetUniversalTime();
             bool suppressLaunchAutoRecordForTimeJump =
                 TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
@@ -580,13 +582,14 @@ namespace Parsek
         void OnStageActivate(int stage)
         {
             Vessel av = FlightGlobals.ActiveVessel;
-            if (av != null && GhostMapPresence.IsGhostOrDroneVessel(av.persistentId)) return;
+            // The drone first, so its skip is logged (as in OnVesselSituationChange).
             if (av != null && CameraDrone.Is(av))
             {
                 ParsekLog.Info("FarWatch", "OnStageActivate: skipped stage=" + stage +
                     " while the far-watch camera drone is active");
                 return;
             }
+            if (av != null && GhostMapPresence.IsGhostOrDroneVessel(av.persistentId)) return;
 
             // Staging changes what the vessel can still do; the recorder reads the settled
             // delta-v after stock recalculates. A split that follows writes its own snapshots.

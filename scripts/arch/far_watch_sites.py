@@ -249,6 +249,39 @@ def guards_built(facts, guards):
     return sorted(k for k in facts["methods"] if any(k.startswith(g + "(") for g in guards))
 
 
+# Call sites a far-watch fix depends on, read on the compiled IL (step 2 review): each
+# (caller, callee prefix) must stay a call, so deleting the call, or inlining the decision
+# back into the caller, reds. Callee keys match on the name before the parameter list.
+REQUIRED_CALLS = (
+    ("Parsek.FarWatchController::OnVesselWillDestroy(Vessel)",
+     "Parsek.CameraDroneIdentity::MarkShipLost(",
+     "a lost ship must mark the identity, or every later save refuses (7.6, V2)"),
+    ("Parsek.FarWatchController::TickFollow()",
+     "Parsek.FarWatchController::RekeyToWatchedRecording(",
+     "a follow watch must follow a chain segment transfer or a ghost switch"),
+    ("Parsek.WatchModeController::ExitWatchMode(bool,bool)",
+     "Parsek.WatchModeController::ShouldSkipCameraRestoreOnWatchExit(",
+     "the camera restore is skipped only while the drone is the active vessel (7.5)"),
+    ("Parsek.InGameTests.InGameTestRunner::PerformBetweenRunCleanup(string)",
+     "Parsek.FarWatchController::EndForTestRunnerReset(",
+     "the between-run reset must end a far watch before it drops the drone ids"),
+)
+
+
+def decide_required_calls(facts, required=REQUIRED_CALLS):
+    """One finding per required call that is missing, or whose caller is gone."""
+    findings = []
+    methods = facts.get("methods", {})
+    for caller, callee, why in required:
+        entry = methods.get(caller)
+        if entry is None:
+            findings.append("required-call caller missing: %s (%s)" % (caller, why))
+            continue
+        if not any(c.startswith(callee) for c in entry.get("calls", ())):
+            findings.append("required-call missing: %s no longer calls %s (%s)" % (caller, callee, why))
+    return findings
+
+
 def decide_handlers(facts, config):
     """(findings, armed): the handler gate's findings, and whether the guard call check applied."""
     findings = []
