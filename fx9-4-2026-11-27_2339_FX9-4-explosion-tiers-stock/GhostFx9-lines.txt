@@ -1,0 +1,576 @@
+[LOG 01:39:51.960] [Parsek][INFO][GhostFx9] mark fx9-real
+[LOG 01:39:51.977] [Parsek][INFO][GhostFx9] spawn Fx9 anchor pid=247508806 lat=-0.09148 lon=-74.55768 alt=65.9 east=0 up=0.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:39:52.006] [Parsek][INFO][GhostFx9] anchor pid=247508806 loaded=True
+[LOG 01:39:54.146] [Parsek][INFO][GhostFx9] case lead recording=True active=#autoLOC_501224 parts=8
+[LOG 01:39:55.255] [Parsek][INFO][GhostFx9] case lead committed tree=61c27fdbc8564dc89d6b421d82b96e57 rec=b2df7c724834469bab062f800b4e52e0 start=15.90 end=16.92 event=0.00
+[LOG 01:40:14.199] [Parsek][INFO][GhostFx9] spawn Fx9 boom-stock pid=1540603171 lat=-0.08288 lon=-74.55768 alt=68.7 east=0 up=0.0 depth=3.98 rangesExtended=True parts=0
+[LOG 01:40:18.301] [Parsek][INFO][GhostFx9] case boom-stock recording=True active=Fx9 boom-stock parts=3
+[LOG 01:40:22.301] [Parsek][INFO][GhostFx9] case boom-stock committed tree=e1f2a3b600af41958d5682f0ea583f72 rec=0435c412040643a28ccf312f1db30613 start=39.88 end=43.88 event=0.00
+[LOG 01:40:22.304] [Parsek][INFO][GhostFx9] spawn Viewer boom-stock pid=3208978062 lat=-0.07524 lon=-74.63407 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:40:22.380] [Parsek][INFO][GhostFx9] real origin shift ut=43.92 offset=818.8
+[LOG 01:40:22.808] [Parsek][INFO][GhostFx9] viewer boom-stock pid=3208978062 loaded=True lead=2.00
+[LOG 01:40:24.103] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k00 ut=45.64 t=-0.24 active=Viewer boom-stock activeSrf=267 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:40:24.338] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k01 ut=45.88 t=0.00 active=Viewer boom-stock activeSrf=257 frameVel=0.0 originOffset=0.0
+[LOG 01:40:24.354] [Parsek][INFO][GhostFx9] real event boom-stock exploded ut=45.88
+[LOG 01:40:24.601] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k02 ut=46.14 t=0.26 active=Viewer boom-stock activeSrf=246 frameVel=0.0 originOffset=0.0
+[LOG 01:40:24.836] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k03 ut=46.38 t=0.50 active=Viewer boom-stock activeSrf=236 frameVel=0.0 originOffset=0.0
+[LOG 01:40:25.104] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k04 ut=46.64 t=0.76 active=Viewer boom-stock activeSrf=228 frameVel=0.0 originOffset=0.0
+[LOG 01:40:25.339] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k05 ut=46.88 t=1.00 active=Viewer boom-stock activeSrf=220 frameVel=0.0 originOffset=0.0
+[LOG 01:40:25.607] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k06 ut=47.14 t=1.26 active=Viewer boom-stock activeSrf=212 frameVel=0.0 originOffset=0.0
+[LOG 01:40:25.842] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k07 ut=47.38 t=1.50 active=Viewer boom-stock activeSrf=206 frameVel=0.0 originOffset=0.0
+[LOG 01:40:26.093] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k08 ut=47.64 t=1.76 active=Viewer boom-stock activeSrf=199 frameVel=0.0 originOffset=0.0
+[LOG 01:40:26.344] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k09 ut=47.88 t=2.00 active=Viewer boom-stock activeSrf=193 frameVel=0.0 originOffset=0.0
+[LOG 01:40:26.595] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k10 ut=48.14 t=2.26 active=Viewer boom-stock activeSrf=188 frameVel=0.0 originOffset=0.0
+[LOG 01:40:26.831] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k11 ut=48.38 t=2.50 active=Viewer boom-stock activeSrf=183 frameVel=0.0 originOffset=0.0
+[LOG 01:40:27.098] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k12 ut=48.64 t=2.76 active=Viewer boom-stock activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 01:40:27.334] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-real-k13 ut=48.88 t=3.00 active=Viewer boom-stock activeSrf=173 frameVel=0.0 originOffset=0.0
+[LOG 01:40:38.337] [Parsek][INFO][GhostFx9] spawn Fx9 boom-built pid=2068823249 lat=-0.06856 lon=-74.55768 alt=69.2 east=0 up=0.0 depth=3.98 rangesExtended=True parts=0
+[LOG 01:40:38.396] [Parsek][INFO][GhostFx9] real origin shift ut=59.92 offset=789.3
+[LOG 01:40:42.448] [Parsek][INFO][GhostFx9] case boom-built recording=True active=Fx9 boom-built parts=1
+[LOG 01:40:46.482] [Parsek][INFO][GhostFx9] case boom-built committed tree=84d800599ea54b3d8eba20a3566e1cb9 rec=3d5d0ff88db74084a79d009386418ee7 start=63.88 end=67.90 event=0.00
+[LOG 01:40:46.484] [Parsek][INFO][GhostFx9] spawn Viewer boom-built pid=4197301357 lat=-0.06092 lon=-74.63407 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:40:46.542] [Parsek][INFO][GhostFx9] real origin shift ut=67.96 offset=782.3
+[LOG 01:40:46.936] [Parsek][INFO][GhostFx9] viewer boom-built pid=4197301357 loaded=True lead=2.00
+[LOG 01:40:48.214] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k00 ut=69.66 t=-0.24 active=Viewer boom-built activeSrf=267 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:40:48.485] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k01 ut=69.92 t=0.02 active=Viewer boom-built activeSrf=256 frameVel=0.0 originOffset=0.0
+[LOG 01:40:48.485] [Parsek][INFO][GhostFx9] real event boom-built exploded ut=69.92
+[LOG 01:40:48.721] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k02 ut=70.16 t=0.26 active=Viewer boom-built activeSrf=246 frameVel=0.0 originOffset=0.0
+[LOG 01:40:48.972] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k03 ut=70.42 t=0.52 active=Viewer boom-built activeSrf=236 frameVel=0.0 originOffset=0.0
+[LOG 01:40:49.225] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k04 ut=70.66 t=0.76 active=Viewer boom-built activeSrf=228 frameVel=0.0 originOffset=0.0
+[LOG 01:40:49.477] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k05 ut=70.92 t=1.02 active=Viewer boom-built activeSrf=219 frameVel=0.0 originOffset=0.0
+[LOG 01:40:49.711] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k06 ut=71.16 t=1.26 active=Viewer boom-built activeSrf=212 frameVel=0.0 originOffset=0.0
+[LOG 01:40:49.981] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k07 ut=71.42 t=1.52 active=Viewer boom-built activeSrf=205 frameVel=0.0 originOffset=0.0
+[LOG 01:40:50.215] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k08 ut=71.66 t=1.76 active=Viewer boom-built activeSrf=199 frameVel=0.0 originOffset=0.0
+[LOG 01:40:50.484] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k09 ut=71.92 t=2.02 active=Viewer boom-built activeSrf=193 frameVel=0.0 originOffset=0.0
+[LOG 01:40:50.718] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k10 ut=72.16 t=2.26 active=Viewer boom-built activeSrf=188 frameVel=0.0 originOffset=0.0
+[LOG 01:40:50.969] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k11 ut=72.42 t=2.52 active=Viewer boom-built activeSrf=182 frameVel=0.0 originOffset=0.0
+[LOG 01:40:51.220] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k12 ut=72.66 t=2.76 active=Viewer boom-built activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 01:40:51.472] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-real-k13 ut=72.92 t=3.02 active=Viewer boom-built activeSrf=173 frameVel=0.0 originOffset=0.0
+[LOG 01:41:02.434] [Parsek][INFO][GhostFx9] spawn Fx9 puff pid=1887606618 lat=-0.05424 lon=-74.55768 alt=66.1 east=0 up=0.0 depth=2.81 rangesExtended=True parts=0
+[LOG 01:41:02.499] [Parsek][INFO][GhostFx9] real origin shift ut=83.92 offset=781.6
+[LOG 01:41:06.552] [Parsek][INFO][GhostFx9] case puff recording=True active=Fx9 puff parts=4
+[LOG 01:41:08.793] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k00 ut=90.16 t=-0.24 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:41:09.047] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k01 ut=90.42 t=0.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:09.060] [Parsek][INFO][GhostFx9] real event puff ut=90.42
+[LOG 01:41:09.280] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k02 ut=90.66 t=0.26 active=Fx9 puff activeSrf=1 frameVel=0.0 originOffset=0.0
+[LOG 01:41:09.548] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k03 ut=90.92 t=0.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:09.790] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k04 ut=91.16 t=0.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:10.043] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k05 ut=91.42 t=1.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:10.295] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k06 ut=91.66 t=1.26 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:10.548] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k07 ut=91.92 t=1.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:10.784] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k08 ut=92.16 t=1.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:11.053] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k09 ut=92.42 t=2.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:11.287] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k10 ut=92.66 t=2.26 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:11.555] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k11 ut=92.92 t=2.52 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:11.792] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k12 ut=93.16 t=2.76 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:12.044] [Parsek][INFO][GhostFx9] shot fx9g-puff-real-k13 ut=93.42 t=3.02 active=Fx9 puff activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:13.121] [Parsek][INFO][GhostFx9] case puff committed tree=b34617ce8ac645dc9b0846344880c0ee rec=0768c2fd83194fa39272ce59e58872c0 start=87.90 end=94.42 event=90.40
+[LOG 01:41:26.568] [Parsek][INFO][GhostFx9] spawn Fx9 dust pid=1140869305 lat=-0.03991 lon=-74.55768 alt=67.0 east=0 up=0.0 depth=3.71 rangesExtended=True parts=0
+[LOG 01:41:30.714] [Parsek][INFO][GhostFx9] case dust recording=True active=Fx9 dust parts=3
+[LOG 01:41:32.957] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k00 ut=114.18 t=-0.24 active=Fx9 dust activeSrf=0 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:41:33.209] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k01 ut=114.44 t=0.02 active=Fx9 dust activeSrf=0 frameVel=0.0 originOffset=0.0
+[LOG 01:41:33.210] [Parsek][INFO][GhostFx9] real event dust ut=114.44
+[LOG 01:41:33.460] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k02 ut=114.68 t=0.26 active=Fx9 dust activeSrf=8 frameVel=0.0 originOffset=0.0
+[LOG 01:41:33.714] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k03 ut=114.94 t=0.52 active=Fx9 dust activeSrf=17 frameVel=0.0 originOffset=0.0
+[LOG 01:41:33.949] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k04 ut=115.18 t=0.76 active=Fx9 dust activeSrf=25 frameVel=0.0 originOffset=0.0
+[LOG 01:41:34.217] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k05 ut=115.44 t=1.02 active=Fx9 dust activeSrf=34 frameVel=0.0 originOffset=0.0
+[LOG 01:41:34.453] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k06 ut=115.68 t=1.26 active=Fx9 dust activeSrf=43 frameVel=0.0 originOffset=0.0
+[LOG 01:41:34.706] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k07 ut=115.94 t=1.52 active=Fx9 dust activeSrf=52 frameVel=0.0 originOffset=0.0
+[LOG 01:41:34.960] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k08 ut=116.18 t=1.76 active=Fx9 dust activeSrf=60 frameVel=0.0 originOffset=0.0
+[LOG 01:41:35.212] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k09 ut=116.44 t=2.02 active=Fx9 dust activeSrf=69 frameVel=0.0 originOffset=0.0
+[LOG 01:41:35.447] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k10 ut=116.68 t=2.26 active=Fx9 dust activeSrf=78 frameVel=0.0 originOffset=0.0
+[LOG 01:41:35.717] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k11 ut=116.94 t=2.52 active=Fx9 dust activeSrf=87 frameVel=0.0 originOffset=0.0
+[LOG 01:41:35.954] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k12 ut=117.18 t=2.76 active=Fx9 dust activeSrf=95 frameVel=0.0 originOffset=0.0
+[LOG 01:41:36.209] [Parsek][INFO][GhostFx9] shot fx9g-dust-real-k13 ut=117.44 t=3.02 active=Fx9 dust activeSrf=104 frameVel=0.0 originOffset=0.0
+[LOG 01:41:36.770] [Parsek][INFO][GhostFx9] case dust committed tree=cd90f742866e4d8cbdbcf262e8709932 rec=70f35b2d1bf149da8b7317d1c0b99d3a start=111.92 end=117.94 event=114.42
+[LOG 01:41:36.777] [Parsek][INFO][GhostFx9] REAL DONE cases=5 ut=118.0
+[LOG 01:42:48.956] [Parsek][INFO][GhostFx9] stock copies restored has=True
+[LOG 01:42:55.242] [Parsek][INFO][GhostFx9] mark fx9-ghost-after
+[LOG 01:42:55.243] [Parsek][INFO][GhostFx9] ghost after stock copies kept=True
+[LOG 01:42:55.243] [Parsek][INFO][GhostFx9] stock copies hidden has=False
+[LOG 01:43:34.149] [Parsek][INFO][GhostFx9] spawn Viewer boom-stock pid=111007425 lat=-0.07524 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:43:34.216] [Parsek][INFO][GhostFx9] after origin shift ut=41.64 offset=914.2
+[LOG 01:43:34.641] [Parsek][INFO][GhostFx9] viewer boom-stock pid=111007425 loaded=True lead=2.28
+[LOG 01:43:34.642] [Parsek][INFO][GhostFx9] ghost after boom-stock present=True active=True
+[LOG 01:43:35.663] [Parsek][INFO][GhostFx9] after origin shift ut=43.10 offset=502.3
+[LOG 01:43:36.215] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k00 ut=43.64 t=-0.24 active=Viewer boom-stock activeSrf=255 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:43:36.471] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k01 ut=43.90 t=0.02 active=Viewer boom-stock activeSrf=244 frameVel=0.0 originOffset=0.0
+[LOG 01:43:36.703] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k02 ut=44.14 t=0.26 active=Viewer boom-stock activeSrf=235 frameVel=0.0 originOffset=0.0
+[LOG 01:43:36.971] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k03 ut=44.40 t=0.52 active=Viewer boom-stock activeSrf=226 frameVel=0.0 originOffset=0.0
+[LOG 01:43:37.205] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k04 ut=44.64 t=0.76 active=Viewer boom-stock activeSrf=219 frameVel=0.0 originOffset=0.0
+[LOG 01:43:37.473] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k05 ut=44.90 t=1.02 active=Viewer boom-stock activeSrf=211 frameVel=0.0 originOffset=0.0
+[LOG 01:43:37.709] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k06 ut=45.14 t=1.26 active=Viewer boom-stock activeSrf=205 frameVel=0.0 originOffset=0.0
+[LOG 01:43:37.792] [Parsek][INFO][GhostFx9] after origin shift ut=45.22 offset=502.7
+[LOG 01:43:37.961] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k07 ut=45.40 t=1.52 active=Viewer boom-stock activeSrf=198 frameVel=0.0 originOffset=0.0
+[LOG 01:43:38.214] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k08 ut=45.64 t=1.76 active=Viewer boom-stock activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 01:43:38.449] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k09 ut=45.88 t=2.00 active=Viewer boom-stock activeSrf=187 frameVel=0.0 originOffset=0.0
+[LOG 01:43:38.716] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k10 ut=46.14 t=2.26 active=Viewer boom-stock activeSrf=182 frameVel=0.0 originOffset=0.0
+[LOG 01:43:38.950] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k11 ut=46.38 t=2.50 active=Viewer boom-stock activeSrf=177 frameVel=0.0 originOffset=0.0
+[LOG 01:43:39.218] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k12 ut=46.64 t=2.76 active=Viewer boom-stock activeSrf=172 frameVel=0.0 originOffset=0.0
+[LOG 01:43:39.442] [Parsek][INFO][GhostFx9] shot fx9g-boom-stock-after-k13 ut=46.88 t=3.00 active=Viewer boom-stock activeSrf=168 frameVel=0.0 originOffset=0.0
+[LOG 01:43:40.694] [Parsek][INFO][GhostFx9] after origin shift ut=48.12 offset=502.0
+[LOG 01:43:58.163] [Parsek][INFO][GhostFx9] spawn Viewer boom-built pid=3165704261 lat=-0.06092 lon=-74.64553 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:43:58.219] [Parsek][INFO][GhostFx9] after origin shift ut=65.62 offset=1526.7
+[LOG 01:43:58.614] [Parsek][INFO][GhostFx9] viewer boom-built pid=3165704261 loaded=True lead=2.30
+[LOG 01:43:58.614] [Parsek][INFO][GhostFx9] ghost after boom-built present=True active=True
+[LOG 01:43:59.668] [Parsek][INFO][GhostFx9] after origin shift ut=67.10 offset=505.5
+[LOG 01:44:00.189] [Parsek][INFO][GhostFx9] fxmonger hidden ut=67.62 held=True
+[LOG 01:44:00.239] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k00 ut=67.66 t=-0.24 active=Viewer boom-built activeSrf=252 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:44:00.498] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k01 ut=67.92 t=0.02 active=Viewer boom-built activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 01:44:00.499] [Parsek][INFO][GhostFx9] after free fx spawned GhostExplosionFx id=-464648 ut=67.92 alt=65.2
+[LOG 01:44:00.725] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k02 ut=68.16 t=0.26 active=Viewer boom-built activeSrf=233 frameVel=0.0 originOffset=0.0
+[LOG 01:44:00.725] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k02 GhostExplosionFx n=30 age=0.24s centroidFromSpawnPoint=0.1m
+[LOG 01:44:00.792] [Parsek][INFO][GhostFx9] fxmonger restored ut=68.22
+[LOG 01:44:00.993] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k03 ut=68.42 t=0.52 active=Viewer boom-built activeSrf=224 frameVel=0.0 originOffset=0.0
+[LOG 01:44:00.994] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k03 GhostExplosionFx n=30 age=0.50s centroidFromSpawnPoint=0.1m
+[LOG 01:44:01.228] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k04 ut=68.66 t=0.76 active=Viewer boom-built activeSrf=217 frameVel=0.0 originOffset=0.0
+[LOG 01:44:01.228] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k04 GhostExplosionFx n=27 age=0.74s centroidFromSpawnPoint=0.2m
+[LOG 01:44:01.496] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k05 ut=68.92 t=1.02 active=Viewer boom-built activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 01:44:01.496] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k05 GhostExplosionFx n=20 age=1.00s centroidFromSpawnPoint=0.4m
+[LOG 01:44:01.730] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k06 ut=69.16 t=1.26 active=Viewer boom-built activeSrf=203 frameVel=0.0 originOffset=0.0
+[LOG 01:44:01.730] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k06 GhostExplosionFx n=18 age=1.24s centroidFromSpawnPoint=0.4m
+[LOG 01:44:01.815] [Parsek][INFO][GhostFx9] after origin shift ut=69.24 offset=503.6
+[LOG 01:44:01.998] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k07 ut=69.42 t=1.52 active=Viewer boom-built activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 01:44:01.999] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k07 GhostExplosionFx n=13 age=1.50s centroidFromSpawnPoint=0.4m
+[LOG 01:44:02.233] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k08 ut=69.66 t=1.76 active=Viewer boom-built activeSrf=191 frameVel=0.0 originOffset=0.0
+[LOG 01:44:02.233] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k08 GhostExplosionFx n=7 age=1.74s centroidFromSpawnPoint=0.5m
+[LOG 01:44:02.485] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k09 ut=69.92 t=2.02 active=Viewer boom-built activeSrf=185 frameVel=0.0 originOffset=0.0
+[LOG 01:44:02.486] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k09 GhostExplosionFx n=1 age=2.00s centroidFromSpawnPoint=1.8m
+[LOG 01:44:02.735] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k10 ut=70.16 t=2.26 active=Viewer boom-built activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 01:44:02.735] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k10 GhostExplosionFx n=0
+[LOG 01:44:02.989] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k11 ut=70.42 t=2.52 active=Viewer boom-built activeSrf=175 frameVel=0.0 originOffset=0.0
+[LOG 01:44:02.989] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k11 GhostExplosionFx n=0
+[LOG 01:44:03.226] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k12 ut=70.66 t=2.76 active=Viewer boom-built activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 01:44:03.226] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k12 GhostExplosionFx n=0
+[LOG 01:44:03.494] [Parsek][INFO][GhostFx9] shot fx9g-boom-built-after-k13 ut=70.92 t=3.02 active=Viewer boom-built activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 01:44:03.494] [Parsek][INFO][GhostFx9] stats fx9g-boom-built-after-k13 GhostExplosionFx n=0
+[LOG 01:44:04.731] [Parsek][INFO][GhostFx9] after origin shift ut=72.16 offset=501.7
+[LOG 01:44:20.690] [Parsek][INFO][GhostFx9] spawn Viewer puff pid=3790207089 lat=-0.04660 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:44:20.736] [Parsek][INFO][GhostFx9] after origin shift ut=88.16 offset=1498.5
+[LOG 01:44:21.136] [Parsek][INFO][GhostFx9] viewer puff pid=3790207089 loaded=True lead=2.28
+[LOG 01:44:21.136] [Parsek][INFO][GhostFx9] ghost after puff present=True active=True
+[LOG 01:44:22.208] [Parsek][INFO][GhostFx9] after origin shift ut=89.64 offset=503.0
+[LOG 01:44:22.726] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k00 ut=90.16 t=-0.24 active=Viewer puff activeSrf=253 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:44:22.994] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k01 ut=90.42 t=0.02 active=Viewer puff activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 01:44:23.020] [Parsek][INFO][GhostFx9] after free fx spawned GhostPartPuffFx id=-467000 ut=90.44 alt=65.7
+[LOG 01:44:23.229] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k02 ut=90.66 t=0.26 active=Viewer puff activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 01:44:23.229] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k02 GhostPartPuffFx n=69 age=0.22s centroidFromSpawnPoint=0.1m
+[LOG 01:44:23.498] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k03 ut=90.92 t=0.52 active=Viewer puff activeSrf=225 frameVel=0.0 originOffset=0.0
+[LOG 01:44:23.498] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k03 GhostPartPuffFx n=53 age=0.48s centroidFromSpawnPoint=0.2m
+[LOG 01:44:23.733] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k04 ut=91.16 t=0.76 active=Viewer puff activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 01:44:23.733] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k04 GhostPartPuffFx n=32 age=0.72s centroidFromSpawnPoint=0.3m
+[LOG 01:44:23.986] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k05 ut=91.42 t=1.02 active=Viewer puff activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 01:44:23.987] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k05 GhostPartPuffFx n=18 age=0.98s centroidFromSpawnPoint=0.5m
+[LOG 01:44:24.239] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k06 ut=91.66 t=1.26 active=Viewer puff activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 01:44:24.240] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k06 GhostPartPuffFx n=0
+[LOG 01:44:24.356] [Parsek][INFO][GhostFx9] after origin shift ut=91.78 offset=502.0
+[LOG 01:44:24.491] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k07 ut=91.92 t=1.52 active=Viewer puff activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 01:44:24.491] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k07 GhostPartPuffFx n=0
+[LOG 01:44:24.726] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k08 ut=92.16 t=1.76 active=Viewer puff activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 01:44:24.726] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k08 GhostPartPuffFx n=0
+[LOG 01:44:24.994] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k09 ut=92.42 t=2.02 active=Viewer puff activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 01:44:24.995] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k09 GhostPartPuffFx n=0
+[LOG 01:44:25.231] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k10 ut=92.66 t=2.26 active=Viewer puff activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 01:44:25.231] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k10 GhostPartPuffFx n=0
+[LOG 01:44:25.499] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k11 ut=92.92 t=2.52 active=Viewer puff activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 01:44:25.499] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k11 GhostPartPuffFx n=0
+[LOG 01:44:25.736] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k12 ut=93.16 t=2.76 active=Viewer puff activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 01:44:25.736] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k12 GhostPartPuffFx n=0
+[LOG 01:44:25.988] [Parsek][INFO][GhostFx9] shot fx9g-puff-after-k13 ut=93.42 t=3.02 active=Viewer puff activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 01:44:25.989] [Parsek][INFO][GhostFx9] stats fx9g-puff-after-k13 GhostPartPuffFx n=0
+[LOG 01:44:27.266] [Parsek][INFO][GhostFx9] after origin shift ut=94.70 offset=500.6
+[LOG 01:44:44.714] [Parsek][INFO][GhostFx9] spawn Viewer dust pid=254774553 lat=-0.03227 lon=-74.64477 alt=124.8 east=400 up=24.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:44:44.760] [Parsek][INFO][GhostFx9] after origin shift ut=112.18 offset=1509.4
+[LOG 01:44:45.157] [Parsek][INFO][GhostFx9] viewer dust pid=254774553 loaded=True lead=2.28
+[LOG 01:44:45.157] [Parsek][INFO][GhostFx9] ghost after dust present=True active=True
+[LOG 01:44:46.230] [Parsek][INFO][GhostFx9] after origin shift ut=113.66 offset=503.0
+[LOG 01:44:46.751] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k00 ut=114.18 t=-0.24 active=Viewer dust activeSrf=253 frameVel=0.0 originOffset=0.0 foThreshold=500.0 foVelContinuous=5000.0 foContinuous=False
+[LOG 01:44:47.019] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k01 ut=114.44 t=0.02 active=Viewer dust activeSrf=242 frameVel=0.0 originOffset=0.0
+[LOG 01:44:47.254] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k02 ut=114.68 t=0.26 active=Viewer dust activeSrf=234 frameVel=0.0 originOffset=0.0
+[LOG 01:44:47.254] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k02 dust n=45 centroidFromLaunchPoint=1.5m
+[LOG 01:44:47.507] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k03 ut=114.94 t=0.52 active=Viewer dust activeSrf=225 frameVel=0.0 originOffset=0.0
+[LOG 01:44:47.507] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k03 dust n=99 centroidFromLaunchPoint=1.4m
+[LOG 01:44:47.757] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k04 ut=115.18 t=0.76 active=Viewer dust activeSrf=218 frameVel=0.0 originOffset=0.0
+[LOG 01:44:47.757] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k04 dust n=146 centroidFromLaunchPoint=1.4m
+[LOG 01:44:48.009] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k05 ut=115.44 t=1.02 active=Viewer dust activeSrf=210 frameVel=0.0 originOffset=0.0
+[LOG 01:44:48.010] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k05 dust n=183 centroidFromLaunchPoint=1.5m
+[LOG 01:44:48.260] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k06 ut=115.68 t=1.26 active=Viewer dust activeSrf=204 frameVel=0.0 originOffset=0.0
+[LOG 01:44:48.260] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k06 dust n=205 centroidFromLaunchPoint=1.5m
+[LOG 01:44:48.378] [Parsek][INFO][GhostFx9] after origin shift ut=115.80 offset=502.0
+[LOG 01:44:48.513] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k07 ut=115.94 t=1.52 active=Viewer dust activeSrf=197 frameVel=0.0 originOffset=0.0
+[LOG 01:44:48.513] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k07 dust n=210 centroidFromLaunchPoint=1.6m
+[LOG 01:44:48.748] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k08 ut=116.18 t=1.76 active=Viewer dust activeSrf=192 frameVel=0.0 originOffset=0.0
+[LOG 01:44:48.748] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k08 dust n=210 centroidFromLaunchPoint=1.8m
+[LOG 01:44:49.018] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k09 ut=116.44 t=2.02 active=Viewer dust activeSrf=186 frameVel=0.0 originOffset=0.0
+[LOG 01:44:49.018] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k09 dust n=210 centroidFromLaunchPoint=1.9m
+[LOG 01:44:49.252] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k10 ut=116.68 t=2.26 active=Viewer dust activeSrf=181 frameVel=0.0 originOffset=0.0
+[LOG 01:44:49.252] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k10 dust n=210 centroidFromLaunchPoint=2.1m
+[LOG 01:44:49.520] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k11 ut=116.94 t=2.52 active=Viewer dust activeSrf=176 frameVel=0.0 originOffset=0.0
+[LOG 01:44:49.520] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k11 dust n=210 centroidFromLaunchPoint=2.3m
+[LOG 01:44:49.757] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k12 ut=117.18 t=2.76 active=Viewer dust activeSrf=171 frameVel=0.0 originOffset=0.0
+[LOG 01:44:49.757] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k12 dust n=207 centroidFromLaunchPoint=2.6m
+[LOG 01:44:50.009] [Parsek][INFO][GhostFx9] shot fx9g-dust-after-k13 ut=117.44 t=3.02 active=Viewer dust activeSrf=167 frameVel=0.0 originOffset=0.0
+[LOG 01:44:50.009] [Parsek][INFO][GhostFx9] stats fx9g-dust-after-k13 dust n=189 centroidFromLaunchPoint=3.1m
+[LOG 01:44:50.041] [Parsek][INFO][GhostFx9] stock copies restored has=True
+[LOG 01:44:50.041] [Parsek][INFO][GhostFx9] GHOST DONE after ut=117.5
+[LOG 01:44:51.298] [Parsek][INFO][GhostFx9] after origin shift ut=118.72 offset=500.7
+[LOG 01:46:02.519] [Parsek][INFO][GhostFx9] mark fx9-tiers
+[LOG 01:46:02.522] [Parsek][INFO][GhostFx9] spawn Fx9 tier anchor pid=3912688193 lat=-0.07763 lon=-74.55768 alt=66.2 east=0 up=0.0 depth=1.00 rangesExtended=True parts=0
+[LOG 01:46:02.525] [Parsek][INFO][GhostFx9] stock copies restored has=True
+[LOG 01:46:02.568] [Parsek][INFO][GhostFx9] tiers origin shift ut=189.98 offset=769.5
+[LOG 01:46:02.964] [Parsek][INFO][GhostFx9] tiers site lat=-0.06856 lon=-74.55768 ground=64.7 anchor=True copies=True
+[LOG 01:46:03.735] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k00 ut=191.16 t=-0.24
+[LOG 01:46:03.970] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k01 ut=191.40 t=0.00
+[LOG 01:46:03.970] [Parsek][INFO][GhostFx9] tier 0 power=0.083 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=0 flash=none fire=none sparks=12 smoke=7m ut=191.40
+[LOG 01:46:03.970] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472182 ut=191.40 alt=67.3
+[LOG 01:46:03.970] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472162 ut=191.40 alt=68.5
+[LOG 01:46:04.238] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k02 ut=191.66 t=0.26
+[LOG 01:46:04.238] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k02 GhostExplosionFx n=30 age=0.26s centroidFromSpawnPoint=0.3m
+[LOG 01:46:04.238] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k02 GhostStockExplosionFx n=29 age=0.26s centroidFromSpawnPoint=96.4m
+[LOG 01:46:04.472] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k03 ut=191.90 t=0.50
+[LOG 01:46:04.472] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k03 GhostExplosionFx n=30 age=0.50s centroidFromSpawnPoint=0.4m
+[LOG 01:46:04.472] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k03 GhostStockExplosionFx n=29 age=0.50s centroidFromSpawnPoint=96.4m
+[LOG 01:46:04.741] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k04 ut=192.16 t=0.76
+[LOG 01:46:04.741] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k04 GhostExplosionFx n=25 age=0.76s centroidFromSpawnPoint=0.6m
+[LOG 01:46:04.741] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k04 GhostStockExplosionFx n=29 age=0.76s centroidFromSpawnPoint=96.4m
+[LOG 01:46:04.977] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k05 ut=192.40 t=1.00
+[LOG 01:46:04.977] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k05 GhostExplosionFx n=18 age=1.00s centroidFromSpawnPoint=0.5m
+[LOG 01:46:04.977] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k05 GhostStockExplosionFx n=29 age=1.00s centroidFromSpawnPoint=96.4m
+[LOG 01:46:05.228] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k06 ut=192.66 t=1.26
+[LOG 01:46:05.228] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k06 GhostExplosionFx n=18 age=1.26s centroidFromSpawnPoint=0.6m
+[LOG 01:46:05.228] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k06 GhostStockExplosionFx n=22 age=1.26s centroidFromSpawnPoint=96.4m
+[LOG 01:46:05.479] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k07 ut=192.90 t=1.50
+[LOG 01:46:05.480] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k07 GhostExplosionFx n=15 age=1.50s centroidFromSpawnPoint=0.7m
+[LOG 01:46:05.480] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k07 GhostStockExplosionFx n=17 age=1.50s centroidFromSpawnPoint=96.4m
+[LOG 01:46:05.730] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k08 ut=193.16 t=1.76
+[LOG 01:46:05.730] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k08 GhostExplosionFx n=10 age=1.76s centroidFromSpawnPoint=0.5m
+[LOG 01:46:05.730] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k08 GhostStockExplosionFx n=10 age=1.76s centroidFromSpawnPoint=96.3m
+[LOG 01:46:05.965] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k09 ut=193.40 t=2.00
+[LOG 01:46:05.965] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k09 GhostExplosionFx n=1 age=2.00s centroidFromSpawnPoint=2.4m
+[LOG 01:46:05.965] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k09 GhostStockExplosionFx n=7 age=2.00s centroidFromSpawnPoint=96.6m
+[LOG 01:46:06.232] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k10 ut=193.66 t=2.26
+[LOG 01:46:06.232] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k10 GhostExplosionFx n=0
+[LOG 01:46:06.232] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k10 GhostStockExplosionFx n=4 age=2.26s centroidFromSpawnPoint=96.5m
+[LOG 01:46:06.467] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k11 ut=193.90 t=2.50
+[LOG 01:46:06.467] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k11 GhostExplosionFx n=0
+[LOG 01:46:06.467] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k11 GhostStockExplosionFx n=0
+[LOG 01:46:06.735] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k12 ut=194.16 t=2.76
+[LOG 01:46:06.735] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k12 GhostExplosionFx n=0
+[LOG 01:46:06.735] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k12 GhostStockExplosionFx n=0
+[LOG 01:46:06.969] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k13 ut=194.40 t=3.00
+[LOG 01:46:06.969] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k13 GhostExplosionFx n=0
+[LOG 01:46:06.969] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k13 GhostStockExplosionFx n=0
+[LOG 01:46:07.238] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k14 ut=194.66 t=3.26
+[LOG 01:46:07.238] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k14 GhostStockExplosionFx n=0
+[LOG 01:46:07.472] [Parsek][INFO][GhostFx9] shot fx9t-tier0-k15 ut=194.90 t=3.50
+[LOG 01:46:07.473] [Parsek][INFO][GhostFx9] stats fx9t-tier0-k15 GhostStockExplosionFx n=0
+[LOG 01:46:09.330] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k00 ut=196.76 t=-0.24
+[LOG 01:46:09.565] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k01 ut=197.00 t=0.00
+[LOG 01:46:09.565] [Parsek][INFO][GhostFx9] tier 1 power=0.250 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=1 flash=none fire=none sparks=40 smoke=10m ut=197.00
+[LOG 01:46:09.566] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472262 ut=197.00 alt=67.3
+[LOG 01:46:09.566] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472218 ut=197.00 alt=68.5
+[LOG 01:46:09.833] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k02 ut=197.26 t=0.26
+[LOG 01:46:09.833] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k02 GhostExplosionFx n=62 age=0.26s centroidFromSpawnPoint=0.4m
+[LOG 01:46:09.834] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k02 GhostStockExplosionFx n=34 age=0.26s centroidFromSpawnPoint=1.5m
+[LOG 01:46:10.068] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k03 ut=197.50 t=0.50
+[LOG 01:46:10.068] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k03 GhostExplosionFx n=62 age=0.50s centroidFromSpawnPoint=0.7m
+[LOG 01:46:10.068] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k03 GhostStockExplosionFx n=31 age=0.50s centroidFromSpawnPoint=1.7m
+[LOG 01:46:10.336] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k04 ut=197.76 t=0.76
+[LOG 01:46:10.336] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k04 GhostExplosionFx n=57 age=0.76s centroidFromSpawnPoint=0.8m
+[LOG 01:46:10.337] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k04 GhostStockExplosionFx n=28 age=0.76s centroidFromSpawnPoint=3.4m
+[LOG 01:46:10.572] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k05 ut=198.00 t=1.00
+[LOG 01:46:10.572] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k05 GhostExplosionFx n=40 age=1.00s centroidFromSpawnPoint=0.8m
+[LOG 01:46:10.572] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k05 GhostStockExplosionFx n=26 age=1.00s centroidFromSpawnPoint=5.7m
+[LOG 01:46:10.840] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k06 ut=198.26 t=1.26
+[LOG 01:46:10.840] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k06 GhostExplosionFx n=17 age=1.26s centroidFromSpawnPoint=1.3m
+[LOG 01:46:10.840] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k06 GhostStockExplosionFx n=26 age=1.26s centroidFromSpawnPoint=8.8m
+[LOG 01:46:11.073] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k07 ut=198.50 t=1.50
+[LOG 01:46:11.073] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k07 GhostExplosionFx n=1 age=1.50s centroidFromSpawnPoint=2.4m
+[LOG 01:46:11.074] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k07 GhostStockExplosionFx n=26 age=1.50s centroidFromSpawnPoint=11.9m
+[LOG 01:46:11.340] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k08 ut=198.76 t=1.76
+[LOG 01:46:11.341] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k08 GhostExplosionFx n=0
+[LOG 01:46:11.341] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k08 GhostStockExplosionFx n=25 age=1.76s centroidFromSpawnPoint=16.8m
+[LOG 01:46:11.575] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k09 ut=199.00 t=2.00
+[LOG 01:46:11.575] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k09 GhostExplosionFx n=0
+[LOG 01:46:11.575] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k09 GhostStockExplosionFx n=24 age=2.00s centroidFromSpawnPoint=22.1m
+[LOG 01:46:11.825] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k10 ut=199.26 t=2.26
+[LOG 01:46:11.825] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k10 GhostExplosionFx n=0
+[LOG 01:46:11.825] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k10 GhostStockExplosionFx n=0
+[LOG 01:46:12.077] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k11 ut=199.50 t=2.50
+[LOG 01:46:12.077] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k11 GhostExplosionFx n=0
+[LOG 01:46:12.077] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k11 GhostStockExplosionFx n=0
+[LOG 01:46:12.327] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k12 ut=199.76 t=2.76
+[LOG 01:46:12.327] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k12 GhostStockExplosionFx n=0
+[LOG 01:46:12.578] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k13 ut=200.00 t=3.00
+[LOG 01:46:12.579] [Parsek][INFO][GhostFx9] stats fx9t-tier1-k13 GhostStockExplosionFx n=0
+[LOG 01:46:12.828] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k14 ut=200.26 t=3.26
+[LOG 01:46:13.080] [Parsek][INFO][GhostFx9] shot fx9t-tier1-k15 ut=200.50 t=3.50
+[LOG 01:46:14.936] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k00 ut=202.36 t=-0.24
+[LOG 01:46:15.169] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k01 ut=202.60 t=0.00
+[LOG 01:46:15.171] [Parsek][INFO][GhostFx9] tier 2 power=0.417 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=2 flash=7m fire=15m sparks=25 smoke=18m ut=202.60
+[LOG 01:46:15.172] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472352 ut=202.60 alt=67.3
+[LOG 01:46:15.172] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472296 ut=202.60 alt=68.5
+[LOG 01:46:15.438] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k02 ut=202.86 t=0.26
+[LOG 01:46:15.438] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k02 GhostExplosionFx n=85 age=0.26s centroidFromSpawnPoint=0.4m
+[LOG 01:46:15.438] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k02 GhostStockExplosionFx n=34 age=0.26s centroidFromSpawnPoint=2.2m
+[LOG 01:46:15.671] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k03 ut=203.10 t=0.50
+[LOG 01:46:15.671] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k03 GhostExplosionFx n=85 age=0.50s centroidFromSpawnPoint=0.4m
+[LOG 01:46:15.672] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k03 GhostStockExplosionFx n=49 age=0.50s centroidFromSpawnPoint=2.3m
+[LOG 01:46:15.939] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k04 ut=203.36 t=0.76
+[LOG 01:46:15.940] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k04 GhostExplosionFx n=49 age=0.76s centroidFromSpawnPoint=0.9m
+[LOG 01:46:15.940] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k04 GhostStockExplosionFx n=45 age=0.76s centroidFromSpawnPoint=2.2m
+[LOG 01:46:16.174] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k05 ut=203.60 t=1.00
+[LOG 01:46:16.175] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k05 GhostExplosionFx n=37 age=1.00s centroidFromSpawnPoint=0.7m
+[LOG 01:46:16.175] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k05 GhostStockExplosionFx n=26 age=1.00s centroidFromSpawnPoint=2.4m
+[LOG 01:46:16.427] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k06 ut=203.86 t=1.26
+[LOG 01:46:16.427] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k06 GhostExplosionFx n=30 age=1.26s centroidFromSpawnPoint=0.8m
+[LOG 01:46:16.428] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k06 GhostStockExplosionFx n=23 age=1.26s centroidFromSpawnPoint=2.8m
+[LOG 01:46:16.680] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k07 ut=204.10 t=1.50
+[LOG 01:46:16.680] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k07 GhostExplosionFx n=30 age=1.50s centroidFromSpawnPoint=0.8m
+[LOG 01:46:16.680] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k07 GhostStockExplosionFx n=20 age=1.50s centroidFromSpawnPoint=3.3m
+[LOG 01:46:16.930] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k08 ut=204.36 t=1.76
+[LOG 01:46:16.930] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k08 GhostExplosionFx n=21 age=1.76s centroidFromSpawnPoint=0.9m
+[LOG 01:46:16.931] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k08 GhostStockExplosionFx n=17 age=1.76s centroidFromSpawnPoint=3.9m
+[LOG 01:46:17.166] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k09 ut=204.60 t=2.00
+[LOG 01:46:17.166] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k09 GhostExplosionFx n=5 age=2.00s centroidFromSpawnPoint=2.5m
+[LOG 01:46:17.166] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k09 GhostStockExplosionFx n=8 age=2.00s centroidFromSpawnPoint=8.1m
+[LOG 01:46:17.434] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k10 ut=204.86 t=2.26
+[LOG 01:46:17.434] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k10 GhostExplosionFx n=0
+[LOG 01:46:17.434] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k10 GhostStockExplosionFx n=4 age=2.26s centroidFromSpawnPoint=29.9m
+[LOG 01:46:17.667] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k11 ut=205.10 t=2.50
+[LOG 01:46:17.667] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k11 GhostExplosionFx n=0
+[LOG 01:46:17.667] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k11 GhostStockExplosionFx n=0
+[LOG 01:46:17.936] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k12 ut=205.36 t=2.76
+[LOG 01:46:17.936] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k12 GhostExplosionFx n=0
+[LOG 01:46:17.936] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k12 GhostStockExplosionFx n=0
+[LOG 01:46:18.172] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k13 ut=205.60 t=3.00
+[LOG 01:46:18.173] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k13 GhostExplosionFx n=0
+[LOG 01:46:18.173] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k13 GhostStockExplosionFx n=0
+[LOG 01:46:18.440] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k14 ut=205.86 t=3.26
+[LOG 01:46:18.440] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k14 GhostStockExplosionFx n=0
+[LOG 01:46:18.674] [Parsek][INFO][GhostFx9] shot fx9t-tier2-k15 ut=206.10 t=3.50
+[LOG 01:46:18.674] [Parsek][INFO][GhostFx9] stats fx9t-tier2-k15 GhostStockExplosionFx n=0
+[LOG 01:46:20.529] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k00 ut=207.96 t=-0.24
+[LOG 01:46:20.529] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k00 GhostStockExplosionFx n=0
+[LOG 01:46:20.781] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k01 ut=208.20 t=0.00
+[LOG 01:46:20.782] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k01 GhostStockExplosionFx n=0
+[LOG 01:46:20.782] [Parsek][INFO][GhostFx9] tier 3 power=0.583 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=3 flash=8m fire=18m sparks=60 smoke=19m ut=208.20
+[LOG 01:46:20.783] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472494 ut=208.20 alt=67.3
+[LOG 01:46:20.783] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472414 ut=208.20 alt=68.5
+[LOG 01:46:21.032] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k02 ut=208.46 t=0.26
+[LOG 01:46:21.033] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k02 GhostExplosionFx n=128 age=0.26s centroidFromSpawnPoint=0.4m
+[LOG 01:46:21.033] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k02 GhostStockExplosionFx n=127 age=0.26s centroidFromSpawnPoint=59.1m
+[LOG 01:46:21.033] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k02 GhostStockExplosionFx n=0
+[LOG 01:46:21.267] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k03 ut=208.70 t=0.50
+[LOG 01:46:21.267] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k03 GhostExplosionFx n=128 age=0.50s centroidFromSpawnPoint=0.4m
+[LOG 01:46:21.268] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k03 GhostStockExplosionFx n=123 age=0.50s centroidFromSpawnPoint=61.4m
+[LOG 01:46:21.268] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k03 GhostStockExplosionFx n=0
+[LOG 01:46:21.534] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k04 ut=208.96 t=0.76
+[LOG 01:46:21.534] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k04 GhostExplosionFx n=101 age=0.76s centroidFromSpawnPoint=0.6m
+[LOG 01:46:21.534] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k04 GhostStockExplosionFx n=133 age=0.76s centroidFromSpawnPoint=57.1m
+[LOG 01:46:21.534] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k04 GhostStockExplosionFx n=0
+[LOG 01:46:21.768] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k05 ut=209.20 t=1.00
+[LOG 01:46:21.769] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k05 GhostExplosionFx n=88 age=1.00s centroidFromSpawnPoint=0.9m
+[LOG 01:46:21.769] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k05 GhostStockExplosionFx n=128 age=1.00s centroidFromSpawnPoint=59.9m
+[LOG 01:46:21.769] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k05 GhostStockExplosionFx n=0
+[LOG 01:46:22.037] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k06 ut=209.46 t=1.26
+[LOG 01:46:22.037] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k06 GhostExplosionFx n=74 age=1.26s centroidFromSpawnPoint=0.7m
+[LOG 01:46:22.037] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k06 GhostStockExplosionFx n=124 age=1.26s centroidFromSpawnPoint=62.6m
+[LOG 01:46:22.037] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k06 GhostStockExplosionFx n=0
+[LOG 01:46:22.271] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k07 ut=209.70 t=1.50
+[LOG 01:46:22.271] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k07 GhostExplosionFx n=59 age=1.50s centroidFromSpawnPoint=1.2m
+[LOG 01:46:22.271] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k07 GhostStockExplosionFx n=124 age=1.50s centroidFromSpawnPoint=63.3m
+[LOG 01:46:22.271] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k07 GhostStockExplosionFx n=0
+[LOG 01:46:22.539] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k08 ut=209.96 t=1.76
+[LOG 01:46:22.539] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k08 GhostExplosionFx n=35 age=1.76s centroidFromSpawnPoint=1.0m
+[LOG 01:46:22.539] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k08 GhostStockExplosionFx n=112 age=1.76s centroidFromSpawnPoint=63.1m
+[LOG 01:46:22.539] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k08 GhostStockExplosionFx n=0
+[LOG 01:46:22.773] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k09 ut=210.20 t=2.00
+[LOG 01:46:22.774] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k09 GhostExplosionFx n=34 age=2.00s centroidFromSpawnPoint=0.7m
+[LOG 01:46:22.774] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k09 GhostStockExplosionFx n=102 age=2.00s centroidFromSpawnPoint=64.2m
+[LOG 01:46:22.774] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k09 GhostStockExplosionFx n=0
+[LOG 01:46:23.040] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k10 ut=210.46 t=2.26
+[LOG 01:46:23.041] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k10 GhostExplosionFx n=27 age=2.26s centroidFromSpawnPoint=0.7m
+[LOG 01:46:23.041] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k10 GhostStockExplosionFx n=78 age=2.26s centroidFromSpawnPoint=72.2m
+[LOG 01:46:23.041] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k10 GhostStockExplosionFx n=0
+[LOG 01:46:23.275] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k11 ut=210.70 t=2.50
+[LOG 01:46:23.275] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k11 GhostExplosionFx n=8 age=2.50s centroidFromSpawnPoint=1.7m
+[LOG 01:46:23.275] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k11 GhostStockExplosionFx n=58 age=2.50s centroidFromSpawnPoint=89.3m
+[LOG 01:46:23.525] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k12 ut=210.96 t=2.76
+[LOG 01:46:23.526] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k12 GhostExplosionFx n=0
+[LOG 01:46:23.526] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k12 GhostStockExplosionFx n=43 age=2.76s centroidFromSpawnPoint=105.2m
+[LOG 01:46:23.775] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k13 ut=211.20 t=3.00
+[LOG 01:46:23.776] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k13 GhostExplosionFx n=0
+[LOG 01:46:23.776] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k13 GhostStockExplosionFx n=35 age=3.00s centroidFromSpawnPoint=105.3m
+[LOG 01:46:24.027] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k14 ut=211.46 t=3.26
+[LOG 01:46:24.027] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k14 GhostExplosionFx n=0
+[LOG 01:46:24.027] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k14 GhostStockExplosionFx n=26 age=3.26s centroidFromSpawnPoint=108.4m
+[LOG 01:46:24.278] [Parsek][INFO][GhostFx9] shot fx9t-tier3-k15 ut=211.70 t=3.50
+[LOG 01:46:24.278] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k15 GhostExplosionFx n=0
+[LOG 01:46:24.278] [Parsek][INFO][GhostFx9] stats fx9t-tier3-k15 GhostStockExplosionFx n=14 age=3.50s centroidFromSpawnPoint=111.0m
+[LOG 01:46:26.137] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k00 ut=213.56 t=-0.24
+[LOG 01:46:26.138] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k00 GhostStockExplosionFx n=0
+[LOG 01:46:26.372] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k01 ut=213.80 t=0.00
+[LOG 01:46:26.372] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k01 GhostStockExplosionFx n=0
+[LOG 01:46:26.374] [Parsek][INFO][GhostFx9] tier 4 power=0.750 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=4 flash=20m fire=10m sparks=0 smoke=20m ut=213.80
+[LOG 01:46:26.374] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472616 ut=213.80 alt=67.3
+[LOG 01:46:26.374] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472558 ut=213.80 alt=68.5
+[LOG 01:46:26.641] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k02 ut=214.06 t=0.26
+[LOG 01:46:26.641] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k02 GhostExplosionFx n=49 age=0.26s centroidFromSpawnPoint=0.4m
+[LOG 01:46:26.641] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k02 GhostStockExplosionFx n=10 age=0.26s centroidFromSpawnPoint=68.9m
+[LOG 01:46:26.641] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k02 GhostStockExplosionFx n=0
+[LOG 01:46:26.875] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k03 ut=214.30 t=0.50
+[LOG 01:46:26.875] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k03 GhostExplosionFx n=32 age=0.50s centroidFromSpawnPoint=0.7m
+[LOG 01:46:26.875] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k03 GhostStockExplosionFx n=4 age=0.50s centroidFromSpawnPoint=23.8m
+[LOG 01:46:26.875] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k03 GhostStockExplosionFx n=0
+[LOG 01:46:27.128] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k04 ut=214.56 t=0.76
+[LOG 01:46:27.128] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k04 GhostExplosionFx n=32 age=0.76s centroidFromSpawnPoint=0.8m
+[LOG 01:46:27.128] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k04 GhostStockExplosionFx n=4 age=0.76s centroidFromSpawnPoint=23.5m
+[LOG 01:46:27.128] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k04 GhostStockExplosionFx n=0
+[LOG 01:46:27.379] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k05 ut=214.80 t=1.00
+[LOG 01:46:27.379] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k05 GhostExplosionFx n=32 age=1.00s centroidFromSpawnPoint=0.8m
+[LOG 01:46:27.380] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k05 GhostStockExplosionFx n=3 age=1.00s centroidFromSpawnPoint=1.6m
+[LOG 01:46:27.380] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k05 GhostStockExplosionFx n=0
+[LOG 01:46:27.632] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k06 ut=215.06 t=1.26
+[LOG 01:46:27.632] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k06 GhostExplosionFx n=8 age=1.26s centroidFromSpawnPoint=2.4m
+[LOG 01:46:27.632] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k06 GhostStockExplosionFx n=2 age=1.26s centroidFromSpawnPoint=2.7m
+[LOG 01:46:27.632] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k06 GhostStockExplosionFx n=0
+[LOG 01:46:27.865] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k07 ut=215.30 t=1.50
+[LOG 01:46:27.865] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k07 GhostExplosionFx n=0
+[LOG 01:46:27.865] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k07 GhostStockExplosionFx n=1 age=1.50s centroidFromSpawnPoint=4.8m
+[LOG 01:46:27.865] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k07 GhostStockExplosionFx n=0
+[LOG 01:46:28.132] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k08 ut=215.56 t=1.76
+[LOG 01:46:28.132] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k08 GhostExplosionFx n=0
+[LOG 01:46:28.132] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k08 GhostStockExplosionFx n=0
+[LOG 01:46:28.132] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k08 GhostStockExplosionFx n=0
+[LOG 01:46:28.367] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k09 ut=215.80 t=2.00
+[LOG 01:46:28.368] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k09 GhostExplosionFx n=0
+[LOG 01:46:28.368] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k09 GhostStockExplosionFx n=0
+[LOG 01:46:28.368] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k09 GhostStockExplosionFx n=0
+[LOG 01:46:28.636] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k10 ut=216.06 t=2.26
+[LOG 01:46:28.636] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k10 GhostExplosionFx n=0
+[LOG 01:46:28.636] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k10 GhostStockExplosionFx n=0
+[LOG 01:46:28.636] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k10 GhostStockExplosionFx n=0
+[LOG 01:46:28.870] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k11 ut=216.30 t=2.50
+[LOG 01:46:28.871] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k11 GhostStockExplosionFx n=0
+[LOG 01:46:29.139] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k12 ut=216.56 t=2.76
+[LOG 01:46:29.139] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k12 GhostStockExplosionFx n=0
+[LOG 01:46:29.373] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k13 ut=216.80 t=3.00
+[LOG 01:46:29.373] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k13 GhostStockExplosionFx n=0
+[LOG 01:46:29.627] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k14 ut=217.06 t=3.26
+[LOG 01:46:29.628] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k14 GhostStockExplosionFx n=0
+[LOG 01:46:29.879] [Parsek][INFO][GhostFx9] shot fx9t-tier4-k15 ut=217.30 t=3.50
+[LOG 01:46:29.879] [Parsek][INFO][GhostFx9] stats fx9t-tier4-k15 GhostStockExplosionFx n=0
+[LOG 01:46:31.735] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k00 ut=219.16 t=-0.24
+[LOG 01:46:31.735] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k00 GhostStockExplosionFx n=0
+[LOG 01:46:31.970] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k01 ut=219.40 t=0.00
+[LOG 01:46:31.970] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k01 GhostStockExplosionFx n=0
+[LOG 01:46:31.970] [Parsek][INFO][GhostFx9] tier 5 power=0.917 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=5 flash=38m fire=25m sparks=12 smoke=30m ut=219.40
+[LOG 01:46:31.971] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472728 ut=219.40 alt=67.3
+[LOG 01:46:31.971] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472664 ut=219.40 alt=68.5
+[LOG 01:46:32.237] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k02 ut=219.66 t=0.26
+[LOG 01:46:32.238] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k02 GhostExplosionFx n=95 age=0.26s centroidFromSpawnPoint=0.5m
+[LOG 01:46:32.238] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k02 GhostStockExplosionFx n=43 age=0.26s centroidFromSpawnPoint=96.0m
+[LOG 01:46:32.238] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k02 GhostStockExplosionFx n=0
+[LOG 01:46:32.473] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k03 ut=219.90 t=0.50
+[LOG 01:46:32.473] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k03 GhostExplosionFx n=92 age=0.50s centroidFromSpawnPoint=0.5m
+[LOG 01:46:32.473] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k03 GhostStockExplosionFx n=24 age=0.50s centroidFromSpawnPoint=95.7m
+[LOG 01:46:32.473] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k03 GhostStockExplosionFx n=0
+[LOG 01:46:32.725] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k04 ut=220.16 t=0.76
+[LOG 01:46:32.725] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k04 GhostExplosionFx n=58 age=0.76s centroidFromSpawnPoint=1.3m
+[LOG 01:46:32.725] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k04 GhostStockExplosionFx n=20 age=0.76s centroidFromSpawnPoint=94.8m
+[LOG 01:46:32.725] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k04 GhostStockExplosionFx n=0
+[LOG 01:46:32.975] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k05 ut=220.40 t=1.00
+[LOG 01:46:32.975] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k05 GhostExplosionFx n=40 age=1.00s centroidFromSpawnPoint=1.2m
+[LOG 01:46:32.975] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k05 GhostStockExplosionFx n=16 age=1.00s centroidFromSpawnPoint=94.6m
+[LOG 01:46:32.976] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k05 GhostStockExplosionFx n=0
+[LOG 01:46:33.226] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k06 ut=220.66 t=1.26
+[LOG 01:46:33.226] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k06 GhostExplosionFx n=17 age=1.26s centroidFromSpawnPoint=2.5m
+[LOG 01:46:33.226] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k06 GhostStockExplosionFx n=9 age=1.26s centroidFromSpawnPoint=94.8m
+[LOG 01:46:33.226] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k06 GhostStockExplosionFx n=0
+[LOG 01:46:33.477] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k07 ut=220.90 t=1.50
+[LOG 01:46:33.477] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k07 GhostExplosionFx n=0
+[LOG 01:46:33.478] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k07 GhostStockExplosionFx n=2 age=1.50s centroidFromSpawnPoint=92.3m
+[LOG 01:46:33.728] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k08 ut=221.16 t=1.76
+[LOG 01:46:33.728] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k08 GhostExplosionFx n=0
+[LOG 01:46:33.728] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k08 GhostStockExplosionFx n=0
+[LOG 01:46:33.979] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k09 ut=221.40 t=2.00
+[LOG 01:46:33.979] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k09 GhostExplosionFx n=0
+[LOG 01:46:33.979] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k09 GhostStockExplosionFx n=0
+[LOG 01:46:34.231] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k10 ut=221.66 t=2.26
+[LOG 01:46:34.231] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k10 GhostExplosionFx n=0
+[LOG 01:46:34.231] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k10 GhostStockExplosionFx n=0
+[LOG 01:46:34.466] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k11 ut=221.90 t=2.50
+[LOG 01:46:34.466] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k11 GhostStockExplosionFx n=0
+[LOG 01:46:34.734] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k12 ut=222.16 t=2.76
+[LOG 01:46:34.734] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k12 GhostStockExplosionFx n=0
+[LOG 01:46:34.968] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k13 ut=222.40 t=3.00
+[LOG 01:46:34.968] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k13 GhostStockExplosionFx n=0
+[LOG 01:46:35.235] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k14 ut=222.66 t=3.26
+[LOG 01:46:35.236] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k14 GhostStockExplosionFx n=0
+[LOG 01:46:35.469] [Parsek][INFO][GhostFx9] shot fx9t-tier5-k15 ut=222.90 t=3.50
+[LOG 01:46:35.469] [Parsek][INFO][GhostFx9] stats fx9t-tier5-k15 GhostStockExplosionFx n=0
+[LOG 01:46:37.326] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k00 ut=224.76 t=-0.24
+[LOG 01:46:37.326] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k00 GhostStockExplosionFx n=0
+[LOG 01:46:37.576] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k01 ut=225.00 t=0.00
+[LOG 01:46:37.576] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k01 GhostStockExplosionFx n=0
+[LOG 01:46:37.577] [Parsek][INFO][GhostFx9] tier 6 power=1.000 stock=GhostStockExplosionFx built=GhostExplosionFx look=tier=6 flash=12m fire=28m sparks=90 smoke=22m ut=225.00
+[LOG 01:46:37.578] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostExplosionFx id=-472872 ut=225.00 alt=67.3
+[LOG 01:46:37.578] [Parsek][INFO][GhostFx9] tiers free fx spawned GhostStockExplosionFx id=-472790 ut=225.00 alt=68.5
+[LOG 01:46:37.827] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k02 ut=225.26 t=0.26
+[LOG 01:46:37.828] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k02 GhostExplosionFx n=178 age=0.26s centroidFromSpawnPoint=0.3m
+[LOG 01:46:37.828] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k02 GhostStockExplosionFx n=170 age=0.26s centroidFromSpawnPoint=2.2m
+[LOG 01:46:37.828] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k02 GhostStockExplosionFx n=0
+[LOG 01:46:38.080] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k03 ut=225.50 t=0.50
+[LOG 01:46:38.080] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k03 GhostExplosionFx n=175 age=0.50s centroidFromSpawnPoint=0.4m
+[LOG 01:46:38.080] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k03 GhostStockExplosionFx n=165 age=0.50s centroidFromSpawnPoint=2.6m
+[LOG 01:46:38.080] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k03 GhostStockExplosionFx n=0
+[LOG 01:46:38.331] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k04 ut=225.76 t=0.76
+[LOG 01:46:38.331] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k04 GhostExplosionFx n=175 age=0.76s centroidFromSpawnPoint=0.6m
+[LOG 01:46:38.331] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k04 GhostStockExplosionFx n=170 age=0.76s centroidFromSpawnPoint=3.1m
+[LOG 01:46:38.331] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k04 GhostStockExplosionFx n=0
+[LOG 01:46:38.566] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k05 ut=226.00 t=1.00
+[LOG 01:46:38.567] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k05 GhostExplosionFx n=175 age=1.00s centroidFromSpawnPoint=0.8m
+[LOG 01:46:38.567] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k05 GhostStockExplosionFx n=167 age=1.00s centroidFromSpawnPoint=3.9m
+[LOG 01:46:38.567] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k05 GhostStockExplosionFx n=0
+[LOG 01:46:38.836] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k06 ut=226.26 t=1.26
+[LOG 01:46:38.836] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k06 GhostExplosionFx n=134 age=1.26s centroidFromSpawnPoint=0.2m
+[LOG 01:46:38.836] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k06 GhostStockExplosionFx n=148 age=1.26s centroidFromSpawnPoint=5.7m
+[LOG 01:46:38.836] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k06 GhostStockExplosionFx n=0
+[LOG 01:46:39.071] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k07 ut=226.50 t=1.50
+[LOG 01:46:39.072] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k07 GhostExplosionFx n=90 age=1.50s centroidFromSpawnPoint=0.6m
+[LOG 01:46:39.072] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k07 GhostStockExplosionFx n=125 age=1.50s centroidFromSpawnPoint=7.5m
+[LOG 01:46:39.072] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k07 GhostStockExplosionFx n=0
+[LOG 01:46:39.338] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k08 ut=226.76 t=1.76
+[LOG 01:46:39.339] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k08 GhostExplosionFx n=61 age=1.76s centroidFromSpawnPoint=1.0m
+[LOG 01:46:39.339] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k08 GhostStockExplosionFx n=98 age=1.76s centroidFromSpawnPoint=9.9m
+[LOG 01:46:39.339] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k08 GhostStockExplosionFx n=0
+[LOG 01:46:39.572] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k09 ut=227.00 t=2.00
+[LOG 01:46:39.573] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k09 GhostExplosionFx n=48 age=2.00s centroidFromSpawnPoint=0.5m
+[LOG 01:46:39.573] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k09 GhostStockExplosionFx n=75 age=2.00s centroidFromSpawnPoint=11.3m
+[LOG 01:46:39.573] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k09 GhostStockExplosionFx n=0
+[LOG 01:46:39.825] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k10 ut=227.26 t=2.26
+[LOG 01:46:39.825] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k10 GhostExplosionFx n=40 age=2.26s centroidFromSpawnPoint=0.6m
+[LOG 01:46:39.825] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k10 GhostStockExplosionFx n=49 age=2.26s centroidFromSpawnPoint=12.2m
+[LOG 01:46:39.825] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k10 GhostStockExplosionFx n=0
+[LOG 01:46:40.076] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k11 ut=227.50 t=2.50
+[LOG 01:46:40.076] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k11 GhostExplosionFx n=20 age=2.50s centroidFromSpawnPoint=1.3m
+[LOG 01:46:40.076] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k11 GhostStockExplosionFx n=21 age=2.50s centroidFromSpawnPoint=8.3m
+[LOG 01:46:40.076] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k11 GhostStockExplosionFx n=0
+[LOG 01:46:40.329] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k12 ut=227.76 t=2.76
+[LOG 01:46:40.329] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k12 GhostExplosionFx n=7 age=2.76s centroidFromSpawnPoint=2.3m
+[LOG 01:46:40.329] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k12 GhostStockExplosionFx n=13 age=2.76s centroidFromSpawnPoint=11.2m
+[LOG 01:46:40.329] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k12 GhostStockExplosionFx n=0
+[LOG 01:46:40.579] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k13 ut=228.00 t=3.00
+[LOG 01:46:40.579] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k13 GhostExplosionFx n=0
+[LOG 01:46:40.579] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k13 GhostStockExplosionFx n=1 age=3.00s centroidFromSpawnPoint=20.7m
+[LOG 01:46:40.579] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k13 GhostStockExplosionFx n=0
+[LOG 01:46:40.831] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k14 ut=228.26 t=3.26
+[LOG 01:46:40.831] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k14 GhostExplosionFx n=0
+[LOG 01:46:40.831] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k14 GhostStockExplosionFx n=0
+[LOG 01:46:40.831] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k14 GhostStockExplosionFx n=0
+[LOG 01:46:41.066] [Parsek][INFO][GhostFx9] shot fx9t-tier6-k15 ut=228.50 t=3.50
+[LOG 01:46:41.066] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k15 GhostExplosionFx n=0
+[LOG 01:46:41.066] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k15 GhostStockExplosionFx n=0
+[LOG 01:46:41.066] [Parsek][INFO][GhostFx9] stats fx9t-tier6-k15 GhostStockExplosionFx n=0
+[LOG 01:46:42.171] [Parsek][INFO][GhostFx9] TIERS DONE ut=229.6
