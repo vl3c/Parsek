@@ -1510,7 +1510,9 @@ namespace Parsek
             ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording(rec, captured, splitRec.RecordingVesselId);
 
             // Tag segment phase if untagged
-            ParsekFlight.TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
+            ParsekFlight.TagSegmentPhaseIfMissing(rec, FlightRecorder.ResolveRecordedOrFallbackVessel(
+                splitRec.RecordingVesselId != 0 ? FlightRecorder.FindVesselByPid(splitRec.RecordingVesselId) : null,
+                "FallbackCommitSplitRecorder"));
 
             // Destroyed vessels: discard pad failures or idle-on-pad, otherwise commit directly.
             // Both discards require pad evidence on the recording itself (this branch handles

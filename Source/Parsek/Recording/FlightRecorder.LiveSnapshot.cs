@@ -163,7 +163,7 @@ namespace Parsek
                 return;
             }
 
-            Vessel vessel = vesselOverride ?? FlightGlobals.ActiveVessel;
+            Vessel vessel = vesselOverride ?? ResolveRecordedOrFallbackVessel(null, "SnapshotVessel");
             ParsekLog.Verbose("Spawner",
                 $"SnapshotVessel: using {(vesselOverride != null ? "override" : "active")} vessel, " +
                 $"vesselDestroyed={vesselDestroyed}, points={pending.Points.Count}");
