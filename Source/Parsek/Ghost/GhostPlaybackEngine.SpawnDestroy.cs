@@ -788,6 +788,17 @@ namespace Parsek
             PlayDestroyedExplosion(state, traj, recIdx);
         }
 
+        /// <summary>
+        /// The FXMonger power a Destroyed ending's end explosion passes: the ghost's length over
+        /// <see cref="GhostAudioPresets.VesselLengthPowerDivisor"/>, clamped to [0, 1], so every
+        /// ghost of 20 m or more takes the largest prefab. Pure, read by
+        /// <see cref="PlayDestroyedExplosion"/> and by the part parity burst cases.
+        /// </summary>
+        internal static double TerminalExplosionPower(float vesselLength)
+        {
+            return Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
+        }
+
         // Not inlined: it holds the Unity calls TriggerExplosionIfDestroyed must compile without (a
         // copy with no mesh reaches it on a headless host).
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -806,7 +817,7 @@ namespace Parsek
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
-            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
+            double power = TerminalExplosionPower(vesselLength);
 
             if (state.audioPaused)
             {
