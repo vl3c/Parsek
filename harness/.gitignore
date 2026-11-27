@@ -3,3 +3,5 @@ __pycache__/
 # scratch console captures from manual provision/run invocations
 *.out
 *.err
+# this worktree's half of a KSP copy lease (tools/ksp_lease.py claim)
+.ksp-lease.json

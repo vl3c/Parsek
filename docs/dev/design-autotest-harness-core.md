@@ -1218,10 +1218,28 @@ last KSP exited; the snapshot doubles as a crash marker restored by the next
 start. Slot children never touch it. Pure half `harness/lib/unityprefs.py`,
 shell `harness/tools/unity_prefs.py`; a failure is one Warn.
 
-**INVALID subkinds.** `port-busy`, `runner-token`, `slot-locked` and
-`slot-profile-mismatch` (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`) are pre-boot
-refusals about the machine: not retryable, and in
-`FLAKE_EXEMPT_INVALID_SUBKINDS`.
+**INVALID subkinds.** `port-busy`, `runner-token`, `slot-locked`,
+`slot-profile-mismatch`, `lease-invalid` and `lease-exclusive`
+(`hlib.PARALLEL_RUN_INVALID_SUBKINDS`) are pre-boot refusals about the
+machine: not retryable, and in `FLAKE_EXEMPT_INVALID_SUBKINDS`.
+
+#### Copy leases (AMENDED 2026-11-27)
+
+A second way to share the PC, beside the parallel runner: one agent thread
+(one worktree) LEASES one copy across many calls, so two threads fly at once.
+The lease registry `automation/.ksp-lease-<slot>.json` (pure contract
+`harness/lib/leases.py`, I/O `harness/provision/leaseio.py`, CLI
+`harness/tools/ksp_lease.py`) carries a token, the owner, the worktree, a time
+to live (no pid: a lease spans processes) and the DLL pin. Claims are written
+under a momentary machine lock and capped (2, or 3 when the owner is away);
+every machine owner checks the registry while holding the machine lock and
+refuses on a live lease (`leaseio.acquire_machine`), so the two modes exclude
+each other. `provision.py --lease` and `run.py --lease` take only the leased
+copy's slot lock; the run admits against the lease's DLL pin instead of copy 1's
+DLL, renews the lease at every attempt boundary, scopes the zombie probe and
+spaces launches like a slot child, and refuses lanes that need the whole
+machine (`lease-exclusive`). Operator contract: `harness/README.md` "Copy
+leases".
 
 #### The parallel runner (`harness/tools/parallel_runner.py`)
 

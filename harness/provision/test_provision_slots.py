@@ -554,3 +554,116 @@ class ProcessListerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeasedProvisionTests(unittest.TestCase):
+    """``provision.py --lease``: only the leased copy's slot lock (never the machine
+    lock), a path-scoped KSP check, and the lease re-pinned to the deployed DLL; a
+    plain provision refuses EC-10 while any lease is live."""
+
+    def setUp(self):
+        import leaseio
+        import leases
+        self.leaseio, self.leases = leaseio, leases
+        self._tmp = tempfile.TemporaryDirectory()
+        self.um = self._tmp.name
+        _umbrella_with_dev(self.um)
+        self.worktree = os.path.join(self.um, "Parsek-a")
+        os.makedirs(os.path.join(self.worktree, "harness"))
+        self.lease = leases.build_lease("stock-minimal-2", "tok", "thread-a", self.worktree,
+                                        provision._now(), "iso", 3600, None)
+        leaseio.write_lease(self.um, self.lease)
+        leaseio.write_worktree_ref(self.worktree, self.lease)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _preflight(self, ctx, alive=True, running=()):
+        with mock.patch("builtins.print"), \
+                mock.patch.object(provision, "WORKTREE_ROOT", self.worktree), \
+                mock.patch.object(provision, "_pid_alive", lambda pid: alive), \
+                mock.patch.object(provision, "_ksp_running_against",
+                                  side_effect=AssertionError("coarse KSP probe under a lease")), \
+                mock.patch.object(provision, "_ksp_running_in_dir",
+                                  lambda d, lister=None: list(running)):
+            provision.phase_preflight(ctx)
+        return ctx
+
+    def _leased_ctx(self, dry_run=False):
+        ctx = _ctx(self.um, "stock-minimal", copy=2, dry_run=dry_run)
+        ctx.lease = dict(self.lease)
+        return ctx
+
+    def test_a_leased_provision_takes_only_its_slot_lock_and_repins(self):
+        # A live machine owner elsewhere does not block a leased provision.
+        with open(machinelock.lock_path_for(self.um), "w") as fh:
+            json.dump({"pid": os.getpid() + 1, "timestamp": provision._now()}, fh)
+        ctx = self._preflight(self._leased_ctx())
+        self.assertFalse(ctx.aborted, ctx.abort_reason)
+        self.assertTrue(os.path.isfile(slots.slot_lock_path(self.um, "stock-minimal-2")))
+        dll = os.path.join(ctx.instance_dir, "GameData", "Parsek", "Plugins", "Parsek.dll")
+        os.makedirs(os.path.dirname(dll), exist_ok=True)
+        with open(dll, "wb") as fh:
+            fh.write(b"fresh-build")
+        with mock.patch("builtins.print"):
+            self.assertEqual(0, provision._finish(ctx, 0))
+        self.assertFalse(os.path.exists(slots.slot_lock_path(self.um, "stock-minimal-2")))
+        pinned = self.leaseio.read_lease(self.um, "stock-minimal-2")
+        self.assertEqual((hashlib.sha256(b"fresh-build").hexdigest(), "provision"),
+                         (pinned["dllSha256"], pinned["dllSource"]))
+        self.assertTrue(os.path.isfile(machinelock.lock_path_for(self.um)),
+                        "the other owner's machine lock is untouched")
+
+    def test_a_failed_leased_provision_does_not_repin(self):
+        ctx = self._preflight(self._leased_ctx())
+        with mock.patch("builtins.print"):
+            provision._finish(ctx, 2)
+        self.assertIsNone(self.leaseio.read_lease(self.um, "stock-minimal-2")["dllSha256"])
+
+    def test_a_run_flying_in_the_copy_refuses_the_leased_provision(self):
+        _write_slot_lock(self.um, "stock-minimal-2", os.getpid() + 1)
+        ctx = self._preflight(self._leased_ctx())
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-10", ctx.abort_reason)
+        ctx = self._preflight(self._leased_ctx(dry_run=True))
+        self.assertTrue(ctx.aborted)
+
+    def test_a_ksp_running_from_the_leased_copy_refuses(self):
+        ctx = self._preflight(self._leased_ctx(), running=[(77, "x")])
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-1", ctx.abort_reason)
+
+    def test_a_lease_no_longer_ours_refuses(self):
+        self.leaseio.write_lease(self.um, dict(self.lease, token="someone-else"))
+        ctx = self._preflight(self._leased_ctx())
+        self.assertTrue(ctx.aborted)
+        self.assertIn("token-mismatch", ctx.abort_reason)
+
+    def test_a_plain_provision_refuses_while_a_lease_is_live(self):
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                ctx = _ctx(self.um, "stock-minimal", dry_run=dry_run)
+                with mock.patch("builtins.print"), \
+                        mock.patch.object(provision, "_pid_alive", lambda pid: True), \
+                        mock.patch.object(provision, "_ksp_running_against", lambda d: False):
+                    provision.phase_preflight(ctx)
+                    provision._finish(ctx, 2)
+                self.assertTrue(ctx.aborted)
+                self.assertIn("EC-10", ctx.abort_reason)
+                self.assertIn("thread-a", ctx.abort_reason)
+                self.assertFalse(os.path.exists(machinelock.lock_path_for(self.um)))
+
+    def test_cli_lease_argument_rules(self):
+        with mock.patch.object(provision, "WORKTREE_ROOT", self.worktree), \
+                mock.patch("builtins.print"), mock.patch("sys.stderr"):
+            for argv in (["--profile", "stock-tree", "--lease", "--umbrella-root", self.um],
+                         ["--profile", "stock-minimal", "--lease", "--copy", "3",
+                          "--umbrella-root", self.um],
+                         ["--profile", "stock-minimal", "--lease", "--copy", "2", "--remove",
+                          "--umbrella-root", self.um]):
+                with self.subTest(argv=argv), self.assertRaises(SystemExit) as cm:
+                    provision.main(argv)
+                self.assertEqual(2, cm.exception.code)
+            self.leaseio.remove_worktree_ref(self.worktree)
+            self.assertEqual(2, provision.main(["--profile", "stock-minimal", "--lease",
+                                                "--umbrella-root", self.um]))

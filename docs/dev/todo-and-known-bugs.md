@@ -20,6 +20,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARNESS-COPY-LEASES: two agent threads fly at once, each on its own KSP copy and DLL [FILED 2026-11-27 (owner request); BUILT 2026-11-27, branch `claude/project-thread-lpwee7` (unit suites only); live proof owed]
+
+The coordinator handed out ONE PC turn, and threads re-provisioned `automation/stock-minimal` over each other (2026-11-27: the mod-parts thread's provision replaced the far-watch thread's DLL between two of its `run.py` calls, because the machine lock is free between calls). Built: copy leases (`harness/README.md` "Copy leases"). A thread claims a copy with `tools/ksp_lease.py claim --owner <thread>`, provisions it with `provision.py --lease` (slot lock only, re-pins the lease to the deployed DLL) and flies with `run.py --lease` (slot lock only, admitted against the pin, renewed at every attempt); every machine owner refuses while a lease is live; cap 2 (3 when the owner is away); cursor / focus lanes refuse under a lease and need the whole machine.
+
+Remaining: fly two short lanes at once from two worktrees on the owner's PC (two leases, two DLLs, both PASS, neither copy re-provisioned by the other). Not built on purpose: the parallel runner does not run inside a lease (it still owns the whole machine), and `tier_runner.py` has no lease mode (it skips while a lease is live).
+
+
 ## ~~GHOST-B9-SUBTYPE-TRANSFORMS~~: a B9PartSwitch part's ghost always showed the part's unswitched model, so a resized part replayed at its default size [FILED 2026-11-26 from the owner's mod-parts request (Utility Weight 2.0.0, PicoPort 0.1.6.4), by code reading and the B9PartSwitch 2.21.0.4 decompile; FIXED 2026-11-26, branch `mod-parts`; xUnit `GhostB9SubtypesTests`; lane PP-11 LIVE-PROVEN 2026-11-27; visual, medium on B9 installs]
 
 **What a player saw:** Utility Weight's `UtilityWeight_OsmiumTank` offers seven sizes (0.3125 m to 5.0 m) through a B9PartSwitch module whose subtypes scale the model transform (`TRANSFORM { name = ModelOsmiumTank scaleOffset = k }`). The ghost clones the part prefab, which B9 never switches (its `OnLoadPrefab` only validates; the subtypes are applied in `OnStart`), and nothing in `Source/Parsek/Ghost/` read B9, so every resized weight replayed at 1.25 m. The part parity sweep flagged every B9 case `skin-not-modelled:b9` (design 3.2); until this mod the only B9 users on the test installs were the Waterfall plume switches, so no geometry was ever at stake.
