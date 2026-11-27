@@ -579,7 +579,9 @@ namespace Parsek
             info.vesselLength = vesselLength;
 
             // --- The sheath: the ghost meshes stock's FX shaders redraw (GhostAeroFxRenderer) ---
-            BuildReentryFireShellOverlay(ghostRoot, info, ghostIndex);
+            int sheathDrawCalls = BuildReentryFireShellOverlay(ghostRoot, info);
+            ParsekLog.Verbose("ReentryFx", GhostAeroFx.FormatBuildCost(ghostIndex, vesselName,
+                info.glowMaterials.Count, info.fireShellMeshes.Count, sheathDrawCalls));
 
             return info;
         }
@@ -587,16 +589,22 @@ namespace Parsek
         /// <summary>
         /// Collects the mesh / transform / renderer triples the reentry sheath redraws through
         /// stock's FX shaders (GhostAeroFxRenderer); the ghost's own materials are drawn, so no
-        /// material is made here.
+        /// material is made here. Returns the draw calls one drawn frame of the sheath costs.
         /// </summary>
-        private static void BuildReentryFireShellOverlay(
-            GameObject ghostRoot, ReentryFxInfo info, int ghostIndex)
+        private static int BuildReentryFireShellOverlay(GameObject ghostRoot, ReentryFxInfo info)
         {
             MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
             info.fireShellMeshes = CollectFireShellMeshes(allMeshFilters, true);
 
-            ParsekLog.VerboseRateLimited("ReentryFx", "shell-build",
-                $"{info.fireShellMeshes.Count} meshes collected for the reentry sheath on ghost #{ghostIndex}");
+            int drawCalls = 0;
+            for (int m = 0; m < info.fireShellMeshes.Count; m++)
+            {
+                FireShellMesh fsm = info.fireShellMeshes[m];
+                Material[] materials = fsm.renderer != null ? fsm.renderer.sharedMaterials : null;
+                drawCalls += GhostAeroFx.SubmeshDraws(fsm.mesh != null ? fsm.mesh.subMeshCount : 0,
+                    materials != null ? materials.Length : 0);
+            }
+            return drawCalls;
         }
 
         /// <summary>

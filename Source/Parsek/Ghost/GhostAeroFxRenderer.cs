@@ -30,9 +30,6 @@ namespace Parsek
         /// </summary>
         internal const int SheathLayer = 6;
 
-        /// <summary>The ghost velocity camera's depth map size (stock's lowest occlusion setting).</summary>
-        internal const int VelocityDepthResolution = 256;
-
         private static GhostAeroFxRenderer instance;
         private static bool constantsRead;
         private static AeroFxConstants cachedConstants = AeroFxConstants.StockDefaults;
@@ -50,7 +47,8 @@ namespace Parsek
 
         private readonly List<Offer> offers = new List<Offer>();
         private int offersFrame = -1;
-        private readonly List<RenderTexture> frameDepthMaps = new List<RenderTexture>();
+        // One depth atlas for the scene, one tile per sheath slot: no render texture per ghost.
+        private RenderTexture velocityAtlas;
         private readonly MaterialPropertyBlock[] blocks = new MaterialPropertyBlock[GhostAeroFx.MaxSheathsPerFrame];
 
         private AerodynamicsFX stockFx;
@@ -71,6 +69,9 @@ namespace Parsek
         private bool missingWarned;
         private bool camerasOn;
         private int lightOwnerRecIdx = int.MinValue;
+        // Main-thread CPU time of one drawing frame (velocity renders + submission), for the
+        // frame line; GPU time is what the rig's on / off frame timing measures.
+        private readonly System.Diagnostics.Stopwatch frameWatch = new System.Diagnostics.Stopwatch();
 
         /// <summary>
         /// The <c>AerodynamicsFX</c> constants from the loaded <c>PhysicsGlobals</c>, read once a
@@ -178,8 +179,13 @@ namespace Parsek
 
         private void OnDestroy()
         {
-            ReleaseFrameDepthMaps();
             if (velocityCamera != null) velocityCamera.targetTexture = null;
+            if (velocityAtlas != null)
+            {
+                velocityAtlas.Release();
+                Destroy(velocityAtlas);
+                velocityAtlas = null;
+            }
             // The two copies live beside stock's cameras, not under this object.
             if (fxCamera != null) Destroy(fxCamera.gameObject);
             if (depthCamera != null) Destroy(depthCamera.gameObject);
@@ -345,7 +351,6 @@ namespace Parsek
 
         private void DriveFrame()
         {
-            ReleaseFrameDepthMaps();
             int frame = Time.frameCount;
             if (offersFrame != frame) offers.Clear();
 
@@ -372,6 +377,8 @@ namespace Parsek
                 SetLight(false, int.MinValue);
                 return;
             }
+            frameWatch.Reset();
+            frameWatch.Start();
             float reach = GhostAeroFx.StockReach(flightCamera.Distance);
             Vector3 cameraPos = mainCamera.transform.position;
 
@@ -429,12 +436,13 @@ namespace Parsek
             if (haveLight) DriveLight(lightOffer, lightBounds);
             else SetLight(false, int.MinValue);
 
+            frameWatch.Stop();
             ParsekLog.VerboseRateLimited("ReentryFx", "aero-frame", string.Format(CultureInfo.InvariantCulture,
                 "Ghost aero FX frame: offers={0} drawn={1} stockDraws={2} outOfReach={3} capped={4} " +
-                "isolated={5} other={6} light={7} reach={8:F0}m stockOn={9} ready={10}",
+                "isolated={5} other={6} light={7} reach={8:F0}m stockOn={9} ready={10} cpuMs={11:F3}",
                 offers.Count, drawn, stockDraws, outOfReach, capped, isolated, other,
                 haveLight ? "#" + lightOffer.recIdx.ToString(CultureInfo.InvariantCulture) : "none",
-                reach, stockOn, ready), 5.0);
+                reach, stockOn, ready, frameWatch.Elapsed.TotalMilliseconds), 5.0);
             offers.Clear();
         }
 
@@ -473,17 +481,28 @@ namespace Parsek
 
             // The ghost's own occlusion map: stock's velocity camera, boxed on the ghost.
             GhostAeroFx.VelocityCamBox(bounds.size.magnitude, out float box, out float far);
-            RenderTexture depthMap = RenderTexture.GetTemporary(
-                VelocityDepthResolution, VelocityDepthResolution, 32, RenderTextureFormat.Depth);
-            frameDepthMaps.Add(depthMap);
+            // Each drawing ghost renders into its own tile of the one shared atlas; the tile's
+            // offset is folded into the projection the shader reads, so its lookups land there.
+            if (velocityAtlas == null)
+            {
+                velocityAtlas = new RenderTexture(
+                    GhostAeroFx.VelocityDepthResolution * GhostAeroFx.MaxSheathsPerFrame,
+                    GhostAeroFx.VelocityDepthResolution, 32, RenderTextureFormat.Depth);
+                velocityAtlas.name = "Parsek ghost aero velocity depth atlas";
+                velocityAtlas.Create();
+            }
+            GhostAeroFx.VelocityAtlasTile(slot, GhostAeroFx.MaxSheathsPerFrame,
+                out float rectX, out float rectWidth, out float ndcScaleX, out float ndcOffsetX);
+            RenderTexture depthMap = velocityAtlas;
             Transform vt = velocityCamera.transform;
             vt.position = bounds.center - effectDirection * box;
             vt.forward = effectDirection;
             velocityCamera.orthographicSize = box;
             velocityCamera.farClipPlane = far;
-            velocityCamera.targetTexture = depthMap;
+            velocityCamera.targetTexture = velocityAtlas;
+            velocityCamera.rect = new Rect(rectX, 0f, rectWidth, 1f);
+            velocityCamera.aspect = 1f;
             velocityCamera.Render();
-            velocityCamera.targetTexture = null;
 
             MaterialPropertyBlock mpb = blocks[slot] ?? (blocks[slot] = new MaterialPropertyBlock());
             mpb.Clear();
@@ -492,7 +511,10 @@ namespace Parsek
             Matrix4x4 world2Velocity = Matrix4x4.TRS(Vector3.zero,
                 Quaternion.FromToRotation(Vector3.up, effectDirection), Vector3.one);
             Matrix4x4 depthCamMatrix = velocityCamera.worldToCameraMatrix;
-            Matrix4x4 depthProjMatrix = velocityCamera.projectionMatrix;
+            Matrix4x4 tile = Matrix4x4.identity;
+            tile.m00 = ndcScaleX;
+            tile.m03 = ndcOffsetX;
+            Matrix4x4 depthProjMatrix = tile * velocityCamera.projectionMatrix;
             var cameraPos = new Vector4(vp.x, vp.y, vp.z, 0f);
             mpb.SetVector("_LightDirection0", effectDirection);
             mpb.SetColor("_FXColor", fxColor);
@@ -626,13 +648,6 @@ namespace Parsek
             ParsekLog.Verbose("ReentryFx", on
                 ? $"Ghost reentry light owned by ghost #{recIdx}"
                 : "Ghost reentry light off");
-        }
-
-        private void ReleaseFrameDepthMaps()
-        {
-            for (int i = 0; i < frameDepthMaps.Count; i++)
-                if (frameDepthMaps[i] != null) RenderTexture.ReleaseTemporary(frameDepthMaps[i]);
-            frameDepthMaps.Clear();
         }
     }
 }

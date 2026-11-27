@@ -211,6 +211,64 @@ namespace Parsek.Tests
             Assert.False(GhostAeroFx.LightOfferWins(true, 100f, 150f));
         }
 
+        // --- The velocity depth atlas ---
+
+        [Theory]
+        [InlineData(0, 4, 0f, 0.25f, -0.75f)]
+        [InlineData(1, 4, 0.25f, 0.25f, -0.25f)]
+        [InlineData(3, 4, 0.75f, 0.25f, 0.75f)]
+        [InlineData(0, 1, 0f, 1f, 0f)]
+        [InlineData(9, 4, 0.75f, 0.25f, 0.75f)]
+        [InlineData(-2, 4, 0f, 0.25f, -0.75f)]
+        public void VelocityAtlasTile_MapsTheFullViewIntoItsTile(int slot, int slots,
+            float rectX, float width, float offset)
+        {
+            GhostAeroFx.VelocityAtlasTile(slot, slots, out float gotX, out float gotW,
+                out float scale, out float gotOffset);
+            Assert.InRange(gotX, rectX - 1e-6f, rectX + 1e-6f);
+            Assert.InRange(gotW, width - 1e-6f, width + 1e-6f);
+            Assert.InRange(scale, width - 1e-6f, width + 1e-6f);
+            Assert.InRange(gotOffset, offset - 1e-6f, offset + 1e-6f);
+            // The view's edges land on the tile's edges in NDC (rect x -> 2x - 1).
+            Assert.InRange(scale * -1f + gotOffset, 2f * gotX - 1f - 1e-5f, 2f * gotX - 1f + 1e-5f);
+            Assert.InRange(scale * 1f + gotOffset, 2f * (gotX + gotW) - 1f - 1e-5f, 2f * (gotX + gotW) - 1f + 1e-5f);
+        }
+
+        // --- The build cost line ---
+
+        [Theory]
+        [InlineData(1, 1, 1)]
+        [InlineData(3, 2, 2)]
+        [InlineData(2, 5, 2)]
+        [InlineData(0, 3, 0)]
+        [InlineData(2, 0, 0)]
+        [InlineData(-1, 2, 0)]
+        public void SubmeshDraws_IsOnePerSubmeshWithAMaterial(int subMeshes, int materials, int expected)
+        {
+            Assert.Equal(expected, GhostAeroFx.SubmeshDraws(subMeshes, materials));
+        }
+
+        [Fact]
+        public void FormatBuildCost_StatesTheCountsInvariantly()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                string line = GhostAeroFx.FormatBuildCost(12000, "Probe", 7, 6, 9);
+                Assert.Equal("Reentry FX built for ghost #12000 \"Probe\": particles=0 glowMaterials=7 " +
+                    "sheathMeshes=6; per frame while its sheath draws: drawCalls=9 velocityDepthRenders=1 " +
+                    "(a 256x256 tile of the shared depth atlas); shared per frame while any ghost draws: " +
+                    "sceneDepthPass=1 light=1, at most 4 ghosts", line);
+                Assert.Contains("\"?\"", GhostAeroFx.FormatBuildCost(1, null, 0, 0, 0));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         // --- ComputeFxScalar: the raw (unclamped) scalar ---
 
         [Fact]

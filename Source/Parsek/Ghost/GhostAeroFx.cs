@@ -131,6 +131,51 @@ namespace Parsek
         /// <summary>Most ghosts that draw their own sheath in one frame.</summary>
         internal const int MaxSheathsPerFrame = 4;
 
+        /// <summary>The ghost velocity camera's depth map size (stock's lowest occlusion setting).</summary>
+        internal const int VelocityDepthResolution = 256;
+
+        /// <summary>
+        /// Sheath slot <paramref name="slot"/>'s tile in the shared velocity depth atlas, a strip
+        /// of <paramref name="slots"/> square tiles side by side (horizontal only, so no platform
+        /// flips the order): the camera rect (<paramref name="rectX"/>, width
+        /// <paramref name="rectWidth"/>, full height) and the clip-space x scale and offset that
+        /// map the full camera view into that tile (<c>x' = scale * x + offset * w</c>).
+        /// </summary>
+        internal static void VelocityAtlasTile(int slot, int slots,
+            out float rectX, out float rectWidth, out float ndcScaleX, out float ndcOffsetX)
+        {
+            if (slots < 1) slots = 1;
+            if (slot < 0) slot = 0;
+            if (slot >= slots) slot = slots - 1;
+            rectWidth = 1f / slots;
+            rectX = slot * rectWidth;
+            ndcScaleX = rectWidth;
+            ndcOffsetX = -1f + (2f * slot + 1f) / slots;
+        }
+
+        /// <summary>
+        /// Draw calls one ghost mesh costs the sheath per drawn frame: one per submesh that has a
+        /// material (the renderer draws the same pairs).
+        /// </summary>
+        internal static int SubmeshDraws(int subMeshCount, int materialCount)
+            => System.Math.Max(0, System.Math.Min(subMeshCount, materialCount));
+
+        /// <summary>
+        /// The one line a reentry FX build logs: what this ghost costs while its sheath draws, and
+        /// the shared per-frame part (one scene depth pass and one light while any ghost draws).
+        /// </summary>
+        internal static string FormatBuildCost(int ghostIndex, string vesselName, int glowMaterials,
+            int sheathMeshes, int sheathDrawCalls)
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "Reentry FX built for ghost #{0} \"{1}\": particles=0 glowMaterials={2} sheathMeshes={3}; " +
+                "per frame while its sheath draws: drawCalls={4} velocityDepthRenders=1 " +
+                "(a {5}x{5} tile of the shared depth atlas); shared per frame while any ghost draws: " +
+                "sceneDepthPass=1 light=1, at most {6} ghosts",
+                ghostIndex, vesselName ?? "?", glowMaterials, sheathMeshes, sheathDrawCalls,
+                VelocityDepthResolution, MaxSheathsPerFrame);
+        }
+
         /// <summary>
         /// Stock's <c>AerodynamicsFX.Update</c> + <c>LateUpdate</c> scalar for one set of
         /// conditions. Returns <c>FxScalar</c> (can be negative: stock draws only above 0) and
