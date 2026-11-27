@@ -245,6 +245,61 @@ class NormalizationTests(unittest.TestCase):
             "Parsek.Gen::ReplaceContents``1(System.Collections.Generic.List`1<!!0>,System.Collections.Generic.List`1<!!0>)",
         ])
 
+    def test_occurrences_delegates_and_return_types_are_counted(self):
+        # The far-watch site gate (design-far-watch.md 11.4) pins how many
+        # reads a method has and which handler a GameEvent subscription takes.
+        il = test_semantic._class(
+            "Parsek.Host",
+            "  .field private static class [mscorlib]System.Collections.Generic.HashSet`1<uint32> pids",
+            test_semantic._method("Check", ["ldc.i4.0", "ret"], ret="bool", params="uint32 pid"),
+            test_semantic._method("Handler", ["ret"], params="class [Assembly-CSharp]Vessel v"),
+            test_semantic._method("ReadActive", [
+                "call       class [Assembly-CSharp]Vessel [Assembly-CSharp]FlightGlobals::get_ActiveVessel()",
+                "ret",
+            ], ret="class [Assembly-CSharp]Vessel"),
+            test_semantic._method("Start", [
+                "ldsfld     class [Assembly-CSharp]EventData`1<class [Assembly-CSharp]Vessel> "
+                "[Assembly-CSharp]GameEvents::onVesselChange",
+                "ldnull",
+                "ldftn      void Parsek.Host::Handler(class [Assembly-CSharp]Vessel)",
+                "newobj     instance void class [Assembly-CSharp]EventData`1/OnEvent<class [Assembly-CSharp]Vessel>"
+                "::.ctor(object,",
+                "                                                    native int)",
+                "callvirt   instance void class [Assembly-CSharp]EventData`1<class [Assembly-CSharp]Vessel>"
+                "::Add(class [Assembly-CSharp]EventData`1/OnEvent<!0>)",
+                "call       class [Assembly-CSharp]Vessel [Assembly-CSharp]FlightGlobals::get_ActiveVessel()",
+                "pop",
+                "call       class [Assembly-CSharp]Vessel [Assembly-CSharp]FlightGlobals::get_ActiveVessel()",
+                "ldfld      uint32 [Assembly-CSharp]Vessel::persistentId",
+                "call       bool Parsek.Host::Check(uint32)",
+                "pop",
+                "ldc.i4.0",
+                "call       bool Parsek.Host::Check(uint32)",
+                "pop",
+                "ldsfld     class [mscorlib]System.Collections.Generic.HashSet`1<uint32> Parsek.Host::pids",
+                "pop",
+                "ldnull",
+                "stsfld     class [mscorlib]System.Collections.Generic.HashSet`1<uint32> Parsek.Host::pids",
+                "ldnull",
+                "ldftn      void Parsek.Host::Handler(class [Assembly-CSharp]Vessel)",
+                "pop",
+                "ret",
+            ]),
+        )
+        facts = ilfacts.build(ilgraph.parse_il(il))
+        start = facts["methods"]["Parsek.Host::Start()"]
+        self.assertEqual(start["externalMemberCounts"]["Assembly-CSharp|FlightGlobals::get_ActiveVessel"], 2)
+        self.assertEqual(start["callCounts"], {"Parsek.Host::Check(uint32)": 2, "Parsek.Host::Handler(Vessel)": 2})
+        self.assertEqual(start["staticCounts"], {"Parsek.Host::pids": 2})
+        # The first ldftn follows the event's load; the second follows a static
+        # store of our own, so it names no event.
+        self.assertEqual(start["delegates"], [
+            ">Parsek.Host::Handler(Vessel)",
+            "Assembly-CSharp|GameEvents::onVesselChange>Parsek.Host::Handler(Vessel)",
+        ])
+        self.assertEqual(facts["methods"]["Parsek.Host::ReadActive()"]["returns"], "Vessel")
+        self.assertEqual(start["returns"], "void")
+
     def test_the_type_graph_ignores_the_facts(self):
         # The switch-target continuation lines the facts now read must not
         # change what the type graph sees.
