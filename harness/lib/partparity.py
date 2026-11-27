@@ -2474,8 +2474,9 @@ SKIN_FLAG_NOT_MODELLED_B9 = "skin-not-modelled:b9"
 
 def skin_flags(skin: Optional[Dict]) -> Tuple[str, ...]:
     """The ghost-defect skin flags, exactly ``PartParitySkinRules.GhostFlags``: no module,
-    no flags; a B9 module whose ghost name was not read is ``skin-not-modelled:b9`` (the
-    builder applies no B9 subtype); otherwise ``skin-mismatch`` when real and ghost differ
+    no flags; a B9 module whose ghost name is null is ``skin-not-modelled:b9`` (the builder
+    recorded no subtype, or the subtype carries texture, material or module rules it does not
+    apply); otherwise ``skin-mismatch`` when real and ghost differ
     case-insensitively, a null on one side only counting as a difference."""
     if not isinstance(skin, dict) or skin.get("module") is None:
         return ()

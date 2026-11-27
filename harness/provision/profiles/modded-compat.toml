@@ -58,6 +58,18 @@ required = true
 pin = "spacetuxlibrary"
 reason = "PersistentRotationUpgraded's CKAN-declared dependency, pinned in pins.toml."
 
+[[optionalMods]]
+name = "UtilityWeight"
+required = true
+pin = "utilityweight"
+reason = "Owner request 2026-11-26: Utility Weight 2.0.0 parts, pinned in pins.toml; its B9 size subtypes are the ghost B9 TRANSFORM proof (lane PP-11)."
+
+[[optionalMods]]
+name = "PicoPort"
+required = true
+pin = "picoport"
+reason = "Owner request 2026-11-26: PicoPort 0.1.6.4 docking ports (GameData/SHED/PicoPort), pinned in pins.toml; lane PP-11."
+
 # Same determinism-oriented settings deltas as stock-minimal (GT-8 keys).
 [settings]
 PHYSICS_FRAME_DT_LIMIT = "0.03"

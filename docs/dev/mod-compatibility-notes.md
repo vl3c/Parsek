@@ -128,3 +128,32 @@ below was moved here from `.claude/CLAUDE.md` on 2026-09-01; it is the authority
   `ModuleColorChanger.Update` (`KSPCommunityFixes`), once per process.
 - Lamp patterns: `ModuleRestockEnhancedLight.cookiePath` is applied to the Lights the part's
   ModuleLight drives, as its `OnStart` does. Read by module and field name, no compile-time reference.
+
+## B9PartSwitch subtypes on ghosts (Utility Weight, PicoPort)
+
+The ghost builder clones a part's prefab, which B9PartSwitch never switches (its `OnLoadPrefab`
+only validates; subtypes are applied in `OnStart`; decompiled B9PartSwitch 2.21.0.4). So the
+ghost applies each `ModuleB9PartSwitch` module's shown subtype itself (`Ghost/GhostB9Subtypes.cs`,
+`GhostVisualBuilder.B9Subtypes.cs`): the snapshot's `currentSubtype` (routed by `moduleID`; no
+value: the first subtype with the highest `defaultSubtypePriority`), its `TRANSFORM` offsets
+(position added, rotation multiplied in, scale multiplied per axis) and the `transform` enable
+lists (a transform is shown when, for every B9 module, the shown subtype lists it or no other
+subtype does). B9 reads no compile-time reference: everything comes from the part config and the
+snapshot. Not modelled: `TEXTURE`, `MATERIAL` and `MODULE` subtype rules (a subtype carrying any
+is flagged `skin-not-modelled:b9` by the parity sweep), and B9's tank / resource switching, which
+changes nothing visible.
+
+- **Utility Weight 2.0.0** (`UtilityWeight.OsmiumTank`): a probe-cored mass dummy with two NO_FLOW,
+  non-transferable resources (`Tons`, `Kilograms`) setting its mass, and, with B9 installed, mass,
+  size and cost switches; the seven size subtypes scale the model 0.25x to 4x. Without B9 the mass
+  choice is a mass-only `ModulePartVariants` (no visual change). Because it carries ModuleCommand,
+  a weight dropped through a decoupler is a controlled child with its own recording, not debris.
+- **PicoPort 0.1.6.4** (`PicoPortBasic`, `PicoPortPlus`, `PicoPortM`, `PicoPortF`): stock
+  `ModuleDockingNode` ports with tight capture ranges (1 to 2 cm) and no animation. Parsek's dock
+  and undock handling is generic over `ModuleDockingNode` and reads none of the port parameters,
+  so these dock and undock like stock ports. With IndicatorLights installed the ports get an LED
+  emissive the ghost does not show (todo GHOST-INDICATORLIGHTS-LED-NOT-MODELLED).
+
+**Status:** both mods are pinned optional mods of `modded-compat` and `modded-restock`
+(`harness/provision/pins.toml`); lane `PP-11-part-parity-mod-parts` photographs their parts beside
+their ghosts (todo GHOST-B9-SUBTYPE-TRANSFORMS).
