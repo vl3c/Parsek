@@ -182,7 +182,8 @@ namespace Parsek.Tests
             FlightState fs = MakeFlightState(1, 10, 900, 20);
 
             int newIdx = GhostMapPresence.ComputeActiveVesselIdxForStrip(
-                fs.protoVessels, fs.activeVesselIdx, flightScene: true);
+                fs.protoVessels, fs.activeVesselIdx, flightScene: true,
+                0u, Guid.Empty, Guid.Empty, out _);
 
             Assert.Equal(0, newIdx);
             Assert.Contains(logLines, l => l.Contains("[WARN]")

@@ -216,17 +216,8 @@ namespace Parsek
         /// about to run on and logs the move. Call BEFORE the removal; returns the new index the
         /// caller writes after it. <paramref name="flightScene"/> picks Warn over Verbose for an
         /// index that named a ghost (outside FLIGHT stock writes a placeholder 0 there).
-        /// </summary>
-        internal static int ComputeActiveVesselIdxForStrip(
-            List<ProtoVessel> protoVessels, int oldIdx, bool flightScene)
-        {
-            return ComputeActiveVesselIdxForStrip(protoVessels, oldIdx, flightScene,
-                0u, Guid.Empty, Guid.Empty, out ActiveVesselIdxOutcome _);
-        }
-
-        /// <summary>
-        /// The drone-aware form (design-far-watch.md 9.1): with drone ids set the target is the
-        /// ship by Guid; <paramref name="outcome"/> reports <see cref="ActiveVesselIdxOutcome.ShipMissing"/>
+        /// Drone-aware (design-far-watch.md 9.1): with no drone ids (0, Guid.Empty) it is the plain
+        /// ghost strip; with drone ids set the target is the ship by Guid; <paramref name="outcome"/> reports <see cref="ActiveVesselIdxOutcome.ShipMissing"/>
         /// (and -1) when its ProtoVessel is not in the list, and the caller fails closed.
         /// </summary>
         internal static int ComputeActiveVesselIdxForStrip(
