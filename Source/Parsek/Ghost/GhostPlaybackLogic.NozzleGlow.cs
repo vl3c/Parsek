@@ -55,17 +55,27 @@ namespace Parsek
         // The other throttle-driven colour changers that write the same property of the same
         // materials, in frame order, all before this one; null for the only writer.
         public NozzleGlowInfo[] under;
-        // Where the setter call stands among the part's (a later one overwrites an earlier one).
+        // Where the setter's call and the colour changer's own write stand in a frame, in part
+        // module order (both run in Update; a later one overwrites an earlier one).
         public int setterOrder;
+        public int rampOrder = int.MaxValue;
         // A useRate ModuleColorChanger: SetScalar turns the level into a switch (animState, on from
-        // 0.5) and the module's own Update, which runs after the setter's, shows a ramp toward that
-        // end at rampRate per second. With settledShowsScalar (KSPCommunityFixes) the module writes
-        // only while the ramp moves, so once it stands at its end the setter's level shows.
+        // 0.5) and the module's own Update shows a ramp toward that end at rampRate per second. With
+        // settledShowsScalar (KSPCommunityFixes) the module writes only while the ramp moves, so
+        // once it stands at its end the setter's level shows. A setter after the module in the part
+        // overwrites the ramp every frame (restock-engine-caravel-1's bell is hot at once).
         public bool ramps;
         public float rampRate;
         public bool settledShowsScalar;
         public float initialRamp;
         public float startRamp;
+
+        // The clip also moves transforms (a variable nozzle); null for most.
+        public NozzlePoseClip pose;
+        // The clip loops instead of following the power (the Goliath's fan): the level is its speed.
+        public EngineSpin spin;
+        /// <summary>The clip moves transforms and writes no material.</summary>
+        public bool MovesOnly => colors.Count == 0 && (pose != null || spin != null);
 
         // Playback: the level was startLevel at startUT and approaches targetLevel since.
         public float startLevel;
@@ -154,6 +164,8 @@ namespace Parsek
         /// <summary>The level the glow's recorded powers ask for now.</summary>
         internal static float NozzleGlowTarget(NozzleGlowInfo glow)
         {
+            if (glow.spin != null)
+                return EngineSpinTarget(glow.spin, ResolveNozzleGlowTarget(glow.modulePowers, glow.powerScale));
             if (float.IsNaN(glow.vesselThrottle))
                 return ResolveNozzleGlowTarget(glow.modulePowers, glow.powerScale);
             if (ResolveNozzleGlowTarget(glow.modulePowers, 1f) <= 0f || glow.vesselThrottle <= 0f) return 0f;
@@ -206,6 +218,7 @@ namespace Parsek
         {
             if (state == null) return;
             state.nozzleGlows = null;
+            state.nozzlePoses = null;
             state.nozzleGlowStartUT = traj != null ? traj.StartUT : double.NaN;
             if (state.heatInfos == null) return;
             foreach (var kvp in state.heatInfos)
@@ -216,6 +229,7 @@ namespace Parsek
                 state.nozzleGlows.AddRange(glows);
             }
             if (state.nozzleGlows == null) return;
+            CollectNozzlePoses(state);
             SettlePersistedGlowLevels(state, traj, predecessorOf, splitParentOf);
             RestartNozzleGlows(state);
             UpdateNozzleGlows(state, state.nozzleGlowStartUT);
@@ -424,7 +438,9 @@ namespace Parsek
                 g.startUT = double.IsNaN(g.initialUT) ? state.nozzleGlowStartUT : g.initialUT;
                 g.targetLevel = NozzleGlowTarget(g);
                 g.writtenLevel = float.NaN;
+                if (g.spin != null) RestartEngineSpin(g.spin);
             }
+            RestartNozzlePoses(state);
         }
 
         /// <summary>The orphan auto-start's engine runs at full power from the recording start.</summary>
@@ -496,6 +512,7 @@ namespace Parsek
                 if (slot < 0) continue;
                 // An event from before the persisted level changes the power, never the level.
                 double at = evt.ut < g.startUT ? g.startUT : evt.ut;
+                if (g.spin != null) g.spin.startPhase = EngineSpinPhaseAt(g, at);
                 g.startLevel = NozzleGlowScalarAt(g, at);
                 g.startRamp = NozzleGlowRampAt(g, at);
                 g.startUT = at;
@@ -515,11 +532,16 @@ namespace Parsek
                         : string.Empty) +
                     $"ut={evt.ut.ToString("0.00", CultureInfo.InvariantCulture)}", 5.0);
             }
+            if (!rcs) ApplyNozzlePoseEvent(state, evt);
         }
 
         /// <summary>The level the module is at: the clip time, or what the setter hands a colour changer.</summary>
         internal static float NozzleGlowScalarAt(NozzleGlowInfo glow, double ut)
-            => ComputeNozzleGlowLevel(glow.startLevel, glow.targetLevel, glow.approachRate, ut - glow.startUT);
+        {
+            float level = ComputeNozzleGlowLevel(
+                glow.startLevel, glow.targetLevel, glow.approachRate, ut - glow.startUT);
+            return glow.spin != null && level > EngineSpinMaxSpeed ? EngineSpinMaxSpeed : level;
+        }
 
         internal static float NozzleGlowRampAt(NozzleGlowInfo glow, double ut)
             => glow.ramps
@@ -534,49 +556,59 @@ namespace Parsek
             => glow.ramps && (!glow.settledShowsScalar
                               || NozzleGlowRampAt(glow, ut) != NozzleGlowRampEnd(glow.targetLevel));
 
-        /// <summary>The writer whose setter call comes last in the frame.</summary>
-        private static NozzleGlowInfo LastNozzleGlowSetter(NozzleGlowInfo glow)
-        {
-            NozzleGlowInfo last = glow;
-            for (int i = 0; glow.under != null && i < glow.under.Length; i++)
-                if (glow.under[i].setterOrder > last.setterOrder) last = glow.under[i];
-            return last;
-        }
-
         /// <summary>
-        /// The writer whose value shows, and the value. In one frame every setter writes its level,
-        /// then every module's Update its ramp, each in module order, onto the same renderers: the
-        /// last Update that writes wins, and with none the last setter.
+        /// The writer whose value shows, and the value. In one frame every setter writes its level
+        /// and every module's Update its ramp, in part module order, onto the same renderers: the
+        /// last of them shows.
         /// </summary>
         internal static NozzleGlowInfo ShownNozzleGlow(NozzleGlowInfo glow, double ut, out float level)
         {
+            NozzleGlowInfo shown = null;
+            int last = int.MinValue;
+            bool ramp = false;
             int below = glow.under != null ? glow.under.Length : 0;
-            for (int i = below; i >= 0; i--)
+            for (int i = 0; i <= below; i++)
             {
                 NozzleGlowInfo writer = i == below ? glow : glow.under[i];
-                if (!NozzleGlowRampWrites(writer, ut)) continue;
-                level = NozzleGlowRampAt(writer, ut);
-                return writer;
+                TakeLaterNozzleGlowWrite(
+                    writer, NozzleGlowRampWrites(writer, ut), ref shown, ref last, ref ramp);
             }
-            NozzleGlowInfo setter = LastNozzleGlowSetter(glow);
-            level = NozzleGlowScalarAt(setter, ut);
-            return setter;
+            level = ramp ? NozzleGlowRampAt(shown, ut) : NozzleGlowScalarAt(shown, ut);
+            return shown;
         }
 
         /// <summary>The writer and the level that show once nothing moves any more.</summary>
         internal static NozzleGlowInfo RestingNozzleGlow(NozzleGlowInfo glow, out float level)
         {
+            NozzleGlowInfo shown = null;
+            int last = int.MinValue;
+            bool ramp = false;
             int below = glow.under != null ? glow.under.Length : 0;
-            for (int i = below; i >= 0; i--)
+            for (int i = 0; i <= below; i++)
             {
                 NozzleGlowInfo writer = i == below ? glow : glow.under[i];
-                if (!writer.ramps || writer.settledShowsScalar) continue;
-                level = NozzleGlowRampEnd(writer.targetLevel);
-                return writer;
+                TakeLaterNozzleGlowWrite(
+                    writer, writer.ramps && !writer.settledShowsScalar, ref shown, ref last, ref ramp);
             }
-            NozzleGlowInfo setter = LastNozzleGlowSetter(glow);
-            level = setter.targetLevel;
-            return setter;
+            level = ramp ? NozzleGlowRampEnd(shown.targetLevel) : shown.targetLevel;
+            return shown;
+        }
+
+        private static void TakeLaterNozzleGlowWrite(
+            NozzleGlowInfo writer, bool rampWrites, ref NozzleGlowInfo shown, ref int last, ref bool ramp)
+        {
+            if (writer.setterOrder >= last)
+            {
+                shown = writer;
+                last = writer.setterOrder;
+                ramp = false;
+            }
+            if (rampWrites && writer.rampOrder >= last)
+            {
+                shown = writer;
+                last = writer.rampOrder;
+                ramp = true;
+            }
         }
 
         private static bool IsNozzleGlowAtRest(NozzleGlowInfo glow)
@@ -600,14 +632,19 @@ namespace Parsek
             for (int i = 0; i < glows.Count; i++)
             {
                 NozzleGlowInfo g = glows[i];
-                NozzleGlowInfo resting = RestingNozzleGlow(g, out float rest);
-                if (g.writtenLevel == rest && g.writtenBy == resting && IsNozzleGlowAtRest(g)) continue;
                 if (double.IsNaN(g.startUT))
                 {
                     // Latched on the state, so a restart of the event walk keeps it.
                     if (double.IsNaN(state.nozzleGlowStartUT)) state.nozzleGlowStartUT = currentUT;
                     g.startUT = state.nozzleGlowStartUT;
                 }
+                if (g.spin != null)
+                {
+                    UpdateEngineSpin(g, currentUT);
+                    continue;
+                }
+                NozzleGlowInfo resting = RestingNozzleGlow(g, out float rest);
+                if (g.writtenLevel == rest && g.writtenBy == resting && IsNozzleGlowAtRest(g)) continue;
                 NozzleGlowInfo writer = ShownNozzleGlow(g, currentUT, out float level);
                 if (NozzleGlowScalarAt(g, currentUT) == g.targetLevel) g.startLevel = g.targetLevel;
                 if (g.ramps && NozzleGlowRampAt(g, currentUT) == NozzleGlowRampEnd(g.targetLevel))
@@ -619,6 +656,7 @@ namespace Parsek
                 if (g.colors != null && g.colors.Count > 0)
                     WriteNozzleGlowColors(g.colors, writer.samples, level);
             }
+            UpdateNozzlePoses(state, currentUT);
         }
 
         // Material.SetColor is an ECall; NoInlining keeps it out of the methods xUnit calls.

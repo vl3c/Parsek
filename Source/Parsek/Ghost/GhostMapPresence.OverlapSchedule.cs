@@ -228,8 +228,8 @@ namespace Parsek
         ///   duration        = memberEndUT - memberStartUT
         ///   playbackStartUT = memberStartUT
         ///   scheduleStartUT = ComputeMemberOverlapScheduleStartUT(PhaseAnchorUT, SpanStartUT, memberStartUT)
-        ///   effectiveCadence= ResolveOverlapCadence(UnitLaunchCadenceSeconds, duration, fall keeps it)
-        ///   cycleDuration   = max(effectiveCadence, MinCycleDuration)
+        ///   effectiveCadence= MemberOverlapCycleSeconds (the engine's, the Space Center's and the watch clock's)
+        ///   cycleDuration   = effectiveCadence
         /// SPAN-CLOCK CAVEAT: the overlap path uses this RAW schedule with ComputeOverlapCyclePlaybackUT,
         /// NOT ResolveTrackingStationSampleUT / ResolveMapPresenceSampleUT (the span-clock NON-overlap
         /// path with loiter-cut / arrival-hold / re-aim remapping). The engine's overlap branch
@@ -263,10 +263,9 @@ namespace Parsek
             playbackStartUT = memberStartUT;
             scheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
                 unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
-            effectiveCadence = GhostPlaybackLogic.ResolveOverlapCadence(
-                GhostPlaybackLogic.UnitLaunchCadenceSeconds(unit), duration,
-                keepCadence: GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT));
-            cycleDuration = Math.Max(effectiveCadence, LoopTiming.MinCycleDuration);
+            effectiveCadence = GhostPlaybackLogic.MemberOverlapCycleSeconds(
+                unit, duration, GhostPlaybackLogic.MemberHasLoopFall(unit, memberEndUT));
+            cycleDuration = effectiveCadence;
             return true;
         }
     }

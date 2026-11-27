@@ -78,8 +78,10 @@ namespace Parsek
         // this frame observes the transition and acts once. liveMemberIdx = the in-window member with
         // the highest StartUT (the camera-follow target, newest segment); -1 = nothing live (tail /
         // before span). Keyed by owner index; self-heals each frame since only members write it.
-        private readonly Dictionary<int, (long cycle, int liveMemberIdx, bool watchedRendering)> lastUnitSelection
-            = new Dictionary<int, (long, int, bool)>();
+        // handoffFrom / handoffTo: the watch retarget that is pending and already logged (-1 = none).
+        private readonly Dictionary<int, (long cycle, int liveMemberIdx, bool watchedRendering,
+                int handoffFrom, int handoffTo)> lastUnitSelection
+            = new Dictionary<int, (long, int, bool, int, int)>();
 
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
@@ -343,6 +345,14 @@ namespace Parsek
         /// </summary>
         internal System.Func<int, IPlaybackTrajectory, GhostPlaybackState, double, double> ResolvePlaybackActiveVesselDistanceOverride;
 
+        /// <summary>
+        /// Optional host-supplied answer to "where did the watched vessel go" when a watched
+        /// loop-unit member ends at a dock, boarding or undock: the watched committed index and
+        /// the "is this index a member whose window the unit clock is in" predicate in, the index
+        /// to follow (or -1) out. The engine holds no recordings, so the branch lookup is the host's.
+        /// </summary>
+        internal System.Func<int, System.Func<int, bool>, int> ResolveWatchedBranchContinuation;
+
         // Camera events (engine detects cycle changes, host handles FlightCamera).
         internal event Action<CameraActionEvent> OnLoopCameraAction;
         internal event Action<CameraActionEvent> OnOverlapCameraAction;
@@ -427,6 +437,7 @@ namespace Parsek
                 ParsekSettings.Current?.ghostRenderTracing == true
                 || ctx.activeReFlyMarker != null;
 
+            frameFlags = flags;
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
@@ -434,6 +445,7 @@ namespace Parsek
                     i, trajectories[i], flags[i], trajectories, ctx,
                     suppressGhosts, suppressVisualFx, ref ghostsProcessed);
             }
+            frameFlags = null;
 
             CompletePlaybackFrame(
                 trajectories, flags, ctx, engineIterTraceEnabled, ghostsProcessed, trajectoriesIterated);

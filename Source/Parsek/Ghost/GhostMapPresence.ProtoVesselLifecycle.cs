@@ -1288,15 +1288,21 @@ namespace Parsek
         /// <summary>
         /// Strip ghost ProtoVessels from flightState before save.
         /// Ghost vessels are transient — reconstructed from recording data on load.
-        /// Called from ParsekScenario.OnSave.
+        /// Called from ParsekScenario.OnSave. Also moves <c>activeVesselIdx</c> so it still names
+        /// the same vessel in the stripped list (stock computed it before OnSave, counting the
+        /// ghosts; see <see cref="ResolveActiveVesselIdxAfterGhostStrip"/>).
         /// </summary>
         internal static int StripFromSave(FlightState flightState)
         {
             if (flightState == null || ghostMapVesselPids.Count == 0)
                 return 0;
 
+            int newActiveIdx = ComputeActiveVesselIdxForStrip(
+                flightState.protoVessels, flightState.activeVesselIdx, IsFlightSceneForSaveIndexLog());
+
             int stripped = flightState.protoVessels.RemoveAll(
                 pv => ghostMapVesselPids.Contains(pv.persistentId));
+            flightState.activeVesselIdx = newActiveIdx;
 
             if (stripped > 0)
                 ParsekLog.Info(Tag,

@@ -93,6 +93,10 @@ namespace Parsek
             public HashSet<ulong> activeEngineKeys = new HashSet<ulong>();
             public HashSet<ulong> allEngineKeys = new HashSet<ulong>(); // all engine modules, active + inactive (#298)
             public Dictionary<ulong, float> lastThrottle = new Dictionary<ulong, float>();
+            /// <summary>Armed keys of the settled-throttle rule
+            /// (<see cref="FlightRecorder.CheckEngineTransition"/>).</summary>
+            public readonly Dictionary<ulong, EngineThrottleStill> engineThrottleStill =
+                new Dictionary<ulong, EngineThrottleStill>();
             public HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
             public List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
             public HashSet<ulong> activeRcsKeys = new HashSet<ulong>();

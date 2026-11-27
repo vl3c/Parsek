@@ -19,6 +19,7 @@ pixel-by-pixel transcription of ``PartParityMetrics.Measure``.
 Run: ``cd harness && python -m unittest discover -s lib -q``.
 """
 
+import contextlib
 import copy
 import gzip
 import json
@@ -995,6 +996,11 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(list(pp.ATLAS_ROWS), self._string_array(text, "StowedAtlasRows"))
         self.assertEqual(list(pp.ATLAS_ROWS_STATE), self._string_array(text, "StateAtlasRows"))
         self.assertIn("isStateCase ? StateAtlasRows : StowedAtlasRows", text)
+        self.assertEqual(list(pp.ATLAS_ROWS_STATE_RELOADED),
+                         self._string_array(text, "ReloadedStateAtlasRows"))
+        self.assertIn("isStateCase && startReloaded ? (string[])ReloadedStateAtlasRows", text)
+        self.assertEqual(pp.FLAG_START_RELOADED_PREFIX, self._string_consts(
+            self._source("PartParityRampHold.cs"))["FlagReloadedPrefix"])
         capture = self._source("PartParityCaseCapture.cs")
         self.assertIn("PartParityJson.AtlasRowsFor(", capture)
         self.assertNotIn('"ghost-start"', capture)
@@ -1103,7 +1109,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
         others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
         for cs, mirror in (("Families", pp.FX_FAMILIES),
                            ("StochasticFamilies", pp.FX_STOCHASTIC_FAMILIES),
-                           ("ArgWords", pp.FX_ARG_WORDS), ("States", pp.FX_STATES),
+                           ("ArgWords", pp.FX_ARG_WORDS),
+                           ("ArgKnownWords", pp.FX_ARG_KNOWN_WORDS), ("States", pp.FX_STATES),
                            ("OrbitContexts", pp.FX_ORBIT_CONTEXTS),
                            ("ExclusionReasons", pp.FX_EXCLUSION_REASONS),
                            ("Views", pp.FX_VIEWS), ("RendererLayers", pp.FX_RENDERER_LAYERS),
@@ -1130,7 +1137,12 @@ class PartParitySourceSyncTests(unittest.TestCase):
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
         pairs = re.findall(r"case (\w+): return (\w+);", body)
-        self.assertEqual(len(pp.FX_ARG_WORDS), len(pairs))
+        self.assertEqual(len(pp.FX_ARG_KNOWN_WORDS), len(pairs))
+        self.assertEqual(pp.FX_MAIN_STATES, (consts["StateMainFull"], consts["StateMainLow"]))
+        self.assertEqual({"main-full": self._num_const(text, "BurnFullThrottle"),
+                          "main-low": self._num_const(text, "BurnLowThrottle")}, pp.FX_MAIN_THROTTLES)
+        self.assertIn("PlumeOption(m, StateMainFull, BurnFullThrottle, ", text)
+        self.assertIn("PlumeOption(m, StateMainLow, BurnLowThrottle, ", text)
         for arg, family in pairs:
             with self.subTest(arg=arg):
                 self.assertEqual(consts[family], pp.fx_family_for_arg(consts[arg]))
@@ -1148,6 +1160,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("SmokeMinPx", pp.FX_SMOKE_MIN_PX),
                              ("SplitHalfPct", pp.FX_SPLIT_HALF_PCT),
                              ("PlateLitMinPct", pp.PLATE_LIT_MIN_PCT),
+                             ("ThrottleDoneTolerance", pp.FX_THROTTLE_DONE_TOLERANCE),
                              ("PlateLitMinLum", pp.PLATE_LIT_MIN_LUM),
                              ("StripFrames", pp.FX_STRIP_FRAMES)):
             with self.subTest(const=name):
@@ -1246,7 +1259,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
         # rules, and P6's tables are what PP-3 to PP-6 plan today.
         rules = self._source("PartParityStateRules.cs")
         for word in ("plume", "plate", "rcs-fire", "burn-full", "burn-low", "heat-medium",
-                     "heat-hot") + pp.FX_EXCLUSION_REASONS:
+                     "heat-hot") + pp.FX_MAIN_STATES + pp.FX_EXCLUSION_REASONS:
             with self.subTest(word=word):
                 self.assertNotIn('"%s"' % word, rules)
         self.assertEqual(("alone", "stacked", "fgv"), pp.ORBIT_CONTEXTS)
@@ -1327,6 +1340,8 @@ class PartParityStateReaderTests(unittest.TestCase):
     def test_atlas_rows_and_state_cases(self):
         self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False))
         self.assertEqual(("real", "ghost", "ghost-start", "ghost-stowed"), pp.atlas_rows_for(True))
+        self.assertEqual(pp.atlas_rows_for(True) + ("real-start",), pp.atlas_rows_for(True, True))
+        self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False, True))
         self.assertFalse(pp.is_state_case("stowed"))
         self.assertFalse(pp.is_state_case(None))
         self.assertTrue(pp.is_state_case("deployed-m3"))
@@ -1999,6 +2014,89 @@ class StateRecomputeTests(unittest.TestCase):
         d["views"][0]["stowedRef"]["realOnlyBlobPct"] = 2.0
         self.assertTrue(any("side-a.stowedRef.realOnlyBlobPct" in x
                             for x in pp.recompute_case(d, atlas)))
+
+
+def _reloaded_case(case_id="engine--default--burn-full--0000aaaa", start=None, real_start=None, **kw):
+    """A state case whose start route was compared with the loaded real part: the fifth atlas
+    row, the flag, and every ``start`` block measured against that row."""
+    start = start or _stowed()
+    real_start = real_start or start
+    doc, masks = _state_case(case_id, start=start, **kw)
+    for v in doc["views"]:
+        rec = fx.view_record(v["view"], real_start, start, STILE)
+        v["start"] = {k: rec[k] for k in pp.START_KEYS}
+    doc["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE_RELOADED)
+    doc["flags"] = list(doc["flags"]) + [pp.FLAG_START_RELOADED_PREFIX + "1"]
+    return doc, masks + (real_start,)
+
+
+class StartReloadTests(unittest.TestCase):
+    """E.4 "Start-route reload": the start route against the real part as a load leaves it."""
+
+    def _recompute(self, doc, masks):
+        n = len(doc["views"])
+        rows = [[m] * n for m in masks]
+        return pp.recompute_case(doc, (n * STILE, len(rows) * STILE, 4, _atlas_rows(rows)))
+
+    def test_the_start_route_is_judged_and_recomputed_against_the_loaded_row(self):
+        # The ghost's start pose differs from the burning part and equals the loaded one.
+        doc, masks = _reloaded_case()
+        self.assertEqual([], self._recompute(doc, masks))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+        # The same start ghost against the burning part (no reload) fails: the row decides.
+        plain, plain_masks = _state_case("engine--default--burn-full--0000aaaa", start=_stowed())
+        self.assertEqual([], self._recompute(plain, plain_masks))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(plain).verdict)
+
+    def test_a_ghost_wrong_after_a_load_still_fails(self):
+        doc, masks = _reloaded_case(start=_stowed(), real_start=_deployed())
+        self.assertEqual([], self._recompute(doc, masks))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_a_start_block_measured_from_the_burning_row_is_a_mismatch(self):
+        doc, masks = _reloaded_case()
+        for v in doc["views"]:
+            rec = fx.view_record(v["view"], _deployed(), _stowed(), STILE)
+            v["start"] = {k: rec[k] for k in pp.START_KEYS}
+        self.assertTrue(any("/start" in d for d in self._recompute(doc, masks)))
+
+    def test_the_event_route_is_untouched_by_the_loaded_row(self):
+        doc, masks = _reloaded_case(ghost=_stowed())
+        self.assertEqual([], self._recompute(doc, masks))
+        self.assertTrue(any(r.startswith("event:shape-blob")
+                            for r in pp.judge_case(doc).reasons))
+
+    def test_the_flag_and_the_row_go_together(self):
+        doc, _masks = _reloaded_case()
+        self.assertIsNone(pp.start_reload_problem(doc))
+        bare = copy.deepcopy(doc)
+        bare["flags"] = []
+        self.assertIn("flag=false", pp.start_reload_problem(bare))
+        four = copy.deepcopy(doc)
+        four["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE)
+        self.assertIn("flag=true", pp.start_reload_problem(four))
+        stowed = copy.deepcopy(doc)
+        stowed["state"], stowed["context"] = "stowed", "alone"
+        self.assertIsNotNone(pp.start_reload_problem(stowed))
+        # It is checked on every case of a sweep, sampled or not, through the view-block walk.
+        self.assertIn(pp.start_reload_problem(bare), pp.state_view_block_problems(bare))
+        self.assertIn(pp.start_reload_problem(stowed), pp.state_view_block_problems(stowed))
+        self.assertEqual([], pp.state_view_block_problems(doc))
+
+    def test_a_sweep_with_a_rowless_flag_is_invalid(self):
+        cases = [_state_case("engine%d--default--deployed--0000aaa%d" % (i, i)) for i in range(3)]
+        for doc, _masks in cases:
+            doc["flags"] = [pp.FLAG_START_RELOADED_PREFIX + "2"]
+        root = tempfile.mkdtemp(prefix="pp-reload-")
+        self.addCleanup(shutil.rmtree, root, True)
+        d = os.path.join(root, "s")
+        _build_state_sweep(d, cases)
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        # The sampled case's recompute names its rows, the two unsampled ones the walk names.
+        self.assertEqual(2, sum("start reload" in m for m in res.recompute_mismatches))
+        self.assertEqual(1, sum("atlas rows=" in m and "expected" in m for m in res.recompute_mismatches))
 
 
 class StateSweepTests(unittest.TestCase):
@@ -2906,6 +3004,34 @@ class FxJudgeTests(unittest.TestCase):
             self.assertEqual(["fx.family=plume stateProof.family=%s" % family], pp.fx_block_problems(doc))
             self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
 
+    def test_a_plume_case_says_which_throttle_drove_it(self):
+        drive = {"ignited": True, "currentThrottle": 1.0, "recordedPower": 1.0}
+        for state, throttle, main, independent, ok in (
+                ("main-full", 1.0, 1.0, False, True), ("main-low-m2", 0.3, 0.3, False, True),
+                ("main-low", 0.3, 0.295, False, True),
+                ("main-full", 1.0, 0.0, False, False), ("main-full", 1.0, 1.0, True, False),
+                ("main-full", 1.0, 1.0, None, False), ("main-full", 1.0, None, False, False),
+                ("main-low", 0.3, 1.0, False, False), ("main-low", 1.0, 1.0, False, False),
+                ("main-low", None, 0.3, False, False),
+                ("burn-full", 1.0, 0.0, True, True), ("burn-low-m1", 0.3, 0.0, True, True),
+                ("burn-full", 1.0, None, None, True),  # a sidecar from before the keys
+                ("burn-full", 1.0, 1.0, True, False), ("burn-low", 0.3, 0.0, False, False)):
+            with self.subTest(state=state, main=main, independent=independent):
+                doc = _fx_case(state=state)[0]
+                doc["fx"]["throttle"] = throttle
+                doc["fx"]["drive"] = dict(drive, mainThrottle=main, independentThrottle=independent)
+                problems = pp.fx_block_problems(doc)
+                self.assertEqual(ok, not problems, problems)
+                self.assertEqual(not ok, pp.judge_case(doc).verdict == pp.VERDICT_ERROR)
+        # No drive block at all: an older burn case is not asked, a main case is.
+        doc = _fx_case(state="burn-full")[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+        doc = _fx_case(state="main-full")[0]
+        self.assertIn("on a main-full case", pp.fx_block_problems(doc)[0])
+        # A case that never reached its throttle is a setup fault, not a contradiction.
+        doc["setup"] = {"status": "state-timeout", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(doc))
+
     def test_a_dark_plate_is_an_error_never_a_pass(self):
         doc = _fx_case()[0]
         for plate in (None, {"litPct": None}, {"litPct": 0.0}, {"litPct": 0.0199}):
@@ -3249,6 +3375,76 @@ class FxJudgeTests(unittest.TestCase):
         bad["fx"]["views"] = None
         bad["setup"] = {"status": "state-timeout", "detail": None}
         self.assertEqual([], pp.fx_block_problems(bad))
+
+
+def _flame_of(rgb):
+    return {"flame": (_plume(rgb=rgb), _disc(rgb=rgb))}
+
+
+@contextlib.contextmanager
+def owner_flagged(reason="smoke-extra", todo="PARTPARITY-ORBIT-SMOKE-PUFF-NOISE"):
+    """An owner's mark on ``reason`` while the block runs (the committed set may be empty)."""
+    saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {reason: todo}
+    try:
+        yield
+    finally:
+        pp.OWNER_FLAGGED_REASONS = saved
+
+
+class OwnerFlagTests(unittest.TestCase):
+    """A flagged reason stays in sight whatever the case's verdict, and moves none."""
+
+    def setUp(self):
+        flag = owner_flagged()
+        flag.__enter__()
+        self.addCleanup(flag.__exit__, None, None, None)
+
+    def _case(self, **kw):
+        real = dict(REAL_FX, smoke=FX_DARK)
+        return _fx_case(real=real, event={"smoke": REAL_FX["smoke"]}, start={"smoke": REAL_FX["smoke"]}, **kw)[0]
+
+    def test_a_flagged_finding_marks_the_case(self):
+        doc = self._case()
+        cv = pp.judge_case(doc)
+        self.assertIn("event:fx-side-a:smoke:smoke-extra", cv.reasons)
+        self.assertEqual(("smoke-extra",), pp.owner_flags(cv))
+        self.assertIn("owner-flagged:smoke-extra", cv.fx.flags)
+        self.assertEqual(1, pp.fx_case_counts([cv])["flags"]["owner-flagged"])
+
+    def test_a_capped_one_still_marks_it(self):
+        doc = self._case()
+        for e in pp.fx_entries(doc):
+            if e["layer"] == "smoke":
+                e["splitHalf"]["odd"]["ghost"] = dict(e["splitHalf"]["odd"]["ghost"], corePx=0)
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+        self.assertEqual(("smoke-extra",), pp.owner_flags(cv))
+
+    def test_the_mark_moves_nothing_and_a_clean_or_reference_case_has_none(self):
+        self.assertEqual((), pp.owner_flags(pp.judge_case(_fx_case()[0])))
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(_fx_case()[0]).verdict)
+        ref = pp.judge_case(self._case(reference=pp.REFERENCE_WATERFALL))
+        self.assertEqual((pp.VERDICT_REFERENCE, ()), (ref.verdict, pp.owner_flags(ref)))
+        flagged = pp.judge_case(self._case())
+        saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {}
+        try:
+            plain = pp.judge_case(self._case())
+        finally:
+            pp.OWNER_FLAGGED_REASONS = saved
+        self.assertEqual((plain.verdict, plain.reasons), (flagged.verdict, flagged.reasons))
+
+    def test_the_todo_that_owns_a_committed_flag_is_open(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "dev",
+                            "todo-and-known-bugs.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        committed = self._committed
+        for todo in committed.values():
+            self.assertIn("\n## %s:" % todo, text, "flag a reason only while its todo is open")
+        # The booster smoke is the ghost's fixed defect, its rest noise: no mark on it.
+        self.assertNotIn("smoke-extra", committed)
+
+    _committed = dict(pp.OWNER_FLAGGED_REASONS)
 
 
 def _fx_control(cid):

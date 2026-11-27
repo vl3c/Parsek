@@ -790,7 +790,7 @@ over its range in K steps, the ghost driven through its robotic playback with th
 The atlas gains a frame axis; per-frame measures give a curve. The viewer plays real and ghost in
 lock-step with a scrubber. GIF / APNG files are written by `part_parity_view.py --gif` (stdlib, the
 `gui_mirror.py` PNG codec plus a small LZW / palette writer), not in the browser, where `file://`
-blocks the pixel reads an encoder needs. The concrete P7 plan is Appendix G: it keeps the real
+blocks the pixel reads an encoder needs. The concrete P7 plan is Appendix H: it keeps the real
 side's clip live (a sampled real side cannot show a ghost that starts late or snaps) and poses the
 ghost afterwards at each real frame's exact UT.
 
@@ -852,7 +852,7 @@ reference lane. The concrete P8 plan is Appendix E.
   the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
   `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
   (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `hidden`, `drawn`, `flag:<flag>` with an optional
-  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy`) names every known difference; a
+  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy` and `kind`) names every known difference; a
   placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
   The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
   `PARSEK-FAIL(part-parity)` on: a measure that left its band past its tolerance on the WORSE side
@@ -923,8 +923,9 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
 | P5 (DONE 2026-11-23, Appendix F) | Baseline + accepted list; gate armed after a second matching reading run. BUILT: `partparity.gate_sweep` (10), `harness/partparity/baseline-<profile>.json` for all six labels, `accepted.toml` (72 entries), `part_parity_baseline.py`, the viewer's `--pinned` mode (8), the real-vs-real control's noise allowance (4.5). PP-1 to PP-4 armed; PP-5 / PP-6 report-only (canopy airflow). | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. PLANNED 2026-11-22 (Appendix D, rev 2): 12 transformation families, two ghost routes per state case, the jettison node contexts, chutes deployed for real in the air near KSC, the FGV fairing contexts, new report-only lanes PP-3 / PP-4 (orbit) and PP-5 / PP-6 (air). | Chute and deployables covered: every in-scope state case on both installs has a sidecar or a recorded setup fault, the state controls behave, the press gate holds, the owner reads stowed and deployed side by side. |
-| P7 | Animation strips + GIF / APNG (9.2). PLANNED 2026-11-26 (Appendix G, rev 1): motion cases for the P6 families reached by motion plus servos and control surfaces; the real clip live, frames every T / 8 from the press, the ghost primed afterwards at each real frame's UT (same time) and at the same progress; timing measures (lag, duration ratio, curve shape, snap, steps) judged, per-frame pictures report-only; timing controls (real-vs-real, slowed and late ghosts); new report-only lanes PP-12 / PP-13 and an air label in PP-5 / PP-6; four motion defects read from the code (G.6). | Antennas, panels, robotics scrubbed in lock-step. |
+| P7 | Animation strips + GIF / APNG (9.2). PLANNED 2026-11-26 (Appendix H, rev 1): motion cases for the P6 families reached by motion plus servos and control surfaces; the real clip live, frames every T / 8 from the press, the ghost primed afterwards at each real frame's UT (same time) and at the same progress; timing measures (lag, duration ratio, curve shape, snap, steps) judged, per-frame pictures report-only; timing controls (real-vs-real, slowed and late ghosts); new report-only lanes PP-14 / PP-15 and an air label in PP-5 / PP-6; four motion defects read from the code (H.6). | Antennas, panels, robotics scrubbed in lock-step. |
 | P8 | Plumes and FX (9.3). PLANNED 2026-11-22 (Appendix E, rev 2): engine plumes and smoke, RCS puffs (the ghost's all-nozzle firing a known difference, owner ruling R4), engine and RCS glow (body atlas), `ModuleAnimateHeat` glow, the light a lamp casts on a plate; stochastic effects compared as accumulated coverage and colour from 8-bit tiles with split-half convergence and broken-plume controls; Waterfall cases reference-only; a Waterfall-free `modded-restock` profile; new report-only lanes PP-7 / PP-8 / PP-9 (orbit), PP-10 and a jet label in PP-5 / PP-6 (air); a later flight-camera reentry reference lane (R1). | Engine plumes compared on stock and on ReStock without Waterfall; reference-only on Waterfall: every in-scope FX case on every install has a sidecar or a recorded setup fault, the FX controls behave, the owner reads real and ghost plumes side by side. |
+| P9 | Effects Parsek builds itself. PLANNED 2026-11-26 (Appendix G, rev 1): explosions (stock FXMonger on both sides and Parsek's stand-ins), the decouple / joint-break puff, launch dust against stock `ModuleSurfaceFX`, reentry fire, glow and char against stock `AerodynamicsFX` and blackbody; bursts sampled in time bins over repeated trials; rig lanes PP-11 / PP-12, flight lanes FXC-1 (reentry, splash) and FXC-2 (pad launch, crash), all report-only. | Every in-scope burst and dust case on stock-minimal and modded-restock has a sidecar or a recorded setup fault, the burst and dust controls behave, the owner reads the FXC reference pages. |
 
 ## 13. Open questions
 
@@ -2054,7 +2055,7 @@ nodes.
 
 | Family | Predicate (the recorder's own) | State words | What is compared | stock-minimal / modded-compat / modded-restock cases |
 | --- | --- | --- | --- | --- |
-| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
+| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked; `main-full` / `main-low` (E.2, not in the counts here) | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
 | `rcs` | every `as ModuleRCS` module (`FlightRecorder` RCS cache) | `rcs-fire` | puffs of the nozzles stock fires (E.2); the body atlas carries `FXModuleAnimateRCS` glow | 7 / 19 / 19 |
 | `heat` | `ModuleAnimateHeat` (`PartStatePoller.PollAnimateHeat`) | `heat-medium`, `heat-hot` | the heat clip's colour and pose on the body, P6 rows and judge | 32 / 26 / 26 |
 | `light` in context `plate` | the recorder's light check (P6 S2, `PartStatePoller.PollLights`) | `lit` | the light the lamp casts on a matte plate (E.2), plus the part's `Light` components structurally | 15 / 18 / 18 |
@@ -2110,8 +2111,8 @@ name, ramping at `animRate`; the ghost plays it from the recorded power (todo
 GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
 (`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
 the ramp stood and starts it at `animState`'s end when it loads the part, so the start-route ghost
-shows what a load would and the real part, which was not loaded, does not
-(PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the instrument's case, not the ghost's).
+shows what a load would and the real part, which was not loaded, does not. Since 2026-11-24 the start
+route is compared with the real part as a load leaves it (E.4, "Start-route reload").
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 
@@ -2147,7 +2148,9 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. After it, an engine
+  case holds (inside the press timeout) while the recorder still owes the settled-throttle event
+  (`IsEngineSettlePending`), so a jet is read at rest and not on the last 0.05 step. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
@@ -2467,6 +2470,61 @@ as before. Wall: `f7fx` 336 s (waves 29, 84, 77, 114 and 32 s: the slowest spool
 over E.8's 210 s estimate, inside one 480 s step. First readings: todo
 PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23.
 
+Main-throttle cases as built (2026-11-24, owner's choice of the same day, todo
+PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN). Every plume case above burns on the independent throttle
+with the vessel's at 0, so what stock drives by the vessel's throttle stays cold on the real side.
+Two new state words, `main-full` and `main-low` (30 %), burn the same engine on the vessel's main
+throttle, as ordinary play does. The independent-throttle cases and their ids do not change.
+
+- What depends on it: `FXModuleAnimateThrottle` and `FXModuleThrottleEffects` (decompiled) aim at
+  their engine's output or throttle under `dependOnEngineState` with `dependOnOutput` /
+  `dependOnThrottle`, and at `vessel.ctrlState.mainThrottle` otherwise
+  (`PartParityFxRules.GlowReadsMainThrottle`). Over the three installs that is two clips: the
+  Whiplash's `TRJ_Heat` and the wet Panther's `TurboJetHeat`. All 109 `FXModuleThrottleEffects` of
+  ReStock and ReStock+ name `dependOnThrottle`, and neither touches the two jets' clips. No plume
+  reads it: stock's engine FX read the engine's own `currentThrottle`, `requestedThrottle` and
+  thrust. (A `ModuleRCS` with `useThrottle`, a tweakable no part sets, would.)
+- Planning: every engine that plans a `burn-low` plans the two, in the same context. `fx=plume`
+  (so `fx=all`) selects them only where a glow reads the main throttle, four air cases per install;
+  `fx=plume-main`, which `all` does not stand for, selects every engine's, for the controls.
+- Drive: `independentThrottle = False`, and from the press the case vessel's own
+  `OnPreAutopilotUpdate` writes `mainThrottle` into that vessel's `ctrlState` every physics step
+  (stock zeroes the stick and the RCS axes of a non-active vessel there, not its throttle). A lone
+  engine has no command module, so stock's `UpdateThrottle` would not hand the throttle on
+  (`part.isControllable`) and would keep the engine's last `requestedThrottle`; the same callback
+  writes stock's own value there, `mainThrottle * thrustPercentage * 0.01`. Done: E.2's signal, and
+  the vessel holds the throttle and the engine does not ignore it.
+- Burn time: both clips close on the throttle by 1/80 a second (`responseSpeed` 0.0005), so a case
+  whose glow reads it burns 60 s from its press before its ghosts are built (the bell is at 0.53 of
+  the throttle); the other main-throttle cases wait for their spool only. The wave bound reads it.
+- Isolation: a main-throttle case shares no wave with an independent-throttle one
+  (`fx:<bucket>:main`), so those waves keep their cases and their burn times. The throttle written
+  is the case vessel's alone, pinned in source
+  (`TheMainThrottle_IsWrittenOnTheCaseVesselOnly_AndReleasedToZero`): the host's and the player's
+  input are only read, before the step's first such case and after its teardown, and the step's
+  `main throttle: cases=<n> stillArmed=0 releasedAt=0.000 host=<a>-><b> input=<a>-><b>` line carries
+  them. `Release` takes the callback off and puts the vessel's throttle back to 0 before the vessel
+  dies. `fx.drive` gains `mainThrottle` and `independentThrottle`, written by every plume case, and
+  the judge errors a case whose state word they contradict (`fx_throttle_problem`), so a throttle
+  that reached an independent-throttle case could not pass.
+- What the ghost should read. The snapshot's engine module says `independentThrottle = False`, so
+  the glow's source is the recorded engine power over the thrust limiter
+  (`ResolveVesselThrottleSource`), and at a limiter of 100 % that is the main throttle once the
+  engine has spooled up to it. Event route: the stowed snapshot's persisted `animState` (0), then
+  the recorded power events. Start route: the snapshot at the capture carries the clip's
+  `animState` and its UT, and the seed carries the power. `CTRLSTATE mainThrottle` is read for
+  neither: it stands in only when every engine of the glow is independent or throttle-locked
+  (#2806), the one case whose main throttle no recorded power tells.
+- What the ghost cannot know, because the recording holds the engine's power and not the vessel's
+  throttle: while a jet spools, the real bell already follows the full throttle and the ghost's the
+  engine's (the Whiplash and the Panther spool at 0.2 /s and faster, so the ghost's bell trails by
+  up to 5 s of its 80 s climb); a limiter, a throttle mode or a vessel throttle changed in flight on
+  an engine that ignores the main throttle; an idling main throttle over a running independent
+  engine. The recorder does not gain the vessel's throttle for this.
+- Flown 2026-11-24 (throwaway lanes, todo PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN): both hot bells
+  read 0 px on both routes at full throttle (1 px on the Panther's bottom view), the start route
+  exactly at the real level (0.557) and the event route 0.02 to 0.04 of the clip below it.
+
 ### E.3 Capture changes
 
 - Layers. Each side's renderers are split by kind (pure `PartParityFxRules.ClassifyFxRenderer`
@@ -2629,6 +2687,50 @@ ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-onl
 not recomputable from the files, and become judged only after a reading run shows them as tight
 as the picture measures.
 
+Start-route reload (2026-11-24, branch `parity-noise`, todo PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED;
+flown 2026-11-26 on throwaway lanes, start-route `color-blob-px` 0 on ReStock, stock unchanged). The start-route ghost is built from a snapshot of the burning part, so it shows what
+stock shows after a load; a ReStock bell on the stand is mid-ramp. 46 PP-9 and 8 PP-8 plume cases of
+`2026-11-24_0735` failed on the start route's `color-blob-px`, the event route right. The real side of
+the start route is now the part as a load leaves it.
+
+- What a load changes, from the decompile (KSP 1.12.5): `ModuleColorChanger.animState` and
+  `FXModuleThrottleEffects.state` are the persisted fields; `currentRateState`, the ramp, is a
+  protected field that `Start()` sets to `animState ? 1 : 0`, and nothing else of the two modules is
+  lost (`PartParityStartReloadTests` reads the KSPField attributes of the game's own types). What
+  shows each frame is written by the modules' own `Update` (`SetScalar` from the setter, then the
+  ramp; KSPCommunityFixes' replacement writes only while the ramp moves).
+- So (`PartParityRampHold`, `PartParityFxDriver.StartReload.cs`): after a case's body views, on an
+  engine part case with a start ghost, each colour changer whose ramp a load would move
+  (`useRate`, more than 0.001 from its end) gets `currentRateState` set to that end and shown once (KSPCF's `Start` postfix), the game runs its
+  own frame (so the module order, a KSPCF install and a bare one all show what they show), and each
+  view's start pair, real and start ghost, is photographed again. The ramp is put back where it would
+  stand by then (in a `finally`), and one whole frame runs before the light and FX reads. No ramp to
+  move: the case is captured as before.
+- The files: a FIFTH body atlas row `real-start`, the flag `start-route-reloaded:<ramps>`, and the
+  views' `start` blocks measured from that row; event route, stowed reference and FX atlas unchanged.
+  Flag and row go together or the sweep is INVALID(parity-instrument) (`start_reload_problem`, every
+  case), and the recompute reads row 2 against row 5. About 0.2 s a case. An unload and reload of the
+  vessel was the alternative: it destroys the parts the ghosts are parented to and needs the engine
+  to spool again (4 to 6 s a case, about 4 min on PP-9) and shows no more.
+- What it measures. A player who keeps flying sees the bell mid-ramp; a load (F9, a scene change, a
+  switch) jumps it to the hot end at once, which is stock's own jump. The start route judges the ghost
+  against that. A recording that starts at a split loads nothing and takes its ramp from the recorded
+  events (GHOST-NOZZLE-GLOW-SPLIT-RAMP), which this rig does not fly.
+
+Drawn systems pair first (2026-11-24, `PartParityFxStructure.Diff`, C#, not flown). The inventory
+diff paired a real system with the first unpaired ghost one of its key. A part with variants keeps
+the hidden variants' systems (ReStock `RCSBlock.v2`: 36 on the real side, 8 of them drawn, 8 on the
+ghost), so ten hidden ones used the ghost's up and the 8 drawn ones read `missing-fx`, a fail, on
+`RCSBlock.v2`, `RCSblock.01.small` and the two ReStock+ multi blocks of PP-9. Drawn real systems now
+pair first, each with a drawn ghost system before a hidden one; a drawn system the ghost really
+lacks still reads missing, and one it draws too many extra.
+
+The owner's mark (2026-11-24). A finding the owner wants kept in sight until its todo is settled
+(`OWNER_FLAGGED_REASONS`, a reason and its OPEN todo; empty since the ghost smoke fix: the
+`smoke-extra` it held was GHOST-SMOKE-RIDES-ACTIVE-VESSEL, its rest is PARTPARITY-ORBIT-SMOKE-PUFF-NOISE) puts
+`owner-flagged:<reason>` on its case, capped or not, judged cases only; it moves no verdict, no cap and
+no rule, and `test_the_todo_that_owns_the_flag_is_open` reds once that todo is closed.
+
 How the instrument proves itself:
 
 - Noise floor. `ctl-fx-real-vs-real` compares the real plume with ITSELF in alternate samples
@@ -2750,7 +2852,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   not apply). `liquidengine2.v2--default--burn-full--<hash>`,
   `turbojet--default--burn-low-m1--air--<hash>` (the D.1 same-word tiebreak),
   `spotlight1--default--lit--plate--<hash>`. Stowed, P6 state and P6 context ids cannot move.
-- Args: `fx=none|all|<csv of plume, rcs, heat, plate>` (refused `fx-arg-invalid`), mirrored in
+- Args: `fx=none|all|<csv of plume, rcs, heat, plate, plume-main>` (refused `fx-arg-invalid`; `all`
+  is the first four, `plume-main` is E.2's main-throttle cases of every engine), mirrored in
   hlib's `validate_part_parity_sweep_step`. With `fx=none` (the default) every run plans exactly
   what it plans today. A run with `fx=` plans ONLY the FX keys of its families (no stowed, no P6
   state case), filtered by `contexts=` (`air` plans the air-breathing plume cases, `none` the
@@ -3047,6 +3150,21 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   ratio 0.222), controls 11/11 ok with each broken plume failing its own measure. The labels after
   the first ran with `controls=false`, so the sweep box is red for them. Screenshots in
   `<umbrella>/logs/flights/p8-f5/`.
+- Page states (2026-11-24, `parity-noise`). The page always reads the committed accepted list (and,
+  where the label has one, its baseline). A `fail` case shows `known` or `accepted` instead
+  (`partparity.page_state`) when every fail reason and qualitative difference of it is covered by an
+  entry whose `kind` says so: `known` when the owner ruled on each by name, else `accepted` (Appendix F).
+  Nothing else bounds how big a covered difference may be, so only a case the label's baseline
+  measured, on its own profile, and the gate judged can read so: every FX lane and every ad-hoc label
+  shows its fails.
+  It keeps the judged verdict beside it (`judged fail: <todos>`), its red chips are drawn unfilled, it
+  is counted and filtered apart, and it ranks under warn. It stays red when a reason is structural
+  (missing, extra or hidden mesh, skin, a missing or extra effect, an unexplained fail), when the gate
+  reds or could not measure it, or when it carries an `owner-flagged:*` mark, which has its own chip,
+  counter, filter and button. A reloaded start route shows one more
+  picture, "REAL as a load leaves it", and its DIFF st is against that. Verdicts, counts and
+  `partparity-verdicts.json`'s cases are unchanged; the file adds `pageStates` and `ownerFlagged`, the
+  summary line `pageKnown=` / `pageAccepted=` / `ownerFlagged=` when not 0.
 - Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
   `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
   them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
@@ -3134,6 +3252,10 @@ One air step does the work on every install (about 313 s of the 480 s box), so t
 margin; the orbit lanes still use three. One case fewer on the modded installs (164) since
 `telescopicLadderBay` is excluded (`fx-no-light`). PP-9 read 128 fails before the ghost fixes and 65
 after; what they are: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
+
+Since 2026-11-24 an air FX label plans 18 cases, the 14 and the four main-throttle ones of the
+Whiplash and the wet Panther ("Main-throttle cases as built" in E.2), one more wave of about 100 s;
+the orbit lanes plan what they did.
 
 ### E.9 Work breakdown
 
@@ -3263,6 +3385,21 @@ drift up to twice that), so the smoke stays where it was emitted; the ghost's wa
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 
+### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`, flown 2026-11-26: PPS-19a / b / c, readings in the todo entries)
+
+What the sweeps of 2026-11-24 read as real ghost differences, and what the next readings mean:
+
+- RCS (GHOST-RCS-FX-STOCK-RULES). The ghost runs stock's EFFECTS rule. A one-nozzle module is judged
+  as before; a block's nozzle power is the recorded mean without the transforms of other variants, so
+  `rcsPowerRatio` (recorded mean over the fired nozzles' mean) understates what its puffs run at, and
+  the puffs' speed is the node's own curve at the mean (0.8 to 1 of full, or 1). R4 stands.
+- Variable nozzles (GHOST-JET-THROTTLE-CLIP). `AdvanceNozzleGlows` brings the petals to the capture's
+  time too (they are part of `UpdateNozzleGlows`).
+- The Goliath's fan (GHOST-GOLIATH-FAN-STATIC) turns on the ghost at stock's rate; its phase is its
+  own, so `transformDiffers` on `FanCone` / `FanBlades` and the top view stay (PARTPARITY-SPIN-PHASE).
+- The Caravel's bell (GHOST-NOZZLE-GLOW-EVENT-RAMP) is hot at once, as stock's. The Kickback's 466 px
+  was the recorded throttle's 5 % step (ENGINE-THROTTLE-EVENT-STEP).
+
 ## Appendix F. P5: baselines, the accepted list and the regression gate (2026-11-23)
 
 Built on branch `part-parity-p5-gate` (rules in section 10, viewer mode in section 8). Every
@@ -3381,6 +3518,18 @@ owner-ruled residuals that did not recur, and cases listed because their family 
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
 
+**Kinds** (2026-11-24). Every entry names what it is, in `kind`, read by the page (E.7, "Page states")
+and by nothing else: no red, note, drift or verdict moves with it. `ruled`: the owner ruled on it by
+name and its todo records the ruling (16 entries, GHOST-PARITY-RESIDUALS-2026-11-22; the parser asks
+for "owner ruling" in the reason). `accepted`: a known cause that is not the ghost's (41: sun trackers,
+lights stock does not show, spin phase, the LV-1 z-fight, the three edge rows, the four Waterfall lamps,
+which no ruling names). `defect`: a real or unexplained difference, red on the page (16: the small
+deploy and colour residuals, the open-top fairing, the KE-1 rods, the stowed canopies). An entry
+without a kind reads as a defect. Re-judged over the 54 archived PP-1 to PP-6 sweeps with the
+committed files, the gate's reds, notes and unmeasured list are identical before and after (the
+mutation run `2026-11-23_0607` 27 reds, every clean run 0); a rendered missing, extra or hidden mesh
+injected into each of 5472 cases of their newest runs is never shown as anything but a fail.
+
 **Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
 PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to
 run (PP-5: colour blob moves up to 5012 px, IoU 0.26; PP-6: 6768 px, 0.21) and no band holds; the
@@ -3395,21 +3544,443 @@ the `rotor.01--gray` row above. Re-judged with the final rules and list: 27 reds
 only. The line was reverted (empty diff against HEAD) and the DLL rebuilt; the mutated DLL stayed on
 both installs until the next session re-provisioned them.
 
-## Appendix G. P7 plan: motion over time (rev 1, 2026-11-26)
+## Appendix G. P9 plan: effects Parsek builds itself (rev 1, 2026-11-26)
 
-Status: PLAN, not built. Owner approval to plan: 2026-11-26. Review: G.9. P6
+Status: PLAN, not built, nothing flown. The owner (2026-11-26) asked for the parity comparison to
+cover the effects Parsek draws itself, explosions and reentry fire first: "I would like if they
+looked like stock". P8 (Appendix E) compares a part's OWN EFFECTS (plumes, smoke, RCS, heat clips,
+lamps). P9 compares what Parsek builds, substitutes or triggers on a ghost when stock would draw
+something else: explosions, part puffs, launch dust, reentry fire and glow, and the stock effects a
+ghost does not draw at all. It takes over E.1's exclusions `fx-reentry-camera`, `fx-blackbody` and
+`fx-ablator-char` and E.9's later piece R1 (the reentry reference lane), here lane FXC-1 (the lane
+id `R1` is taken: `harness/scenarios/R1-rewind-loop-flown.toml`).
+
+Sources. Stock: the full decompile of the harness install's `Assembly-CSharp.dll` in
+`<umbrella>/logs/decompile/2026-10-26_full/` (`FXMonger`, `Part.explode`, `ModuleSurfaceFX`,
+`SurfaceFX`, `FXCamera`, `ModuleDecouple` / `ModuleDecouplerBase`, `PartBuoyancy`, `KerbalEVA`) and
+`p8-plan/AerodynamicsFX.cs`; `Physics.cfg` and the ModuleManager caches of the three harness
+installs. Parsek: `origin/main` 3ae94db1c. Coordination: another session is changing the floating
+origin registration of these same effects (todo GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL, files in
+`Source/Parsek/Ghost/`, branch `ghost-fx-9`). That change makes the reentry fire, the launch dust,
+the part puff and the built fallback explosion follow `FloatingOrigin.setOffset` (the shift only,
+stock's rule for plain systems); the flight-scene explosion stays stock's FXMonger prefab, which
+stock itself moves only while the active vessel's radar altitude is under
+`FloatingOrigin.altToStopMovingExplosions` (10 km), as for a real explosion. P9 edits nothing under
+`Source/Parsek/Ghost/` until that lands (piece X2, G.7), and every finding below that reads
+world-space particles is to be re-read on that build.
+
+### G.1 Inventory
+
+Every effect a ghost draws that is not the stock part's own EFFECTS, with what stock draws in the
+same situation. "Differs" is read from the code, not flown; G.8 lists the ones that look wrong
+already.
+
+| # | Ghost effect | Built / triggered at | When the ghost draws it | Stock in the same situation | Differs (from reading) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Vessel end explosion (flight) | `GhostPlaybackEngine.PlayDestroyedExplosion` (`SpawnDestroy.cs`) -> `GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom` -> stock `FXMonger.Explode(null, pos, power)` | a recording with a Destroyed ending reaches its end, at the clearance-checked anchor (`TryResolveExplosionAnchorPosition`); `power = Clamp01(vesselLength / 20)` (`GhostAudioPresets.VesselLengthPowerDivisor`) | each part dies on its own impact: `Part.explode()` -> `FXMonger.Explode(part, part position, explosionPotential + speed term)`; blasts within 10 m (`minDistanceFromOtherBlasts`) merge (power summed, position power-weighted); `LateUpdate` instantiates `explosions[(int)(Clamp01(power) * (n - 1))]` with `up = FlightGlobals.upAxis` | the same prefab family, but one blast whose power comes from the ghost's length, where stock makes one blast per merged cluster of parts from their `explosionPotential` |
+| 2 | Destroyed part (flight) | `GhostPlaybackLogic.PlayPartDestroyedFxAtPart` (`PartEvents.cs`) -> `FXMonger.Explode` at the ghost part | a recorded `Destroyed` part event, when FXMonger is live and the pause menu is closed | `Part.explode()` as row 1 | `ResolvePartExplosionPower` (`PartEvents.cs:863`) takes the prefab's `explosionPotential` only; stock adds 0.12 or 0.25 keyed on the ACTIVE vessel's surface speed (`FlightGlobals.ship_srfSpeed`; the decompiled branch order is mangled) |
+| 3 | Custom explosion | `GhostVisualBuilder.SpawnExplosionFx` (`TransientFx.cs:380`): additive fireball (200 to 300 particles, sized by vessel length, gravity 0.15, noise) + alpha-blended smoke child, destroyed after 5 s | always in the Space Center scene (`ParsekKSC.cs:2245`: FXMonger lives in FLIGHT only); in flight when the pause menu is open or `FXMonger.Explode` failed | none in the Space Center (stock simulates no vessel there); the look to match is the FXMonger prefab of the same power | a hand-built fireball, never compared with the prefab it stands in for |
+| 4 | Part puff | `GhostVisualBuilder.SpawnPartPuffFx` (`TransientFx.cs:113`): alpha smoke burst + additive sparks, sized by the part's first renderer (`bounds.size.magnitude * 0.5`), destroyed after 3 s | (a) every recorded `Decoupled` event, on the joint CHILD (`ApplyDecoupledPartEvent`, `PartEvents.cs:636`; the recorder writes it for the child of any joint break, `FlightRecorder.RecordJointBreakDecoupledEvent`, `FlightRecorder.PartEvents.cs:475`); (b) a destroyed part when FXMonger is not live, failed, or the pause menu is open | (a) a decoupler that fires bursts its `decouple` FXGroup (`ModuleDecouplerBase.fxGroupName`, `FXGroup.Burst`): the legacy `fx_gasBurst_white` plus `sound_decoupler_fire`, on the decoupler part (30 parts on stock-minimal); any other joint break draws nothing; (b) the FXMonger prefab of row 2 | (a) smoke and sparks at the child where stock shows a white gas burst at the decoupler, and a puff on breaks stock draws nothing for; (b) a puff where stock shows an explosion |
+| 5 | Launch dust | `GhostVisualBuilder.TryBuildLaunchDust` (`TransientFx.cs:509`), driven by `GhostPlaybackEngine.UpdateLaunchDust` (`ReentryFx.cs:179`) | any engine lit and the ghost ROOT within 40 m above a ground altitude latched once from the first trajectory point with a finite `recordedGroundClearance`; intensity `min(1, sum of engine powers * (1 - agl / 40))`; one additive particle disc (radius 4 m) at the ghost root | `ModuleSurfaceFX` per engine (39 parts on stock-minimal, 53 on modded-compat and modded-restock): a raycast from the thrust transform along its forward, up to `maxDistance` (50 m default); `ScaledFX = thrust / maxThrust * fxMax * (1 - d / maxDistance)^falloff`; a `SurfaceFX` prefab (cloud and dust systems) at the HIT POINT on terrain, a water prefab (wake) over the ocean, and on a collider tagged `LaunchpadFX` no dust but the pad's own FX | see G.8: placement, plane, shader, surface type, ground reference |
+| 6 | Reentry fire | `GhostVisualBuilder.TryBuildReentryFx` (`HeatAndReentryFx.cs:582`): mesh-surface additive particles (world space, 0.1 to 0.35 s) + an additive shell redrawn 4 times behind the ghost with `Graphics.DrawMesh` | `ComputeReentryIntensity` (`HeatAndReentryFx.cs:1083`) above 0.02, from the ghost's surface speed, `body.GetDensity` at its altitude and Mach | `AerodynamicsFX`, from the ACTIVE vessel's conditions but drawn on whatever the camera sees near it (below): `FxScalar = min(1, (0.5 d' v^3.5 - p0) / (5 p0))`, `p0 = 8e6`, `d' = 0.0091 rho^0.5 + 0.09 rho^2` (faded toward 0 below rho 0.0015); colour and length blend from condensation (white) to plasma (orange) by `state = InverseLerp(2.5, 3.75, Mach)`; in air thinner than 0.25 kg/m3 the condensation share fades (`FxScalar *= Lerp(a, 1, state)`, `a = (rho - 0.0875) / 0.1625`, 0 below 0.0875), so there stock too is dark below Mach 2.5; drawn by `FXCamera`, a camera parented to the flight camera that re-renders what it sees with replacement shaders extruded along the active vessel's -velocity, so a staged booster or any other part in view near the camera wears the same fire, plus an `fxLight` lighting the vessel | the intensity curve is not stock's (G.8); no light |
+| 7 | Reentry glow | Layer A of the same build (`CollectReentryGlowMaterials`, `ReentryFx.cs` `DriveReentryLayers`): every non-heat-managed material's emissive pushed toward a hot colour above `ReentryLayerAThreshold` | the same intensity | blackbody glow of every hot part of ANY loaded vessel: `_TemperatureColor` from `PhysicsGlobals.GetBlackBodyRadiation(skinTemperature)` above about 798 K, per part, from its own heating history | intensity-driven and uniform over the ghost, where stock is per part and lags the heating |
+| 8 | Ablator char | `GhostPlaybackLogic.ApplyColorChangerCharState` from the same intensity | the same intensity | `ModuleAblator`'s char colour changer from the ablator's own state (8 parts on stock-minimal, 12 modded) | intensity-driven, not ablation-driven |
+| 9 | (none) condensation / Mach effects | - | never: intensity is 0 below Mach 2.5 | `AerodynamicsFX` with `state < 1`: white condensation streaks whenever `FxScalar > 0` in air denser than 0.0875 kg/m3 (full strength above 0.25), on the active vessel | missing on the ghost |
+| 10 | (none) water splash | - | never: no `FXMonger.Splash` call in `Source/Parsek` | `PartBuoyancy` calls `FXMonger.Splash` when a part enters water, sized by speed and part size | missing on the ghost |
+| 11 | EVA jetpack puff | `GhostVisualBuilder.TryBuildEvaJetpackPlume` (`TransientFx.cs:607`): one small local-space additive puff behind the pack | a recorded jetpack event | `KerbalEVA`'s 12 thruster FXGroups (pitch, yaw, roll, x, y, z, each sign) fire with the input | one puff for every direction |
+
+Not in P9: a replayed flag is a real stock `FlagSite` vessel (`GhostVisualBuilder.SpawnFlagVessel`,
+`ReplayedFlagCatchUp`), so stock draws it; the part's own EFFECTS, its heat clip and its lamps are
+P8; row 11 is listed for completeness and planned later (G.7, X9), because a kerbal is not a part
+case and the jetpack is another session's open work (todo EVA-JETPACK-LIVE-LANES-2026-11-23).
+
+Camera dependence, stock side. Only rows 6 and 9 depend on the flight camera. Rev 1 said stock
+draws them on the active vessel only; the owner doubted it (2026-11-26) and the decompile agrees
+with him. `AerodynamicsFX` takes ONE set of conditions, the active vessel's (surface velocity,
+`atmDensity`, `mach`, read in its `Update`), and hands them to `FXCamera` as global shader values
+(`_LightDirection0` = the effect direction, `_FXColor`, `_FxLength`, ...). `FXCamera` is a second
+camera parented to `FlightCamera.fetch.mainCamera`, with the flight camera's field of view and a far
+clip of at least its prefab value (300 m by the field default) or the camera distance plus the
+vessel bounds, and it re-renders what it sees through replacement shaders keyed on `RenderType`.
+Its occlusion map is an ortho depth camera on layer 0 (`cullingMask = 1`), centred on the camera
+pivot and sized to the camera distance (at least the active vessel's size). Nothing in either
+class names a vessel. So the fire is drawn on every opaque object that camera renders near the
+camera:
+- the active vessel;
+- a booster staged during entry;
+- debris;
+- any other loaded vessel in view;
+all with the active vessel's direction and strength. A vessel reentering while the active vessel
+is slow shows none, and so does one beyond the camera's reach (X0 U8 measures both). So the part
+sweep's capture camera (D4) never sees the effect. A stock reentry is photographed from the
+flight camera, with the real vessel active or beside the active vessel. Rows 1, 2, 4, 5, 7, 8 and 10 are ordinary scene objects or materials of any loaded
+vessel: FXMonger prefabs are instantiated unparented in world space, `SurfaceFX` registers its
+systems with `FloatingOrigin`, blackbody and char are part materials. The rig camera sees those.
+
+### G.2 How each is compared
+
+P8's rules hold: C# measures from the 8-bit tiles it writes, Python decides and recomputes, every
+constant in `PartParityFxRules` with its Python mirror, stochastic effects compared as accumulated
+coverage and colour with split halves, broken-ghost controls against an intact ghost. Three things
+are new: a burst lasts 1 to 5 s and cannot be held, so it is sampled in time bins over repeated
+trials; a few stock effects exist only in front of the flight camera on the active vessel; and a
+vessel-scale crash, reentry or launch is a flight, not a part case.
+
+| Effect (G.1 row) | Kind | Real side | Ghost side | Why |
+| --- | --- | --- | --- | --- |
+| part explosion (2) | rig, burst | held lone part, `part.explode()` | event route: the snapshot plus the polled `Destroyed` event, applied by production's part-event code | both sides call FXMonger; the rig proves the power, place and time, and guards the path |
+| vessel end explosion (1) | rig, burst | held stack of 1, 3 or 6 parts, every part's `explode()` in one frame (they merge as in a crash) | the stack's ghost with a Destroyed ending: production's end-explosion power and anchor | the length rule against stock's merge of part potentials, held still |
+| custom explosion (3), puff fallback (4b) | rig, burst, instrument only | `FXMonger.Explode(null, pos, p)` at a free slot, no vessel | `SpawnExplosionFx(pos, L)` with `p = Clamp01(L / 20)`; `SpawnPartPuffFx` against the prefab of the part's potential | compares the stand-ins with what they stand in for; no part needed |
+| decouple puff (4a) | rig, burst | held decoupler in the `stacked` context (a neighbour below), `Decouple` KSPEvent: the gas burst | event route: the polled `Decoupled` event on the joint child | the white burst against the puff, and its place |
+| joint break puff (4a) | rig, burst | held 2-part case, the joint broken directly (`Part.decouple()` on a non-decoupler) | the same event | stock draws nothing; the ghost's puff must read `fx-extra` until fixed |
+| launch dust (5) | rig, steady | engine held nose up, nozzle down, at h above terrain or water near KSC in the new context `ground` (F7's held surface slot), burning on the independent throttle under the propellant cheat (E.2) | event route: the burning engine's ghost, with the dust driven from a one-point trajectory stub (ground reference = the terrain altitude under the slot) | `SurfaceFX` and the ghost disc both reach a plateau in seconds, so P8's warm-up and plateau rule applies |
+| pad launch dust (5, `LaunchpadFX`) | flight | a launch from the pad | its replay | the pad's own FX belongs to the pad facility, which a held case may not reach (X0 U4) |
+| reentry fire, glow, char, condensation (6 to 9) | flight | the real probe reentering as the ACTIVE vessel, flight camera | its ghost replayed in watch mode at the same UT and camera pose, the active vessel parked in orbit | stock draws it from the active vessel's conditions through the flight camera, onto what is in view near it |
+| vessel crash (1, 2) | flight | a real crash on terrain | its replay | the stock cascade of part blasts over the impact cannot be staged with held parts |
+| splash (10) | flight | the reentry probe's splashdown | its replay | water entry at speed |
+
+#### G.2.1 Burst cases (rig)
+
+- Hosts and context. The `air` context of F7 (pad host `b1-pad-craft`, `host-not-at-pad`, slots
+  1600 m above sea level, held). The active vessel is the pad host at rest, so stock's speed term
+  is 0 on the real side and the ghost side is comparable; the speed term itself is a pure check
+  (G.8 item 2).
+- Origin. The air context's active vessel is the pad host on the ground, under the 10 km line, so
+  stock moves FXMonger's prefabs with the origin on both sides alike; a burst case never runs in the
+  orbit context, where stock stops moving them.
+- Separation. FXMonger merges any two blasts within 10 m, and a P8 ghost sits at its real part's
+  pose. So a burst case's ghost is placed at its own slot at least 20 m from every real source
+  (a new slot pair rule in the burst driver), and each side is photographed from its own pose
+  relative to its own source point (the views and framing are the same; only the origin differs).
+- Trigger. Real and ghost fire in the same frame (the real call and the ghost's event apply in one
+  `Update`, so FXMonger's `LateUpdate` instantiates both prefabs in that frame). Time t = 0 is
+  that frame; every capture frame records its own t.
+- Trials. N trials per case (default 4): the four slots of a wave fire one trial each in the same
+  frame (each pair 40 m from the next), so one spawn, settle and teardown serves the case. Split
+  halves are trials 1 and 3 against 2 and 4, independent draws, not alternate frames.
+- Sampling. Every frame from t = 0 to the burst window (default 4 s; 2 s for a decouple burst), each
+  view and layer rendered for each side (about 8 renders, 20 to 30 ms a frame, E.8), accumulated
+  into time bins (default 0.25 s): a bin's tile is the E.4 tile over every frame of every trial
+  in it. The atlas has one column per view and bin.
+- Attribution. The explosion objects are not children of either side. Each frame the driver reads
+  FXMonger's live `explosionObjects` (the reflection `GhostVisualBuilder.ResolveFxMongerExplosionObjects`
+  already holds) and tags every new one to the nearest source within 10 m; the custom explosion
+  and the puff are tagged from the GameObject they return (the puff's is dropped by
+  `SpawnPartPuffAtPart` today: X2 records it). Each side's render hides every untagged and
+  other-side effect object as well as P8's hide-all set.
+- The ghost's event. A rig part case builds its event route from the recorder's pollers
+  (`PartParityStateDriver`), and none of them writes `Destroyed` or `Decoupled`: production writes
+  `Decoupled` from `onPartJointBreak` (`FlightRecorder.RecordJointBreakDecoupledEvent`,
+  `BackgroundRecorder.GameEventHandlers.cs`) and `Destroyed` from `onPartDie` through
+  `FlightRecorder.ClassifyPartDeath`. So X4 subscribes those two GameEvents for its case vessels and
+  builds the event with the recorder's own code: the `PartEvent` construction of
+  `RecordJointBreakDecoupledEvent` and of the part-die handler, extracted by X2 as `internal static`
+  builders (pid, part name, UT in; the event out) that the recorders then call, with a source pin
+  as E.2's `PartParityFxRecorderPinTests` so the two cannot drift. Stock fires `onPartJointBreak`
+  inside `Decouple` and `onPartDie` inside `explode`, so the ghost's event is applied in the same
+  frame as the real trigger, before FXMonger's `LateUpdate`.
+- Schedule (deterministic). Per side, the list of blasts: frame, position relative to the source,
+  power, and the prefab name (which gives the index). Real from the tagged objects; ghost from the
+  same tagging plus X2's read-only record of the power Parsek passed.
+
+#### G.2.2 Dust cases (rig)
+
+Context `ground`: F7's held surface slots (`PartParityHeldSlot`) at a height h above the terrain
+under the slot, sized from each part's own `ModuleSurfaceFX.maxDistance` (10 to 100 m on
+stock-minimal: 14 parts at 50, 11 at 30, the rest 10, 20, 25, 40, 75, 80 or 100): h = 0.2 and 0.7
+of it over terrain and 0.4 of it over the ocean east of KSC, so stock's raycast always reaches the
+surface and a `dust-no-stock-hit` is a real setup fault. Each case
+is one engine with `ModuleSurfaceFX` (the same family predicate as the module list, logged),
+nozzle down, `burn-full` as E.2 (cheat, independent throttle, hold, temperature write-back);
+air-breathing engines spool as in F7. The stock side's raycast result (surface type, hit point,
+distance, `ScaledFX`) is read from the module each sample and written to the sidecar. The ghost's
+dust needs a trajectory and a ground reference a part case has not got: X2 extracts the frame body
+of `UpdateLaunchDust` as an engine-owned static that takes the ground reference and the altitude,
+and the driver feeds it the slot's terrain altitude and the case altitude. Layers: a new `dust`
+layer holds the `SurfaceFX` prefab's renderers (classified by their owning `SurfaceFX`) and the
+ghost's `ParsekLaunchDust`; the engine's own plume stays in `flame` / `smoke` and is not judged
+here (P8 judges it). Views: `dust-side` (horizontal, across the slot line), `dust-top` (straight
+down on the footprint) and `dust-far`. The axis for the E.4 measures is the surface normal through
+the stock hit point, so origin and lateral offset measure where the dust sits against where stock
+puts it.
+
+#### G.2.3 Flight lanes (record, rewind, replay at the same UT and camera)
+
+The pattern is the throwaway SMK rig of GHOST-SMOKE-RIDES-ACTIVE-VESSEL (`SrbSmokeRig`, kept in
+`<umbrella>/logs/flights/srb-smoke/rig/`): an ordinary flight recorded by the real recorder,
+photographed at UT marks, `InvokeRewindToLaunch`, then the ghost photographed at the same UTs from
+the same pose. Real and ghost occupy the same place at the same UT, so the sky, the planet and the
+sun match frame for frame and a frame difference shows only the vessel and its effects. P9 builds
+the committed form of that rig (X8): a `MissionMark`-driven component with named marks, poses and
+toggles, in `Source/Parsek/InGameTests/` or `TestCommands/`, never in `Ghost/`.
+
+- FXC-1, reentry and splash (stock-minimal). A probe with a heat shield and a chute on a steep
+  Kerbin reentry from a parked orbit (the `B4-reentry-splashdown` craft, or the fixture
+  `graze-low-probe-stack`, decided by X0 U7). Marks at fixed UTs chosen from the reading flight's
+  Mach and density trace: one above the atmosphere (75 km, no effect on either side), Mach 2.0
+  (condensation only where the air is dense enough), 2.5, 3.0, 3.75 (full plasma), peak heating,
+  Mach 1.5 on the way down, and the splash. The craft drops a stage during entry, so the real
+  side also shows stock's fire on a booster that is not the active vessel, against that booster's
+  ghost. Camera: the flight camera at a fixed pose relative to the
+  vessel (side-on, across the velocity, at k vessel lengths; and one rear-quarter view), camera
+  shake off (X0 U6). At each mark, eight consecutive frames (the distribution over about 0.15 s,
+  little change in Mach) and, per side, two isolation frames: real with `AerodynamicsFX`'s cameras
+  off for one frame (body plus blackbody), then with blackbody also off
+  (`part.blackBodyRadiationAlphaMult = 0` on every part, restored) for the body alone; ghost with
+  the fire particles and the shell off, then with Layer A cold (X2's seam). The differences give
+  three layers per side: `aero` (stock streaks against the ghost's fire and shell), `glow`
+  (blackbody against Layer A) and `body` (char included). Pixels are read in C# from the
+  composited frame (`ScreenCapture.CaptureScreenshotAsTexture` after `WaitForEndOfFrame`), since
+  `FXCamera` composites over the main camera. The rewind strips the recorded vessel (`RewindLauncher`), so the replay's active vessel is a
+  separate host the fixture carries, landed at KSC under the descent's ground track, with the
+  deorbit timed so the splash falls within about 100 km of it; it is at rest, so `FxScalar` is 0 on
+  it and no stock streak reaches the ghost (X0 U8 measures whether the velocity camera would paint a
+  ghost near a hot active vessel). Watch mode exits past 300 km from the active vessel
+  (`DefaultWatchCameraCutoffKm`, `ParsekConfig.cs:89`), and an unwatched ghost past 10 km draws
+  no FX (`FullFidelityRangeMeters`), so every mark must be within the cutoff of the host: X0 U10
+  measures the distances on the reading flight, and a mark beyond it is either moved or served by
+  a test-only cutoff raise in the X8 rig (logged, restored at the end of the step).
+- FXC-2, pad launch and crash (stock-minimal). A small rocket on the pad (`b1-pad-craft`) lit at
+  full throttle, a short hop, engine cut, a fall onto the grass beside the pad: pad FX and dust on
+  the way up, the stock cascade of part blasts at impact. Camera: the parity capture camera (no
+  flight camera needed: neither effect is camera-bound) at two fixed WORLD poses, one 80 m from
+  the pad, one 60 m from the impact point (known from the reading flight), rendering the effect
+  layers alone over black and white as E.3 does, so terrain and the vessel never enter the tile.
+  Frames every rendered frame from ignition + 0 to + 6 s and from the first blast to + 5 s. The
+  schedule of G.2.1 is read on both sides: the real cascade (count, powers, positions, times)
+  against the ghost's per-part `Destroyed` blasts plus its end explosion.
+
+### G.3 Measures
+
+Burst cases (per route, view, layer and bin, then over the bins). There is no exhaust axis: the
+measures are radial around the source point, projected into the view.
+
+| Measure | Definition | Fail (starting guess) | Warn |
+| --- | --- | --- | --- |
+| presence | any bin with core px on one side (`PresenceMinPx`) and none in the same bin on the other: `burst-missing` / `burst-extra` | either | - |
+| onset | first bin with envelope px, ghost minus real | over 1 bin | - |
+| peak time | bin of the largest envelope, ghost minus real | over 2 bins | 1 bin |
+| duration | last bin with core px, ghost minus real, over the real duration | over 40 % | 20 % |
+| peak area | largest core area, ghost over real | outside [0.6, 1.6] | outside [0.8, 1.25] |
+| radius | 95th percentile envelope distance from the source point at the real peak bin, ghost over real | outside [0.7, 1.4] | outside [0.85, 1.18] |
+| centroid offset | core centroid from the source point, ghost minus real, over the source part's box diameter | over 0.3 | 0.15 |
+| colour | E.4's chromaticity and hue L1 over unsaturated core px, at the real peak bin and averaged over the bins | E.4's lines | E.4's |
+| brightness | E.4's ratio | - | outside [0.5, 2.0] |
+| smoke | the smoke layer's presence and peak area, as above with `SmokeMinPx` | either / area as peak area | - |
+| schedule | per side the list of blasts; count, prefab index and power must match, positions within 1 m (rig) | count or index differs | power differs inside one index |
+
+Dust cases: E.4's measures over the `dust` layer with the surface-normal axis (presence, origin,
+lateral offset, length = height of the cloud, width = footprint, cross-section on `dust-top`,
+colour, brightness), plus the stock raycast record (a ghost that draws dust where stock's raycast
+hit nothing, or the pad, is `dust-extra:<surface>`).
+
+Flight lanes (reference class): per mark and layer, presence, area, trail length and width along
+the projected -velocity (E.4 with `axis.dirPx` = projected -velocity, origin at the projected
+vessel centre), colour, brightness; for `glow` the mean luminance and hue per part over the part's
+own pixels (the real and ghost masks come from the body frames, which match: same UT, same pose);
+for the crash and the launch the burst measures and the schedule. Nothing in FXC-1 / FXC-2 fails a
+lane until two reading runs show which numbers are stable.
+
+### G.4 Controls and verdicts
+
+In the F4 judge's terms: a case's verdict is the worst of its schedule, its burst or dust measures
+per (route `event`, view, layer), its structural raise (an effect missing or extra on the ghost),
+and P8's tags; split halves cap an unsettled ENTRY at `warn` (the per-entry cap of "FX instrument
+fixes", E.4), the weak-core rule applies unchanged, and a case whose stock side drew nothing it
+was meant to (no blast tagged, no gas burst, no raycast hit) is a setup status, never a pass:
+`burst-not-triggered`, `dust-no-stock-hit` (both `error`s). Only the `event` route exists for P9's
+rig cases: a recording that starts after a burst replays no burst, and dust is rebuilt every frame
+from the engine's power.
+
+| Control | Subject | Required |
+| --- | --- | --- |
+| `ctl-burst-empty` | a burst wave with nothing triggered | zero coverage in every bin and layer |
+| `ctl-burst-real-vs-real` | one part, real trials 1 and 3 against 2 and 4 | passes every burst measure (the noise floor) |
+| `ctl-burst-off` | an intact ghost against one whose event is dropped | fails presence; the schedule reads one blast against none |
+| `ctl-burst-late` | an intact ghost against one triggered 0.5 s late | fails onset; passes peak area and colour |
+| `ctl-burst-power` | an intact ghost against one exploded one prefab index lower | fails the schedule (index) and peak area or radius |
+| `ctl-burst-shift` | an intact ghost against one triggered 3 m off its part | fails centroid offset; passes area and colour |
+| `ctl-burst-hue` | an intact ghost against one whose readback channels are rotated (E.5's `ctl-fx-plume-hue` rule) | fails colour only |
+| `ctl-dust-real-vs-real` | the LV-T45 (`maxDistance` 30, `falloff` 1.7) at 0.2 of its reach, split halves | passes every dust measure |
+| `ctl-dust-off` | an intact ghost against one with its dust hidden | fails dust presence; the flame layer passes |
+| `ctl-dust-above-reach` | the LV-T45 held at 36 m (1.2 of its `maxDistance`) | stock draws no dust (raycast miss); the ghost must not either: recorded `n/a` while G.8 item 3 stands, `ok` after |
+| `ctl-aero-cold` (FXC-1) | the 75 km mark, above the atmosphere | the real `aero` layer difference is zero (the isolation frames add nothing) |
+| `ctl-aero-hot` (FXC-1) | the Mach 3.75 mark | the real `aero` layer difference is non-zero (the isolation frames remove the stock streaks) |
+
+Every control with no eligible subject is `bad` (INVALID(parity-controls)) except the ones marked
+`n/a`. Report-only first: every P9 lane, every family, like PP-7 to PP-10 before their readings.
+The schedule is the one deterministic measure and becomes judged first inside the report-only
+lanes; the picture measures stay report-only until a reading run re-pins their lines against
+the controls; the flight lanes stay `reference` until two reading runs agree; no P9 lane joins the
+P5 gate (Appendix F) before that.
+
+### G.5 Lanes and machine time
+
+Basis: P8's measured rates (6.5 s per held FX case plus 80 to 90 s of controls per sweep, F6 as
+flown; F7's slowest spool sets an air wave, 29 to 114 s), E0's 25 to 35 ms per sample frame, and
+the SMK flights (each 10 to 14 minutes for a recorded flight and two replays).
+
+| Lane | Install | Cases | Estimate | Steps (480 s, +50 %) | `budgetSeconds` |
+| --- | --- | --- | --- | --- | --- |
+| PP-11 (new), labels `pp11burst` and `pp11dust` | stock-minimal | burst: 4 part-power buckets (potential 0, 0.1, 0.5, 1.0 on the install) + 4 vessel stacks + 9 custom / puff stand-ins + the 30 decouplers + 2 joint breaks + 8 controls; dust: 39 `ModuleSurfaceFX` engines x 3 slots (117, heights per part) + 3 controls | burst about 10 s per case (one wave per case) = about 550 s; dust about 8 s per rocket case and about 80 s per wave of 4 jets = about 1200 s; with the boot about 1850 s | 6 | 3600 |
+| PP-12 (new), the same labels | modded-restock | ReStock's decouplers and 53 engines, about 1.3 x | about 2400 s | 8 | 4200 |
+| FXC-1 (new) | stock-minimal | reentry and splash, 7 marks | parked orbit to splash about 9 min, the replay about 9 min, two loads: about 1500 s | flight (3 legs) | 2400 |
+| FXC-2 (new) | stock-minimal | pad launch and crash | about 800 s (SMK-like) | flight (2 legs) | 1500 |
+
+modded-compat adds nothing: Waterfall patches no decoupler, no `ModuleSurfaceFX` and no Parsek
+effect. Tier `operator`, report-only, `[retry] policy = "none"`, one slot each; the lane ids PP-11,
+PP-12 and FXC-1, FXC-2 are free on `origin/main` and every remote branch (checked 2026-11-26).
+Each lane's first flight is a `limit=20` reading flight, its step count set from its `wall=`.
+
+### G.6 Unknowns the spike answers (X0)
+
+- U1 FXMonger: the length of `explosions[]` and its prefab names, `minPower`, how long
+  `queuedExplosions` keeps an entry (can a later frame's blast merge into an earlier one), the
+  prefabs' shaders, layers and simulation space, and whether each draws in the capture camera.
+- U2 Tagging: a new `explosionObjects` entry is visible to the driver in the frame it spawns, and
+  its root carries the prefab's name.
+- U3 Decouple: `Decouple` on a held `stacked` case fires the `decouple` FXGroup burst and
+  `onPartJointBreak`; `Part.decouple()` on a plain part fires the joint break and no FX.
+- U4 Dust: `ModuleSurfaceFX` runs on a held non-active engine (its update is not gated on the
+  active vessel; `SurfaceFX` reads `FlightGlobals.ActiveVessel.upAxis` for its up), its prefab
+  draws in the capture camera, which colliders carry `LaunchpadFX` (the pad only, or the runway
+  too), and whether a held case can stand over one.
+- U5 The ghost's reentry shell is drawn with `Graphics.DrawMesh` to every camera: does a manual
+  `Camera.Render` see it (it decides whether any held ghost reentry render is possible).
+- U6 Flight camera: `ScreenCapture.CaptureScreenshotAsTexture` includes `FXCamera`'s composite;
+  the reentry and Mach camera shake (`CameraFX` wobble) can be switched off for the lane and
+  restored; disabling `AerodynamicsFX`'s cameras for one frame removes the streaks and the next
+  frame restores them; `blackBodyRadiationAlphaMult = 0` takes effect within one frame.
+- U7 FXC-1's vessel and fixture: which parked-orbit fixture reaches Mach 3.75 below the density
+  where plasma shows, with the heat shield leading, and splashes intact.
+- U8 Who wears stock's fire. With a real booster staged during entry beside the active vessel:
+  - is the fire drawn on the booster, and at what distance from the camera does it stop;
+  - which layers `FXCamera` renders, and what `RenderType` the ghost's materials carry;
+  - whether a ghost near a hot active vessel is painted too. If so, it wears stock's fire and its
+    own, which is a product question as well.
+  - whether a reentering non-active vessel shows any fire while the active vessel is slow.
+- U9 Replay background: at the same UT and pose, how many pixels of the real and ghost frames
+  differ outside the vessel's mask (the sky and planet should be equal; the camera pose is set
+  from the vessel's interpolated pose on the ghost side).
+- U10 FXC-1 distances: the ghost-to-host distance at every mark on the reading flight, against
+  the 300 km watch cutoff (G.2.3).
+
+### G.7 Work breakdown
+
+D.10's rule holds: two pieces in flight never touch one file, each is green on its own, a C#
+literal a Python cell mirrors moves with its mirror in one piece, and docs move in each piece's own
+G subsection.
+
+| # | Piece | Files | Runs alongside | Acceptance |
+| --- | --- | --- | --- | --- |
+| X0 | Spike (throwaway branch, never merged): one in-game cell for U1 to U5 and U8 on the pad host, one SMK-shaped flight for U6, U7, U9, U10; three operator flights | spike branch only | before everything | every unknown answered in G.2 / G.6 |
+| X1 | The contract, both sides: in `PartParityFxRules` the families `explode`, `vessel-explode`, `burst-custom`, `decouple`, `dust`, the `ground` context and its slots, the burst window and bins, every G.3 constant and line, the new setup statuses, the new `fx=` values (refused combinations), `ControlSetFor` for the burst and dust sets; every Python mirror; the committed part lists and count pins (`explode` buckets, decouplers, `ModuleSurfaceFX` engines per install); the no-change cells (the existing `fx=` values plan exactly as today) | `PartParityFxRules.cs`, `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py`, `test_partparity.py` (sync class), `hlib.py` (arg table) | X3 | `dotnet test` and the lib suite green; with every old `fx=` value each plan, control set and manifest `settings` equals today's |
+| X2 | Ghost and recorder seams, no behaviour change, AFTER the floating-origin fix for these effects lands: the `PartEvent` builders of G.2.1 for `Decoupled` and `Destroyed`, called by both recorders, with their source pin; an engine-owned static for the launch dust frame body (ground reference and altitude passed in; inline fold proof as F2's); a read-only record of every explosion and puff Parsek starts (kind, position, power, the GameObject when there is one), insert-only; a pure `TerminalExplosionPower(vesselLength)` read by `PlayDestroyedExplosion`; a test-only per-ghost suppress for the reentry fire, shell and Layer A for one frame | `GhostPlaybackEngine.ReentryFx.cs`, `GhostPlaybackEngine.SpawnDestroy.cs`, `GhostVisualBuilder.TransientFx.cs`, `GhostPlaybackLogic.PartEvents.cs`, `FlightRecorder.PartEvents.cs`, `BackgroundRecorder.GameEventHandlers.cs`, the part-die handler's file, xUnit | X1, X3 | IL proofs; ghost tests green |
+| X3 | Pure burst measures: the time-binned accumulator (bins over frames and trials, the E.4 tile rule), radial measures, onset / peak / duration, schedule diff, split halves by trial; a committed synthetic burst atlas and sidecar for the Python recompute | `PartParityBurstMetrics.cs` (new, `TestCommands/`), xUnit, the fixture | X1, X2 | xUnit on synthetic bursts: late, small, shifted, hue-rotated and missing bursts each move exactly their own measure |
+| X4 | Live burst and dust driver: the burst wave (slot pairs 20 m apart, one-frame trigger, trials, per-side poses, tagging, schedule), the vessel stacks, the stand-in cases, the decouple press and the joint break, the `ground` context spawn and hold, the stock raycast read, the dust layer, the trajectory stub, the setup statuses | `PartParityBurstDriver.cs` (new), `PartParityAirContext.cs`, `PartParityCaseCapture.cs`, `PartParitySweepRunner.cs`, `PartParityInGameTests.cs` (the `fx=` filter only, no new `[InGameTest]`) | X5 | a dev-install run of every family on stock: each case reaches its trigger, every row written, controls ok, nothing left after teardown |
+| X5 | Harness judge: burst and dust verdicts, the schedule judge, the burst controls, the recompute from the burst atlas | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | X4 (recompute cells after X3's fixture) | lib suite green; each broken fixture fails its own measure; a mutated atlas reds INVALID(parity-instrument) |
+| X6 | Viewer: per case, real and ghost bin strips in lock step, the schedule table, the dust raycast record; FXC reference pages (pairs per mark and layer) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | after X5 | viewer tests green on the synthetic fixtures |
+| X7 | Rig lanes PP-11 / PP-12: specs, hlib wiring cells, lane catalog regen, status rows | `harness/scenarios/PP-11-*.toml`, `PP-12-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md`, hlib cells | X8 | harness suites green; first flights (`limit=20`, then full), findings filed |
+| X8 | Flight rig and lanes FXC-1 / FXC-2: the committed mark-driven rig (poses, isolation frames, composited readback, world-pose capture, schedule), the specs, a small mission shell for the deorbit and the hop | `Source/Parsek/InGameTests/FxFlightCompareRig.cs` (new), `harness/scenarios/FXC-1-*.toml`, `FXC-2-*.toml`, `harness/missions/` (one shell) | X4 to X7 (after X0, X3) | both lanes fly green and report-only; the reference pages read by the owner |
+| X9 | Later, own plan: the EVA jetpack against `KerbalEVA`'s thruster groups (a held kerbal with a fed input, the RCS pattern of E.2) | - | - | - |
+| Y1 to Y7 | The fixes, after the comparison has read each mismatch, one PR each with before / after pictures from the lane that found it and a `## 1.0.4` CHANGELOG line: Y1 the reentry intensity to stock's curve, with condensation, density fade and the light, the streaks re-tuned against FXC-1 (G.8 item 1; G.9 ruling 1); Y2 the part explosion's speed term from the ghost's recorded surface speed (item 2); Y3 launch dust to stock's rule (per engine along the thrust axis, at the hit point, the surface type, each part's `maxDistance` and `falloff`), preferably by spawning stock's own `SurfaceFX` / water / pad prefabs (item 3); Y4 a decouple plays the decoupler's own stock `decouple` FX group, and a plain joint break draws nothing (item 4); Y5 the Space Center explosion uses stock's own FXMonger prefab, loaded and kept from the flight scene (ruling 2); Y6 the water splash through `FXMonger.Splash` (item 6); Y7 the end-explosion power, only if PP-11 / FXC-2 show it differs (item 5) | `Source/Parsek/Ghost/` (after ghost-fx-9 merges), CHANGELOG, todo | one at a time per file | the comparison case that found the mismatch reads pass, or a named residual, on the same lane |
+
+Order: X0 first; X1 and X3 together; X2 once the floating-origin change for these effects has
+merged; X4 after X1, X2 and X3, with X5; X6 after X5; X7 after X4 and X5; X8 after X0 and X3 (it
+uses X3's measures and X6's pages, and the rig is its own file). Machine time for the pieces'
+own acceptance (every flight on the operator's go): X0 three throwaway flights of 10 to 15 minutes; X4 one dev-install run of about
+10 minutes; X7 the four PP-11 / PP-12 flights of G.5; X8 the two FXC flights twice (reading, then
+full); each Y fix one re-flight of the lane that found its mismatch.
+
+### G.8 Found by reading (not flown; each to be confirmed by the first capture)
+
+1. The reentry intensity is not stock's curve, although its comment says it is
+   (`Source/Parsek/Ghost/GhostVisualBuilder.HeatAndReentryFx.cs:1083` to `1125`, constants
+   `GhostVisualBuilder.cs:35` to `42`). Stock (`AerodynamicsFX`, decompiled):
+   `FxScalar = min(1, (0.5 d' v^3.5 - 8e6) / (5 x 8e6))`, then, while `state < 1` and the density
+   is under 0.25, `FxScalar *= Lerp(a, 1, state)` with `a = (rho - 0.0875) / 0.1625` (0 below
+   0.0875), and a density fade below 0.0015. Parsek: `(d' v^3.5) / (d'(0.1) x (340 x 3.75)^3.5)`,
+   zero below Mach 2.5 (line 1094) and a hard cut below 0.0015 (line 1098).
+   - At density 0.1 (about 20 km on Kerbin, sound speed about 297 m/s): stock's raw scalar starts
+     at about 563 m/s and clamps to 1 by about 939 m/s, but the Mach fade (`a` = 0.077) holds it
+     to about 0.57 at 939 m/s (Mach 3.2) and lets it reach 1 only at Mach 3.75 (about 1.1 km/s);
+     the ghost is 0.34 at 939 m/s and about 0.6 at 1.1 km/s, and reaches 1 only at 1275 m/s.
+   - In air thinner than 0.0875 stock is also dark below Mach 2.5 (the multiplier is `state`), so
+     there the ghost's Mach gate agrees with stock; in denser air it does not: at 0.3 kg/m3 stock
+     shows white condensation from about 395 m/s and full strength by about 660 m/s, where the
+     ghost shows nothing (G.1 row 9).
+   - So through most of a reentry the ghost's fire is weaker than stock's, and the condensation
+     of a fast pass in dense air is missing. The density also differs a little: the ghost reads
+     `body.GetDensity` at the standard temperature (`GhostPlaybackEngine.ReentryFx.cs:140`), stock
+     the vessel's `atmDensity`. The streaks were tuned by eye against the current curve (todo
+     GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL says so), so a fix re-tunes both together.
+2. A ghost part explosion has no speed term (`GhostPlaybackLogic.PartEvents.cs:863`); stock adds
+   0.12 or 0.25 to every part's potential by the active vessel's surface speed (`Part.explode`),
+   which is the crashing vessel itself when the player flew it. With most parts at the default
+   0.5, that can move the prefab index. The faithful input for a ghost is its own recorded surface
+   speed at the event.
+3. Launch dust (`Source/Parsek/Ghost/GhostVisualBuilder.TransientFx.cs:509` to `592`,
+   `GhostPlaybackLogic.SynthesizedMotion.cs:1271` to `1318`, `GhostPlaybackEngine.ReentryFx.cs:197`
+   to `212`):
+   - it is emitted at the ghost ROOT (line 523), the command pod on most rockets, not at the
+     ground where stock's raycast hits;
+   - it is a Unity `Circle` shape with no rotation (line 543), which lies in the root's local XY
+     plane: for a vessel standing on its long axis (local +Y) that is a vertical disc through the
+     rocket, not a ground ring;
+   - it uses the additive particle shader (line 513), so grey dust can only brighten what is behind
+     it, where dust should occlude;
+   - AGL is the root's altitude above ONE ground altitude latched from the first point with a
+     finite clearance (line 1271), whatever the engines point at and wherever the ghost is later:
+     a landing far from that reference at another terrain height gets no dust or dust in mid-air,
+     and a plane rolling on a runway gets dust from engines that point backward;
+   - it ignores the surface: the pad (stock: the pad's own FX, no dust) and water (stock: the wake
+     prefab) both get the same grey disc;
+   - the reach is 40 m (`LaunchDustMaxAglMeters`) with a linear falloff for every vessel; stock's
+     is `maxDistance` per part (10 to 100 m on stock-minimal, 50 m by default) along the thrust axis
+     with `(1 - d / maxDistance)^falloff` (2 by default, 1.7 on the LV-T45).
+4. The decouple puff (`GhostPlaybackLogic.PartEvents.cs:636`, `1133` to `1154`) sits on the joint
+   child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
+   and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud
+   (`fx_gasBurst_white`) on the decoupler that fired, and nothing for a joint that just broke.
+5. The vessel end explosion's power is `Clamp01(length / 20)`
+   (`GhostPlaybackEngine.SpawnDestroy.cs:809`), so every ghost of 20 m or more takes the largest
+   prefab; stock's merged part potentials (0.5 each, summed within 10 m, then clamped) also reach 1
+   for any cluster of two or more default parts that merge (how long a queued blast can absorb
+   later ones is X0 U1), so the two may agree for crashes and disagree for
+   small craft and for spread-out breakups. To measure, not yet a finding.
+6. Missing on the ghost: the water splash (no `FXMonger.Splash` in `Source/Parsek`), condensation
+   (item 1) and the reentry light (`AerodynamicsFX`'s `fxLight`, which lights the active vessel and
+   its surroundings in the effect's colour).
+
+### G.9 Owner rulings (2026-11-26)
+
+- Ruling 1 (was Q1). A ghost shows reentry fire wherever stock would draw it on the real vessel.
+  Rev 1's premise that stock draws only on the active vessel was wrong (G.1, "Camera dependence"):
+  stock keys the effect on the active vessel's conditions and draws it on whatever the flight
+  camera sees near it, a staged booster included. A ghost keys it on its own conditions. For
+  anything flying beside the active vessel the two agree; X0 U8 and FXC-1's staged booster measure
+  where they part.
+- Ruling 2 (was Q2). The Space Center explosion uses stock's own FXMonger prefab, loaded and kept
+  from the flight scene, not a hand-built match (fix Y5).
+- Build. The comparison is built, then each mismatch it reads is fixed in its own PR with before /
+  after pictures (Y1 to Y7), X0 first and X2 after ghost-fx-9 merges; flights run on the
+  operator's go only.
+
+## Appendix H. P7 plan: motion over time (rev 1, 2026-11-26)
+
+Status: PLAN, not built. Owner approval to plan: 2026-11-26. Review: H.9. P6
 compares a moving part's two END states (stowed, and the state after its done signal) and P8 its
 effects; neither looks at the motion between them. P7 photographs the motion itself, real and ghost,
 at fixed times after the press, and measures when it starts, how fast it runs, the shape of its
 curve, the in-between pose, and when it ends.
 
 Section 9.2 planned the real side as a sampled clip (`normalizedTime = t`, `speed = 0`,
-`Animation.Sample()`). That is kept only as a per-frame READING of stock's own clock (G.2): a real
+`Animation.Sample()`). That is kept only as a per-frame READING of stock's own clock (H.2): a real
 side posed by Parsek cannot show a ghost that starts late, runs at the wrong speed or snaps, which
-is what the code already suggests (G.6). So the real part plays its motion live, in game time, and
+is what the code already suggests (H.6). So the real part plays its motion live, in game time, and
 the ghost is posed afterwards at exactly the game UT each real frame was taken.
 
-### G.1 What "same over time" means, and which parts
+### H.1 What "same over time" means, and which parts
 
 A MOTION CASE is one press of one transforming part, from its stowed state to its target state
 (`motion-<state>`, below), on the event route: the ghost built from the stowed snapshot plus the
@@ -3419,7 +3990,7 @@ target) and the stowed reference does not move, so neither has a motion row.
 
 Per side the case reads a PROGRESS curve p(t) in [0, 1] over the time t since the press:
 
-- Pose progress (primary). The family's moved transforms (G.2: the ghost's own deploy transform
+- Pose progress (primary). The family's moved transforms (H.2: the ghost's own deploy transform
   list, paired by part path with the real part's transforms; a servo's moving transform; a chute's
   canopy transform). For each transform, its travel since frame 0, accumulated frame to frame (so a
   turn past 180 degrees is not folded back), over its total travel on that side: position, rotation
@@ -3431,8 +4002,8 @@ Per side the case reads a PROGRESS curve p(t) in [0, 1] over the time t since th
   last frame, p = a / (a + b) (0 when both are 0).
 
 From each curve, by linear interpolation, the first crossing times t02 (start), t10, t50, t90 and
-t98 (end): the real's between its frames (T / 8 apart, G.2), the ghost's on its 50 ms scout grid
-(G.2), which the sidecar carries so Python recomputes both. Measures per case:
+t98 (end): the real's between its frames (T / 8 apart, H.2), the ghost's on its 50 ms scout grid
+(H.2), which the sidecar carries so Python recomputes both. Measures per case:
 
 | Measure | Definition | What it catches |
 | --- | --- | --- |
@@ -3449,7 +4020,7 @@ t98 (end): the real's between its frames (T / 8 apart, G.2), the ghost's on its 
 | `motion-not-modelled` | the real reaches 0.9 and the ghost never reaches 0.1 in the window | a motion the ghost does not show at all |
 | `angleMaxDevDeg` | servos only: max over frames of the angle (or travel) difference at the same time | servo pose over time |
 
-The in-between POSE at fixed fractions is compared in two rows (G.2): the ghost at the same time
+The in-between POSE at fixed fractions is compared in two rows (H.2): the ghost at the same time
 as the real frame (timing and pose together), and the ghost at the same PROGRESS as the real frame
 (pose only, timing removed). A ghost that is late but has the right in-between poses fails the
 first row and passes the second; a ghost on time with straight-line poses passes on timing and
@@ -3468,7 +4039,7 @@ presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to 
 | `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
 | `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
 | `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
-| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 22 `BaseServo` parts with the rotors (D.1), counted per install by M1 | target swept (G.2); rotors excluded (`rotor-spin-not-primed`, below) |
+| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 22 `BaseServo` parts with the rotors (D.1), counted per install by M1 | target swept (H.2); rotors excluded (`rotor-spin-not-primed`, below) |
 | `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 parts (D.1), counted per install by M1 | the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
 
 Not in P7, each a manifest exclusion with its reason (never silently dropped):
@@ -3496,7 +4067,7 @@ Case ids: the 5.2 rule with the motion word as the state (`longantenna--default-
 <hash>`, `parachutesingle--default--motion-semi--air--<hash>`), so no P6 id moves. Motion cases run
 at the base skin (R2).
 
-### G.2 Capture
+### H.2 Capture
 
 Host and waves: P6's (4.1, D.3): the orbit host `eva2-lko-crewed`, every other slot (4 cases a
 wave, 80 m apart), the host guard, resume and `inflight.txt`; the air host and the showcase band of
@@ -3522,7 +4093,7 @@ Frame schedule (pure, `PartParityMotionRules.PlanFrameTargets`):
   servo's 0.25 s stop hold) plus 0.5 s, so a ghost that starts when the real ends is still in the
   window: about 17 to 25 frames for a clip (a window of about 2 T + 1 s); past 33 frames the
   spacing doubles; a 40 s cap ends the window (flag `motion-window-capped`). A control's altered
-  route (G.3) extends the window by its own change (its doubled clip, its 1 s shift).
+  route (H.3) extends the window by its own change (its doubled clip, its 1 s shift).
 - A target is taken on the first end-of-frame at or after it; the actual offset is recorded
   (`realS`), and a frame later than T / 16 is tagged `frame-jitter:<ms>`. The ghost rows use the
   actual offsets, so the same-time pair has no time skew at all.
@@ -3567,7 +4138,7 @@ Ghost side, after the real motion: once the window has ended,
    renderers `forceRenderingOff` (4.4), two clears. A same-time render's pose progress must equal
    the scout's at that exact UT within 1e-4, and a matched render's must be the progress it targeted
    within the scout's own change across the interval it was interpolated in (else the instrument flag
-   `scout-render-disagree`), so a snap or a step the defects of G.6 predict is never read as an
+   `scout-render-disagree`), so a snap or a step the defects of H.6 predict is never read as an
    instrument fault. Primes go only forward in UT, and each re-walk lands on the same pose because
    the pose is a pure function of the event UTs (D.5); for a part with a sun
    tracker, uncaptured sub-primes keep every step under `MaxSynthSampleSeconds` (1 s,
@@ -3579,13 +4150,13 @@ size); a motion row of 17 frames is a strip, not a still, and the end states at 
 The motion atlas `<caseId>.motion.png`: rows `real:<view>`, `ghost:<view>` (same time),
 `ghost-matched:<view>` (same progress) for each view, columns the frames in order: 6 rows x 17
 columns of 256 px (4352 x 1536 px) by default. It is the case's strip: the viewer crops and plays it
-(G.5) and `--gif` turns it into an animation. The P6 four-row still atlas is not written by a
+(H.5) and `--gif` turns it into an animation. The P6 four-row still atlas is not written by a
 motion case.
 
 Measures per frame (C# `PartParityMotionMetrics`, pure, over the 8-bit tiles it writes, so Python
 recomputes them exactly): for the same-time and the matched pair of each view, P6's shape and colour
 measures (section 6: tolerant mismatch, largest blobs, IoU, colour blob), the picture progress of
-every row, and the pose progress values of both sides. The timing measures of G.1 are pure functions
+every row, and the pose progress values of both sides. The timing measures of H.1 are pure functions
 of the per-frame arrays (`PartParityMotionRules`, xUnit on synthetic curves) and are written beside
 them.
 
@@ -3593,7 +4164,7 @@ Robotics: the real servo is unlocked and driven the way its PAW slider does (the
 `targetAngle` / `targetExtension` field set through its `BaseField`, motor engaged, authored
 electric charge), from its rest value to the nearer of +45 deg (hinge, rotation servo; half the
 travel for a piston) and its range limit, at its own `traverseVelocity`. Done: the moving signal
-false and the position within the module deadband of the target. Rotors are excluded (G.1).
+false and the position within the module deadband of the target. Rotors are excluded (H.1).
 
 Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler's radial node so the
 centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
@@ -3607,17 +4178,17 @@ measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` b
 progress at every grid UT}, `frames[]` {`k`, `targetS`, `realS`,
 `realClock`, `realProgress`, `ghostProgress`, `matchedS`, `imgProgress` per row and view, `views[]`
 with `same` and `matched` measure blocks}, `transforms[]` {`path`, `travelReal`, `travelGhost`, the
-per-frame fractions of both sides}, `timing` {`real` and `ghost` crossings, the G.1 measures and
+per-frame fractions of both sides}, `timing` {`real` and `ghost` crossings, the H.1 measures and
 flags}), `motionAtlas` {`file`, `tile`, `rows`, `cols`}; the manifest's `settings` gain `motion` and
 `frames`. `stateProof` (D.2) keeps the press, done signal and events, so the press gate reads a
 motion case like a state case.
 
-### G.3 Controls, verdicts, report-only
+### H.3 Controls, verdicts, report-only
 
 Controls (`TestCommandPartParitySweep.ControlSetFor` on both sides, as D.2). An orbit motion run
 records `ctl-empty`, `ctl-ghost-absent`, `ctl-real-vs-real` (the capture primitive, unchanged) and
 three motion controls, each on `longAntenna` (the P6 state controls' subject) and each judged
-RELATIVE to its own normal event route, so the product's own timing (G.6) cannot move a control:
+RELATIVE to its own normal event route, so the product's own timing (H.6) cannot move a control:
 
 | Control | Subject and change | Required |
 | --- | --- | --- |
@@ -3648,25 +4219,25 @@ last frame of every family P6 already judges.
 Gates, as P6 / P8, in the same order: host-damaged > controls (the motion set) > state-press (the
 motion families) > instrument > incomplete. The instrument gate recomputes, for every control and
 `ceil(2 %)` of the motion cases (at least one; `random.Random(<runId>)`), each frame's measures and
-picture progress from the motion atlas, and for EVERY motion case the G.1 crossings and measures
+picture progress from the motion atlas, and for EVERY motion case the H.1 crossings and measures
 from the sidecar's per-frame arrays (a pure function, exact to 1e-9); `scout-render-disagree` on
 any case is a mismatch. The lanes are report-only (`gating = false`); arming follows the P5 rule
 (two matching reading runs, a baseline section per label with regression keys
-`<caseId>/motion/<measure>`, an accepted list for the known differences of G.6).
+`<caseId>/motion/<measure>`, an accepted list for the known differences of H.6).
 
-### G.4 Lanes and wall time
+### H.4 Lanes and wall time
 
 Measured basis: P6 orbit state cases about 3.3 s per case at waves of 4 with one done wait (D.8);
 E.8's 2.2 ms per render with readback. A motion case waits two motion times instead of one (the
-window of G.2) and adds its ghost rows after the window: 17 frames x 2 rows x 2 views x 2 clears =
+window of H.2) and adds its ghost rows after the window: 17 frames x 2 rows x 2 views x 2 clears =
 136 renders, about 0.3 s, plus about 200 unrendered scout primes per 10 s of window (under 0.1 s).
 Planning rate 5 s per case (P6's measured rate plus the second wait, with P6's lesson that the first
 estimate ran 50 % low).
 
 | Lane | Install | Cases (motion + controls) | Sweep estimate | Steps (480 s, +50 %) | `budgetSeconds` |
 | --- | --- | --- | --- | --- | --- |
-| PP-12 (new, `pp12`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
-| PP-13 (new, `pp13`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
+| PP-14 (new, `pp14`), orbit | stock-minimal | about 53 + 22 robotics + 24 control surfaces = 99; 6 | about 555 s | 3 | 2400 |
+| PP-15 (new, `pp15`), orbit | modded-compat | about 64 + 22 + 24 = 110; 6 | about 610 s | 3 | 2400 |
 | PP-5 / PP-6 (third label `pp5mo` / `pp6mo`), air | stock-minimal / modded-compat | 10 chute cases (5 semi, 5 full); 3 | about 70 s (a semi wave about 15 s, a full wave about 35 s: semi done 1.7 to 3.5 s after the press, full 4.9 to 13 s, D.4) | 1 | 3000 (from 2400) |
 
 Each orbit lane: LoadGame, the four settings, `WarpToUT`, `op=reset motion=all`, three `op=run
@@ -3678,16 +4249,16 @@ label with its own reset and run step, since 70 s of sweep does not earn its own
 (fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s).
 No modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the ReStock
 models. Each lane's first flight is a `limit=20` reading flight and its step count is set from its
-`wall=` (D.8). PP-11 is taken (the mod-parts lane, open PR #2836); PP-12 and PP-13 are free on
-`origin/main`, on every open PR branch and on the 200 most recent remote branches (re-checked
-2026-11-26). Expected wall per full pass: about 700 s (PP-12), 760 s (PP-13), plus about 90 s on
+`wall=` (D.8). PP-11 is taken (the mod-parts lane, open PR #2836) and Appendix G's rig lanes claim the next two
+(PP-12 / PP-13 once mod-parts holds PP-11); PP-14 and PP-15 are free on `origin/main` and on every
+remote branch (re-checked 2026-11-27). Expected wall per full pass: about 700 s (PP-14), 760 s (PP-15), plus about 90 s on
 each of PP-5 / PP-6.
 
 Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
 300 m terrain guard ends a case `died-settling`. If the reading flight shows it, the motion label
 spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
 
-### G.5 Viewer
+### H.5 Viewer
 
 - A motion case joins its part's skin like a P6 state case (D.7), its family words after P6's and
   P8's (`motion-*` states), with its chips: lag, duration ratio, curve shape, and the flags.
@@ -3715,13 +4286,13 @@ spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
   (`part_parity_view.py`, now `None`) carries the motion atlas and the animation paths.
   Round-trip decode tests in `harness/lib/test_part_parity_view.py`.
 
-### G.6 Motion defects visible from the code (to be measured by P7)
+### H.6 Motion defects visible from the code (to be measured by P7)
 
 Read on `origin/main` a3812a8d4. Each is a hypothesis until the reading flight measures it (M0
 checks the first live); filed as todo GHOST-DEPLOY-MOTION-TIMING-2026-11-26. Item 1 was confirmed
 live and fixed on playback by PR #2838 (2026-11-26, owner approval), which also carries the todo entry: the five end-marked
 families now play their motion over [event UT - motion, event UT], the motion being the clip at the
-module's own speed over its travel. The motion lanes of G.4 keep measuring it, so a regression shows
+module's own speed over its travel. The motion lanes of H.4 keep measuring it, so a regression shows
 as lag again.
 
 1. A deploy plays one clip LATE on the ghost, for five of the seven in-orbit families. The pollers
@@ -3765,7 +4336,7 @@ To measure, not claimed: an airbrake or control surface has no Animation, so its
 two clip-driven families shares one clip length, last written wins
 (`GhostVisualBuilder.AnimationSampling.cs:459`).
 
-### G.7 Work breakdown
+### H.7 Work breakdown
 
 Rule (D.10, E.9): two pieces in flight never touch one file, each is green on its own, and every C#
 literal a Python cell mirrors changes in ONE piece with its mirror. M1 adds the mirrored
@@ -3774,13 +4345,13 @@ subsection.
 
 | # | PR | Files | Runs alongside | Acceptance |
 | --- | --- | --- | --- | --- |
-| M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of G.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in G.2 |
+| M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
 | M1 | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs` | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green |
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (keeps the `DecideAdmission(args, active,` call the hlib cell reads), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
-| M5 | Viewer and `--gif` (G.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
-| M6 | Orbit lanes PP-12 / PP-13: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-12-*.toml`, `PP-13-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
+| M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
+| M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
 | M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
 
 Order: M0; then M1 and M2 together; M3 and M4 together (M4 on M1's synthetic helpers); M5 after
@@ -3795,19 +4366,19 @@ clear; section 6's measures and their Python recompute; the wave slots, worst-ca
 guard, resume, harvest and archive; the press gate and the gate order; the air context; F5's strip
 crops and play button (extended to a clock).
 
-### G.8 Owner questions
+### H.8 Owner questions
 
 None block the plan. Three decisions follow the reading flight, each about a fix, not about P7:
 
-- G.6 item 1 (the one-clip lag): fix on playback (for a family whose event marks the END of stock's
+- H.6 item 1 (the one-clip lag): fix on playback (for a family whose event marks the END of stock's
   clip, start the ghost's transition one clip before the event UT; a pure function of UT, so every
   old recording heals) or in the recorder (emit at the start edge; new recordings only).
-- G.6 items 2 to 4 (curve, chute snap, servo steps): each is playback-only (more clip samples at
+- H.6 items 2 to 4 (curve, chute snap, servo steps): each is playback-only (more clip samples at
   build, the canopy clip over stock's speeds, interpolation between servo samples) and records
   nothing new; the reading flight shows how visible each is at playback speed.
 - Whether the P7 lanes are armed once two reading runs match (P5 rule), or stay report-only.
 
-### G.9 Review disposition
+### H.9 Review disposition
 
 Rev 1 had a self-review against the code (the window for a late or slowed control route, the
 ghost crossings read from the scout grid, the framing pose per family); the clean-context review
