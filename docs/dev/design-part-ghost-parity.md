@@ -4251,6 +4251,11 @@ Frame schedule (pure, `PartParityMotionRules.PlanFrameTargets`):
   playing `AnimationState` `length / |speed|` (stock's own clock); a servo `|target - start| /
   traverseVelocity`; an airbrake or control surface `deployAngle / actuatorSpeed`; a chute the semi
   or full clip over its module speed (confirmed by M0, U6). Clamped to [0.25, 30] s.
+  As built (M3, `PartParityMotionPlan.ChoosePredicted`): a servo or a surface takes its formula,
+  any other family its playing clip; while no clip plays yet (the press frame, a chute still
+  arming) the part's longest clip stands in as a PROVISIONAL T, replaced by the first final reading
+  before frame 1 is taken, else kept, else the 30 s cap. M3 has no chute-speed formula, so a chute
+  reads the longest-clip or cap source; the source is logged on the `predicted T=` line.
 - Targets `t_k = k T / n` from the press (frame 0 at the press frame, before stock moves anything),
   n the step's `frames=` (4 to 16, default 8; `frames-arg-invalid` out of range or on a step that is
   not a motion run). Capture continues at that spacing until the real done signal (P6's rule, D.3)
@@ -4270,8 +4275,11 @@ side (the ghosts do not exist yet, apart from the framing ghost, hidden) through
 `PartParityCapture.CaptureSides` with one side, two clears, the motion views (below), and keeps the
 composed RGBA tiles in memory (256 px: 16 frames x 2 views is 4 MB a case). Each frame also records
 the game UT, stock's own clock (`realClock`: the module's `AnimationState.normalizedTime`, a
-servo's position, a surface's deflection, a canopy's scale), the module's state field, and the
-local pose of every progress transform. Per frame cost: 2 views x 2 clears at about 2.2 ms each
+servo's position, a surface's deflection, a canopy's scale), the module's state field (logged
+on the frame line, not written to the sidecar: no sidecar key reads it), and the pose of every
+progress transform: local, except a servo's, read in the part's own frame because its moving half
+is a separate jointed body (local poses would not move), and a canopy's, whose progress is its
+scale alone. Per frame cost: 2 views x 2 clears at about 2.2 ms each
 with readback (E.8, U6), about 35 ms for a wave of 4 on a target frame, nothing in between.
 
 The recorder's pollers run every frame into the case's `PartParityPollSink` (D.3, unchanged), so
@@ -4286,7 +4294,8 @@ target value, a canopy at its stage's pose; a pose used for framing only, never 
 shown); the shared box is the union of the real stowed box (the 4.2 rule) and both framing-ghost
 boxes, grown 20 %. A frame whose real or ghost coverage touches the border is tagged
 `motion-clipped-at-border` (report-only; the reading flight re-pins the margin). The framing
-ghost is destroyed before the ghost rows are built.
+ghost is destroyed as soon as its boxes and its built clip length are read, before the press (M3:
+nothing later needs it, and no ghost then exists while the real frames are taken).
 
 Ghost side, after the real motion: once the window has ended,
 
@@ -4295,7 +4304,9 @@ Ghost side, after the real motion: once the window has ended,
    50 ms grid over the window and every real frame's own UT, in increasing UT, unrendered, reading
    its own pose progress at each prime. That gives p_ghost(u) densely, and exactly at every
    same-time UT, with no shortcut.
-2. For each real frame k: the same-time UT is the real frame's own UT; the matched UT is the first
+2. For each real frame k: the same-time UT is the real frame's own UT (the same-time ghost progress
+   written per frame is the scout's progress interpolated at the frame's `realS`, so `partparity`
+   recomputes it from the `scout` arrays); the matched UT is the first
    scout UT where p_ghost reaches the real frame's progress (interpolated between the two scout
    points that bracket it; at p = 0 and 1 the ghost's own first and last pose; none when the ghost
    never reaches it, or when the bracketing interval holds a jump (its two points differ by more
@@ -4324,15 +4335,18 @@ plans no case.
 The motion atlas `<caseId>.motion.png`: rows `real:<view>`, `ghost:<view>` (same time),
 `ghost-matched:<view>` (same progress) for each view, grouped by view in the views' order
 (`PartParityJson.MotionAtlasRows`; the real-vs-real control has no matched row), columns the
-frames in order: 6 rows x 17
+frames in order (`cols` is the list of the frames' `k`): 6 rows x 17
 columns of 256 px (4352 x 1536 px) by default. It is the case's strip: the viewer crops and plays it
 (H.5) and `--gif` turns it into an animation. The P6 four-row still atlas is not written by a
-motion case.
+motion case (its `atlas` key is null; only `motionAtlas` is set). A slot with no tile (a `no-match`
+frame, a render that failed) is a fully transparent tile, measured as an empty picture.
 
 Measures per frame (C# `PartParityMotionMetrics`, pure, over the 8-bit tiles it writes, so Python
 recomputes them exactly): for the same-time and the matched pair of each view, P6's shape and colour
 measures (section 6: tolerant mismatch, largest blobs, IoU, colour blob), the picture progress of
-every row, and the pose progress values of both sides. The timing measures of H.1 are pure functions
+every row, and the pose progress values of both sides. The `same` block is written for every view
+of every frame (an absent tile is measured as the empty tile), so a captured frame never carries a
+null `same`; `matched` is null exactly when that frame's matched slot is empty. The timing measures of H.1 are pure functions
 of the per-frame arrays (`PartParityMotionRules`, xUnit on synthetic curves) and are written beside
 them.
 
@@ -4342,7 +4356,8 @@ electric charge), from its rest value to the nearer of +45 deg (hinge, rotation 
 travel for a piston) and its range limit, at its own `traverseVelocity`. Done: the moving signal
 false and the position within the module deadband of the target. Rotors are excluded (H.1).
 
-Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler's radial node so the
+Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler's radial node (M3:
+the filler sits along the subject's `srfAttachNode.orientation`, at the filler's own radius) so the
 centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
 hidden and left out of the records like a stacked filler. Press: the module's deploy action
 (KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3).
@@ -4354,7 +4369,9 @@ measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` b
 `capped`}, `scout` {`stepS`, `s` (every scout offset since the press), `progress` (the ghost's pose
 progress at each)}, `frames[]` {`k`, `targetS`, `realS`, `ut`, `realClock`, `ghostClock` (a servo's
 position on the scout at the same UT, null otherwise), `realProgress`, `ghostProgress` (same time),
-`matchedS`, `matchedProgress` (the matched render's own progress), `imgProgress` per atlas row,
+`matchedS`, `matchedProgress` (the matched render's own progress), `imgProgress` (an object keyed by
+atlas row name, each the row's picture progress at that frame; null only for a matched row whose
+slot is empty, and the whole key null when no atlas was built),
 `views[]` {`view`, `same`, `matched`, each a `start`-shaped measure block}, `flags`}, `transforms[]`
 {`path`, `channel`, `travelReal`, `travelGhost`, `real` (fractions at the real frames), `ghost`
 (fractions on the scout)}, `timing` {`real` and `ghost` crossings `t02` to `t98`, the H.1 measures
@@ -4364,7 +4381,16 @@ The timing block is a pure function of those arrays (`PartParityMotionRules.Timi
 `PartParityJson.MotionTimingBlock`); `partparity.motion_timing` recomputes it, and both sides are
 pinned to the committed golden `Source/Parsek.Tests/Fixtures/PartParity/motion/timing-golden.json`
 (written by `harness/tools/build_motion_timing_golden.py`). `stateProof` (D.2) keeps the press, done signal and events, so the press gate reads a
-motion case like a state case.
+motion case like a state case (its `state` is the case's own state word). `structure` is the stowed
+framing diff (the real stowed records against the framing ghost's stowed records), the one diff a
+motion case has; the last-frame rules of H.3 read it.
+
+Waves and the window rule (M3): a motion wave holds motion cases only
+(`PartParitySweepRunner.WaveKindOf`), a real-vs-real pair flies in a wave of its own, and admission
+is `PartParityMotionPlan.AdmitWave` over the worst-case window. The H.3 `error` rule "fewer than 5
+frames, or no real frame reaching 0.9" is applied by C# as a setup fault
+(`PartParityMotionPlan.WindowRuleProblem`): such a case's setup status is `state-timeout` with a
+`window rule:` detail, so a run never counts it as a measured case.
 
 ### H.3 Controls, verdicts, report-only
 
@@ -4385,6 +4411,24 @@ is INVALID(parity-controls). The C# judges of the three motion controls are pure
 (`PartParityMotionRules.JudgeRealVsReal`, `JudgeGhostSlow`, `JudgeGhostLate`, M1) over two routes'
 timing blocks; the slow and late ones compare the altered route with the same subject's normal
 route (ratio of ratios, difference of lags), so the product's own timing cannot move them.
+
+As built (M3): the slow and late controls each write TWO sidecars with their own motion atlas, the
+altered route under the control id and the normal route under `<controlId>--normal`
+(`PartParityMotionRules.NormalRouteCaseId`; Python finds it by file name, so it has no manifest
+row). The late judge requires "the late route failing on lag" only where the 1.0 s shift can cross
+the lag line, `LateShiftSeconds > max(LagFailMinSeconds, LagFailRealFraction x T_real)`
+(`PartParityMotionRules.LateMustFailOnLag`): on a `longAntenna` of T_real above 4 s the shift sits
+inside the fail line by construction, and asking for a fail there would make the control red on a
+correct rig. "Frame 0 and the last frame within the real-vs-real allowance" and "its last frame
+passes the P6 end-state rules" are the same derivations as `partparity`'s
+`motion_end_frames_within_allowance` (every view's `same` block in frame 0 and the last frame with
+no real-only or ghost-only pixel, at most 8 colour-over pixels, and some real coverage) and
+`motion_last_frame_route` (the `judge_route` view rules over the last frame's `same` blocks plus
+the sidecar `structure`; a context-dependent tag caps a view failure at warn; a rendered,
+non-nonVisual missing or extra entry fails), in C# `PartParityMotionControls.EndFramesWithinAllowance`
+and `LastFramePasses`. C# judges a control from its in-memory routes and keeps the inputs in the
+control's `motion-evidence:` case flag, because the sidecar reader does not read the motion blocks
+back: a resumed run re-judges a finished control from that flag.
 
 Verdicts (`harness/lib/partparity.py`, `judge_motion`; every threshold a constant at the top of the
 module, starting guesses re-pinned from the reading runs against the controls, no flight needed):
@@ -4534,7 +4578,7 @@ subsection.
 | M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
 | M1 (DONE 2026-11-27) | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins. BUILT: the counts of H.1, the timing golden shared by both sides, `test_hlib.py`'s arg cells | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs`, `FlightRecorder.PartModuleStates.cs` (the active sink's ownership guard) | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green. Done 2026-11-27: il_compare lists only `CheckRoboticState` (now the wrapper), the new `PollRobotics` and the `PartPollSink.ShouldPollCachedModule` guard with its active override; the moved body differs from the old one only by fields read as arguments and the sink indirection |
-| M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
+| M3 (BUILT 2026-11-27, awaiting the dev-install run) | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file. As built also: `PartParityMotionRules.cs` (the late judge's `LateMustFailOnLag` and the `--normal` route suffix, both asked for by M4's derivation and mirrored there), `PartParityJson.cs` (two writer helpers, no key change), `PartParityStateDriver.cs` and `FlightRecorder.cs` (visibility only), xUnit `PartParityMotionPlanTests.cs` / `PartParityMotionMetricsTests.cs`; the motion acceptance step rides the existing `SweepStateAcceptanceSet` cell | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
 | M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
 | M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |

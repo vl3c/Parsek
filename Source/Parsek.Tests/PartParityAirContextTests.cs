@@ -231,12 +231,15 @@ namespace Parsek.Tests
             int end = air.IndexOf("private static bool Healthy(", run, StringComparison.Ordinal);
             string wave = air.Substring(run, end - run);
             Assert.Contains("PartParitySweepRunner.CheckHost(ctx, \"air wave\")", wave);
-            Assert.Contains("PartParitySweepRunner.WaitReady(ctx, wave)", wave);
-            Assert.Contains("PartParitySweepRunner.WaitSettled(ctx, wave)", wave);
+            // The wave waits, settles and tears down over its spawn set: the wave itself, plus each
+            // motion real-vs-real control's copy B (SpawnSet returns the wave unchanged otherwise).
+            Assert.Contains("List<WaveCase> spawned = PartParityMotionDriver.SpawnSet(wave);", wave);
+            Assert.Contains("PartParitySweepRunner.WaitReady(ctx, spawned)", wave);
+            Assert.Contains("PartParitySweepRunner.WaitSettled(ctx, spawned)", wave);
             int stop = wave.IndexOf("if (ctx.HostDamage != null)\n", StringComparison.Ordinal);
             if (stop < 0) stop = wave.IndexOf("if (ctx.HostDamage != null)\r\n", StringComparison.Ordinal);
             int delete = wave.IndexOf("PartParitySweepRunner.DeleteInflight(ctx);", StringComparison.Ordinal);
-            int down = wave.IndexOf("PartParitySweepRunner.TearDownWave(ctx, wave)", StringComparison.Ordinal);
+            int down = wave.IndexOf("PartParitySweepRunner.TearDownWave(ctx, spawned)", StringComparison.Ordinal);
             Assert.True(stop >= 0 && delete > stop && down > delete, $"stop={stop} delete={delete} down={down}");
             int fin = air.IndexOf("private static void Finish(", StringComparison.Ordinal);
             string finish = air.Substring(fin, air.IndexOf("private static void WriteRemainingInflight(", fin, StringComparison.Ordinal) - fin);

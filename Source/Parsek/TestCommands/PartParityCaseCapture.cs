@@ -87,7 +87,7 @@ namespace Parsek.TestCommands
         /// <c>depth-mask-unrepaired</c> setup fault; Info when it repaired; Verbose when every
         /// module was intact), none for any other part.
         /// </summary>
-        private static void RepairDepthMasks(WaveCase wc, Part part)
+        internal static void RepairDepthMasks(WaveCase wc, Part part)
         {
             List<PartParityDepthMaskRepair.ModuleResult> results = PartParityDepthMaskRepair.Repair(part);
             if (results.Count == 0) return;
@@ -107,7 +107,7 @@ namespace Parsek.TestCommands
         /// a stacked shroud under the part below), before anything reads the real renderers. One
         /// Info line and the flag <c>colorchanger-leak-repaired:&lt;n&gt;</c> when it reset any.
         /// </summary>
-        private static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
+        internal static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
         {
             // Mesh renderers only, the set the capture records and photographs (an engine's
             // idle FX quads carry a colour changer's _TintColor too and draw nothing here).
@@ -490,6 +490,7 @@ namespace Parsek.TestCommands
             s.Flags.AddRange(wc.Flags);
             if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Fx != null) PartParityFxDriver.FillSidecar(ctx, wc, s);
+            if (wc.Motion != null) PartParityMotionDriver.FillSidecar(ctx, wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));

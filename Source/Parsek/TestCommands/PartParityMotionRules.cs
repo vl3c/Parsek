@@ -471,6 +471,18 @@ namespace Parsek.TestCommands
 
         internal const string ControlAirPart = PartParitySweepPlan.ControlAirPart;
 
+        /// <summary>The slow and late controls write two sidecars over the same real frames:
+        /// the altered route under the control id, the normal route under the id plus this
+        /// suffix, each with its own motion atlas (H.3; partparity.py MOTION_CONTROL_NORMAL_SUFFIX).</summary>
+        internal const string NormalRouteSuffix = "--normal";
+
+        /// <summary>Whether a control writes a normal-route sidecar beside its own.</summary>
+        internal static bool HasNormalRoute(string controlId)
+            => controlId == TestCommandPartParitySweep.ControlMotionGhostSlow
+               || controlId == TestCommandPartParitySweep.ControlMotionGhostLate;
+
+        internal static string NormalRouteCaseId(string controlId) => (controlId ?? string.Empty) + NormalRouteSuffix;
+
         internal const double LateShiftSeconds = 1.0;
         internal const double SlowClipFactor = 2.0;
         internal const double RealVsRealLagMotionFraction = 0.02;
@@ -1235,9 +1247,18 @@ namespace Parsek.TestCommands
             if (double.IsNaN(shift) || shift < LateLagMin || shift > LateLagMax) why.Add("lag shift=" + Num(shift));
             double dr = Diff(late.DurationRatio, normal.DurationRatio);
             if (double.IsNaN(dr) || Math.Abs(dr) > LateDurationTolerance) why.Add("durationRatio change=" + Num(dr));
-            if (!LagFails(late.LagS, late.RealDurationS)) why.Add("late route does not fail on lag");
+            if (LateMustFailOnLag(late.RealDurationS) && !LagFails(late.LagS, late.RealDurationS))
+                why.Add("late route does not fail on lag");
             return Verdict(why, out detail);
         }
+
+        /// <summary>Whether the late route must fail on lag: only when the 1.0 s shift is past
+        /// that real motion's lag fail line, <c>max(0.5 s, 0.25 T_real)</c> (T_real under 4 s).
+        /// A longer real motion holds the shift inside its line, so the relative requirement
+        /// is then the whole test (H.3).</summary>
+        internal static bool LateMustFailOnLag(double realDurationS)
+            => LateShiftSeconds > Math.Max(LagFailMinSeconds,
+                LagFailRealFraction * (double.IsNaN(realDurationS) ? 0.0 : realDurationS));
 
         private static string Verdict(List<string> why, out string detail)
         {
