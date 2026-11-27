@@ -91,6 +91,7 @@ CASE_KEYS: Tuple[str, ...] = (
     "layers", "flags", "views", "structure", "setup", "log",
     "stateProof", "structureStart", "stowedCaseId",
     "fx", "fxAtlas", "strip",
+    "motion", "motionAtlas",
 )
 SKIN_KEYS: Tuple[str, ...] = ("module", "moduleId", "requested", "real", "snapshot", "ghost")
 ATLAS_KEYS: Tuple[str, ...] = ("file", "thumb", "tile", "rows", "cols")
@@ -197,12 +198,25 @@ CONTROL_IDS_FX_ORBIT: Tuple[str, ...] = (
 CONTROL_IDS_FX_AIR: Tuple[str, ...] = (
     "ctl-empty", "ctl-ghost-absent", "ctl-fx-real-vs-real-air", "ctl-fx-plume-off-air",
 )
+# The motion run's controls (MotionOrbitControlIds / MotionAirControlIds, Appendix H.3).
+CONTROL_MOTION_REAL_VS_REAL = "ctl-motion-real-vs-real"
+CONTROL_MOTION_GHOST_SLOW = "ctl-motion-ghost-slow"
+CONTROL_MOTION_GHOST_LATE = "ctl-motion-ghost-late"
+CONTROL_MOTION_REAL_VS_REAL_AIR = "ctl-motion-real-vs-real-air"
+CONTROL_IDS_MOTION_ORBIT: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", CONTROL_MOTION_REAL_VS_REAL,
+    CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE,
+)
+CONTROL_IDS_MOTION_AIR: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", CONTROL_MOTION_REAL_VS_REAL_AIR,
+)
 # OptionalControlIds: no subject on the install records ``n/a`` (ControlsNotApplicable),
 # never ``bad``.
 OPTIONAL_CONTROL_IDS: Tuple[str, ...] = ("ctl-plate-light-off-point",)
 ALL_CONTROL_IDS: Tuple[str, ...] = (
     CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
     + CONTROL_IDS_FX_ORBIT[2:] + CONTROL_IDS_FX_AIR[2:]
+    + CONTROL_IDS_MOTION_ORBIT[3:] + CONTROL_IDS_MOTION_AIR[2:]
 )
 
 # The states= / contexts= selection (TestCommandPartParitySweep, PartParityStateRules) and
@@ -214,6 +228,9 @@ SETTING_CONTEXTS = "contexts"
 SETTING_CONTROL_SET = "controlSet"
 # TestCommandPartParitySweep.SettingFx: written by an FX run only; absent reads ``none``.
 SETTING_FX = "fx"
+# SettingMotion / SettingFrames: written by a motion run only (Appendix H.2).
+SETTING_MOTION = "motion"
+SETTING_FRAMES = "frames"
 STATE_STOWED = "stowed"
 KNOWN_STATES: Tuple[str, ...] = (
     "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
@@ -265,12 +282,21 @@ def is_fx_run(settings: Optional[Dict]) -> bool:
     return _setting(settings, SETTING_FX) != ARG_NONE
 
 
+def is_motion_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsMotionRun over a manifest's ``settings``: ``motion``
+    other than ``none`` (a manifest written before P7 has no ``motion`` and reads ``none``)."""
+    return _setting(settings, SETTING_MOTION) != ARG_NONE
+
+
 def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
     """TestCommandPartParitySweep.ControlSetFor, recomputed from a manifest's ``settings``
-    (design D.2, E.5): an FX run its FX set (the air one for ``contexts=air``); no
+    (design D.2, E.5, H.3): a motion run its motion set (the air one for ``contexts=air``);
+    an FX run its FX set (the air one for ``contexts=air``); no
     ``states`` / ``contexts`` (absent or ``none``, as every manifest written before P6 reads)
     is the stowed eight; an air run its four; any other state run the eight plus
     ``ctl-state-events-dropped``."""
+    if is_motion_run(settings):
+        return CONTROL_IDS_MOTION_AIR if is_air_run(settings) else CONTROL_IDS_MOTION_ORBIT
     if is_fx_run(settings):
         return CONTROL_IDS_FX_AIR if is_air_run(settings) else CONTROL_IDS_FX_ORBIT
     if (_setting(settings, SETTING_STATES) == ARG_NONE
@@ -539,6 +565,505 @@ def fx_luminance(r: int, g: int, b: int) -> float:
 def fx_reason(route: str, view: str, layer: str, reason: str) -> str:
     """PartParityFxRules.FormatReason: ``<route>:<view>:<layer>:<reason>``."""
     return "%s:%s:%s:%s" % (route or "", view or "", layer or "", reason or "")
+
+
+# ---------------------------------------------------------------------------
+# The P7 motion contract (Appendix H; PartParityMotionRules.cs, PartParityJson.cs,
+# mirrored by PartParitySourceSyncTests.test_the_motion_* cells). Every constant the
+# motion judge (M4) reads lives here, and the timing measures of H.1 are recomputed
+# from a sidecar's per-frame arrays by ``motion_timing`` exactly as the C# writes them.
+# ---------------------------------------------------------------------------
+
+# Families (H.1 table order); the motion= words; the last two families are reading-only.
+MOTION_FAMILIES: Tuple[str, ...] = (
+    "deployable", "gear", "ladder", "animation-group", "cargo-bay", "animate-generic",
+    "airbrake", "parachute", "robotics", "control-surface", "light", "cabin-light",
+)
+MOTION_ARG_WORDS: Tuple[str, ...] = MOTION_FAMILIES[:10]
+MOTION_ARG_LIGHT = "light"
+MOTION_ARG_KNOWN_WORDS: Tuple[str, ...] = MOTION_ARG_WORDS + (MOTION_ARG_LIGHT,)
+MOTION_ARG_ALL = "all"
+MOTION_KINDS: Tuple[str, ...] = ("clip", "servo", "surface", "canopy", "fade")
+MOTION_KIND_SERVO = "servo"
+MOTION_STATE_PREFIX = "motion-"
+MOTION_STATES: Tuple[str, ...] = (
+    "motion-deployed", "motion-open", "motion-semi", "motion-full", "motion-swept", "motion-lit",
+)
+CONTEXT_RADIAL = "radial"
+MOTION_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_RADIAL)
+MOTION_RADIAL_FILLER_PART = "fuelTankSmallFlat"
+# The servo modules the robotic poll reads, and the rotor P7 excludes.
+MOTION_SERVO_MODULES: Tuple[str, ...] = (
+    "ModuleRoboticServoHinge", "ModuleRoboticRotationServo", "ModuleRoboticServoPiston",
+)
+MOTION_ROTOR_MODULE = "ModuleRoboticServoRotor"
+MOTION_EXCLUSION_REASONS: Tuple[str, ...] = (
+    "motion-physics", "light-fade", "synthesized-from-trajectory", "loop-phase", "ground-scan",
+    "rotor-spin-not-primed", "not-polled",
+    "ground-deploy", "no-pose", "fairing-bay", "bay-deploy-not-animated", "no-animation", "auto-deploy",
+)
+MOTION_COUNTS_LITERAL = "motion cases:"
+
+# The frame schedule (H.2, PartParityMotionRules.PlanFrameTargets).
+MOTION_MIN_PREDICTED_S = 0.25
+MOTION_MAX_PREDICTED_S = 30.0
+MOTION_DEFAULT_FRAMES = 8
+MOTION_MIN_FRAMES_PER_MOTION = 4
+MOTION_MAX_FRAMES_PER_MOTION = 16
+MOTION_DOUBLING_BLOCK_MOTIONS = 4
+MOTION_WINDOW_PAD_S = 0.5
+MOTION_WINDOW_CAP_S = 40.0
+MOTION_SERVO_STOP_HOLD_S = 0.25
+MOTION_SCOUT_STEP_S = 0.05
+MOTION_SCOUT_MERGE_EPSILON_S = 1e-9
+MOTION_FRAMING_GROW_FRACTION = 0.2
+MOTION_TILE_PX = 256
+MOTION_DEFAULT_VIEWS: Tuple[str, ...] = ("side-a", "side-b")
+MOTION_SERVO_SWEEP_DEG = 45.0
+MOTION_PISTON_SWEEP_FRACTION = 0.5
+
+# Progress (H.1).
+MOTION_TRANSFORM_STILL_DEG = 0.5
+MOTION_TRANSFORM_STILL_M = 0.001
+MOTION_TRANSFORM_STILL_SCALE = 0.001
+MOTION_CHANNELS: Tuple[str, ...] = ("position", "rotation", "scale")
+MOTION_CROSSING_LEVELS: Tuple[float, ...] = (0.02, 0.10, 0.50, 0.90, 0.98)
+MOTION_SHAPE_BAND_LOW = 0.05
+MOTION_SHAPE_BAND_HIGH = 0.95
+MOTION_MATCH_JUMP_MAX = 0.25
+MOTION_SCOUT_RENDER_TOLERANCE = 1e-4
+
+# Flags (H.1, H.2) and their thresholds.
+MOTION_SNAP_LOW = 0.1
+MOTION_SNAP_HIGH = 0.9
+MOTION_SNAP_REAL_MIN_FRAMES = 3
+MOTION_STEP_REAL_RISE = 0.05
+MOTION_STEP_STILL_EPSILON = 1e-4
+MOTION_STEP_MIN_HOLDS = 2
+MOTION_STEP_HOLD_LOW = 0.02
+MOTION_STEP_HOLD_HIGH = 0.98
+MOTION_NOT_MODELLED_REAL = 0.9
+MOTION_NOT_MODELLED_GHOST = 0.1
+FLAG_MOTION_SNAP = "motion-snap"
+FLAG_MOTION_STEPPED = "motion-stepped"
+FLAG_MOTION_NOT_MODELLED = "motion-not-modelled"
+FLAG_MOTION_WINDOW_CAPPED = "motion-window-capped"
+FLAG_MOTION_CLIPPED_AT_BORDER = "motion-clipped-at-border"
+FLAG_FRAME_JITTER_PREFIX = "frame-jitter:"
+FLAG_MOTION_NO_MATCH = "no-match"
+FLAG_SCOUT_RENDER_DISAGREE = "scout-render-disagree"
+FLAG_TRAVEL_DIFFERS = "travel-differs"
+FLAG_PROGRESS_DISAGREE = "progress-disagree"
+
+# Verdict thresholds (H.3; starting guesses, re-pinned from the reading runs).
+MOTION_LAG_FAIL_MIN_S = 0.5
+MOTION_LAG_FAIL_REAL_FRACTION = 0.25
+MOTION_DURATION_RATIO_FAIL_MIN = 0.6
+MOTION_DURATION_RATIO_FAIL_MAX = 1.67
+MOTION_CURVE_SHAPE_FAIL = 0.30
+MOTION_SERVO_ANGLE_FAIL_MIN_DEG = 5.0
+MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION = 0.15
+MOTION_DURATION_RATIO_WARN_MIN = 0.8
+MOTION_DURATION_RATIO_WARN_MAX = 1.25
+MOTION_WARN_FRACTION = 0.5
+MOTION_MIN_FRAMES = 5
+MOTION_REAL_REACHED_PROGRESS = 0.9
+MOTION_TRAVEL_DIFFERS_MIN = 0.9
+MOTION_TRAVEL_DIFFERS_MAX = 1.1
+MOTION_PROGRESS_DISAGREE_FRAMES = 2
+
+# The motion controls (H.3): subjects and the judges' lines.
+MOTION_CONTROL_PART = "longAntenna"
+MOTION_CONTROL_SLOW_PART = "airbrake1"
+MOTION_CONTROL_AIR_PART = "parachuteSingle"
+MOTION_LATE_SHIFT_S = 1.0
+MOTION_SLOW_CLIP_FACTOR = 2.0
+MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION = 0.02
+MOTION_REAL_VS_REAL_DURATION_TOLERANCE = 0.05
+MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX = 0.05
+MOTION_SLOW_RATIO_MIN = 1.9
+MOTION_SLOW_RATIO_MAX = 2.1
+MOTION_LATE_LAG_MIN = 0.98
+MOTION_LATE_LAG_MAX = 1.02
+MOTION_LATE_DURATION_TOLERANCE = 0.02
+
+# Files and the sidecar's motion blocks (PartParityJson.cs; every key always written).
+MOTION_ATLAS_SUFFIX = ".motion.png"
+MOTION_KEYS: Tuple[str, ...] = (
+    "family", "kind", "module", "moduleIndex", "pressUT", "predictedS", "ghostClipS",
+    "eventDelayS", "ghostStartDelayS", "framesPerMotion", "window", "scout", "frames",
+    "transforms", "timing",
+)
+MOTION_WINDOW_KEYS: Tuple[str, ...] = ("endS", "spacingS", "capped")
+MOTION_SCOUT_KEYS: Tuple[str, ...] = ("stepS", "s", "progress")
+MOTION_FRAME_KEYS: Tuple[str, ...] = (
+    "k", "targetS", "realS", "ut", "realClock", "ghostClock", "realProgress", "ghostProgress",
+    "matchedS", "matchedProgress", "imgProgress", "views", "flags",
+)
+MOTION_FRAME_VIEW_KEYS: Tuple[str, ...] = ("view", "same", "matched")
+MOTION_TRANSFORM_KEYS: Tuple[str, ...] = ("path", "channel", "travelReal", "travelGhost", "real", "ghost")
+MOTION_TIMING_KEYS: Tuple[str, ...] = (
+    "real", "ghost", "lagS", "onsetLagS", "endLagS", "durationRatio", "curveShapeDev",
+    "staggerDev", "travelRatio", "angleMaxDevDeg", "flags",
+)
+MOTION_CROSSING_KEYS: Tuple[str, ...] = ("t02", "t10", "t50", "t90", "t98")
+MOTION_ATLAS_KEYS: Tuple[str, ...] = ("file", "tile", "rows", "cols")
+MOTION_ROW_REAL = "real"
+MOTION_ROW_GHOST = "ghost"
+MOTION_ROW_GHOST_MATCHED = "ghost-matched"
+# The timing keys motion_timing recomputes as numbers (every key but the crossings and flags).
+MOTION_TIMING_NUMBER_KEYS: Tuple[str, ...] = MOTION_TIMING_KEYS[2:-1]
+
+
+def is_motion_state(state: Optional[str]) -> bool:
+    """PartParityMotionRules.IsMotionState: a ``motion-`` word (any tiebreak suffix)."""
+    return isinstance(state, str) and state.startswith(MOTION_STATE_PREFIX)
+
+
+def motion_atlas_rows(views: Sequence[str], matched: bool = True) -> Tuple[str, ...]:
+    """PartParityJson.MotionAtlasRows: per view ``real:<view>``, ``ghost:<view>`` and, when
+    ``matched``, ``ghost-matched:<view>``."""
+    rows: List[str] = []
+    for v in views or ():
+        rows.append("%s:%s" % (MOTION_ROW_REAL, v))
+        rows.append("%s:%s" % (MOTION_ROW_GHOST, v))
+        if matched:
+            rows.append("%s:%s" % (MOTION_ROW_GHOST_MATCHED, v))
+    return tuple(rows)
+
+
+def motion_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``motion`` block, or None for every other case."""
+    block = sidecar.get("motion") if isinstance(sidecar, dict) else None
+    return block if isinstance(block, dict) else None
+
+
+# ----- the frame schedule (PartParityMotionRules) -----
+
+def _finite(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def clamp_predicted_seconds(t: Any) -> float:
+    """ClampPredictedSeconds: T in [0.25, 30] s; not a finite positive time reads 30."""
+    if not _finite(t) or t <= 0.0:
+        return MOTION_MAX_PREDICTED_S
+    return min(max(float(t), MOTION_MIN_PREDICTED_S), MOTION_MAX_PREDICTED_S)
+
+
+def motion_spacing_seconds(predicted_s: Any, frames_per_motion: int) -> float:
+    """SpacingSeconds: T / frames."""
+    return clamp_predicted_seconds(predicted_s) / max(1, frames_per_motion)
+
+
+def motion_frame_target_seconds(k: int, predicted_s: Any, frames_per_motion: int) -> float:
+    """FrameTargetSeconds: k T / n for the first block of 4 n intervals, each further block
+    at twice the previous block's spacing."""
+    if k <= 0:
+        return 0.0
+    s = motion_spacing_seconds(predicted_s, frames_per_motion)
+    block = MOTION_DOUBLING_BLOCK_MOTIONS * max(1, frames_per_motion)
+    m = 0 if k <= block else (k - 1) // block
+    return block * s * (2.0 ** m - 1.0) + (k - m * block) * s * 2.0 ** m
+
+
+def _nonneg(v: Any) -> float:
+    return float(v) if _finite(v) and v >= 0.0 else 0.0
+
+
+def motion_window_end_seconds(real_done_s: Any, ghost_run_s: Any, control_extra_s: Any = 0.0) -> Tuple[float, bool]:
+    """WindowEndSeconds: (end, capped)."""
+    end = _nonneg(real_done_s) + _nonneg(ghost_run_s) + MOTION_WINDOW_PAD_S + _nonneg(control_extra_s)
+    capped = end > MOTION_WINDOW_CAP_S
+    return (MOTION_WINDOW_CAP_S if capped else end), capped
+
+
+def plan_motion_frame_targets(predicted_s: Any, real_done_s: Any, ghost_run_s: Any,
+                              control_extra_s: Any = 0.0,
+                              frames_per_motion: int = MOTION_DEFAULT_FRAMES) -> Dict[str, Any]:
+    """PlanFrameTargets: ``{"targetsS", "endS", "spacingS", "capped"}``."""
+    end, capped = motion_window_end_seconds(real_done_s, ghost_run_s, control_extra_s)
+    targets: List[float] = []
+    k = 0
+    while True:
+        t = motion_frame_target_seconds(k, predicted_s, frames_per_motion)
+        if t > end + 1e-9:
+            break
+        targets.append(t)
+        k += 1
+    return {"targetsS": targets, "endS": end,
+            "spacingS": motion_spacing_seconds(predicted_s, frames_per_motion), "capped": capped}
+
+
+def motion_frame_jitter_tag(target_s: float, actual_s: float, predicted_s: Any,
+                            frames_per_motion: int = MOTION_DEFAULT_FRAMES) -> Optional[str]:
+    """FrameJitterTag: ``frame-jitter:<ms>`` for a frame later than half a frame interval."""
+    late = actual_s - target_s
+    if not late > motion_spacing_seconds(predicted_s, frames_per_motion) / 2.0:
+        return None
+    ms = math.floor(late * 1000.0 + 0.5) if late >= 0 else -math.floor(-late * 1000.0 + 0.5)
+    return FLAG_FRAME_JITTER_PREFIX + str(int(ms))
+
+
+def motion_picture_progress(a: float, b: float) -> float:
+    """PictureProgress: a / (a + b), 0 when both are 0."""
+    total = a + b
+    return a / total if total > 0 else 0.0
+
+
+def motion_matched_offset(scout_s: Sequence[float], scout_p: Sequence[float], target: float) -> Optional[float]:
+    """MatchedOffset (H.2 step 2): None when the ghost never reaches the target or the
+    bracketing scout interval jumps more than MOTION_MATCH_JUMP_MAX."""
+    if not scout_s or not scout_p or len(scout_s) != len(scout_p):
+        return None
+    if target <= 0.0:
+        return scout_s[0]
+    for k, p in enumerate(scout_p):
+        if p < target:
+            continue
+        if k == 0:
+            return scout_s[0]
+        dp = p - scout_p[k - 1]
+        if dp > MOTION_MATCH_JUMP_MAX:
+            return None
+        if target >= 1.0:
+            return scout_s[k]
+        return scout_s[k - 1] + (target - scout_p[k - 1]) * (scout_s[k] - scout_s[k - 1]) / dp
+    return None
+
+
+# ----- the timing measures (PartParityMotionRules.Timing), None for not measured -----
+
+def motion_crossing(s: Sequence[float], p: Sequence[float], level: float) -> Optional[float]:
+    """Crossing: the first time p reaches level, linear between the bracketing points."""
+    if not s or not p or len(s) != len(p):
+        return None
+    for k, v in enumerate(p):
+        if v is None or not v >= level:
+            continue
+        if k == 0:
+            return s[0]
+        if p[k - 1] is None or s[k] is None or s[k - 1] is None:
+            return None
+        return s[k - 1] + (level - p[k - 1]) * (s[k] - s[k - 1]) / (v - p[k - 1])
+    return None
+
+
+def motion_crossings(s: Sequence[float], p: Sequence[float]) -> List[Optional[float]]:
+    return [motion_crossing(s, p, level) for level in MOTION_CROSSING_LEVELS]
+
+
+def motion_interpolate(s: Sequence[float], p: Sequence[float], at: float) -> Optional[float]:
+    """Interpolate: linear between points, the end values outside them."""
+    if not s or not p or len(s) != len(p):
+        return None
+    if at <= s[0]:
+        return p[0]
+    for k in range(1, len(s)):
+        if at > s[k]:
+            continue
+        span = s[k] - s[k - 1]
+        return p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span if span > 0 else p[k]
+    return p[-1]
+
+
+def motion_shape_deviation(real_s: Sequence[float], real_p: Sequence[float], ghost_s: Sequence[float],
+                           ghost_p: Sequence[float], lag_s: Optional[float]) -> Optional[float]:
+    """ShapeDeviation: max |ghost(t + lag) - real(t)| over the real points inside the band."""
+    if lag_s is None or real_s is None or real_p is None or len(real_s) != len(real_p):
+        return None
+    worst: Optional[float] = None
+    for t, p in zip(real_s, real_p):
+        if not (MOTION_SHAPE_BAND_LOW < p < MOTION_SHAPE_BAND_HIGH):
+            continue
+        g = motion_interpolate(ghost_s, ghost_p, t + lag_s)
+        if g is None:
+            continue
+        d = abs(g - p)
+        if worst is None or d > worst:
+            worst = d
+    return worst
+
+
+def _motion_diff(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    return None if a is None or b is None else a - b
+
+
+def _motion_ratio(num: Optional[float], den: Optional[float]) -> Optional[float]:
+    return None if num is None or den is None or den <= 0 else num / den
+
+
+def motion_not_modelled(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """NotModelled: the real reaches 0.9 and the ghost never 0.1."""
+    real_n = [v for v in real_p or () if v is not None]
+    ghost_n = [v for v in ghost_p or () if v is not None]
+    r = max(real_n) if real_n else None
+    g = max(ghost_n) if ghost_n else None
+    return r is not None and r >= MOTION_NOT_MODELLED_REAL and (g is None or g < MOTION_NOT_MODELLED_GHOST)
+
+
+def motion_snapped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """Snapped: the ghost jumps under 0.1 -> over 0.9 between adjacent frames while the real
+    takes 3 frames or more."""
+    if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
+        return False
+    high = next((k for k, v in enumerate(real_p) if v > MOTION_SNAP_HIGH), -1)
+    if high < 0:
+        return False
+    low = next((k for k in range(high - 1, -1, -1) if real_p[k] < MOTION_SNAP_LOW), -1)
+    if low < 0 or high - low < MOTION_SNAP_REAL_MIN_FRAMES:
+        return False
+    return any(ghost_p[k] < MOTION_SNAP_LOW and ghost_p[k + 1] > MOTION_SNAP_HIGH
+               for k in range(len(ghost_p) - 1))
+
+
+def motion_stepped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """Stepped: two or more separate holds of the ghost (still, inside the hold band) while
+    the real rises more than 0.05 per frame."""
+    if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
+        return False
+    holds, in_hold = 0, False
+    for k in range(len(ghost_p) - 1):
+        still = (abs(ghost_p[k + 1] - ghost_p[k]) <= MOTION_STEP_STILL_EPSILON
+                 and MOTION_STEP_HOLD_LOW < ghost_p[k] < MOTION_STEP_HOLD_HIGH
+                 and real_p[k + 1] - real_p[k] > MOTION_STEP_REAL_RISE)
+        if still and not in_hold:
+            holds += 1
+        in_hold = still
+    return holds >= MOTION_STEP_MIN_HOLDS
+
+
+def motion_max_abs_difference(a: Optional[Sequence[float]], b: Optional[Sequence[float]]) -> Optional[float]:
+    """MaxAbsDifference over the points both carry (a None point is skipped)."""
+    if a is None or b is None:
+        return None
+    worst: Optional[float] = None
+    for x, y in zip(a, b):
+        if x is None or y is None:
+            continue
+        d = abs(x - y)
+        if worst is None or d > worst:
+            worst = d
+    return worst
+
+
+def motion_series(block: Optional[Dict]) -> Optional[Dict[str, Any]]:
+    """The per-frame arrays of a sidecar ``motion`` block, in the shape ``motion_timing``
+    reads: realS / realProgress / ghostSameProgress from ``frames[]``, scoutS / scoutProgress
+    from ``scout``, realClock / ghostClock (a servo only, else None) and the transforms."""
+    if not isinstance(block, dict):
+        return None
+    frames = [f for f in (block.get("frames") or []) if isinstance(f, dict)]
+    scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
+    servo = block.get("kind") == MOTION_KIND_SERVO
+    return {
+        "realS": [f.get("realS") for f in frames],
+        "realProgress": [f.get("realProgress") for f in frames],
+        "ghostSameProgress": [f.get("ghostProgress") for f in frames],
+        "scoutS": list(scout.get("s") or []),
+        "scoutProgress": list(scout.get("progress") or []),
+        "realClock": [f.get("realClock") for f in frames] if servo else None,
+        "ghostClock": [f.get("ghostClock") for f in frames] if servo else None,
+        "transforms": [t for t in (block.get("transforms") or []) if isinstance(t, dict)],
+    }
+
+
+def motion_timing(series: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """PartParityMotionRules.Timing over the per-frame arrays: a dict with every
+    MOTION_TIMING_KEYS key (crossings as MOTION_CROSSING_KEYS dicts, flags in C# order),
+    None for not measured. The instrument recompute compares it with the sidecar's
+    ``timing`` block within RECOMPUTE_FLOAT_TOLERANCE."""
+    if not isinstance(series, dict):
+        return None
+    rs, rp = series.get("realS") or [], series.get("realProgress") or []
+    ss, sp = series.get("scoutS") or [], series.get("scoutProgress") or []
+    real = motion_crossings(rs, rp)
+    ghost = motion_crossings(ss, sp)
+    lag = _motion_diff(ghost[2], real[2])
+    out: Dict[str, Any] = {
+        "real": dict(zip(MOTION_CROSSING_KEYS, real)),
+        "ghost": dict(zip(MOTION_CROSSING_KEYS, ghost)),
+        "lagS": lag,
+        "onsetLagS": _motion_diff(ghost[0], real[0]),
+        "endLagS": _motion_diff(ghost[4], real[4]),
+        "durationRatio": _motion_ratio(_motion_diff(ghost[3], ghost[1]), _motion_diff(real[3], real[1])),
+        "curveShapeDev": motion_shape_deviation(rs, rp, ss, sp, lag),
+        "staggerDev": None,
+        "travelRatio": None,
+    }
+    flags: List[str] = []
+    for tr in series.get("transforms") or []:
+        d = motion_shape_deviation(rs, tr.get("real"), ss, tr.get("ghost"), lag)
+        if d is not None and (out["staggerDev"] is None or d > out["staggerDev"]):
+            out["staggerDev"] = d
+        r = _motion_ratio(tr.get("travelGhost"), tr.get("travelReal"))
+        if r is not None and (out["travelRatio"] is None or abs(r - 1.0) > abs(out["travelRatio"] - 1.0)):
+            out["travelRatio"] = r
+    tr_ratio = out["travelRatio"]
+    if tr_ratio is not None and (tr_ratio < MOTION_TRAVEL_DIFFERS_MIN or tr_ratio > MOTION_TRAVEL_DIFFERS_MAX):
+        flags.append(FLAG_TRAVEL_DIFFERS)
+    out["angleMaxDevDeg"] = motion_max_abs_difference(series.get("realClock"), series.get("ghostClock"))
+    same = series.get("ghostSameProgress") or []
+    if motion_not_modelled(rp, sp):
+        flags.append(FLAG_MOTION_NOT_MODELLED)
+    if motion_snapped(rp, same):
+        flags.append(FLAG_MOTION_SNAP)
+    if motion_stepped(rp, same):
+        flags.append(FLAG_MOTION_STEPPED)
+    out["flags"] = flags
+    return out
+
+
+def motion_real_duration(timing: Optional[Dict[str, Any]]) -> Optional[float]:
+    """PartParityMotionTiming.RealDurationS: real t98 - t02."""
+    real = timing.get("real") if isinstance(timing, dict) else None
+    if not isinstance(real, dict):
+        return None
+    return _motion_diff(real.get("t98"), real.get("t02"))
+
+
+def motion_lag_fails(lag_s: Optional[float], real_duration_s: Optional[float]) -> bool:
+    """LagFails: |lagS| > max(0.5 s, 0.25 T_real)."""
+    if lag_s is None:
+        return False
+    return abs(lag_s) > max(MOTION_LAG_FAIL_MIN_S, MOTION_LAG_FAIL_REAL_FRACTION * (real_duration_s or 0.0))
+
+
+def motion_duration_fails(ratio: Optional[float]) -> bool:
+    """DurationFails: outside [0.6, 1.67]."""
+    return ratio is not None and (ratio < MOTION_DURATION_RATIO_FAIL_MIN or ratio > MOTION_DURATION_RATIO_FAIL_MAX)
+
+
+def motion_progress_disagrees(pose_t50: Optional[float], picture_t50: Optional[float],
+                              frame_interval_s: float) -> bool:
+    """ProgressDisagrees: the two t50 more than two frame intervals apart."""
+    return (pose_t50 is not None and picture_t50 is not None
+            and abs(pose_t50 - picture_t50) > MOTION_PROGRESS_DISAGREE_FRAMES * frame_interval_s)
+
+
+def motion_timing_diffs(recorded: Any, recomputed: Optional[Dict[str, Any]]) -> List[str]:
+    """Where a sidecar's ``timing`` block differs from ``motion_timing`` (numbers within
+    RECOMPUTE_FLOAT_TOLERANCE, None against null, flags exactly)."""
+    if not isinstance(recorded, dict) or recomputed is None:
+        return [] if recorded is None and recomputed is None else ["timing:missing"]
+    out: List[str] = []
+
+    def same(a: Any, b: Any) -> bool:
+        if a is None or b is None:
+            return a is None and b is None
+        return _finite(a) and _finite(b) and abs(a - b) <= RECOMPUTE_FLOAT_TOLERANCE
+
+    for side in ("real", "ghost"):
+        rec = recorded.get(side) if isinstance(recorded.get(side), dict) else {}
+        for key in MOTION_CROSSING_KEYS:
+            if not same(rec.get(key), recomputed[side][key]):
+                out.append("timing:%s.%s" % (side, key))
+    for key in MOTION_TIMING_NUMBER_KEYS:
+        if not same(recorded.get(key), recomputed[key]):
+            out.append("timing:%s" % key)
+    if list(recorded.get("flags") or []) != list(recomputed["flags"]):
+        out.append("timing:flags")
+    return out
 
 
 # ---------------------------------------------------------------------------

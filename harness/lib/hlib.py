@@ -5355,8 +5355,8 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
 # a widened sweep would overrun its step budget, a narrowed one would read as complete.
 PARTPARITY_VERB = "PartParitySweep"
 PARTPARITY_ARG_KEYS: Tuple[str, ...] = (
-    "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "views", "tile",
-    "shard", "limit", "controls", "maxSeconds",
+    "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "motion", "frames",
+    "views", "tile", "shard", "limit", "controls", "maxSeconds",
 )
 PARTPARITY_OP_VALUES: Tuple[str, ...] = ("reset", "run")
 PARTPARITY_SKINS_VALUES: Tuple[str, ...] = ("default", "all")
@@ -5379,6 +5379,17 @@ PARTPARITY_AIR_CONTEXT = "air"
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
 PARTPARITY_FX_KNOWN_VALUES: Tuple[str, ...] = PARTPARITY_FX_VALUES + ("plume-main",)
 PARTPARITY_FX_ALL_TOKEN = "all"
+# motion= (Appendix H.1; TryParseMotion over PartParityMotionRules): `none` (the default),
+# `all` (ArgWords, never `light`) or a csv of motion words (ArgKnownWords), with no states=, no
+# fx= and at most contexts=air beside it (MotionCombinationValid). frames= (4..16, default 8)
+# only on a motion run.
+PARTPARITY_MOTION_VALUES: Tuple[str, ...] = (
+    "deployable", "gear", "ladder", "animation-group", "cargo-bay", "animate-generic",
+    "airbrake", "parachute", "robotics", "control-surface",
+)
+PARTPARITY_MOTION_KNOWN_VALUES: Tuple[str, ...] = PARTPARITY_MOTION_VALUES + ("light",)
+PARTPARITY_MOTION_ALL_TOKEN = "all"
+PARTPARITY_FRAMES_RANGE: Tuple[int, int] = (4, 16)
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5393,7 +5404,7 @@ PARTPARITY_REASONS: Tuple[str, ...] = (
     "label-arg-missing", "label-arg-invalid", "op-arg-invalid",
     "filter-arg-invalid", "source-arg-invalid", "skins-arg-invalid",
     "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
-    "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
+    "motion-arg-invalid", "frames-arg-invalid", "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
     "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
@@ -5594,6 +5605,22 @@ def _partparity_fx_combination_ok(step_args: Dict) -> bool:
                  or set(contexts.split(",")) == {PARTPARITY_AIR_CONTEXT}))
 
 
+def _partparity_motion_ok(text: str) -> bool:
+    """TryParseMotion: ``none``, ``all``, or a csv of motion words."""
+    if text in (PARTPARITY_NONE_TOKEN, PARTPARITY_MOTION_ALL_TOKEN):
+        return True
+    if not text:
+        return False
+    return all(item in PARTPARITY_MOTION_KNOWN_VALUES for item in text.split(","))
+
+
+def _partparity_motion_combination_ok(step_args: Dict) -> bool:
+    """MotionCombinationValid: a motion= run names no states=, no fx= and at most
+    contexts=air (``none`` reads as absent)."""
+    return (str(step_args.get("fx", PARTPARITY_NONE_TOKEN)) == PARTPARITY_NONE_TOKEN
+            and _partparity_fx_combination_ok(step_args))
+
+
 def _partparity_views_ok(text: str) -> bool:
     """TryParseViews: ``required``, ``all``, or a csv of known view names."""
     if text in PARTPARITY_VIEWS_TOKENS:
@@ -5619,7 +5646,8 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
     ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
     of contexts (``air`` alone), ``fx`` none|all|a csv of FX words (no ``states`` and at most
-    ``contexts=air`` beside it), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``contexts=air`` beside it), ``motion`` none|all|a csv of motion words (no ``states``, no
+    ``fx`` and at most ``contexts=air`` beside it), ``frames`` 4..16 (a motion run only), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5683,6 +5711,25 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
         errors.append("driver.steps[%d].args.fx: an FX run plans FX cases only, so it names no "
                       "states= and at most contexts=air; the seam answers REJECTED "
                       "fx-arg-invalid" % index)
+    shaped("motion", _partparity_motion_ok,
+           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_MOTION_KNOWN_VALUES),
+           "motion-arg-invalid")
+    motion_text = handle_shape_probe(step_args.get("motion")) if "motion" in step_args else None
+    motion_run = (motion_text is not None and motion_text != PARTPARITY_NONE_TOKEN
+                  and _partparity_motion_ok(motion_text))
+    if motion_run and not _partparity_motion_combination_ok(step_args):
+        errors.append("driver.steps[%d].args.motion: a motion run plans motion cases only, so it "
+                      "names no states=, no fx= and at most contexts=air; the seam answers REJECTED "
+                      "motion-arg-invalid" % index)
+    if "frames" in step_args:
+        frames_text = handle_shape_probe(step_args.get("frames"))
+        if frames_text is not None and (
+                not _partparity_int_in_range(frames_text, *PARTPARITY_FRAMES_RANGE)
+                or (motion_text is not None and not motion_run)
+                or "motion" not in step_args):
+            errors.append("driver.steps[%d].args.frames: %r must be an integer %d..%d on a "
+                          "motion= run; the seam answers REJECTED frames-arg-invalid"
+                          % ((index, frames_text) + PARTPARITY_FRAMES_RANGE))
     shaped("views", _partparity_views_ok,
            "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
            "views-arg-invalid")
@@ -13517,6 +13564,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "states-arg-invalid": "driver-arg",
     "contexts-arg-invalid": "driver-arg",
     "fx-arg-invalid": "driver-arg",
+    "motion-arg-invalid": "driver-arg",
+    "frames-arg-invalid": "driver-arg",
     "views-arg-invalid": "driver-arg",
     "tile-arg-invalid": "driver-arg",
     "shard-arg-invalid": "driver-arg",
@@ -14315,6 +14364,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
     "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
+    "motion-arg-invalid", "frames-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",
