@@ -4996,6 +4996,20 @@ class MotionControlJudgeTests(unittest.TestCase):
         rate = {cid: _motion_case(cid, ghost=_ramp(0.5, 2.2), matched=False)[0]}
         self.assertIn("durationRatio=1.1", pp.judge_motion_control(cid, rate)[1])
 
+    def test_the_air_real_vs_real_judges_the_canopy_curves_only(self):
+        # H.3: the air control reads the canopy-scale curves only; stock aims each open canopy
+        # along its own airflow, so its end frames are never compared (C# passes true too).
+        mask = lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6)
+        air = pp.CONTROL_MOTION_REAL_VS_REAL_AIR
+        side = _motion_case(air, part="parachuteSingle", family="parachute", kind="canopy",
+                            state="motion-semi", context="air", matched=False,
+                            module="ModuleParachute", ghost_mask=mask)[0]
+        self.assertFalse(pp.motion_end_frames_within_allowance(pp.motion_block(side)))
+        self.assertEqual(pp.CONTROLS_OK, pp.judge_motion_control(air, {air: side})[0])
+        orbit = pp.CONTROL_MOTION_REAL_VS_REAL
+        self.assertIn("end frames differ", pp.judge_motion_control(orbit, {orbit: _motion_case(
+            orbit, ghost_mask=mask, matched=False)[0]})[1])
+
     def test_the_slow_judge_reads_the_onset_and_the_last_frame(self):
         cid = pp.CONTROL_MOTION_GHOST_SLOW
         kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21)
@@ -5307,6 +5321,94 @@ class MotionWindowCompletenessTests(MotionSweepFixture):
         text = " ".join(res.problems)
         self.assertIn("longantenna--default--motion-deployed--0000aaa1:motion-frames=3<5", text)
         self.assertIn("gearsmall--default--motion-deployed--0000aaa2:motion-real-not-reached=", text)
+
+
+def _with_end_views(doc, real=None, ghost=None):
+    """A motion sidecar in the shape the C# capture writes it (PartParityStateRun.FourRows
+    false): its views carry the end frame's measures with ``start`` and ``stowedRef`` null, and
+    its ``atlas`` is null (the frames live in ``motionAtlas``)."""
+    real, ghost = real or _deployed(), ghost or _deployed()
+    views = []
+    for v in MOTION_VIEWS:
+        rec = fx.view_record(v, real, ghost, STILE)
+        rec["start"] = rec["stowedRef"] = None
+        views.append(rec)
+    doc["views"], doc["atlas"] = views, None
+    return doc
+
+
+class MotionCaseIsNotAFourRowStateCaseTests(MotionSweepFixture):
+    """A motion state is a state case for the press gate and the row cross-checks, but the
+    capture writes it with FourRows false (PartParityMotionDriver.Attach): no four-row state
+    atlas and no ``start`` / ``stowedRef`` view blocks. The P6 view-block and state-atlas
+    checks therefore skip it; its evidence is the motion block, which completeness owes."""
+
+    def test_a_motion_run_in_the_captured_shape_reports_clean(self):
+        cases = [(_with_end_views(d), t) for d, t in _motion_cases()]
+        controls = {cid: [(_with_end_views(d), t) for d, t in _motion_controls(cid)]
+                    for cid in pp.MOTION_CONTROL_IDS}
+        res = self._eval(cases, controls=controls)
+        self.assertEqual([], [m for m in res.recompute_mismatches if "block missing" in m or "atlas rows" in m])
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        for doc, _ in cases:
+            self.assertFalse(pp.is_four_row_case(doc))
+            self.assertEqual([], pp.state_view_block_problems(doc))
+
+    def test_a_motion_cases_two_row_p6_atlas_recomputes_as_two_rows(self):
+        doc = _with_end_views(_motion_cases()[0][0])
+        doc["atlas"] = {"file": doc["caseId"] + pp.ATLAS_SUFFIX, "thumb": None, "tile": STILE,
+                        "rows": list(pp.ATLAS_ROWS), "cols": list(MOTION_VIEWS)}
+        rows = [[_deployed()] * len(MOTION_VIEWS), [_deployed()] * len(MOTION_VIEWS)]
+        atlas = (len(MOTION_VIEWS) * STILE, 2 * STILE, 4, _atlas_rows(rows))
+        self.assertEqual([], pp.recompute_case(doc, atlas))
+
+    def test_a_p6_state_case_still_owes_its_four_rows_and_view_blocks(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        for v in doc["views"]:
+            v["start"] = v["stowedRef"] = None
+        self.assertTrue(pp.is_four_row_case(doc))
+        problems = pp.state_view_block_problems(doc)
+        for v in fx.VIEWS:
+            self.assertIn("%s.start: block missing" % v, problems)
+            self.assertIn("%s.stowedRef: block missing" % v, problems)
+        doc["atlas"]["rows"] = list(pp.ATLAS_ROWS)
+        rows = [[_deployed()] * len(fx.VIEWS)] * 2
+        diffs = pp.recompute_case(doc, (len(fx.VIEWS) * STILE, 2 * STILE, 4, _atlas_rows(rows)))
+        self.assertIn("atlas rows=%s (expected %s)" % (list(pp.ATLAS_ROWS), list(pp.ATLAS_ROWS_STATE)),
+                      diffs)
+        # The same views under a motion state: a motion case, so neither check applies.
+        doc["state"] = doc["stateProof"]["state"] = "motion-deployed"
+        self.assertFalse(pp.is_four_row_case(doc))
+        self.assertEqual([], pp.state_view_block_problems(doc))
+        self.assertTrue(pp.is_state_case(doc["state"]))
+
+    def test_a_motion_control_without_its_motion_block_is_still_flagged(self):
+        # The control shape a capture that skipped the motion run writes: a two-row P6 atlas,
+        # a motion state, null start / stowedRef blocks, no motion block, no motion atlas. The
+        # C# outcome is left ``ok`` so the judge's own reading is what flags it.
+        cid = pp.CONTROL_MOTION_REAL_VS_REAL
+        body = fx.rect_mask(STILE, 3, 3, 6, 6)
+
+        def broken(d):
+            for name in os.listdir(d):
+                if name.startswith(cid + "."):
+                    os.remove(os.path.join(d, name))
+            fx.write_case(d, cid, "longAntenna", [body] * len(fx.VIEWS), [body] * len(fx.VIEWS), STILE)
+
+            def change(doc):
+                doc["state"] = "motion-deployed"
+                doc["motion"] = doc["motionAtlas"] = None
+                for v in doc["views"]:
+                    v["start"] = v["stowedRef"] = None
+            _rewrite(d, cid, change)
+
+        res = self._eval([(_with_end_views(d), t) for d, t in _motion_cases()], mutate=broken)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        text = " ".join(res.problems)
+        self.assertIn("%s:no-motion-block" % cid, text)
+        self.assertIn(cid + ":recorded-ok-judged-", text)
+        # Flagged as a missing motion block, not as a P6 state case it never was.
+        self.assertEqual([], [m for m in res.recompute_mismatches if m.startswith(cid + " ")])
 
 
 class MotionNoneToleranceTests(unittest.TestCase):

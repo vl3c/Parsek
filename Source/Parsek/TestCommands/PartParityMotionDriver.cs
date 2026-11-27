@@ -201,6 +201,12 @@ namespace Parsek.TestCommands
 
         private static bool IsTime(double s) => !double.IsNaN(s) && !double.IsInfinity(s) && s > 0.0;
 
+        /// <summary>Whether a P6-driven motion case's real motion is done: P6's reach for every
+        /// family, and for a surface (the airbrake, whose deploy flag flips at the press while
+        /// its surface still turns) also P6's settle (the surface still for 0.5 s, D.3).</summary>
+        internal static bool P6MotionDone(string kind, bool reached, bool settled)
+            => reached && (kind != PartParityMotionRules.KindSurface || settled);
+
         /// <summary>The servo's predicted run, or NaN.</summary>
         internal static double ServoPredicted(double rest, double target, double traverseVelocity)
             => PartParityMotionRules.ServoSeconds(rest, target, traverseVelocity);
@@ -342,8 +348,13 @@ namespace Parsek.TestCommands
             switch (controlId)
             {
                 case TestCommandPartParitySweep.ControlMotionRealVsReal:
-                case TestCommandPartParitySweep.ControlMotionRealVsRealAir:
                     return PartParityMotionRules.JudgeRealVsReal(e.Altered, e.FrameS, e.PredictedS, e.EndsWithinAllowance,
+                        e.SetupStatus, out detail);
+                case TestCommandPartParitySweep.ControlMotionRealVsRealAir:
+                    // The canopy-scale curves only (H.3): stock aims each open canopy along its own
+                    // airflow every tick, so two chutes falling side by side never draw the same
+                    // last frame (the chute pictures are report-only, D.4).
+                    return PartParityMotionRules.JudgeRealVsReal(e.Altered, e.FrameS, e.PredictedS, true,
                         e.SetupStatus, out detail);
                 case TestCommandPartParitySweep.ControlMotionGhostSlow:
                     return PartParityMotionRules.JudgeGhostSlow(e.Normal, e.Altered, e.FrameS, e.LastFramePasses,
@@ -473,6 +484,11 @@ namespace Parsek.TestCommands
         internal readonly List<Transform> RealTransforms = new List<Transform>();
         internal bool PartSpace;
         internal bool ScaleOnly;
+        /// <summary>A rigged canopy (ReStock): its progress transforms are the animated bones
+        /// under the canopy, read in full pose, not the canopy root's scale (H.1).</summary>
+        internal bool CanopyRigged;
+        /// <summary>The real canopy root, whose mean scale is a canopy's <c>realClock</c>.</summary>
+        internal Transform CanopyClock;
         internal readonly List<PartParityMotionTrack> RealTracks = new List<PartParityMotionTrack>();
 
         // ----- the real frames -----
@@ -987,6 +1003,8 @@ namespace Parsek.TestCommands
             ReadModule(b, m, part);
             m.PartSpace = a.Motion.PartSpace;
             m.ScaleOnly = a.Motion.ScaleOnly;
+            m.CanopyRigged = a.Motion.CanopyRigged;
+            if (m.Option.Kind == PartParityMotionRules.KindCanopy) m.CanopyClock = RealCanopyTransform(part);
             Dictionary<string, Transform> real = RealTransformsByPath(part);
             foreach (string path in a.Motion.TrackPaths)
             {
@@ -1034,8 +1052,45 @@ namespace Parsek.TestCommands
             }
             else if (m.Option.Kind == PartParityMotionRules.KindSurface && m.Module is ModuleControlSurface cs)
             {
-                m.SurfaceStartDeg = cs.currentDeployAngle;
+                m.SurfaceStartDeg = SurfaceDeflectionDeg(cs, out string source);
+                double angle = SurfaceDeployAngleDeg(cs);
+                double clip = PartParityMotionRules.SurfaceSeconds(angle, cs.actuatorSpeed);
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: surface {m.Option.Module} start={PartParityMotionPlan.Fmt(m.SurfaceStartDeg)}deg ({source}) " +
+                    $"deployAngle={PartParityMotionPlan.Fmt(angle)}deg actuatorSpeed={cs.actuatorSpeed.ToString("0.###", Ic)}deg/s " +
+                    $"clip={PartParityMotionPlan.Fmt(clip)}s (no Animation: stock turns the surface transform itself)");
             }
+        }
+
+        private static FieldInfo SurfaceField(string name)
+            => typeof(ModuleControlSurface).GetField(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+
+        /// <summary>The surface's actual deflection (stock's protected <c>deflection</c>, which
+        /// moves toward the target at <c>actuatorSpeed</c> and is what turns the transform);
+        /// <c>currentDeployAngle</c>, the deploy TARGET, when the field cannot be read.</summary>
+        private static double SurfaceDeflectionDeg(ModuleControlSurface cs, out string source)
+        {
+            if (SurfaceField("deflection")?.GetValue(cs) is float d)
+            {
+                source = "deflection";
+                return d;
+            }
+            source = "currentDeployAngle";
+            return cs.currentDeployAngle;
+        }
+
+        /// <summary>The deploy angle the press drives to: an airbrake's <c>aeroDeployAngle</c>,
+        /// any other surface's <c>deployAngle</c>.</summary>
+        private static double SurfaceDeployAngleDeg(ModuleControlSurface cs)
+            => cs is ModuleAeroSurface aero ? aero.aeroDeployAngle : cs.deployAngle;
+
+        /// <summary>The transform the surface module turns: its own <c>ctrlSurface</c>, else
+        /// its <c>transformName</c> model transform (stock's default <c>obj_ctrlSrf</c> when the
+        /// config names none).</summary>
+        private static Transform RealSurfaceTransform(PartModule module, Part part)
+        {
+            if (!(module is ModuleControlSurface cs)) return null;
+            if (SurfaceField("ctrlSurface")?.GetValue(cs) is Transform t && t != null) return t;
+            return !string.IsNullOrEmpty(cs.transformName) ? part.FindModelTransform(cs.transformName) : null;
         }
 
         // ----- progress transforms -----
@@ -1087,11 +1142,37 @@ namespace Parsek.TestCommands
                         list.Add(r.servoTransform);
                     break;
                 case PartParityMotionRules.KindCanopy:
-                    if (state.parachuteInfos != null && state.parachuteInfos.TryGetValue(pid, out ParachuteGhostInfo pc) && pc?.canopyTransform != null)
-                        list.Add(pc.canopyTransform);
+                    if (state.parachuteInfos != null && state.parachuteInfos.TryGetValue(pid, out ParachuteGhostInfo pc) && pc != null)
+                    {
+                        // A rigged canopy's deploy clips move the bones under the canopy, never the
+                        // root's scale (ReStock); a stock canopy has no bones and keeps its root.
+                        if (pc.canopyBones != null)
+                            foreach (CanopyBonePose b in pc.canopyBones)
+                                if (b?.bone != null && !list.Contains(b.bone)) list.Add(b.bone);
+                        if (list.Count == 0 && pc.canopyTransform != null) list.Add(pc.canopyTransform);
+                    }
                     break;
             }
             return list;
+        }
+
+        /// <summary>Whether the ghost's canopy is rigged: its info carries animated bones.</summary>
+        private static bool HasCanopyBones(GhostPlaybackState state, uint pid)
+        {
+            if (state?.parachuteInfos == null || !state.parachuteInfos.TryGetValue(pid, out ParachuteGhostInfo pc) || pc?.canopyBones == null)
+                return false;
+            foreach (CanopyBonePose b in pc.canopyBones)
+                if (b?.bone != null) return true;
+            return false;
+        }
+
+        /// <summary>The ghost transform at a part-relative path, or null.</summary>
+        private static Transform FindGhostByPath(Transform ghostRoot, string path)
+        {
+            if (ghostRoot == null || string.IsNullOrEmpty(path)) return null;
+            foreach (Transform t in ghostRoot.GetComponentsInChildren<Transform>(true))
+                if (t != null && string.Equals(GhostPath(ghostRoot, t), path, StringComparison.Ordinal)) return t;
+            return null;
         }
 
         private static string GhostPath(Transform ghostRoot, Transform t)
@@ -1103,22 +1184,23 @@ namespace Parsek.TestCommands
         private static void ResolveTracks(WaveCase wc, PartParityMotionRun m, Part part, GhostCoOrbitalRig.LiveGhost ghost)
         {
             uint pid = part.persistentId;
+            bool canopy = m.Option.Kind == PartParityMotionRules.KindCanopy;
             m.PartSpace = m.Option.Kind == PartParityMotionRules.KindServo;
-            m.ScaleOnly = m.Option.Kind == PartParityMotionRules.KindCanopy;
+            m.CanopyRigged = canopy && HasCanopyBones(ghost.State, pid);
+            m.ScaleOnly = canopy && !m.CanopyRigged;
+            if (canopy) m.CanopyClock = RealCanopyTransform(part);
             Transform root = ghost.Build.root.transform;
             Dictionary<string, Transform> real = RealTransformsByPath(part);
             int unpaired = 0;
-            foreach (Transform gt in GhostTrackTransforms(ghost.State, pid, m.Option))
+            List<Transform> ghostTracks = GhostTrackTransforms(ghost.State, pid, m.Option);
+            foreach (Transform gt in ghostTracks)
             {
                 string path = GhostPath(root, gt);
                 Transform rt = null;
                 if (m.Option.Kind == PartParityMotionRules.KindServo)
                     rt = RealServoTransform(m.Module, part);
-                else if (m.Option.Kind == PartParityMotionRules.KindCanopy)
-                {
-                    ModuleParachute chute = part.FindModuleImplementing<ModuleParachute>();
-                    rt = chute != null && !string.IsNullOrEmpty(chute.canopyName) ? part.FindModelTransform(chute.canopyName) : null;
-                }
+                else if (canopy && !m.CanopyRigged)
+                    rt = m.CanopyClock;
                 else if (!real.TryGetValue(path, out rt))
                     rt = part.FindModelTransform(gt.name);
                 if (rt == null) { unpaired++; continue; }
@@ -1126,9 +1208,36 @@ namespace Parsek.TestCommands
                 m.RealTransforms.Add(rt);
                 m.RealTracks.Add(new PartParityMotionTrack { Path = path });
             }
+            string source = canopy ? (m.CanopyRigged ? "canopy-bones" : "canopy-root") : "ghost-info";
+            // A surface the ghost built no deploy info for still moves on the real part: its
+            // progress is the module's own transform, paired by path with whatever the ghost
+            // holds there (nothing turns it, so the ghost reads motion-not-modelled, H.1).
+            if (ghostTracks.Count == 0 && m.Option.Kind == PartParityMotionRules.KindSurface)
+            {
+                Transform rt = RealSurfaceTransform(m.Module, part);
+                if (rt != null)
+                {
+                    string path = PartParityStructure.NormalizePath(PartParityCaseCapture.RelativePath(part.transform, rt));
+                    m.TrackPaths.Add(path);
+                    m.RealTransforms.Add(rt);
+                    m.RealTracks.Add(new PartParityMotionTrack { Path = path });
+                    source = "real-module";
+                    ParsekLog.Info(Tag, $"case {wc.CaseId}: the ghost holds no deploy transform for {m.Option.Module}; " +
+                        $"progress from the real module's surface transform {path} (ghost at that path: " +
+                        $"{(FindGhostByPath(root, path) != null ? "present" : "absent")})");
+                }
+                else
+                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: no surface transform on the real {m.Option.Module} and none on the ghost");
+            }
             if (unpaired > 0) wc.Flags.Add("motion-transform-unpaired:" + unpaired.ToString(Ic));
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: progress transforms paired={m.TrackPaths.Count.ToString(Ic)} " +
-                $"unpaired={unpaired.ToString(Ic)} [{string.Join(",", m.TrackPaths.ToArray())}]");
+                $"unpaired={unpaired.ToString(Ic)} source={source} [{string.Join(",", m.TrackPaths.ToArray())}]");
+        }
+
+        private static Transform RealCanopyTransform(Part part)
+        {
+            ModuleParachute chute = part.FindModuleImplementing<ModuleParachute>();
+            return chute != null && !string.IsNullOrEmpty(chute.canopyName) ? part.FindModelTransform(chute.canopyName) : null;
         }
 
         private static Transform RealServoTransform(PartModule module, Part part)
@@ -1156,7 +1265,7 @@ namespace Parsek.TestCommands
                 if (!byPath.ContainsKey(p)) byPath[p] = t;
             }
             var list = new List<Transform>();
-            foreach (string p in m.TrackPaths) list.Add(byPath.TryGetValue(p, out Transform t) ? t : null);
+            foreach (string p in m.TrackPaths) list.Add(byPath.TryGetValue(p, out Transform t) ? t : FindGhostByPath(root, p));
             return list;
         }
 
@@ -1249,6 +1358,7 @@ namespace Parsek.TestCommands
                         pc.canopyTransform.localScale = full ? pc.deployedCanopyScale : pc.semiDeployedCanopyScale;
                         pc.canopyTransform.localPosition = full ? pc.deployedCanopyPos : pc.semiDeployedCanopyPos;
                         pc.canopyTransform.localRotation = full ? pc.deployedCanopyRot : pc.semiDeployedCanopyRot;
+                        GhostPlaybackLogic.ApplyCanopyBonePoses(pc, full ? CanopyPoseStage.Deployed : CanopyPoseStage.SemiDeployed);
                     }
                     break;
             }
@@ -1448,10 +1558,14 @@ namespace Parsek.TestCommands
             {
                 if (!run.Done) PartParityStateDriver.Step(wc);
                 else PartParityStateDriver.Poll(wc.Real, run);
-                if (wc.Status == null && run.Reached && double.IsNaN(m.DoneS))
+                bool settledSurface = m.Option.Kind == PartParityMotionRules.KindSurface;
+                if (wc.Status == null && PartParityMotionPlan.P6MotionDone(m.Option.Kind, run.Reached, run.Done) && double.IsNaN(m.DoneS))
                 {
-                    m.DoneS = !double.IsNaN(run.ReachedUT) ? run.ReachedUT - m.PressUT : offset;
-                    ParsekLog.Verbose(Tag, $"case {wc.CaseId}: real done at {PartParityMotionPlan.Fmt(m.DoneS)}s ({run.EndpointField}={run.EndpointValue})");
+                    // An airbrake's deploy flag flips on the press frame, before its surface
+                    // turns: its motion is done when P6's settle saw the surface still (H.2).
+                    m.DoneS = settledSurface || double.IsNaN(run.ReachedUT) ? offset : run.ReachedUT - m.PressUT;
+                    ParsekLog.Verbose(Tag, $"case {wc.CaseId}: real done at {PartParityMotionPlan.Fmt(m.DoneS)}s ({run.EndpointField}={run.EndpointValue})" +
+                        (settledSurface ? " surface settled" : string.Empty));
                 }
                 return;
             }
@@ -1473,10 +1587,9 @@ namespace Parsek.TestCommands
             }
             else if (m.Module is ModuleControlSurface cs)
             {
-                double a = cs.currentDeployAngle;
+                double a = SurfaceDeflectionDeg(cs, out field);
                 m.SurfaceSamples.Add(new KeyValuePair<double, double>(offset, a));
                 done = PartParityMotionPlan.SurfaceDone(m.SurfaceSamples, m.SurfaceStartDeg);
-                field = "currentDeployAngle";
                 value = a.ToString("0.###", Ic);
             }
             if (done)
@@ -1519,7 +1632,7 @@ namespace Parsek.TestCommands
                 ? PartParityMotionPlan.ServoPredicted(m.Rest, m.Target, m.TraverseVelocity) : double.NaN;
             double surface = double.NaN;
             if (m.Option.Kind == PartParityMotionRules.KindSurface && m.Module is ModuleControlSurface cs)
-                surface = PartParityMotionRules.SurfaceSeconds(cs.deployAngle, cs.actuatorSpeed);
+                surface = PartParityMotionRules.SurfaceSeconds(SurfaceDeployAngleDeg(cs), cs.actuatorSpeed);
             double t = PartParityMotionPlan.ChoosePredicted(m.Option.Kind, playing, servo, surface, LongestClipSeconds(part), out string source);
             bool final = source != "longest-clip" && source != "cap";
             if (double.IsNaN(m.PredictedS) || final || m.TargetsS.Count <= 1)
@@ -1607,14 +1720,16 @@ namespace Parsek.TestCommands
                 case PartParityMotionRules.KindSurface:
                     if (m.Module is ModuleControlSurface cs)
                     {
-                        if (!m.P6Driven) { m.FieldName = "currentDeployAngle"; stateValue = cs.currentDeployAngle.ToString("0.###", Ic); }
-                        return cs.currentDeployAngle;
+                        double deflection = SurfaceDeflectionDeg(cs, out string source);
+                        if (!m.P6Driven) { m.FieldName = source; stateValue = deflection.ToString("0.###", Ic); }
+                        return deflection;
                     }
                     return double.NaN;
                 case PartParityMotionRules.KindCanopy:
-                    if (m.RealTransforms.Count > 0 && m.RealTransforms[0] != null)
+                    Transform clock = m.CanopyClock ?? (m.RealTransforms.Count > 0 ? m.RealTransforms[0] : null);
+                    if (clock != null)
                     {
-                        Vector3 s = m.RealTransforms[0].localScale;
+                        Vector3 s = clock.localScale;
                         return (s.x + s.y + s.z) / 3.0;
                     }
                     return double.NaN;
