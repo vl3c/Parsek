@@ -539,7 +539,8 @@ namespace Parsek.Tests
         [Fact]
         public void TheSidecarCarriesTheBurstAndDustBlocks_NullOnEveryOtherCase()
         {
-            Assert.Equal(new[] { "fx", "fxAtlas", "strip", "burst", "dust" }, PartParityJson.CaseKeys.Skip(PartParityJson.CaseKeys.Length - 5));
+            int fx = System.Array.IndexOf(PartParityJson.CaseKeys, "fx");
+            Assert.Equal(new[] { "fx", "fxAtlas", "strip", "burst", "dust" }, PartParityJson.CaseKeys.Skip(fx).Take(5));
             Assert.Equal(PartParityJson.BurstKeys.Length, PartParityJson.BurstKeys.Distinct().Count());
             Assert.Equal(PartParityJson.DustKeys.Length, PartParityJson.DustKeys.Distinct().Count());
             Assert.Equal(new[] { "real-flame", "ghost-flame", "real-smoke", "ghost-smoke" }, PartParityJson.BurstAtlasRows);

@@ -112,7 +112,9 @@ namespace Parsek.Tests
             "  \"fxAtlas\": null,\n" +
             "  \"strip\": null,\n" +
             "  \"burst\": null,\n" +
-            "  \"dust\": null\n" +
+            "  \"dust\": null,\n" +
+            "  \"motion\": null,\n" +
+            "  \"motionAtlas\": null\n" +
             "}\n";
 
         [Fact]

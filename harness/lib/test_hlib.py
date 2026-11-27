@@ -19572,6 +19572,70 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         # contexts= is canonicalised as the C# parse does: air,air is the air context.
         self.assertEqual([], v(0, {"label": "pp10", "fx": "plume", "contexts": "air,air"}))
 
+    def test_the_motion_arg_mirrors_the_c_sharp(self):
+        # motion= / frames= (design-part-ghost-parity.md Appendix H): the words are
+        # PartParityMotionRules', the parse reads them through TryParseMotion and
+        # MotionCombinationValid after states=, contexts= and fx=, and frames= only on a
+        # motion run, in PartParityMotionRules' range.
+        text, consts = self._pure()
+        mo_text = self._source("TestCommands", "PartParityMotionRules.cs")
+        mo = self._string_consts(mo_text)
+        for name, ref in re.findall(r"internal const string (\w+) = PartParityStateRules\.(\w+);", mo_text):
+            mo[name] = self._string_consts(self._source("TestCommands", "PartParityStateRules.cs"))[ref]
+        self.assertEqual(list(hlib.PARTPARITY_MOTION_VALUES), self._identifier_array(mo_text, "ArgWords", mo))
+        self.assertEqual(list(hlib.PARTPARITY_MOTION_KNOWN_VALUES),
+                         self._identifier_array(mo_text, "ArgKnownWords", mo))
+        self.assertEqual(hlib.PARTPARITY_MOTION_ALL_TOKEN, mo["ArgAllToken"])
+        self.assertEqual(hlib.PARTPARITY_FRAMES_RANGE,
+                         (self._int_const(mo_text, "MinFramesPerMotion"),
+                          self._int_const(mo_text, "MaxFramesPerMotion")))
+        body = text[text.index("internal static bool TryParseMotion("):]
+        body = body[:body.index("internal static bool MotionCombinationValid(")]
+        self.assertIn("motion = new List<string>(PartParityMotionRules.ArgWords);", body)
+        self.assertIn("return TryParseKnownCsv(raw, PartParityMotionRules.ArgKnownWords, out motion);", body)
+        parse = text[text.index("internal static bool TryParseGrammar("):text.index(
+            "private static bool Reject(")]
+        self.assertIn("TryParseMotion(raw, out List<string> motion, out bool motionAll)", parse)
+        self.assertIn("|| (motion != null && !MotionCombinationValid(a)))", parse)
+        self.assertIn("{ rejectReason = MotionArgInvalidReason; return Reject(\"motion\", raw, out rejectDetail); }", parse)
+        self.assertIn("{ rejectReason = FramesArgInvalidReason; return Reject(\"frames\", raw, out rejectDetail); }", parse)
+        self.assertIn("if (!IsMotionRun(a)", parse)
+        self.assertIn("PartParityMotionRules.MinFramesPerMotion", parse)
+        self.assertLess(parse.index('Get(args, "fx")'), parse.index('Get(args, "motion")'))
+        self.assertLess(parse.index('Get(args, "motion")'), parse.index('Get(args, "frames")'))
+        combo = text[text.index("internal static bool MotionCombinationValid("):]
+        combo = combo[:combo.index(";") + 1]
+        self.assertIn("a.States == null && a.Fx == null", combo)
+        self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
+                      combo)
+        self.assertNotIn("motion-runs-not-built", text)
+
+    def test_the_motion_validator_answers_what_the_seam_answers(self):
+        v = hlib.validate_part_parity_sweep_step
+        for step, reason in (
+                ({"label": "pp14", "motion": "all", "states": "all"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "fx": "plume"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "contexts": "stacked"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "All"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "gear,"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "jettison"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "frames": "3"}, "frames-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "frames": "17"}, "frames-arg-invalid"),
+                ({"label": "pp14", "frames": "8"}, "frames-arg-invalid"),
+                ({"label": "pp14", "motion": "none", "frames": "8"}, "frames-arg-invalid")):
+            with self.subTest(step=step):
+                errors = v(0, step)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(reason, errors[0])
+        for motion in ("all", "gear", "robotics,control-surface", "light"):
+            self.assertEqual([], v(0, {"label": "pp14", "motion": motion}))
+            self.assertEqual([], v(0, {"label": "pp14", "motion": motion, "frames": "12"}))
+            self.assertEqual([], v(0, {"label": "pp5mo", "motion": motion, "contexts": "air"}))
+        # motion=none is no motion run: a P6 or P8 step beside it validates as before.
+        self.assertEqual([], v(0, {"label": "pp3", "motion": "none", "states": "all"}))
+        self.assertEqual([], v(0, {"label": "pp7", "motion": "none", "fx": "all"}))
+        self.assertEqual([], v(0, {"label": "pp14", "motion": "all", "fx": "none", "states": "none"}))
+
     def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
         text, consts = self._pure()
         self.assertEqual(list(hlib.PARTPARITY_REASONS),

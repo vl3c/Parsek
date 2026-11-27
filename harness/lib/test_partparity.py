@@ -1106,6 +1106,169 @@ class PartParitySourceSyncTests(unittest.TestCase):
             raise AssertionError("numeric const %s not found" % name)
         return float(m.group(1))
 
+    # ----- the P7 motion contract (Appendix H, M1) -----
+
+    @staticmethod
+    def _motion_num(text, name):
+        m = re.search(r"internal const (?:int|double) %s = ([0-9.eE+-]+);" % re.escape(name), text)
+        if m is None:
+            raise AssertionError("numeric const %s not found" % name)
+        return float(m.group(1))
+
+    def _motion_consts(self):
+        text = self._source("PartParityMotionRules.cs")
+        rules = self._string_consts(self._source("PartParityStateRules.cs"))
+        sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
+        plan = self._string_consts(self._source("PartParitySweepPlan.cs"))
+        consts = self._string_consts(text)
+        for owner, table in (("PartParityStateRules", rules), ("TestCommandPartParitySweep", sweep),
+                             ("PartParitySweepPlan", plan)):
+            for name, ref in re.findall(r"internal const string (\w+) = %s\.(\w+);" % owner, text):
+                consts[name] = table[ref]
+        return text, consts, {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
+
+    def test_the_motion_rules_tables(self):
+        text, consts, others = self._motion_consts()
+        for cs, mirror in (("Families", pp.MOTION_FAMILIES), ("ArgWords", pp.MOTION_ARG_WORDS),
+                           ("ArgKnownWords", pp.MOTION_ARG_KNOWN_WORDS), ("Kinds", pp.MOTION_KINDS),
+                           ("States", pp.MOTION_STATES), ("OrbitContexts", pp.MOTION_ORBIT_CONTEXTS),
+                           ("ServoModules", pp.MOTION_SERVO_MODULES),
+                           ("ExclusionReasons", pp.MOTION_EXCLUSION_REASONS),
+                           ("Channels", pp.MOTION_CHANNELS), ("DefaultViews", pp.MOTION_DEFAULT_VIEWS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._qualified_array(text, cs, consts, others))
+        self.assertEqual(list(pp.MOTION_CROSSING_KEYS), self._string_array(text, "CrossingKeys"))
+        m = re.search(r"CrossingLevels\s*=\s*\{(.*?)\};", text, flags=re.S)
+        self.assertEqual(list(pp.MOTION_CROSSING_LEVELS), [float(x) for x in re.findall(r"[0-9.]+", m.group(1))])
+        for name, mirror in (("ArgLight", pp.MOTION_ARG_LIGHT), ("ArgAllToken", pp.MOTION_ARG_ALL),
+                             ("KindServo", pp.MOTION_KIND_SERVO), ("StatePrefix", pp.MOTION_STATE_PREFIX),
+                             ("ContextRadial", pp.CONTEXT_RADIAL),
+                             ("RadialFillerPart", pp.MOTION_RADIAL_FILLER_PART),
+                             ("ModuleServoRotor", pp.MOTION_ROTOR_MODULE),
+                             ("FlagMotionSnap", pp.FLAG_MOTION_SNAP), ("FlagMotionStepped", pp.FLAG_MOTION_STEPPED),
+                             ("FlagMotionNotModelled", pp.FLAG_MOTION_NOT_MODELLED),
+                             ("FlagWindowCapped", pp.FLAG_MOTION_WINDOW_CAPPED),
+                             ("FlagClippedAtBorder", pp.FLAG_MOTION_CLIPPED_AT_BORDER),
+                             ("FlagFrameJitterPrefix", pp.FLAG_FRAME_JITTER_PREFIX),
+                             ("FlagNoMatch", pp.FLAG_MOTION_NO_MATCH),
+                             ("FlagScoutRenderDisagree", pp.FLAG_SCOUT_RENDER_DISAGREE),
+                             ("FlagTravelDiffers", pp.FLAG_TRAVEL_DIFFERS),
+                             ("FlagProgressDisagree", pp.FLAG_PROGRESS_DISAGREE),
+                             ("ControlPart", pp.MOTION_CONTROL_PART), ("ControlSlowPart", pp.MOTION_CONTROL_SLOW_PART),
+                             ("ControlAirPart", pp.MOTION_CONTROL_AIR_PART),
+                             ("MotionCountsLiteral", pp.MOTION_COUNTS_LITERAL)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+
+    def test_the_motion_constants(self):
+        text = self._source("PartParityMotionRules.cs")
+        for name, mirror in (
+                ("MinPredictedSeconds", pp.MOTION_MIN_PREDICTED_S), ("MaxPredictedSeconds", pp.MOTION_MAX_PREDICTED_S),
+                ("DefaultFramesPerMotion", pp.MOTION_DEFAULT_FRAMES),
+                ("MinFramesPerMotion", pp.MOTION_MIN_FRAMES_PER_MOTION),
+                ("MaxFramesPerMotion", pp.MOTION_MAX_FRAMES_PER_MOTION),
+                ("DoublingBlockMotions", pp.MOTION_DOUBLING_BLOCK_MOTIONS),
+                ("WindowPadSeconds", pp.MOTION_WINDOW_PAD_S), ("WindowCapSeconds", pp.MOTION_WINDOW_CAP_S),
+                ("ServoStopHoldSeconds", pp.MOTION_SERVO_STOP_HOLD_S), ("ScoutStepSeconds", pp.MOTION_SCOUT_STEP_S),
+                ("ScoutMergeEpsilonSeconds", pp.MOTION_SCOUT_MERGE_EPSILON_S),
+                ("FramingGrowFraction", pp.MOTION_FRAMING_GROW_FRACTION), ("MotionTilePx", pp.MOTION_TILE_PX),
+                ("ServoSweepDeg", pp.MOTION_SERVO_SWEEP_DEG), ("PistonSweepFraction", pp.MOTION_PISTON_SWEEP_FRACTION),
+                ("TransformStillDeg", pp.MOTION_TRANSFORM_STILL_DEG), ("TransformStillM", pp.MOTION_TRANSFORM_STILL_M),
+                ("TransformStillScale", pp.MOTION_TRANSFORM_STILL_SCALE),
+                ("ShapeBandLow", pp.MOTION_SHAPE_BAND_LOW), ("ShapeBandHigh", pp.MOTION_SHAPE_BAND_HIGH),
+                ("MatchJumpMax", pp.MOTION_MATCH_JUMP_MAX), ("ScoutRenderTolerance", pp.MOTION_SCOUT_RENDER_TOLERANCE),
+                ("SnapLow", pp.MOTION_SNAP_LOW), ("SnapHigh", pp.MOTION_SNAP_HIGH),
+                ("SnapRealMinFrames", pp.MOTION_SNAP_REAL_MIN_FRAMES), ("StepRealRise", pp.MOTION_STEP_REAL_RISE),
+                ("StepStillEpsilon", pp.MOTION_STEP_STILL_EPSILON), ("StepMinHolds", pp.MOTION_STEP_MIN_HOLDS),
+                ("StepHoldLow", pp.MOTION_STEP_HOLD_LOW), ("StepHoldHigh", pp.MOTION_STEP_HOLD_HIGH),
+                ("NotModelledReal", pp.MOTION_NOT_MODELLED_REAL), ("NotModelledGhost", pp.MOTION_NOT_MODELLED_GHOST),
+                ("LagFailMinSeconds", pp.MOTION_LAG_FAIL_MIN_S), ("LagFailRealFraction", pp.MOTION_LAG_FAIL_REAL_FRACTION),
+                ("DurationRatioFailMin", pp.MOTION_DURATION_RATIO_FAIL_MIN),
+                ("DurationRatioFailMax", pp.MOTION_DURATION_RATIO_FAIL_MAX),
+                ("CurveShapeFail", pp.MOTION_CURVE_SHAPE_FAIL),
+                ("ServoAngleFailMinDeg", pp.MOTION_SERVO_ANGLE_FAIL_MIN_DEG),
+                ("ServoAngleFailSweepFraction", pp.MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION),
+                ("DurationRatioWarnMin", pp.MOTION_DURATION_RATIO_WARN_MIN),
+                ("DurationRatioWarnMax", pp.MOTION_DURATION_RATIO_WARN_MAX),
+                ("WarnFraction", pp.MOTION_WARN_FRACTION), ("MinFrames", pp.MOTION_MIN_FRAMES),
+                ("RealReachedProgress", pp.MOTION_REAL_REACHED_PROGRESS),
+                ("TravelDiffersMin", pp.MOTION_TRAVEL_DIFFERS_MIN), ("TravelDiffersMax", pp.MOTION_TRAVEL_DIFFERS_MAX),
+                ("ProgressDisagreeFrames", pp.MOTION_PROGRESS_DISAGREE_FRAMES),
+                ("LateShiftSeconds", pp.MOTION_LATE_SHIFT_S), ("SlowClipFactor", pp.MOTION_SLOW_CLIP_FACTOR),
+                ("RealVsRealLagMotionFraction", pp.MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION),
+                ("RealVsRealDurationTolerance", pp.MOTION_REAL_VS_REAL_DURATION_TOLERANCE),
+                ("RealVsRealCurveShapeMax", pp.MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX),
+                ("SlowRatioMin", pp.MOTION_SLOW_RATIO_MIN), ("SlowRatioMax", pp.MOTION_SLOW_RATIO_MAX),
+                ("LateLagMin", pp.MOTION_LATE_LAG_MIN), ("LateLagMax", pp.MOTION_LATE_LAG_MAX),
+                ("LateDurationTolerance", pp.MOTION_LATE_DURATION_TOLERANCE)):
+            with self.subTest(const=name):
+                self.assertEqual(float(mirror), self._motion_num(text, name))
+        # The two surface constants are the airbrake rule (D.3), by reference.
+        self.assertIn("internal const double SurfaceStillDeg = PartParityStateRules.AirbrakeStillDeg;", text)
+        self.assertIn("internal const double SurfaceStillWindowSeconds = PartParityStateRules.AirbrakeWindowSeconds;", text)
+
+    def test_the_motion_math_is_the_csharp_shape(self):
+        # The definitions motion_timing transcribes, by their code shape.
+        text = self._source("PartParityMotionRules.cs")
+        self.assertIn("int m = k <= block ? 0 : (k - 1) / block;", text)
+        self.assertIn("return blockStart + (k - m * block) * s * Math.Pow(2.0, m);", text)
+        self.assertIn("return s[k - 1] + (level - p[k - 1]) * (s[k] - s[k - 1]) / (p[k] - p[k - 1]);", text)
+        self.assertIn("if (!(realP[k] > ShapeBandLow && realP[k] < ShapeBandHigh)) continue;", text)
+        self.assertIn("t.LagS = Diff(t.GhostCrossings[2], t.RealCrossings[2]);", text)
+        self.assertIn("t.DurationRatio = Ratio(Diff(t.GhostCrossings[3], t.GhostCrossings[1]), "
+                      "Diff(t.RealCrossings[3], t.RealCrossings[1]));", text)
+        timing = text[text.index("internal static PartParityMotionTiming Timing("):]
+        timing = timing[:timing.index("private static double Max(")]
+        # The flags in their order: travel-differs, then not-modelled, snap, stepped.
+        order = [timing.index(f) for f in ("FlagTravelDiffers", "FlagMotionNotModelled", "FlagMotionSnap",
+                                           "FlagMotionStepped")]
+        self.assertEqual(sorted(order), order)
+        self.assertIn("Snapped(s.RealProgress, s.GhostSameProgress)", timing)
+        self.assertIn("NotModelled(s.RealProgress, s.ScoutProgress)", timing)
+
+    def test_the_motion_key_tables(self):
+        text = self._source("PartParityJson.cs")
+        for cs, mirror in (("MotionKeys", pp.MOTION_KEYS), ("MotionWindowKeys", pp.MOTION_WINDOW_KEYS),
+                           ("MotionScoutKeys", pp.MOTION_SCOUT_KEYS), ("MotionFrameKeys", pp.MOTION_FRAME_KEYS),
+                           ("MotionFrameViewKeys", pp.MOTION_FRAME_VIEW_KEYS),
+                           ("MotionTransformKeys", pp.MOTION_TRANSFORM_KEYS),
+                           ("MotionTimingKeys", pp.MOTION_TIMING_KEYS),
+                           ("MotionCrossingKeys", pp.MOTION_CROSSING_KEYS),
+                           ("MotionAtlasKeys", pp.MOTION_ATLAS_KEYS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        consts = self._string_consts(text)
+        self.assertEqual((pp.MOTION_ROW_REAL, pp.MOTION_ROW_GHOST, pp.MOTION_ROW_GHOST_MATCHED),
+                         (consts["MotionRowReal"], consts["MotionRowGhost"], consts["MotionRowGhostMatched"]))
+        rows = text[text.index("internal static string[] MotionAtlasRows("):]
+        rows = rows[:rows.index("return rows.ToArray();")]
+        self.assertLess(rows.index("MotionRowReal + "), rows.index("MotionRowGhost + "))
+        self.assertIn("if (matched) rows.Add(MotionRowGhostMatched + \":\" + v);", rows)
+
+    def test_the_motion_sweep_contract(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS_MOTION_ORBIT), self._ident_array(text, "MotionOrbitControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_MOTION_AIR), self._ident_array(text, "MotionAirControlIds", consts))
+        self.assertEqual((pp.SETTING_MOTION, pp.SETTING_FRAMES), (consts["SettingMotion"], consts["SettingFrames"]))
+        self.assertEqual(pp.MOTION_ATLAS_SUFFIX, consts["MotionAtlasSuffix"])
+        # ControlSetFor reads the motion run FIRST, and IsMotionRun is `motion` not none.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertLess(body.index("IsMotionRun(args)"), body.index("IsFxRun(args)"))
+        self.assertIn("IsAirRun(args) ? MotionAirControlIds : MotionOrbitControlIds", body)
+        self.assertIn("internal static bool IsMotionRun(PartParitySweepArgs args) => args?.Motion != null;", text)
+        settings = text[text.index("internal static List<KeyValuePair<string, string>> StateSettings("):]
+        settings = settings[:settings.index("internal static string[] ControlSetFor(")]
+        self.assertLess(settings.index("SettingFx"), settings.index("SettingMotion"))
+        self.assertLess(settings.index("SettingMotion"), settings.index("SettingFrames"))
+        self.assertIn("if (IsMotionRun(args))", settings)
+        plan = text[text.index("internal static List<PartParityPlannedCase> PlanCases("):]
+        plan = plan[:plan.index("private static bool SourceSelected(")]
+        self.assertLess(plan.index("IsMotionRun(args)"), plan.index("IsFxRun(args)"))
+        self.assertEqual(pp.CONTROL_IDS_MOTION_ORBIT, pp.control_set({"motion": "all"}))
+        self.assertEqual(pp.CONTROL_IDS_MOTION_AIR, pp.control_set({"motion": "all", "contexts": "air"}))
+
     def test_the_fx_rules_tables(self):
         text, consts, rules, sweep = self._fx_consts()
         others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
@@ -1480,7 +1643,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
                 self.assertEqual(list(mirror), self._string_array(text, cs))
         for key, table in (("burst", "BurstKeys"), ("dust", "DustKeys")):
             self.assertRegex(text, r'M\("%s", KeyedBlock\(%s, c\.\w+\)\)' % (key, table))
-        self.assertEqual(("burst", "dust"), pp.CASE_KEYS[-2:])
+        burst = pp.CASE_KEYS.index("burst")
+        self.assertEqual(("strip", "burst", "dust"), pp.CASE_KEYS[burst - 1:burst + 2])
 
     def test_with_every_p8_fx_value_the_control_set_is_unchanged(self):
         # The no-change cell of design G.7 on the Python side: the settings every P8 run could
@@ -1494,6 +1658,141 @@ class PartParitySourceSyncTests(unittest.TestCase):
                     self.assertIsNone(pp.control_set_disagreement(
                         {"settings": dict(settings, controlSet=",".join(want))}))
         self.assertEqual(pp.FX_ARG_WORDS, pp.FX_KNOWN_ARG_WORDS[:4])
+
+
+class PartParityMotionMathTests(unittest.TestCase):
+    """The P7 motion contract's Python half (Appendix H, piece M1): the committed timing
+    golden is exactly what harness/tools/build_motion_timing_golden.py writes (the C#
+    PartParityMotionRulesTests recompute it within 1e-9), each synthetic curve moves only its
+    own measure, the frame schedule agrees with the C# cells' numbers, the sidecar reader
+    builds the series the timing reads, and with motion=none every P6 / P8 manifest's control
+    set is what it was."""
+
+    GOLDEN = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "Fixtures", "PartParity", "motion",
+                          "timing-golden.json")
+
+    @staticmethod
+    def _builder():
+        import importlib.util
+        path = os.path.join(REPO_ROOT, "harness", "tools", "build_motion_timing_golden.py")
+        spec = importlib.util.spec_from_file_location("build_motion_timing_golden", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _golden(self):
+        with open(self.GOLDEN, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_the_committed_golden_is_the_builders(self):
+        b = self._builder()
+        with open(self.GOLDEN, encoding="utf-8") as fh:
+            committed = fh.read()
+        self.assertEqual(b.render(b.build()), committed,
+                         "re-run python harness/tools/build_motion_timing_golden.py --write")
+
+    def test_each_curve_moves_exactly_its_own_measure(self):
+        cases = self._golden()["cases"]
+        same = pp.motion_timing(cases[0]["series"])
+        self.assertEqual("same", cases[0]["name"])
+        self.assertEqual([], same["flags"])
+        for c in cases:
+            with self.subTest(case=c["name"]):
+                t = pp.motion_timing(c["series"])
+                self.assertEqual([], pp.motion_timing_diffs(c["timing"], t))
+                moves = set(c["moves"])
+                for key in pp.MOTION_TIMING_NUMBER_KEYS:
+                    a, b = t[key], same[key]
+                    unchanged = (a is None and b is None) or (
+                        a is not None and b is not None and abs(a - b) <= pp.RECOMPUTE_FLOAT_TOLERANCE)
+                    self.assertEqual(key in moves, not unchanged, key)
+                self.assertEqual(sorted(m[5:] for m in moves if m.startswith("flag:")), sorted(t["flags"]))
+        by = {c["name"]: pp.motion_timing(c["series"]) for c in cases}
+        self.assertAlmostEqual(1.0, by["late"]["lagS"], places=9)
+        self.assertAlmostEqual(2.0, by["slow"]["durationRatio"], places=9)
+        self.assertTrue(pp.motion_lag_fails(by["late"]["lagS"], pp.motion_real_duration(by["late"])))
+        self.assertTrue(pp.motion_duration_fails(by["slow"]["durationRatio"]))
+        self.assertFalse(pp.motion_duration_fails(by["same"]["durationRatio"]))
+
+    def test_a_recorded_timing_block_that_differs_is_named(self):
+        c = self._golden()["cases"][1]
+        t = pp.motion_timing(c["series"])
+        rec = json.loads(json.dumps(c["timing"]))
+        rec["lagS"] += 1e-6
+        rec["real"]["t50"] = None
+        rec["flags"] = ["motion-snap"]
+        self.assertEqual(["timing:real.t50", "timing:lagS", "timing:flags"], pp.motion_timing_diffs(rec, t))
+        self.assertEqual(["timing:missing"], pp.motion_timing_diffs(None, t))
+        self.assertEqual([], pp.motion_timing_diffs(None, None))
+
+    def test_the_sidecar_reader_builds_the_series(self):
+        c = self._golden()["cases"][-1]
+        s = c["series"]
+        block = {k: None for k in pp.MOTION_KEYS}
+        block.update({
+            "kind": "servo",
+            "scout": {"stepS": 0.05, "s": s["scoutS"], "progress": s["scoutProgress"]},
+            "frames": [dict({k: None for k in pp.MOTION_FRAME_KEYS}, k=i, realS=t, realProgress=p,
+                            ghostProgress=g, realClock=rc, ghostClock=gc)
+                       for i, (t, p, g, rc, gc) in enumerate(zip(s["realS"], s["realProgress"],
+                                                                 s["ghostSameProgress"], s["realClock"],
+                                                                 s["ghostClock"]))],
+            "transforms": s["transforms"],
+        })
+        sidecar = {"motion": block}
+        self.assertIs(block, pp.motion_block(sidecar))
+        self.assertIsNone(pp.motion_block({"motion": None}))
+        series = pp.motion_series(pp.motion_block(sidecar))
+        self.assertEqual([], pp.motion_timing_diffs(c["timing"], pp.motion_timing(series)))
+        # A clip case carries no servo clock: angleMaxDevDeg is not measured.
+        block["kind"] = "clip"
+        self.assertIsNone(pp.motion_timing(pp.motion_series(block))["angleMaxDevDeg"])
+
+    def test_the_frame_schedule_matches_the_csharp_cells(self):
+        w = pp.plan_motion_frame_targets(2.0, 2.1, 2.0, 0.0, 8)
+        self.assertAlmostEqual(4.6, w["endS"], places=12)
+        self.assertEqual(19, len(w["targetsS"]))
+        self.assertFalse(w["capped"])
+        self.assertEqual(23, len(pp.plan_motion_frame_targets(2.0, 2.1, 2.0, 1.0, 8)["targetsS"]))
+        capped = pp.plan_motion_frame_targets(30.0, 30.0, 30.0)
+        self.assertTrue(capped["capped"])
+        self.assertEqual(40.0, capped["endS"])
+        self.assertAlmostEqual(8.5, pp.motion_frame_target_seconds(33, 2.0, 8), places=12)
+        self.assertAlmostEqual(25.0, pp.motion_frame_target_seconds(65, 2.0, 8), places=12)
+        self.assertEqual(0.25, pp.clamp_predicted_seconds(0.1))
+        self.assertEqual(30.0, pp.clamp_predicted_seconds(float("nan")))
+        self.assertIsNone(pp.motion_frame_jitter_tag(1.0, 1.125, 2.0))
+        self.assertEqual("frame-jitter:126", pp.motion_frame_jitter_tag(1.0, 1.126, 2.0))
+        self.assertAlmostEqual(0.15, pp.motion_matched_offset([0, 0.1, 0.2, 0.3], [0, 0.2, 0.4, 0.6], 0.3))
+        self.assertIsNone(pp.motion_matched_offset([0, 0.1, 0.2, 0.3], [0, 0, 1, 1], 0.5))
+        self.assertEqual(0.25, pp.motion_picture_progress(10, 30))
+        self.assertTrue(pp.motion_progress_disagrees(1.0, 1.6, 0.25))
+
+    def test_the_atlas_rows_and_the_motion_words(self):
+        self.assertEqual(("real:side-a", "ghost:side-a", "ghost-matched:side-a",
+                          "real:side-b", "ghost:side-b", "ghost-matched:side-b"),
+                         pp.motion_atlas_rows(pp.MOTION_DEFAULT_VIEWS))
+        self.assertEqual(("real:side-a", "ghost:side-a"), pp.motion_atlas_rows(("side-a",), matched=False))
+        self.assertTrue(pp.is_motion_state("motion-swept-m2"))
+        self.assertFalse(pp.is_motion_state("deployed"))
+        self.assertEqual(tuple(hlib.PARTPARITY_MOTION_VALUES), pp.MOTION_ARG_WORDS)
+        self.assertEqual(tuple(hlib.PARTPARITY_MOTION_KNOWN_VALUES), pp.MOTION_ARG_KNOWN_WORDS)
+
+    def test_with_motion_none_every_p6_and_p8_manifest_reads_its_old_control_set(self):
+        for settings, expected in (
+                ({}, pp.CONTROL_IDS),
+                ({"states": "all"}, pp.CONTROL_IDS_ORBIT_STATE),
+                ({"states": "all", "contexts": "air"}, pp.CONTROL_IDS_AIR),
+                ({"contexts": "air"}, pp.CONTROL_IDS_AIR),
+                ({"fx": "all"}, pp.CONTROL_IDS_FX_ORBIT),
+                ({"fx": "all", "contexts": "air"}, pp.CONTROL_IDS_FX_AIR)):
+            for motion in (None, "none", ""):
+                s = dict(settings)
+                if motion is not None:
+                    s["motion"] = motion
+                with self.subTest(settings=s):
+                    self.assertFalse(pp.is_motion_run(s))
+                    self.assertEqual(expected, pp.control_set(s))
 
 
 class PartParityFxReaderTests(unittest.TestCase):

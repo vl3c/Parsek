@@ -301,9 +301,14 @@ namespace Parsek.Tests
         // ----- the committed fixtures (the D.1 counts) -----
 
         private static List<PartParityStatePart> LoadFixture(string profile)
+            => LoadPartsFixture("state-parts-" + profile + ".txt");
+
+        /// <summary>Loads one committed part list of <c>Fixtures/PartParity/</c> (the state
+        /// fixture format, which the motion fixture shares).</summary>
+        internal static List<PartParityStatePart> LoadPartsFixture(string fileName)
         {
             string path = Path.Combine(SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek.Tests",
-                "Fixtures", "PartParity", "state-parts-" + profile + ".txt");
+                "Fixtures", "PartParity", fileName);
             Assert.True(File.Exists(path), "fixture missing: " + path);
             var parts = new List<PartParityStatePart>();
             PartParityStatePart cur = null;

@@ -28,5 +28,7 @@
   "fxAtlas": {"file":"fxfixtureplume--default--burn-full--aae6c591.fx.png","rows":["real-flame","ghost-flame","ghost-start-flame","real-smoke","ghost-smoke","ghost-start-smoke"],"cols":["fx-side-a","fx-side-b","fx-bottom","fx-far"],"tile":64},
   "strip": null,
   "burst": null,
-  "dust": null
+  "dust": null,
+  "motion": null,
+  "motionAtlas": null
 }
