@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Parsek.TestCommands;
 using Xunit;
@@ -322,6 +324,80 @@ namespace Parsek.Tests
             Assert.False(PartParityMotionDriver.IsMotionWave(new List<WaveCase> { new WaveCase { CaseId = "e", ControlId = TestCommandPartParitySweep.ControlEmpty } }));
             Assert.True(PartParityMotionDriver.IsMotionWave(new List<WaveCase> { new WaveCase { CaseId = "m", Motion = new PartParityMotionRun() } }));
             Assert.True(PartParityMotionDriver.IsMotionWave(new List<WaveCase> { new WaveCase { CaseId = "s", ControlId = TestCommandPartParitySweep.ControlMotionGhostSlow } }));
+        }
+
+        [Fact]
+        public void Inflight_NamesEveryLiveCaseNotYetWritten_InWaveOrder()
+        {
+            var a = new WaveCase { CaseId = "a" };
+            var b = new WaveCase { CaseId = "b" };
+            var c = new WaveCase { CaseId = "c" };
+            var live = new List<WaveCase> { a, b, c };
+            var written = new HashSet<WaveCase>();
+            Assert.Equal(new[] { "a", "b", "c" }, PartParityMotionDriver.LiveUnwritten(live, written).ToArray());
+            written.Add(b);
+            Assert.Equal(new[] { "a", "c" }, PartParityMotionDriver.LiveUnwritten(live, written).ToArray());
+            written.Add(a);
+            written.Add(c);
+            Assert.Empty(PartParityMotionDriver.LiveUnwritten(live, written));
+            Assert.Empty(PartParityMotionDriver.LiveUnwritten(null, written));
+            Assert.Equal(new[] { "a", "b", "c" }, PartParityMotionDriver.LiveUnwritten(live, null).ToArray());
+        }
+
+        private static string DriverSource()
+        {
+            string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", "TestCommands", "PartParityMotionDriver.cs");
+            Assert.True(File.Exists(path), path);
+            return File.ReadAllText(path);
+        }
+
+        [Fact]
+        public void TheMotionPhase_KeepsInflightOnTheLiveCases_UntilNoneIsLeft()
+        {
+            // Design 5.3: inflight.txt names every live case. A finished case keeps the file as it
+            // is while its ghost rows and sidecar are built, then the list is rewritten with the
+            // live cases still unwritten; the file goes only when none remain (or the host died).
+            string src = DriverSource();
+            int run = src.IndexOf("internal static IEnumerator RunPhase(", StringComparison.Ordinal);
+            string body = src.Substring(run, src.IndexOf("internal static List<string> LiveUnwritten(", run, StringComparison.Ordinal) - run);
+            Assert.DoesNotContain("new List<string> { wc.CaseId }", body);
+            int ghost = body.IndexOf("() => GhostRows(ctx, wc)", StringComparison.Ordinal);
+            int write = body.IndexOf("() => PartParitySweepRunner.FinishCase(ctx, wc)", StringComparison.Ordinal);
+            int mark = body.IndexOf("written.Add(wc);", StringComparison.Ordinal);
+            int rewrite = body.IndexOf("WriteLiveInflight(ctx, LiveUnwritten(live, written), solo);", StringComparison.Ordinal);
+            Assert.True(ghost >= 0 && write > ghost && mark > write && rewrite > mark,
+                $"ghost={ghost} write={write} mark={mark} rewrite={rewrite}");
+            Assert.Equal(1, CountOf(body, "PartParitySweepRunner.DeleteInflight(ctx)"));
+            Assert.Contains("if (ctx.HostDamage != null || LiveUnwritten(live, written).Count == 0) PartParitySweepRunner.DeleteInflight(ctx);", body);
+            int helper = src.IndexOf("private static void WriteLiveInflight(", StringComparison.Ordinal);
+            string h = src.Substring(helper, src.IndexOf("private static void DropAtlases(", helper, StringComparison.Ordinal) - helper);
+            Assert.Contains("if (left.Count == 0) PartParitySweepRunner.DeleteInflight(ctx);", h);
+            Assert.Contains("else PartParitySweepRunner.WriteInflight(ctx, left, solo);", h);
+        }
+
+        private static int CountOf(string s, string sub)
+        {
+            int n = 0;
+            for (int i = s.IndexOf(sub, StringComparison.Ordinal); i >= 0; i = s.IndexOf(sub, i + sub.Length, StringComparison.Ordinal)) n++;
+            return n;
+        }
+
+        [Fact]
+        public void ACopyBLostMidMotion_IsASetupFault_NotASilentSkip()
+        {
+            Assert.Null(PartParityMotionPlan.TwinLossDetail(false, true));
+            Assert.Null(PartParityMotionPlan.TwinLossDetail(true, false));
+            Assert.Null(PartParityMotionPlan.TwinLossDetail(true, true));
+            Assert.Equal("copy B vessel lost mid-motion", PartParityMotionPlan.TwinLossDetail(false, false));
+            // The driver checks it every frame before the done step, and the existing copy-B
+            // propagation then faults the control itself.
+            string src = DriverSource();
+            int check = src.IndexOf("PartParityMotionPlan.TwinLossDetail(m.Twin.Status != null, Healthy(m.Twin))", StringComparison.Ordinal);
+            int fault = src.IndexOf("m.Twin.Status = TestCommandPartParitySweep.SetupDiedSettling;", check, StringComparison.Ordinal);
+            int step = src.IndexOf("if (m.Twin != null && Healthy(m.Twin)) StepDone(m.Twin, offset);", check, StringComparison.Ordinal);
+            int copy = src.IndexOf("wc.Detail = wc.Detail ?? \"copy B: \" + (m.Twin.Detail ?? m.Twin.Status);", check, StringComparison.Ordinal);
+            Assert.True(check >= 0 && fault > check && step > fault && copy > step, $"check={check} fault={fault} step={step} copy={copy}");
         }
     }
 }

@@ -4384,7 +4384,7 @@ atlas row name, each the row's picture progress at that frame; null only for a m
 slot is empty, and the whole key null when no atlas was built),
 `views[]` {`view`, `same`, `matched`, each a `start`-shaped measure block}, `flags`}, `transforms[]`
 {`path`, `channel`, `travelReal`, `travelGhost`, `real` (fractions at the real frames), `ghost`
-(fractions on the scout)}, `timing` {`real` and `ghost` crossings `t02` to `t98`, the H.1 measures
+(fractions on the scout); a still transform, neither side past the still thresholds, has `channel` and both travels null and zero-filled `real` / `ghost` arrays of the frame and scout lengths}, `timing` {`real` and `ghost` crossings `t02` to `t98`, the H.1 measures
 and `flags`}), `motionAtlas` {`file`, `tile`, `rows`, `cols`}; the manifest's `settings` gain
 `motion` and `frames`, written by a motion run only (every other run's settings are unchanged).
 The timing block is a pure function of those arrays (`PartParityMotionRules.Timing`, written by
@@ -4450,7 +4450,10 @@ the sidecar `structure`; a context-dependent tag caps a view failure at warn; a 
 non-nonVisual missing or extra entry fails), in C# `PartParityMotionControls.EndFramesWithinAllowance`
 and `LastFramePasses`. C# judges a control from its in-memory routes and keeps the inputs in the
 control's `motion-evidence:` case flag, because the sidecar reader does not read the motion blocks
-back: a resumed run re-judges a finished control from that flag.
+back: a resumed run re-judges a finished control from that flag. A copy B whose vessel is lost mid-motion
+faults the control (`died-settling`, detail `copy B vessel lost mid-motion`) instead of leaving its
+rows empty. While a motion wave runs, `inflight.txt` names every live case whose sidecar is not
+written yet (design 5.3), rewritten after each case is written and deleted when none remain.
 
 Verdicts (`harness/lib/partparity.py`, `judge_motion`; every threshold a constant at the top of the
 module, starting guesses re-pinned from the reading runs against the controls, no flight needed):

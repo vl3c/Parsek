@@ -172,6 +172,30 @@ namespace Parsek.Tests
             Assert.Null(s.RealClock);
         }
 
+        [Fact]
+        public void BuildSeries_WritesAStillTransform_AsZeroArraysOfTheFrameAndScoutLengths()
+        {
+            // Track "a" moves, track "b" never does on either side: "b" has no channel and no
+            // travel, but still one fraction per frame and per scout point (partparity.py's
+            // motion_block_problems reads a missing array as an instrument mismatch).
+            var realS = new List<double> { 0.0, 0.5, 1.0 };
+            var real = new List<PartParityMotionTrack> { Track("a", 0.0, 0.5, 1.0), Track("b", 2.0, 2.0, 2.0) };
+            var scoutS = new List<double> { 0.0, 0.4, 0.8, 1.0 };
+            var scout = new List<PartParityMotionTrack> { Track("a", 0.0, 0.2, 0.9, 1.0), Track("b", 2.0, 2.0, 2.0, 2.0) };
+            var channels = new List<string>();
+            PartParityMotionSeries s = PartParityMotionMetrics.BuildSeries(realS, real, scoutS, scout, null, null, channels,
+                out PartParityMotionSideProgress _, out PartParityMotionSideProgress _);
+            Assert.Equal(2, s.Transforms.Count);
+            Assert.Equal(new[] { PartParityMotionRules.ChannelPosition, null }, channels.ToArray());
+            PartParityMotionTransformSeries still = s.Transforms[1];
+            Assert.Equal("b", still.Path);
+            Assert.Equal(new double[3], still.Real);
+            Assert.Equal(new double[4], still.Ghost);
+            Assert.Equal(3, s.Transforms[0].Real.Length);
+            Assert.Equal(4, s.Transforms[0].Ghost.Length);
+            Assert.Equal(1.0, s.Transforms[0].Real[2], 12);
+        }
+
         private static PartParityMotionFrame Frame(int k, IList<string> rows, params double[] img)
         {
             var f = new PartParityMotionFrame { K = k, RealS = 0.1 * k, ImgProgress = img, ImgProgressRows = rows };

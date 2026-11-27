@@ -282,6 +282,14 @@ namespace Parsek.TestCommands
                     tr.Real = FractionsIn(realTracks[i], channel);
                     tr.Ghost = FractionsIn(scoutTracks[i], channel);
                 }
+                else
+                {
+                    // A still transform (neither side past the still thresholds): no channel and
+                    // no travel, but one zero fraction per frame and per scout point, so the
+                    // arrays keep the lengths partparity's block check requires.
+                    tr.Real = new double[realTracks[i]?.Poses?.Count ?? 0];
+                    tr.Ghost = new double[scoutTracks[i]?.Poses?.Count ?? 0];
+                }
                 s.Transforms.Add(tr);
             }
             return s;

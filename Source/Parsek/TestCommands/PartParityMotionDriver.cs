@@ -207,6 +207,12 @@ namespace Parsek.TestCommands
 
         internal static string Fmt(double v) => double.IsNaN(v) ? "-" : v.ToString("0.###", Ic);
 
+        /// <summary>Why a real-vs-real control's copy B stopped counting mid-motion: its vessel
+        /// or part is gone with no fault recorded (null while it is healthy or already faulted).
+        /// The control then reads as a setup fault instead of a mismatch over empty tiles.</summary>
+        internal static string TwinLossDetail(bool twinFaulted, bool twinHealthy)
+            => twinFaulted || twinHealthy ? null : "copy B vessel lost mid-motion";
+
         /// <summary>
         /// The window rule (H.3's error row, partparity.py's completeness): a captured case needs
         /// at least <see cref="PartParityMotionRules.MinFrames"/> frames and some real frame at
@@ -810,6 +816,7 @@ namespace Parsek.TestCommands
             }
             float waveStart = Time.realtimeSinceStartup;
             int finished = 0;
+            var written = new HashSet<WaveCase>();
             while (true)
             {
                 yield return new WaitForEndOfFrame();
@@ -824,11 +831,14 @@ namespace Parsek.TestCommands
                     if (wc.Status != null || wc.Motion.Finished)
                     {
                         wc.Motion.Finished = true;
-                        PartParitySweepRunner.WriteInflight(ctx, new List<string> { wc.CaseId }, solo);
+                        // inflight.txt still names this case and every other live one while its
+                        // ghost rows and sidecar are built (design 5.3); once it is written the list
+                        // is rewritten with the live cases still unwritten, deleted when none remain.
                         if (wc.Status == null)
                             PartParitySweepRunner.Guard(ctx, wc, "motion-ghost", () => GhostRows(ctx, wc));
                         PartParitySweepRunner.Guard(ctx, wc, "write", () => PartParitySweepRunner.FinishCase(ctx, wc));
-                        PartParitySweepRunner.DeleteInflight(ctx);
+                        written.Add(wc);
+                        WriteLiveInflight(ctx, LiveUnwritten(live, written), solo);
                         finished++;
                         ReleaseTiles(wc);
                         continue;
@@ -849,11 +859,30 @@ namespace Parsek.TestCommands
                 PartParitySweepRunner.Guard(ctx, wc, "write", () => PartParitySweepRunner.FinishCase(ctx, wc));
                 finished++;
             }
-            if (ctx.HostDamage != null) PartParitySweepRunner.DeleteInflight(ctx);
+            if (ctx.HostDamage != null || LiveUnwritten(live, written).Count == 0) PartParitySweepRunner.DeleteInflight(ctx);
             int faults = 0;
             foreach (var wc in wave) if (wc.Status != null) faults++;
             ParsekLog.Info(Tag, $"motion wave: cases={wave.Count.ToString(Ic)} pressed={live.Count.ToString(Ic)} " +
                 $"finished={finished.ToString(Ic)} faults={faults.ToString(Ic)} air={(air ? "true" : "false")}");
+        }
+
+        /// <summary>The live cases whose sidecar is not written yet, in wave order: what
+        /// inflight.txt names while a motion wave runs (design 5.3), so a crash in any of them is
+        /// attributed to it.</summary>
+        internal static List<string> LiveUnwritten(IList<WaveCase> live, ICollection<WaveCase> written)
+        {
+            var left = new List<string>();
+            if (live == null) return left;
+            foreach (var wc in live)
+                if (wc != null && (written == null || !written.Contains(wc))) left.Add(wc.CaseId);
+            return left;
+        }
+
+        private static void WriteLiveInflight(StepContext ctx, List<string> left, bool solo)
+        {
+            if (left.Count == 0) PartParitySweepRunner.DeleteInflight(ctx);
+            else PartParitySweepRunner.WriteInflight(ctx, left, solo);
+            ParsekLog.Verbose(Tag, $"motion wave: inflight now names {left.Count.ToString(Ic)} live case(s)");
         }
 
         private static void DropAtlases(PartParityMotionRun m)
@@ -1353,6 +1382,16 @@ namespace Parsek.TestCommands
                 }
             }
             double offset = Planetarium.GetUniversalTime() - m.PressUT;
+            if (m.Twin != null)
+            {
+                string lost = PartParityMotionPlan.TwinLossDetail(m.Twin.Status != null, Healthy(m.Twin));
+                if (lost != null)
+                {
+                    m.Twin.Status = TestCommandPartParitySweep.SetupDiedSettling;
+                    m.Twin.Detail = lost;
+                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: {lost} at {PartParityMotionPlan.Fmt(offset)}s");
+                }
+            }
             StepDone(wc, offset);
             if (m.Twin != null && Healthy(m.Twin)) StepDone(m.Twin, offset);
             if (m.Twin != null && m.Twin.Status != null && wc.Status == null)
