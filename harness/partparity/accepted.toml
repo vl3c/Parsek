@@ -692,3 +692,55 @@ noisy = true
 kind = "accepted"
 reason = "a seam-line colour blob near the 256 px line (12 to 289 px run to run), not yet read by the owner"
 todo = "PARTPARITY-ROVERBODY-WHITE-TOP-SEAM"
+
+# PP-7 (effects in orbit). An fx:<measure> entry names one E.4 measure; noisy waives its drift
+# past the band as well.
+
+[[accepted]]
+case = "rcsblock.v2--angled--rcs-fire--822797e8"
+profile = "stock-minimal"
+view = "*"
+measure = "color-blob"
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: the ghost fires every nozzle at the block's mean power, so its nozzles glow alike where stock lights the fired two of nine; body colour 7177 to 8536 px on all four views, two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.v2--angled--rcs-fire--822797e8"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:colour"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: puffs at mean power; hue L1 0.52 and 0.55 (line 0.5) in one of two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.01.small--angled--rcs-fire--b379820e"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:cross-section"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: every nozzle puffs, so the puffs' centre moves; bottom offset 0.22 and 0.12 (line 0.1) in two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.01.small--angled--rcs-fire--b379820e"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:direction"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: every nozzle puffs, so the puffs point another way; start route side-b 10.4 and -12.2 deg (line 10) in two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "liquidenginemini.v2--shroud--burn-full--7a689fdc"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:origin"
+noisy = true
+kind = "accepted"
+reason = "a stray particle behind the nozzle of a sparse flame moves where its envelope starts: side-b -58 px on the start route (line 37) in one of two runs, 18 px in the other; the real side's own sample halves differ by 41 px of length"
+todo = "PARTPARITY-SPARK-FLAME-ORIGIN"

@@ -39,11 +39,15 @@ tier = "operator"
 # of the atlases and of every FX measure from the FX tiles agrees with the C# sidecars (else
 # INVALID(parity-instrument)); the sweep reached done and every planned case has a complete
 # sidecar or a recorded setup fault (else INVALID(parity-incomplete)); the host survived
-# (else INVALID(parity-host-damaged)). (2) The part verdicts are REPORT-ONLY
-# (`[expectations.partParity] gating = false`); every E.4 threshold is a starting guess the
-# reading flights re-pin. (3) The log pins as a second guard: the run-step summary line with
-# `crashed=0` and `controls=ok`, the seam applier's OK line, the step's `fx cases:` line
-# (proof the step planned an FX run), and no `[Parsek][ERROR]`.
+# (else INVALID(parity-host-damaged)). (2) The part verdicts are ARMED
+# (`[expectations.partParity] gating = true`, owner ruling 2026-11-24, design Appendix F): a
+# measure past its band of `harness/partparity/baseline-stock-minimal.json` label `pp7`, or a
+# fail no entry of `harness/partparity/accepted.toml` covers, is PARSEK-FAIL(part-parity); a
+# baselined case that could not be measured is INVALID(parity-incomplete). The other effects
+# lanes (PP-8 to PP-10, PP-5 / PP-6's second label) stay report-only. (3) The log pins as a
+# second guard: the run-step summary line with `crashed=0` and `controls=ok`, the seam
+# applier's OK line, the step's `fx cases:` line (proof the step planned an FX run), and no
+# `[Parsek][ERROR]`.
 #
 # READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp7/` into
 # `harness/results/<runId>_partparity/pp7/`, where the row writes `partparity-verdicts.json`.
@@ -57,15 +61,18 @@ tier = "operator"
 # an explicit-UT WarpToUT on rails; a step with nothing left to sweep answers `done=true` at
 # once. (3) The time box is the measurement itself. (4)/(5) no mission burns, no coasts. (6)
 # `[retry] policy = "none"`: a retry's `op=reset` would clear the files a reading run exists
-# to keep. (7) Recording count pinned at 0. (8)/(9) tier operator by purpose (a report-only
-# reading lane), flight_efficiency.py after the first green flight.
+# to keep. (7) Recording count pinned at 0. (8)/(9) tier operator by purpose, flight_efficiency.py after the first green flight.
 #
 # LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, stock-minimal): reading flight
 # `2026-11-23_1022` (`limit=20`: 20 cases + 11 controls in 192.3 s, PASS); full flight
 # `2026-11-23_1027` PASS attempt 1 (1002 s wall, 451.8 s + 404.6 s + 49.8 s + 0.3 s of sweep,
 # 128 cases, controls ok, press ok, complete, recompute 24 / 0 mismatches; report-only verdicts
 # 34 pass / 33 warn / 60 fail / 1 error). Three steps did the work, the fourth is margin.
-description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F6, `2026-11-23_1027`): every working stock part's visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over four PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only)."
+#
+# ARMED 2026-11-27 (design Appendix F, "PP-7 armed"): `pp7` pinned from `2026-11-27_2025` /
+# `_2042` (PASS attempt 1, `gate=ok`, DLL prefix d25ecb80); mutation run `2026-11-27_2100`
+# (toroidalAerospike emitters moved 0.5 m) PARSEK-FAIL(part-parity) on its two burn cases only.
+description = "LIVE-PROVEN 2026-11-23 (part ghost parity P8 F6, `2026-11-23_1027`): every working stock part's visual effects (engine plumes and smoke, RCS puffs, throttle and heat glow, lamp light on a plate) beside its Parsek ghosts (event route, start route) on a held test stand in LKO over four PartParitySweep fx=all steps, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts armed against the committed baseline)."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-7"]
 
@@ -97,7 +104,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# No D7 and no D17 claim: the part verdicts are report-only, so no FX family is gated here.
+# No D7 and no D17 claim: the gate holds the cases to a baseline, it proves no FX family.
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]
@@ -108,8 +115,9 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.partParity]
-# Report-only part verdicts (design E.8); the instrument gates regardless.
-gating = false
+# Armed 2026-11-24 (design Appendix F), alone among the effects lanes; the instrument gates
+# regardless.
+gating = true
 
 [expectations.logContracts]
 required = [

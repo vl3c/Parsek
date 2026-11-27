@@ -1379,6 +1379,8 @@ class FxRegressionTests(_FxSetMixin, unittest.TestCase):
             e["compare"]["widthRatio"] = 1.01  # under its warn line: noise
             e["compare"]["originDeltaPx"] = 1.0
             e["compare"]["lateralOffsetPx"] = -9.0
+            for half in pp.FX_SPLIT_HALF_KEYS:  # a fail both sample halves show
+                e["splitHalf"][half]["compare"] = dict(e["compare"])
         self._edit(FX_BURN, longer)
         self._edit(FX_REF, lambda d: d["fx"].update(
             views=json.loads(json.dumps(self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]))))
@@ -1963,12 +1965,14 @@ class LegacyPagePinTests(unittest.TestCase):
     """The legacy sites' data.js and their built DOM hash to the digests taken before the
     motion viewer (M5) was built; a motion case is the only thing that changes a page.
     The plain digests were re-taken once main reworded the B9 skin-not-modelled reason
-    (mod parts); with that one line restored they equal the pre-M5 digests."""
+    (mod parts); with that one line restored they equal the pre-M5 digests. The fx data digest
+    was re-taken when the PP-7 gate read a layer drawn on neither side as `empty` (48 entry
+    verdicts `pass` -> `empty`, nothing else; its DOM digest is unchanged)."""
 
     DATA = {
         "plain": "6045cfac3b1e6a09b938060132872fc4b34c490dc9576c7f276a944ca7897e17",
         "state": "853d6b017d3e5fc37eebd85db86da1d4140b74bd91e2c33200a0430f9d036e7c",
-        "fx": "4cfeec0569d6d589aabecad3fec781ec6f325a049f019da10900a8f31ad06629",
+        "fx": "b3c438f2eedcc5040f0b0432cd70d2da8c5354b4091aac1eb537523cf69cf214",
     }
     DOM = {
         "plain": "d16f23614d48ad33642cda72af6b8b2b8920245b68bc3a4177333026eac3921b",
