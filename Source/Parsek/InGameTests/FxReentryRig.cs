@@ -27,7 +27,7 @@ namespace Parsek.InGameTests
     /// Greppable `[FxReentryRig]` Info lines, Screenshots/fxr-*.png.
     /// </summary>
     [DefaultExecutionOrder(30000)]
-    internal sealed class FxReentryRig : MonoBehaviour
+    internal sealed partial class FxReentryRig : MonoBehaviour
     {
         private const string Tag = "FxReentryRig";
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
@@ -129,6 +129,7 @@ namespace Parsek.InGameTests
         private void OnDestroy()
         {
             RestoreAeroQuality("rig destroyed");
+            RestoreTimingProbe("rig destroyed");
             RestoreCameraFx();
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             if (sideGhost != null) GhostCoOrbitalRig.DestroyLiveGhost(sideGhost);
@@ -560,6 +561,7 @@ namespace Parsek.InGameTests
             shots = new List<Shot>();
             realPx.Clear(); mainRecIds.Clear(); boosterRecIds.Clear();
             rootPartPid = 0; boosterPartPid = 0;
+            timingCopySnapshot = null;
             Vessel host = FlightGlobals.ActiveVessel;
             ParsekFlight flight = ParsekFlight.Instance;
             if (host == null || flight == null) { ParsekLog.Info(Tag, "real: no host / flight"); yield break; }
@@ -601,6 +603,7 @@ namespace Parsek.InGameTests
 
             // A ghost of this very vessel 10 m beside it: does stock's fire paint a ghost?
             ConfigNode snap = FlightRecorder.TryBackupSnapshot(v);
+            timingCopySnapshot = snap;
             if (snap != null && GhostCoOrbitalRig.TryBuildGhostFromSnapshot(snap, "fxr-side-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                     "ParsekTest_fxr_side", null, v.vesselName, v.persistentId, Planetarium.GetUniversalTime(), out sideGhost, out string fail))
             {
@@ -645,6 +648,7 @@ namespace Parsek.InGameTests
                     Vessel bv = FindLoadedVesselWithPart(boosterPartPid, v);
                     boosterVesselPid = bv != null ? bv.persistentId : 0;
                     ParsekLog.Info(Tag, $"real staged at alt={v.altitude.ToString("0", Ic)} decoupler={(dm != null)} boosterVessel={boosterVesselPid.ToString(Ic)} " + Trace(v, host));
+                    CaptureTimingCopySnapshot(v);
                     continue;
                 }
                 string mark = null;
@@ -944,9 +948,14 @@ namespace Parsek.InGameTests
             int captured = 0, late = 0, missing = 0;
             var ordered = new List<Shot>(shots);
             ordered.Sort((a, b) => a.Ut.CompareTo(b.Ut));
+            string prevMark = null;
             foreach (Shot s in ordered)
             {
                 if (!s.OnGhost) continue;
+                // The timing probe of a mark runs once its last ghost shot is done, before the
+                // wait for the next mark's first shot.
+                if (prevMark != null && s.Mark != prevMark) yield return TimingProbe(prevMark, s.Ut);
+                prevMark = s.Mark;
                 GhostPlaybackState st = null; Transform frame = null; int idx = -1;
                 // Wait for the shot's UT (one frame early, so a toggle reaches the next render).
                 while (Planetarium.GetUniversalTime() + 1.5 * Time.deltaTime < s.Ut)
@@ -1031,6 +1040,7 @@ namespace Parsek.InGameTests
                 // Release the stored real frame once compared (memory).
                 realPx.Remove(s.Label);
             }
+            if (prevMark != null) yield return TimingProbe(prevMark, double.PositiveInfinity);
             poseFrame = null;
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             RestoreCameraFx();
