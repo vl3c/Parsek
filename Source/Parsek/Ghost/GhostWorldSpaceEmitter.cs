@@ -12,7 +12,9 @@ namespace Parsek
     /// by the offset, each physics step. Stock finds them through the Part (its EFFECTS behaviours,
     /// its FXGroups) or the <c>FXPrefab</c> on the system; a ghost has no Part and its clones'
     /// <c>FXPrefab</c> is stripped, so this component is the one thing that moves a ghost's, and
-    /// smoke without it rides along with the active vessel.
+    /// smoke without it rides along with the active vessel. The FX Parsek builds itself (a part
+    /// puff, the built explosion, launch dust, the reentry fire) are plain world-space systems no
+    /// stock list holds, and take the same component (<see cref="AttachOwn"/>).
     ///
     /// Enabled means registered: Unity calls OnDisable on deactivation, destruction and scene
     /// unload, so nothing outside this class tracks the lifetime.
@@ -35,6 +37,14 @@ namespace Parsek
 
         /// <summary>The emitter-local exhaust axis of a smoke that flows on a standing ghost; zero: none.</summary>
         internal Vector3 standingAxis;
+
+        /// <summary>
+        /// Set on the root of an FX object that hangs in the world on its own (a part puff, the
+        /// built explosion): stock moves such an object as well as its particles
+        /// (<c>FXMonger.offsetPositions</c>), so a burst it has not emitted yet leaves from the place
+        /// the effect belongs to.
+        /// </summary>
+        internal bool movesTransform;
 
         private Vector3 ownWorldVelocity;
         private bool drifts;
@@ -69,7 +79,7 @@ namespace Parsek
             int added = 0;
             foreach (KSPParticleEmitter emitter in fxClone.GetComponentsInChildren<KSPParticleEmitter>(true))
             {
-                if (!emitter.useWorldSpace) continue;
+                if (!ShouldAttach(emitter.useWorldSpace, emitter.GetComponent<GhostWorldSpaceEmitter>() != null)) continue;
                 GhostWorldSpaceEmitter e = emitter.gameObject.AddComponent<GhostWorldSpaceEmitter>();
                 e.emitter = emitter;
                 e.ownWorldVelocity = emitter.worldVelocity;
@@ -78,8 +88,9 @@ namespace Parsek
             }
             foreach (ParticleSystem ps in fxClone.GetComponentsInChildren<ParticleSystem>(true))
             {
-                if (ps.main.simulationSpace != ParticleSystemSimulationSpace.World) continue;
                 if (ps.GetComponent<KSPParticleEmitter>() != null) continue;
+                if (!ShouldAttach(ps.main.simulationSpace == ParticleSystemSimulationSpace.World,
+                        ps.GetComponent<GhostWorldSpaceEmitter>() != null)) continue;
                 GhostWorldSpaceEmitter e = ps.gameObject.AddComponent<GhostWorldSpaceEmitter>();
                 e.system = ps;
                 e.drifts = PlainSystemsDrift();
@@ -91,6 +102,46 @@ namespace Parsek
                     $"registered={registered.Count} plainDrift={plainSystemsDrift}", 60.0);
             return added;
         }
+
+        /// <summary>
+        /// Adds the component to every world-space system of an FX object Parsek builds itself
+        /// (a part puff, the built explosion, launch dust, the reentry fire). Stock's rule for a
+        /// plain system it holds in <c>FloatingOrigin.particleSystems</c> is the shift alone, and
+        /// KSPCommunityFixes keeps that rule, so these never drift. An object with no parent also
+        /// has its own transform moved (<see cref="movesTransform"/>). Returns the systems added.
+        /// </summary>
+        internal static int AttachOwn(GameObject fxObject)
+        {
+            if (fxObject == null) return 0;
+            int added = 0;
+            foreach (ParticleSystem ps in fxObject.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (!ShouldAttach(ps.main.simulationSpace == ParticleSystemSimulationSpace.World,
+                        ps.GetComponent<GhostWorldSpaceEmitter>() != null)) continue;
+                GhostWorldSpaceEmitter e = ps.gameObject.AddComponent<GhostWorldSpaceEmitter>();
+                e.system = ps;
+                e.drifts = false;
+                added++;
+            }
+            bool rootMoves = fxObject.transform.parent == null;
+            if (rootMoves)
+            {
+                GhostWorldSpaceEmitter root = fxObject.GetComponent<GhostWorldSpaceEmitter>();
+                if (root == null) root = fxObject.AddComponent<GhostWorldSpaceEmitter>();
+                root.movesTransform = true;
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual", $"world-space-own-fx-{fxObject.name}",
+                $"Parsek-built FX follow the floating origin: fx='{fxObject.name}' systems={added} " +
+                $"rootMoves={rootMoves} registered={registered.Count}", 60.0);
+            return added;
+        }
+
+        /// <summary>
+        /// Whether a system takes the component: a world-space one (a local-space one moves with
+        /// its parent) that has none yet, so a system is never moved twice.
+        /// </summary>
+        internal static bool ShouldAttach(bool worldSpace, bool alreadyAttached)
+            => worldSpace && !alreadyAttached;
 
         private static bool PlainSystemsDrift()
         {
@@ -131,6 +182,9 @@ namespace Parsek
         /// </summary>
         private void LateUpdate()
         {
+            // Only a drifting system reads its own motion (the standing flow is an emitter's, and
+            // every emitter drifts).
+            if (!drifts) return;
             if (transform.parent == null)
             {
                 // Detached to fade out after its ghost went (DetachAndLingerParticleSystems): it
@@ -239,6 +293,8 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void MoveParticles(GhostWorldSpaceEmitter e, Vector3d shift)
         {
+            if (e.movesTransform)
+                e.transform.position = ShiftParticle(e.transform.position, shift, Vector3.zero, 0f);
             ParticleSystem ps = e.emitter != null ? e.emitter.ps : e.system;
             if (ps == null) return;
             int count = ps.particleCount;
