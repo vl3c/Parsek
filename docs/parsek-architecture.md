@@ -87,6 +87,7 @@ Each of these is the authoritative source for its area. This index doesn't dupli
 - **Map / Tracking-Station ghost rendering**: [`parsek-ghost-trajectory-rendering-design.md`](parsek-ghost-trajectory-rendering-design.md) - the flight-scene ghost-geometry pipeline (smoothing / anchor-correction / terrain / outlier); the map / Tracking-Station draw layer is covered by [`dev/design-map-ts-render-architecture.md`](dev/design-map-ts-render-architecture.md).
 - **Rewind to Separation (v0.9)**: [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, broad reviewed-career tombstone scope.
 - **Window structure (all windows)**: [`dev/design-gui-inventory.md`](dev/design-gui-inventory.md) - what each window draws; [`dev/design-ui-basic-advanced.md`](dev/design-ui-basic-advanced.md) - what Basic hides; [`dev/design-gui-kerbals-window.md`](dev/design-gui-kerbals-window.md) - the Kerbals window.
+- **Far watch (camera drone, live follow)**: [`dev/design-far-watch.md`](dev/design-far-watch.md) - watching any flying ghost past 300 km and at any body through a temporary drone vessel.
 
 Completed design specs (now implementation-historical) live under [`dev/done/`](dev/done/). Recent ones worth knowing:
 
