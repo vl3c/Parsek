@@ -734,6 +734,13 @@ namespace Parsek.TestCommands
             return sb.Append('}').ToString();
         }
 
+        /// <summary>An array of already-serialized items (a motion case's frames and transforms).</summary>
+        internal static string RawArray(IList<string> serializedItems) => serializedItems == null ? "null" : Arr(serializedItems);
+
+        /// <summary>One measure block of a view, the <see cref="StartKeys"/> members (a motion
+        /// frame's same-time and matched pairs); null for none.</summary>
+        internal static string MeasureBlock(PartParityViewRecord v) => v == null ? "null" : Obj(MeasureMembers(v).ToArray());
+
         private static string Arr(IList<string> serializedItems)
         {
             var sb = new StringBuilder("[");
