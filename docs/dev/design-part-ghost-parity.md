@@ -880,7 +880,8 @@ reference lane. The concrete P8 plan is Appendix E.
   shape on modded-compat narrowed with `source=UtilityWeight,SHED` to the two pinned part mods
   the owner asked for (Utility Weight 2.0.0, PicoPort 0.1.6.4; `harness/provision/pins.toml`).
   It is the live proof that a B9 size subtype (`TRANSFORM scaleOffset`) reaches the ghost: about
-  33 cases, report-only until a `pp11` baseline is pinned. The same parts also enter PP-2.
+  33 cases, report-only; its `pp11` baseline was pinned from `2026-11-27_1808` / `_1810`. The same parts also
+  enter PP-2, whose `pp2` section was re-pinned from `2026-11-27_1813` / `_1829`.
 
 ## 11. Code layout
 

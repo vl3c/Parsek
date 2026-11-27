@@ -33,10 +33,14 @@ tier = "operator"
 # retry's `op=reset` would clear the files a reading run keeps. (7) Recording count pinned at
 # 0. (8)/(9) after the first flight: tier by measured p50 and a flight_efficiency.py check.
 #
-# AUTHORED 2026-11-26, NEVER FLOWN (tag `pending-flight`).
-description = "AUTHORED 2026-11-26, NEVER FLOWN: part ghost parity of the Utility Weight and PicoPort mod parts on modded-compat (B9PartSwitch installed) - the weight's mass, size and cost subtypes and the four micro docking ports photographed beside their Parsek ghosts in LKO, one source-filtered PartParitySweep, judged by the partParity verifier row (instrument gates gating, part verdicts report-only)."
+# AUTHORED 2026-11-26. LIVE-PROVEN 2026-11-27 (tag `flown`): `2026-11-27_1808` PASS attempt 1
+# (123 s) and `2026-11-27_1810` PASS attempt 1 (114 s), automation DLL sha256 prefix 9305130d,
+# 33 cases 33 pass on both; the two runs pinned the `pp11` baseline section (30 banded cases).
+# Every size case reads IoU 1 on every view with the framing growing 0.17 -> 2.75 across
+# 0.3125 m -> 5.0 m. Part verdicts stay report-only (`gating = false`) until the owner arms it.
+description = "LIVE-PROVEN 2026-11-27 (`2026-11-27_1808` / `_1810`, PASS attempt 1 each, 123 s / 114 s, pp11 baseline pinned): part ghost parity of the Utility Weight and PicoPort mod parts on modded-compat (B9PartSwitch installed) - the weight's mass, size and cost subtypes and the four micro docking ports photographed beside their Parsek ghosts in LKO, one source-filtered PartParitySweep, judged by the partParity verifier row (instrument gates gating, part verdicts report-only)."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-11"]
+tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-11"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"
@@ -74,8 +78,8 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.partParity]
-# REPORT-ONLY until two matching reading runs pin the `pp11` baseline section (design
-# Appendix F). The instrument gates gate regardless.
+# REPORT-ONLY: the `pp11` baseline section is pinned from `2026-11-27_1808` / `_1810` (design
+# Appendix F); arming is the owner's call. The instrument gates gate regardless.
 gating = false
 
 [expectations.logContracts]
