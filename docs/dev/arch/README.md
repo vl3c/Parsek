@@ -183,6 +183,14 @@ not failed.
   another assembly's `Parsek` types (from the test DLL, for test reach), the
   outside members it names (`externalMembers`), and its identifier-shaped
   `ldstr` literals (`strings`, what reflection by name and `nameof` leave).
+  Its return type is `returns`. `externalMemberCounts`, `callCounts` and
+  `staticCounts` count the instructions naming each outside member,
+  in-assembly callee and static field (an occurrence count, folded code
+  included, so a gate can pin how many reads a method has), and `delegates`
+  lists `event>target` per `ldftn` / `ldvirtftn`: the delegate's target key
+  and the outside static field the reference right before it loads (a
+  generated lambda cache's statics in between skipped), which for
+  `GameEvents.onX.Add(handler)` is the event (`""` when none).
   A type also carries its interfaces and `namedByOthers` (how many other
   types name it in IL); a static field carries `receiverCalls`, the outside
   calls (or `[]` element stores) whose receiver is its value or a value read
@@ -236,6 +244,22 @@ counts. CI's compiled-IL step runs `test_ilfacts.py`'s real-tree
 cells with `test_semantic.py` (structure only: every source type keyed and
 mapped to a module, unique keys, every call resolved, no generated key,
 entry-point attributes read) over the one parse `ilgraph.load_parsed` caches.
+
+### The far-watch site gate
+
+`scripts/arch/test_far_watch_sites.py` (pure half `far_watch_sites.py`,
+allowlist `far_watch_sites.toml`, design `docs/dev/design-far-watch.md`
+section 11.4) reads those counts. A site is a production method (every module
+but InGameTests) whose body names `FlightGlobals.ActiveVessel` /
+`fetch.activeVessel`, calls `GhostMapPresence.IsGhostMapVessel`, touches
+`ghostMapVesselPids` or calls a declared reader wrapper; each (member,
+pattern) has one entry with its count and audit decision codes, and the gate
+reds on an unlisted site, a stale entry, a count that differs, an unknown or
+`RULING` code, and an undeclared `Vessel`-returning `ActiveVessel` reader. Its
+handler gate lists every vessel-GameEvent handler (the `delegates` pairing) as
+`guard` or `exempt`; once a guard member is in the assembly every `guard`
+handler must call one. Change an entry in the commit that changes the method.
+The DLL-free cells run everywhere, the real-tree cells in the compiled-IL step.
 
 ## Code facts (compiled IL)
 
@@ -484,7 +508,7 @@ overrides it; `metrics.py` reads the default path.
 ### The ratchets
 
 CI's compiled-IL step runs `test_ilanalysis.RealTreeRatchetTests` over the
-built Debug DLL (the step's `test_[ims]*.py` pattern; `WorkflowTests` reds if
+built Debug DLL (the step's `test_[fims]*.py` pattern; `WorkflowTests` reds if
 it stops matching). The pins are `scripts/arch/facts_pins.toml`, the one place
 the bounds live. The ratchets bind static write sets, call sets and
 per-method decisions, never instruction counts or shares. A Debug and a
@@ -743,7 +767,7 @@ the declaration exists to show.
   between two types already paired, a comment, or a type moved between files
   of one module moves nothing.
 - **The ratchet**: `test_semantic_layers.RealTreeLayerTests`, in CI's
-  compiled-IL step (`test_[ims]*.py`; its `WorkflowTests` cell reds if the
+  compiled-IL step (`test_[fims]*.py`; its `WorkflowTests` cell reds if the
   pattern stops matching), reads `scripts/arch/layer_pins.toml`, one entry
   per backward module pair with its `count` and, for the failure message
   only, its type `pairs`. A backward module pair may not count more type
@@ -1077,7 +1101,7 @@ two), plus the non-literal sites and the forwarding helpers; sorted, no paths,
 so it changes only when the logging code does. The harness reads the FILE and
 never imports this module. Staleness is report-only on both sides: the harness
 counts a tag the map lacks as unmapped, and `test_iltags.py`'s real-tree cell
-(run by the compiled-IL CI step, `-p 'test_[ims]*.py'`) prints the tags new or
+(run by the compiled-IL CI step, `-p 'test_[fims]*.py'`) prints the tags new or
 gone against the build and fails only when the extractor stops modelling the
 assembly. Refresh the file after a change that adds or moves log tags. At the
 first write: 284 tags, 9294 sites with a literal tag, 13 non-literal sites, 46

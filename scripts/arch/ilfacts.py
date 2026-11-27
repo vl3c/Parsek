@@ -25,17 +25,24 @@ facts model keyed by member:
 - methods by `Type::Name(param types)`, ``Name``N`` for a generic method, the
   parameter types normalized so a declaration and a call site print the same
   text (`Parsek.Foo::Short(string)`; a conversion operator also carries its
-  return type). Each carries flags, custom attributes, instruction count,
-  decision count (conditional branches + distinct `switch` targets + catch
-  and filter handlers), the in-assembly members it calls (`call`,
-  `callvirt`, `newobj`, `ldftn`, `ldvirtftn`), static field reads / writes /
+  return type). Each carries flags, its return type (`returns`), custom
+  attributes, instruction count, decision count (conditional branches +
+  distinct `switch` targets + catch and filter handlers), the in-assembly
+  members it calls (`call`, `callvirt`, `newobj`, `ldftn`, `ldvirtftn`),
+  static field reads / writes /
   address-takes, the external types its body, locals and signature name
   (`assembly|type`, the BCL left out), the external members it names
   (`externalMembers`, `assembly|Type::Name`), its identifier-shaped string
   literals (`strings`: reflection by name and `nameof`), and calls into
   another assembly's root-namespace types (`Parsek|Parsek.Foo::Bar(int32)`
-  from the test DLL). Code generated but owned by no single method credits its
-  calls and static access to `Type::(generated)`, and its type `unattributed`
+  from the test DLL). `externalMemberCounts`, `callCounts` and
+  `staticCounts` count the instructions naming each of those (an occurrence
+  count, so a gate can pin how many reads a method has), and `delegates`
+  lists `event>target` per `ldftn` / `ldvirtftn`: the delegate's target key
+  and the outside static field the reference right before it loads (the
+  event of a `GameEvents.onX.Add(handler)` subscription; a generated lambda
+  cache's statics in between are skipped, any other reference clears it). Code generated but owned by
+  no single method credits its calls and static access to `Type::(generated)`, and its type `unattributed`
   bucket records that code's external types (`external`: body and locals) and
   members (`externalMembers`), so a reader of game coupling can treat the
   bucket as one more method of its source type.
@@ -597,6 +604,10 @@ def build(parsed, type_modules=None):
         cross = set()
         outside = set()
         strings = set()
+        outside_counts = Counter()
+        call_counts = Counter()
+        static_counts = Counter()
+        delegates = set()
         for m in members:
             body = methods[m]
             strings |= body.get("strings", set())
@@ -604,26 +615,46 @@ def build(parsed, type_modules=None):
             for scope in external:
                 if m == i or scope != "signature":
                     external[scope] |= body["external"][scope]
+            # The outside static field loaded by the member reference right
+            # before an `ldftn` (a generated lambda cache's statics between
+            # them do not count): the event of `GameEvents.onX.Add(handler)`.
+            # Any other reference in between clears it.
+            event_field = ""
             for position, (opcode, assembly, path, name, garity, params, ret) in enumerate(body["refs"]):
                 if assembly is not None:
+                    pending = ""
                     if params is not None and opcode in CALL_OPCODES and is_root_path(outermost(path)):
                         cross.add(assembly + "|" + member_key(path, name, garity, params, ret))
                     elif not ilgraph.BCL_ASSEMBLY_RE.match(assembly):
-                        outside.add("%s|%s::%s" % (assembly, path, name))
+                        member = "%s|%s::%s" % (assembly, path, name)
+                        outside.add(member)
+                        outside_counts[member] += 1
+                        if params is None and opcode == "ldsfld":
+                            pending = member
+                    event_field = pending
                     continue
                 if opcode in STATIC_FIELD_OPCODES and params is None:
+                    if is_root_path(outermost(path)) and not is_generated_path(path):
+                        static_counts[path + "::" + name] += 1
+                    if not is_generated_path(path):
+                        event_field = ""
                     continue
                 target = resolved.get((m, position))
+                field_before, event_field = event_field, ""
                 if target is None:
                     continue
                 target_key = owner_key(target)
+                if opcode in ("ldftn", "ldvirtftn") and target_key is not None:
+                    delegates.add("%s>%s" % (field_before, target_key))
                 if target_key is not None and target_key != key:
                     calls.add(target_key)
+                    call_counts[target_key] += 1
         own_decisions = decisions(method)
         entry = {
             "type": method["type"],
             "name": method["name"],
             "flags": sorted(method["flags"]),
+            "returns": method["returnType"],
             "attributes": sorted(set(method["attributes"])),
             "compilerGenerated": COMPILER_GENERATED_ATTRIBUTE in method["attributes"],
             "instructions": len(method["ops"]),
@@ -636,6 +667,17 @@ def build(parsed, type_modules=None):
             "external": {scope: sorted(values) for scope, values in external.items()},
             "crossAssemblyCalls": sorted(cross),
             "externalMembers": sorted(outside),
+            # Occurrences, not just presence: how many instructions name each
+            # outside member, in-assembly callee and static field (generated
+            # code folded in), so a gate can pin "this method reads X twice".
+            "externalMemberCounts": dict(sorted(outside_counts.items())),
+            "callCounts": dict(sorted(call_counts.items())),
+            "staticCounts": dict(sorted(static_counts.items())),
+            # `event>target` per delegate the body creates: the target's key
+            # (a lambda stands for the method that wrote it) and the
+            # outside-assembly field loaded last before the `ldftn` ("" when
+            # none), which for `GameEvents.onX.Add(handler)` is the event.
+            "delegates": sorted(delegates),
             "strings": sorted(strings),
         }
         if folded_from.get(i):

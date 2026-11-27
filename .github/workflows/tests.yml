@@ -177,18 +177,21 @@ jobs:
       # report (residue next to the text scan's, every disagreement
       # classified) goes to the step log. The pattern also picks up
       # test_ilfacts.py (the per-member facts layer), test_ilanalysis.py
-      # (the three code-facts ratchets pinned in scripts/arch/facts_pins.toml)
-      # and test_metrics.py (a metrics history row built from the model,
+      # (the three code-facts ratchets pinned in scripts/arch/facts_pins.toml),
+      # test_metrics.py (a metrics history row built from the model,
       # semantic result and facts the other cells already hold: a pull
-      # request's proof that the row can still be built), which read the
-      # same parse through ilgraph.load_parsed, so the DLL is disassembled and
-      # parsed once for all. About two and a half minutes. test_iltags.py (the
-      # log-tag map the harness lane health reads, scripts/arch/logtags.py)
-      # disassembles the DLL once more for its own stack walk, about 40 s.
+      # request's proof that the row can still be built) and
+      # test_far_watch_sites.py (the far-watch site and handler gates over
+      # scripts/arch/far_watch_sites.toml, design-far-watch.md 11.4), which
+      # read the same parse through ilgraph.load_parsed, so the DLL is
+      # disassembled and parsed once for all. About two and a half minutes.
+      # test_iltags.py (the log-tag map the harness lane health reads,
+      # scripts/arch/logtags.py) disassembles the DLL once more for its own
+      # stack walk, about 40 s.
       - name: Architecture semantic graph (compiled IL)
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
-        run: python3 -m unittest discover -s scripts/arch -p 'test_[ims]*.py' -q
+        run: python3 -m unittest discover -s scripts/arch -p 'test_[fims]*.py' -q
 
       # The metrics history row for this main commit (scripts/arch/metrics.py,
       # README "Metrics history"): the text scan, the semantic graph, the code
