@@ -73,3 +73,10 @@ fail 2. The before run is on an older main (FX PRs #2828 #2829 #2830 merged sinc
 is not #2837 alone. New fails: liquidEngineRK-7 burn-full (start colour hueL1 0.538, was a
 0.211 warn), omsEngine burn-low (far flame length 1.47x), rcsBlock.01.small rcs-fire (was warn);
 cleared: liquidEngine2-2.v2 doublebell burn-low. rcsblock.v2 fails in both.
+
+## Rig v2 (ground re-shoot, 2026-11-27)
+
+`rig/GhostFx9Rig.ground.cs` + `rig/FX9-2-ground-fx-stock.toml` (+ the same `rig/hooks.diff`). Copy the .cs to
+`Source/Parsek/InGameTests/GhostFx9Rig.cs` and the toml to `harness/scenarios/` in a scratch worktree at
+origin/main, apply hooks.diff, build, provision, fly `FX9-2-ground-fx-stock`, then revert. Never merged.
+Frames: `fx9g-<case>-<real|before|after>-kNN.png`, one every 0.25 s from 0.25 s before the event.
