@@ -7,7 +7,7 @@
       "dllHashes": ["9305130d246d7838b5194838495ef17e4bd12d552b2ec11d750903268e8263d8"],
       "writtenUtc": "2026-11-27T18:13:00Z",
       "views": ["side-a", "side-b", "top", "bottom"],
-      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
+      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "fxAbs": 0.5, "fxRel": 0.5, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "picoportbasic--default--f3907d46": {"measured": true, "setup": ["ok"], "views": {}},
         "picoportf--default--c0ea7f12": {"measured": true, "setup": ["ok"], "views": {"side-b": {"colorBlobPx": [12, 12]}}},
@@ -49,7 +49,7 @@
       "dllHashes": ["9305130d246d7838b5194838495ef17e4bd12d552b2ec11d750903268e8263d8"],
       "writtenUtc": "2026-11-27T18:46:40Z",
       "views": ["side-a", "side-b", "top", "bottom"],
-      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
+      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "fxAbs": 0.5, "fxRel": 0.5, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "adapterengines--default--881234f6": {"measured": true, "setup": ["ok"], "views": {}},
         "adapterlargesmallbi--dark--77f0261d": {"measured": true, "setup": ["ok"], "views": {}},
@@ -1601,7 +1601,7 @@
       "dllHashes": ["206033bde6c1e1c9a8ac8fe144ff89945d369021b7fb25a469b94ba94bf9c9c4", "36eabc6dbab897ddccca8b76700c0f20f0229ce7b0bb55d060499359b143bff7"],
       "writtenUtc": "2026-11-23T06:44:46Z",
       "views": ["side-a", "side-b", "top", "bottom"],
-      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
+      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "fxAbs": 0.5, "fxRel": 0.5, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "airbrake1--default--deployed--65d4f96a": {"measured": true, "setup": ["ok"], "views": {"event:bottom": {"iou": [0.9999, 1.0]}, "event:side-b": {"colorBlobPx": [3, 3], "iou": [0.9999, 1.0]}, "start:bottom": {"iou": [0.9999, 1.0]}, "start:side-b": {"colorBlobPx": [3, 3], "iou": [0.9998, 1.0]}}},
         "commdish--default--deployed--632298e2": {"measured": true, "setup": ["ok"], "views": {"event:bottom": {"colorBlobPx": [0, 1]}, "event:side-a": {"colorBlobPx": [0, 8], "iou": [0.9999, 1.0]}, "event:side-b": {"colorBlobPx": [0, 1], "iou": [0.9994, 1.0]}, "event:top": {"colorBlobPx": [0, 2], "iou": [0.9999, 1.0]}, "start:bottom": {"colorBlobPx": [0, 2]}, "start:side-a": {"colorBlobPx": [0, 8], "iou": [0.9999, 1.0]}, "start:side-b": {"colorBlobPx": [0, 1], "iou": [0.9994, 1.0]}, "start:top": {"colorBlobPx": [0, 2], "iou": [0.9999, 1.0]}}},
@@ -1850,7 +1850,7 @@
       "dllHashes": ["206033bde6c1e1c9a8ac8fe144ff89945d369021b7fb25a469b94ba94bf9c9c4"],
       "writtenUtc": "2026-11-23T06:44:47Z",
       "views": ["side-a", "side-b", "top", "bottom"],
-      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "iouAbs": 0.01, "shapeAbsPx": 48},
+      "tolerances": {"blobRel": 0.5, "colorAbsPx": 192, "fxAbs": 0.5, "fxRel": 0.5, "iouAbs": 0.01, "shapeAbsPx": 48},
       "cases": {
         "parachutedrogue--default--full--air--af4e8df3": {"measured": true, "setup": ["ok"], "views": {"event:bottom": {"colorBlobPx": [5098, 7263], "ghostOnlyBlobPx": [1100, 1617], "iou": [0.8489, 0.8717], "realOnlyBlobPx": [1090, 1600]}, "event:side-a": {"colorBlobPx": [880, 1956], "ghostOnlyBlobPx": [8, 147], "iou": [0.8742, 0.9029], "realOnlyBlobPx": [56, 147]}, "event:side-b": {"colorBlobPx": [2682, 4344], "ghostOnlyBlobPx": [364, 497], "iou": [0.8083, 0.8253], "realOnlyBlobPx": [614, 837]}, "event:top": {"colorBlobPx": [5394, 7320], "ghostOnlyBlobPx": [1097, 1608], "iou": [0.8491, 0.8719], "realOnlyBlobPx": [1091, 1593]}, "start:bottom": {"colorBlobPx": [5098, 7263], "ghostOnlyBlobPx": [1100, 1617], "iou": [0.8489, 0.8717], "realOnlyBlobPx": [1090, 1600]}, "start:side-a": {"colorBlobPx": [880, 1956], "ghostOnlyBlobPx": [8, 147], "iou": [0.8742, 0.9029], "realOnlyBlobPx": [56, 147]}, "start:side-b": {"colorBlobPx": [2682, 4344], "ghostOnlyBlobPx": [364, 497], "iou": [0.8083, 0.8253], "realOnlyBlobPx": [614, 837]}, "start:top": {"colorBlobPx": [5394, 7320], "ghostOnlyBlobPx": [1097, 1608], "iou": [0.8491, 0.8719], "realOnlyBlobPx": [1091, 1593]}}},
         "parachutedrogue--default--semi--air--76b02760": {"measured": true, "setup": ["ok"], "views": {"event:bottom": {"colorBlobPx": [374, 1806], "ghostOnlyBlobPx": [71, 531], "iou": [0.84, 0.9157], "realOnlyBlobPx": [85, 564]}, "event:side-a": {"colorBlobPx": [246, 294], "ghostOnlyBlobPx": [12, 18], "iou": [0.8667, 0.8767], "realOnlyBlobPx": [13, 26]}, "event:side-b": {"colorBlobPx": [222, 538], "ghostOnlyBlobPx": [5, 19], "iou": [0.809, 0.8717], "realOnlyBlobPx": [73, 581]}, "event:top": {"colorBlobPx": [271, 471], "ghostOnlyBlobPx": [76, 572], "iou": [0.8393, 0.9142], "realOnlyBlobPx": [56, 557]}, "start:bottom": {"colorBlobPx": [374, 1806], "ghostOnlyBlobPx": [71, 531], "iou": [0.84, 0.9157], "realOnlyBlobPx": [85, 564]}, "start:side-a": {"colorBlobPx": [246, 294], "ghostOnlyBlobPx": [12, 18], "iou": [0.8667, 0.8767], "realOnlyBlobPx": [13, 26]}, "start:side-b": {"colorBlobPx": [222, 538], "ghostOnlyBlobPx": [5, 19], "iou": [0.809, 0.8717], "realOnlyBlobPx": [73, 581]}, "start:top": {"colorBlobPx": [271, 471], "ghostOnlyBlobPx": [76, 572], "iou": [0.8393, 0.9142], "realOnlyBlobPx": [56, 557]}}},

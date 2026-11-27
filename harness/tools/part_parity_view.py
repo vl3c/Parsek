@@ -49,14 +49,19 @@ profile naming, case rows, facets, regression diff, cross-profile links,
 ``harness/lib/test_part_parity_view.py``; and a thin I/O shell (``load_sweep``,
 ``plan_images``, ``main``).
 
-Extension point (design 9.2, phase P7): GIF / APNG animation strips are written by this
-tool, not the browser, once a sweep carries a frame axis. ``--gif`` is reserved for that
-and refuses today; a row's ``strips`` slot is the place the page will read them from.
+Motion cases (design Appendix H.5; a sidecar with a ``motion`` block): the case shows its motion
+section, the real and ghost frames of the motion atlas in lock step under one Play / Pause, a
+0.25x toggle and a frame scrubber, with the timing chart (real and ghost progress against the
+seconds since the press) beneath them, and the per-frame and per-transform tables under
+Details. Verdicts, flags and measures are partparity's ``judge_motion``; a slow or late
+control's normal route (``<controlId>--normal``) is shown as a control row under its control.
+``--gif`` writes each motion case's animation (APNG by default, ``--gif-format gif``) from its
+motion atlas, the tool and not the browser, and the case links it from its ``strips`` slot.
 
 Usage::
 
     python harness/tools/part_parity_view.py <dir> [<dir> ...] [--baseline <dir>]
-        [--out <dir>] [--images auto|copy|in-place]
+        [--out <dir>] [--images auto|copy|in-place] [--gif [--gif-format apng|gif]]
 
 A ``<dir>`` may be written ``NAME=<dir>`` to name its profile explicitly. Sweeps merge by
 profile; a manifest whose recorded profile is ``..`` (every sweep before S3's profile fix)
@@ -74,8 +79,10 @@ import math
 import os
 import re
 import shutil
+import struct
 import sys
 import urllib.parse
+import zlib
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -171,8 +178,11 @@ ROUTES: Tuple[str, ...] = (pp.ROUTE_EVENT, pp.ROUTE_START)
 # The FX families and states come after P6's (design E.7); ``light`` / ``lit`` are both.
 FAMILY_ORDER: Tuple[str, ...] = pp.FAMILIES + tuple(
     f for f in pp.FX_FAMILIES if f not in pp.FAMILIES)
+# The motion families and states come after P6's and P8's (design H.5).
+FAMILY_ORDER = FAMILY_ORDER + tuple(f for f in pp.MOTION_FAMILIES if f not in FAMILY_ORDER)
 STATE_ORDER: Tuple[str, ...] = pp.KNOWN_STATES + tuple(
     s for s in pp.FX_STATES if s not in pp.KNOWN_STATES)
+STATE_ORDER = STATE_ORDER + tuple(s for s in pp.MOTION_STATES if s not in STATE_ORDER)
 CONTEXT_ORDER: Tuple[str, ...] = pp.KNOWN_CONTEXTS + (pp.CONTEXT_PLATE,)
 # The FX flag kinds the page filters on (the part before the first ``:`` of cv.fx.flags).
 FX_FLAG_KNOWN_DIFFERENCE = pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX.rstrip(":")
@@ -310,7 +320,33 @@ def _summary_index(manifest: Optional[Dict]) -> Dict[str, Dict]:
     return out
 
 
+_MOTION_FLAG_PHRASES: Dict[str, str] = {
+    pp.FLAG_MOTION_NOT_MODELLED: "the ghost does not show the motion",
+    pp.FLAG_MOTION_SNAP: "the ghost snaps where stock animates",
+    pp.FLAG_MOTION_STEPPED: "the ghost moves in steps",
+}
 _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], ...] = (
+    (re.compile(r"^motion:flag:(.*)$"),
+     lambda m: _MOTION_FLAG_PHRASES.get(m.group(1), "motion flag %s" % m.group(1))),
+    (re.compile(r"^motion:lagS=unmeasured$"), lambda m: "lag not measured (the ghost never crossed t50)"),
+    (re.compile(r"^motion:durationRatio=unmeasured$"),
+     lambda m: "duration ratio not measured (the ghost never crossed t10 and t90)"),
+    (re.compile(r"^motion:lagS=(-?[\d.]+)>([\d.]+)$"),
+     lambda m: "ghost %s by %s s (line %s s)" % ("late" if not m.group(1).startswith("-") else "early",
+                                                  m.group(1).lstrip("-"), m.group(2))),
+    (re.compile(r"^motion:durationRatio=([\d.]+)$"), lambda m: "duration ratio %s" % m.group(1)),
+    (re.compile(r"^motion:curveShapeDev=([\d.]+)>([\d.]+)$"),
+     lambda m: "curve shape off by %s (line %s)" % (m.group(1), m.group(2))),
+    (re.compile(r"^motion:angleMaxDevDeg=([\d.]+)>([\d.]+)$"),
+     lambda m: "servo angle off by %s deg (line %s)" % (m.group(1), m.group(2))),
+    (re.compile(r"^motion:no-motion-block$"), lambda m: "no motion block"),
+    (re.compile(r"^motion:no-timing$"), lambda m: "no timing block"),
+    (re.compile(r"^motion:frames=(\d+)<(\d+)$"),
+     lambda m: "only %s frame(s), %s needed" % (m.group(1), m.group(2))),
+    (re.compile(r"^motion:real-not-reached=(.*)<(.*)$"),
+     lambda m: "the real motion never reached %s inside the window (max %s)" % (m.group(2), m.group(1))),
+    (re.compile(r"^motion:last-frame:(.+)$"), lambda m: "last frame: %s" % reason_phrase(m.group(1))),
+    (re.compile(r"^motion:(.+)$"), lambda m: "motion %s" % m.group(1)),
     (re.compile(r"^missing-rendered:(.*)$"), lambda m: "ghost missing mesh %s" % m.group(1)),
     (re.compile(r"^extra-rendered:(.*)$"), lambda m: "ghost has extra mesh %s" % m.group(1)),
     (re.compile(r"^shape-blob-px:([^=]*)=(\d+)$"),
@@ -652,17 +688,336 @@ def fx_row(case_id: str, sc: Dict, fxj: "pp.FxJudgement", is_control: bool,
     })
 
 
+# ---------------------------------------------------------------------------
+# Motion cases (design Appendix H.5): partparity's motion judgement, the per-frame arrays,
+# the timing chart's geometry and the play delays. Only a motion case carries these keys, so
+# a page with no motion case is byte for byte the page it was (LegacyPagePinTests).
+# ---------------------------------------------------------------------------
+
+# The Motion flags filter (H.5), in this order.
+MOTION_FLAG_FILTER_KINDS: Tuple[str, ...] = (
+    pp.FLAG_MOTION_SNAP, pp.FLAG_MOTION_STEPPED, pp.FLAG_MOTION_NOT_MODELLED,
+    pp.FLAG_TRAVEL_DIFFERS, pp.FLAG_PROGRESS_DISAGREE,
+)
+# Play / Pause and the animations show each frame for its real duration (the frames are not
+# evenly spaced in time: the window extension and the doubled spacing), never under 20 ms
+# (the shortest GIF delay browsers honour); the last frame is held before the loop restarts.
+MOTION_PLAY_MIN_MS = 20
+MOTION_LAST_FRAME_HOLD_MS = 1000
+MOTION_SLOW_SPEED = 0.25
+# The view the animations show (H.5: side-a), else the case's first view.
+MOTION_ANIMATION_VIEW = "side-a"
+# The timing chart (inline SVG, H.5), in its own viewBox units.
+MOTION_CHART_W = 480
+MOTION_CHART_H = 150
+MOTION_CHART_PAD = (34, 10, 10, 24)  # left, right, top, bottom
+MOTION_CHART_LEVELS: Tuple[str, ...] = ("t10", "t50", "t90")
+# The frame-table measures shown per view (the start-shaped blocks of each frame).
+MOTION_MEASURE_KEYS: Tuple[str, ...] = ("realOnlyBlobPx", "ghostOnlyBlobPx", "colorBlobPx", "iou")
+
+
+def motion_frame_delays_ms(real_s: Sequence[Any], fallback_s: Optional[float] = None) -> List[int]:
+    """How long each frame shows: frame k until frame k + 1's real offset (at least
+    MOTION_PLAY_MIN_MS), the last one MOTION_LAST_FRAME_HOLD_MS. An offset that is not a
+    number reads the starting spacing (``fallback_s``, else 0.1 s)."""
+    step = fallback_s if isinstance(fallback_s, (int, float)) and fallback_s > 0 else 0.1
+    out: List[int] = []
+    n = len(real_s)
+    for k in range(n):
+        if k == n - 1:
+            out.append(MOTION_LAST_FRAME_HOLD_MS)
+            continue
+        a, b = pp._num(real_s[k]), pp._num(real_s[k + 1])
+        d = (b - a) if a is not None and b is not None else step
+        out.append(max(MOTION_PLAY_MIN_MS, int(round(d * 1000.0))))
+    return out
+
+
+def _chart_x(t: float, t_max: float) -> float:
+    left, right = MOTION_CHART_PAD[0], MOTION_CHART_PAD[1]
+    return round(left + (t / t_max if t_max > 0 else 0.0) * (MOTION_CHART_W - left - right), 2)
+
+
+def _chart_y(p: float) -> float:
+    top, bottom = MOTION_CHART_PAD[2], MOTION_CHART_PAD[3]
+    p = min(1.0, max(0.0, p))
+    return round(top + (1.0 - p) * (MOTION_CHART_H - top - bottom), 2)
+
+
+def _polyline(s: Sequence[Any], p: Sequence[Any], t_max: float) -> str:
+    pts = []
+    for t, v in zip(s, p):
+        t, v = pp._num(t), pp._num(v)
+        if t is not None and v is not None:
+            pts.append("%s,%s" % (_chart_x(t, t_max), _chart_y(v)))
+    return " ".join(pts)
+
+
+def motion_chart(block: Dict, timing: Optional[Dict], event_s: Sequence[float]) -> Dict[str, Any]:
+    """The timing chart's geometry (H.5): real pose progress at the real frames and the
+    ghost's on its scout grid against the seconds since the press, the press at 0 and each
+    polled event as ticks, the t10 / t50 / t90 marks of both sides, the lag drawn between the
+    two t50 marks, and the x of every frame (the scrubber's vertical line)."""
+    frames = pp.motion_frames(block)
+    rs = [f.get("realS") for f in frames]
+    rp = [f.get("realProgress") for f in frames]
+    scout = _dict(block.get("scout"))
+    ss, sp = pp._motion_nums(scout.get("s")), pp._motion_nums(scout.get("progress"))
+    ends = [pp._num(x) for x in rs + ss + [_dict(block.get("window")).get("endS")]]
+    t_max = max([x for x in ends if x is not None] or [1.0])
+    t_max = t_max if t_max > 0 else 1.0
+    marks: Dict[str, Dict[str, Optional[float]]] = {}
+    for side in ("real", "ghost"):
+        cross = _dict(_dict(timing).get(side))
+        marks[side] = {lv: (_chart_x(pp._num(cross.get(lv)), t_max)
+                            if pp._num(cross.get(lv)) is not None else None)
+                       for lv in MOTION_CHART_LEVELS}
+    levels = {"t10": 0.10, "t50": 0.50, "t90": 0.90}
+    lag = None
+    if marks["real"]["t50"] is not None and marks["ghost"]["t50"] is not None:
+        lag = [marks["real"]["t50"], marks["ghost"]["t50"]]
+    step = 10.0 ** math.floor(math.log10(t_max)) if t_max > 0 else 1.0
+    if t_max / step < 3:
+        step /= 2.0
+    ticks = []
+    t = 0.0
+    while t <= t_max + 1e-9 and len(ticks) < 12:
+        ticks.append([_chart_x(t, t_max), ("%g" % round(t, 6))])
+        t += step
+    return {
+        "w": MOTION_CHART_W, "h": MOTION_CHART_H, "pad": list(MOTION_CHART_PAD), "tMax": t_max,
+        "real": _polyline(rs, rp, t_max), "ghost": _polyline(ss, sp, t_max),
+        "press": _chart_x(0.0, t_max),
+        "events": [_chart_x(t, t_max) for t in event_s if 0.0 <= t <= t_max],
+        "marks": marks, "levelY": {lv: _chart_y(levels[lv]) for lv in MOTION_CHART_LEVELS},
+        "lag": lag, "y0": _chart_y(0.0), "y1": _chart_y(1.0), "ticks": ticks,
+        "frameX": [_chart_x(pp._num(t) or 0.0, t_max) for t in rs],
+    }
+
+
+def _n(value: Any) -> Optional[float]:
+    """A sidecar number as the page may format it: an int kept, a float finite, else None."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return pp._num(value)
+
+
+def _nums(value: Any) -> Optional[List[Optional[float]]]:
+    """A sidecar number array with every non-number as None; None when it is not an array."""
+    return [pp._num(v) for v in value] if isinstance(value, list) else None
+
+
+def _motion_measure(block: Any, view: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(block, dict):
+        return None
+    row = _measure_row(dict(block, view=view))
+    out = {k: row.get(k) for k in ("view", "verdict", "reasons", "trigger")}
+    out.update({k: _n(row.get(k)) for k in MOTION_MEASURE_KEYS})
+    return out
+
+
+def _motion_timing(timing: Any) -> Optional[Dict[str, Any]]:
+    """The timing block with numbers only (the page formats every value as one)."""
+    if not isinstance(timing, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for k, v in timing.items():
+        if k in ("real", "ghost"):
+            out[k] = {lv: pp._num(x) for lv, x in v.items()} if isinstance(v, dict) else None
+        elif k == "flags":
+            out[k] = [str(x) for x in pp._motion_list(v)]
+        else:
+            out[k] = pp._num(v)
+    return out
+
+
+def motion_event_offsets(sc: Dict, block: Dict) -> List[float]:
+    """The polled events' UTs from the press (``stateProof.events``), in order."""
+    press = pp._num(block.get("pressUT"))
+    proof = _dict(sc.get("stateProof"))
+    out = []
+    for e in pp._motion_list(proof.get("events")):
+        ut = pp._num(_dict(e).get("ut"))
+        if press is not None and ut is not None:
+            out.append(ut - press)
+    return out
+
+
+# The per-frame numbers the page formats (``secs`` and the chart): each is a number or null.
+MOTION_FRAME_NUMBER_KEYS = ("targetS", "realS", "ut", "realClock", "ghostClock", "realProgress",
+                            "ghostProgress", "matchedS", "matchedProgress")
+
+
+def motion_page_problems(sc: Dict) -> List[str]:
+    """What the page reads beyond partparity's block shape check (``motion_case_problems``)
+    and found malformed: read as empty or unmeasured, and named on the case."""
+    out = []
+    block = pp.motion_block(sc) or {}
+    events = _dict(sc.get("stateProof")).get("events")
+    if events is not None and not isinstance(events, list):
+        out.append("stateProof.events: not an array")
+    for key in ("pressUT", "predictedS", "ghostClipS", "eventDelayS", "ghostStartDelayS"):
+        if block.get(key) is not None and pp._num(block.get(key)) is None:
+            out.append("motion.%s: not a number" % key)
+    for i, f in enumerate(pp.motion_frames(block)):
+        for key in MOTION_FRAME_NUMBER_KEYS:
+            if f.get(key) is not None and pp._num(f.get(key)) is None:
+                out.append("motion.frames[%d].%s: not a number" % (i, key))
+        if f.get("imgProgress") is not None and not isinstance(f.get("imgProgress"), dict):
+            out.append("motion.frames[%d].imgProgress: not an object" % i)
+    meta = sc.get("motionAtlas")
+    if meta is not None and not isinstance(meta, dict):
+        out.append("motionAtlas: not an object")
+    elif isinstance(meta, dict):
+        for key in ("rows", "cols"):
+            if not isinstance(meta.get(key), list):
+                out.append("motionAtlas.%s: not an array" % key)
+        if not (isinstance(meta.get("tile"), int) and not isinstance(meta.get("tile"), bool) and meta["tile"] > 0):
+            out.append("motionAtlas.tile: not a positive integer")
+        if not _name(meta.get("file")):
+            out.append("motionAtlas.file: not a file name")
+    return out
+
+
+def motion_animation_view(views: Sequence[str]) -> Optional[str]:
+    if MOTION_ANIMATION_VIEW in views:
+        return MOTION_ANIMATION_VIEW
+    return views[0] if views else None
+
+
+def motion_row(case_id: str, sc: Dict, mj: "pp.MotionJudgement",
+               image_url: Optional[ImageUrl]) -> Dict[str, Any]:
+    """The motion half of a case row (H.5): partparity's ``judge_motion`` verdict, reasons,
+    flags and measures, the per-frame arrays and measures, the transforms with their travel
+    and stagger, the motion atlas, the chart and the play delays."""
+    # Every array is type-checked and every number coerced (a non-number reads None): the
+    # page formats them as numbers, and a malformed sidecar must not stop the site build.
+    block = pp.motion_block(sc) or {}
+    timing = _motion_timing(block.get("timing"))
+    frames = pp.motion_frames(block)
+    views = pp.motion_view_names(block)
+    meta = _dict(sc.get("motionAtlas"))
+    atlas_file = _name(meta.get("file"))
+    rs = [pp._num(f.get("realS")) for f in frames]
+    scout = _dict(block.get("scout"))
+    lag = pp._num((timing or {}).get("lagS"))
+    transforms = []
+    for tr in pp._motion_list(block.get("transforms")):
+        if not isinstance(tr, dict):
+            continue
+        transforms.append({
+            "path": _name(tr.get("path")), "channel": _name(tr.get("channel")),
+            "travelReal": pp._num(tr.get("travelReal")), "travelGhost": pp._num(tr.get("travelGhost")),
+            "travelRatio": pp._motion_ratio(pp._num(tr.get("travelGhost")), pp._num(tr.get("travelReal"))),
+            "staggerDev": pp.motion_shape_deviation(rs, _nums(tr.get("real")), pp._motion_nums(scout.get("s")),
+                                                     _nums(tr.get("ghost")), lag)})
+    rows_out = []
+    for i, f in enumerate(frames):
+        fv = []
+        for v in pp._motion_list(f.get("views")):
+            if isinstance(v, dict):
+                fv.append({"view": _name(v.get("view")), "same": _motion_measure(v.get("same"), v.get("view")),
+                           "matched": _motion_measure(v.get("matched"), v.get("view"))})
+        img = f.get("imgProgress")
+        k = f.get("k")
+        rows_out.append({key: pp._num(f.get(key)) for key in MOTION_FRAME_NUMBER_KEYS}
+                        | {"k": k if isinstance(k, int) and not isinstance(k, bool) else i,
+                           "imgProgress": {str(r): pp._num(x) for r, x in img.items()} if isinstance(img, dict) else None,
+                           "views": fv, "flags": [str(x) for x in pp._motion_list(f.get("flags"))]})
+    events = motion_event_offsets(sc, block)
+    atlas_rows = _names(meta.get("rows"))
+    window = _dict(block.get("window"))
+    tile = meta.get("tile")
+    report = dict(mj.report)
+    report.pop("frameVerdicts", None)
+    return _finite({
+        "family": mj.family, "kind": mj.kind, "module": block.get("module"),
+        "moduleIndex": _n(block.get("moduleIndex")), "pressUT": pp._num(block.get("pressUT")),
+        "predictedS": pp._num(block.get("predictedS")), "ghostClipS": pp._num(block.get("ghostClipS")),
+        "eventDelayS": pp._num(block.get("eventDelayS")), "ghostStartDelayS": pp._num(block.get("ghostStartDelayS")),
+        "framesPerMotion": _n(block.get("framesPerMotion")),
+        "window": {"endS": pp._num(window.get("endS")), "spacingS": pp._num(window.get("spacingS")),
+                   "capped": window.get("capped") is True},
+        "verdict": mj.verdict, "reasons": list(mj.reasons), "trigger": trigger_line(list(mj.reasons)),
+        "flags": list(mj.flags), "measures": dict(mj.measures), "report": report,
+        "timing": timing, "views": views,
+        "matched": any(r.startswith(pp.MOTION_ROW_GHOST_MATCHED + ":") for r in atlas_rows),
+        "atlas": image_url(atlas_file) if image_url and atlas_file else None,
+        "atlasFile": atlas_file, "tile": tile if isinstance(tile, int) and not isinstance(tile, bool) and tile > 0 else None,
+        "atlasRows": atlas_rows,
+        "atlasCols": list(meta.get("cols") or []) if isinstance(meta.get("cols"), list) else [],
+        "frames": rows_out, "transforms": transforms, "events": events,
+        "delaysMs": motion_frame_delays_ms(rs, pp.motion_frame_interval(block)),
+        "chart": motion_chart(block, timing, events),
+        "animationView": motion_animation_view(views), "slowSpeed": MOTION_SLOW_SPEED,
+    })
+
+
+def motion_strips(row_motion: Dict[str, Any]) -> Dict[str, Any]:
+    """A motion case's ``strips`` slot (H.5): the motion atlas, and the animation once
+    ``--gif`` wrote one (``apply_animation``)."""
+    return {"motionAtlas": row_motion.get("atlas"), "motionAtlasFile": row_motion.get("atlasFile"),
+            "animation": None, "animationFile": None, "animationFormat": None}
+
+
+def motion_flag_kinds(flags: Iterable[str]) -> List[str]:
+    kinds = {f.split(":", 1)[0] for f in flags}
+    return [k for k in MOTION_FLAG_FILTER_KINDS if k in kinds]
+
+
+# What a motion measure must move by to read ``moved`` (H.5: past its own warn distance).
+def motion_changes(cur: Any, base: Any) -> List[str]:
+    """What moved between two motion halves (``motion_row``): the motion verdict, each judged
+    measure past its warn distance (lag: half its fail line; the duration ratio: 0.2, the
+    distance of its lower warn line from 1; the curve shape and the servo angle: half their
+    fail lines) and the motion flag kinds added or dropped (a jitter tag's milliseconds are
+    noise, its kind is not)."""
+    if not cur and not base:
+        return []
+    if not cur or not base:
+        return ["motion %s -> %s" % ("present" if base else "absent", "present" if cur else "absent")]
+    changes = []
+    if cur.get("verdict") != base.get("verdict"):
+        changes.append("motion.verdict %s -> %s" % (base.get("verdict"), cur.get("verdict")))
+    mc, mb = _dict(cur.get("measures")), _dict(base.get("measures"))
+    lag_line = pp._num(mc.get("lagLineS")) or pp.MOTION_LAG_FAIL_MIN_S
+    angle_line = pp._num(mc.get("angleLineDeg")) or pp.MOTION_SERVO_ANGLE_FAIL_MIN_DEG
+    moves = (("lagS", pp.MOTION_WARN_FRACTION * lag_line),
+             ("durationRatio", 1.0 - pp.MOTION_DURATION_RATIO_WARN_MIN),
+             ("curveShapeDev", pp.MOTION_WARN_FRACTION * pp.MOTION_CURVE_SHAPE_FAIL),
+             ("angleMaxDevDeg", pp.MOTION_WARN_FRACTION * angle_line))
+    for name, tol in moves:
+        x, y = pp._num(mb.get(name)), pp._num(mc.get(name))
+        if (x is None) != (y is None):
+            changes.append("motion.%s %s -> %s" % (name, _fmt_num(x), _fmt_num(y)))
+        elif x is not None and abs(y - x) > tol:
+            changes.append("motion.%s %.3f -> %.3f" % (name, x, y))
+    fa = {f.split(":", 1)[0] for f in base.get("flags") or []}
+    fb = {f.split(":", 1)[0] for f in cur.get("flags") or []}
+    if fa != fb:
+        changes.append("motion.flags %s" % " ".join(["+" + f for f in sorted(fb - fa)]
+                                                    + ["-" + f for f in sorted(fa - fb)]))
+    return changes
+
+
+def _fmt_num(v: Optional[float]) -> str:
+    return "null" if v is None else "%.3f" % v
+
+
 def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
              control: Optional[Dict], listed: bool, is_control: bool,
              image_url: Optional[ImageUrl], row_id: Optional[str] = None,
-             fx_run: bool = False) -> Dict[str, Any]:
+             fx_run: bool = False,
+             motion_judged: Optional[Tuple[str, str]] = None) -> Dict[str, Any]:
     """One case as the page reads it. ``sidecar`` is the parsed sidecar, None when the
     file is absent, or the string ``SIDECAR_UNREADABLE`` when it would not parse.
     ``image_url(file_name)`` returns the page-relative URL of a file of this sweep, or
     None when the file is absent. A state case carries its two judged routes and its
     state flags exactly as ``partparity.judge_case`` returns them, an FX case its FX half
     (``fx_row``). ``fx_run``: the sweep is an FX run, whose controls ``judge_fx_control``
-    re-judges, as ``check_controls`` does."""
+    re-judges, as ``check_controls`` does. A motion case carries its motion half
+    (``motion_row``) and the motion atlas in ``strips``; ``motion_judged`` is a motion
+    control's (outcome, detail) from ``judge_motion_control``, which needs the sweep."""
     sc = sidecar if isinstance(sidecar, dict) else None
     summ = summary or {}
     problem = None if sc is not None else (
@@ -676,6 +1031,8 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     routes = None
     state_flags: List[str] = []
     fx = None
+    motion = None
+    motion_problem = None
     if sc is not None:
         cv = pp.judge_case(sc)
         verdict, reasons = cv.verdict, list(cv.reasons)
@@ -684,6 +1041,15 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
             fx = fx_row(case_id, sc, cv.fx, is_control, image_url)
             if verdict == pp.VERDICT_REFERENCE and trigger:
                 trigger = "reference, would be %s: %s" % (cv.fx.would_be, trigger)
+        if cv.motion is not None:
+            try:
+                shape = pp.motion_case_problems(sc) + motion_page_problems(sc)
+                motion = motion_row(case_id, sc, cv.motion, image_url)
+                if shape:
+                    motion_problem = "the motion sidecar is malformed: " + "; ".join(shape[:5]) + (
+                        " (+%d more)" % (len(shape) - 5) if len(shape) > 5 else "")
+            except Exception as exc:  # a problem on this case's row, never a stop of the site
+                motion_problem = "the motion block would not build: %s: %s" % (type(exc).__name__, exc)
         worst_view, blob_px, blob_pct, color_px = (cv.worst_view, cv.max_shape_blob_px,
                                                    cv.max_shape_blob_pct, cv.max_color_blob_px)
         if cv.is_state_case:
@@ -703,6 +1069,10 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         verdict = VERDICT_CONTROL_OK if outcome == pp.CONTROLS_OK else VERDICT_CONTROL_BAD
         if pp.control_not_applicable(case_id, outcome):
             verdict = VERDICT_CONTROL_NA
+        elif outcome == pp.CONTROLS_OK and motion_judged is not None:
+            judged, judged_detail = motion_judged
+            if judged != pp.CONTROLS_OK:
+                verdict = VERDICT_CONTROL_BAD
         elif outcome == pp.CONTROLS_OK and (fx_run or case_id in pp.STATE_CONTROL_IDS):
             # check_controls re-judges a state or FX control recorded ok from its sidecar; the
             # chip follows that judgement, so a contradicted control never reads ok.
@@ -813,6 +1183,11 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         "regression": None,
         "links": [],
     }
+    if motion is not None:
+        row["motion"] = motion
+        row["strips"] = motion_strips(motion)
+    if motion_problem is not None:
+        row["motionProblem"] = motion_problem
     return row
 
 
@@ -828,18 +1203,64 @@ def sweep_rows(profile: str, manifest: Optional[Dict], sidecars: Dict[str, Any],
     set_kind = control_set_kind(manifest)
     settings = (manifest or {}).get("settings")
     fx_run = pp.is_fx_run(settings if isinstance(settings, dict) else None)
+    motion_run = pp.is_motion_run(settings if isinstance(settings, dict) else None)
+    normals = motion_normal_routes(sidecars)
     rows = []
     for cid, listed in ordered_case_ids(manifest, sidecars.keys()):
+        if cid in normals:
+            continue
         is_control = cid in controls or cid in pp.ALL_CONTROL_IDS
         rid = "%s/%s/%s" % (profile, sweep_key, cid) if is_control and sweep_key else None
+        judged = (pp.judge_motion_control(cid, sidecars)
+                  if is_control and motion_run and cid in pp.MOTION_CONTROL_IDS else None)
         r = case_row(profile, cid, sidecars.get(cid), summaries.get(cid),
-                     controls.get(cid), listed, is_control, image_url, rid, fx_run)
+                     controls.get(cid), listed, is_control, image_url, rid, fx_run, judged)
         r["sweep"], r["sweepIndex"] = sweep_key, sweep_index
         if is_control:
             r["controlSet"] = set_kind
             r["regKey"] = "ctl:%s:%s" % (set_kind, cid)
         rows.append(r)
+        normal = pp.motion_normal_id(cid)
+        if is_control and normal in normals:
+            rows.append(_normal_route_row(profile, normal, cid, sidecars.get(normal),
+                                          controls.get(cid), image_url, sweep_key, sweep_index,
+                                          set_kind, r))
+    placed = {r["caseId"] for r in rows}
+    for normal in normals:
+        if normal not in placed:  # a normal route whose control left no row
+            rows.append(_normal_route_row(profile, normal, normal[:-len(pp.MOTION_CONTROL_NORMAL_SUFFIX)],
+                                          sidecars.get(normal), None, image_url, sweep_key,
+                                          sweep_index, set_kind,
+                                          {"verdict": VERDICT_CONTROL_BAD, "control": {},
+                                           "trigger": "no control row for this normal route"}))
     return rows
+
+
+def motion_normal_routes(sidecars: Dict[str, Any]) -> List[str]:
+    """The slow and late motion controls' normal routes on disk (``<controlId>--normal``,
+    H.3): each is shown under its control, never as a part case."""
+    return [pp.motion_normal_id(c) for c in pp.MOTION_CONTROLS_WITH_NORMAL
+            if pp.motion_normal_id(c) in sidecars]
+
+
+def _normal_route_row(profile: str, normal: str, cid: str, sidecar: Any, control: Optional[Dict],
+                      image_url: Optional[ImageUrl], sweep_key: Optional[str], sweep_index: int,
+                      set_kind: str, parent: Dict) -> Dict[str, Any]:
+    """A slow or late control's normal route as a control row next to its control: the
+    control's own outcome and judgement (the two routes are judged together), its subject
+    named as the normal route."""
+    c = dict(control or {})
+    c["subject"] = "the normal event route %s is judged against (%s)" % (cid, c.get("subject") or "-")
+    rid = "%s/%s/%s" % (profile, sweep_key, normal) if sweep_key else None
+    r = case_row(profile, normal, sidecar, None, c, True, True, image_url, rid)
+    for key in ("verdict", "trigger"):
+        r[key] = parent[key]
+    r["control"] = dict(r["control"], judged=(parent.get("control") or {}).get("judged"),
+                        judgedDetail=(parent.get("control") or {}).get("judgedDetail"))
+    r["sweep"], r["sweepIndex"] = sweep_key, sweep_index
+    r["controlSet"] = set_kind
+    r["regKey"] = "ctl:%s:%s" % (set_kind, normal)
+    return r
 
 
 def fx_writer_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
@@ -859,6 +1280,25 @@ def fx_writer_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> L
     for cid, sc in sidecars.items():
         if isinstance(sc, dict):
             run(cid + " ", lambda c=cid, s=sc: pp.fx_block_problems(s, c in control_set))
+    return problems
+
+
+def motion_writer_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """partparity's motion writer cross-checks over a sweep (``motion_run_problems``, and
+    ``motion_case_problems`` of every motion case, the normal routes included); the atlas
+    recompute is the verifier row's. A check that cannot read its input is the problem."""
+    problems: List[str] = []
+
+    def run(prefix: str, check: Callable[[], List[str]]) -> None:
+        try:
+            problems.extend(prefix + p for p in check())
+        except (TypeError, ValueError, ArithmeticError, AttributeError, KeyError) as exc:
+            problems.append("%smotion check unreadable (%s: %s)" % (
+                prefix, type(exc).__name__, str(exc)[:80]))
+    run("", lambda: pp.motion_run_problems(manifest, sidecars))
+    for cid, sc in sidecars.items():
+        if isinstance(sc, dict) and pp.is_motion_case(sc):
+            run(cid + " ", lambda s=sc: pp.motion_case_problems(s))
     return problems
 
 
@@ -886,12 +1326,17 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
             if p:
                 instrument.append(p)
         instrument.extend(fx_writer_problems(m, with_unreadable))
-    control_ids = set(_control_index(manifest)) | set(pp.ALL_CONTROL_IDS)
+        instrument.extend(motion_writer_problems(m, with_unreadable))
+    # A slow or late motion control's normal route is part of its control, never a case.
+    control_ids = set(_control_index(manifest)) | set(pp.ALL_CONTROL_IDS) | set(motion_normal_routes(parsed))
     state_cvs = [pp.judge_case(sc) for cid, sc in parsed.items()
                  if cid not in control_ids and pp.is_state_case(sc.get("state"))]
     fx_counts = pp.fx_case_counts(state_cvs)
     if fx_counts is not None:
         fx_counts.pop("thresholds")  # the page reads them once, from fxThresholds
+    motion_counts = pp.motion_case_counts(state_cvs)
+    if motion_counts is not None:
+        motion_counts.pop("thresholds")  # the page reads them once, from motionThresholds
     counts = {v: 0 for v in VERDICT_ORDER}
     for r in rows:
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
@@ -904,7 +1349,7 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
               "recomputed": len((verdicts_doc.get("recompute") or {}).get("cases") or []),
               "recomputeMismatches": len((verdicts_doc.get("recompute") or {}).get("mismatches") or []),
               "problems": list(verdicts_doc.get("problems") or [])}
-    return {
+    header = {
         "profile": profile,
         "profileNote": note,
         "sweep": sweep_key,
@@ -942,6 +1387,9 @@ def sweep_header(profile: str, note: Optional[str], dir_label: str,
         "duplicates": list(duplicates),
         "verdictsFile": vd,
     }
+    if motion_counts is not None:
+        header["motion"] = motion_counts
+    return header
 
 
 def skin_kind(row: Dict, is_first: bool) -> str:
@@ -1095,6 +1543,9 @@ def group_parts(rows: Sequence[Dict]) -> List[Dict[str, Any]]:
             "reference": sum(1 for r in ordered if r["verdict"] == pp.VERDICT_REFERENCE),
             "ownerFlags": list(dict.fromkeys(f for r in ordered for f in r.get("ownerFlags") or [])),
         })
+        if any(r.get("motion") for r in ordered):
+            groups[-1]["motionFlags"] = motion_flag_kinds(
+                f for r in ordered for f in (r.get("motion") or {}).get("flags") or [])
     groups.sort(key=lambda g: (-SEVERITY.get(g["verdict"], 0),
                                str(g.get("title") or g.get("part") or "").lower(), g["id"]))
     links: Dict[str, List[Dict]] = {}
@@ -1150,7 +1601,7 @@ def facets(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, List[List[
     flags = tally(f for g in groups for f in g.get("stateFlags") or [])
     refs = tally(k for g in groups for k in g.get("refs") or [])
     fx_flags = tally(f for g in groups for f in g.get("fxFlags") or [])
-    return {
+    out = {
         "verdict": [[v, verdicts[v]] for v in (pp.VERDICT_FAIL, pp.VERDICT_WARN,
                                                pp.VERDICT_ERROR, pp.PAGE_ACCEPTED,
                                                pp.PAGE_KNOWN, pp.VERDICT_PASS,
@@ -1164,6 +1615,10 @@ def facets(rows: Sequence[Dict], groups: Sequence[Dict]) -> Dict[str, List[List[
         "reference": [[k, refs[k]] for k in (REF_JUDGED, REF_REFERENCE) if k in refs],
         "fxFlag": [[k, fx_flags[k]] for k in FX_FLAG_FILTER_KINDS if k in fx_flags],
     }
+    if any("motionFlags" in g for g in groups):
+        mflags = tally(f for g in groups for f in g.get("motionFlags") or [])
+        out["motionFlag"] = [[k, mflags[k]] for k in MOTION_FLAG_FILTER_KINDS if k in mflags]
+    return out
 
 
 def _iou_change(label: str, a: Optional[float], b: Optional[float]) -> Optional[str]:
@@ -1283,6 +1738,7 @@ def compare_rows(cur: Dict, base: Dict) -> List[str]:
         gone = [f for f in fa if f not in fb]
         changes.append("stateFlags %s" % " ".join(["+" + f for f in added] + ["-" + f for f in gone]))
     changes.extend(fx_changes(cur.get("fx"), base.get("fx")))
+    changes.extend(motion_changes(cur.get("motion"), base.get("motion")))
     return changes
 
 
@@ -1547,7 +2003,7 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
     apply_cross_links(rows)
     apply_stowed_pairs(rows)
     groups = group_parts(rows)
-    return {
+    data = {
         "schema": DATA_SCHEMA,
         "generatedUtc": generated_utc,
         "thresholds": pp.thresholds(),
@@ -1564,6 +2020,9 @@ def build_site_data(sweeps: Sequence[Dict], baseline: Optional[Sequence[Dict]] =
         "groups": groups,
         "cases": rows,
     }
+    if any(r.get("motion") for r in rows):
+        data["motionThresholds"] = pp.motion_thresholds()
+    return data
 
 
 def render_data_js(data: Dict[str, Any]) -> str:
@@ -1632,6 +2091,234 @@ def split_named_dir(arg: str, isdir: Callable[[str], bool] = os.path.isdir) -> T
     if m:
         return m.group(1), m.group(2)
     return None, arg
+
+
+# ---------------------------------------------------------------------------
+# --gif (design 9.2 reserved it, H.5 built it): per motion case an animation of the motion
+# atlas, each frame the REAL | GHOST same time | GHOST same progress tiles of one view side by
+# side, each shown for its real duration (motion_frame_delays_ms). Pure encoders over decoded
+# pixels; ``write_motion_animations`` is the I/O around them.
+# ---------------------------------------------------------------------------
+
+ANIMATION_APNG = "apng"
+ANIMATION_GIF = "gif"
+ANIMATION_FORMATS: Tuple[str, ...] = (ANIMATION_APNG, ANIMATION_GIF)
+ANIMATION_SUFFIX = {ANIMATION_APNG: ".motion.apng", ANIMATION_GIF: ".motion.gif"}
+# A GIF has no partial alpha: its frames are the atlas composited over the page's tile
+# background (``--tilebg``, light theme), so a soft edge stays the edge the page shows.
+GIF_BACKGROUND: Tuple[int, int, int] = (0x8f, 0x95, 0x9c)
+GIF_MAX_COLOURS = 256
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def motion_animation_rows(atlas_rows: Sequence[str], view: str) -> List[int]:
+    """The atlas rows an animation frame shows, left to right: ``real:<view>``,
+    ``ghost:<view>`` and, when the case has one, ``ghost-matched:<view>``."""
+    out = []
+    for kind in (pp.MOTION_ROW_REAL, pp.MOTION_ROW_GHOST, pp.MOTION_ROW_GHOST_MATCHED):
+        name = "%s:%s" % (kind, view)
+        if name in atlas_rows:
+            out.append(list(atlas_rows).index(name))
+    return out
+
+
+def motion_animation_frames(atlas: Tuple[int, int, int, bytes], tile: int, atlas_rows: Sequence[str],
+                            atlas_cols: Sequence[Any], view: str) -> Tuple[int, int, int, List[bytes]]:
+    """(width, height, bytes per pixel, frames) of one case's animation: frame i is column i
+    of the atlas rows ``motion_animation_rows`` names, side by side. Raises ValueError when
+    the atlas is not the layout its sidecar names."""
+    width, height, bpp, px = atlas
+    if not isinstance(tile, int) or tile <= 0:
+        raise ValueError("motionAtlas.tile=%r" % (tile,))
+    if bpp not in (3, 4):
+        raise ValueError("atlas has %d byte(s) per pixel, not RGB / RGBA" % bpp)
+    if width != len(atlas_cols) * tile or height != len(atlas_rows) * tile:
+        raise ValueError("atlas %dx%d is not %d cols x %d rows of %d px" % (
+            width, height, len(atlas_cols), len(atlas_rows), tile))
+    rows = motion_animation_rows(atlas_rows, view)
+    if not rows:
+        raise ValueError("no real or ghost row for view %s" % view)
+    span = tile * bpp
+    frames = []
+    for i in range(len(atlas_cols)):
+        lines = []
+        for y in range(tile):
+            for r in rows:
+                start = ((r * tile + y) * width + i * tile) * bpp
+                lines.append(px[start:start + span])
+        frames.append(b"".join(lines))
+    return len(rows) * tile, tile, bpp, frames
+
+
+def _png_chunk(kind: bytes, body: bytes) -> bytes:
+    return (struct.pack(">I", len(body)) + kind + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+
+def _png_scanlines(w: int, h: int, bpp: int, frame: bytes) -> bytes:
+    stride = w * bpp
+    return zlib.compress(b"".join(b"\x00" + frame[y * stride:(y + 1) * stride] for y in range(h)), 9)
+
+
+def encode_apng(w: int, h: int, bpp: int, frames: Sequence[bytes], delays_ms: Sequence[int]) -> bytes:
+    """An animated PNG looping forever: frame 0 is the IDAT (so a viewer without APNG shows
+    the press frame), every frame replaces the whole canvas (``dispose_op`` none,
+    ``blend_op`` source), each shown ``delays_ms[i]`` milliseconds."""
+    if not frames or len(frames) != len(delays_ms):
+        raise ValueError("%d frame(s), %d delay(s)" % (len(frames), len(delays_ms)))
+    out = [_PNG_SIGNATURE,
+           _png_chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6 if bpp == 4 else 2, 0, 0, 0)),
+           _png_chunk(b"acTL", struct.pack(">II", len(frames), 0))]
+    seq = 0
+    for i, (frame, delay) in enumerate(zip(frames, delays_ms)):
+        out.append(_png_chunk(b"fcTL", struct.pack(">IIIIIHHBB", seq, w, h, 0, 0,
+                                                   min(int(delay), 0xFFFF), 1000, 0, 0)))
+        seq += 1
+        data = _png_scanlines(w, h, bpp, frame)
+        if i == 0:
+            out.append(_png_chunk(b"IDAT", data))
+        else:
+            out.append(_png_chunk(b"fdAT", struct.pack(">I", seq) + data))
+            seq += 1
+    out.append(_png_chunk(b"IEND", b""))
+    return b"".join(out)
+
+
+def _composite(rgba: Tuple[int, int, int, int], bg: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    a = rgba[3]
+    return tuple((c * a + b * (255 - a) + 127) // 255 for c, b in zip(rgba[:3], bg))  # type: ignore
+
+
+def median_cut(counts: Dict[Tuple[int, int, int], int],
+               limit: int = GIF_MAX_COLOURS) -> Tuple[List[Tuple[int, int, int]], Dict[Tuple[int, int, int], int]]:
+    """(palette, colour -> palette index): every colour exactly when there are at most
+    ``limit``; else median cut (split the box whose widest channel is widest at its
+    pixel-weighted median until ``limit`` boxes, each box's colour its weighted mean)."""
+    colours = sorted(counts)
+    if len(colours) <= limit:
+        return colours, {c: i for i, c in enumerate(colours)}
+    boxes = [colours]
+
+    def spread(box):
+        return max(max(c[ch] for c in box) - min(c[ch] for c in box) for ch in range(3))
+
+    while len(boxes) < limit:
+        boxes.sort(key=lambda b: (spread(b) if len(b) > 1 else -1, len(b)))
+        box = boxes.pop()
+        if len(box) < 2:
+            boxes.append(box)
+            break
+        ch = max(range(3), key=lambda k: max(c[k] for c in box) - min(c[k] for c in box))
+        box.sort(key=lambda c: c[ch])
+        total = sum(counts[c] for c in box)
+        acc, cut = 0, 1
+        for i, c in enumerate(box[:-1]):
+            acc += counts[c]
+            if acc * 2 >= total:
+                cut = i + 1
+                break
+        else:
+            cut = len(box) - 1
+        boxes.extend([box[:cut], box[cut:]])
+    palette, lut = [], {}
+    for i, box in enumerate(boxes):
+        w = sum(counts[c] for c in box)
+        palette.append(tuple(int(round(sum(c[ch] * counts[c] for c in box) / w)) for ch in range(3)))
+        for c in box:
+            lut[c] = i
+    return palette, lut  # type: ignore
+
+
+def lzw_encode(indices: bytes, min_code_size: int) -> bytes:
+    """GIF's variable-width LZW (codes LSB first, at most 12 bits, a clear code when the
+    table is full)."""
+    clear, eoi = 1 << min_code_size, (1 << min_code_size) + 1
+    out = bytearray()
+    acc = nbits = 0
+
+    def emit(code: int, size: int) -> None:
+        nonlocal acc, nbits
+        acc |= code << nbits
+        nbits += size
+        while nbits >= 8:
+            out.append(acc & 0xFF)
+            acc >>= 8
+            nbits -= 8
+
+    size = min_code_size + 1
+    table: Dict[int, int] = {}
+    nxt = eoi + 1
+    emit(clear, size)
+    if not indices:
+        emit(eoi, size)
+    else:
+        prefix = indices[0]
+        for k in indices[1:]:
+            key = (prefix << 8) | k
+            code = table.get(key)
+            if code is not None:
+                prefix = code
+                continue
+            emit(prefix, size)
+            if nxt < 4096:
+                table[key] = nxt
+                nxt += 1
+                if nxt > (1 << size) and size < 12:
+                    size += 1
+            else:
+                emit(clear, size)
+                table, nxt, size = {}, eoi + 1, min_code_size + 1
+            prefix = k
+        emit(prefix, size)
+        emit(eoi, size)
+    if nbits:
+        out.append(acc & 0xFF)
+    return bytes(out)
+
+
+def encode_gif(w: int, h: int, bpp: int, frames: Sequence[bytes], delays_ms: Sequence[int],
+               background: Tuple[int, int, int] = GIF_BACKGROUND) -> bytes:
+    """A looping GIF89a: every frame composited over ``background``, one global palette over
+    all frames (``median_cut``), each frame shown ``delays_ms[i]`` rounded to centiseconds
+    (at least 2, MOTION_PLAY_MIN_MS)."""
+    if not frames or len(frames) != len(delays_ms):
+        raise ValueError("%d frame(s), %d delay(s)" % (len(frames), len(delays_ms)))
+    counts: Dict[Tuple[int, ...], int] = {}
+    for f in frames:
+        for i in range(0, len(f), bpp):
+            px = tuple(f[i:i + bpp])
+            counts[px] = counts.get(px, 0) + 1
+    flat = {p: (_composite(p, background) if bpp == 4 else p) for p in counts}
+    merged: Dict[Tuple[int, int, int], int] = {}
+    for p, n in counts.items():
+        merged[flat[p]] = merged.get(flat[p], 0) + n  # type: ignore
+    palette, lut = median_cut(merged)
+    index_of = {p: lut[flat[p]] for p in counts}  # type: ignore
+    bits = max(1, (len(palette) - 1).bit_length())
+    table = b"".join(bytes(c) for c in palette) + b"\x00\x00\x00" * ((1 << bits) - len(palette))
+    out = [b"GIF89a", struct.pack("<HHBBB", w, h, 0x80 | 0x70 | (bits - 1), 0, 0), table,
+           b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00"]
+    mcs = max(2, bits)
+    for f, delay in zip(frames, delays_ms):
+        cs = max(MOTION_PLAY_MIN_MS // 10, int(round(delay / 10.0)))
+        out.append(b"\x21\xf9\x04" + struct.pack("<BHB", 0x04, min(cs, 0xFFFF), 0) + b"\x00")
+        out.append(b"\x2c" + struct.pack("<HHHHB", 0, 0, w, h, 0))
+        idx = bytes(index_of[tuple(f[i:i + bpp])] for i in range(0, len(f), bpp))
+        data = lzw_encode(idx, mcs)
+        out.append(bytes([mcs]))
+        for i in range(0, len(data), 255):
+            block = data[i:i + 255]
+            out.append(bytes([len(block)]) + block)
+        out.append(b"\x00")
+    out.append(b"\x3b")
+    return b"".join(out)
+
+
+def apply_animation(row: Dict[str, Any], url: str, file_name: str, fmt: str) -> None:
+    """Point a motion row's ``strips`` slot at the animation ``--gif`` wrote. In place."""
+    strips = row.get("strips") if isinstance(row.get("strips"), dict) else motion_strips(row["motion"])
+    strips.update(animation=url, animationFile=file_name, animationFormat=fmt)
+    row["strips"] = strips
 
 
 # ---------------------------------------------------------------------------
@@ -1764,6 +2451,51 @@ def _write_text(path: str, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _write_bytes(path: str, data: bytes) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, path)
+
+
+def write_motion_animations(data: Dict[str, Any], sweeps: Sequence[Dict], out_dir: str,
+                            fmt: str) -> Tuple[int, List[str]]:
+    """``--gif``: encode every motion case's animation (``fmt`` apng or gif) from its motion
+    atlas into ``<out>/img/<k>/<caseId>.motion.<ext>`` and point its row's ``strips`` at it.
+    Returns (written, problems); a case whose atlas will not read is a problem, never a stop."""
+    if _HERE not in sys.path:
+        sys.path.insert(0, _HERE)
+    import gui_mirror  # the stdlib PNG reader the GUI mirror already ships
+    written, problems = 0, []
+    for row in data.get("cases") or []:
+        m = row.get("motion")
+        if not m or not m.get("atlasFile"):
+            continue
+        k = row.get("sweepIndex") or 0
+        if k >= len(sweeps):
+            continue
+        src = os.path.join(sweeps[k]["dir"], m["atlasFile"])
+        try:
+            atlas = gui_mirror.read_png(src)
+            w, h, bpp, frames = motion_animation_frames(atlas, m.get("tile"), m.get("atlasRows") or [],
+                                                        m.get("atlasCols") or [],
+                                                        m.get("animationView") or "")
+            delays = list(m.get("delaysMs") or [])
+            if len(delays) != len(frames):
+                raise ValueError("%d atlas column(s), %d frame delay(s)" % (len(frames), len(delays)))
+            blob = (encode_apng if fmt == ANIMATION_APNG else encode_gif)(w, h, bpp, frames, delays)
+        except Exception as exc:  # gui_mirror.read_png raises what a damaged file makes it raise
+            problems.append("%s: %s: %s: %s" % (row.get("id"), m["atlasFile"], type(exc).__name__, exc))
+            continue
+        name = row["caseId"] + ANIMATION_SUFFIX[fmt]
+        sub = "img/%d" % k
+        os.makedirs(os.path.join(out_dir, *sub.split("/")), exist_ok=True)
+        _write_bytes(os.path.join(out_dir, *sub.split("/"), name), blob)
+        apply_animation(row, sub + "/" + urllib.parse.quote(name), name, fmt)
+        written += 1
+    return written, problems
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         description="Static offline viewer over part ghost parity sweep directories "
@@ -1783,12 +2515,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="reference images in place or copy them under <out>/img/ "
                          "(auto: in place for the default --out, copy otherwise)")
     ap.add_argument("--gif", action="store_true",
-                    help="reserved: GIF / APNG animation strips (design 9.2, phase P7)")
+                    help="write each motion case's animation from its motion atlas under "
+                         "<out>/img/<k>/ (design Appendix H.5)")
+    ap.add_argument("--gif-format", choices=ANIMATION_FORMATS, default=None,
+                    help="the animation format for --gif (default apng: exact colours and "
+                         "alpha; gif: a 256-colour palette over the tile grey)")
     args = ap.parse_args(argv)
 
-    if args.gif:
-        print("part_parity_view: --gif is not built yet: animation strips are phase P7 "
-              "(design 9.2) and no sweep carries a frame axis", file=sys.stderr)
+    if args.gif_format and not args.gif:
+        print("part_parity_view: --gif-format names the format --gif writes; pass --gif",
+              file=sys.stderr)
         return 2
 
     sweeps = []
@@ -1834,6 +2570,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = build_site_data(sweeps, baseline if args.baseline else None, stamp, pinned, lists)
     copied, kept = copy_images(copies)
+    animated = None
+    if args.gif:
+        fmt = args.gif_format or ANIMATION_APNG
+        if not any(r.get("motion") for r in data["cases"]):
+            print("part_parity_view: --gif: no motion case in these sweeps, no animation written")
+        else:
+            animated, problems = write_motion_animations(data, sweeps, out_dir, fmt)
+            for p in problems:
+                print("part_parity_view: --gif: %s" % p, file=sys.stderr)
     data_js = render_data_js(data)
     _write_text(os.path.join(out_dir, DATA_JS_FILE), data_js)
     _write_text(os.path.join(out_dir, INDEX_FILE), INDEX_HTML)
@@ -1847,6 +2592,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
           "copied=%d up-to-date=%d)" % (os.path.join(out_dir, INDEX_FILE), len(data["cases"]),
                                          len(data["profiles"]), len(data_js) // 1024,
                                          copied, kept))
+    if animated is not None:
+        print("part_parity_view: wrote %d %s animation(s)" % (animated, args.gif_format or ANIMATION_APNG))
     return 0
 
 
@@ -1909,8 +2656,8 @@ main { padding: 8px 16px 40px; }
 .vc.pass { background: var(--pass); } .vc.warn { background: var(--warn); color: #1d1600; }
 .vc.fail { background: var(--fail); } .vc.error { background: var(--error); color: #111; }
 /* not a verdict: a reference case or entry (design E.6), a not-applicable control, an entry
-   whose measures were skipped (weak cores, E.4) */
-.vc.reference, .vc.na, .vc.skipped { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
+   whose measures were skipped (weak cores, E.4) or that neither side drew */
+.vc.reference, .vc.na, .vc.skipped, .vc.empty { background: transparent; color: var(--fg); border: 1px dashed var(--fg); line-height: 16px; }
 /* a fail the accepted list explains whole: known = ruled by the owner, accepted = a known cause
    that is not the ghost's. Counted apart from the fails; what was judged stays, unfilled. */
 .vc.known, .vc.accepted { background: transparent; color: var(--fg); border: 2px solid var(--known); line-height: 14px; }
@@ -1972,6 +2719,18 @@ figure.strip .tile { height: min(256px, calc((100vw - 60px) / 2)); }
 @keyframes filmstrip { from { background-position-x: 0%; } to { background-position-x: var(--sxe); } }
 .layer.film { animation: filmstrip calc(var(--k) * 110ms) steps(var(--k)) infinite; animation-play-state: paused; }
 body.stripsplay .layer.film { animation-play-state: running; }
+/* motion (design Appendix H.5): every crop reads its case's frame index --f */
+.mobox { margin: 6px 0 0; border-top: 1px solid var(--border); padding-top: 4px; --f: 0; }
+.mctl { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; padding: 4px 0; }
+.mctl input[type=range] { width: min(320px, 60vw); max-width: none; padding: 0; }
+.mframe { font-size: 12px; font-variant-numeric: tabular-nums; }
+.mchart { width: min(480px, 100%); height: auto; display: block; margin: 4px 0 0; }
+.mchart .ax { stroke: var(--muted); } .mchart .lv { stroke: var(--border); stroke-dasharray: 2 3; }
+.mchart text { fill: var(--muted); font-size: 10px; }
+.mchart .pl { fill: none; stroke-width: 2; } .mchart .pl.real { stroke: var(--real); } .mchart .pl.ghost { stroke: var(--ghost); stroke-dasharray: 5 3; }
+.mchart .mk.real { fill: var(--real); } .mchart .mk.ghost { fill: var(--ghost); }
+.mchart .press { stroke: var(--fg); } .mchart .ev { stroke: var(--warn); stroke-width: 2; }
+.mchart .lag { stroke: var(--fail); stroke-width: 3; } .mchart .fline { stroke: var(--fg); stroke-dasharray: 2 2; }
 .knownbox { border: 2px dashed var(--muted); border-radius: 8px; margin: 8px 0 2px; padding: 4px 8px; }
 .knownbox .tile { outline: 2px dashed var(--muted); outline-offset: -5px; }
 .knownbox .vmeta, .knownbox .cap { color: var(--muted); }
@@ -2033,6 +2792,7 @@ dialog .tile { cursor: default; }
   </div>
   <p class="note" id="statelegend" hidden>State cases (deployed, open, lit, semi, full, jettisoned): each view shows STOWED (the paired stowed case's REAL part when its sweep is loaded, else the case's own stowed ghost as a dashed reference, not judged), REAL in the state, GHOST event route (the stowed snapshot plus the recorded part events, as a flight replays it), GHOST start route (a recording that starts in the state) and the DIFFERENCE of real vs the event ghost. Both ghost routes are judged; the case takes the worse one.</p>
   <p class="note" id="fxlegend" hidden>Effect cases (engine plumes, RCS puffs, heat glow, lamps on a plate): under the body rows, the strip plays 12 frames of fx-side-a, body and effects together, REAL and GHOST (event route) in lock step (Play / Pause in the header). Then one row per effect view and layer: flame over black, smoke over the matte, each picture the mean of the samples with how often a pixel was covered as its opacity; a layer is rendered alone, so the body never hides the plume. The measures beside a row are ghost against real (1.00 = equal). A layer nothing draws has no row; the line under the rows names it. A dashed verdict is not judged: a Waterfall case reads reference, with the verdict it would have had. An RCS ghost fires every nozzle at the module's mean power (a known difference, owner ruling 2026-11-22), so the judged rows hide its nozzles the real part did not fire and the dashed block shows all of them, for information only.</p>
+  <p class="note" id="motionlegend" hidden>Motion cases (the part moving from stowed to its end state, design Appendix H): each view shows REAL, GHOST at the same time since the press, GHOST at the same progress (the ghost's frame whose pose progress matches the real's) and the DIFFERENCE of real vs the same-time ghost, all crops of the motion atlas on one frame clock. Play / Pause plays the frames at their real offsets from the press (0.25x slows them), the slider picks a frame, and the chart under them plots both sides' progress against time with the frame shown as a dotted line. The chips are the motion measures: lag (t50 ghost minus real), duration ratio (t10 to t90), curve shape and, for a servo, the angle.</p>
   <p id="nodata" hidden>data.js did not load: open this page from the folder the viewer wrote, next to its data.js.</p>
   <details class="box" id="sweeps"><summary id="sweepsum">Sweeps</summary><div id="sweepbody"></div></details>
   <details class="box" id="controls"><summary id="ctlsum">Controls</summary><div id="ctlbody"></div></details>
@@ -2050,11 +2810,11 @@ dialog .tile { cursor: default; }
   D.groups.forEach(function (g, i) {
     g._i = i;
     g.cases.forEach(function (id) { CASE_GROUP[id] = g; });
-    g._text = [g.title, g.part, g.source, g.profile].concat(g.cases.map(function (id) { var c = CASE[id]; return [c.caseId, c.skin, c.stateLabel, c.family || ""].concat(c.tags || []).concat(c.stateFlags || []).concat(c.fx ? c.fx.flags : []).join(" "); })).join(" ").toLowerCase();
+    g._text = [g.title, g.part, g.source, g.profile].concat(g.cases.map(function (id) { var c = CASE[id]; return [c.caseId, c.skin, c.stateLabel, c.family || ""].concat(c.tags || []).concat(c.stateFlags || []).concat(c.fx ? c.fx.flags : []).concat(c.motion ? c.motion.flags : []).join(" "); })).join(" ").toLowerCase();
   });
   var KNOWN_DIFF = "rcs-known-difference", OWNER_FLAG = "owner-flagged", PAGE_STATES = ["accepted", "known"];
-  var state = {verdict: "", source: "", q: "", sort: "severity", regression: "", stateWord: "", family: "", stateFlag: "", refClass: "", fxFlag: "", diff: true};
-  var FILTER_KEYS = ["verdict", "source", "regression", "stateWord", "family", "stateFlag", "refClass", "fxFlag"];
+  var state = {verdict: "", source: "", q: "", sort: "severity", regression: "", stateWord: "", family: "", stateFlag: "", refClass: "", fxFlag: "", motionFlag: "", diff: true};
+  var FILTER_KEYS = ["verdict", "source", "regression", "stateWord", "family", "stateFlag", "refClass", "fxFlag", "motionFlag"];
   try { var saved = JSON.parse(localStorage.getItem("parity-view-2") || "null"); if (saved) Object.keys(state).forEach(function (k) { if (k in saved) state[k] = saved[k]; }); } catch (e) {}
   function save() { try { localStorage.setItem("parity-view-2", JSON.stringify(state)); } catch (e) {} }
 
@@ -2101,6 +2861,7 @@ dialog .tile { cursor: default; }
     if (D.facets.stateFlag.length) select("stateFlag", "State flags", D.facets.stateFlag); else state.stateFlag = "";
     if (D.facets.reference.length) select("refClass", "Reference", D.facets.reference); else state.refClass = "";
     if (D.facets.fxFlag.length) select("fxFlag", "FX flags", D.facets.fxFlag); else state.fxFlag = "";
+    if ((D.facets.motionFlag || []).length) select("motionFlag", "Motion flags", D.facets.motionFlag); else state.motionFlag = "";
     if (D.facets.fxFlag.some(function (x) { return x[0] === OWNER_FLAG; })) {
       ownerBtn = el("button", {type: "button", text: "owner-flagged", title: "list every case the owner flagged", on: {click: function () {
         state.fxFlag = state.fxFlag === OWNER_FLAG ? "" : OWNER_FLAG; SELECTS.fxFlag.value = state.fxFlag; save(); applyFilters(); }}});
@@ -2111,12 +2872,14 @@ dialog .tile { cursor: default; }
         state.fxFlag = state.fxFlag === KNOWN_DIFF ? "" : KNOWN_DIFF; SELECTS.fxFlag.value = state.fxFlag; save(); applyFilters(); }}});
       top.appendChild(knownBtn);
     }
-    if (D.cases.some(function (c) { return c.fx && c.fx.strip; })) {
+    if (D.cases.some(function (c) { return (c.fx && c.fx.strip) || c.motion; })) {
       // Every strip runs off one class on <body>: the two rows of a pair, inserted together,
-      // take one start time and pause and resume in the same style change (lock step).
+      // take one start time and pause and resume in the same style change (lock step). The
+      // motion clocks follow the same button (each case also has its own Play / Pause).
       var still = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
       var play = el("button", {type: "button", id: "stripbtn", on: {click: function () { setPlay(!document.body.classList.contains("stripsplay")); }}});
-      var setPlay = function (on) { document.body.classList.toggle("stripsplay", on); play.textContent = on ? "Pause strips" : "Play strips"; play.setAttribute("aria-pressed", on ? "true" : "false"); };
+      var setPlay = function (on) { document.body.classList.toggle("stripsplay", on); play.textContent = on ? "Pause strips" : "Play strips"; play.setAttribute("aria-pressed", on ? "true" : "false");
+        MOTION_PLAY = on; Object.keys(MOTION).forEach(function (id) { motionPlay(MOTION[id], on && MOTION[id].c.motion.frames.length > 1); }); };
       setPlay(!(still && still.matches));
       if (still && still.addEventListener) still.addEventListener("change", function () { if (still.matches) setPlay(false); });
       top.appendChild(play);
@@ -2163,6 +2926,7 @@ dialog .tile { cursor: default; }
       if (h.statePress) row("state press", (h.statePress.ok ? "ok" : "BAD") + ": " + Object.keys(h.statePress.families).map(function (f) { var x = h.statePress.families[f]; return f + " " + x.pressFailed + "/" + x.cases + " failed"; }).join(", ") + (h.statePress.problems.length ? " - " + h.statePress.problems.join("; ") : ""), h.statePress.ok ? null : "bad-text");
       if (h.stateCases) row("state flags", h.stateCases + " state case(s); " + (Object.keys(h.stateFlagCounts || {}).map(function (k) { return k + " " + h.stateFlagCounts[k]; }).join(", ") || "no state flag"));
       if (h.fx) row("effects", h.fx.cases + " FX case(s): " + counted(h.fx.families) + (h.fx.reference ? "; " + h.fx.reference + " reference (would be " + counted(h.fx.referenceWouldBe) + ")" : "; none reference") + "; flags: " + (counted(h.fx.flags) || "none"));
+      if (h.motion) row("motion", h.motion.cases + " motion case(s): " + Object.keys(h.motion.families).map(function (f) { return f + " (" + counted(h.motion.families[f]) + ")"; }).join(", ") + "; flags: " + (counted(h.motion.flags) || "none"));
       if (h.instrumentProblems.length) row("writer checks", h.instrumentProblems.slice(0, 5).join("; ") + (h.instrumentProblems.length > 5 ? " (+" + (h.instrumentProblems.length - 5) + " more)" : ""), "bad-text");
       if (h.verdictsFile) row("verifier row", fmt(h.verdictsFile.status) + (h.verdictsFile.invalidSubkind ? " (" + h.verdictsFile.invalidSubkind + ")" : "") + ", recompute " + h.verdictsFile.recomputed + " case(s), " + h.verdictsFile.recomputeMismatches + " mismatch(es)", h.verdictsFile.recomputeMismatches ? "bad-text" : null);
       if (h.duplicates.length) row("duplicates", h.duplicates.length + " case id(s) already loaded from another sweep: " + h.duplicates.slice(0, 5).join(", "), "bad-text");
@@ -2173,6 +2937,8 @@ dialog .tile { cursor: default; }
     body.appendChild(el("p", {cls: "note", text: "Views are fixed in the part's frame: side-a from -Z, side-b from +X, top from +Y, bottom from -Y; the +Z and -X faces are only seen with views=all, and a rotationally symmetric part cannot prove its yaw. Verdict lines: shape blob > " + D.thresholds.shapeBlobFailPx + " px or " + D.thresholds.shapeBlobFailPct + "% of the box, colour blob > " + D.thresholds.colorBlobFailPx + " px, warn at " + D.thresholds.warnFraction + " of those; a rendered mesh missing or extra on the ghost, or a skin mismatch, fails the case. Generated " + (D.generatedUtc || "?") + "."}));
     var T = D.fxThresholds;
     if (T) body.appendChild(el("p", {cls: "note", text: "Effect lines (starting guesses, P8): fail when a layer one side lacks, origin off by more than " + T.originFailMinPx + " px and " + T.originFailLengthFraction + " of the real length, lateral " + T.lateralFailMinPx + " px and " + T.lateralFailLengthFraction + ", length +-" + T.lengthFailFraction + ", width +-" + T.widthFailFraction + ", direction " + T.directionFailDeg + " deg, cross-section area outside " + T.crossSectionAreaFailMin + " to " + T.crossSectionAreaFailMax + ", colour " + T.chromaFail + " chroma or " + T.hueL1Fail + " hue; brightness and IoU only warn. An rcs case does not judge length, width and brightness. An effect that did not converge is capped at warn."}));
+    var MT = D.motionThresholds;
+    if (MT) body.appendChild(el("p", {cls: "note", text: "Motion lines (H.3): lag fail past the larger of " + MT.lagFailMinS + " s and " + MT.lagFailRealFraction + " of the real t10-t90, duration ratio outside " + MT.durationRatioFail.join(" to ") + " (warn outside " + MT.durationRatioWarn.join(" to ") + "), curve shape past " + MT.curveShapeFail + ", a servo angle past the larger of " + MT.servoAngleFailMinDeg + " deg and " + MT.servoAngleFailSweepFraction + " of its sweep; warn at " + MT.warnFraction + " of a line. A motion case needs " + MT.minFrames + " frames and its real side reaching " + MT.realReachedProgress + "."}));
     document.getElementById("sweepsum").textContent = "Sweeps: " + parts.join("; ");
     var box = document.getElementById("sweeps");
     if (bad) { box.classList.add("bad"); box.open = true; }
@@ -2287,7 +3053,7 @@ dialog .tile { cursor: default; }
   function fxRows(c, zoom) { return c.kind === "control" ? FX_CTL_ROWS : (zoom ? FX_PART_ROWS.concat([FX_ZOOM_ROW]) : FX_PART_ROWS); }
   function ratioText(x) { return Object.keys(x).filter(function (k) { return x[k] !== null && x[k] !== undefined; }).map(function (k) { return k + " " + fmt(x[k], 2); }).join(", ") || "length, width and brightness not measured"; }
   function ratios(x) { return ratioText({length: x.lengthRatio, width: x.widthRatio, brightness: x.brightnessRatio}); }
-  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || (e.verdict === "skipped" ? "both cores are weak: only presence was judged" : null)); }
+  function fxVerdict(e) { return e.reference ? el("span", {cls: "vc reference", text: "would be " + e.verdict, title: "reference only, not judged"}) : vchip(e.verdict, e.reasons.map(function (r) { return r.level + " " + r.reason + (r.capped ? " (a fail, capped: did not converge)" : ""); }).join("\n") || ({skipped: "both cores are weak: only presence was judged", empty: "neither side draws anything here"}[e.verdict] || null)); }
   function fxLine(c, name, e) {
     if (!e) return el("div", {cls: "note", text: name + ": not measured"});
     var x = e.compare, rcs = c.fx.family === "rcs";
@@ -2349,7 +3115,7 @@ dialog .tile { cursor: default; }
     fxLayers(c).forEach(function (layer) { fxViews(c).forEach(function (view) {
       var ev = fxEntry(c, "event", view, layer), st = fxEntry(c, "start", view, layer);
       if (!ev && !st) return;
-      if ((!ev || (ev.empty && ev.verdict === "pass")) && (!st || (st.empty && st.verdict === "pass"))) { empty.push(layer + " " + view); return; }
+      if ((!ev || (ev.empty && ev.verdict === "empty")) && (!st || (st.empty && st.verdict === "empty"))) { empty.push(layer + " " + view); return; }
       var meta = [fxLine(c, c.kind === "control" ? "real vs ghost" : "event route", ev)];
       if (c.kind !== "control") meta.push(fxLine(c, "start route", st));
       box.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: view + " " + layer})].concat(fxFigures(c, view, layer, fxRows(c))).concat([el("div", {cls: "vmeta"}, meta)])));
@@ -2453,6 +3219,7 @@ dialog .tile { cursor: default; }
       }
     }
     if (c.fx) fillFx(d, c);
+    if (c.motion) fillMotion(d, c);
     structureTable(c.isState ? "structure, event route" : "structure", c.structure).forEach(function (n) { d.appendChild(n); });
     if (c.isState) structureTable("structure, start route", c.structureStart).forEach(function (n) { d.appendChild(n); });
     var p = c.skinProof || {}, marks = p.marks || {}, sk = ["module", "moduleId", "requested", "real", "snapshot", "ghost"];
@@ -2474,11 +3241,183 @@ dialog .tile { cursor: default; }
       "endpoint " + (sp.endpoint ? sp.endpoint.field + "=" + sp.endpoint.value : "-"), "events " + (Array.isArray(sp.events) ? sp.events.map(function (e) { return e.type + "@" + fmt(e.ut); }).join(" ") || "none" : "-"),
       "ghost event " + sp.ghostEvent, "ghost start " + sp.ghostStart, "first frame at target " + (sp.startFirstFrame ? sp.startFirstFrame.atTarget : "-")].join("; "));
     if (c.fx) fxProof(c, row);
+    if (c.motion) motionProof(c, row);
     if (c.stowedCaseId) row("stowed case", c.stowedCaseId + (c.stowedPair ? "" : " (not loaded: the stowed column is this case's own stowed ghost)"));
     if (c.regression) row("baseline", c.regression.status + (c.regression.changes.length ? ": " + c.regression.changes.join(", ") : ""));
     if (!c.listed) row("manifest", "this sidecar is not listed in the manifest");
     d.appendChild(kv);
     if (c.log.length) d.appendChild(el("pre", {text: c.log.join("\n")}));
+  }
+  // ---- motion (design Appendix H.5) ----
+  // One clock per case: it sets the frame index --f on the case's motion box (and on the 1:1
+  // dialog's figures), and every motion crop's background-position reads that one variable, so
+  // the rows cannot drift apart. Frames show for their REAL duration (delaysMs), not steps(K).
+  var SVG_NS = "http://www.w3.org/2000/svg", MOTION = {}, MOTION_PLAY = true;
+  function svgEl(tag, attrs, kids) {
+    var n = document.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, String(attrs[k])); });
+    (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+    return n;
+  }
+  function motionLayer(m, rowName, cls) {
+    var r = m.atlasRows.indexOf(rowName), cols = Math.max(1, m.atlasCols.length), rows = Math.max(1, m.atlasRows.length);
+    if (r < 0) return null;
+    return el("div", {cls: "layer mo" + (cls ? " " + cls : ""), "data-src": m.atlas, "data-row": rowName,
+      style: "background-size:" + (cols * 100) + "% " + (rows * 100) + "%;background-position:calc(var(--f) * " + (cols > 1 ? 100 / (cols - 1) : 0) + "%) " + (rows > 1 ? r / (rows - 1) * 100 : 0) + "%"});
+  }
+  // [figure class, atlas row kind, full caption, short caption, row blended over the first]
+  function motionRows(c) {
+    var m = c.motion, ctl = c.kind === "control";
+    var out = [["real", "real", ctl ? "REAL row (the intact side)" : "REAL part (stock KSP)", "REAL"], ["ghost", "ghost", ctl ? "GHOST row (the altered side), same time" : "GHOST same time", "GHOST"]];
+    if (m.matched) out.push(["ghost", "ghost-matched", "GHOST same progress", "GHOST prog"]);
+    out.push(["diff", "real", "DIFFERENCE real vs same-time ghost", "DIFF", "ghost"]);
+    return out;
+  }
+  function motionFigures(c, view, s) {
+    var m = c.motion;
+    if (!m.atlas) return [el("div", {cls: "nopic", text: m.atlasFile ? "motion atlas " + m.atlasFile + " not found" : "no motion atlas"})];
+    return motionRows(c).map(function (r) {
+      var first = motionLayer(m, r[1] + ":" + view), over = r[4] ? motionLayer(m, r[4] + ":" + view, "blend") : null;
+      if (!first || (r[4] && !over)) return figure(r[0] + " st", el("div", {cls: "nopic", text: "row not in the motion atlas"}), r[2], r[3]);
+      var t = el("div", {cls: "tile mo" + (over ? " diff" : ""), role: "img", "aria-label": r[2] + " " + view, "data-case": c.id, "data-view": "motion:" + view}, over ? [first, over] : [first]);
+      if (s) { t.style.width = s + "px"; t.style.height = s + "px"; }
+      return figure(r[0] + " st", t, r[2], r[3]);
+    });
+  }
+  function secs(v) { return v === null || v === undefined ? "-" : (v >= 0 ? "+" : "") + v.toFixed(3) + " s"; }
+  function frameText(m, k) {
+    var f = m.frames[k] || {};
+    return "frame " + (k + 1) + " / " + m.frames.length + ": " + secs(f.realS) + " after the press (target " + secs(f.targetS) + "); progress real " + fmt(f.realProgress, 3) + ", ghost " + fmt(f.ghostProgress, 3) + " at the same time" +
+      (m.matched ? ", the ghost's " + fmt(f.matchedProgress, 3) + " at " + secs(f.matchedS) : "") + ((f.flags || []).length ? " - " + f.flags.join(", ") : "");
+  }
+  function measureLine(name, x) {
+    if (!x) return el("div", {cls: "note", text: name + ": not measured"});
+    return el("div", null, [el("span", {cls: "note", text: name + " "}), vchip(x.verdict, (x.reasons || []).join("\n") || null),
+      " shape blob " + Math.max(x.realOnlyBlobPx || 0, x.ghostOnlyBlobPx || 0) + " px, colour blob " + fmt(x.colorBlobPx) + " px, IoU " + fmt(x.iou, 3)]);
+  }
+  function fillFrameMeta(n, m, k, view) {
+    var f = m.frames[k] || {}, v = (f.views || []).filter(function (x) { return x.view === view; })[0], ip = f.imgProgress || {};
+    n.textContent = "";
+    n.appendChild(measureLine("same time", v ? v.same : null));
+    if (m.matched) n.appendChild(measureLine("same progress", v ? v.matched : null));
+    n.appendChild(el("div", {cls: "note", text: "picture progress real " + fmt(ip["real:" + view], 3) + ", ghost " + fmt(ip["ghost:" + view], 3)}));
+  }
+  function motionShow(st, k) {
+    var m = st.c.motion, n = m.frames.length;
+    k = Math.max(0, Math.min(n - 1, k | 0)); st.k = k;
+    st.roots.concat(st.zoom ? [st.zoom] : []).forEach(function (r) { r.style.setProperty("--f", String(k)); });
+    st.scrub.value = String(k);
+    st.label.textContent = frameText(m, k);
+    if (st.fline) { var x = m.chart.frameX[k]; st.fline.setAttribute("x1", x); st.fline.setAttribute("x2", x); }
+    st.metas.forEach(function (x) { fillFrameMeta(x[0], m, k, x[1]); });
+  }
+  function motionTick(st) {
+    var m = st.c.motion, d = (m.delaysMs[st.k] || 100) / (st.slow ? m.slowSpeed : 1);
+    st.timer = setTimeout(function () { st.timer = null; if (!st.playing) return; motionShow(st, (st.k + 1) % m.frames.length); motionTick(st); }, d);
+  }
+  function motionPlay(st, on) {
+    if (st.timer !== null) clearTimeout(st.timer);
+    st.timer = null; st.playing = on;
+    st.btn.textContent = on ? "Pause" : "Play"; st.btn.setAttribute("aria-pressed", on ? "true" : "false");
+    if (on && st.c.motion.frames.length > 1) motionTick(st);
+  }
+  function motionChart(m) {
+    var C = m.chart, P = C.pad, kids = [], L = P[0], R = C.w - P[1];
+    kids.push(svgEl("line", {"class": "ax", x1: L, y1: C.y0, x2: R, y2: C.y0}), svgEl("line", {"class": "ax", x1: L, y1: C.y1, x2: L, y2: C.y0}));
+    ["t10", "t50", "t90"].forEach(function (lv) {
+      kids.push(svgEl("line", {"class": "lv", x1: L, y1: C.levelY[lv], x2: R, y2: C.levelY[lv]}));
+      kids.push(svgEl("text", {"class": "tk", x: L - 4, y: C.levelY[lv] + 3, "text-anchor": "end"}, [document.createTextNode(lv)]));
+    });
+    kids.push(svgEl("text", {"class": "tk", x: L - 4, y: C.y0 + 3, "text-anchor": "end"}, [document.createTextNode("0")]), svgEl("text", {"class": "tk", x: L - 4, y: C.y1 + 3, "text-anchor": "end"}, [document.createTextNode("1")]));
+    C.ticks.forEach(function (t) { kids.push(svgEl("line", {"class": "ax", x1: t[0], y1: C.y0, x2: t[0], y2: C.y0 + 4}), svgEl("text", {"class": "tk", x: t[0], y: C.y0 + 15, "text-anchor": "middle"}, [document.createTextNode(t[1])])); });
+    kids.push(svgEl("text", {"class": "tk", x: R, y: C.h - 1, "text-anchor": "end"}, [document.createTextNode("s since the press")]));
+    kids.push(svgEl("line", {"class": "press", x1: C.press, y1: C.y1, x2: C.press, y2: C.y0}));
+    C.events.forEach(function (x) { kids.push(svgEl("line", {"class": "ev", x1: x, y1: C.y0 - 8, x2: x, y2: C.y0 + 4})); });
+    if (C.real) kids.push(svgEl("polyline", {"class": "pl real", points: C.real}));
+    if (C.ghost) kids.push(svgEl("polyline", {"class": "pl ghost", points: C.ghost}));
+    ["real", "ghost"].forEach(function (side) { ["t10", "t50", "t90"].forEach(function (lv) { var x = C.marks[side][lv]; if (x !== null && x !== undefined) kids.push(svgEl("circle", {"class": "mk " + side, "data-mark": side + ":" + lv, cx: x, cy: C.levelY[lv], r: 3})); }); });
+    if (C.lag) kids.push(svgEl("line", {"class": "lag", x1: C.lag[0], y1: C.levelY.t50, x2: C.lag[1], y2: C.levelY.t50}));
+    var fline = svgEl("line", {"class": "fline", x1: C.frameX[0], y1: C.y1, x2: C.frameX[0], y2: C.y0});
+    kids.push(fline);
+    var lag = m.timing ? m.timing.lagS : null;
+    var svg = svgEl("svg", {"class": "mchart", viewBox: "0 0 " + C.w + " " + C.h, role: "img", "aria-label": "pose progress against the seconds since the press: real solid, ghost dashed" + (lag === null || lag === undefined ? "" : ", lag " + fmt(lag, 3) + " s")}, kids);
+    return {svg: svg, fline: fline};
+  }
+  function motionChips(c) {
+    var m = c.motion;
+    if (!m) return [];
+    var x = m.measures || {}, out = [];
+    out.push(el("span", {cls: "chip", title: "t50 of the ghost minus t50 of the real; fail past " + fmt(x.lagLineS, 2) + " s", text: "lag " + (x.lagS === null || x.lagS === undefined ? "unmeasured" : fmt(x.lagS, 2) + " s")}));
+    out.push(el("span", {cls: "chip", title: "ghost t10-t90 over the real's", text: "duration ratio " + (x.durationRatio === null || x.durationRatio === undefined ? "unmeasured" : fmt(x.durationRatio, 2))}));
+    if (x.curveShapeDev !== null && x.curveShapeDev !== undefined) out.push(el("span", {cls: "chip", title: "the largest progress difference once the lag is taken out", text: "curve shape " + fmt(x.curveShapeDev, 2)}));
+    if (x.angleMaxDevDeg !== null && x.angleMaxDevDeg !== undefined) out.push(el("span", {cls: "chip", title: "the servo's largest angle difference; fail past " + fmt(x.angleLineDeg, 1) + " deg", text: "angle " + fmt(x.angleMaxDevDeg, 1) + " deg"}));
+    return out.concat(m.flags.map(function (f) { return el("span", {cls: "chip", text: f}); }));
+  }
+  function motionSection(c) {
+    var m = c.motion;
+    if (!m) return null;
+    var st = {c: c, k: 0, playing: false, slow: false, timer: null, roots: [], metas: [], zoom: null, fline: null};
+    MOTION[c.id] = st;
+    var head = [el("span", {cls: "skname", text: "Motion"}), m.family ? el("span", {cls: "chip", text: m.family + (m.kind ? " " + m.kind : "")}) : null];
+    if (c.kind !== "control") head.push(vchip(m.verdict, m.reasons.join("\n") || null));
+    if (c.kind !== "control" && m.trigger) head.push(el("span", {cls: "trig tr-" + m.verdict, text: m.trigger}));
+    if (c.strips && c.strips.animation) head.push(el("a", {href: c.strips.animation, text: "animation (" + c.strips.animationFormat + ", " + m.animationView + ")"}));
+    st.btn = el("button", {type: "button", cls: "mplay", on: {click: function () { motionPlay(st, !st.playing); }}});
+    var slow = el("button", {type: "button", cls: "mslow", text: m.slowSpeed + "x", "aria-pressed": "false", title: "play at " + m.slowSpeed + " of the real speed", on: {click: function () {
+      st.slow = !st.slow; slow.setAttribute("aria-pressed", st.slow ? "true" : "false"); if (st.playing) motionPlay(st, true); }}});
+    st.scrub = el("input", {type: "range", cls: "mscrub", min: 0, max: Math.max(0, m.frames.length - 1), step: 1, value: 0, "aria-label": "motion frame", on: {input: function () { motionPlay(st, false); motionShow(st, +st.scrub.value); }}});
+    st.label = el("span", {cls: "mframe", "aria-live": "off"});
+    var box = el("div", {cls: "mobox", "data-case": c.id}, [el("div", {cls: "shead"}, head),
+      m.frames.length ? el("div", {cls: "mctl"}, [st.btn, slow, st.scrub, st.label]) : el("div", {cls: "note", text: "No motion frame in the sidecar."})]);
+    st.roots.push(box);
+    m.views.forEach(function (view) {
+      var meta = el("div", {cls: "vmeta mmeta"});
+      st.metas.push([meta, view]);
+      box.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: view})].concat(motionFigures(c, view)).concat([meta])));
+    });
+    if (m.frames.length) {
+      var ch = motionChart(m);
+      st.fline = ch.fline;
+      box.appendChild(ch.svg);
+      box.appendChild(el("div", {cls: "note", text: "Pose progress (0 = stowed, 1 = the end state) against the seconds since the press: REAL solid, GHOST dashed, dots at t10 / t50 / t90, the press as the vertical line at 0, the polled events as short ticks, the lag (red) between the two t50 dots, the dotted line the frame shown above."}));
+      motionShow(st, 0);
+    }
+    motionPlay(st, MOTION_PLAY && m.frames.length > 1);
+    return box;
+  }
+  function fillMotion(d, c) {
+    var m = c.motion, head = ["frame", "target s", "real s", "real clock", "ghost clock", "real progress", "ghost progress", "matched s", "matched progress"];
+    m.views.forEach(function (v) { head.push(v + " same time"); if (m.matched) head.push(v + " same progress"); });
+    head.push("flags");
+    function judged(x) { return x ? x.verdict + ", IoU " + fmt(x.iou, 3) + ", blob " + Math.max(x.realOnlyBlobPx || 0, x.ghostOnlyBlobPx || 0) : "-"; }
+    d.appendChild(plainTable(head, m.frames.map(function (f) {
+      var r = [String(f.k), fmt(f.targetS, 3), fmt(f.realS, 3), fmt(f.realClock, 3), fmt(f.ghostClock, 3), fmt(f.realProgress, 3), fmt(f.ghostProgress, 3), fmt(f.matchedS, 3), fmt(f.matchedProgress, 3)];
+      m.views.forEach(function (v) { var x = (f.views || []).filter(function (y) { return y.view === v; })[0]; r.push(judged(x ? x.same : null)); if (m.matched) r.push(judged(x ? x.matched : null)); });
+      r.push((f.flags || []).join(", ") || "-");
+      return r;
+    })));
+    if (m.transforms.length) d.appendChild(plainTable(["transform", "channel", "travel real", "travel ghost", "travel ratio", "stagger dev"], m.transforms.map(function (t) {
+      return [fmt(t.path), fmt(t.channel), fmt(t.travelReal, 3), fmt(t.travelGhost, 3), fmt(t.travelRatio, 3), fmt(t.staggerDev, 3)]; })));
+  }
+  function motionProof(c, row) {
+    var m = c.motion, w = m.window || {};
+    row("motion module", fmt(m.module) + "#" + fmt(m.moduleIndex) + ", " + m.family + " " + m.kind);
+    row("motion press", "press UT " + fmt(m.pressUT, 3) + ", predicted " + fmt(m.predictedS, 3) + " s, ghost clip " + fmt(m.ghostClipS, 3) + " s, event delay " + fmt(m.eventDelayS, 3) + " s, ghost start delay " + fmt(m.ghostStartDelayS, 3) + " s");
+    row("motion events", m.events.length ? m.events.map(function (t) { return secs(t); }).join(", ") + " after the press" : "none polled");
+    row("motion window", fmt(m.frames.length) + " frame(s), " + fmt(m.framesPerMotion) + " per motion, to " + secs(w.endS) + " at " + fmt(w.spacingS, 3) + " s spacing" + (w.capped ? ", capped" : ""));
+    row("motion measures", Object.keys(m.measures || {}).map(function (k) { return k + " " + cell(m.measures[k]); }).join(", "));
+    row("motion flags", m.flags.join(", ") || "none");
+    if (m.reasons.length) row("motion reasons", m.reasons.join("; "));
+  }
+  function openMotionZoom(c, view) {
+    var st = MOTION[c.id], body = document.getElementById("zoombody"); body.textContent = "";
+    var pair = el("div", {cls: "pair"}, motionFigures(c, view, c.motion.tile || 512));
+    body.appendChild(el("div", {cls: "shead"}, [el("span", {cls: "skname", text: (c.title || c.caseId) + " - " + c.stateLabel + " - " + view + " at 1:1"}), el("span", {cls: "mframe", text: st ? frameText(c.motion, st.k) : ""})]));
+    body.appendChild(pair);
+    pair.style.setProperty("--f", String(st ? st.k : 0));
+    if (st) st.zoom = pair;
+    setImages(body, true);
+    document.getElementById("zoom").showModal();
   }
   // One case: a stowed skin block (a part with no state case, as before P6), a state
   // sub-block inside a skin container (opts.sub), or a control (opts.control).
@@ -2495,7 +3434,7 @@ dialog .tile { cursor: default; }
         c.control.judged && c.control.judged !== "ok" ? el("span", {cls: "trig tr-fail", text: c.trigger}) : null];
     } else if (opts.sub) {
       headKids = [el("span", {cls: "skname", text: c.stateLabel}), c.family ? el("span", {cls: "chip", text: c.family}) : null, vchip(c.verdict, c.reasons.join("\n") || null)]
-        .concat(routeChips(c)).concat(fxChips(c)).concat(flags).concat([setup, reg, c.trigger ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null]);
+        .concat(routeChips(c)).concat(fxChips(c)).concat(motionChips(c)).concat(flags).concat([setup, reg, c.trigger ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null]);
     } else {
       headKids = [el("span", {cls: "skname", text: "skin " + c.skin}), el("span", {cls: "chip", text: c.skinKind || "-"}), vchip(c.verdict, c.reasons.join("\n") || null),
         setup, reg, c.trigger && !opts.single ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null];
@@ -2503,13 +3442,16 @@ dialog .tile { cursor: default; }
     if (c.accepted) headKids.push(el("span", {cls: "chip", text: "judged " + c.partVerdict + ": " + c.accepted.todos.join(", "), title: c.accepted.reasons.join("\n")}));
     var blk = el("div", {cls: (opts.sub ? "state " : "skin ") + cls + (c.accepted ? " quiet" : ""), id: "c-" + idOf(c.id)}, [el("div", {cls: "shead"}, headKids)]);
     if (c.verdict === "control-na") blk.appendChild(el("div", {cls: "note", text: "Not applicable: no part of this install can be its subject, so it writes no sidecar" + (c.control.detail ? " (" + c.control.detail + ")" : "") + "."}));
-    else if (!c.views.length) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
+    else if (!c.views.length && !c.motion && !c.motionProblem) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
     c.views.forEach(function (v) {
       var figs = c.isState ? stateFigures(c, v) : pairFigures(c, v), meta = c.isState ? stateViewMeta(v) : viewMeta(v);
       blk.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: v.view})].concat(figs).concat([meta])));
     });
     var fxBox = fxSection(c);
     if (fxBox) blk.appendChild(fxBox);
+    if (c.motionProblem) blk.appendChild(el("div", {cls: "note bad-text", text: "Motion: " + c.motionProblem}));
+    var moBox = motionSection(c);
+    if (moBox) blk.appendChild(moBox);
     if (c.verdict !== "control-na") blk.appendChild(moreDetails(c));
     return blk;
   }
@@ -2557,7 +3499,7 @@ dialog .tile { cursor: default; }
     if (g.trigger) head.appendChild(el("div", {cls: "trigger tr-" + g.verdict, text: g.trigger}));
     var sec = el("section", {cls: "group " + g.verdict, id: "g-" + g._i, "aria-label": (g.title || g.part) + ": " + g.verdict}, [head]);
     sec._group = g;
-    var views = 0; g.cases.forEach(function (id) { views += Math.max(1, CASE[id].views.length) + (CASE[id].fx ? fxRowCount(CASE[id]) : 0); });
+    var views = 0; g.cases.forEach(function (id) { views += Math.max(1, CASE[id].views.length) + (CASE[id].fx ? fxRowCount(CASE[id]) : 0) + (CASE[id].motion ? CASE[id].motion.views.length + 2 : 0); });
     sec.style.containIntrinsicSize = "auto " + (60 + g.cases.length * 70 + views * (tilePx() + 34)) + "px";
     GROUP_EL[g.id] = sec;
     if (io) io.observe(sec); else { ensureBody(sec); setImages(sec, true); }
@@ -2606,6 +3548,7 @@ dialog .tile { cursor: default; }
     if (state.stateFlag && g.stateFlags.indexOf(state.stateFlag) < 0) return false;
     if (state.refClass && g.refs.indexOf(state.refClass) < 0) return false;
     if (state.fxFlag && g.fxFlags.indexOf(state.fxFlag) < 0) return false;
+    if (state.motionFlag && (g.motionFlags || []).indexOf(state.motionFlag) < 0) return false;
     if (state.q) { var w = state.q.toLowerCase().split(/\s+/); for (var i = 0; i < w.length; i++) if (w[i] && g._text.indexOf(w[i]) < 0) return false; }
     return true;
   }
@@ -2680,6 +3623,7 @@ dialog .tile { cursor: default; }
     document.getElementById("zoom").showModal();
   }
   function openZoom(id, viewName, layer) {
+    if (CASE[id] && CASE[id].motion && viewName && viewName.indexOf("motion:") === 0) { openMotionZoom(CASE[id], viewName.slice(7)); return; }
     if (CASE[id] && CASE[id].fx && (layer || viewName === "strip")) { openFxZoom(CASE[id], viewName, layer); return; }
     var c = CASE[id], v = (c.views || []).filter(function (x) { return x.view === viewName; })[0];
     if (!c || !v) return;
@@ -2691,7 +3635,8 @@ dialog .tile { cursor: default; }
     document.getElementById("zoom").showModal();
   }
 
-  if (D.cases.some(function (c) { return c.isState; })) document.getElementById("statelegend").hidden = false;
+  if (D.cases.some(function (c) { return c.isState && !c.motion; })) document.getElementById("statelegend").hidden = false;
+  if (D.cases.some(function (c) { return c.motion; })) document.getElementById("motionlegend").hidden = false;
   if (D.cases.some(function (c) { return c.fx; })) document.getElementById("fxlegend").hidden = false;
   buildTop(); buildSweeps(); buildControls();
   var host = document.getElementById("groups");

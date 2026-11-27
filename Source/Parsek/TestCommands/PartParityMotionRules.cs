@@ -471,6 +471,18 @@ namespace Parsek.TestCommands
 
         internal const string ControlAirPart = PartParitySweepPlan.ControlAirPart;
 
+        /// <summary>The slow and late controls write two sidecars over the same real frames:
+        /// the altered route under the control id, the normal route under the id plus this
+        /// suffix, each with its own motion atlas (H.3; partparity.py MOTION_CONTROL_NORMAL_SUFFIX).</summary>
+        internal const string NormalRouteSuffix = "--normal";
+
+        /// <summary>Whether a control writes a normal-route sidecar beside its own.</summary>
+        internal static bool HasNormalRoute(string controlId)
+            => controlId == TestCommandPartParitySweep.ControlMotionGhostSlow
+               || controlId == TestCommandPartParitySweep.ControlMotionGhostLate;
+
+        internal static string NormalRouteCaseId(string controlId) => (controlId ?? string.Empty) + NormalRouteSuffix;
+
         internal const double LateShiftSeconds = 1.0;
         internal const double SlowClipFactor = 2.0;
         internal const double RealVsRealLagMotionFraction = 0.02;
@@ -530,6 +542,14 @@ namespace Parsek.TestCommands
                     continue;
                 }
                 if (Array.IndexOf(P6MotionFamilies, s.Family) < 0) continue;
+                if (s.Family == FamilyAnimationGroup && HasNoDeployAnimation(ModuleAt(part, s.ModuleIndex)))
+                {
+                    // Its deploy plays no clip (stock flips isDeployed at once and only starts the
+                    // running loop, which loop-phase excludes): there is no deploy motion to time.
+                    r.Exclusions.Add(Ex(name, s.Family, s.Module, s.ModuleIndex, PartParityStateRules.ExcludeNoAnimation,
+                        PartParityStateRules.ContextAlone));
+                    continue;
+                }
                 string kind = s.Family == FamilyAirbrake ? KindSurface
                     : s.Family == FamilyParachute ? KindCanopy : KindClip;
                 cases.Add(FromP6(s, kind, k.Context, false));
@@ -584,6 +604,27 @@ namespace Parsek.TestCommands
             BuildKeys(cases, baseKey, name, r);
             return r;
         }
+
+        /// <summary>The config key of a <c>ModuleAnimationGroup</c>'s deploy clip (stock
+        /// default empty: no deploy clip).</summary>
+        internal const string KeyDeployAnimationName = "deployAnimationName";
+
+        private static PartParityStateModule ModuleAt(PartParityStatePart part, int index)
+        {
+            if (part?.Modules == null) return null;
+            foreach (PartParityStateModule m in part.Modules)
+                if (m != null && m.Index == index) return m;
+            return null;
+        }
+
+        /// <summary>
+        /// Whether a <c>ModuleAnimationGroup</c> plays no deploy clip: its config node names an
+        /// empty or no <c>deployAnimationName</c> (stock's default is empty; the orbital scanner
+        /// names only its running <c>activeAnimationName</c>). A module with no config node read
+        /// (a committed fixture line that carries no key) keeps its case.
+        /// </summary>
+        internal static bool HasNoDeployAnimation(PartParityStateModule m)
+            => m?.Config != null && string.IsNullOrEmpty(m.Value(KeyDeployAnimationName));
 
         private static PartParityMotionOption FromP6(PartParityStateOption s, string kind, string context, bool readingOnly)
             => new PartParityMotionOption
@@ -1235,9 +1276,18 @@ namespace Parsek.TestCommands
             if (double.IsNaN(shift) || shift < LateLagMin || shift > LateLagMax) why.Add("lag shift=" + Num(shift));
             double dr = Diff(late.DurationRatio, normal.DurationRatio);
             if (double.IsNaN(dr) || Math.Abs(dr) > LateDurationTolerance) why.Add("durationRatio change=" + Num(dr));
-            if (!LagFails(late.LagS, late.RealDurationS)) why.Add("late route does not fail on lag");
+            if (LateMustFailOnLag(late.RealDurationS) && !LagFails(late.LagS, late.RealDurationS))
+                why.Add("late route does not fail on lag");
             return Verdict(why, out detail);
         }
+
+        /// <summary>Whether the late route must fail on lag: only when the 1.0 s shift is past
+        /// that real motion's lag fail line, <c>max(0.5 s, 0.25 T_real)</c> (T_real under 4 s).
+        /// A longer real motion holds the shift inside its line, so the relative requirement
+        /// is then the whole test (H.3).</summary>
+        internal static bool LateMustFailOnLag(double realDurationS)
+            => LateShiftSeconds > Math.Max(LagFailMinSeconds,
+                LagFailRealFraction * (double.IsNaN(realDurationS) ? 0.0 : realDurationS));
 
         private static string Verdict(List<string> why, out string detail)
         {

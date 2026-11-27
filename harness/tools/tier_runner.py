@@ -52,7 +52,9 @@ POLICY 2 -- NEVER AUTO-PROVISION. ``NEEDS-PROVISION`` reports and stops. The
 provisioner DEPLOYs whatever ``Source/Parsek/bin/Debug/Parsek.dll`` the invoking
 worktree currently holds, which is as likely to be a half-finished build as a
 release candidate -- and whoever requested this run walked away. Deciding which
-worktree's DLL the automation instance should carry is a human call, always:
+worktree's DLL the automation instance should carry is the session's explicit
+choice, made while it holds the PC turn (Vlad's standing approval in
+.claude/CLAUDE.md), never this runner's:
 
     cd harness && python provision/provision.py --profile stock-minimal
 
@@ -156,6 +158,8 @@ for _p in (HERE, LIB_DIR, PROVISION_DIR):
 
 import hlib  # noqa: E402  (tier / profile vocabulary, stop-request + ids-file contract)
 import machinelock  # noqa: E402  (lock file I/O; the decision is provlib's)
+import leaseio  # noqa: E402  (copy-lease registry I/O; a live lease shares the machine)
+import leases  # noqa: E402
 import provlib  # noqa: E402
 
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
@@ -1059,6 +1063,13 @@ def preflight_machine(log: TeeLog) -> Optional[TierRunOutcome]:
                               "the holder (%s, lock=%s)" % (holder, reason, lock_path))
         return TierRunOutcome(OUTCOME_SKIPPED, "machine lock held (%s)" % holder)
     log.info("Preflight", "machine lock free (decision=%s, lock=%s)" % (reason, lock_path))
+
+    live_lease = leaseio.first_live_lease(UMBRELLA_ROOT, time.time(), pid_alive)
+    if live_lease is not None:
+        detail = leases.describe_lease(live_lease, time.time())
+        log.warn("Preflight", "SKIP: a copy lease is live (%s) -- a tier run needs the "
+                              "whole machine; not queueing" % detail)
+        return TierRunOutcome(OUTCOME_SKIPPED, "copy lease live (%s)" % detail)
 
     busy = ksp_pid()
     if busy is not None:

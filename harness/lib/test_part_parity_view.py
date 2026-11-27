@@ -14,6 +14,7 @@ placement). Stdlib only::
 """
 
 import contextlib
+import copy
 import html.parser
 import io
 import json
@@ -557,7 +558,9 @@ class CliTests(unittest.TestCase):
 
     def test_refusals(self):
         self.assertEqual(2, ppv.main([os.path.join(self.tmp, "nope")]))
-        self.assertEqual(2, ppv.main([self.sweep, "--gif"]))
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(2, ppv.main([self.sweep, "--gif-format", "gif"]))
+        self.assertIn("pass --gif", err.getvalue())
         root = ppv.find_repo_root(_TOOLS)
         self.assertEqual(2, ppv.main([self.sweep, "--out", os.path.join(root, "docs", "pp-view")]))
         self.assertFalse(os.path.exists(os.path.join(root, "docs", "pp-view")))
@@ -1376,6 +1379,8 @@ class FxRegressionTests(_FxSetMixin, unittest.TestCase):
             e["compare"]["widthRatio"] = 1.01  # under its warn line: noise
             e["compare"]["originDeltaPx"] = 1.0
             e["compare"]["lateralOffsetPx"] = -9.0
+            for half in pp.FX_SPLIT_HALF_KEYS:  # a fail both sample halves show
+                e["splitHalf"][half]["compare"] = dict(e["compare"])
         self._edit(FX_BURN, longer)
         self._edit(FX_REF, lambda d: d["fx"].update(
             views=json.loads(json.dumps(self.sweep["sidecars"][FX_REF_OK]["fx"]["views"]))))
@@ -1537,6 +1542,7 @@ const fs = require('fs'), req = JSON.parse(fs.readFileSync(process.argv[2], 'utf
 const byId = {};
 class N {
   constructor(t) { this.tagName = t.toUpperCase(); this.children = []; this.attrs = {}; this.style = {}; this.L = {}; this.parentNode = null; this._t = ''; this.hidden = false; this._c = new Set();
+    const st = this.style; Object.defineProperty(st, 'setProperty', {value: (k, v) => { st[k] = String(v); }, enumerable: false});
     const c = this._c; this.classList = {add: x => c.add(x), remove: x => c.delete(x), contains: x => c.has(x), toggle: (x, on) => { if (on === undefined) on = !c.has(x); on ? c.add(x) : c.delete(x); return on; }}; }
   set className(v) { this._c.clear(); String(v).split(/\s+/).forEach(x => x && this._c.add(x)); }
   get className() { return [...this._c].join(' '); }
@@ -1560,7 +1566,7 @@ class N {
   showModal() { this.open = true; } close() { this.open = false; } focus() {} blur() {}
 }
 const body = new N('body'), docL = {};
-const document = {body: body, createElement: t => new N(t), createTextNode: t => { const n = new N('#text'); n._t = String(t); return n; }, createDocumentFragment: () => new N('#frag'),
+const document = {body: body, createElement: t => new N(t), createElementNS: (ns, t) => new N(t), createTextNode: t => { const n = new N('#text'); n._t = String(t); return n; }, createDocumentFragment: () => new N('#frag'),
   getElementById: i => { if (!byId[i]) { const n = new N(i === 'zoom' ? 'dialog' : 'div'); body.appendChild(n); n.setAttribute('id', i); } return byId[i]; },
   addEventListener(e, f) { (docL[e] = docL[e] || []).push(f); }, querySelectorAll: () => []};
 const text = fs.readFileSync(req.data, 'utf8');
@@ -1879,7 +1885,10 @@ class PageContractTests(unittest.TestCase):
     def test_offline_ascii_and_identity_captions(self):
         page = ppv.INDEX_HTML
         page.encode("ascii")
-        self.assertNotRegex(page, r"https?://|//cdn")
+        # The one URL on the page is the SVG namespace the motion chart's elements are created
+        # in (createElementNS): an identifier, never fetched.
+        self.assertEqual(1, page.count('"http://www.w3.org/2000/svg"'))
+        self.assertNotRegex(page.replace('"http://www.w3.org/2000/svg"', ""), r"https?://|//cdn")
         self.assertIn("REAL part (stock KSP)", page)
         self.assertIn("GHOST (Parsek reconstruction)", page)
         self.assertIn('<script src="data.js"></script>', page)
@@ -1901,13 +1910,966 @@ class PageContractTests(unittest.TestCase):
 
     def test_the_page_reads_only_keys_the_core_writes(self):
         data = build()
-        case_keys = set(data["cases"][0])
-        group_keys = set(data["groups"][0])
+        motion = motion_site_data()
+        case_keys = set(data["cases"][0]) | {k for c in motion["cases"] for k in c} | set(malformed_motion_row())
+        group_keys = set(data["groups"][0]) | {k for g in motion["groups"] for k in g}
         used_c = set(re.findall(r"\bc\.([A-Za-z]+)", ppv.INDEX_HTML))
         used_g = set(re.findall(r"\bg\.([A-Za-z]+)", ppv.INDEX_HTML))
         js_props = {"length", "id", "_i", "_text", "_built", "_group", "cases"}
         self.assertEqual(set(), used_c - case_keys - js_props, "page reads c.<key> the core never writes")
         self.assertEqual(set(), used_g - group_keys - js_props, "page reads g.<key> the core never writes")
+
+
+
+# ---------------------------------------------------------------------------
+# Legacy pages (design H.5 / H.7 M5): a site with no motion case is the page it was before
+# the motion viewer, byte for byte in data.js and node for node in the built DOM.
+# ---------------------------------------------------------------------------
+
+# The DOM prelude of PAGE_RUNNER (the fake document, the script run, every <details> opened),
+# then the whole body dumped: tag, classes, attributes, inline style, own text, children.
+DOM_DUMP_RUNNER = PAGE_RUNNER[:PAGE_RUNNER.index("const own =")] + r"""
+const dump = n => ({t: n.tagName, c: n.className, a: Object.keys(n.attrs).sort().map(k => [k, n.attrs[k]]),
+  s: Object.keys(n.style).sort().map(k => [k, String(n.style[k])]), x: n._t, h: !!n.hidden, k: n.children.map(dump)});
+fs.writeFileSync(req.out, JSON.stringify({body: dump(body), cls: body.className}));
+"""
+LEGACY_STAMP = "2026-01-01T00:00:00Z"
+
+
+def legacy_sites(root):
+    """(name, data.js text with ``root`` replaced, data.js path) of the three legacy sites:
+    the plain stowed sweep, the stowed + orbit + air state set and the FX sweep."""
+    out = []
+    plain = build(generated_utc=LEGACY_STAMP)
+    state_dirs = write_synthetic_state_set(os.path.join(root, "state"))
+    fx_dir = fx_sweep_copy(os.path.join(root, "fxroot"))
+    os.makedirs(os.path.join(root, "fxroot"), exist_ok=True)
+    for name, data in (("plain", lambda: plain),
+                       ("state", lambda: _site_data(root, state_dirs, "state-site")),
+                       ("fx", lambda: _site_data(root, [fx_dir], "fx-site"))):
+        text = ppv.render_data_js(data())
+        path = os.path.join(root, name + ".js")
+        with open(path, "w", encoding="ascii") as fh:
+            fh.write(text)
+        out.append((name, rooted(text, root), path))
+    return out
+
+
+def rooted(text, root):
+    """``text`` (JSON) with the temp ``root`` replaced by ``<ROOT>`` and the OS separator
+    under it written as ``/``: a sweep's ``dir`` is an ``os.path.join`` path, which Windows
+    spells with backslashes, so the pinned digests read the same on every platform."""
+    text = text.replace(json.dumps(root)[1:-1], "<ROOT>")
+    return re.sub(r'<ROOT>[^"]*', lambda m: m.group(0).replace("\\\\", "/"), text)
+
+
+def _site_data(root, dirs, site):
+    sweeps = [ppv.load_sweep(d) for d in dirs]
+    ppv.plan_images(sweeps, os.path.join(root, site), "copy")
+    return ppv.build_site_data(sweeps, None, LEGACY_STAMP)
+
+
+class LegacyPagePinTests(unittest.TestCase):
+    """The legacy sites' data.js and their built DOM hash to the digests taken before the
+    motion viewer (M5) was built; a motion case is the only thing that changes a page.
+    The plain digests were re-taken once main reworded the B9 skin-not-modelled reason
+    (mod parts); with that one line restored they equal the pre-M5 digests. The fx data digest
+    was re-taken when the PP-7 gate read a layer drawn on neither side as `empty` (48 entry
+    verdicts `pass` -> `empty`, nothing else; its DOM digest is unchanged)."""
+
+    DATA = {
+        "plain": "6045cfac3b1e6a09b938060132872fc4b34c490dc9576c7f276a944ca7897e17",
+        "state": "853d6b017d3e5fc37eebd85db86da1d4140b74bd91e2c33200a0430f9d036e7c",
+        "fx": "b3c438f2eedcc5040f0b0432cd70d2da8c5354b4091aac1eb537523cf69cf214",
+    }
+    DOM = {
+        "plain": "d16f23614d48ad33642cda72af6b8b2b8920245b68bc3a4177333026eac3921b",
+        "state": "e5ca49e451efbebd82d1a76e64cd99d76a65084442c1470c4e063d956a850f19",
+        "fx": "9e316dbdf1ffc1106ca4dac06a8fc521d7a579dd50cd8ebbe4705bd386b85cd6",
+    }
+
+    def test_legacy_data_and_dom_are_unchanged(self):
+        import hashlib
+        tmp = tempfile.mkdtemp(prefix="ppv-legacy-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        quiet = contextlib.ExitStack()
+        quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        self.addCleanup(quiet.close)
+        sites = legacy_sites(tmp)
+        got_data, got_dom = {}, {}
+        for name, text, path in sites:
+            got_data[name] = hashlib.sha256(text.encode("ascii")).hexdigest()
+            self.assertNotIn('"motion"', text)
+            if shutil.which("node"):
+                dom = _run_runner(tmp, DOM_DUMP_RUNNER, path)
+                text = rooted(json.dumps(dom, sort_keys=True), tmp)
+                got_dom[name] = hashlib.sha256(text.encode("ascii")).hexdigest()
+        self.assertEqual(self.DATA, got_data)
+        if shutil.which("node"):
+            self.assertEqual(self.DOM, got_dom)
+
+
+def _run_runner(tmp, runner, data_js, reduce=False, extra=None):
+    """Run ``runner`` (a node script reading req.json) over the page's script and ``data_js``."""
+    page = ppv.INDEX_HTML
+    script = page[page.rindex("<script>") + len("<script>"):page.rindex("</script>")]
+    paths = [os.path.join(tmp, n) for n in ("runner-x.js", "req-x.json", "out-x.json")]
+    with open(paths[0], "w", encoding="utf-8") as fh:
+        fh.write(runner)
+    req = {"data": data_js, "script": script, "reduce": reduce, "out": paths[2]}
+    req.update(extra or {})
+    with open(paths[1], "w", encoding="utf-8") as fh:
+        json.dump(req, fh)
+    r = subprocess.run([shutil.which("node"), paths[0], paths[1]], capture_output=True, text=True)
+    if r.returncode:
+        raise AssertionError(r.stderr)
+    with open(paths[2], encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+# ---------------------------------------------------------------------------
+# Motion cases (design Appendix H.5, M5): the rows, the page's clock, scrubber and chart, and
+# the animations --gif writes, over M4's synthetic motion sidecars and atlases.
+# ---------------------------------------------------------------------------
+
+MO_ANT = "longantenna--default--motion-deployed--0000aaa1"
+MO_LATE = "solarpanels4--default--motion-deployed--0000aab1"
+MO_SNAP = "mk2cargobays--default--motion-deployed--0000aab2"
+MO_FAULT = "telescopicladder--default--motion-deployed--0000aab3"
+
+
+def motion_cases(late=True):
+    tpp = _tpp()
+    return tpp._motion_cases() + [
+        tpp._motion_case(MO_LATE, part="solarPanels4", ghost=tpp._ramp(1.5, 2.0) if late else None),
+        tpp._motion_case(MO_SNAP, part="mk2CargoBayS", ghost=tpp._ramp(1.4, 0.0)),
+        tpp._motion_fault(MO_FAULT)]
+
+
+def write_motion_sweep(root, cases=None, **kw):
+    d = os.path.join(root, "pp14")
+    _tpp()._build_motion_sweep(d, motion_cases() if cases is None else cases, **kw)
+    return d
+
+
+def _loaded(directory):
+    s = ppv.load_sweep(directory)
+    s["imageUrl"] = lambda n, _f=s["files"]: n if n in _f else None
+    return s
+
+
+def motion_site_data(cases=None):
+    root = tempfile.mkdtemp(prefix="ppv-motion-")
+    try:
+        return ppv.build_site_data([_loaded(write_motion_sweep(root, cases))], None, LEGACY_STAMP)
+    finally:
+        shutil.rmtree(root, True)
+
+
+class MotionRowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-motionrow-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.sweep = _loaded(write_motion_sweep(cls.tmp))
+        cls.data = ppv.build_site_data([cls.sweep], None, LEGACY_STAMP)
+        cls.rows = {c["caseId"]: c for c in cls.data["cases"]}
+
+    def test_every_motion_half_is_partparitys_judgement(self):
+        judged = 0
+        for cid, sc in self.sweep["sidecars"].items():
+            cv, row = pp.judge_case(sc), self.rows[cid]
+            if cv.motion is None:
+                self.assertNotIn("motion", row)
+                continue
+            judged += 1
+            m = row["motion"]
+            self.assertEqual([cv.motion.verdict, list(cv.motion.reasons), list(cv.motion.flags)],
+                             [m["verdict"], m["reasons"], m["flags"]], cid)
+            self.assertEqual(ppv._finite(dict(cv.motion.measures)), m["measures"], cid)
+            self.assertEqual(ppv.trigger_line(list(cv.motion.reasons)), m["trigger"])
+            if row["kind"] == ppv.KIND_PART:
+                self.assertEqual(cv.verdict, row["verdict"], cid)
+        self.assertEqual(11, judged)  # six parts (the faulted press too) and five control sidecars
+        self.assertEqual(pp.VERDICT_FAIL, self.rows[MO_LATE]["motion"]["verdict"])
+        self.assertIn(pp.FLAG_MOTION_SNAP, ppv.motion_flag_kinds(self.rows[MO_SNAP]["motion"]["flags"]))
+        self.assertEqual(pp.VERDICT_ERROR, self.rows[MO_FAULT]["verdict"])
+
+    def test_the_frames_atlas_and_strips_slot(self):
+        row, sc = self.rows[MO_ANT], self.sweep["sidecars"][MO_ANT]
+        m = row["motion"]
+        self.assertEqual(sc["motionAtlas"]["rows"], m["atlasRows"])
+        self.assertEqual(sc["motionAtlas"]["cols"], m["atlasCols"])
+        self.assertEqual((MO_ANT + pp.MOTION_ATLAS_SUFFIX, sc["motionAtlas"]["tile"]), (m["atlas"], m["tile"]))
+        self.assertEqual({"motionAtlas": m["atlas"], "motionAtlasFile": m["atlasFile"], "animation": None,
+                          "animationFile": None, "animationFormat": None}, row["strips"])
+        self.assertEqual(["side-a", "side-b"], m["views"])
+        self.assertEqual("side-a", m["animationView"])
+        self.assertTrue(m["matched"])
+        self.assertFalse(self.rows[pp.CONTROL_MOTION_REAL_VS_REAL]["motion"]["matched"])
+        self.assertEqual(len(sc["motion"]["frames"]), len(m["frames"]))
+        for want, got in zip(sc["motion"]["frames"], m["frames"]):
+            self.assertEqual([want["k"], want["realS"], want["realProgress"], want["ghostProgress"]],
+                             [got["k"], got["realS"], got["realProgress"], got["ghostProgress"]])
+            for wv, gv in zip(want["views"], got["views"]):
+                self.assertEqual(wv["same"]["iou"], gv["same"]["iou"])
+                self.assertEqual(pp.judge_view(dict(wv["same"], view=wv["view"])).verdict, gv["same"]["verdict"])
+        self.assertEqual([1.0], [t["travelRatio"] for t in m["transforms"]])
+        self.assertEqual([0.02], [round(t, 6) for t in m["events"]])
+        self.assertEqual(ppv.MOTION_SLOW_SPEED, m["slowSpeed"])
+        self.assertIsNone(self.rows["ctl-empty"]["strips"])  # a non-motion row keeps its None slot
+
+    def test_play_delays_are_the_real_offsets(self):
+        self.assertEqual([250, 250, 20, 1000], ppv.motion_frame_delays_ms([0, 0.25, 0.5, 0.505]))
+        self.assertEqual([100, 1000], ppv.motion_frame_delays_ms([0, None]))
+        self.assertEqual([300, 1000], ppv.motion_frame_delays_ms(["x", 1], 0.3))
+        self.assertEqual([1000], ppv.motion_frame_delays_ms([0]))
+        self.assertEqual([250] * 16 + [1000], self.rows[MO_ANT]["motion"]["delaysMs"])
+
+    def test_the_chart_geometry(self):
+        m, sc = self.rows[MO_LATE]["motion"], self.sweep["sidecars"][MO_LATE]
+        c, t = m["chart"], m["timing"]
+        self.assertEqual(len(m["frames"]), len(c["frameX"]))
+        self.assertEqual(len(m["frames"]), len(c["real"].split()))
+        self.assertEqual(len(sc["motion"]["scout"]["s"]), len(c["ghost"].split()))
+        self.assertEqual([c["press"], c["press"]], [c["frameX"][0], ppv.MOTION_CHART_PAD[0]])
+        for side in ("real", "ghost"):
+            for lv in ppv.MOTION_CHART_LEVELS:
+                self.assertEqual(ppv._chart_x(t[side][lv], c["tMax"]), c["marks"][side][lv])
+        self.assertEqual([c["marks"]["real"]["t50"], c["marks"]["ghost"]["t50"]], c["lag"])
+        self.assertGreater(c["lag"][1], c["lag"][0])  # the late ghost's t50 is right of the real's
+        self.assertEqual(ppv._chart_y(0.5), c["levelY"]["t50"])
+        for pts in (c["real"], c["ghost"]):
+            for xy in pts.split():
+                x, y = map(float, xy.split(","))
+                self.assertTrue(c["pad"][0] <= x <= c["w"] - c["pad"][1] and c["y1"] <= y <= c["y0"], xy)
+        self.assertEqual(1, len(c["events"]))
+
+    def test_normal_routes_sit_under_their_controls(self):
+        ids = [c["caseId"] for c in self.data["cases"]]
+        grouped = {cid for g in self.data["groups"] for cid in g["cases"]}
+        for cid in pp.MOTION_CONTROLS_WITH_NORMAL:
+            normal = pp.motion_normal_id(cid)
+            parent, row = self.rows[cid], self.rows[normal]
+            self.assertEqual(ids.index(cid) + 1, ids.index(normal))
+            self.assertEqual((ppv.KIND_CONTROL, parent["verdict"]), (row["kind"], row["verdict"]))
+            self.assertEqual("ctl:%s:%s" % (row["controlSet"], normal), row["regKey"])
+            self.assertTrue(row["control"]["subject"].startswith("the normal event route " + cid))
+            self.assertIn(row["id"], self.data["controls"])
+            self.assertNotIn(row["id"], grouped)
+        self.assertTrue(self.data["sweeps"][0]["controls"]["ok"])
+
+    def test_a_contradicted_motion_control_reads_bad(self):
+        tpp = _tpp()
+        late = pp.CONTROL_MOTION_GHOST_LATE
+        root = tempfile.mkdtemp(prefix="ppv-motionctl-")
+        self.addCleanup(shutil.rmtree, root, True)
+        d = write_motion_sweep(root, controls={late: tpp._motion_controls(late, perturbed=False)})
+        rows = {c["caseId"]: c for c in ppv.build_site_data([_loaded(d)])["cases"]}
+        for cid in (late, pp.motion_normal_id(late)):
+            self.assertEqual(ppv.VERDICT_CONTROL_BAD, rows[cid]["verdict"], cid)
+            self.assertNotEqual(pp.CONTROLS_OK, rows[cid]["control"]["judged"])
+        self.assertEqual(ppv.VERDICT_CONTROL_OK, rows[pp.CONTROL_MOTION_GHOST_SLOW]["verdict"])
+
+    def test_header_facets_and_thresholds(self):
+        header = self.data["sweeps"][0]
+        planned = [e["caseId"] for e in self.sweep["manifest"]["cases"]]  # partparity counts these
+        counts = pp.motion_case_counts(pp.judge_case(self.sweep["sidecars"][cid]) for cid in planned)
+        self.assertEqual(6, counts["cases"])
+        counts.pop("thresholds")
+        self.assertEqual(counts, header["motion"])
+        self.assertEqual([], header["instrumentProblems"])
+        self.assertTrue(header["completeness"]["ok"])
+        self.assertEqual(pp.motion_thresholds(), self.data["motionThresholds"])
+        self.assertIn(pp.FLAG_MOTION_SNAP, dict(self.data["facets"]["motionFlag"]))
+        self.assertIn("robotics", dict(self.data["facets"]["family"]))
+        snap = [g for g in self.data["groups"] if self.rows[MO_SNAP]["id"] in g["cases"]][0]
+        self.assertIn(pp.FLAG_MOTION_SNAP, snap["motionFlags"])
+
+    def test_regression_reads_motion_moves(self):
+        root = tempfile.mkdtemp(prefix="ppv-motionreg-")
+        self.addCleanup(shutil.rmtree, root, True)
+        base = _loaded(write_motion_sweep(os.path.join(root, "base"), motion_cases(late=False)))
+        data = ppv.build_site_data([self.sweep], [base])
+        row = [c for c in data["cases"] if c["caseId"] == MO_LATE][0]
+        self.assertEqual("moved", row["regression"]["status"])
+        self.assertIn("motion.verdict pass -> fail", row["regression"]["changes"])
+        self.assertTrue(any(c.startswith("motion.lagS 0.000 -> ") for c in row["regression"]["changes"]))
+        same = [c for c in data["cases"] if c["caseId"] == MO_ANT][0]
+        self.assertEqual("same", same["regression"]["status"])
+        cur = dict(self.rows[MO_ANT]["motion"])
+        self.assertEqual([], ppv.motion_changes(cur, cur))
+        nudged = dict(cur, measures=dict(cur["measures"], lagS=0.1))
+        self.assertEqual([], ppv.motion_changes(nudged, cur))  # under half the lag line
+        moved = dict(cur, measures=dict(cur["measures"], lagS=0.3), flags=["motion-snap"])
+        self.assertEqual(["motion.lagS 0.000 -> 0.300", "motion.flags +motion-snap"], ppv.motion_changes(moved, cur))
+        self.assertEqual(["motion present -> absent"], ppv.motion_changes(None, cur))
+
+
+# The prelude with a setTimeout that records instead of runs, then the motion boxes dumped and
+# one target case driven: the header button, the scrubber, Play / Pause, the clock and 0.25x.
+_PRELUDE = PAGE_RUNNER[:PAGE_RUNNER.index("const own =")]
+MOTION_RUNNER = _PRELUDE.replace(
+    "const byId = {};",
+    "const byId = {}, T = [];\n"
+    "const ST = (f, d) => { T.push({f: f, d: d, cleared: false, done: false}); return T.length; }, "
+    "CT = i => { if (T[i - 1]) T[i - 1].cleared = true; };", 1).replace(
+    "() => 0, () => 0, () => 0);", "ST, CT, () => 0);", 1) + r"""
+const pending = () => T.filter(t => !t.cleared && !t.done).map(t => t.d);
+const fire = () => { const t = T.filter(t => !t.cleared && !t.done)[0]; t.done = true; t.f(); };
+const up = (n, test) => { for (let x = n; x; x = x.parentNode) if (test(x)) return x; return null; };
+const fOf = n => { const x = up(n, y => Object.prototype.hasOwnProperty.call(y.style, '--f')); return x ? x.style['--f'] : null; };
+const svgAll = b => b.all().filter(n => n.getAttribute('class') !== null);
+const snap = b => {
+  const tile = b.cls('tile')[0], svg = b.all().filter(n => n.tagName === 'SVG')[0];
+  const byCls = c => svgAll(b).filter(n => n.getAttribute('class') === c);
+  const marks = {}; svgAll(b).filter(n => n.hasAttribute('data-mark')).forEach(n => { marks[n.getAttribute('data-mark')] = +n.getAttribute('cx'); });
+  const lag = byCls('lag')[0], fl = byCls('fline')[0];
+  return {id: b.getAttribute('data-case'), text: b.textContent, tile: tile ? tile.getAttribute('data-case') : null, f: b.style['--f'],
+    ownF: [b].concat(b.all()).filter(n => Object.prototype.hasOwnProperty.call(n.style, '--f')).length,
+    layers: b.cls('layer').map(l => ({style: l.getAttribute('style'), row: l.getAttribute('data-row'), src: l.getAttribute('data-src'), f: fOf(l), blend: l._c.has('blend'),
+      cap: up(l, x => x.tagName === 'FIGURE').cls('full')[0].textContent, view: up(l, x => x._c.has('tile')).getAttribute('data-view')})),
+    scrub: (s => s ? {value: s.value, min: s.getAttribute('min'), max: s.getAttribute('max'), type: s.getAttribute('type')} : null)(b.cls('mscrub')[0]),
+    label: b.cls('mframe').map(n => n.textContent).join(''), btn: b.cls('mplay').length ? [b.cls('mplay')[0].textContent, b.cls('mplay')[0].getAttribute('aria-pressed')] : null,
+    slow: b.cls('mslow').length ? [b.cls('mslow')[0].textContent, b.cls('mslow')[0].getAttribute('aria-pressed')] : null,
+    metas: b.cls('mmeta').map(n => n.textContent), head: b.children[0].textContent,
+    links: b.all().filter(n => n.tagName === 'A').map(a => a.getAttribute('href')),
+    chart: svg ? {viewBox: svg.getAttribute('viewBox'), lines: byCls('pl real').concat(byCls('pl ghost')).map(n => n.getAttribute('points')), marks: marks,
+      lag: lag ? [+lag.getAttribute('x1'), +lag.getAttribute('x2'), +lag.getAttribute('y1')] : null, press: +byCls('press')[0].getAttribute('x1'),
+      events: byCls('ev').map(n => +n.getAttribute('x1')), fline: fl ? [+fl.getAttribute('x1'), +fl.getAttribute('x2')] : null} : null};
+};
+const boxes = () => body.all().filter(n => n._c.has('mobox'));
+const out = {boxes: boxes().map(snap), initialTimers: pending(), steps: []};
+const target = boxes().filter(b => snap(b).id === req.target)[0];
+const scrub = target.cls('mscrub')[0], btn = target.cls('mplay')[0], slow = target.cls('mslow')[0];
+const rec = what => out.steps.push({what: what, box: snap(target), timers: pending()});
+const head = byId.stripbtn;
+out.headBtn = head ? head.textContent : null;
+if (head) { head.fire('click'); out.afterHead = {text: head.textContent, timers: pending(), btns: boxes().map(b => b.cls('mplay').map(x => x.textContent)[0] || null)}; }
+scrub.value = '5'; scrub.fire('input'); rec('scrub 5');
+btn.fire('click'); rec('play');
+fire(); rec('tick');
+slow.fire('click'); rec('slow');
+scrub.value = String(+scrub.getAttribute('max')); scrub.fire('input'); rec('scrub last');
+btn.fire('click'); rec('play at last');
+fire(); rec('wrap');
+btn.fire('click'); rec('pause');
+scrub.value = '3'; scrub.fire('input');
+const zt = target.cls('tile')[0]; docL.click.forEach(f => f({target: zt}));
+const zb = document.getElementById('zoombody');
+out.zoom = {open: !!byId.zoom.open, f: zb.all().filter(n => n._c.has('pair')).map(n => n.style['--f']), layers: zb.cls('layer').map(l => ({f: fOf(l), style: l.getAttribute('style'), row: l.getAttribute('data-row')})), text: zb.textContent};
+scrub.value = '6'; scrub.fire('input');
+out.zoomAfter = zb.all().filter(n => n._c.has('pair')).map(n => n.style['--f']);
+out.tables = target.parentNode.all().filter(n => n.tagName === 'TABLE').map(t => t.all().filter(n => n.tagName === 'TR').map(r => r.children.map(c => c.textContent)));
+out.kv = target.parentNode.cls('kv').map(k => k.children.map(c => c.textContent)).pop() || [];
+out.caseHead = target.parentNode.children[0].children.map(c => c.textContent);
+const shown = () => body.cls('group').filter(g => !g.hidden).map(g => g.cls('name')[0].textContent).sort();
+const sel = byId.top.all().filter(n => n.tagName === 'SELECT' && n.getAttribute('aria-label') === 'Motion flags')[0];
+if (sel) { out.flagValues = sel.children.map(o => o.getAttribute('value')); sel.value = 'motion-snap'; sel.fire('change'); out.snapShown = shown(); sel.value = ''; sel.fire('change'); }
+out.allShown = shown();
+out.motionlegend = byId.motionlegend ? !byId.motionlegend.hidden : null;
+out.statelegend = byId.statelegend ? !byId.statelegend.hidden : null;
+out.sweepRows = byId.sweepbody.cls('kv').map(k => k.children.map(c => c.textContent));
+fs.writeFileSync(req.out, JSON.stringify(out));
+"""
+
+
+def crop_at(style):
+    """(x percent per --f, y percent) of a motion crop's background-position."""
+    m = re.search(r"background-position:calc\(var\(--f\) \* ([\d.e-]+)%\) ([\d.e-]+)%$", style)
+    return float(m.group(1)), float(m.group(2))
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not on PATH")
+class MotionPageTests(unittest.TestCase):
+    """The page's own script over the synthetic motion sweep: lock step, the scrubber, the
+    clock and the chart, read back from the built nodes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-motionpage-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        site = os.path.join(cls.tmp, "site")
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert 0 == ppv.main([write_motion_sweep(cls.tmp), "--out", site, "--gif"])
+        cls.js = os.path.join(site, ppv.DATA_JS_FILE)
+        with open(cls.js, encoding="ascii") as fh:
+            cls.data = ppv.parse_data_js(fh.read())
+        cls.rows = {c["caseId"]: c for c in cls.data["cases"]}
+        cls.page = cls.drive(MO_LATE)
+
+    @classmethod
+    def drive(cls, target, reduce=False):
+        return _run_runner(cls.tmp, MOTION_RUNNER, cls.js, reduce, {"target": cls.rows[target]["id"]})
+
+    def box(self, page, case_id):
+        return [b for b in page["boxes"] if b["id"] == self.rows[case_id]["id"]][0]
+
+    def assert_lock_step(self, box, m, k):
+        """Every crop of the box reads the box's one --f, and at frame k it shows column k of
+        the atlas row its caption names."""
+        self.assertEqual(str(k), box["f"])
+        self.assertEqual(1, box["ownF"])  # the box alone carries the frame index
+        cols, rows = len(m["atlasCols"]), len(m["atlasRows"])
+        want = {"REAL": "real", "GHOST": "ghost", "DIFFERENCE": "real"}
+        for l in box["layers"]:
+            self.assertEqual(str(k), l["f"])
+            x, y = crop_at(l["style"])
+            self.assertAlmostEqual(k, k * x / (100.0 / (cols - 1)))
+            self.assertAlmostEqual(100.0 / (cols - 1), x)
+            row = m["atlasRows"][int(round(y / (100.0 / (rows - 1))))]
+            self.assertEqual(l["row"], row)
+            self.assertIn("background-size:%d%% %d%%" % (cols * 100, rows * 100), l["style"])
+            view = l["view"].split(":", 1)[1]
+            kind = ("ghost" if l["blend"] else
+                    "ghost-matched" if "same progress" in l["cap"] else want[l["cap"].split()[0]])
+            self.assertEqual("%s:%s" % (kind, view), row, l["cap"])
+            self.assertEqual(m["atlas"], l["src"])
+
+    def test_every_motion_case_builds_one_box_in_lock_step(self):
+        motion = [c for c in self.data["cases"] if c.get("motion")]
+        self.assertEqual(sorted(c["id"] for c in motion), sorted(b["id"] for b in self.page["boxes"]))
+        for c in motion:
+            box, m = self.box(self.page, c["caseId"]), c["motion"]
+            if c["caseId"] == MO_LATE:
+                continue  # driven by the runner
+            if not m["frames"]:  # the faulted press: a box that says so, no crop, no clock
+                self.assertEqual(([], None, None), (box["layers"], box["btn"], box["scrub"]))
+                self.assertIn("No motion frame in the sidecar.", box["text"])
+                continue
+            self.assert_lock_step(box, m, 0)
+            per_view = 4 if m["matched"] else 3
+            self.assertEqual(len(m["views"]) * (per_view + 1), len(box["layers"]))
+            self.assertEqual({"type": "range", "min": "0", "max": str(len(m["frames"]) - 1), "value": "0"}, box["scrub"])
+            self.assertEqual(len(m["views"]), len(box["metas"]))
+
+    def test_the_scrubber_moves_every_row_and_the_frame_line(self):
+        m = self.rows[MO_LATE]["motion"]
+        steps = {s["what"]: s for s in self.page["steps"]}
+        for what, k in (("scrub 5", 5), ("tick", 6), ("scrub last", len(m["frames"]) - 1), ("wrap", 0)):
+            box = steps[what]["box"]
+            self.assert_lock_step(box, m, k)
+            self.assertEqual(str(k), box["scrub"]["value"])
+            self.assertEqual([m["chart"]["frameX"][k]] * 2, box["chart"]["fline"])
+            self.assertTrue(box["label"].startswith("frame %d / %d: " % (k + 1, len(m["frames"]))), box["label"])
+            f = m["frames"][k]
+            self.assertIn("progress real %.3f, ghost %.3f" % (f["realProgress"], f["ghostProgress"]), box["label"])
+            same = f["views"][0]["same"]
+            self.assertIn("same time %s shape blob %d px" % (same["verdict"], max(same["realOnlyBlobPx"], same["ghostOnlyBlobPx"])),
+                          box["metas"][0])
+
+    def test_play_runs_at_the_real_offsets_and_slow_and_pause(self):
+        m = self.rows[MO_LATE]["motion"]
+        motion_boxes = [c for c in self.data["cases"] if c.get("motion") and len(c["motion"]["frames"]) > 1]
+        self.assertEqual(len(motion_boxes), len(self.page["initialTimers"]))  # every clock starts playing
+        self.assertEqual("Pause strips", self.page["headBtn"])
+        self.assertEqual({"text": "Play strips", "timers": [], "btns": ["Play"] * len(motion_boxes)},
+                         dict(self.page["afterHead"], btns=[x for x in self.page["afterHead"]["btns"] if x]))  # the header button pauses every clock
+        steps = {s["what"]: s for s in self.page["steps"]}
+        self.assertEqual([], steps["scrub 5"]["timers"])
+        self.assertEqual(["Pause", "true"], steps["play"]["box"]["btn"])
+        self.assertEqual([m["delaysMs"][5]], steps["play"]["timers"])
+        self.assertEqual([m["delaysMs"][6]], steps["tick"]["timers"])
+        self.assertEqual(["0.25x", "true"], steps["slow"]["box"]["slow"])
+        self.assertEqual([m["delaysMs"][6] / m["slowSpeed"]], steps["slow"]["timers"])
+        self.assertEqual(["Play", "false"], steps["scrub last"]["box"]["btn"])  # a scrub pauses
+        self.assertEqual([ppv.MOTION_LAST_FRAME_HOLD_MS / m["slowSpeed"]], steps["play at last"]["timers"])
+        self.assertEqual("0", steps["wrap"]["box"]["f"])  # the held last frame loops to the press
+        self.assertEqual(([], ["Play", "false"]), (steps["pause"]["timers"], steps["pause"]["box"]["btn"]))
+
+    def test_reduced_motion_starts_paused(self):
+        page = self.drive(MO_ANT, reduce=True)
+        self.assertEqual([], page["initialTimers"])
+        self.assertEqual({"Play"}, {b["btn"][0] for b in page["boxes"] if b["btn"]})
+        self.assertEqual("Play strips", page["headBtn"])
+
+    def test_the_chart_is_the_rows_geometry(self):
+        m = self.rows[MO_LATE]["motion"]
+        c = self.box(self.page, MO_LATE)["chart"]
+        g = m["chart"]
+        self.assertEqual("0 0 %d %d" % (g["w"], g["h"]), c["viewBox"])
+        self.assertEqual([g["real"], g["ghost"]], c["lines"])
+        self.assertEqual({"%s:%s" % (s, lv): g["marks"][s][lv] for s in ("real", "ghost") for lv in ppv.MOTION_CHART_LEVELS}, c["marks"])
+        self.assertEqual(g["lag"] + [g["levelY"]["t50"]], c["lag"])
+        self.assertEqual(g["press"], c["press"])
+        self.assertEqual(g["events"], c["events"])
+
+    def test_the_zoom_follows_the_clock(self):
+        z = self.page["zoom"]
+        self.assertTrue(z["open"])
+        self.assertEqual(["3"], z["f"])
+        self.assertEqual({"3"}, {l["f"] for l in z["layers"]})
+        self.assertEqual(["6"], self.page["zoomAfter"])
+        self.assertIn("frame 4 / ", z["text"])
+
+    def test_chips_animation_link_details_and_filters(self):
+        m = self.rows[MO_LATE]["motion"]
+        head = " ".join(self.page["caseHead"])
+        self.assertIn("lag %.2f s" % m["measures"]["lagS"], head)
+        self.assertIn("duration ratio %.2f" % m["measures"]["durationRatio"], head)
+        box = self.box(self.page, MO_LATE)
+        self.assertEqual([self.rows[MO_LATE]["strips"]["animation"]], box["links"])
+        self.assertTrue(box["links"][0].endswith(MO_LATE + ".motion.apng"))
+        self.assertIn("fail", box["head"])
+        frame_table = [t for t in self.page["tables"] if t[0][0] == "frame"][0]
+        self.assertEqual(len(m["frames"]) + 1, len(frame_table))
+        self.assertEqual("side-a same time", frame_table[0][9])
+        self.assertTrue(any(t[0][0] == "transform" for t in self.page["tables"]))
+        kv = dict(zip(self.page["kv"][0::2], self.page["kv"][1::2]))
+        self.assertIn("press UT 100.000", kv["motion press"])
+        self.assertEqual("+0.020 s after the press", kv["motion events"])
+        self.assertEqual(["", "motion-snap"], self.page["flagValues"])
+        self.assertEqual(["mk2CargoBayS"], self.page["snapShown"])
+        self.assertIn("mk2CargoBayS", self.page["allShown"])
+        self.assertTrue(self.page["motionlegend"])
+        self.assertIn(self.page["statelegend"], (None, False))  # no state case: never shown
+        sweep_kv = dict(zip(self.page["sweepRows"][0][0::2], self.page["sweepRows"][0][1::2]))
+        self.assertTrue(sweep_kv["motion"].startswith("%d motion case(s): " % self.data["sweeps"][0]["motion"]["cases"]))
+
+    def test_the_motion_script_reads_only_keys_the_core_writes(self):
+        page = ppv.INDEX_HTML
+        sec = page[page.index("// ---- motion (design Appendix H.5) ----"):page.index("// One case: a stowed skin block")]
+        m = self.rows[MO_LATE]["motion"]
+        js = {"length", "slice", "map", "forEach", "filter", "concat", "join", "push", "indexOf"}
+        for var, keys in (("m", set(m)), ("C", set(m["chart"])), ("f", set(m["frames"][0]))):
+            used = set(re.findall(r"\b%s\.([A-Za-z][A-Za-z0-9]*)" % var, sec))
+            self.assertEqual(set(), used - keys - js, "the motion script reads %s.<key> the core never writes" % var)
+
+
+def _png_chunks(blob):
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n"
+    i, out = 8, []
+    while i < len(blob):
+        n = struct.unpack(">I", blob[i:i + 4])[0]
+        kind, body = blob[i + 4:i + 8], blob[i + 8:i + 8 + n]
+        crc = struct.unpack(">I", blob[i + 8 + n:i + 12 + n])[0]
+        assert crc == zlib.crc32(kind + body) & 0xFFFFFFFF, kind
+        out.append((kind, body))
+        i += 12 + n
+    return out
+
+
+def decode_apng(blob, tmp):
+    """(acTL, [(fcTL fields, pixels)]): each frame rebuilt as a still PNG from its IDAT / fdAT
+    data and decoded by gui_mirror.read_png, the viewer's own reader."""
+    import gui_mirror
+    chunks = _png_chunks(blob)
+    ihdr = chunks[0][1]
+    actl = struct.unpack(">II", [b for k, b in chunks if k == b"acTL"][0])
+    frames, seqs, cur = [], [], None
+    for kind, body in chunks:
+        if kind == b"fcTL":
+            f = struct.unpack(">IIIIIHHBB", body)
+            seqs.append(f[0])
+            cur = [f, b""]
+            frames.append(cur)
+        elif kind == b"IDAT":
+            cur[1] += body
+        elif kind == b"fdAT":
+            seqs.append(struct.unpack(">I", body[:4])[0])
+            cur[1] += body[4:]
+    assert seqs == list(range(len(seqs))), seqs
+    out = []
+    for f, data in frames:
+        still = (b"\x89PNG\r\n\x1a\n" + ppv._png_chunk(b"IHDR", struct.pack(">II", f[1], f[2]) + ihdr[8:])
+                 + ppv._png_chunk(b"IDAT", data) + ppv._png_chunk(b"IEND", b""))
+        path = os.path.join(tmp, "frame.png")
+        with open(path, "wb") as fh:
+            fh.write(still)
+        out.append((f, gui_mirror.read_png(path)))
+    return actl, out
+
+
+def lzw_decode(data, mcs):
+    clear, eoi = 1 << mcs, (1 << mcs) + 1
+    size, pos, out = mcs + 1, 0, []
+    table, prev = None, None
+
+    def reset():
+        return {i: [i] for i in range(clear)}
+
+    table = reset()
+    nxt = eoi + 1
+    bits = int.from_bytes(data, "little")
+    total = len(data) * 8
+    while pos + size <= total:
+        code = (bits >> pos) & ((1 << size) - 1)
+        pos += size
+        if code == clear:
+            table, nxt, size, prev = reset(), eoi + 1, mcs + 1, None
+            continue
+        if code == eoi:
+            break
+        if prev is None:
+            entry = table[code]
+        else:
+            entry = table[code] if code in table else table[prev] + [table[prev][0]]
+            if nxt < 4096:
+                table[nxt] = table[prev] + [entry[0]]
+                nxt += 1
+                if nxt == (1 << size) and size < 12:
+                    size += 1
+        out.extend(entry)
+        prev = code
+    return out
+
+
+def decode_gif(blob):
+    assert blob[:6] == b"GIF89a"
+    w, h, packed, _bg, _aspect = struct.unpack("<HHBBB", blob[6:13])
+    assert packed & 0x80
+    n = 1 << ((packed & 7) + 1)
+    palette = [tuple(blob[13 + 3 * i:16 + 3 * i]) for i in range(n)]
+    i, frames, loop, gce = 13 + 3 * n, [], None, None
+    while blob[i] != 0x3B:
+        if blob[i] == 0x21:
+            label, i = blob[i + 1], i + 2
+            sub = []
+            while blob[i]:
+                sub.append(blob[i + 1:i + 1 + blob[i]])
+                i += 1 + blob[i]
+            i += 1
+            if label == 0xF9:
+                gce = struct.unpack("<BHB", sub[0][:4])
+            elif label == 0xFF and sub[0] == b"NETSCAPE2.0":
+                loop = struct.unpack("<H", sub[1][1:3])[0]
+        elif blob[i] == 0x2C:
+            x, y, fw, fh, fp = struct.unpack("<HHHHB", blob[i + 1:i + 10])
+            assert (x, y, fw, fh, fp) == (0, 0, w, h, 0)
+            mcs, i = blob[i + 10], i + 11
+            data = b""
+            while blob[i]:
+                data += blob[i + 1:i + 1 + blob[i]]
+                i += 1 + blob[i]
+            i += 1
+            frames.append((gce, lzw_decode(data, mcs)))
+        else:
+            raise AssertionError("block 0x%02x at %d" % (blob[i], i))
+    return w, h, palette, loop, frames
+
+
+def atlas_tile(atlas, tile, row, col):
+    w, _h, bpp, px = atlas
+    return b"".join(px[((row * tile + y) * w + col * tile) * bpp:((row * tile + y) * w + (col + 1) * tile) * bpp]
+                    for y in range(tile))
+
+
+def frame_tile(w, bpp, px, tile, j):
+    return b"".join(px[(y * w + j * tile) * bpp:(y * w + (j + 1) * tile) * bpp] for y in range(tile))
+
+
+class MotionAnimationTests(unittest.TestCase):
+    """--gif: the APNG and GIF decode back to the motion atlas tiles."""
+
+    @classmethod
+    def setUpClass(cls):
+        import gui_mirror
+        cls.gm = gui_mirror
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-gif-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.sweep = write_motion_sweep(cls.tmp)
+        cls.sites = {}
+        for fmt in ppv.ANIMATION_FORMATS:
+            out = os.path.join(cls.tmp, "site-" + fmt)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                assert 0 == ppv.main([cls.sweep, "--out", out, "--gif", "--gif-format", fmt])
+            with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+                cls.sites[fmt] = (out, ppv.parse_data_js(fh.read()), buf.getvalue())
+
+    def animated(self, fmt):
+        out, data, _ = self.sites[fmt]
+        rows = [c for c in data["cases"] if c.get("motion") and c["motion"]["atlasFile"]]
+        self.assertEqual(10, len(rows))  # every motion row but the faulted press
+        for c in rows:
+            yield out, c, self.gm.read_png(os.path.join(self.sweep, c["motion"]["atlasFile"]))
+
+    def expected_rows(self, m):
+        view = m["animationView"]
+        return [m["atlasRows"].index("%s:%s" % (k, view)) for k in ("real", "ghost", "ghost-matched")
+                if "%s:%s" % (k, view) in m["atlasRows"]]
+
+    def test_the_apng_decodes_to_the_atlas_tiles(self):
+        for out, c, atlas in self.animated(ppv.ANIMATION_APNG):
+            m = c["motion"]
+            self.assertEqual(("img/0/" + c["caseId"] + ".motion.apng", "apng"),
+                             (c["strips"]["animation"], c["strips"]["animationFormat"]))
+            with open(os.path.join(out, *c["strips"]["animation"].split("/")), "rb") as fh:
+                blob = fh.read()
+            actl, frames = decode_apng(blob, self.tmp)
+            rows, tile = self.expected_rows(m), m["tile"]
+            self.assertEqual((len(m["atlasCols"]), 0), actl)
+            self.assertEqual(len(m["atlasCols"]), len(frames))
+            for i, (f, (w, h, bpp, px)) in enumerate(frames):
+                self.assertEqual((w, h, bpp), (len(rows) * tile, tile, atlas[2]))
+                self.assertEqual((f[3], f[4], f[7], f[8]), (0, 0, 0, 0))  # whole canvas, replaced
+                self.assertEqual(m["delaysMs"][i], f[5] * 1000 // f[6])
+                for j, r in enumerate(rows):
+                    self.assertEqual(atlas_tile(atlas, tile, r, i), frame_tile(w, bpp, px, tile, j), (c["caseId"], i, j))
+
+    def test_the_gif_decodes_to_the_atlas_tiles_over_the_tile_grey(self):
+        for out, c, atlas in self.animated(ppv.ANIMATION_GIF):
+            m = c["motion"]
+            with open(os.path.join(out, *c["strips"]["animation"].split("/")), "rb") as fh:
+                w, h, palette, loop, frames = decode_gif(fh.read())
+            rows, tile, bpp = self.expected_rows(m), m["tile"], atlas[2]
+            self.assertEqual((w, h, loop, len(frames)), (len(rows) * tile, tile, 0, len(m["atlasCols"])))
+            bg = ppv.GIF_BACKGROUND
+            for i, (gce, idx) in enumerate(frames):
+                self.assertEqual(max(2, round(m["delaysMs"][i] / 10.0)), gce[1])
+                self.assertEqual(w * h, len(idx))
+                got = b"".join(bytes(palette[x]) for x in idx)
+                for j, r in enumerate(rows):
+                    src = atlas_tile(atlas, tile, r, i)
+                    want = b"".join(bytes((ch * src[p + 3] + b * (255 - src[p + 3]) + 127) // 255
+                                          for ch, b in zip(src[p:p + 3], bg)) for p in range(0, len(src), bpp))
+                    self.assertEqual(want, frame_tile(w, 3, got, tile, j), (c["caseId"], i, j))
+
+    def test_the_cli_reports_and_links(self):
+        _, data, text = self.sites[ppv.ANIMATION_GIF]
+        self.assertIn("wrote 10 gif animation(s)", text)
+        legacy = [c for c in data["cases"] if not c.get("motion")]
+        self.assertTrue(legacy)
+        self.assertEqual({None}, {c["strips"] for c in legacy})
+
+    def test_gif_on_a_sweep_with_no_motion_case(self):
+        tmp = tempfile.mkdtemp(prefix="ppv-gif-legacy-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        out = os.path.join(tmp, "site")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(0, ppv.main([fx_sweep_copy(tmp), "--out", out, "--gif"]))
+        self.assertIn("no motion case in these sweeps", buf.getvalue())
+        found = [n for _r, _d, files in os.walk(out) for n in files if ".motion." in n]
+        self.assertEqual([], found)
+
+    def test_an_unreadable_atlas_is_a_problem_not_a_stop(self):
+        tmp = tempfile.mkdtemp(prefix="ppv-gif-bad-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        d = write_motion_sweep(tmp)
+        with open(os.path.join(d, MO_ANT + pp.MOTION_ATLAS_SUFFIX), "wb") as fh:
+            fh.write(b"not a png")
+        out, err = os.path.join(tmp, "site"), io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(0, ppv.main([d, "--out", out, "--gif"]))
+        self.assertIn(MO_ANT, err.getvalue())
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            rows = {c["caseId"]: c for c in ppv.parse_data_js(fh.read())["cases"]}
+        self.assertIsNone(rows[MO_ANT]["strips"]["animation"])
+        self.assertIsNotNone(rows[MO_LATE]["strips"]["animation"])
+
+    def test_a_layout_mismatch_raises(self):
+        atlas = (24, 24, 4, b"\x00" * 24 * 24 * 4)
+        with self.assertRaises(ValueError):
+            ppv.motion_animation_frames(atlas, 12, ["real:side-a", "ghost:side-a", "x"], [0, 1], "side-a")
+        with self.assertRaises(ValueError):
+            ppv.motion_animation_frames(atlas, 12, ["real:side-b", "ghost:side-b"], [0, 1], "side-a")
+        w, h, bpp, frames = ppv.motion_animation_frames(atlas, 12, ["real:side-a", "ghost:side-a"], [0, 1], "side-a")
+        self.assertEqual((24, 12, 4, 2), (w, h, bpp, len(frames)))
+
+    def test_partial_alpha_and_many_colours(self):
+        import random
+        rnd = random.Random(7)
+        w = h = 40
+        frames = [bytes(rnd.randrange(256) for _ in range(w * h * 4)) for _ in range(2)]
+        actl, got = decode_apng(ppv.encode_apng(w, h, 4, frames, [30, 1000]), self.tmp)
+        self.assertEqual(frames, [px for _f, (_w, _h, _b, px) in got])
+        w2, h2, palette, loop, decoded = decode_gif(ppv.encode_gif(w, h, 4, frames, [30, 1000]))
+        bg = ppv.GIF_BACKGROUND
+        flat = [tuple((ch * f[i + 3] + b * (255 - f[i + 3]) + 127) // 255 for ch, b in zip(f[i:i + 3], bg))
+                for f in frames for i in range(0, len(f), 4)]  # straight alpha over the tile grey, rounded
+        counts = {}
+        for p in flat:
+            counts[p] = counts.get(p, 0) + 1
+        pal, lut = ppv.median_cut(counts)
+        self.assertEqual(256, len(pal))
+        self.assertEqual(pal, palette[:256])
+        got_px = [palette[x] for _g, idx in decoded for x in idx]
+        self.assertEqual([pal[lut[p]] for p in flat], got_px)
+        err = sum(abs(a - b) for p, q in zip(flat, got_px) for a, b in zip(p, q)) / (3.0 * len(flat))
+        self.assertLess(err, 16)
+        self.assertEqual([3, 100], [g[1] for g, _i in decoded])
+
+    def test_lzw_round_trips_through_a_full_table(self):
+        import random
+        rnd = random.Random(3)
+        for mcs, data in ((8, bytes(rnd.randrange(256) for _ in range(30000))), (2, bytes([0, 1, 2, 3] * 900)),
+                          (2, b""), (3, bytes([5]))):
+            self.assertEqual(list(data), lzw_decode(ppv.lzw_encode(data, mcs), mcs), mcs)
+
+    def test_few_colours_keep_their_exact_palette(self):
+        counts = {(1, 2, 3): 5, (4, 5, 6): 1}
+        self.assertEqual(([(1, 2, 3), (4, 5, 6)], {(1, 2, 3): 0, (4, 5, 6): 1}), ppv.median_cut(counts))
+
+
+
+def _frames(sc):
+    return sc["motion"]["frames"]
+
+
+# Each malformed motion sidecar a writer could leave (the clean review's repros): the mutation
+# and a fragment of the problem the case's row must name.
+MALFORMED_MOTION = {
+    "transforms-int": (lambda sc: sc["motion"].__setitem__("transforms", 5), "motion.transforms: not an array"),
+    "events-int": (lambda sc: sc.setdefault("stateProof", {}).__setitem__("events", 5), "stateProof.events: not an array"),
+    "events-str": (lambda sc: sc.setdefault("stateProof", {}).__setitem__("events", "ab"), "stateProof.events: not an array"),
+    "scout-ints": (lambda sc: sc["motion"].__setitem__("scout", {"s": 5, "progress": 5}), "motion.scout"),
+    "transform-real-int": (lambda sc: sc["motion"]["transforms"][0].__setitem__("real", 5), "motion.transforms[0]"),
+    "realS-str": (lambda sc: [f.__setitem__("realS", "x") for f in _frames(sc)], "timing:real"),
+    "targetS-str": (lambda sc: _frames(sc)[0].__setitem__("targetS", "x"), "motion.frames[0]"),
+    "views-int": (lambda sc: _frames(sc)[0].__setitem__("views", 5), "motion.frames[0].views: not an array"),
+    "flags-int": (lambda sc: _frames(sc)[0].__setitem__("flags", 5), "motion.frames[0].flags: not an array"),
+    "frames-str": (lambda sc: sc["motion"].__setitem__("frames", "abc"), "motion.frames: not an array"),
+    "pressUT-str": (lambda sc: sc["motion"].__setitem__("pressUT", "abc"), "motion.pressUT: not a number"),
+    "imgProgress-list": (lambda sc: _frames(sc)[0].__setitem__("imgProgress", [1]), "motion.frames[0].imgProgress: not an object"),
+    "atlas-list": (lambda sc: sc.__setitem__("motionAtlas", [1]), "motionAtlas: not an object"),
+    "atlas-rows-int": (lambda sc: sc.__setitem__("motionAtlas", {"file": "x.png", "rows": 5, "cols": 5, "tile": "a"}),
+                       "motionAtlas.rows: not an array"),
+}
+
+
+def _number_or_null(test, value, where):
+    test.assertTrue(value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)),
+                    "%s: %r" % (where, value))
+
+
+def malformed_motion_row():
+    """MO_ANT's row over a sidecar whose transforms are not an array."""
+    tmp = tempfile.mkdtemp(prefix="ppv-malformed-row-")
+    try:
+        s = _loaded(write_motion_sweep(tmp))
+        sc = copy.deepcopy(s["sidecars"][MO_ANT])
+        sc["motion"]["transforms"] = 5
+        s["sidecars"] = dict(s["sidecars"], **{MO_ANT: sc})
+        return [c for c in ppv.build_site_data([s], None, LEGACY_STAMP)["cases"] if c["caseId"] == MO_ANT][0]
+    finally:
+        shutil.rmtree(tmp, True)
+
+
+class MalformedMotionTests(unittest.TestCase):
+    """A malformed motion sidecar is a problem on its own case's row, never a stop of the
+    site build, and partparity's judge reads it without raising."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-malformed-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.dir = write_motion_sweep(cls.tmp)
+        cls.sweep = _loaded(cls.dir)
+
+    def rows_with(self, sc):
+        s = dict(self.sweep, sidecars=dict(self.sweep["sidecars"], **{MO_ANT: sc}))
+        return {c["caseId"]: c for c in ppv.build_site_data([s], None, LEGACY_STAMP)["cases"]}
+
+    def assert_page_numbers(self, m, name):
+        for i, f in enumerate(m.get("frames") or ()):
+            for key in ("targetS", "realS", "matchedS", "ut", "realProgress", "ghostProgress", "matchedProgress"):
+                _number_or_null(self, f.get(key), "%s frames[%d].%s" % (name, i, key))
+
+    def test_the_good_sweep_names_no_problem(self):
+        rows = self.rows_with(self.sweep["sidecars"][MO_ANT])
+        self.assertEqual([], [cid for cid, c in rows.items() if "motionProblem" in c])
+
+    def test_each_malformed_sidecar_is_a_problem_on_its_row(self):
+        for name, (mutate, fragment) in MALFORMED_MOTION.items():
+            with self.subTest(name):
+                sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+                mutate(sc)
+                pp.judge_case(sc)  # reads it, never raises
+                rows = self.rows_with(sc)
+                self.assertIn(fragment, rows[MO_ANT].get("motionProblem", ""))
+                self.assertTrue(rows[MO_ANT]["motionProblem"].startswith("the motion sidecar is malformed: "))
+                self.assertNotIn("motionProblem", rows[MO_LATE])
+                self.assertIsNotNone(rows[MO_LATE].get("motion"))
+                if rows[MO_ANT].get("motion"):
+                    self.assert_page_numbers(rows[MO_ANT]["motion"], name)
+
+    def test_a_motion_build_that_raises_is_a_problem_on_its_row(self):
+        with mock.patch.object(ppv, "motion_row", side_effect=RuntimeError("boom")):
+            rows = self.rows_with(self.sweep["sidecars"][MO_ANT])
+        self.assertEqual("the motion block would not build: RuntimeError: boom", rows[MO_ANT]["motionProblem"])
+        self.assertNotIn("motion", rows[MO_ANT])
+        self.assertIn("verdict", rows[MO_ANT])
+
+    def test_partparity_reads_non_array_views_and_flags_as_empty(self):
+        for key in ("views", "flags"):
+            sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+            _frames(sc)[0][key] = 5
+            self.assertIn("motion.frames[0].%s: not an array" % key, pp.motion_block_problems(sc))
+            self.assertIsNotNone(pp.judge_case(sc).motion)
+            self.assertEqual(list(pp.motion_flags(sc)), list(pp.motion_flags(sc)))  # reads, never raises
+        sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+        _frames(sc)[0]["views"] = 5
+        self.assertEqual([], pp.motion_frame_views(_frames(sc)[0], "same"))
+
+    def test_the_site_builds_and_the_page_runs_over_malformed_cases(self):
+        tmp = tempfile.mkdtemp(prefix="ppv-malformed-site-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        d = write_motion_sweep(tmp)
+        bad = [cid for cid, sc in sorted(_loaded(d)["sidecars"].items())
+               if pp.motion_block(sc) and cid not in (MO_LATE, MO_FAULT)]
+        names = list(MALFORMED_MOTION)
+        self.assertTrue(len(bad) >= 4)
+        for i, cid in enumerate(bad):
+            path = os.path.join(d, cid + pp.SIDECAR_SUFFIX)
+            with open(path, encoding="utf-8") as fh:
+                sc = json.load(fh)
+            MALFORMED_MOTION[names[i % len(names)]][0](sc)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(sc, fh)
+        out = os.path.join(tmp, "site")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(0, ppv.main([d, "--out", out, "--gif"]))
+        js = os.path.join(out, ppv.DATA_JS_FILE)
+        with open(js, encoding="ascii") as fh:
+            rows = {c["caseId"]: c for c in ppv.parse_data_js(fh.read())["cases"]}
+        for cid in bad:
+            self.assertIn("motionProblem", rows[cid], cid)
+        self.assertNotIn("motionProblem", rows[MO_LATE])
+        if shutil.which("node"):
+            page = _run_runner(tmp, MOTION_RUNNER, js, False, {"target": rows[MO_LATE]["id"]})
+            texts = {b["id"]: b["text"] for b in page["boxes"]}
+            self.assertIn(rows[MO_LATE]["id"], texts)
+
+
+class UnreadableAtlasTests(unittest.TestCase):
+    """--gif over a truncated or lying atlas reports the case and carries on."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-gif-trunc-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.dir = write_motion_sweep(cls.tmp)
+        cls.atlas = os.path.join(cls.dir, MO_ANT + pp.MOTION_ATLAS_SUFFIX)
+        with open(cls.atlas, "rb") as fh:
+            cls.orig = fh.read()
+
+    def tearDown(self):
+        with open(self.atlas, "wb") as fh:
+            fh.write(self.orig)
+
+    def built(self, blob, name):
+        with open(self.atlas, "wb") as fh:
+            fh.write(blob)
+        out, err = os.path.join(self.tmp, "site-" + name), io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(0, ppv.main([self.dir, "--out", out, "--gif"]), name)
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            rows = {c["caseId"]: c for c in ppv.parse_data_js(fh.read())["cases"]}
+        self.assertIn(MO_ANT, err.getvalue(), name)
+        self.assertIsNone(rows[MO_ANT]["strips"]["animation"], name)
+        self.assertIsNotNone(rows[MO_LATE]["strips"]["animation"], name)
+
+    def test_a_truncated_atlas_is_a_problem_not_a_stop(self):
+        # 20: a truncated IHDR (struct.error); 60 and len - 12: a short IDAT
+        for cut in (8, 12, 20, 33, 40, 60, 200):
+            self.built(self.orig[:cut], "cut%d" % cut)
+
+    def test_an_atlas_claiming_a_taller_image_is_a_problem_not_a_stop(self):
+        n = struct.unpack(">I", self.orig[8:12])[0]
+        body = bytearray(self.orig[16:16 + n])
+        body[4:8] = struct.pack(">I", struct.unpack(">I", bytes(body[4:8]))[0] * 3)
+        self.built(self.orig[:8] + ppv._png_chunk(b"IHDR", bytes(body)) + self.orig[20 + n:], "tall")
 
 
 if __name__ == "__main__":

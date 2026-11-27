@@ -40,18 +40,31 @@ id = "SAVE-IDX-2-far-switch-focuses-target"
 #            the held relay at 2 in [asteroid, capsule, held relay, Jeb, flag]. Before the fix
 #            it read 3 and the reloaded scene focused Jebediah.
 #   reload   ListHandles kind=chains holds until the reloaded scene's OnFlightReady ran (S0.14),
-#            and `Flight ready focus:` must name the alarm's target pid as 'CN Held Relay'.
+#            and `Flight ready focus:` must name the alarm's target pid as 'CN Held Relay'. The
+#            relay continues in a new switch segment under its committed recording (below).
 #
 # WHAT GATES. The alarm's target pid is captured from `alarmjump start` and back-referenced
 # into the strip line and the reloaded focus line, so the lane reds when no ghost was stripped
 # before the switch (`indexDriftAvoided` must be at least 1: no drift means the lane proves
 # nothing), when the switch did not reload, and when the reloaded scene focuses another vessel.
 #
-# NOTHING RECORDS. autoRecordOnLaunch, autoRecordOnEva and
+# NOTHING RECORDS BEFORE THE SWITCH. autoRecordOnLaunch, autoRecordOnEva and
 # autoRecordOnFirstModificationAfterSwitch are off: with a recording live the far switch would
 # take pre-switch Case B (S0.14's merge first), which is not this lane's subject.
 #
-# PRE-REGISTERED READINGS (never flown):
+# ONE RECORDING STARTS AFTER IT, BY DESIGN. The held relay is the spawned end of a committed
+# tree, so the reloaded flight focused on it takes a copy of that tree back and continues the
+# relay in a new switch segment under its recording (docs/parsek-flight-recorder-design.md,
+# "Three branches" (1): a Parsek spawn regenerates every part id, so it is a new segment, entry
+# reason `ResumedSpawnedVessel`, the shape MINE-13 pins). The first flight `2026-11-27_1710`
+# (automation DLL 9a283490 from 414a2d37a) read it: `[SwitchSegment] created ...
+# parentRecId=cn3-held-relay ... reason=ResumedSpawnedVessel`, saveParse inFlightCopyTrees=1,
+# VesselSwitchContinuation=1, and recordings 4 (the preset's 3 plus the segment). That flight
+# was PARSEK-FAIL(expectation) on `recordings.count 4 > max 3` ALONE, a spec premise: every log
+# contract matched, `indexDriftAvoided=1`, and the reload focused CN Held Relay. Re-pinned to
+# 4 with the segment line required.
+#
+# PRE-REGISTERED READINGS (written before the first flight; the count premise was wrong, above):
 #   - `alarmjump rejected reason=alarmjump-target-not-found`: the held relay did not spawn by
 #     UT 400; read CN-3's `Orbital vessel spawn` / `Held ghost spawn` lines.
 #   - `alarmjump result ... switched=False sceneLoadRequested=false`: stock refused the switch
@@ -65,13 +78,13 @@ id = "SAVE-IDX-2-far-switch-focuses-target"
 # FAST-LANE CHECKLIST: (1) reuse: CN-3's host, preset, settle and warp rate, EVA-1's EvaExit /
 # PlantFlag pair, S0.14 / ASR-5's AlarmJump + ListHandles far switch; (2) explicit-UT warp
 # only, to 400 (29 s of game time past the held spawn, not CN-3's 621); (3)-(5) no dwell,
-# burn or coast; (6) retry `once`; (7) recordings exactly the preset's 3; (8) operator until
+# burn or coast; (6) retry `once`; (7) recordings exactly the preset's 3 plus the resumed segment; (8) operator until
 # measured; (9) flight_efficiency.py after the first green flight.
 tier = "operator"
 description = "A far Switch-To lands on the vessel the player picked when a ghost map vessel sits ahead of it: on gloops-airshow plus the ghost-commnet-timeline preset, the clock is warped past the held relay's spawn, Jebediah EVAs onto the pad and plants a flag, then a stock alarm's Jump switches to the far held relay; the ghost map vessels must be stripped from the live list before stock's IndexOf, and the reloaded scene must focus the held relay, not Jebediah."
 instanceProfile = "stock-minimal"
 tags = ["SAVE-IDX-2", "far-switch", "alarm-jump", "ghost-map", "eva", "flag-plant",
-        "injected-recordings", "pending-flight"]
+        "injected-recordings", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"
@@ -125,7 +138,8 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 3, max = 3 }
+# The preset's 3 plus the held relay's resumed switch segment (measured `2026-11-27_1710`).
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 required = [
@@ -136,6 +150,8 @@ required = [
   "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?alarmjump start targetPid=([0-9]+) vessel='CN Held Relay' targetIsGhost=false targetLoaded=false active=[0-9]+ stockWouldShowJump=true decision=\\S+ jump=shown[\\s\\S]*?\\[AlarmJump\\] Jump in FLIGHT targetPid=\\1 runStock=True[\\s\\S]*?\\[GhostMap\\] Far Switch-To pre-stock ghost strip: targetPid=\\1 ghostCount=[1-9][0-9]* liveVesselsBefore=[0-9]+ indexDriftAvoided=[1-9][0-9]* - removed all ghost map vessels before stock IndexOf[\\s\\S]*?\\[Flight\\] Flight ready focus: pid=\\1 name='CN Held Relay' type=\\S+ index=[0-9]+ vessels=[0-9]+[\\s\\S]*?MISSIONMARK label=save-idx2-arrived ut=",
   "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?alarmjump result targetPid=[0-9]+ targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=\\S+ jump=shown pressed=true before=[0-9]+ after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
   "listhandles kind=chains count=[0-9]+ truncated=",
+  # The reloaded flight continues the spawned relay in a new segment under its recording.
+  "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?\\[SwitchSegment\\] created intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=cn3-held-relay segmentRecId=\\S+ branchPointId=\\S+ sourcePid=[0-9]+ focusedPid=[0-9]+ focusedName='CN Held Relay' reason=ResumedSpawnedVessel ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

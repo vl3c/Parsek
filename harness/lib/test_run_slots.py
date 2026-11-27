@@ -523,3 +523,201 @@ class LaunchSiteHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeaseRunTests(_SlotBox):
+    """``run.py --lease``: the leased copy only, no machine lock, the lease renewed,
+    admission against the lease's DLL pin, and the refusals that keep a lease from
+    flying what it must not."""
+
+    def test_the_parallel_runner_loads_by_path_with_its_dataclasses(self):
+        # Live proof 2026-11-27: loaded without a sys.modules entry, the module's
+        # @dataclass raised on Python 3.13, the broad except swallowed it, and
+        # every leased run fell back to minimise on a PC with two desktops.
+        saved = run._parallel_runner_module
+        run._parallel_runner_module = None
+        try:
+            module = run._load_parallel_runner_module()
+            self.assertTrue(callable(module.read_virtual_desktops))
+            self.assertIs(module, run._load_parallel_runner_module())
+        finally:
+            run._parallel_runner_module = saved
+
+    def setUp(self):
+        super().setUp()
+        import leaseio
+        import leases
+        self.leaseio, self.leases = leaseio, leases
+        plugins = os.path.join(self.instance, "GameData", "Parsek", "Plugins")
+        os.makedirs(plugins, exist_ok=True)
+        with open(os.path.join(plugins, "Parsek.dll"), "wb") as fh:
+            fh.write(b"thread-a-build")
+        self.dll_sha = run._sha256_file(os.path.join(plugins, "Parsek.dll"))
+        self.worktree = os.path.join(self.box, "Parsek-a")
+        os.makedirs(os.path.join(self.worktree, "harness"))
+        self.lease = leases.build_lease(SLOT, "lease-tok", "thread-a", self.worktree,
+                                        run.Runtime().now() - 60, "iso", 3600, self.dll_sha)
+        leaseio.write_lease(self.box, self.lease)
+        leaseio.write_worktree_ref(self.worktree, self.lease)
+        # Another owner holds the machine lock: a leased run must not care.
+        self.write_machine_lock("someone-else", os.getpid())
+        self.env.pop(slotrun.RUNNER_TOKEN_ENV, None)
+        self.env.pop(slotrun.RUNNER_PID_ENV, None)
+
+    def fly_leased(self, specs, rt, lease=None):
+        args = mock.Mock(instance_dir=None, no_coverage=True, serial_verify=True,
+                         keep_stop_request=False, tests_prebuilt=False)
+        lease = self.lease if lease is None else lease
+        decision = self.leases.UseDecision(bool(lease), "ok" if lease else "lease-missing",
+                                           SLOT, "test")
+        with _context(umbrella_root=self.box, lease_requested=True, lease=lease or None,
+                      lease_decision=decision) as ctx, \
+                mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(hlib, "validate_spec", lambda *a, **k: _Valid()), \
+                mock.patch.object(run, "resolve_mission_schemas",
+                                  lambda s, lg=None: (None, [])), \
+                mock.patch.object(run, "_prebuild_tests_for_selection", lambda *a, **k: True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rt.scope_ksp_to_instance = True
+            code = run._run_leased(specs, specs, {}, self.box, args, rt, self.logger,
+                                   "id=LEASE-*")
+            report = slotrun.build_run_report(SLOT, code, [s["id"] for s in specs],
+                                              ctx.report_results)
+        return code, report
+
+    def test_a_leased_run_flies_its_copy_beside_another_machine_owner(self):
+        rt = _PrebuiltRuntime("pass")
+        code, _report = self.fly_leased(self.specs("LEASE-A"), rt)
+        log = self.log_text()
+        self.assertEqual(0, code, log)
+        self.assertEqual("PASS", self.results()["LEASE-A"][0]["verdict"])
+        self.assertIn("port-check rpc=50002 stream=50003 result=CLEAR", log)
+        self.assertIn("admit parsek-dll vs lease pin (%s): match" % SLOT, log)
+        self.assertIn("slot-lock acquired slot=%s" % SLOT, log)
+        self.assertFalse(os.path.exists(slots.slot_lock_path(self.box, SLOT)))
+        self.assertTrue(os.path.isfile(slots.launch_stamp_path(self.box)), "launch spaced")
+        # The other owner's machine lock is untouched; the lease was renewed.
+        with open(run.run_lock_path(self.box)) as fh:
+            self.assertEqual("someone-else", json.load(fh)["token"])
+        renewed = self.leaseio.read_lease(self.box, SLOT)
+        self.assertGreater(renewed["renewedAt"], self.lease["renewedAt"])
+        self.assertEqual([], getattr(rt, "prefs_calls", []), "a lease run owns no prefs duty")
+
+    def _refused(self, rt, specs, subkind, lease=None):
+        code, report = self.fly_leased(specs, rt, lease=lease)
+        self.assertEqual(1, code)
+        self.assertEqual(0, rt.launch_count, "a refusal boots nothing")
+        rows = self.results()
+        for spec in specs:
+            with self.subTest(lane=spec["id"]):
+                self.assertEqual(("INVALID", subkind),
+                                 (rows[spec["id"]][-1]["verdict"], rows[spec["id"]][-1]["subkind"]))
+        return self.log_text()
+
+    def test_a_dll_that_is_not_the_pin_refuses_admission(self):
+        with open(os.path.join(self.instance, run.PARSEK_DLL_REL), "wb") as fh:
+            fh.write(b"someone-elses-build")
+        log = self._refused(_PrebuiltRuntime("pass"), self.specs("LEASE-A"), "drift")
+        self.assertIn("vs lease pin (%s): DRIFT" % SLOT, log)
+        self.assertIn("re-provision it under the lease", log)
+
+    def test_a_lease_that_is_gone_refuses_every_lane(self):
+        self.leaseio.remove_lease(self.box, SLOT)
+        self._refused(_PrebuiltRuntime("pass"), self.specs("LEASE-A", "LEASE-B"),
+                      hlib.LEASE_INVALID_SUBKIND)
+
+    def test_no_lease_at_selection_start_refuses_every_lane(self):
+        self._refused(_PrebuiltRuntime("pass"), self.specs("LEASE-A"),
+                      hlib.LEASE_INVALID_SUBKIND, lease={})
+
+    def test_an_exclusive_lane_and_another_profile_are_refused(self):
+        import parallel
+        exclusive = self.specs("LEASE-X")
+        exclusive[0]["runtime"] = {parallel.EXCLUSIVE_SPEC_KEY: True}
+        log = self._refused(_PrebuiltRuntime("pass"), exclusive, hlib.LEASE_EXCLUSIVE_SUBKIND)
+        self.assertIn("needs the whole machine", log)
+        self._refused(_PrebuiltRuntime("pass"), self.specs("LEASE-T", profile="stock-tree"),
+                      hlib.SLOT_PROFILE_MISMATCH_SUBKIND)
+
+    def test_losing_the_lease_mid_selection_stops_the_rest(self):
+        box = self
+
+        class LoseAfterFirst(_PrebuiltRuntime):
+            def launch(self, exe, args, env, cwd):
+                box.leaseio.remove_lease(box.box, SLOT)
+                return super().launch(exe, args, env, cwd)
+        rt = LoseAfterFirst("pass")
+        code, _report = self.fly_leased(self.specs("LEASE-A", "LEASE-B"), rt)
+        self.assertEqual(1, code)
+        self.assertEqual(1, rt.launch_count)
+        rows = self.results()
+        self.assertEqual("PASS", rows["LEASE-A"][0]["verdict"])
+        self.assertEqual(("INVALID", hlib.LEASE_INVALID_SUBKIND),
+                         (rows["LEASE-B"][0]["verdict"], rows["LEASE-B"][0]["subkind"]))
+
+    def test_a_lease_that_expires_mid_flight_is_renewed_by_its_slot_lock_holder(self):
+        box = self
+
+        class ExpireDuringFirst(_PrebuiltRuntime):
+            def launch(self, exe, args, env, cwd):
+                lease = box.leaseio.read_lease(box.box, SLOT)
+                box.leaseio.write_lease(box.box, dict(lease, renewedAt=1.0))
+                return super().launch(exe, args, env, cwd)
+        rt = ExpireDuringFirst("pass")
+        code, _report = self.fly_leased(self.specs("LEASE-A", "LEASE-B"), rt)
+        self.assertEqual(0, code, self.log_text())
+        self.assertEqual(2, rt.launch_count)
+
+    def _real_id(self):
+        for spec in run.load_all_specs():
+            if spec.get("instanceProfile") == "stock-minimal" and not \
+                    __import__("parallel").exclusive_reason(spec):
+                return spec["id"]
+        self.skipTest("no stock-minimal spec")
+
+    def test_a_serial_run_is_refused_while_a_lease_is_live(self):
+        os.remove(run.run_lock_path(self.box))
+        sid = self._real_id()
+        rt = FakeRuntime("pass")
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(run, "_run_selection",
+                                  side_effect=AssertionError("must not fly")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = run.run(["--id", sid, "--umbrella-root", self.box], runtime=rt)
+        self.assertEqual(1, code)
+        self.assertEqual(("INVALID", "instance-locked"),
+                         (self.results()[sid][0]["verdict"], self.results()[sid][0]["subkind"]))
+        self.assertFalse(os.path.exists(run.run_lock_path(self.box)),
+                         "the refused owner gives the machine lock back")
+
+    def test_the_cli_resolves_this_worktrees_lease_and_defaults_to_the_desktop_window(self):
+        sid = self._real_id()
+        seen = {}
+
+        def fake_selection(*a, **k):
+            seen["ctx"] = (run._CTX.lease_slot, run._CTX.window_mode, run._CTX.desktop_id)
+            return 0
+
+        class Desktops(FakeRuntime):
+            def virtual_desktops(self):
+                return (["{AAAA}", "{BBBB}"], "{AAAA}")
+        rt = Desktops("pass")
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch.object(run, "WORKTREE_ROOT", self.worktree), \
+                mock.patch.object(run, "_run_selection", side_effect=fake_selection), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = run.run(["--lease", "--id", sid, "--umbrella-root", self.box], runtime=rt)
+        self.assertEqual(0, code)
+        self.assertEqual((SLOT, slotrun.WINDOW_DESKTOP, "{BBBB}"), seen["ctx"])
+        self.assertEqual([], getattr(rt, "prefs_calls", []))
+        self.assertFalse(run._CTX.lease_requested, "run() restores the default context")
+
+    def test_lease_flag_combinations_exit_2(self):
+        for argv in (["--id", "X", "--lease", "--slot", SLOT],
+                     ["--id", "X", "--lease", "--instance-dir", self.box],
+                     ["--id", "X", "--lease", "--hold"]):
+            with self.subTest(argv=argv):
+                with contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaises(SystemExit) as cm:
+                    run.main(argv)
+                self.assertEqual(2, cm.exception.code)

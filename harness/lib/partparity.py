@@ -346,8 +346,22 @@ def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
 
 
 def is_state_case(state: Optional[str]) -> bool:
-    """TestCommandPartParitySweep.IsStateCase: any state but ``stowed`` (four atlas rows)."""
+    """TestCommandPartParitySweep.IsStateCase: any state but ``stowed``. A ``motion-`` state
+    is a state case here too (the press gate, the press proof and the row cross-checks count
+    it as one), but it does not write the four-row atlas: see ``is_four_row_case``."""
     return (state or STATE_STOWED) != STATE_STOWED
+
+
+def is_four_row_case(sidecar: Optional[Dict]) -> bool:
+    """PartParityStateRun.FourRows as the capture leaves it: a state case that is not a motion
+    case (PartParityMotionDriver.Attach sets FourRows false). Only such a case writes the
+    four-row state atlas (``atlas_rows_for(True)``) and the views' ``start`` and ``stowedRef``
+    blocks; a motion case's P6 atlas, when it writes one, has the stowed case's two rows and
+    its views carry ``start`` and ``stowedRef`` null (its own evidence is the ``motion`` block
+    and ``motionAtlas``, judged by the motion recompute)."""
+    if not isinstance(sidecar, dict):
+        return False
+    return is_state_case(sidecar.get("state")) and not is_motion_case(sidecar)
 
 
 # The transformation families (PartParityStateRules.Families, design D.1 table order):
@@ -440,6 +454,8 @@ FX_MAIN_STATES: Tuple[str, ...] = ("main-full", "main-low")
 FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low") + FX_MAIN_STATES + (
     "rcs-fire", "heat-medium", "heat-hot", "lit")
 CONTEXT_PLATE = "plate"
+# The one view a plate case photographs (PartParityFxDriver.ViewPlate).
+PLATE_VIEW = "plate"
 FX_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_PLATE)
 FX_EXCLUSION_REASONS: Tuple[str, ...] = (
     "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked",
@@ -528,10 +544,17 @@ FX_MEASURES: Tuple[str, ...] = (
     "brightness", "smoke", "core-iou",
 )
 FX_RCS_REPORT_ONLY_MEASURES: Tuple[str, ...] = ("length", "width", "brightness")
+# The compare keys E.4 judges at a fail line, per kind of view.
+FX_SIDE_VIEW_KEYS: Tuple[str, ...] = (
+    "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
+    "chromaDistance", "hueL1")
+FX_AXIS_VIEW_KEYS: Tuple[str, ...] = (
+    "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1")
 FX_REASON_FX_MISSING = "fx-missing"
 FX_REASON_FX_EXTRA = "fx-extra"
 FX_REASON_SMOKE_MISSING = "smoke-missing"
 FX_REASON_SMOKE_EXTRA = "smoke-extra"
+FX_MISSING_REASONS: Tuple[str, ...] = (FX_REASON_FX_MISSING, FX_REASON_SMOKE_MISSING)
 TAG_FX_NOT_PLATEAUED_PREFIX = "fx-not-plateaued:"
 CAP_FX_UNSETTLED = "fx-unsettled"
 FLAG_FX_FRAMING_CLAMPED = "fx-framing-clamped"
@@ -1310,18 +1333,23 @@ def motion_series(block: Optional[Dict]) -> Optional[Dict[str, Any]]:
     from ``scout``, realClock / ghostClock (a servo only, else None) and the transforms."""
     if not isinstance(block, dict):
         return None
-    frames = [f for f in (block.get("frames") or []) if isinstance(f, dict)]
+    frames = [f for f in _motion_list(block.get("frames")) if isinstance(f, dict)]
     scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
     servo = block.get("kind") == MOTION_KIND_SERVO
+    # Numbers only (a non-number reads as the null C# writes for NaN), so a malformed block
+    # measures as unmeasured instead of raising.
     return {
-        "realS": [f.get("realS") for f in frames],
-        "realProgress": [f.get("realProgress") for f in frames],
-        "ghostSameProgress": [f.get("ghostProgress") for f in frames],
-        "scoutS": list(scout.get("s") or []),
-        "scoutProgress": list(scout.get("progress") or []),
-        "realClock": [f.get("realClock") for f in frames] if servo else None,
-        "ghostClock": [f.get("ghostClock") for f in frames] if servo else None,
-        "transforms": [t for t in (block.get("transforms") or []) if isinstance(t, dict)],
+        "realS": [_num(f.get("realS")) for f in frames],
+        "realProgress": [_num(f.get("realProgress")) for f in frames],
+        "ghostSameProgress": [_num(f.get("ghostProgress")) for f in frames],
+        "scoutS": _motion_nums(scout.get("s")),
+        "scoutProgress": _motion_nums(scout.get("progress")),
+        "realClock": [_num(f.get("realClock")) for f in frames] if servo else None,
+        "ghostClock": [_num(f.get("ghostClock")) for f in frames] if servo else None,
+        "transforms": [dict(t, real=_motion_nums(t.get("real")) if isinstance(t.get("real"), list) else None,
+                            ghost=_motion_nums(t.get("ghost")) if isinstance(t.get("ghost"), list) else None,
+                            travelReal=_num(t.get("travelReal")), travelGhost=_num(t.get("travelGhost")))
+                       for t in _motion_list(block.get("transforms")) if isinstance(t, dict)],
     }
 
 
@@ -1454,8 +1482,9 @@ VERDICT_FAIL = "fail"
 VERDICT_ERROR = "error"
 # An FX ENTRY nothing but presence was judged on (E.4, weak cores); never a case verdict.
 VERDICT_SKIPPED = "skipped"
+VERDICT_EMPTY = "empty"
 VERDICTS: Tuple[str, ...] = (VERDICT_PASS, VERDICT_WARN, VERDICT_FAIL, VERDICT_ERROR)
-_RANK = {VERDICT_PASS: 0, VERDICT_SKIPPED: 0, VERDICT_WARN: 1, VERDICT_FAIL: 2, VERDICT_ERROR: 3}
+_RANK = {VERDICT_PASS: 0, VERDICT_SKIPPED: 0, VERDICT_EMPTY: 0, VERDICT_WARN: 1, VERDICT_FAIL: 2, VERDICT_ERROR: 3}
 
 # Row statuses (saveparse's vocabulary plus INVALID for the three instrument gates).
 STATUS_PASS = "PASS"
@@ -1566,6 +1595,10 @@ FX_JUDGED_ROUTES: Tuple[str, ...] = (ROUTE_EVENT, ROUTE_START)
 FX_ROUTE_ROW: Dict[str, str] = {ROUTE_EVENT: "ghost", ROUTE_START: "ghost-start",
                                 FX_ROUTE_ALL: "ghost-all"}
 FX_VIEW_AXIS = "fx-bottom"
+# The views judged across the axis rather than along it: P8's bottom view and the dust run's
+# straight-down view (G.2.2: the surface normal projects to a point there). P8 entries never
+# name ``dust-top``, so a P8 measure reads exactly as before.
+FX_AXIS_VIEWS: Tuple[str, ...] = (FX_VIEW_AXIS, DUST_AXIS_VIEW)
 FX_LAYER_FLAME = "flame"
 FX_LAYER_SMOKE = "smoke"
 FX_FAMILY_PLUME = "plume"
@@ -1658,7 +1691,7 @@ FxAxis = Tuple[float, float, float, float]
 def fx_axis(view: Any, axis: Any) -> Optional[FxAxis]:
     """PartParityFxMetrics.TryAxis: (ox, oy, ux, uy); None on the axis view or with no
     origin or a zero direction."""
-    if view == FX_VIEW_AXIS or not isinstance(axis, dict):
+    if view in FX_AXIS_VIEWS or not isinstance(axis, dict):
         return None
     origin, direction = axis.get("originPx"), axis.get("dirPx")
     if not (isinstance(origin, list) and len(origin) >= 2
@@ -1823,7 +1856,7 @@ def fx_compare(view: Any, axis: Any, real: FxTile, ghost: FxTile) -> Dict[str, O
             out["lateralOffsetPx"] = _fx_across(gc[0], gc[1], a) - _fx_across(rc[0], rc[1], a)
         if real.direction is not None and ghost.direction is not None:
             out["directionDeg"] = fx_wrap_deg(ghost.direction - real.direction)
-    elif view == FX_VIEW_AXIS:
+    elif view in FX_AXIS_VIEWS:
         if r["corePx"] > 0:
             out["crossSectionAreaRatio"] = g["corePx"] / r["corePx"]
         nozzle = axis.get("nozzleDiameterPx") if isinstance(axis, dict) else None
@@ -2036,7 +2069,7 @@ def _fx_axis_problem(view: Any, axis: Any, required: bool) -> Optional[str]:
                 return "axis.%s=%s" % (key, axis[key])
         if axis["nozzleDiameterPx"] is not None and _num(axis["nozzleDiameterPx"]) is None:
             return "axis.nozzleDiameterPx=%s" % axis["nozzleDiameterPx"]
-    if required and view != FX_VIEW_AXIS and fx_axis(view, axis) is None:
+    if required and view not in FX_AXIS_VIEWS and fx_axis(view, axis) is None:
         return "no exhaust axis"
     return None
 
@@ -2170,7 +2203,7 @@ def fx_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List
     on its real side (no control has an rcs subject, so nothing else would notice a capture
     that cannot see a puff; a stock jet legitimately draws no plume, E.12)."""
     settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
-    fx_run = is_fx_run(settings)
+    fx_run = is_fx_run(settings) and not is_burst_run(settings) and not is_dust_run(settings)
     problems: List[str] = []
     rcs: List[bool] = []
     for entry in manifest.get("cases") or []:
@@ -2250,12 +2283,16 @@ class FxFinding:
     """One measure of one entry over a line: ``level`` fail or warn, ``reason`` its token,
     ``side`` the line it crossed without the number (``origin-``, ``length+``,
     ``colour:hueL1``), which two sample halves are compared by. ``capped``: a fail the
-    split-half rule holds at ``warn`` (``fx_cap_findings``)."""
+    split-half rule holds at ``warn`` (``fx_cap_findings``). ``key``: the compare value it read
+    (empty: presence, or a warn-only measure); ``severity``: that value in fail lines
+    (``fx_severity``)."""
     measure: str
     level: str
     reason: str
     side: str = ""
     capped: bool = False
+    key: str = ""
+    severity: float = 0.0
 
 
 def fx_presence_reason(layer: Any, real_core: int, ghost_core: int) -> Optional[str]:
@@ -2300,6 +2337,30 @@ def _outside(v: float, lo: float, hi: float) -> bool:
     return v < lo or v > hi
 
 
+def fx_severity(key: str, value: float, real_length: float) -> Tuple[str, float]:
+    """(side, distance) of one compare value: the side of the line it lies on
+    (``FxFinding.side``) and its distance from a perfect match in fail lines, so 1.0 is the
+    line. ``real_length``: the real plume's length, which scales the origin and lateral lines."""
+    th = FX_THRESHOLDS
+    if key in ("originDeltaPx", "lateralOffsetPx"):
+        measure = "origin" if key == "originDeltaPx" else "lateral"
+        fail = max(th[measure + "FailMinPx"], th[measure + "FailLengthFraction"] * real_length)
+        return measure + ("+" if value > 0 else "-"), abs(value) / fail
+    if key in ("lengthRatio", "widthRatio"):
+        measure = key[:-len("Ratio")]
+        return (measure + ("+" if value > 1.0 else "-"),
+                abs(value - 1.0) / th[measure + "FailFraction"])
+    if key == "directionDeg":
+        return "direction" + ("+" if value > 0 else "-"), abs(value) / th["directionFailDeg"]
+    if key == "crossSectionAreaRatio":
+        if value > 1.0:
+            return "cross-section:area+", (value - 1.0) / (th["crossSectionAreaFailMax"] - 1.0)
+        return "cross-section:area-", (1.0 - value) / (1.0 - th["crossSectionAreaFailMin"])
+    if key == "crossSectionOffset":
+        return "cross-section:offset", value / th["crossSectionOffsetFail"]
+    return "colour:" + key, value / th["chromaFail" if key == "chromaDistance" else "hueL1Fail"]
+
+
 def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     """Every E.4 measure of one ``fx.views[]`` entry over its warn or fail line, in
     FX_MEASURES order. A null measure is not measured and never moves a verdict;
@@ -2316,9 +2377,10 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     length = _num(real.get("lengthPx")) or 0.0
     found: List[FxFinding] = []
 
-    def add(measure: str, level: Optional[str], text: str, side: str) -> None:
+    def add(measure: str, level: Optional[str], text: str, side: str, key: str = "") -> None:
         if level is not None:
-            found.append(FxFinding(measure, level, text, side))
+            found.append(FxFinding(measure, level, text, side, key=key,
+                                   severity=fx_severity(key, c[key], length)[1] if key else 0.0))
 
     def sign(value: float) -> str:
         return "+" if value > 0 else "-"
@@ -2333,17 +2395,17 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
         if c[key] is not None:
             fail = max(th[measure + "FailMinPx"], th[measure + "FailLengthFraction"] * length)
             add(measure, _over(abs(c[key]), fail, fail * th["offsetWarnFraction"]),
-                "%s=%.2fpx" % (measure, c[key]), measure + sign(c[key]))
+                "%s=%.2fpx" % (measure, c[key]), measure + sign(c[key]), key)
     for measure in ("length", "width"):
         ratio = c[measure + "Ratio"]
         if ratio is not None:
             add(measure, _over(abs(ratio - 1.0), th[measure + "FailFraction"],
                                th[measure + "WarnFraction"]), "%s=%.3f" % (measure, ratio),
-                measure + sign(ratio - 1.0))
+                measure + sign(ratio - 1.0), measure + "Ratio")
     if c["directionDeg"] is not None:
         add("direction", _over(abs(c["directionDeg"]), th["directionFailDeg"],
                                th["directionWarnDeg"]), "direction=%.2fdeg" % c["directionDeg"],
-            "direction" + sign(c["directionDeg"]))
+            "direction" + sign(c["directionDeg"]), "directionDeg")
     area = c["crossSectionAreaRatio"]
     if area is not None:
         level = None
@@ -2352,15 +2414,15 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
         elif _outside(area, th["crossSectionAreaWarnMin"], th["crossSectionAreaWarnMax"]):
             level = VERDICT_WARN
         add("cross-section", level, "cross-section=area %.3f" % area,
-            "cross-section:area" + sign(area - 1.0))
+            "cross-section:area" + sign(area - 1.0), "crossSectionAreaRatio")
     offset = c["crossSectionOffset"]
     if offset is not None and offset > th["crossSectionOffsetFail"]:
         add("cross-section", VERDICT_FAIL, "cross-section=offset %.3f" % offset,
-            "cross-section:offset")
+            "cross-section:offset", "crossSectionOffset")
     for key, line in (("chromaDistance", "chromaFail"), ("hueL1", "hueL1Fail")):
         if c[key] is not None:
             add("colour", _over(c[key], th[line], th[line] * th["colourWarnFraction"]),
-                "colour=%s %.4f" % (key, c[key]), "colour:" + key)
+                "colour=%s %.4f" % (key, c[key]), "colour:" + key, key)
     bright = c["brightnessRatio"]
     if bright is not None and _outside(bright, th["brightnessWarnMin"], th["brightnessWarnMax"]):
         add("brightness", VERDICT_WARN, "brightness=%.3f" % bright,
@@ -2414,7 +2476,7 @@ def fx_unsettled_entries(entries: Sequence[Dict]) -> Dict[FxEntryKey, str]:
 
 
 def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
-    """Whether every fail of this entry is held at ``warn``: its own halves disagree, or it
+    """Whether the fails of this entry are held at ``warn`` (a missing effect's aside): its own halves disagree, or it
     is a smoke entry and another view of its route's smoke disagrees. Smoke is one
     world-space trail seen from four views (in orbit a few stray puffs, E.12 U8): a trail
     that did not settle in one view settled in none. A flame's views are judged apart."""
@@ -2425,9 +2487,11 @@ def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
 
 
 def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
-    """The measures one side of an entry fails against ITSELF, its even samples against its
-    odd ones: noise at that size is in the picture, so a fail of that measure says nothing
-    about the ghost. Direction needs the pixels and is not read here."""
+    """The compare keys (``FxFinding.key``; a presence measure by its name) one side of an entry
+    fails against ITSELF, its even samples against its odd ones: noise at that size is in the
+    picture, so a fail of that value says nothing about the ghost. By key and not by measure: a
+    puff whose centre jitters says nothing about its area. Direction needs the pixels and is
+    not read here."""
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves = [split.get(h) if isinstance(split.get(h), dict) else {} for h in FX_SPLIT_HALF_KEYS]
     view, axis = entry.get("view"), entry.get("axis")
@@ -2444,17 +2508,24 @@ def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
                                  FxTile(odd, frozenset(), None, []))
         except ArithmeticError:
             continue  # an integer no double's square can hold: malformed too
-        out.update(fx_failing_measures(dict(entry, real=even, ghost=odd, compare=compare),
-                                       rcs_case))
+        out.update(f.key or f.measure for f in fx_entry_findings(
+            dict(entry, real=even, ghost=odd, compare=compare), rcs_case)
+            if f.level == VERDICT_FAIL)
     return frozenset(out)
 
 
 def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
                     capped: bool) -> Tuple[FxFinding, ...]:
-    """The findings of one entry of a case that has an unsettled entry: a fail stands only in
-    an entry that is not ``capped``, when each sample half fails on the same side of the same
-    line, and when neither side fails that measure against itself (``fx_self_failing``);
-    every other fail counts as ``warn``."""
+    """The findings of one entry: a fail stands only when each sample half fails on the same
+    side of the same line, when neither side fails that value against itself
+    (``fx_self_failing``), and in an entry that is not ``capped``; every other fail counts as
+    ``warn``. The rule holds in every case, settled or not: a fail its own samples do not repeat
+    is their noise. ``capped`` does not hold a MISSING effect: an unsettled length or width says
+    nothing about a layer the real part shows in both halves and the ghost in neither. An extra
+    one stays held (the orbit smoke noise, E.4), and the gate asks the baseline
+    (``fx_unmeasured``)."""
+    if not any(f.level == VERDICT_FAIL for f in findings):
+        return tuple(findings)
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves: List[set] = []
     for h in FX_SPLIT_HALF_KEYS:
@@ -2466,7 +2537,9 @@ def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
     noisy = fx_self_failing(entry, rcs_case)
 
     def stands(f: FxFinding) -> bool:
-        return not capped and all(f.side in h for h in halves) and f.measure not in noisy
+        held = capped and f.reason not in FX_MISSING_REASONS
+        return not held and all(f.side in h for h in halves) \
+            and (f.key or f.measure) not in noisy
 
     return tuple(replace(f, level=VERDICT_WARN, capped=True)
                  if f.level == VERDICT_FAIL and not stands(f) else f for f in findings)
@@ -2474,24 +2547,48 @@ def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
 
 def fx_entry_skipped(entry: Dict) -> bool:
     """Both cores weak and anything drawn: the entry's measures were skipped (E.4, weak
-    cores). Two empty pictures agree, and are judged."""
+    cores)."""
     sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
     return fx_both_cores_weak(*(_fx_count(s, "corePx") for s in sides)) \
         and any(_fx_count(s, "envelopePx") for s in sides)
+
+
+def fx_entry_empty(entry: Dict) -> bool:
+    """Nothing drawn on either side, core and envelope (a smoke layer in vacuum). Two empty
+    pictures agree, so the entry moves no verdict, but nothing was compared either: the gate
+    asks the baseline whether the layer is empty there too (``fx_unmeasured``)."""
+    sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    return not any(_fx_count(s, k) for s in sides for k in ("corePx", "envelopePx"))
+
+
+def fx_entry_nulls(entry: Dict, rcs_case: bool) -> Tuple[str, ...]:
+    """The compare keys E.4 judges in this view that are null: checks that did not run (a core
+    with no unsaturated pixel has no colour, one side with no core has no shape). None for an
+    entry that presence decides, that is ``skipped`` or ``empty``: their own words say it."""
+    sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    cores = tuple(_fx_count(s, "corePx") for s in sides)
+    if fx_both_cores_weak(*cores) or fx_presence_reason(entry.get("layer"), *cores) is not None:
+        return ()
+    compare = entry.get("compare") if isinstance(entry.get("compare"), dict) else {}
+    keys = FX_AXIS_VIEW_KEYS if entry.get("view") == FX_VIEW_AXIS else FX_SIDE_VIEW_KEYS
+    skip = {m + "Ratio" for m in FX_RCS_REPORT_ONLY_MEASURES} if rcs_case else set()
+    return tuple(k for k in keys if k not in skip and _num(compare.get(k)) is None)
 
 
 @dataclass(frozen=True)
 class FxEntryVerdict:
     """One judged entry. ``reference``: shown with its would-be verdict, moves nothing (a
     heat or light case's FX entry). Its verdict is the one it counts with: a capped fail is a
-    ``warn``, and an entry whose measures were skipped (``fx_entry_skipped``) is ``skipped``,
-    which moves nothing (the case's ``fx-weak-core`` flag raises it)."""
+    ``warn``; an entry whose measures were skipped (``fx_entry_skipped``) is ``skipped`` and one
+    with nothing drawn on either side (``fx_entry_empty``) is ``empty``, which move nothing (a
+    skipped one's case is raised by its ``fx-weak-core`` flag). ``nulls``: ``fx_entry_nulls``."""
     route: str
     view: str
     layer: str
     verdict: str
     findings: Tuple[FxFinding, ...]
     reference: bool
+    nulls: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         return {"route": self.route, "view": self.view, "layer": self.layer,
@@ -2502,18 +2599,23 @@ class FxEntryVerdict:
 
 def judge_fx_entry(entry: Dict, rcs_case: bool, reference: bool = False,
                    unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
-    """One entry. ``unsettled``: the unsettled entries of its case, if any; then the
-    split-half rule (``fx_cap_findings``) decides which fails stand."""
+    """One entry. The split-half rule (``fx_cap_findings``) decides which fails stand;
+    ``unsettled``: the unsettled entries of its case, if any."""
     findings = tuple(fx_entry_findings(entry, rcs_case))
-    if unsettled:
+    if not reference:  # a heat or light case's entries judge nothing
         findings = fx_cap_findings(entry, findings, rcs_case,
                                    fx_entry_capped(fx_entry_key(entry), unsettled))
-    verdict = VERDICT_SKIPPED if not findings and fx_entry_skipped(entry) else VERDICT_PASS
+    verdict = VERDICT_PASS
+    if not findings and fx_entry_skipped(entry):
+        verdict = VERDICT_SKIPPED
+    elif fx_entry_empty(entry):
+        verdict = VERDICT_EMPTY
     for f in findings:
         if _RANK[f.level] > _RANK[verdict]:
             verdict = f.level
     return FxEntryVerdict(str(entry.get("route")), str(entry.get("view")),
-                          str(entry.get("layer")), verdict, findings, reference)
+                          str(entry.get("layer")), verdict, findings, reference,
+                          fx_entry_nulls(entry, rcs_case))
 
 
 @dataclass(frozen=True)
@@ -2966,6 +3068,8 @@ class CaseVerdict:
     fx: Optional["FxJudgement"] = None
     # A P7 motion case only (Appendix H.3): the motion judgement.
     motion: Optional["MotionJudgement"] = None
+    # A P9 burst or dust case only (Appendix G.3, G.4): the burst or dust judgement.
+    burst: Optional["BurstJudgement"] = None
 
     @property
     def is_state_case(self) -> bool:
@@ -2987,6 +3091,8 @@ class CaseVerdict:
             out["fx"] = self.fx.to_dict()
         if self.motion is not None:
             out["motion"] = self.motion.to_dict()
+        if self.burst is not None:
+            out[self.burst.kind] = self.burst.to_dict()
         return out
 
 
@@ -3492,6 +3598,17 @@ def run_shape_problem(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
 # progress and the border / jitter / match tags are report-only.
 # ---------------------------------------------------------------------------
 
+def _motion_list(value: Any) -> List[Any]:
+    """A sidecar array as written, or empty when the writer put anything else there: the
+    readers judge a malformed motion block (``motion_case_problems`` names it), never crash."""
+    return value if isinstance(value, list) else []
+
+
+def _motion_nums(value: Any) -> List[Optional[float]]:
+    """A sidecar number array with every non-number read as None (empty when not an array)."""
+    return [_num(v) for v in _motion_list(value)]
+
+
 def motion_frames(block: Optional[Dict]) -> List[Dict]:
     """The ``frames[]`` entries of a motion block that are objects, in order."""
     frames = block.get("frames") if isinstance(block, dict) else None
@@ -3532,15 +3649,15 @@ def motion_angle_line(sweep: Optional[float]) -> float:
 def motion_view_names(block: Optional[Dict]) -> List[str]:
     """The views of a motion case, in the order its first frame lists them."""
     frames = motion_frames(block)
-    views = frames[0].get("views") if frames else None
-    return [str(v.get("view")) for v in views or [] if isinstance(v, dict)]
+    views = _motion_list(frames[0].get("views")) if frames else []
+    return [str(v.get("view")) for v in views if isinstance(v, dict)]
 
 
 def motion_frame_views(frame: Dict, which: str) -> List[Dict]:
     """One frame's ``same`` (or ``matched``) blocks as view records named after their view;
     a null block is left out."""
     out: List[Dict] = []
-    for v in frame.get("views") or []:
+    for v in _motion_list(frame.get("views")):
         if not isinstance(v, dict) or not isinstance(v.get(which), dict):
             continue
         rec = dict(v[which])
@@ -3562,7 +3679,7 @@ def motion_last_frame_route(sidecar: Dict) -> Optional[RouteJudgement]:
 def _motion_frames_with(frames: Sequence[Dict], pred: Callable[[str], bool]) -> List[int]:
     out = []
     for i, f in enumerate(frames):
-        if any(isinstance(x, str) and pred(x) for x in f.get("flags") or []):
+        if any(isinstance(x, str) and pred(x) for x in _motion_list(f.get("flags"))):
             k = f.get("k")
             out.append(k if isinstance(k, int) and not isinstance(k, bool) else i)
     return out
@@ -3622,14 +3739,14 @@ def motion_flags(sidecar: Dict) -> Tuple[str, ...]:
         if isinstance(f, str):
             add(f)
     window = block.get("window") if isinstance(block, dict) else None
-    case_flags = [f for f in sidecar.get("flags") or [] if isinstance(f, str)]
+    case_flags = [f for f in _motion_list(sidecar.get("flags")) if isinstance(f, str)]
     if (isinstance(window, dict) and window.get("capped") is True) or FLAG_MOTION_WINDOW_CAPPED in case_flags:
         add(FLAG_MOTION_WINDOW_CAPPED)
     for f in case_flags:
         if f in _MOTION_CASE_FLAGS:
             add(f)
     frames = motion_frames(block)
-    frame_flags = [x for fr in frames for x in fr.get("flags") or [] if isinstance(x, str)]
+    frame_flags = [x for fr in frames for x in _motion_list(fr.get("flags")) if isinstance(x, str)]
     for kind in _MOTION_FRAME_FLAG_KINDS:
         if kind in frame_flags:
             add(kind)
@@ -3892,6 +4009,8 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
     ``warn``; a Waterfall one reads ``reference`` (``apply_fx_reference``)."""
     if is_motion_case(sidecar):
         return judge_motion_case(sidecar)
+    if is_p9_case(sidecar):
+        return judge_p9_case(sidecar)
     case_id = str(sidecar.get("caseId") or "?")
     skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
     status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
@@ -4126,7 +4245,7 @@ def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
     if not frames:
         return False
     for frame in (frames[0], frames[-1]):
-        views = [v for v in frame.get("views") or [] if isinstance(v, dict)]
+        views = [v for v in _motion_list(frame.get("views")) if isinstance(v, dict)]
         if not views:
             return False
         for v in views:
@@ -4155,9 +4274,14 @@ def judge_motion_control(cid: str, sidecars: Dict[str, Optional[Dict]]) -> Tuple
     block = motion_block(side)
     timing = block.get("timing") if isinstance(block, dict) else None
     if cid in MOTION_REAL_VS_REAL_CONTROL_IDS:
+        # The air control judges the canopy-scale curves only (H.3): stock aims each open
+        # canopy along its own airflow every tick, so two chutes falling side by side never
+        # draw the same last frame. PartParityMotionDriver's air judge passes true the same way.
+        ends_ok = (True if cid == CONTROL_MOTION_REAL_VS_REAL_AIR
+                   else motion_end_frames_within_allowance(block))
         return judge_motion_real_vs_real(timing, motion_frame_interval(block),
                                          _num((block or {}).get("predictedS")),
-                                         motion_end_frames_within_allowance(block), status)
+                                         ends_ok, status)
     if is_setup_fault(status):
         return CONTROLS_BAD, "setup %s" % (status or "<none>")
     normal_side = sidecars.get(motion_normal_id(cid))
@@ -4203,8 +4327,10 @@ def check_controls(manifest: Dict,
             outcomes[c["id"]] = str(c.get("outcome"))
     ids = manifest_control_set(manifest)
     settings = manifest.get("settings")
-    fx_run = is_fx_run(settings if isinstance(settings, dict) else None)
-    motion_run = is_motion_run(settings if isinstance(settings, dict) else None)
+    settings = settings if isinstance(settings, dict) else None
+    p9_run = is_burst_run(settings) or is_dust_run(settings)
+    fx_run = is_fx_run(settings) and not p9_run
+    motion_run = is_motion_run(settings)
     problems: List[str] = []
     for cid in ids:
         got = outcomes.get(cid)
@@ -4212,8 +4338,18 @@ def check_controls(manifest: Dict,
             problems.append("%s:absent" % cid)
         elif control_not_applicable(cid, got):
             continue
+        elif got == CONTROLS_NOT_APPLICABLE and cid in KNOWN_DIFFERENCE_CONTROL_IDS:
+            # n/a while the known difference stands (G.4), and only when its evidence says so.
+            if sidecars is not None:
+                outcome, detail = judge_p9_control(cid, sidecars.get(cid))
+                if outcome != CONTROLS_NOT_APPLICABLE:
+                    problems.append("%s:recorded-n/a-judged-%s(%s)" % (cid, outcome, detail))
         elif got != CONTROLS_OK:
             problems.append("%s:%s" % (cid, got))
+        elif sidecars is not None and p9_run:
+            outcome, detail = judge_p9_control(cid, sidecars.get(cid))
+            if outcome != CONTROLS_OK:
+                problems.append("%s:recorded-ok-judged-%s(%s)" % (cid, outcome, detail))
         elif sidecars is not None and motion_run and cid in MOTION_CONTROL_IDS:
             outcome, detail = judge_motion_control(cid, sidecars)
             if outcome != CONTROLS_OK:
@@ -4261,6 +4397,8 @@ def _sidecar_complete(sidecar: Optional[Dict], case_id: str,
         return None  # a recorded setup fault is a complete record
     if is_motion_case(sidecar):
         return motion_sidecar_incomplete(sidecar, atlases)
+    if is_p9_case(sidecar):
+        return p9_sidecar_incomplete(sidecar, atlases)
     views = sidecar.get("views")
     if not isinstance(views, list) or not views:
         return "no-views"
@@ -4388,19 +4526,22 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         if not isinstance(family, str) or not family:
             family = (motion_block(side) or {}).get("family")
         if not isinstance(family, str) or not family:
+            family = (burst_block(side) or dust_block(side) or {}).get("family")
+        if not isinstance(family, str) or not family:
             family = PRESS_UNKNOWN_FAMILY
         setup = (side or {}).get("setup")
         status = setup.get("status") if isinstance(setup, dict) else None
         detail = setup.get("detail") if isinstance(setup, dict) else None
         if status is None:
             status = entry.get("setupStatus")
-        if fx_press_failed(status, detail, side):
+        if fx_press_failed(status, detail, side) or p9_press_failed(status):
             dead_press.add(cid)
         per_family.setdefault(family, []).append((cid, status, detail))
     if not per_family:
         return None
     known = FAMILIES + tuple(f for f in FX_FAMILIES if f not in FAMILIES)
-    order = {f: i for i, f in enumerate(known + tuple(f for f in MOTION_FAMILIES if f not in known))}
+    known += tuple(f for f in MOTION_FAMILIES if f not in known)
+    order = {f: i for i, f in enumerate(known + tuple(f for f in BUILT_FAMILIES if f not in known))}
     rows: List[Tuple[str, int, int]] = []
     problems: List[str] = []
     for family in sorted(per_family, key=lambda f: (order.get(f, len(order)), f)):
@@ -4647,7 +4788,8 @@ PngReader = Callable[[str], Tuple[int, int, int, bytes]]
 def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
     """Recompute every view of one case from its decoded atlas (``(w, h, bpp,
     pixels)``, rows top-down) and return the differences with the sidecar. An atlas
-    whose layout does not match the sidecar's ``atlas`` block is itself a difference."""
+    whose layout does not match the sidecar's ``atlas`` block is itself a difference. A motion
+    case's P6 atlas is read with the stowed case's two rows (``is_four_row_case``)."""
     width, height, bpp, pixels = atlas
     meta = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
     tile = meta.get("tile")
@@ -4655,7 +4797,7 @@ def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[st
     rows = meta.get("rows") or []
     if not isinstance(tile, int) or tile <= 0 or not cols:
         return ["atlas block unusable: tile=%s cols=%s" % (tile, cols)]
-    if is_state_case(sidecar.get("state")):
+    if is_four_row_case(sidecar):
         return _recompute_state_case(sidecar, atlas, tile, list(cols), list(rows))
     if list(rows) != list(ATLAS_ROWS):
         return ["atlas rows=%s (expected %s)" % (rows, list(ATLAS_ROWS))]
@@ -4691,14 +4833,15 @@ _PCT_BLOB_KEY = {"realOnlyBlobPct": "realOnlyBlobPx", "ghostOnlyBlobPct": "ghost
 
 
 def start_reload_problem(sidecar: Dict) -> Optional[str]:
-    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a state
-    case only; None when they agree or no atlas was written."""
+    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a
+    four-row state case only (``is_four_row_case``); None when they agree or no atlas was
+    written."""
     atlas = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
     rows = atlas.get("rows")
     if not isinstance(rows, list):
         return None
     row, flag = ROW_REAL_START in rows, start_reloaded(sidecar)
-    if row == flag and not (row and not is_state_case(sidecar.get("state"))):
+    if row == flag and not (row and not is_four_row_case(sidecar)):
         return None
     return "start reload: flag=%s but atlas rows=%s" % (str(flag).lower(), rows)
 
@@ -4707,11 +4850,13 @@ def state_view_block_problems(sidecar: Dict) -> List[str]:
     """The view-block shape a state case must carry (design D.2, D.6): every view has a
     ``start`` block with every ``START_KEYS`` key and a ``stowedRef`` block with every
     ``STOWED_REF_KEYS`` key, and a reloaded start route has both its flag and its row
-    (``start_reload_problem``, any case). A stowed case, or a case with no views, has no other
+    (``start_reload_problem``, any case). A stowed case, a motion case (``is_four_row_case``:
+    its views carry ``start`` and ``stowedRef`` null, its blocks are ``motion_case_problems``'
+    and a missing ``motion`` block is completeness's), or a case with no views, has no other
     problem. Run over every case, not only the recompute sample."""
     reload = start_reload_problem(sidecar)
     problems: List[str] = [] if reload is None else [reload]
-    if not is_state_case(sidecar.get("state")):
+    if not is_four_row_case(sidecar):
         return problems
     for v in sidecar.get("views") or []:
         if not isinstance(v, dict):
@@ -4903,21 +5048,28 @@ def motion_block_problems(sidecar: Optional[Dict]) -> List[str]:
         else:
             n_scout = len(ss)
     frames = motion_frames(block)
-    if len(frames) != len(block.get("frames") or []):
+    if "frames" in block and not isinstance(block["frames"], list):
+        problems.append("motion.frames: not an array")
+    elif len(frames) != len(_motion_list(block.get("frames"))):
         problems.append("motion.frames: an entry is not an object")
     views0 = motion_view_names(block)
     for i, f in enumerate(frames):
         problems += _missing("motion.frames[%d]" % i, f, MOTION_FRAME_KEYS)
-        for j, v in enumerate(f.get("views") or []):
+        for key in ("views", "flags"):
+            if key in f and not isinstance(f[key], list):
+                problems.append("motion.frames[%d].%s: not an array" % (i, key))
+        for j, v in enumerate(_motion_list(f.get("views"))):
             problems += _missing("motion.frames[%d].views[%d]" % (i, j), v, MOTION_FRAME_VIEW_KEYS)
             for which in ("same", "matched"):
                 m = v.get(which) if isinstance(v, dict) else None
                 if m is not None:
                     problems += _missing("motion.frames[%d].views[%d].%s" % (i, j, which), m, START_KEYS)
-        names = [str(v.get("view")) for v in f.get("views") or [] if isinstance(v, dict)]
+        names = [str(v.get("view")) for v in _motion_list(f.get("views")) if isinstance(v, dict)]
         if names != views0:
             problems.append("motion.frames[%d]: views %s != frame 0's %s" % (i, names, views0))
-    for i, t in enumerate(block.get("transforms") or []):
+    if "transforms" in block and not isinstance(block["transforms"], list):
+        problems.append("motion.transforms: not an array")
+    for i, t in enumerate(_motion_list(block.get("transforms"))):
         problems += _missing("motion.transforms[%d]" % i, t, MOTION_TRANSFORM_KEYS)
         if not isinstance(t, dict):
             continue
@@ -4946,17 +5098,17 @@ def motion_case_problems(sidecar: Optional[Dict]) -> List[str]:
     if is_setup_fault(setup.get("status")):
         return problems
     problems += motion_timing_diffs(block.get("timing"), motion_timing(motion_series(block)))
-    scout = block.get("scout") or {}
-    ss, sp = scout.get("s") or [], scout.get("progress") or []
+    scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
+    ss, sp = _motion_nums(scout.get("s")), _motion_nums(scout.get("progress"))
     for i, f in enumerate(motion_frames(block)):
         got = _num(f.get("ghostProgress"))
         want = motion_interpolate(ss, sp, _num(f.get("realS")))
         if (got is None) != (want is None) or (
                 got is not None and abs(got - want) > MOTION_SCOUT_RENDER_TOLERANCE):
             problems.append("frame %s: ghostProgress=%s scout=%s" % (f.get("k", i), got, want))
-        if FLAG_SCOUT_RENDER_DISAGREE in (f.get("flags") or []):
+        if FLAG_SCOUT_RENDER_DISAGREE in (_motion_list(f.get("flags"))):
             problems.append("frame %s: %s" % (f.get("k", i), FLAG_SCOUT_RENDER_DISAGREE))
-    if FLAG_SCOUT_RENDER_DISAGREE in (sidecar.get("flags") or []):
+    if FLAG_SCOUT_RENDER_DISAGREE in _motion_list(sidecar.get("flags")):
         problems.append("case flag %s" % FLAG_SCOUT_RENDER_DISAGREE)
     return problems
 
@@ -5003,7 +5155,7 @@ def recompute_motion_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> 
     last = len(frames) - 1
     for c, f in enumerate(frames):
         at = "frame %s" % f.get("k")
-        by_view = {str(v.get("view")): v for v in f.get("views") or [] if isinstance(v, dict)}
+        by_view = {str(v.get("view")): v for v in _motion_list(f.get("views")) if isinstance(v, dict)}
         for view in views:
             v = by_view.get(view) or {}
             real = tile_rows(rows.index("%s:%s" % (MOTION_ROW_REAL, view)), c)
@@ -5147,11 +5299,20 @@ def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
 #     (``ghost-not-built*``), a state the ghost does not model or the recorder did not
 #     record (``state-not-*``), a case the capture recorded ``crashed`` (the ghost builder
 #     runs inside that guard).
+# An FX case's numeric measures carry bands too (``fx`` of its entry: the raw compare values of
+# every measure some run read at FX_BAND_MIN of its fail line or more, capped or not). A fail
+# that stands on a baselined case is judged by its band as a body measure is
+# (``fx_drift_limit``): inside, it is a note; past it, the case reds. Presence, smoke and a
+# missing or extra FX asset have no band: each reds unless an entry names it. A waiver (a noisy
+# entry, the split-half cap) holds up to FX_FAR times the limit.
 # A baselined case the sweep could NOT measure any more (another setup fault, a view or a
-# route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or an FX
-# check that did not run, ``fx_unmeasured``) is ``unmeasured``: the armed row is
-# INVALID(parity-incomplete), because silence is neither a pass nor a ghost defect. A fault
-# or an FX check the baseline itself recorded for that case is a note. Moves to the BETTER side, new
+# route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or
+# ``empty`` on both sides, an FX check that did not run, an FX value that is null, a missing or
+# extra effect held at ``warn``, ``fx_unmeasured``, a capped FX fail far past its band) is
+# ``unmeasured``:
+# the armed row is INVALID(parity-incomplete), because silence is neither a pass nor a ghost
+# defect. A fault or an FX check the baseline itself recorded for that case is a note (an
+# empty layer, what most cases' smoke is, not even that). Moves to the BETTER side, new
 # cases that pass, near-line fails and accepted entries that matched nothing are notes:
 # the fix that removes a difference removes its accepted entry and re-pins the baseline
 # in the same commit (``harness/tools/part_parity_baseline.py``).
@@ -5198,6 +5359,8 @@ VIEW_ANY = "*"
 IOU_DIGITS = 4
 # TestCommandPartParitySweep.KnownViews (an accepted entry names one of them).
 KNOWN_VIEWS: Tuple[str, ...] = ("side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero")
+# What an accepted entry may name as its view (a route aside).
+ACCEPT_VIEWS: Tuple[str, ...] = KNOWN_VIEWS + (PLATE_VIEW,) + FX_VIEWS
 
 # Drift tolerances (a measure is worse when it leaves its band by more than these). A
 # blob's limit is hi + max(abs, rel * hi); an IoU's is lo - abs. Pinned from the measured
@@ -5208,6 +5371,19 @@ DRIFT_SHAPE_ABS_PX = 48
 DRIFT_COLOR_ABS_PX = 192
 DRIFT_BLOB_REL = 0.5
 DRIFT_IOU_ABS = 0.01
+# FX measures, in fail lines (``fx_severity``): a standing fail of a baselined case reds past
+# max(1, hi + max(abs, rel * hi)) of its band's far end, the body blobs' rule. A measure every
+# run kept under FX_BAND_MIN reds at the fail line itself, so its band is not stored.
+DRIFT_FX_ABS = 0.5
+DRIFT_FX_REL = 0.5
+FX_BAND_MIN = 0.5
+FX_BAND_KEYS: Tuple[str, ...] = tuple(dict.fromkeys(FX_SIDE_VIEW_KEYS + FX_AXIS_VIEW_KEYS))
+FX_BAND_DIGITS = 4
+# A waiver stretches that limit, it does not lift it: a noisy entry's fail still reds past
+# FX_FAR of the limit, and a fail the split-half rule caps is ``unmeasured`` past it (a plume
+# half as long is 2 fail lines off and unsettles itself; the worst capped reading of the clean
+# runs is 1.66, the Spark's).
+FX_FAR = 1.75
 # A noisy entry waives the drift rule, not a picture that is gone: an IoU under this
 # fraction of its band's low end reds on a noisy case too (a blank ghost reads IoU 0).
 NOISY_IOU_FLOOR = 0.5
@@ -5280,6 +5456,70 @@ def _band_value(measure: str, lo: float, hi: float) -> List[float]:
     return [int(lo), int(hi)]
 
 
+def fx_entry_label(key: FxEntryKey) -> str:
+    return "%s:%s:%s" % key
+
+
+def fx_case_measures(sidecar: Dict) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """The judged FX entries of one plume or rcs case by ``<route>:<view>:<layer>``: compare
+    key -> (value, distance in fail lines). Left out, as in ``fx_entry_findings``: an entry
+    presence decides, one with two weak cores, and what an rcs case only reports."""
+    fx = fx_block(sidecar)
+    if fx is None or fx.get("family") not in FX_STOCHASTIC_FAMILIES:
+        return {}
+    skip = {m + "Ratio" for m in FX_RCS_REPORT_ONLY_MEASURES} \
+        if fx.get("family") == FX_FAMILY_RCS else set()
+    out: Dict[str, Dict[str, Tuple[float, float]]] = {}
+    for e in fx_entries(sidecar):
+        sides = [e.get(s) if isinstance(e.get(s), dict) else {} for s in ("real", "ghost")]
+        cores = tuple(_fx_count(s, "corePx") for s in sides)
+        if str(e.get("route")) not in FX_JUDGED_ROUTES or fx_both_cores_weak(*cores) \
+                or fx_presence_reason(e.get("layer"), *cores) is not None:
+            continue
+        compare = e.get("compare") if isinstance(e.get("compare"), dict) else {}
+        length = _num(sides[0].get("lengthPx")) or 0.0
+        rec: Dict[str, Tuple[float, float]] = {}
+        for k in FX_BAND_KEYS:
+            x = _num(compare.get(k))
+            if x is not None and k not in skip:
+                rec[k] = (x, fx_severity(k, x, length)[1])
+        out[fx_entry_label(fx_entry_key(e))] = rec
+    return out
+
+
+def fx_baseline_bands(sidecars: Sequence[Dict]) -> Dict[str, Dict[str, List[float]]]:
+    """The FX bands of one case over its runs: entry label -> compare key -> [lo, hi] of the
+    raw values, whatever the split-half rule made of them, for each measure some run read at
+    FX_BAND_MIN of its fail line or more."""
+    values: Dict[Tuple[str, str], List[float]] = {}
+    kept = set()
+    for s in sidecars:
+        for label, rec in fx_case_measures(s).items():
+            for k, (x, severity) in rec.items():
+                values.setdefault((label, k), []).append(x)
+                if severity >= FX_BAND_MIN:
+                    kept.add((label, k))
+    out: Dict[str, Dict[str, List[float]]] = {}
+    scale = 10 ** FX_BAND_DIGITS
+    for label, k in sorted(kept):
+        xs = values[(label, k)]
+        out.setdefault(label, {})[k] = [math.floor(min(xs) * scale) / scale,
+                                        math.ceil(max(xs) * scale) / scale]
+    return out
+
+
+def fx_drift_limit(band: Optional[Sequence[float]], key: str, side: str,
+                   real_length: float) -> float:
+    """The distance, in fail lines, past which a standing fail on ``side`` reds: the band's far
+    end on that side plus its tolerance, never under the fail line itself."""
+    hi = 0.0
+    for x in band or ():
+        band_side, severity = fx_severity(key, float(x), real_length)
+        if band_side == side:
+            hi = max(hi, severity)
+    return max(1.0, hi + max(DRIFT_FX_ABS, DRIFT_FX_REL * hi))
+
+
 def baseline_case_entry(sidecars: Sequence[Dict]) -> Dict[str, Any]:
     """One case's baseline entry from its sidecars in the reading runs (one per run):
     ``setup`` the sorted set of setup statuses seen, ``views`` the measure bands over the
@@ -5310,6 +5550,11 @@ def baseline_case_entry(sidecars: Sequence[Dict]) -> Dict[str, Any]:
     measured = any(isinstance(s, dict) and not is_setup_fault((s.get("setup") or {}).get("status"))
                    for s in sidecars)
     entry = {"setup": statuses, "measured": measured, "views": views}
+    fx_bands = fx_baseline_bands([s for s in sidecars if isinstance(s, dict)
+                                  and not is_setup_fault((s.get("setup") or {}).get("status"))])
+    if fx_bands:
+        # Written only when a run read a measure near its line.
+        entry["fx"] = fx_bands
     if any(isinstance(s, dict) and judge_case(s).verdict == VERDICT_REFERENCE for s in sidecars):
         # Waterfall reference case: never gated (E.6). Written only when true.
         entry["reference"] = True
@@ -5349,7 +5594,8 @@ def build_baseline_section(runs: Sequence[Tuple[str, Dict, Dict[str, Optional[Di
 
 def drift_tolerances() -> Dict[str, Any]:
     return {"shapeAbsPx": DRIFT_SHAPE_ABS_PX, "colorAbsPx": DRIFT_COLOR_ABS_PX,
-            "blobRel": DRIFT_BLOB_REL, "iouAbs": DRIFT_IOU_ABS}
+            "blobRel": DRIFT_BLOB_REL, "iouAbs": DRIFT_IOU_ABS,
+            "fxAbs": DRIFT_FX_ABS, "fxRel": DRIFT_FX_REL}
 
 
 def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
@@ -5384,6 +5630,17 @@ def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
                             and all(_num(x) is not None for x in band) and band[0] <= band[1]):
                         errors.append("baseline %s/%s %s.%s is not a [lo, hi] band"
                                       % (label, cid, vk, m))
+            bands = entry.get("fx", {})
+            if not isinstance(bands, dict) or not all(isinstance(r, dict) for r in bands.values()):
+                errors.append("baseline %s/%s fx is not an object of entries" % (label, cid))
+                continue
+            for at, rec in bands.items():
+                for k, band in rec.items():
+                    if k not in FX_BAND_KEYS or not (
+                            isinstance(band, list) and len(band) == 2
+                            and all(_num(x) is not None for x in band) and band[0] <= band[1]):
+                        errors.append("baseline %s/%s fx %s.%s is not a [lo, hi] band"
+                                      % (label, cid, at, k))
     return errors
 
 
@@ -5463,7 +5720,7 @@ def parse_accepted(doc: Any) -> Tuple[List[AcceptedEntry], List[str]]:
             errors.append("%s: case %r is not a case id" % (where, case))
         if view != VIEW_ANY:
             route, _, bare = view.rpartition(":")
-            if bare not in KNOWN_VIEWS + FX_VIEWS or route not in ("", ROUTE_EVENT, ROUTE_START):
+            if bare not in ACCEPT_VIEWS or route not in ("", ROUTE_EVENT, ROUTE_START):
                 errors.append("%s: view %r is not *, a view or <event|start>:<view>" % (where, view))
         fx_groups = [GROUP_FX_STRUCTURE] + [GROUP_FX_PREFIX + m for m in FX_MEASURES]
         if measure not in ACCEPT_GROUPS and measure not in fx_groups and not (
@@ -5510,11 +5767,13 @@ _FX_REASON_RE = re.compile(r"^((event|start):)?fx-[a-z]+(-[a-z]+)?:|^(missing|ex
 class FailReason:
     """A reason that holds a case at ``fail``: ``group`` an ACCEPT_GROUPS member or
     ``flag:<flag>``; ``view`` the view key (None for a case-level reason); ``numeric``
-    when it is a measure over its fail line (the drift rule judges it on a baselined case)."""
+    when it is a measure over its fail line (the drift rule judges it on a baselined case);
+    ``fx`` (a numeric FX reason) its entry label and its finding."""
     reason: str
     group: str
     view: Optional[str]
     numeric: bool
+    fx: Optional[Tuple[str, FxFinding]] = None
 
 
 def _split_route(reason: str) -> Tuple[Optional[str], str]:
@@ -5533,9 +5792,9 @@ def _numeric_over_fail_line(kind: str, value: float) -> bool:
 
 def fx_fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
     """The fail-level FX findings of a case, read from its FX judgement (its reason text
-    mixes warn-level findings in): one per entry and measure over its fail line, one per
-    rendered FX asset one side lacks. They carry no baseline band, so each reds unless an
-    entry names it. An FX half that failed with no finding to show, or FX reasons with no
+    mixes warn-level findings in): one per entry and measure over its fail line (``numeric``,
+    judged by its band on a baselined case, when it has a compare value), one per rendered FX
+    asset one side lacks. Presence, smoke and the assets red unless an entry names them. An FX half that failed with no finding to show, or FX reasons with no
     judgement to read, yields one unexplained reason: a body fail never hides it."""
     fx = verdict.fx
     if fx is None:
@@ -5550,8 +5809,10 @@ def fx_fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
             continue
         for f in j.findings:
             if f.level == VERDICT_FAIL:
+                at = (fx_entry_label((j.route, j.view, j.layer)), f) if f.key else None
                 out.append(FailReason(fx_reason(j.route, j.view, j.layer, f.reason),
-                                      GROUP_FX_PREFIX + f.measure, view_key(j.view, j.route), False))
+                                      GROUP_FX_PREFIX + f.measure, view_key(j.view, j.route),
+                                      at is not None, at))
     for side in ("missing", "extra"):
         out.extend(FailReason("%s-fx:%s" % (side, k), GROUP_FX_STRUCTURE, None, False)
                    for k in fx.structure.get(side) or [])
@@ -5590,6 +5851,7 @@ def fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
         elif rest.startswith("flag:") and state_flag_floor(rest[len("flag:"):]) == VERDICT_FAIL:
             out.append(FailReason(r, GROUP_FLAG_PREFIX + rest[len("flag:"):], None, False))
     out.extend(fx_fail_reasons(verdict))
+    out.extend(p9_fail_reasons(verdict))
     if not out:
         out.append(FailReason("unexplained-fail:%s" % ",".join(verdict.reasons[:3]),
                               GROUP_ANY, None, False))
@@ -5605,16 +5867,34 @@ _FX_NOT_RUN_FLAGS: Tuple[str, ...] = (FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NO
 def fx_unmeasured(verdict: CaseVerdict) -> Tuple[str, ...]:
     """What the FX half of a judged case did not judge, sorted (empty for any other case, an
     ``error`` and a ``reference`` one): ``skipped:<route>:<view>:<layer>`` per judged entry
-    whose two weak cores left only presence (``fx_entry_skipped``), and each flag of a check
-    that did not run. A skip needs BOTH cores weak, the real one too, so one the baseline runs
-    also show is the part's own effect, never a plume the ghost lost."""
+    whose two weak cores left only presence (``fx_entry_skipped``), ``empty:...`` per judged
+    entry with nothing drawn on either side (``fx_entry_empty``), ``null:...:<key>`` per value of
+    a judged entry that was not measured (``fx_entry_nulls``), ``capped:...:<reason>`` per
+    missing or extra effect the split-half rule holds at ``warn``, and each flag of a check that
+    did not run. One the baseline runs also show is the part's own effect."""
     fx = verdict.fx
     if fx is None or verdict.verdict in (VERDICT_ERROR, VERDICT_REFERENCE):
         return ()
-    out = {"skipped:%s:%s:%s" % (e.route, e.view, e.layer) for e in fx.entries
-           if e.verdict == VERDICT_SKIPPED and not e.reference}
+    out = {"%s:%s:%s:%s" % (e.verdict, e.route, e.view, e.layer) for e in fx.entries
+           if e.verdict in (VERDICT_SKIPPED, VERDICT_EMPTY) and not e.reference}
+    out.update("null:%s:%s:%s:%s" % (e.route, e.view, e.layer, k) for e in fx.entries
+               if not e.reference for k in e.nulls)
+    out.update("capped:%s:%s:%s:%s" % (e.route, e.view, e.layer, f.reason) for e in fx.entries
+               if not e.reference for f in e.findings if f.capped and not f.key)
     out.update(f for f in fx.flags if f in _FX_NOT_RUN_FLAGS)
     return tuple(sorted(out))
+
+
+def fx_known_tokens(tokens: Sequence[str]) -> FrozenSet[str]:
+    """The baseline's ``fxUnmeasured`` tokens, where an entry the runs read ``skipped`` (stray
+    particles, two weak cores) may read ``empty``: the strays are not there. Never the reverse:
+    in a layer no run drew, a ghost's faint new smoke is not a stray."""
+    out = set(tokens)
+    for t in tokens:
+        word, _, rest = t.partition(":")
+        if word == VERDICT_SKIPPED:
+            out.add("%s:%s" % (VERDICT_EMPTY, rest))
+    return frozenset(out)
 
 
 @dataclass(frozen=True)
@@ -5749,6 +6029,9 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
     # The baseline's own view set too: a view dropped from the manifest is still owed.
     views = [str(v) for v in manifest.get("views") or []]
     views += [v for v in baseline_views if v not in views]
+    if sidecar.get("context") == CONTEXT_PLATE:
+        # A plate case photographs its plate, the only view it has (E.2).
+        views = [PLATE_VIEW]
     for view in views or sorted({k.split(":")[-1] for k in current}):
         for route in ((ROUTE_EVENT, ROUTE_START) if state_case else (None,)):
             vk = view_key(str(view), route)
@@ -5759,6 +6042,42 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
         if not isinstance(sidecar.get(key), dict):
             return "%s was not measured" % key
     return None
+
+
+def fx_drift_text(at: str, f: FxFinding, reason: str, base: Dict, sidecar: Optional[Dict],
+                  waivers: int = 0) -> Optional[str]:
+    """How one numeric FX finding of the entry ``at`` left its band (None: inside, or not a
+    value). ``waivers``: how often FX_FAR stretches the limit."""
+    if not f.key:
+        return None
+    bands = base.get("fx") if isinstance(base.get("fx"), dict) else {}
+    band = (bands.get(at) or {}).get(f.key)
+    entry = next((e for e in fx_entries(sidecar) if fx_entry_label(fx_entry_key(e)) == at), {})
+    real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
+    limit = fx_drift_limit(band, f.key, f.side, _num(real.get("lengthPx")) or 0.0) \
+        * FX_FAR ** waivers
+    if f.severity <= limit:
+        return None
+    return "%s is %.2f fail lines off, band %s (limit %.2f)" % (
+        reason, f.severity, "[%g, %g]" % tuple(band) if band else "under half its line", limit)
+
+
+def fx_capped_far(verdict: CaseVerdict, base: Dict, entries: Sequence[AcceptedEntry],
+                  profile: Optional[str], sidecar: Optional[Dict]) -> List[str]:
+    """The FX fails of a baselined case that the split-half rule caps and that lie far past
+    their band: the picture did not converge, and what it reads is no noise the runs saw."""
+    out = []
+    for j in verdict.fx.entries if verdict.fx is not None else ():
+        for f in j.findings:
+            if not f.capped or j.reference:
+                continue
+            noisy = any(e.noisy and e.covers(verdict.case_id, profile, view_key(j.view, j.route),
+                                             GROUP_FX_PREFIX + f.measure) for e in entries)
+            text = fx_drift_text(fx_entry_label((j.route, j.view, j.layer)), f, fx_reason(
+                j.route, j.view, j.layer, f.reason), base, sidecar, 1 + noisy)
+            if text is not None:
+                out.append(text)
+    return out
 
 
 def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
@@ -5813,11 +6132,21 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                 notes.append(GateFinding(NOTE_REFERENCE, cid, "reference (Waterfall), not gated"))
             continue
         for fr in fail_reasons(cv) + (qualitative_differences(side) if isinstance(side, dict) else []):
-            cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)), None)
+            over = far = None
+            if baselined and fr.fx is not None:
+                over = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side)
+                far = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side, 1)
+            # Drift past an FX band is waived by a noisy entry alone, as a body measure's is,
+            # and by no entry far past it.
+            cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)
+                          and (over is None or e.noisy and far is None)), None)
+            over = far or over
             if cover is not None:
                 matched_entries.add(cover)
                 used.append("%s <- %s" % (fr.reason, cover.label()))
                 notes.append(GateFinding(NOTE_ACCEPTED_FAIL, cid, "%s (%s)" % (fr.reason, cover.todo)))
+            elif over is not None:
+                reds.append(GateFinding(GATE_DRIFT, cid, over))
             elif fr.numeric and baselined:
                 notes.append(GateFinding(NOTE_NEAR_LINE_FAIL, cid,
                                          "%s (inside its baseline band's tolerance; the drift "
@@ -5827,12 +6156,17 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                                         "%s%s" % (fr.reason, "" if baselined else " (no baseline: a new case)")))
         if section is None:
             continue
-        known = (base or {}).get("fxUnmeasured") or []
+        known = fx_known_tokens((base or {}).get("fxUnmeasured") or [])
         fx_lost = fx_unmeasured(cv)
         fx_new = [t for t in fx_lost if t not in known] if baselined else []
         fx_noted = [t for t in fx_lost if t not in fx_new]
+        if baselined:
+            unmeasured.extend(GateFinding(GATE_UNMEASURED, cid, "fx not settled: %s" % t)
+                              for t in fx_capped_far(cv, base, entries, profile, side))
         if fx_new:
             unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_new)))
+        # A layer drawn by neither side is the usual state of it, not a note.
+        fx_noted = [t for t in fx_noted if not t.startswith(VERDICT_EMPTY + ":")]
         if fx_noted:
             notes.append(GateFinding(NOTE_FX_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_noted)))
         if not baselined:
@@ -6145,8 +6479,9 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         why = skin_flag_disagreement(sweep.sidecars.get(cid))
         if why:
             mismatches.append("%s %s" % (cid, why))
-    # The state view blocks (design D.6): every state case with views must carry its
-    # start and stowedRef blocks whole, sampled or not (the sampled ones are re-checked by
+    # The state view blocks (design D.6): every four-row state case with views (not a
+    # motion case, ``is_four_row_case``) must carry its start and stowedRef blocks whole,
+    # sampled or not (the sampled ones are re-checked by
     # the recompute itself, so they are skipped here to name each problem once).
     sampled = set(recompute_ids) if read_png is not None else set()
     for cid in part_ids + list(ctl_ids):
@@ -6169,6 +6504,11 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                                                      ctl_ids, run_id, read_png, atlas_path)
     mismatches.extend(motion_mismatches)
     mismatches.extend(motion_run_problems(manifest, sweep.sidecars))
+    # The P9 half (G.3, G.4): the burst and dust atlas recompute, the block shapes, the run shape.
+    p9_ids, p9_mismatches = p9_recompute(sweep.sidecars, sweep.atlases, part_ids, ctl_ids,
+                                         run_id, read_png, atlas_path)
+    mismatches.extend(p9_mismatches)
+    mismatches.extend(p9_run_problems(manifest, sweep.sidecars))
     # Writer cross-checks (D.6): a state / context case whose settings say a stowed run,
     # a row and sidecar that disagree on state or context, an ok case whose press proof
     # says the state was never reached.
@@ -6178,12 +6518,14 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     mismatches.extend(case_row_problems(manifest, sweep.sidecars))
     for cid in part_ids:
         side = sweep.sidecars.get(cid)
+        if is_p9_case(side):
+            continue  # no press: its trigger and raycast are p9_block_problems'
         why = motion_press_proof_problem(side) if is_motion_case(side) else press_proof_problem(side)
         if why:
             mismatches.append("%s %s" % (cid, why))
-    if not recompute_ids and read_png is not None:
+    if not recompute_ids and not p9_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
-    recompute_ids = recompute_ids + fx_ids + motion_ids
+    recompute_ids = recompute_ids + fx_ids + motion_ids + p9_ids
 
     counts = _count(cases)
     gate = None
@@ -6306,7 +6648,7 @@ def format_summary(row: RowResult) -> str:
                            s.gate.counts().get(NOTE_NEAR_LINE_FAIL, 0),
                            s.gate.counts().get(NOTE_IMPROVED, 0),
                            s.gate.counts().get(NOTE_NEW_CASE, 0))))
-        parts[-1] += fx_summary(s.cases) + motion_summary(s.cases) + page_summary(s)
+        parts[-1] += fx_summary(s.cases) + motion_summary(s.cases) + p9_summary(s.cases) + page_summary(s)
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
 
@@ -6360,6 +6702,9 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
     motion_counts = motion_case_counts(sweep.cases)
     if motion_counts is not None:
         doc["motion"] = motion_counts
+    p9_counts = p9_case_counts(sweep.cases)
+    if p9_counts is not None:
+        doc["burst"] = p9_counts
     if sweep.press is not None:
         doc["statePress"] = sweep.press.to_dict()
         doc["stateFlags"] = state_flag_counts(sweep.cases)
@@ -6761,3 +7106,1233 @@ def recompute_burst_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> L
         else:
             diffs.extend(_burst_value_diffs("scheduleCompare.%s" % key, recorded.get(key), got[key], exact))
     return diffs
+
+
+# ---------------------------------------------------------------------------
+# P9 X5: the burst and dust judge (design G.3, G.4, "X5 as built"). A burst case (a ``burst``
+# block) and a dust case (a ``dust`` block) are judged from their own blocks, never from body
+# views: per (event route, view, layer) entry the G.3 measures with the split-half cap, then
+# the schedule, the structural raise, the flags and the contradictions; a dust case reads
+# E.4's measures over its ``dust`` layer and stock's raycast record. The verdicts are
+# Python's (design D7); the control judges transcribe PartParityFxRules.JudgeBurstControl /
+# JudgeDustControl, their detail wording included.
+# ---------------------------------------------------------------------------
+
+# The one route of a P9 rig case (G.4: a recording that starts after a burst replays none).
+P9_ROUTE = ROUTE_EVENT
+STATE_BUILT_EXPLODE, STATE_BUILT_PUFF, STATE_BUILT_DECOUPLE, STATE_BUILT_JOINT_BREAK = BUILT_STATES[:4]
+# The families whose real side is FXMonger's (a schedule of blasts on the real side).
+BURST_FXMONGER_FAMILIES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom")
+# The stand-ins' schedule is reported, never judged: the ghost draws a Parsek fireball or puff,
+# never an FXMonger blast, so its count always differs from the prefab it stands in for.
+BURST_SCHEDULE_REPORTED_FAMILIES: Tuple[str, ...] = ("burst-custom",)
+# The states whose stock side is meant to draw nothing (G.2: a plain joint break).
+BURST_DRAWS_NOTHING_STATES: Tuple[str, ...] = (STATE_BUILT_JOINT_BREAK,)
+# A dust case's layers: the dust judged, the engine's flame measured for ctl-dust-off only.
+DUST_LAYERS: Tuple[str, ...] = (LAYER_DUST, FX_LAYER_FLAME)
+DUST_JUDGED_LAYERS: Tuple[str, ...] = (LAYER_DUST,)
+# The raycast surfaces where stock draws no dust: a ghost that does reads dust-extra:<surface>.
+DUST_NO_DUST_SURFACES: Tuple[str, ...] = (DUST_SURFACE_NONE, DUST_SURFACES[2])
+# Flags (Python's): a structure the writer did not measure, a weak core (E.4's rule), an
+# entry whose trial halves disagree (its fails capped at warn).
+FLAG_BURST_STRUCTURE_NOT_MEASURED = "burst-structure-not-measured"
+FLAG_DUST_STRUCTURE_NOT_MEASURED = "dust-structure-not-measured"
+FLAG_BURST_WEAK_CORE = "burst-weak-core"
+CAP_BURST_UNSETTLED = "burst-unsettled"
+REASON_BURST_UNSETTLED = CAP_BURST_UNSETTLED + ":capped at warn"
+P9_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
+    FLAG_BURST_STRUCTURE_NOT_MEASURED, FLAG_DUST_STRUCTURE_NOT_MEASURED, FLAG_BURST_WEAK_CORE,
+    FLAG_FX_WEAK_CORE)
+P9_KINDS: Tuple[str, ...] = ("burst", "dust")
+# The id suffixes the instrument check lists a burst or dust atlas recompute under.
+BURST_RECOMPUTE_ID_SUFFIX = ".burst"
+DUST_RECOMPUTE_ID_SUFFIX = ".dust"
+# The gate's fail-reason groups of a P9 case (no accepted entry names them: no P9 lane joins
+# the P5 gate before its reading runs, G.4).
+GROUP_BURST_PREFIX = "burst:"
+GROUP_DUST_PREFIX = "dust:"
+
+
+def _d(value: Any) -> Dict:
+    return value if isinstance(value, dict) else {}
+
+
+def burst_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``burst`` block, or None (every non-burst case writes null)."""
+    b = sidecar.get("burst") if isinstance(sidecar, dict) else None
+    return b if isinstance(b, dict) else None
+
+
+def dust_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``dust`` block, or None."""
+    b = sidecar.get("dust") if isinstance(sidecar, dict) else None
+    return b if isinstance(b, dict) else None
+
+
+def is_p9_case(sidecar: Optional[Dict]) -> bool:
+    """A sidecar judged by the burst or the dust judge: it carries a ``burst`` or ``dust`` block."""
+    return burst_block(sidecar) is not None or dust_block(sidecar) is not None
+
+
+def built_family_for_state(state: Any) -> Optional[str]:
+    """The P9 family a state word belongs to (PartParityFxRules.EnumerateBurstDust), the D.1
+    same-word tiebreak (``-m<index>``) left off; None for any other word."""
+    word = _TIEBREAK_RE.sub("", str(state or ""))
+    if word == STATE_BUILT_EXPLODE:
+        return "explode"
+    if word.startswith(STATE_VESSEL_EXPLODE_PREFIX):
+        return "vessel-explode"
+    if word == STATE_BUILT_PUFF or word.startswith(STATE_CUSTOM_EXPLOSION_PREFIX):
+        return "burst-custom"
+    if word in (STATE_BUILT_DECOUPLE, STATE_BUILT_JOINT_BREAK):
+        return "decouple"
+    if word in DUST_SLOT_STATES:
+        return "dust"
+    return None
+
+
+def p9_press_failed(status: Any) -> bool:
+    """A trigger that drew nothing or a raycast that hit nothing: the press gate counts the
+    case as a dead press (a family over half of them is INVALID(parity-state-press))."""
+    return status in (SETUP_BURST_NOT_TRIGGERED, SETUP_DUST_NO_STOCK_HIT)
+
+
+# --- the burst entries ---------------------------------------------------------------
+
+def burst_entries(sidecar: Optional[Dict]) -> List[Dict]:
+    views = (burst_block(sidecar) or {}).get("views")
+    return [v for v in views if isinstance(v, dict)] if isinstance(views, list) else []
+
+
+def burst_expected_entries() -> List[Tuple[str, str, str]]:
+    """The (route, view, layer) entries a burst case writes: every view and layer, event route."""
+    return [(P9_ROUTE, v, layer) for v in BURST_VIEWS for layer in BURST_LAYERS]
+
+
+def burst_entry_key(entry: Dict) -> FxEntryKey:
+    return P9_ROUTE, str(entry.get("view")), str(entry.get("layer"))
+
+
+def _peak_core(side: Any) -> int:
+    v = _num(_d(side).get("peakCorePx"))
+    return int(v) if v is not None else 0
+
+
+def _side_drew(side: Any) -> bool:
+    """Any bin of the side has an envelope pixel."""
+    bins = _d(side).get("bins")
+    return any((_num(_d(b).get("envelopePx")) or 0) > 0 for b in bins) if isinstance(bins, list) else False
+
+
+def _sign(value: float) -> str:
+    return "+" if value > 0 else "-"
+
+
+def _f4(value: Optional[float]) -> str:
+    return "-" if value is None else "%.4f" % value
+
+
+def _finding_level(level: Optional[str]) -> Optional[str]:
+    return VERDICT_FAIL if level == LEVEL_FAIL else (VERDICT_WARN if level == LEVEL_WARN else None)
+
+
+def burst_findings(layer: Any, real: Any, ghost: Any, compare: Any) -> List[FxFinding]:
+    """Every G.3 measure of one burst entry at or over its warn line, in BURST_MEASURES order;
+    its fails are exactly PartParityBurstMetrics.FailingMeasures (``burst_failing_measures``).
+    A layer one side lacks is its presence reason alone; where both largest cores are weak only
+    presence is judged; the smoke layer is judged on ``smoke`` (its presence, its peak area);
+    colour is read at the real peak bin and over the bins; brightness is warn-only."""
+    c = _d(compare)
+    rp, gp = _peak_core(real), _peak_core(ghost)
+    presence = burst_presence_reason(str(layer), {"peakCorePx": rp}, {"peakCorePx": gp})
+    weak = fx_both_cores_weak(rp, gp)
+    found: List[FxFinding] = []
+
+    def add(measure: str, level: Optional[str], text: str, side: str) -> None:
+        level = _finding_level(level)
+        if level is not None:
+            found.append(FxFinding(measure, level, text, side))
+
+    if layer == FX_LAYER_SMOKE:
+        if presence is not None:
+            return [FxFinding("smoke", VERDICT_FAIL, presence, presence)]
+        area = _num(c.get("peakAreaRatio"))
+        if not weak and area is not None:
+            add("smoke", burst_measure_level("peak-area", area), "smoke=peak-area %.3f" % area,
+                "smoke:peak-area" + _sign(area - 1.0))
+        return found
+    if presence is not None:
+        return [FxFinding("presence", VERDICT_FAIL, presence, presence)]
+    if weak:
+        return []
+    for measure, key, bins in (("onset", "onsetDeltaBins", True), ("peak-time", "peakTimeDeltaBins", True),
+                               ("duration", "durationDelta", False), ("peak-area", "peakAreaRatio", False),
+                               ("radius", "radiusRatio", False), ("centroid-offset", "centroidOffset", False)):
+        v = _num(c.get(key))
+        if v is None:
+            continue
+        if bins:
+            text, side = "%s=%+dbins" % (measure, int(round(v))), measure + _sign(v)
+        elif measure == "duration":
+            text, side = "%s=%+.3f" % (measure, v), measure + _sign(v)
+        elif measure == "centroid-offset":
+            text, side = "%s=%.3f" % (measure, v), measure
+        else:
+            text, side = "%s=%.3f" % (measure, v), measure + _sign(v - 1.0)
+        add(measure, burst_measure_level(measure, v), text, side)
+    for scope, ck, hk in (("peak", "chromaDistance", "hueL1"), ("mean", "chromaDistanceMean", "hueL1Mean")):
+        chroma, hue = _num(c.get(ck)), _num(c.get(hk))
+        add("colour", burst_colour_level(chroma, hue),
+            "colour=%s chroma %s hueL1 %s" % (scope, _f4(chroma), _f4(hue)), "colour:" + scope)
+    bright = _num(c.get("brightnessRatio"))
+    if bright is not None:
+        add("brightness", burst_measure_level("brightness", bright), "brightness=%.3f" % bright,
+            "brightness" + _sign(bright - 1.0))
+    return found
+
+
+def burst_entry_failing(entry: Dict) -> List[str]:
+    """The measures one entry fails (BURST_MEASURES order), read from its findings."""
+    failing = {f.measure for f in burst_findings(entry.get("layer"), entry.get("real"),
+                                                  entry.get("ghost"), entry.get("compare"))
+               if f.level == VERDICT_FAIL}
+    return [m for m in BURST_MEASURES if m in failing]
+
+
+def burst_split_half_disagreement(entry: Dict) -> Optional[str]:
+    """PartParityBurstViewResult.SplitHalfDisagreement over the written halves: the real
+    side's, else the ghost's, as ``<side> presence <reason>`` or ``<side> peakCorePx
+    <even>/<odd>``; None when both sides' halves agree."""
+    split = _d(entry.get("splitHalf"))
+    even, odd = _d(split.get("even")), _d(split.get("odd"))
+    layer = str(entry.get("layer"))
+    for side in BURST_SIDE_KEYS:
+        e, o = _peak_core(even.get(side)), _peak_core(odd.get(side))
+        presence = burst_presence_reason(layer, {"peakCorePx": e}, {"peakCorePx": o})
+        if presence is not None:
+            return "%s presence %s" % (side, presence)
+        larger = max(e, o)
+        if larger > 0 and abs(e - o) > FX_SPLIT_HALF_PCT * larger:
+            return "%s peakCorePx %d/%d" % (side, e, o)
+    return None
+
+
+def burst_entry_skipped(entry: Dict) -> bool:
+    """Both largest cores weak and anything drawn: the entry's measures were skipped."""
+    real, ghost = entry.get("real"), entry.get("ghost")
+    return fx_both_cores_weak(_peak_core(real), _peak_core(ghost)) and (_side_drew(real) or _side_drew(ghost))
+
+
+def burst_weak_core_flag(entry: Dict) -> Optional[str]:
+    """E.4's weak-core flag over a burst entry's largest cores (``fx_weak_core_flag``'s rule):
+    both weak with anything drawn, or one weak where presence does not decide."""
+    real, ghost = entry.get("real"), entry.get("ghost")
+    cores = (_peak_core(real), _peak_core(ghost))
+    layer = str(entry.get("layer"))
+    if fx_both_cores_weak(*cores):
+        if not (_side_drew(real) or _side_drew(ghost)):
+            return None
+    elif min(cores) >= FX_PRESENCE_MIN_PX or burst_presence_reason(
+            layer, {"peakCorePx": cores[0]}, {"peakCorePx": cores[1]}) is not None:
+        return None
+    return "%s:%s:%s:%s:real=%d,ghost=%d" % (
+        (FLAG_BURST_WEAK_CORE, P9_ROUTE, entry.get("view"), layer) + cores)
+
+
+def judge_burst_entry(entry: Dict, unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
+    """One burst entry: its findings, each fail held at ``warn`` when the entry's own trial
+    halves disagree (the per-entry cap, G.4)."""
+    key = burst_entry_key(entry)
+    findings = tuple(burst_findings(entry.get("layer"), entry.get("real"), entry.get("ghost"),
+                                    entry.get("compare")))
+    if key in unsettled:
+        findings = tuple(replace(f, level=VERDICT_WARN, capped=True) if f.level == VERDICT_FAIL else f
+                         for f in findings)
+    verdict = VERDICT_SKIPPED if not findings and burst_entry_skipped(entry) else VERDICT_PASS
+    for f in findings:
+        if _RANK[f.level] > _RANK[verdict]:
+            verdict = f.level
+    return FxEntryVerdict(key[0], key[1], key[2], verdict, findings, False)
+
+
+# --- the schedule ----------------------------------------------------------------------
+
+def _blast_problem(at: str, blast: Any) -> Optional[str]:
+    if not isinstance(blast, dict):
+        return "%s is not a blast" % at
+    missing = [k for k in BURST_SCHEDULE_ENTRY_KEYS if k not in blast]
+    if missing:
+        return "%s: missing key(s) %s" % (at, ",".join(missing))
+    if type(blast["index"]) is not int or type(blast["frame"]) is not int:
+        return "%s: index=%s frame=%s" % (at, blast["index"], blast["frame"])
+    if _num(blast["power"]) is None or _num(blast["t"]) is None or not _fx_numbers(blast["offsetM"], 3):
+        return "%s: power=%s t=%s offsetM=%s" % (at, blast["power"], blast["t"], blast["offsetM"])
+    if blast["prefab"] is not None and not isinstance(blast["prefab"], str):
+        return "%s: prefab=%s" % (at, blast["prefab"])
+    return None
+
+
+def burst_schedule_problems(burst: Dict) -> List[str]:
+    """The schedule's shape (every blast's keys and types) and its diff recomputed."""
+    schedule = burst.get("schedule")
+    if not isinstance(schedule, dict):
+        return ["burst.schedule: block missing"]
+    problems: List[str] = []
+    for side in BURST_SIDE_KEYS:
+        blasts = schedule.get(side)
+        if not isinstance(blasts, list):
+            problems.append("burst.schedule.%s=%s" % (side, blasts))
+            continue
+        problems.extend(p for i, b in enumerate(blasts)
+                        for p in [_blast_problem("burst.schedule.%s[%d]" % (side, i), b)] if p)
+    if problems:
+        return problems
+    got = burst_schedule_compare(schedule["real"], schedule["ghost"])
+    recorded = burst.get("scheduleCompare")
+    problems.extend(_missing_keys("burst.scheduleCompare", recorded, BURST_SCHEDULE_COMPARE_KEYS))
+    if problems:
+        return problems
+    for key in BURST_SCHEDULE_COMPARE_KEYS:
+        if isinstance(got[key], bool):
+            if recorded[key] is not got[key]:
+                problems.append("burst.scheduleCompare.%s:%s!=%s" % (key, recorded[key], got[key]))
+        else:
+            problems.extend(_burst_value_diffs("burst.scheduleCompare.%s" % key, recorded[key], got[key],
+                                               key != "maxOffsetDeltaM"))
+    return problems
+
+
+def burst_schedule_judgement(burst: Dict) -> Tuple[Dict[str, Any], List[FxFinding]]:
+    """The schedule of a burst case (G.3): its diff (``burst_schedule_compare``), whether it
+    is judged (every family but the stand-ins'), and its findings: a count, prefab index or
+    position more than 1 m off fails, a power off inside one index warns (the first pair of
+    each kind is named). A malformed schedule has no findings (``burst_block_problems`` names it)."""
+    family = burst.get("family")
+    doc: Dict[str, Any] = {"judged": family not in BURST_SCHEDULE_REPORTED_FAMILIES, "level": None,
+                           "realCount": None, "ghostCount": None}
+    schedule = _d(burst.get("schedule"))
+    real, ghost = schedule.get("real"), schedule.get("ghost")
+    if not (isinstance(real, list) and isinstance(ghost, list)) or any(
+            _blast_problem("", b) for b in list(real) + list(ghost)):
+        return doc, []
+    sc = burst_schedule_compare(real, ghost)
+    doc.update({"level": sc["level"], "realCount": sc["realCount"], "ghostCount": sc["ghostCount"],
+                "indexDiffers": sc["indexDiffers"], "powerDiffers": sc["powerDiffers"],
+                "maxOffsetDeltaM": sc["maxOffsetDeltaM"]})
+    t = BURST_THRESHOLDS
+    found: List[FxFinding] = []
+    if sc["countDiffers"]:
+        found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=count %d/%d" % (len(real), len(ghost)),
+                               "schedule:count"))
+    kinds = set()
+    for i, (r, g) in enumerate(zip(real, ghost)):
+        if r["index"] != g["index"]:
+            if "index" not in kinds:
+                found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=index blast %d %d/%d"
+                                       % (i, r["index"], g["index"]), "schedule:index"))
+                kinds.add("index")
+        elif abs(g["power"] - r["power"]) > t["burstSchedulePowerEpsilon"] and "power" not in kinds:
+            found.append(FxFinding("schedule", VERDICT_WARN, "schedule=power blast %d %.4f/%.4f"
+                                   % (i, r["power"], g["power"]), "schedule:power"))
+            kinds.add("power")
+        d = math.sqrt(sum((g["offsetM"][k] - r["offsetM"][k]) ** 2 for k in range(3)))
+        if d > t["burstSchedulePositionToleranceM"] and "offset" not in kinds:
+            found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=offset blast %d %.3fm" % (i, d),
+                                   "schedule:offset"))
+            kinds.add("offset")
+    return doc, found
+
+
+# --- the judgement ------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BurstJudgement:
+    """The P9 half of one case (``kind`` burst or dust): ``verdict`` / ``reasons`` over its
+    entries (each under the per-entry split-half cap), the schedule (a burst case), stock's
+    raycast record (a dust case), the structural raise, the flags and the contradictions."""
+    kind: str
+    family: str
+    verdict: str
+    reasons: Tuple[str, ...]
+    entries: Tuple[FxEntryVerdict, ...]
+    unsettled: Tuple[str, ...]
+    flags: Tuple[str, ...]
+    structure: Dict[str, Any]
+    schedule: Optional[Dict[str, Any]] = None
+    raycast: Optional[Dict[str, Any]] = None
+
+    @property
+    def capped(self) -> bool:
+        return any(f.capped for e in self.entries for f in e.findings)
+
+    def to_dict(self) -> Dict[str, Any]:
+        out = {"family": self.family, "verdict": self.verdict, "reasons": list(self.reasons),
+               "entries": [e.to_dict() for e in self.entries], "unsettled": list(self.unsettled),
+               "flags": list(self.flags), "structure": dict(self.structure)}
+        if self.kind == "burst":
+            out["schedule"] = self.schedule
+        else:
+            out["raycast"] = self.raycast
+        return out
+
+
+def _p9_structure(structure: Any) -> Tuple[List[str], List[str], bool]:
+    """(missing, extra, measured) of a P9 block's ``structure`` (FX_STRUCTURE_KEYS)."""
+    s = _d(structure)
+    measured = all(isinstance(s.get(k), list) for k in ("fxMissingOnGhost", "fxExtraOnGhost"))
+    return (_fx_rendered_assets(s.get("fxMissingOnGhost")), _fx_rendered_assets(s.get("fxExtraOnGhost")),
+            measured)
+
+
+def _p9_setup_fault(sidecar: Dict) -> bool:
+    return is_setup_fault(_d(sidecar.get("setup")).get("status"))
+
+
+def burst_contradictions(sidecar: Optional[Dict]) -> List[str]:
+    """What a captured burst part case says against itself (the case is ``error``, the sweep
+    INVALID(parity-instrument)): ``burst.family`` against its state word and the burst context
+    (``air``); a case whose stock side is meant to draw (every state but ``joint-break``) that
+    drew nothing on an ``ok`` setup: no envelope in any entry, no tagged effect
+    (``trigger.realTagged``), or, for an FXMonger family, an empty real schedule. The C# side
+    records that case ``burst-not-triggered``."""
+    burst = burst_block(sidecar)
+    if burst is None or _p9_setup_fault(sidecar):
+        return []
+    family, state = burst.get("family"), sidecar.get("state")
+    problems: List[str] = []
+    if built_family_for_state(state) != family or family not in BURST_FAMILIES:
+        problems.append("burst.family=%s on a %s case" % (family, state))
+    if sidecar.get("context") != CONTEXT_BURST:
+        problems.append("burst case context=%s (the burst context is %s)" % (sidecar.get("context"), CONTEXT_BURST))
+    if _TIEBREAK_RE.sub("", str(state)) not in BURST_DRAWS_NOTHING_STATES:
+        drew = any(_side_drew(e.get("real")) for e in burst_entries(sidecar))
+        trigger = burst.get("trigger")
+        tagged = _num(trigger.get("realTagged")) if isinstance(trigger, dict) else None
+        real = _d(burst.get("schedule")).get("real")
+        blasts = len(real) if isinstance(real, list) else 0
+        if not drew or tagged == 0 or (family in BURST_FXMONGER_FAMILIES and not blasts):
+            problems.append("the real side drew nothing on an ok %s case (envelope=%s realTagged=%s "
+                            "realBlasts=%d; the writer records %s)"
+                            % (state, str(drew).lower(), tagged if tagged is None else int(tagged), blasts,
+                               SETUP_BURST_NOT_TRIGGERED))
+    return problems
+
+
+def burst_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
+    """The flags of a burst case, none of which fails it: the structure the writer did not
+    measure, each entry's weak core, and the cap's ``burst-unsettled``."""
+    burst = burst_block(sidecar) or {}
+    out: List[str] = []
+    if unsettled:
+        out.append(CAP_BURST_UNSETTLED)
+    if not _p9_setup_fault(sidecar):
+        if not _p9_structure(burst.get("structure"))[2]:
+            out.append(FLAG_BURST_STRUCTURE_NOT_MEASURED)
+        for e in burst_entries(sidecar):
+            weak = burst_weak_core_flag(e)
+            if weak is not None and weak not in out:
+                out.append(weak)
+    return tuple(out)
+
+
+def _p9_fold_flags(flags: Sequence[str], verdict: str, reasons: List[str]) -> str:
+    for f in flags:
+        if f.split(":", 1)[0] in P9_FLAGS_RAISE_TO_WARN:
+            reasons.append("flag:%s" % f)
+            if _RANK[VERDICT_WARN] > _RANK[verdict]:
+                verdict = VERDICT_WARN
+    return verdict
+
+
+def judge_burst(sidecar: Dict) -> Optional[BurstJudgement]:
+    """The burst half of a case (G.3, G.4), None without a ``burst`` block: the worst of its
+    entries (each ``event:<view>:<layer>:<reason>``, an entry whose trial halves disagree
+    capped at warn), its schedule (judged for every family but the stand-ins'), a rendered
+    effect missing or extra on the ghost (``missing-burst:<key>`` / ``extra-burst:<key>``,
+    fail), the flags that raise to warn; ``error`` for a lost entry or a contradiction."""
+    burst = burst_block(sidecar)
+    if burst is None:
+        return None
+    family = str(burst.get("family"))
+    raw = burst_entries(sidecar)
+    loose: Dict[FxEntryKey, str] = {}
+    for e in raw:
+        why = burst_split_half_disagreement(e)
+        if why is not None:
+            loose[burst_entry_key(e)] = why
+    entries = tuple(judge_burst_entry(e, loose) for e in raw)
+    verdict = VERDICT_PASS
+    reasons: List[str] = []
+    for j in entries:
+        reasons.extend(fx_reason(j.route, j.view, j.layer, f.reason) for f in j.findings)
+        if _RANK[j.verdict] > _RANK[verdict]:
+            verdict = j.verdict
+    schedule, found = burst_schedule_judgement(burst)
+    schedule["findings"] = [{"level": f.level, "reason": f.reason} for f in found]
+    if schedule["judged"]:
+        for f in found:
+            reasons.append(f.reason)
+            if _RANK[f.level] > _RANK[verdict]:
+                verdict = f.level
+    missing, extra, _ = _p9_structure(burst.get("structure"))
+    if missing or extra:
+        reasons.extend("missing-burst:%s" % k for k in missing)
+        reasons.extend("extra-burst:%s" % k for k in extra)
+        verdict = VERDICT_FAIL
+    have = {burst_entry_key(e) for e in raw}
+    lost = [k for k in burst_expected_entries() if k not in have]
+    if lost and not _p9_setup_fault(sidecar):
+        reasons.insert(0, "burst-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
+        verdict = VERDICT_ERROR
+    flags = burst_flags(sidecar, bool(loose))
+    verdict = _p9_fold_flags(flags, verdict, reasons)
+    contradictions = burst_contradictions(sidecar)
+    if contradictions:
+        reasons[:0] = contradictions
+        verdict = VERDICT_ERROR
+    if verdict == VERDICT_WARN and any(f.capped for e in entries for f in e.findings):
+        reasons.append(REASON_BURST_UNSETTLED)
+    return BurstJudgement("burst", family, verdict, tuple(reasons), entries,
+                          tuple(fx_reason(*k, why) for k, why in loose.items()), flags,
+                          {"missing": missing, "extra": extra}, schedule=schedule)
+
+
+# --- the dust entries ----------------------------------------------------------------------
+
+def dust_entries(sidecar: Optional[Dict]) -> List[Dict]:
+    views = (dust_block(sidecar) or {}).get("views")
+    return [v for v in views if isinstance(v, dict)] if isinstance(views, list) else []
+
+
+def dust_expected_entries() -> List[Tuple[str, str, str]]:
+    """The (route, view, layer) entries a dust case writes: every dust view, the dust and the
+    flame layer, the event route."""
+    return [(P9_ROUTE, v, layer) for v in DUST_VIEWS for layer in DUST_LAYERS]
+
+
+def dust_raycast_surface(sidecar: Optional[Dict]) -> str:
+    surface = _d((dust_block(sidecar) or {}).get("raycast")).get("surface")
+    return surface if isinstance(surface, str) and surface else DUST_SURFACE_NONE
+
+
+def _dust_finding(f: FxFinding, surface: str) -> FxFinding:
+    """E.4's presence reasons in the dust words: ``dust-missing``, ``dust-extra:<surface>``."""
+    if f.reason == FX_REASON_FX_MISSING:
+        return replace(f, reason=DUST_REASON_MISSING)
+    if f.reason == FX_REASON_FX_EXTRA:
+        return replace(f, reason=dust_extra_reason(surface))
+    return f
+
+
+def judge_dust_entry(entry: Dict, surface: str, unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
+    """One dust-layer entry: E.4's findings (``judge_fx_entry`` with P8's split-half rule),
+    only the dust measures (G.3; no direction, no core IoU), presence in the dust words."""
+    j = judge_fx_entry(entry, False, unsettled=unsettled)
+    findings = tuple(_dust_finding(f, surface) for f in j.findings if f.measure in DUST_MEASURES)
+    verdict = VERDICT_SKIPPED if j.verdict == VERDICT_SKIPPED and not findings else VERDICT_PASS
+    for f in findings:
+        if _RANK[f.level] > _RANK[verdict]:
+            verdict = f.level
+    return replace(j, verdict=verdict, findings=findings)
+
+
+def dust_failing(entry: Dict) -> List[str]:
+    """The dust measures one dust-layer entry fails, DUST_MEASURES order (the evidence of a dust control)."""
+    failing = set(fx_failing_measures(entry))
+    return [m for m in DUST_MEASURES if m in failing]
+
+
+def dust_contradictions(sidecar: Optional[Dict]) -> List[str]:
+    """What a captured dust part case says against itself: ``dust.family`` against its state
+    word and the ground context, and an ``ok`` case whose stock raycast never hit a surface
+    (the writer records that ``dust-no-stock-hit``)."""
+    dust = dust_block(sidecar)
+    if dust is None or _p9_setup_fault(sidecar):
+        return []
+    problems: List[str] = []
+    family, state = dust.get("family"), sidecar.get("state")
+    if family not in DUST_FAMILIES or built_family_for_state(state) != family:
+        problems.append("dust.family=%s on a %s case" % (family, state))
+    if sidecar.get("context") != CONTEXT_GROUND:
+        problems.append("dust case context=%s (the dust context is %s)" % (sidecar.get("context"), CONTEXT_GROUND))
+    raycast = dust.get("raycast")
+    hits = _num(raycast.get("hits")) if isinstance(raycast, dict) else None
+    if not hits:
+        problems.append("stock's raycast hits=%s on an ok %s case (the writer records %s)"
+                        % (None if hits is None else int(hits), state, SETUP_DUST_NO_STOCK_HIT))
+    return problems
+
+
+def dust_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
+    """The flags of a dust case: the tags its block implies (``fx-not-plateaued:<side>``,
+    ``fx-framing-clamped``, report-only, as P8's), the structure not measured, each dust
+    entry's weak core (E.4's flag) and the cap's ``fx-unsettled``."""
+    dust = dust_block(sidecar) or {}
+    out: List[str] = []
+    plateau = _d(dust.get("plateau"))
+    for side in FX_SIDES:
+        block = plateau.get(side)
+        if isinstance(block, dict) and block.get("settled") is False:
+            out.append(TAG_FX_NOT_PLATEAUED_PREFIX + side)
+    if _d(dust.get("framing")).get("clamped") is True:
+        out.append(FLAG_FX_FRAMING_CLAMPED)
+    if unsettled:
+        out.append(CAP_FX_UNSETTLED)
+    if not _p9_setup_fault(sidecar):
+        if not _p9_structure(dust.get("structure"))[2]:
+            out.append(FLAG_DUST_STRUCTURE_NOT_MEASURED)
+        for e in dust_entries(sidecar):
+            if e.get("layer") in DUST_JUDGED_LAYERS:
+                weak = fx_weak_core_flag(e)
+                if weak is not None and weak not in out:
+                    out.append(weak)
+    return tuple(out)
+
+
+def judge_dust(sidecar: Dict) -> Optional[BurstJudgement]:
+    """The dust half of a case (G.3), None without a ``dust`` block: the worst of its dust-layer
+    entries (E.4's measures, the dust words, P8's split-half cap), then stock's raycast record:
+    a ghost that draws dust where stock's raycast hit nothing or the pad fails
+    ``dust-extra:<surface>``; a rendered effect missing or extra on the ghost
+    (``missing-dust:<key>`` / ``extra-dust:<key>``) fails; the flags that raise to warn;
+    ``error`` for a lost entry or a contradiction. The flame layer is not judged here (P8 does)."""
+    dust = dust_block(sidecar)
+    if dust is None:
+        return None
+    surface = dust_raycast_surface(sidecar)
+    raw = [e for e in dust_entries(sidecar) if e.get("layer") in DUST_JUDGED_LAYERS]
+    loose = fx_unsettled_entries(raw)
+    entries = tuple(judge_dust_entry(e, surface, loose) for e in raw)
+    verdict = VERDICT_PASS
+    reasons: List[str] = []
+    for j in entries:
+        reasons.extend(fx_reason(j.route, j.view, j.layer, f.reason) for f in j.findings)
+        if _RANK[j.verdict] > _RANK[verdict]:
+            verdict = j.verdict
+    extra_reason = dust_extra_reason(surface)
+    if surface in DUST_NO_DUST_SURFACES and not any(r.endswith(":" + extra_reason) for r in reasons) \
+            and any(_fx_count(e.get("ghost"), "corePx") >= FX_PRESENCE_MIN_PX for e in raw):
+        reasons.append(extra_reason)
+        verdict = VERDICT_FAIL
+    missing, extra, _ = _p9_structure(dust.get("structure"))
+    if missing or extra:
+        reasons.extend("missing-dust:%s" % k for k in missing)
+        reasons.extend("extra-dust:%s" % k for k in extra)
+        verdict = VERDICT_FAIL
+    have = {fx_entry_key(e) for e in dust_entries(sidecar)}
+    lost = [k for k in dust_expected_entries() if k not in have]
+    if lost and not _p9_setup_fault(sidecar):
+        reasons.insert(0, "dust-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
+        verdict = VERDICT_ERROR
+    flags = dust_flags(sidecar, bool(loose))
+    verdict = _p9_fold_flags(flags, verdict, reasons)
+    contradictions = dust_contradictions(sidecar)
+    if contradictions:
+        reasons[:0] = contradictions
+        verdict = VERDICT_ERROR
+    if verdict == VERDICT_WARN and any(f.capped for e in entries for f in e.findings):
+        reasons.append(REASON_FX_UNSETTLED)
+    raycast = _d(dust.get("raycast"))
+    return BurstJudgement("dust", str(dust.get("family")), verdict, tuple(reasons), entries,
+                          tuple(fx_reason(*k, why) for k, why in loose.items()), flags,
+                          {"missing": missing, "extra": extra},
+                          raycast={"surface": surface, "hits": raycast.get("hits"),
+                                   "misses": raycast.get("misses"), "scaledFx": raycast.get("scaledFx")})
+
+
+def judge_p9_case(sidecar: Dict) -> CaseVerdict:
+    """A burst or dust case's CaseVerdict (``judge_burst`` / ``judge_dust``), ``error`` for a
+    setup fault (``burst-not-triggered`` and ``dust-no-stock-hit`` included). The worst view is
+    the first entry at the case's verdict; there are no body views, so no blob maxima."""
+    case_id = str(sidecar.get("caseId") or "?")
+    status = _d(sidecar.get("setup")).get("status")
+    j = judge_burst(sidecar) if burst_block(sidecar) is not None else judge_dust(sidecar)
+    verdict, reasons = j.verdict, list(j.reasons)
+    if status is None or is_setup_fault(status):
+        reasons.insert(0, "setup:%s" % (status or "missing"))
+        verdict = VERDICT_ERROR
+    worst = next(("%s:%s" % (e.view, e.layer) for e in j.entries
+                  if e.verdict == verdict and verdict in (VERDICT_WARN, VERDICT_FAIL)), None)
+    state = sidecar.get("state")
+    return CaseVerdict(case_id, sidecar.get("part"), None, sidecar.get("source"), verdict,
+                       tuple(reasons), worst, 0, None, 0, status,
+                       state=state if is_state_case(state) else None, family=j.family,
+                       context=sidecar.get("context"), burst=j)
+
+
+# --- the block shapes and the recompute ----------------------------------------------------
+
+def _burst_bin_problem(at: str, b: Any) -> Optional[str]:
+    if not isinstance(b, dict):
+        return "%s is not a bin" % at
+    missing = [k for k in BURST_BIN_MEASURE_KEYS if k not in b]
+    if missing:
+        return "%s: missing key(s) %s" % (at, ",".join(missing))
+    for k in BURST_EXACT_KEYS:
+        if type(b[k]) is not int or b[k] < 0:
+            return "%s.%s=%s" % (at, k, b[k])
+    if not b["saturatedPx"] <= b["corePx"] <= b["envelopePx"]:
+        return "%s: corePx=%d envelopePx=%d saturatedPx=%d" % (at, b["corePx"], b["envelopePx"], b["saturatedPx"])
+    for key, count in (("coreCentroid", 2), ("meanColor", 3), ("chromaticity", 2), ("hueHistogram", FX_HUE_BINS)):
+        if b[key] is not None and not _fx_numbers(b[key], count):
+            return "%s.%s=%s" % (at, key, b[key])
+    for key in ("radiusPx", "luminance"):
+        if b[key] is not None and _num(b[key]) is None:
+            return "%s.%s=%s" % (at, key, b[key])
+    if b["hueHistogram"] is None:
+        return "%s.hueHistogram=None" % at
+    if (b["coreCentroid"] is None) != (b["corePx"] == 0):
+        return "%s.coreCentroid=%s with a core of %d px" % (at, b["coreCentroid"], b["corePx"])
+    return None
+
+
+def _burst_sides_problems(at: str, block: Any, bins: Optional[int], source: Any, layer: str) -> List[str]:
+    """A real / ghost / compare block (an entry or one of its halves): each side's keys and
+    bins, its summary recomputed from its own bins, the compare recomputed from the sides."""
+    problems = _missing_keys(at, block, ("real", "ghost", "compare"))
+    if problems:
+        return problems
+    sides: Dict[str, Dict[str, Any]] = {}
+    for name in BURST_SIDE_KEYS:
+        side, sat = block[name], "%s.%s" % (at, name)
+        missing = _missing_keys(sat, side, BURST_SIDE_MEASURE_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        got = side["bins"]
+        if not isinstance(got, list) or (bins is not None and len(got) != bins):
+            problems.append("%s.bins: %s entries, %s bins" % (sat, len(got) if isinstance(got, list) else got, bins))
+            continue
+        bad = [p for i, b in enumerate(got) for p in [_burst_bin_problem("%s.bins[%d]" % (sat, i), b)] if p]
+        if bad:
+            problems.extend(bad[:3])
+            continue
+        sides[name] = burst_measure_side(got)
+        problems.extend(_burst_side_diffs(sat, side, sides[name]))
+    if len(sides) < 2:
+        return problems
+    compare = block["compare"]
+    missing = _missing_keys(at + ".compare", compare, BURST_COMPARE_KEYS)
+    if missing:
+        return problems + missing
+    got = burst_compare(sides["real"], sides["ghost"], source, layer)
+    for key in BURST_COMPARE_KEYS:
+        problems.extend(_burst_value_diffs("%s.compare.%s" % (at, key), compare[key], got[key], False))
+    return problems
+
+
+def burst_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
+    """The shape of a ``burst`` block (G.2.1, X1's tables), run over every captured burst case,
+    sampled or not: every key; the window, bins, bin length and trials the family plans; the
+    sample counts; the atlas block; the trigger; the schedule and its diff recomputed; every
+    expected entry exactly once with its source, sides, bins, summaries and compare recomputed
+    from its own numbers (the pixels are the atlas recompute's); the halves the same way; the
+    structure lists; and, on a part case, the contradictions (``burst_contradictions``)."""
+    burst = burst_block(sidecar)
+    if burst is None or _p9_setup_fault(sidecar):
+        return []
+    problems = _missing_keys("burst", burst, BURST_KEYS)
+    if problems:
+        return problems
+    family = burst["family"]
+    if family not in BURST_FAMILIES:
+        problems.append("burst.family=%s" % family)
+    window = burst_window_for(family)
+    bins = burst_bin_count(window)
+    if (_num(burst["windowS"]) != window or _num(burst["binS"]) != BURST_BIN_S
+            or burst["bins"] != bins or type(burst["bins"]) is not int or burst["trials"] != BURST_TRIALS):
+        problems.append("burst windowS=%s binS=%s bins=%s trials=%s (the %s family plans %s, %s, %d, %d)"
+                        % (burst["windowS"], burst["binS"], burst["bins"], burst["trials"], family,
+                           window, BURST_BIN_S, bins, BURST_TRIALS))
+    samples = burst["samples"]
+    for side in BURST_SIDE_KEYS:
+        n_of = _d(samples).get(side)
+        if not (isinstance(n_of, list) and len(n_of) == bins
+                and all(type(n) is int and 0 <= n <= FX_MAX_SAMPLES for n in n_of)):
+            problems.append("burst.samples.%s=%s" % (side, n_of))
+    meta = burst["atlas"]
+    problems.extend(_missing_keys("burst.atlas", meta, BURST_ATLAS_KEYS))
+    if isinstance(meta, dict) and not problems:
+        if (list(meta.get("rows") or []) != list(BURST_ATLAS_ROWS) or list(meta.get("views") or []) != list(BURST_VIEWS)
+                or meta.get("bins") != bins or type(meta.get("tile")) is not int or meta["tile"] <= 0):
+            problems.append("burst.atlas rows=%s views=%s bins=%s tile=%s"
+                            % (meta.get("rows"), meta.get("views"), meta.get("bins"), meta.get("tile")))
+    trigger = burst["trigger"]
+    if trigger is not None:
+        missing = _missing_keys("burst.trigger", trigger, BURST_TRIGGER_KEYS)
+        problems.extend(missing)
+        if not missing and not (all(type(trigger[k]) is int and trigger[k] >= 0 for k in ("frame", "realTagged", "ghostTagged"))
+                                and _num(trigger["ut"]) is not None
+                                and (trigger["ghostEvent"] is None or isinstance(trigger["ghostEvent"], str))):
+            problems.append("burst.trigger=%s" % trigger)
+    problems.extend(burst_schedule_problems(burst))
+    structure = burst["structure"]
+    if structure is not None:
+        problems.extend(_missing_keys("burst.structure", structure, FX_STRUCTURE_KEYS))
+        for key in FX_STRUCTURE_KEYS if isinstance(structure, dict) else ():
+            if structure.get(key) is not None and not isinstance(structure[key], list):
+                problems.append("burst.structure.%s=%s" % (key, structure[key]))
+    views = burst["views"]
+    if not (isinstance(views, list) and all(isinstance(v, dict) for v in views)):
+        problems.append("burst.views is not a list of entries")
+    tile = _d(meta).get("tile")
+    seen: Dict[FxEntryKey, int] = {}
+    for e in burst_entries(sidecar):
+        key = burst_entry_key(e)
+        seen[key] = seen.get(key, 0) + 1
+        at = "burst:%s:%s" % key[1:]
+        missing = _missing_keys(at, e, BURST_VIEW_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        if key[1] not in BURST_VIEWS or key[2] not in BURST_LAYERS:
+            problems.append("%s: not a known view and layer" % at)
+            continue
+        if type(tile) is not int or e["width"] != tile or e["height"] != tile:
+            problems.append("%s: size %sx%s, tile %s" % (at, e["width"], e["height"], tile))
+        source = e["source"]
+        missing = _missing_keys(at + ".source", source, BURST_SOURCE_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        for k in ("realPx", "ghostPx"):
+            if source[k] is not None and not _fx_numbers(source[k], 2):
+                problems.append("%s.source.%s=%s" % (at, k, source[k]))
+        if source["diameterPx"] is not None and _num(source["diameterPx"]) is None:
+            problems.append("%s.source.diameterPx=%s" % (at, source["diameterPx"]))
+        problems.extend(_burst_sides_problems(at, e, bins, source, key[2]))
+        split = e["splitHalf"]
+        missing = _missing_keys(at + ".splitHalf", split, FX_SPLIT_HALF_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        for half in FX_SPLIT_HALF_KEYS:
+            hat = "%s.splitHalf.%s" % (at, half)
+            block = split[half]
+            missing = _missing_keys(hat, block, BURST_HALF_KEYS)
+            if missing:
+                problems.extend(missing)
+                continue
+            problems.extend(_burst_sides_problems(hat, block, bins, source, key[2]))
+    lost = ["%s:%s" % k[1:] for k in burst_expected_entries() if k not in seen]
+    if lost:
+        problems.append("burst.views lacks %d entr(ies): %s" % (len(lost), ", ".join(lost[:3])))
+    twice = sorted("%s:%s" % k[1:] for k, c in seen.items() if c > 1)
+    if twice:
+        problems.append("burst.views repeats %s" % ", ".join(twice[:3]))
+    if not control:
+        problems.extend(burst_contradictions(sidecar))
+    return problems
+
+
+def dust_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
+    """The shape of a ``dust`` block, run over every captured dust case: every key, the
+    family, the slot surface, the sample count, the atlas block (FX_ATLAS_KEYS, rows
+    DUST_ATLAS_ROWS, columns DUST_VIEWS), stock's raycast record (its keys, surface, counts and
+    samples agreeing), every expected entry exactly once in E.4's entry shape (FX_VIEW_KEYS,
+    the event route, an axis on every side view, the measures where PartParityFxMetrics
+    defines them, the compare recomputed from the sides), the halves, the structure lists and,
+    on a part case, the contradictions."""
+    dust = dust_block(sidecar)
+    if dust is None or _p9_setup_fault(sidecar):
+        return []
+    problems = _missing_keys("dust", dust, DUST_KEYS)
+    if problems:
+        return problems
+    if dust["family"] not in DUST_FAMILIES:
+        problems.append("dust.family=%s" % dust["family"])
+    if dust["surface"] not in (SURFACE_SLOT_TERRAIN, SURFACE_SLOT_WATER):
+        problems.append("dust.surface=%s" % dust["surface"])
+    n = dust["samples"]
+    if type(n) is not int or not 0 < n <= FX_MAX_SAMPLES:
+        problems.append("dust.samples=%s" % n)
+        n = None
+    meta = dust["atlas"]
+    missing = _missing_keys("dust.atlas", meta, FX_ATLAS_KEYS)
+    problems.extend(missing)
+    if not missing and (list(meta.get("rows") or []) != list(DUST_ATLAS_ROWS)
+                        or list(meta.get("cols") or []) != list(DUST_VIEWS)
+                        or type(meta.get("tile")) is not int or meta["tile"] <= 0):
+        problems.append("dust.atlas rows=%s cols=%s tile=%s" % (meta.get("rows"), meta.get("cols"), meta.get("tile")))
+    raycast = dust["raycast"]
+    missing = _missing_keys("dust.raycast", raycast, DUST_RAYCAST_KEYS)
+    problems.extend(missing)
+    if not missing:
+        hits, misses, rs = raycast["hits"], raycast["misses"], raycast["samples"]
+        if raycast["surface"] not in DUST_SURFACES:
+            problems.append("dust.raycast.surface=%s" % raycast["surface"])
+        if type(hits) is not int or type(misses) is not int or hits < 0 or misses < 0:
+            problems.append("dust.raycast hits=%s misses=%s" % (hits, misses))
+        elif (hits == 0) != (raycast["surface"] == DUST_SURFACE_NONE):
+            problems.append("dust.raycast hits=%d surface=%s" % (hits, raycast["surface"]))
+        if not isinstance(rs, list) or any(_missing_keys("", s, DUST_RAYCAST_SAMPLE_KEYS) for s in rs):
+            problems.append("dust.raycast.samples=%s" % (rs if not isinstance(rs, list) else "malformed"))
+        elif type(hits) is int and type(misses) is int and (
+                len(rs) != hits + misses or sum(1 for s in rs if s.get("hit") is True) != hits):
+            problems.append("dust.raycast hits=%s misses=%s over %d sample(s)" % (hits, misses, len(rs)))
+    structure = dust["structure"]
+    if structure is not None:
+        problems.extend(_missing_keys("dust.structure", structure, FX_STRUCTURE_KEYS))
+    views = dust["views"]
+    if not (isinstance(views, list) and all(isinstance(v, dict) for v in views)):
+        problems.append("dust.views is not a list of entries")
+    tile = _d(meta).get("tile")
+    seen: Dict[FxEntryKey, int] = {}
+    for e in dust_entries(sidecar):
+        key = fx_entry_key(e)
+        seen[key] = seen.get(key, 0) + 1
+        at = "dust:%s:%s:%s" % key
+        missing = _missing_keys(at, e, FX_VIEW_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        if key[0] != P9_ROUTE or key[1] not in DUST_VIEWS or key[2] not in DUST_LAYERS:
+            problems.append("%s: not a known route, view and layer" % at)
+            continue
+        if type(tile) is not int or e["width"] != tile or e["height"] != tile:
+            problems.append("%s: size %sx%s, tile %s" % (at, e["width"], e["height"], tile))
+        bad_axis = _fx_axis_problem(e["view"], e["axis"], True)
+        if bad_axis is not None:
+            problems.append("%s: %s" % (at, bad_axis))
+            continue
+        problems.extend(_fx_measure_problems(at, e["view"], e["axis"], e, e["width"]))
+        problems.extend(_fx_half_problems(at + ".splitHalf", e, n))
+    lost = ["%s:%s:%s" % k for k in dust_expected_entries() if k not in seen]
+    if lost:
+        problems.append("dust.views lacks %d entr(ies): %s" % (len(lost), ", ".join(lost[:3])))
+    twice = sorted("%s:%s:%s" % k for k, c in seen.items() if c > 1)
+    if twice:
+        problems.append("dust.views repeats %s" % ", ".join(twice[:3]))
+    if not control:
+        problems.extend(dust_contradictions(sidecar))
+    return problems
+
+
+def recompute_dust_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute every ``dust.views[]`` entry from the decoded dust atlas (E.4's tile measures,
+    ``dust-top`` as the axis view) and return the differences with the sidecar; an atlas whose
+    layout does not match ``dust.atlas`` is itself a difference."""
+    width, height, bpp, pixels = atlas
+    dust = dust_block(sidecar) or {}
+    meta = _d(dust.get("atlas"))
+    tile, n = meta.get("tile"), dust.get("samples")
+    if type(tile) is not int or tile <= 0:
+        return ["dust atlas block unusable: tile=%s" % tile]
+    if type(n) is not int or not 0 < n <= FX_MAX_SAMPLES:
+        return ["dust.samples=%s" % n]
+    rows, cols = list(DUST_ATLAS_ROWS), list(DUST_VIEWS)
+    if list(meta.get("rows") or []) != rows or list(meta.get("cols") or []) != cols:
+        return ["dust atlas rows=%s cols=%s (expected %s, %s)" % (meta.get("rows"), meta.get("cols"), rows, cols)]
+    if width != tile * len(cols) or height != tile * len(rows):
+        return ["dust atlas size %dx%d != %d cols x %d rows of %d px" % (width, height, len(cols), len(rows), tile)]
+    if bpp != 4:
+        return ["dust atlas is not RGBA (bytes per pixel %d)" % bpp]
+    diffs: List[str] = []
+    for e in dust_entries(sidecar):
+        view, layer, axis = e.get("view"), e.get("layer"), e.get("axis")
+        at = fx_reason(str(e.get("route")), str(view), str(layer), "")
+        if view not in cols or layer not in DUST_LAYERS:
+            diffs.append("%s not in the dust atlas" % at)
+            continue
+        if e.get("width") != tile or e.get("height") != tile:
+            diffs.append("%ssize:%sx%s!=%d" % (at, e.get("width"), e.get("height"), tile))
+            continue
+        tiles = {}
+        for side in BURST_SIDE_KEYS:
+            t = fx_measure_tile(pixels, width, cols.index(view) * tile, rows.index("%s-%s" % (side, layer)) * tile,
+                                tile, n, view, axis)
+            diffs.extend("%s-%s/%s: %s" % (side, layer, view, p) for p in t.problems)
+            tiles[side] = t
+            rec = _d(e.get(side))
+            for key in FX_SIDE_MEASURE_KEYS:
+                diffs.extend(_fx_value_diffs("%s%s.%s" % (at, side, key), rec.get(key), t.measures[key],
+                                             key in FX_EXACT_KEYS))
+        rec = _d(e.get("compare"))
+        for key, value in fx_compare(view, axis, tiles["real"], tiles["ghost"]).items():
+            diffs.extend(_fx_value_diffs("%scompare.%s" % (at, key), rec.get(key), value, False))
+    return diffs
+
+
+def p9_atlas_file(sidecar: Optional[Dict]) -> Optional[str]:
+    """The burst or dust atlas a P9 case names, or None."""
+    block = burst_block(sidecar) or dust_block(sidecar) or {}
+    name = _d(block.get("atlas")).get("file")
+    return name if isinstance(name, str) and name else None
+
+
+def p9_sidecar_incomplete(sidecar: Dict, atlases: Optional[Collection[str]]) -> Optional[str]:
+    """Completeness of a captured burst or dust case: its entries, and its atlas harvested."""
+    if not (burst_entries(sidecar) or dust_entries(sidecar)):
+        return "no-%s-views" % ("burst" if burst_block(sidecar) is not None else "dust")
+    if atlases is not None:
+        name = p9_atlas_file(sidecar)
+        if name is None:
+            return "no-p9-atlas"
+        if name not in atlases:
+            return "p9-atlas-missing:%s" % name
+    return None
+
+
+def p9_recompute(sidecars: Dict[str, Optional[Dict]], atlases: Collection[str],
+                 part_ids: Sequence[str], control_ids: Sequence[str], run_id: str,
+                 read_png: Optional["PngReader"],
+                 atlas_path: Callable[[str], str]) -> Tuple[List[str], List[str]]:
+    """The P9 half of the instrument check: every captured burst or dust case has its block
+    shape checked; every control with a P9 atlas and the seeded sample of the part cases with
+    one are recomputed from it. Returns (``<caseId>.burst`` / ``.dust`` ids recomputed, mismatches)."""
+    controls = set(control_ids)
+    mismatches: List[str] = []
+    for cid in list(part_ids) + list(control_ids):
+        side = sidecars.get(cid)
+        problems = burst_block_problems(side, cid in controls) + dust_block_problems(side, cid in controls)
+        mismatches.extend("%s %s" % (cid, p) for p in problems)
+    if read_png is None:
+        return [], mismatches
+
+    def file_of(cid: str) -> Optional[str]:
+        name = p9_atlas_file(sidecars.get(cid))
+        return name if name in atlases else None
+
+    ids = [c for c in control_ids if file_of(c)]
+    ids += select_recompute_sample([c for c in part_ids if file_of(c)], run_id)
+    out: List[str] = []
+    for cid in ids:
+        side = sidecars[cid]
+        burst = burst_block(side) is not None
+        try:
+            atlas = read_png(atlas_path(file_of(cid)))
+            diffs = recompute_burst_case(side, atlas) if burst else recompute_dust_case(side, atlas)
+        except Exception as exc:  # noqa: BLE001 - an unreadable atlas is the finding
+            diffs = ["p9 atlas unreadable (%s: %s)" % (type(exc).__name__, exc)]
+        mismatches.extend("%s %s" % (cid, d) for d in diffs)
+        out.append(cid + (BURST_RECOMPUTE_ID_SUFFIX if burst else DUST_RECOMPUTE_ID_SUFFIX))
+    return out, mismatches
+
+
+def p9_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """Writer cross-checks of a burst or dust run: a ``burst`` block outside a burst run (or a
+    ``dust`` one outside a dust run), a captured case of such a run without its block, and a
+    manifest row whose family is not the block's."""
+    settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
+    runs = {"burst": is_burst_run(settings), "dust": is_dust_run(settings)}
+    problems: List[str] = []
+    for entry in manifest.get("cases") or []:
+        cid = entry.get("caseId") if isinstance(entry, dict) else None
+        side = sidecars.get(cid) if isinstance(cid, str) else None
+        if not isinstance(side, dict) or cid in ALL_CONTROL_IDS:
+            continue
+        for kind, block in (("burst", burst_block(side)), ("dust", dust_block(side))):
+            if block is not None and not runs[kind]:
+                problems.append("%s carries a %s block but settings fx=%s contexts=%s are not a %s run"
+                                % (cid, kind, _setting(settings, SETTING_FX),
+                                   _setting(settings, SETTING_CONTEXTS), kind))
+            elif runs[kind] and block is None and not _p9_setup_fault(side):
+                problems.append("%s has no %s block in an fx=%s run" % (cid, kind, _setting(settings, SETTING_FX)))
+            if block is not None and entry.get("family") is not None and entry.get("family") != block.get("family"):
+                problems.append("%s row family=%s %s.family=%s" % (cid, entry.get("family"), kind, block.get("family")))
+    return problems
+
+
+# --- the controls (G.4, PartParityFxRules.JudgeBurstControl / JudgeDustControl) ------------
+
+def burst_control_evidence(sidecar: Dict) -> Dict[str, Any]:
+    """PartParityBurstControlEvidence read from a control's sidecar: the measures any entry
+    fails (``burst_entry_failing``) and ``schedule`` at its fail level, whether every bin and
+    layer of both sides drew nothing, the schedule's counts and whether its index differs;
+    plus the real flame's largest core (the Python judge's own floor)."""
+    burst = burst_block(sidecar) or {}
+    failing: set = set()
+    entries = burst_entries(sidecar)
+    for e in entries:
+        failing.update(burst_entry_failing(e))
+    schedule = _d(burst.get("schedule"))
+    real, ghost = schedule.get("real"), schedule.get("ghost")
+    ok = isinstance(real, list) and isinstance(ghost, list) and not any(
+        _blast_problem("", b) for b in list(real) + list(ghost))
+    sc = burst_schedule_compare(real, ghost) if ok else None
+    if sc is not None and sc["level"] == LEVEL_FAIL:
+        failing.add("schedule")
+    return {"failing": failing,
+            "allCoverageZero": bool(entries) and not any(_side_drew(e.get(s)) for e in entries for s in BURST_SIDE_KEYS),
+            "realBlasts": sc["realCount"] if sc else 0, "ghostBlasts": sc["ghostCount"] if sc else 0,
+            "indexDiffers": bool(sc and sc["indexDiffers"]),
+            "realFlameCore": max((_peak_core(e.get("real")) for e in entries if e.get("layer") == FX_LAYER_FLAME),
+                                 default=0)}
+
+
+def _ordered(order: Sequence[str], names: Collection[str]) -> str:
+    return ",".join(m for m in order if m in names)
+
+
+def _require(cond: bool, why: str) -> Tuple[str, str]:
+    return (CONTROLS_OK, "") if cond else (CONTROLS_BAD, why)
+
+
+def _require_measures(failing: Collection[str], must_fail: Sequence[str], must_pass: Sequence[str]) -> Tuple[str, str]:
+    for m in must_fail:
+        if m not in failing:
+            return CONTROLS_BAD, "%s passes" % m
+    for m in must_pass:
+        if m in failing:
+            return CONTROLS_BAD, "%s fails" % m
+    return CONTROLS_OK, ""
+
+
+def judge_burst_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """``PartParityFxRules.JudgeBurstControl`` over a control's sidecar, each detail worded as
+    the C# writes it. Stricter in one way, as ``judge_fx_control``: a control other than
+    ``ctl-burst-empty`` whose real flame has no core proves nothing (``no real core``)."""
+    if not isinstance(sidecar, dict):
+        return CONTROLS_BAD, "no sidecar"
+    status = _d(sidecar.get("setup")).get("status")
+    if is_setup_fault(status):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    if burst_block(sidecar) is None:
+        return CONTROLS_BAD, "no burst block"
+    ev = burst_control_evidence(sidecar)
+    f = ev["failing"]
+    if cid == CONTROL_IDS_BURST[0]:  # ctl-burst-empty
+        return _require(ev["allCoverageZero"], "a bin is covered")
+    if cid not in CONTROL_IDS_BURST:
+        return CONTROLS_BAD, "not a burst control: %s" % (cid or "<none>")
+    if ev["realFlameCore"] < FX_PRESENCE_MIN_PX:
+        return CONTROLS_BAD, "no real core"
+    if cid == "ctl-burst-real-vs-real":
+        return _require(not f, "fails " + _ordered(BURST_MEASURES, f))
+    if cid == "ctl-burst-off":
+        if "presence" not in f:
+            return CONTROLS_BAD, "presence passes"
+        return _require(ev["realBlasts"] == 1 and ev["ghostBlasts"] == 0,
+                        "the schedule reads %d against %d" % (ev["realBlasts"], ev["ghostBlasts"]))
+    if cid == "ctl-burst-late":
+        return _require_measures(f, ("onset",), ("peak-area", "colour"))
+    if cid == "ctl-burst-power":
+        if "schedule" not in f or not ev["indexDiffers"]:
+            return CONTROLS_BAD, "the schedule index matches"
+        return _require("peak-area" in f or "radius" in f, "peak area and radius pass")
+    if cid == "ctl-burst-shift":
+        return _require_measures(f, ("centroid-offset",), ("peak-area", "colour"))
+    if cid == "ctl-burst-hue":
+        if "colour" not in f:
+            return CONTROLS_BAD, "colour passes"
+        return _require(len(f) == 1, "fails " + _ordered(BURST_MEASURES, f))
+    return CONTROLS_BAD, "not a burst control: %s" % cid
+
+
+def dust_control_evidence(sidecar: Dict) -> Dict[str, Any]:
+    """PartParityDustControlEvidence read from a control's sidecar: the dust measures the dust
+    entries fail, the measures the flame entries fail, stock's raycast hit, each side's dust
+    covered; plus the real dust's largest core (the Python judge's own floor)."""
+    dust_fail: set = set()
+    flame_fail: set = set()
+    real_cov = ghost_cov = False
+    core = 0
+    for e in dust_entries(sidecar):
+        if e.get("route") != P9_ROUTE:
+            continue
+        if e.get("layer") == LAYER_DUST:
+            dust_fail.update(dust_failing(e))
+            real_cov = real_cov or _fx_count(e.get("real"), "envelopePx") > 0
+            ghost_cov = ghost_cov or _fx_count(e.get("ghost"), "envelopePx") > 0
+            core = max(core, _fx_count(e.get("real"), "corePx"))
+        elif e.get("layer") == FX_LAYER_FLAME:
+            flame_fail.update(fx_failing_measures(e))
+    raycast = _d((dust_block(sidecar) or {}).get("raycast"))
+    return {"dustFailing": dust_fail, "flameFailing": flame_fail,
+            "stockRaycastHit": (_num(raycast.get("hits")) or 0) > 0,
+            "realDustCovered": real_cov, "ghostDustCovered": ghost_cov, "realDustCore": core}
+
+
+def judge_dust_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """``PartParityFxRules.JudgeDustControl`` over a control's sidecar, each detail worded as
+    the C# writes it: ``ok``, ``bad``, or for ``ctl-dust-above-reach`` ``n/a`` while
+    DUST_ABOVE_REACH_GHOST_JUDGED is false and the ghost draws dust where stock missed.
+    Stricter in one way: the real-vs-real and off controls need a real dust core."""
+    if not isinstance(sidecar, dict):
+        return CONTROLS_BAD, "no sidecar"
+    if cid not in CONTROL_IDS_DUST:
+        return CONTROLS_BAD, "not a dust control: %s" % (cid or "<none>")
+    status = _d(sidecar.get("setup")).get("status")
+    above = cid == CONTROL_IDS_DUST[2]
+    if is_setup_fault(status) and not (above and status == SETUP_DUST_NO_STOCK_HIT):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    if dust_block(sidecar) is None:
+        return CONTROLS_BAD, "no dust block"
+    ev = dust_control_evidence(sidecar)
+    if above:
+        if ev["stockRaycastHit"] or ev["realDustCovered"]:
+            return CONTROLS_BAD, "stock drew dust past its reach"
+        if not ev["ghostDustCovered"]:
+            return CONTROLS_OK, ""
+        if not DUST_ABOVE_REACH_GHOST_JUDGED:
+            return CONTROLS_NOT_APPLICABLE, "the ghost draws dust past stock's reach (G.8 item 3)"
+        return CONTROLS_BAD, "the ghost draws dust past stock's reach"
+    if ev["realDustCore"] < FX_PRESENCE_MIN_PX:
+        return CONTROLS_BAD, "no real dust core"
+    if cid == CONTROL_IDS_DUST[0]:  # ctl-dust-real-vs-real
+        return _require(not ev["dustFailing"], "fails " + _ordered(DUST_MEASURES, ev["dustFailing"]))
+    if "presence" not in ev["dustFailing"]:
+        return CONTROLS_BAD, "dust presence passes"
+    return _require(not ev["flameFailing"], "the flame layer fails " + _ordered(DUST_MEASURES, ev["flameFailing"]))
+
+
+def judge_p9_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """A burst or dust run's control re-judged from its sidecar (G.4)."""
+    if cid in CONTROL_IDS_DUST:
+        return judge_dust_control(cid, sidecar)
+    return judge_burst_control(cid, sidecar)
+
+
+# --- the documents and the gate -----------------------------------------------------------
+
+def p9_case_counts(cases: Iterable["CaseVerdict"]) -> Optional[Dict[str, Any]]:
+    """The verdicts document's ``burst`` section: the burst and dust cases' verdicts per
+    family, the cases per flag kind and the lines; None when the sweep has none."""
+    judged = [c for c in cases if c.burst is not None]
+    if not judged:
+        return None
+    families: Dict[str, Dict[str, int]] = {}
+    flags: Dict[str, int] = {}
+    kinds = {k: 0 for k in P9_KINDS}
+    for c in judged:
+        kinds[c.burst.kind] = kinds.get(c.burst.kind, 0) + 1
+        fam = families.setdefault(str(c.burst.family), {v: 0 for v in VERDICTS})
+        fam[c.verdict] = fam.get(c.verdict, 0) + 1
+        for kind in sorted({f.split(":", 1)[0] for f in c.burst.flags}):
+            flags[kind] = flags.get(kind, 0) + 1
+    return {"cases": len(judged), "kinds": kinds, "families": dict(sorted(families.items())),
+            "flags": dict(sorted(flags.items())), "thresholds": dict(BURST_THRESHOLDS)}
+
+
+def p9_summary(cases: Iterable["CaseVerdict"]) -> str:
+    """`` burst=<n> dust=<n>`` on a P9 sweep's summary line, empty otherwise."""
+    counts = p9_case_counts(cases)
+    if counts is None:
+        return ""
+    return " burst=%d dust=%d" % (counts["kinds"]["burst"], counts["kinds"]["dust"])
+
+
+def p9_fail_reasons(verdict: "CaseVerdict") -> List["FailReason"]:
+    """The fail-level findings of a burst or dust case for the gate: one per entry and measure
+    over its fail line (group ``burst:<measure>`` / ``dust:<measure>``), the schedule's, the
+    raycast's ``dust-extra`` and each structure one; empty for any other case."""
+    j = verdict.burst
+    if j is None or j.verdict != VERDICT_FAIL:
+        return []
+    group = GROUP_BURST_PREFIX if j.kind == "burst" else GROUP_DUST_PREFIX
+    out: List[FailReason] = []
+    for e in j.entries:
+        for f in e.findings:
+            if f.level == VERDICT_FAIL:
+                out.append(FailReason(fx_reason(e.route, e.view, e.layer, f.reason), group + f.measure,
+                                      view_key(e.view, e.route), False))
+    if j.schedule and j.schedule.get("judged"):
+        out.extend(FailReason(f["reason"], group + "schedule", None, False)
+                   for f in j.schedule.get("findings") or [] if f["level"] == VERDICT_FAIL)
+    for r in j.reasons:
+        if r.startswith(DUST_REASON_EXTRA_PREFIX):
+            out.append(FailReason(r, group + "raycast", None, False))
+    for side in ("missing", "extra"):
+        out.extend(FailReason("%s-%s:%s" % (side, j.kind, k), group + "structure", None, False)
+                   for k in j.structure.get(side) or [])
+    return out

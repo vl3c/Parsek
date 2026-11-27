@@ -14156,21 +14156,29 @@ def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict])
 
 
 # Parallel-run INVALID subkinds (install slots, harness/lib/slots.py). Every one is a
-# pre-boot refusal about the MACHINE, never about the scenario, so all four are
+# pre-boot refusal about the MACHINE, never about the scenario, so all six are
 # flake-exempt (FLAKE_EXEMPT_INVALID_SUBKINDS) and none is retried.
 #   port-busy              a kRPC port of the instance already accepts a connection
 #                          (another KSP or tool listens there; a mission would drive it).
 #   runner-token           a `run.py --slot` child whose parallel runner no longer holds
 #                          the machine lock (token mismatch, runner pid gone).
 #   slot-locked            the instance's slot lock is held by another live process.
-#   slot-profile-mismatch  a `--slot` child was handed a lane of another profile.
+#   slot-profile-mismatch  a `--slot` child (or a `--lease` run) was handed a lane of
+#                          another profile than its copy's.
+#   lease-invalid          a `run.py --lease` whose worktree holds no live copy lease
+#                          (none claimed, released, expired, or re-claimed by another).
+#   lease-exclusive        a `run.py --lease` was handed a lane that moves the cursor or
+#                          takes the foreground (parallel.exclusive_reason); such a lane
+#                          needs the whole machine, so it flies with no lease live.
 PORT_BUSY_SUBKIND = "port-busy"
 RUNNER_TOKEN_SUBKIND = "runner-token"
 SLOT_LOCKED_SUBKIND = "slot-locked"
 SLOT_PROFILE_MISMATCH_SUBKIND = "slot-profile-mismatch"
+LEASE_INVALID_SUBKIND = "lease-invalid"
+LEASE_EXCLUSIVE_SUBKIND = "lease-exclusive"
 PARALLEL_RUN_INVALID_SUBKINDS: Tuple[str, ...] = (
     PORT_BUSY_SUBKIND, RUNNER_TOKEN_SUBKIND, SLOT_LOCKED_SUBKIND,
-    SLOT_PROFILE_MISMATCH_SUBKIND,
+    SLOT_PROFILE_MISMATCH_SUBKIND, LEASE_INVALID_SUBKIND, LEASE_EXCLUSIVE_SUBKIND,
 )
 
 

@@ -1,0 +1,61 @@
+{
+ "scenarioId": "PPS-20a-burst-spike-stock",
+ "runId": "2026-11-27_2119_PPS-20a-burst-spike-stock",
+ "verdict": "PASS",
+ "reason": null,
+ "attempt": 1,
+ "attemptsWallSeconds": 169,
+ "subkind": "",
+ "verifierStatus": {
+  "analyzer": "PASS",
+  "anomalySweep": "PASS",
+  "batchComplete": "PASS",
+  "driverValidity": "PASS",
+  "expectations": "PASS",
+  "ghostLifecycle": "REPORT",
+  "ledgerOracle": "SKIPPED",
+  "logValidate": "PASS",
+  "renderCompose": "REPORT",
+  "saveParse": "REPORT",
+  "subprocessRetry": [],
+  "testResults": "PASS",
+  "unityExceptions": "REPORT"
+ },
+ "steps": [
+  [
+   "LoadGame",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "RunTests",
+   "OK",
+   true
+  ],
+  [
+   "FlushAndQuit",
+   "OK",
+   true
+  ]
+ ]
+}

@@ -47,7 +47,7 @@ id = "SAVE-IDX-1-quickload-keeps-eva-focus"
 # NOTHING RECORDS. autoRecordOnLaunch and autoRecordOnEva are off, so the recordings stay the
 # preset's three and no merge dialog or tree commit takes part in the save.
 #
-# PRE-REGISTERED READINGS (never flown):
+# PRE-REGISTERED READINGS (written before the first flight, `2026-11-27_1708` PASS attempt 1):
 #   - No `Save activeVesselIdx ... ghostsBefore=` line after the save mark, and no `Created
 #     ghost vessel 'Ghost: CN Relay A'` before the EVA mark: A's map ghost was not live at the
 #     save (a host premise, not the fix); read the `[GhostMap]` lines first.
@@ -66,7 +66,7 @@ tier = "operator"
 description = "F5 / F9 keeps the player on the vessel they saved on when a ghost map vessel was created before it: on gloops-airshow plus the ghost-commnet-relay preset, Jebediah EVAs onto the pad and plants a flag after relay A's map ghost exists, a quicksave is written and loaded back as the player's load; the save must move activeVesselIdx past the stripped ghost and the loaded scene must focus Jebediah, not the flag."
 instanceProfile = "stock-minimal"
 tags = ["SAVE-IDX-1", "save-load", "quickload", "ghost-map", "eva", "flag-plant",
-        "injected-recordings", "pending-flight"]
+        "injected-recordings", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"

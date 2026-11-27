@@ -86,13 +86,8 @@ namespace Parsek
             var evtType = FlightRecorder.ClassifyPartDeath(
                 p.persistentId, hasChute, state.parachuteStates);
 
-            treeRec.PartEvents.Add(new PartEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                partPersistentId = p.persistentId,
-                eventType = evtType,
-                partName = p.partInfo?.name ?? "unknown"
-            });
+            treeRec.PartEvents.Add(FlightRecorder.BuildDestroyedPartEvent(
+                p.persistentId, p.partInfo?.name, Planetarium.GetUniversalTime(), evtType));
             treeRec.MarkFilesDirty();
 
             ParsekLog.Verbose("BgRecorder",
@@ -259,13 +254,8 @@ namespace Parsek
                 pendingBackgroundUndockUT = double.NaN;
             }
 
-            treeRec.PartEvents.Add(new PartEvent
-            {
-                ut = jointBreakUT,
-                partPersistentId = joint.Child.persistentId,
-                eventType = PartEventType.Decoupled,
-                partName = joint.Child.partInfo?.name ?? "unknown"
-            });
+            treeRec.PartEvents.Add(FlightRecorder.BuildDecoupledPartEvent(
+                joint.Child.persistentId, joint.Child.partInfo?.name, jointBreakUT));
             treeRec.MarkFilesDirty();
 
             ParsekLog.Verbose("BgRecorder",

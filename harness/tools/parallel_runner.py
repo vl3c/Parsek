@@ -58,6 +58,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 
 import hlib  # noqa: E402
 import machinelock  # noqa: E402
+import leaseio  # noqa: E402  (a live copy lease refuses the runner, like a held machine lock)
 import parallel  # noqa: E402
 import runindex  # noqa: E402
 import slots  # noqa: E402
@@ -713,8 +714,8 @@ class LockKeeper:
 
     def acquire(self) -> Tuple[bool, str]:
         lock_path = machinelock.lock_path_for(self.ctx.umbrella_root)
-        path, reason, holder = machinelock.acquire(
-            lock_path, payload_fn=self.payload, now_fn=time.time,
+        path, reason, holder = leaseio.acquire_machine(
+            lock_path, self.ctx.umbrella_root, payload_fn=self.payload, now_fn=time.time,
             pid_alive_fn=self.ctx.pid_alive_fn, log_fn=self._log_fn)
         if path is None:
             return False, "%s: %s" % (reason, machinelock.describe_holder(holder))

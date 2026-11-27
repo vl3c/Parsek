@@ -624,7 +624,7 @@ namespace Parsek
         // so an on-schedule coast gap (~maxInterval) never warns, while a gap well
         // past the backstop (a genuine stalled-sampler / severe-lag signal) still does.
         internal const double SparseGapHeartbeatMarginFactor = 1.5;
-        private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
+        internal const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
         internal const float AnimateHeatHotThreshold = 0.80f;
