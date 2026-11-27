@@ -759,8 +759,8 @@ The page is ONE continuous scroll, with no click per part (owner rulings, 2026-1
   harness installs (`PartParityCaseCapture.ProfileName` takes the last segment of
   `KSPUtil.ApplicationRootPath`, which ends in `KSP_x64_Data/../`), so today every sweep is
   named after its label.
-- GIF / APNG strips (9.2) are not built: `--gif` is reserved and refuses, and a case row's
-  `strips` slot is where the page will read them from.
+- GIF / APNG strips (9.2): built by P7 M5 for motion cases (`--gif`, Appendix H.5); a case row's
+  `strips` slot carries the motion atlas and the animation, None on every other case.
 
 Images are not published as an Artifact (a sweep is hundreds of MB; 16 MB page limit).
 
@@ -4522,6 +4522,26 @@ spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
   LZW writer. Written under the site's `img/`, linked from the case; the case row's `strips` slot
   (`part_parity_view.py`, now `None`) carries the motion atlas and the animation paths.
   Round-trip decode tests in `harness/lib/test_part_parity_view.py`.
+- Built (M5, 2026-11-27), with these readings of the plan:
+  - The frame clock is per case: each case's motion box carries its own `--f` (Play / Pause, the
+    0.25x toggle and the scrubber, which pauses), and the header's Play strips button, shown
+    when the site has an FX strip or a motion case, plays or pauses every clock at once; with
+    `prefers-reduced-motion` every clock starts paused. A frame shows until the next frame's real
+    offset (at least 20 ms); the last frame is held 1 s before the loop restarts, in the page and
+    in both animations.
+  - The 1:1 dialog shows a view's motion row at the case's current frame and follows the scrubber.
+  - A slow or late control's normal route (`<controlId>--normal`) is a control row right under its
+    control, with the control's outcome and judgement (the two routes are judged together), never
+    a part case; the sweep header's motion counts are partparity's (the manifest's part cases).
+  - `--gif-format` without `--gif` refuses (exit 2); `--gif` over sweeps with no motion case writes
+    nothing and says so. The animations go to `<out>/img/<k>/<caseId>.motion.apng|.gif` (k: the
+    sweep's index), always copied under the site whatever `--images` says. The APNG keeps the
+    atlas's RGBA exactly; the GIF has no partial alpha, so its frames are the atlas composited
+    over the page's tile grey `#8f959c` (one global palette, exact when the frames hold at most
+    256 colours). A case whose atlas does not decode or does not match its sidecar's layout is
+    reported on stderr and keeps no animation; the run still writes the site.
+  - The chart's ghost line is the scout grid (`motion.scout`), the real line the real frames; the
+    event ticks are `stateProof.events` UTs from the press.
 
 ### H.6 Motion defects visible from the code (to be measured by P7)
 
@@ -4587,7 +4607,7 @@ subsection.
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs`, `FlightRecorder.PartModuleStates.cs` (the active sink's ownership guard) | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green. Done 2026-11-27: il_compare lists only `CheckRoboticState` (now the wrapper), the new `PollRobotics` and the `PartPollSink.ShouldPollCachedModule` guard with its active override; the moved body differs from the old one only by fields read as arguments and the sink indirection |
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 (DONE 2026-11-27) | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before. BUILT (H.3 "Built"): a synthetic motion sidecar + atlas builder in the tests; every control's perturbation caught (and an unperturbed one bad); mutated atlas tiles and tampered arrays INVALID(parity-instrument); ten legacy stowed / state / FX / burst sweeps hash to their pre-M4 digests. For the C# side: `JudgeGhostLate` must require the lag fail only when the 1.0 s shift is past the line (its xUnit cell for a 10 s motion expects `bad`), and M3 writes the slow / late normal route as `<controlId>--normal` |
-| M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
+| M5 (DONE 2026-11-27) | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles. BUILT (H.5 "Built"): over M4's synthetic motion sweep, the rows equal partparity's `judge_motion`; the node page tests read every crop of a case from its one `--f` at the scrubbed, ticked and wrapped frame, the clock's delays (real offsets, 0.25x, the 1 s hold), reduced motion, the chart's lines, marks, lag and frame line; the APNG (each frame rebuilt and read by `gui_mirror.read_png`) and the GIF (a test-side LZW decoder) decode to the atlas tiles; three legacy sites (stowed, state, FX) keep their pre-M5 `data.js` and built-DOM digests. For M3: the viewer reads `motion` (the M4 keys), `motionAtlas {file, tile, rows, cols}` with rows `real:` / `ghost:` / `ghost-matched:<view>` and one column per frame, `stateProof.events`, and the normal routes under `<controlId>--normal` |
 | M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
 | M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
 
