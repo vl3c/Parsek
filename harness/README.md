@@ -1870,7 +1870,9 @@ product is images somebody is about to look at.
   (exit 2) and stops. Provisioning DEPLOYs whatever
   `Source/Parsek/bin/Debug/Parsek.dll` the invoking worktree holds, which is as
   likely to be a half-finished build as a release candidate; which worktree's
-  DLL the automation instance carries is a human call, always. The one
+  DLL the automation instance carries is the session's explicit choice, made
+  while it holds the PC turn (Vlad's standing approval in `.claude/CLAUDE.md`),
+  never the tool's. The one
   exception is a full run invoked with `--provision`, where the requester named
   that choice on the command line.
 - **Never re-run a finding.** `run.py` owns retry policy; a PARSEK-FAIL that
