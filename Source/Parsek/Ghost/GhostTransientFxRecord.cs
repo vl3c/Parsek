@@ -12,7 +12,7 @@ namespace Parsek
     {
         /// <summary>A stock FXMonger explosion Parsek queued (no GameObject until stock's LateUpdate).</summary>
         StockExplosion = 0,
-        /// <summary>Parsek's own fireball (<c>GhostVisualBuilder.SpawnExplosionFx</c>).</summary>
+        /// <summary>Parsek's hand-built explosion (<c>GhostVisualBuilder.SpawnExplosionFx</c>).</summary>
         CustomExplosion = 1,
         /// <summary>Parsek's part puff (<c>GhostVisualBuilder.SpawnPartPuffFx</c>).</summary>
         PartPuff = 2,
@@ -28,9 +28,10 @@ namespace Parsek
         public GhostTransientFxKind Kind;
         /// <summary>The world position the effect was started at.</summary>
         public Vector3 Position;
-        /// <summary>The power passed to <c>FXMonger.Explode</c>; NaN for Parsek's own effects.</summary>
+        /// <summary>The explosion power (the one passed to <c>FXMonger.Explode</c>, or the one the
+        /// copy or the hand-built explosion was picked by); NaN for the part puff.</summary>
         public double Power;
-        /// <summary>The size argument of Parsek's own effects (vessel length for the fireball,
+        /// <summary>The size argument of Parsek's own effects (vessel length for an explosion,
         /// part scale before the clamp for the puff); NaN for a stock explosion.</summary>
         public float Size;
         /// <summary>The effect's GameObject; null for a stock explosion.</summary>

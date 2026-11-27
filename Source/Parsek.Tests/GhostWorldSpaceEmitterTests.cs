@@ -216,12 +216,13 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_TheWorldSpaceSystemsParsekBuildsAreTheOnesAttached()
         {
-            // Five in TransientFx (explosion fireball and smoke, puff smoke and sparks, launch
-            // dust: three AttachOwn roots) and the reentry fire; the EVA plume is local. A new
+            // Four sites in TransientFx (the hand-built explosion's one part builder, which makes
+            // its smoke, flash, fire and sparks under one root; puff smoke and sparks; launch dust:
+            // three AttachOwn roots) and the reentry fire; the EVA plume is local. A new
             // world-space system reds here until it is attached.
             string transient = Source(Path.Combine("Ghost", "GhostVisualBuilder.TransientFx.cs"));
             string reentry = Source(Path.Combine("Ghost", "GhostVisualBuilder.HeatAndReentryFx.cs"));
-            Assert.Equal(5, Count(transient, "simulationSpace = ParticleSystemSimulationSpace.World;"));
+            Assert.Equal(4, Count(transient, "simulationSpace = ParticleSystemSimulationSpace.World;"));
             Assert.Equal(1, Count(reentry, "simulationSpace = ParticleSystemSimulationSpace.World;"));
         }
 
