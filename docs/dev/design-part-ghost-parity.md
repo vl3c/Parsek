@@ -4187,13 +4187,13 @@ motion case like a state case.
 
 Controls (`TestCommandPartParitySweep.ControlSetFor` on both sides, as D.2). An orbit motion run
 records `ctl-empty`, `ctl-ghost-absent`, `ctl-real-vs-real` (the capture primitive, unchanged) and
-three motion controls, each on `longAntenna` (the P6 state controls' subject) and each judged
-RELATIVE to its own normal event route, so the product's own timing (H.6) cannot move a control:
+three motion controls, the real-vs-real and late controls on `longAntenna` (the P6 state controls'
+subject) and the slow control on `airbrake1` (below), each judged RELATIVE to its own normal event route, so the product's own timing (H.6) cannot move a control:
 
 | Control | Subject and change | Required |
 | --- | --- | --- |
 | `ctl-motion-real-vs-real` | two `longAntenna` in one wave, pressed in the same frame; copy B's live frames stand in for the ghost rows (same index; no matched row) | both copies' curves agree: `|lagS|` at most one frame interval or 0.02 T, `|durationRatio - 1| <= 0.05`, `curveShapeDev <= 0.05`; frame 0 and the last frame within the real-vs-real allowance of 4.5. This is the timing noise floor of the live capture. |
-| `ctl-motion-ghost-slow` | the normal case plus a second event route whose built deploy info has its clip length doubled (the rig's own ghost instance, after the build; no production code changes) | `durationRatio(slow) / durationRatio(normal)` in [1.9, 2.1], the onset unchanged within one frame interval, the slow route failing on duration while its last frame passes the P6 end-state rules: an end-state comparison cannot see it, the motion judge does |
+| `ctl-motion-ghost-slow` | `airbrake1`, a START-marked family: its event marks the start of stock's motion, so the ghost's transition starts at the event and runs its built clip. The normal case plus a second event route whose built deploy info has its clip length doubled (the rig's own ghost instance, after the build; no production code changes). Not `longAntenna`: an END-marked family plays its motion over [event UT - motion, event UT] with the motion time stamped from the clip at build (#2838, `GhostPlaybackLogic.DeployMotionEnd.cs`), so a doubled clip after the build changes nothing and a doubled motion time moves the start before the press | `durationRatio(slow) / durationRatio(normal)` in [1.9, 2.1], the onset unchanged within one frame interval, the slow route failing on duration while its last frame passes the P6 end-state rules: an end-state comparison cannot see it, the motion judge does |
 | `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02, the late route failing on lag |
 
 An air motion run records `ctl-empty`, `ctl-ghost-absent` and `ctl-motion-real-vs-real-air` (two
@@ -4249,9 +4249,9 @@ label with its own reset and run step, since 70 s of sweep does not earn its own
 (fast-lane rule, the `pp5fx` precedent); the budget gains that reset and run step (120 s + 540 s).
 No modded-restock lane: motion does not depend on Waterfall, and modded-compat holds the ReStock
 models. Each lane's first flight is a `limit=20` reading flight and its step count is set from its
-`wall=` (D.8). PP-11 is taken (the mod-parts lane, open PR #2836) and Appendix G's rig lanes claim the next two
-(PP-12 / PP-13 once mod-parts holds PP-11); PP-14 and PP-15 are free on `origin/main` and on every
-remote branch (re-checked 2026-11-27). Expected wall per full pass: about 700 s (PP-14), 760 s (PP-15), plus about 90 s on
+`wall=` (D.8). PP-11 is taken (the mod-parts lane, branch `mod-parts`, PR #2836), so Appendix G's rig lanes,
+written as PP-11 / PP-12, move up when P9 builds them; PP-12 and PP-13 are left to them, and
+PP-14 and PP-15 are free on `origin/main` and on every remote branch (re-checked 2026-11-27). Expected wall per full pass: about 700 s (PP-14), 760 s (PP-15), plus about 90 s on
 each of PP-5 / PP-6.
 
 Air risk: a full case falls for the semi wait plus a window of up to about 27 s from 1600 m; P6's
@@ -4340,7 +4340,7 @@ two clip-driven families shares one clip length, last written wins
 
 Rule (D.10, E.9): two pieces in flight never touch one file, each is green on its own, and every C#
 literal a Python cell mirrors changes in ONE piece with its mirror. M1 adds the mirrored
-`PartParityMotionRules.cs`, holding every motion constant. Docs: each piece edits only its own G
+`PartParityMotionRules.cs`, holding every motion constant. Docs: each piece edits only its own H
 subsection.
 
 | # | PR | Files | Runs alongside | Acceptance |
@@ -4348,7 +4348,7 @@ subsection.
 | M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
 | M1 | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs` | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green |
-| M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (keeps the `DecideAdmission(args, active,` call the hlib cell reads), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
+| M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
 | M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
 | M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
@@ -4368,11 +4368,9 @@ crops and play button (extended to a clock).
 
 ### H.8 Owner questions
 
-None block the plan. Three decisions follow the reading flight, each about a fix, not about P7:
+None block the plan. Item 1 of H.6 is decided (owner, 2026-11-26: fix on playback, done in #2838).
+Two decisions follow the reading flight, each about a fix, not about P7:
 
-- H.6 item 1 (the one-clip lag): fix on playback (for a family whose event marks the END of stock's
-  clip, start the ghost's transition one clip before the event UT; a pure function of UT, so every
-  old recording heals) or in the recorder (emit at the start edge; new recordings only).
 - H.6 items 2 to 4 (curve, chute snap, servo steps): each is playback-only (more clip samples at
   build, the canopy clip over stock's speeds, interpolation between servo samples) and records
   nothing new; the reading flight shows how visible each is at playback speed.
@@ -4382,4 +4380,16 @@ None block the plan. Three decisions follow the reading flight, each about a fix
 
 Rev 1 had a self-review against the code (the window for a late or slowed control route, the
 ghost crossings read from the scout grid, the framing pose per family); the clean-context review
-(merge-blocking findings only) is owed on the PR, since none could start when rev 1 was written.
+(merge-blocking findings only) ran on 2026-11-27, after the merge with main that renumbered this
+plan from Appendix G to H and its orbit lanes from PP-12 / PP-13 to PP-14 / PP-15. Its findings and
+their fixes:
+
+- The slow control could not pass on `longAntenna`: since #2838 an end-marked family plays its
+  motion over [event UT - motion, event UT] with the motion time stamped at build, so doubling the
+  clip after the build changed nothing and doubling the motion time moved the start before the
+  press. Fixed: the slow control's subject is `airbrake1`, a start-marked family (H.3).
+- H.8 still listed the item 1 fix as open after H.6 recorded it fixed in #2838. Fixed (H.8).
+- H.4's sentence on Appendix G's lane ids disagreed with Appendix G, which names PP-11 / PP-12 while
+  the mod-parts branch already holds PP-11. Fixed: H.4 says G's ids move up when P9 builds them.
+- The todo entry GHOST-DEPLOY-MOTION-TIMING-2026-11-26 pointed at Appendix G.6. Fixed (H.6).
+- Minor: M3 named the wrong file for the `DecideAdmission` call the hlib cell reads. Fixed (H.7).
