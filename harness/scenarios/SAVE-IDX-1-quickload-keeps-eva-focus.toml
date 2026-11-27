@@ -21,7 +21,11 @@ id = "SAVE-IDX-1-quickload-keeps-eva-focus"
 #
 # THE TIMELINE:
 #   ~21      LoadGame boots FLIGHT on the pad capsule. Live list [asteroid, capsule].
-#   ~22      A's map ghost is created. Live list [asteroid, capsule, Ghost: CN Relay A].
+#   24       WarpToUT ut=24 maxRate=1 (CN-1's 1x wait): the lane reaches its first step near UT
+#            21.6 and the engine creates no ghost before its start (save + 1 s, ~22.2), while
+#            EvaExit spawns the kerbal at once. Without the wait Jebediah is created BEFORE the
+#            ghost and the save logs nothing (no ghost ahead of him). A's map ghost is created
+#            in it: live list [asteroid, capsule, Ghost: CN Relay A].
 #   EVA      EvaExit release=true: Jebediah steps off the ladder onto the pad and becomes the
 #            active vessel, appended after the ghost: [asteroid, capsule, ghost, Jeb].
 #   flag     PlantFlag: the flag is appended after him: [..., ghost, Jeb, flag].
@@ -55,7 +59,7 @@ id = "SAVE-IDX-1-quickload-keeps-eva-focus"
 #     lines (the lane's claim does not depend on it, the count only keeps the host quiet).
 #
 # FAST-LANE CHECKLIST: (1) reuse: CN-1 / CN-5's host and preset, EVA-1's EvaExit / PlantFlag
-# pair, CN-5's save / player-load pair; (2) no warp; (3) no dwell beyond the verbs' own
+# pair, CN-5's save / player-load pair; (2) explicit-UT warp only, CN-1's 1x wait to UT 24; (3) no dwell beyond the verbs' own
 # completion; (4)-(5) no burn or coast; (6) retry `once`; (7) recordings exactly the preset's 3;
 # (8) operator until measured; (9) flight_efficiency.py after the first green flight.
 tier = "operator"
@@ -77,7 +81,8 @@ steps = [
   { cmd = "SetSetting",   args = { name = "autoRecordOnEva", value = "false" },                     expect = "OK" },
   { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },                       expect = "OK" },
 
-  # ---- a vessel and a flag created after the ghost ----
+  # ---- a vessel and a flag created after the ghost (the 1x wait lets A's window open) ----
+  { cmd = "WarpToUT",     args = { ut = "24", maxRate = "1" },                                      expect = "OK", budget = 120 },
   { cmd = "MissionMark",  args = { label = "save-idx1-eva" },                                       expect = "OK" },
   { cmd = "EvaExit",      args = { release = "true" },                                              expect = "OK", budget = 120 },
   { cmd = "PlantFlag",                                                                              expect = "OK", budget = 180 },
@@ -119,9 +124,9 @@ forbidden = [
 ]
 
 [runtime]
-# Budget arithmetic: 300 LoadGame + 120 EvaExit + 180 PlantFlag + 120 SaveGame + 300 LoadGame
-# = 1020, plus the fast verbs (SetSetting x3, MissionMark x3, FlushAndQuit) and a margin.
-budgetSeconds = 1200
+# Budget arithmetic: 300 LoadGame + 120 WarpToUT + 120 EvaExit + 180 PlantFlag + 120 SaveGame
+# + 300 LoadGame = 1140, plus the fast verbs (SetSetting x3, MissionMark x3, FlushAndQuit) and a margin.
+budgetSeconds = 1320
 
 [retry]
 policy = "once"

@@ -392,7 +392,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | revert | 23 | QL 4, RW 4, IR 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1 +2 |
 | reload | 197 | V 30, QL 21, RF 17, LAB 10, EVA 9, SPW 9, MINE 7, RW 6, VN 6, RB 5 +47 |
 | save | 310 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +73 |
-| warp | 297 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +77 |
+| warp | 298 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +77 |
 | physics-warp | 20 | QL 5, ASR 4, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 134 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +22 |
 | scene-change | 213 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, IR 5, S 5, ASR 4, CI 4 +61 |
@@ -406,7 +406,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 457 | 118 | 58 | 17 | 162 | 235 | 243 | 18 | 52 | 174 | 23 | - |
+| Kerbin | 457 | 118 | 58 | 17 | 162 | 235 | 244 | 18 | 52 | 174 | 23 | - |
 | Mun | 73 | 33 | 11 | 6 | 21 | 50 | 52 | - | 14 | 46 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -522,7 +522,7 @@ Lanes per family (rows) per timeline operation (columns).
 | RVR | 19 | - | - | - | - | 15 | - | - | 14 | - | - | - |
 | RW | 25 | 24 | 5 | 4 | 6 | 25 | 25 | - | - | 25 | - | - |
 | S | 20 | - | 5 | - | 3 | 3 | 6 | - | 6 | 5 | 5 | - |
-| SAVE | 2 | - | - | - | 1 | 1 | 1 | - | - | - | 1 | - |
+| SAVE | 2 | - | - | - | 1 | 1 | 2 | - | - | - | 1 | - |
 | SB | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | SCI | 1 | 1 | - | - | - | 1 | 1 | - | - | 1 | - | - |
 | SD | 1 | - | - | - | - | - | - | - | - | - | - | - |
@@ -633,7 +633,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SetSetting | 702 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +116 |
 | StopRecording | 401 | V 65, RF 25, RW 24, RVR 19, EVA 17, LAB 17, H 15, B 14, MINE 14 +76 |
 | SaveGame | 310 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, EVA 12, MINE 12 +73 |
-| WarpToUT | 297 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +77 |
+| WarpToUT | 298 | RW 25, V 21, LAB 18, MINE 14, EVA 12, QL 12, SPW 11, ASR 8, CI 8 +77 |
 | RecordingState | 270 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +63 |
 | DiscardTree | 265 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 12, SPW 9, TP 9 +46 |
 | RunTests | 236 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +47 |
@@ -1921,7 +1921,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SAVE-IDX-1-quickload-keeps-eva-focus | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | reload, save | - | stock-minimal; never flown |
+| SAVE-IDX-1-quickload-keeps-eva-focus | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | reload, save, warp | - | stock-minimal; never flown |
 | SAVE-IDX-2-far-switch-focuses-target | operator | gloops-airshow +inj ghost-commn... | seam | Kerbin | warp, vessel-switch | - | stock-minimal; never flown |
 
 ### SB (1)
