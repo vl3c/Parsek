@@ -4117,6 +4117,88 @@ only the members below as changed or new.
   they were.
 - No CHANGELOG entry (no behaviour change); no todo entry.
 
+X5 as built (2026-11-27, no flight; harness only, no C#). The burst and dust judge is the
+block "P9 X5: the burst and dust judge" at the end of `harness/lib/partparity.py`; its cells are
+`BurstJudgeTests`, `BurstControlJudgeTests`, `DustJudgeTests` and `P9SweepTests` in
+`harness/lib/test_partparity.py`, over a synthetic sweep built in the X1 / X3 row shape (each bin
+measured from its own atlas tile by the X3 transcription, so the recompute passes by construction).
+- Dispatch. A sidecar with a `burst` or `dust` block is a P9 case (`is_p9_case`): `judge_case`
+  sends it to `judge_p9_case`, never to the body-view judge, and the verdict carries a
+  `BurstJudgement` (kind `burst` or `dust`) the verdicts document writes under that kind. A setup
+  fault (`burst-not-triggered`, `dust-no-stock-hit` included) is `error` with `setup:<status>`
+  first. `is_fx_run` is true for a burst or dust run, so every P8 FX path (the control re-judge,
+  the FX run problems) now asks `is_fx_run and not` a P9 run.
+- Burst entries. Per (event route, view, layer) entry the G.3 findings, reasons
+  `event:<view>:<layer>:<reason>` (`onset=+2bins`, `duration=-0.455`, `peak-area=0.494`,
+  `centroid-offset=0.400`, `colour=peak chroma 0.4010 hueL1 2.0000` and its `mean` twin,
+  `brightness=` warn only, `smoke=peak-area 0.474`, the presence words `burst-missing`,
+  `burst-extra`, `smoke-missing`, `smoke-extra`). An entry's fails are exactly
+  `PartParityBurstMetrics.FailingMeasures` (a cell checks every fixture entry). Both largest cores
+  weak: the measures are skipped and `burst-weak-core:event:<view>:<layer>:real=N,ghost=M` raises
+  the case to warn (E.4's rule). The split-half cap is per entry: halves that disagree (the
+  real side's, else the ghost's: a presence reason, or largest cores more than 10 % apart) hold
+  that entry's fails at warn, list it under `unsettled`, add the `burst-unsettled` flag and the
+  `burst-unsettled:capped at warn` reason; another entry still fails.
+- Schedule. Judged for every family but `burst-custom` (the stand-ins draw a Parsek fireball or
+  puff, never an FXMonger blast, so its count always differs; the diff is still written under
+  `schedule.findings`, reported only). Fails: `schedule=count R/G`, `schedule=index blast i a/b`,
+  `schedule=offset blast i D.DDDm` (over 1 m); warns: `schedule=power blast i x/y` (one index).
+- Structure and contradictions. A rendered effect missing or extra on the ghost fails
+  (`missing-burst:<key>` / `extra-burst:<key>`, the dust words for a dust case); a null
+  `structure` flags `burst-structure-not-measured` (or the dust one) and warns. Error, and the
+  sweep INVALID(parity-instrument): the block's family against the state word, a context other
+  than `air` (burst) or `ground` (dust), a lost entry (`burst-no-entries:N lost, first ...`), and on
+  an `ok` case a stock side that drew nothing: no envelope, `trigger.realTagged` 0, or an empty
+  real schedule for an FXMonger family (the writer must record that `burst-not-triggered`); for
+  dust, stock's raycast hits 0 (the writer records `dust-no-stock-hit`). `joint-break` alone is
+  meant to draw nothing on stock's side.
+- Dust. The dust-layer entries read E.4's findings with P8's split-half rule, only the G.3 dust
+  measures (no direction, no core IoU), presence as `dust-missing` / `dust-extra:<surface>`; a
+  ghost core where stock's raycast surface is `none` or `launchpad` fails `dust-extra:<surface>`
+  once at case level. The flame layer is measured but not judged here (P8 judges plumes); it is
+  evidence for `ctl-dust-off` only.
+- Instrument check and completeness. Every captured P9 case has its block shape checked (keys,
+  window / bins / trials of its family, samples, atlas block, trigger, schedule and its diff,
+  every expected entry once with sides, summaries and compare recomputed from its own numbers,
+  the halves the same way); every control with a P9 atlas and the seeded sample of the part cases
+  are recomputed from `<caseId>.burst.png` / `.dust.png`, listed as `<caseId>.burst` / `.dust`. A
+  block outside its run, a captured case of a P9 run without its block and a manifest row whose
+  family is not the block's are instrument problems. A P9 case needs its entries and its atlas
+  harvested (`no-burst-views`, `p9-atlas-missing:<file>`, INVALID(parity-incomplete)). The press
+  gate counts `burst-not-triggered` and `dust-no-stock-hit` as dead presses per family.
+- Controls. `judge_burst_control` / `judge_dust_control` transcribe `JudgeBurstControl` /
+  `JudgeDustControl` with their detail wording (source-synced against
+  `PartParityFxRules.Burst.cs`); in a P9 run every control recorded `ok` is re-judged, and
+  `ctl-dust-above-reach` recorded `n/a` must re-judge `n/a` (`recorded-n/a-judged-ok()` otherwise).
+  Stricter than the C#: every burst control but `ctl-burst-empty` needs a real flame core
+  (`no real core`), and the dust real-vs-real and off controls a real dust core (`no real dust
+  core`). The C# per-trial note of X1 stands.
+- Documents and gate. The verdicts document gains a `burst` section (cases, kinds, verdicts per
+  family, flag kinds); the summary line ends ` burst=N dust=M`; fail reasons group as
+  `burst:<measure>` / `dust:<measure>`, `:schedule`, `:raycast`, `:structure` (no accepted entry
+  names them: no P9 lane joins the P5 gate before its reading runs).
+- What X4 must emit, where X1 / X3 left the shape open: `trigger` null or its five keys with
+  `frame`, `realTagged`, `ghostTagged` non-negative ints, `ut` a number, `ghostEvent` a string or
+  null; `schedule.real` / `.ghost` one trial's FXMonger blasts with `offsetM` from that trial's
+  own source part (so `ctl-burst-off` reads 1 against 0); `burst.structure` / `dust.structure`
+  null or the four `FX_STRUCTURE_KEYS` lists; a dust entry in E.4's entry shape (`FX_VIEW_KEYS`,
+  route `event`) for every `DUST_VIEWS` x (`dust`, `flame`); `dust.atlas` as `FX_ATLAS_KEYS` with
+  rows `DUST_ATLAS_ROWS` and cols `DUST_VIEWS`; `dust.samples` one int; `dust.raycast.hits` equal
+  to the `hit` samples, `hits + misses` the sample count, `surface` `none` exactly when hits is 0;
+  no `stateProof` on a P9 case, and the manifest row's `family` the block's. `dust-top` is the
+  axis view: X4's `PartParityFxMetrics.TryAxis` / `Compare` must treat it as they treat
+  `fx-bottom` today (the cross-section scale is the axis' `nozzleDiameterPx`), or the recompute
+  reds every dust case. `ctl-dust-real-vs-real`'s ghost side is the second real draw.
+- The legacy burst sweep of `LegacySweepByteIdentityTests` (two state-shaped cases with no burst
+  block) was re-pinned on purpose: it now reads INVALID(parity-controls), `no burst block` on
+  every control and every case.
+- Lane ids. G.5 and X7 name the rig lanes PP-11 / PP-12, but PP-11 is the mod-parts lane on main
+  (`harness/scenarios/PP-11-part-parity-mod-parts.toml`). PP-12 and PP-13 are free on `origin/main`
+  and every remote branch (checked 2026-11-27; PP-14 / PP-15 are claimed by Appendix H's motion
+  lanes), so X7 takes PP-12 (stock-minimal) and PP-13 (modded-restock). The plan text above is
+  left as written.
+- No CHANGELOG entry (harness only); no todo entry.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
