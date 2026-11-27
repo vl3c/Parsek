@@ -55,6 +55,7 @@ reader in (``run.py`` passes ``harness/tools/gui_mirror.py``'s ``read_png``).
 
 from __future__ import annotations
 
+import copy
 import math
 import random
 import re
@@ -1038,6 +1039,25 @@ MOTION_ROW_GHOST_MATCHED = "ghost-matched"
 # The timing keys motion_timing recomputes as numbers (every key but the crossings and flags).
 MOTION_TIMING_NUMBER_KEYS: Tuple[str, ...] = MOTION_TIMING_KEYS[2:-1]
 
+# The motion judge (H.3, piece M4); Python-only words except where noted.
+MOTION_CONTROL_IDS: Tuple[str, ...] = (
+    CONTROL_MOTION_REAL_VS_REAL, CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE,
+    CONTROL_MOTION_REAL_VS_REAL_AIR,
+)
+MOTION_REAL_VS_REAL_CONTROL_IDS: Tuple[str, ...] = (CONTROL_MOTION_REAL_VS_REAL,
+                                                    CONTROL_MOTION_REAL_VS_REAL_AIR)
+# The slow and late controls judge an altered route against the same subject's normal one:
+# the control's own sidecar is the altered route, ``<controlId>--normal`` the normal route
+# over the same real frames (H.3).
+MOTION_CONTROLS_WITH_NORMAL: Tuple[str, ...] = (CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE)
+MOTION_CONTROL_NORMAL_SUFFIX = "--normal"
+# The two families P6 has no end state for: their last frame is judged by the P6 rules (H.3).
+MOTION_LAST_FRAME_JUDGED_FAMILIES: Tuple[str, ...] = ("robotics", "control-surface")
+# PartParitySweepPlan.RealVsRealColorNoisePx: the real-vs-real allowance of 4.5.
+REAL_VS_REAL_COLOR_NOISE_PX = 8
+# The id suffix the instrument check lists a motion atlas recompute under.
+MOTION_RECOMPUTE_ID_SUFFIX = ".motion"
+
 
 def is_motion_state(state: Optional[str]) -> bool:
     """PartParityMotionRules.IsMotionState: a ``motion-`` word (any tiebreak suffix)."""
@@ -1177,30 +1197,39 @@ def motion_crossings(s: Sequence[float], p: Sequence[float]) -> List[Optional[fl
     return [motion_crossing(s, p, level) for level in MOTION_CROSSING_LEVELS]
 
 
-def motion_interpolate(s: Sequence[float], p: Sequence[float], at: float) -> Optional[float]:
-    """Interpolate: linear between points, the end values outside them."""
-    if not s or not p or len(s) != len(p):
+def motion_interpolate(s: Sequence[float], p: Sequence[float], at: Optional[float]) -> Optional[float]:
+    """Interpolate: linear between points, the end values outside them. A None is read as
+    the C# NaN a sidecar writes as null: a comparison with it is false (a None offset stops
+    the scan and its span is not positive, so the answer is ``p[k]``), and a None progress
+    the interpolation reads makes the answer None."""
+    if not s or not p or len(s) != len(p) or at is None:
         return None
-    if at <= s[0]:
+    if s[0] is not None and at <= s[0]:
         return p[0]
     for k in range(1, len(s)):
-        if at > s[k]:
+        if s[k] is not None and at > s[k]:
             continue
-        span = s[k] - s[k - 1]
-        return p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span if span > 0 else p[k]
+        span = None if s[k] is None or s[k - 1] is None else s[k] - s[k - 1]
+        if span is None or not span > 0:
+            return p[k]
+        if p[k - 1] is None or p[k] is None:
+            return None
+        return p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span
     return p[-1]
 
 
 def motion_shape_deviation(real_s: Sequence[float], real_p: Sequence[float], ghost_s: Sequence[float],
                            ghost_p: Sequence[float], lag_s: Optional[float]) -> Optional[float]:
-    """ShapeDeviation: max |ghost(t + lag) - real(t)| over the real points inside the band."""
+    """ShapeDeviation: max |ghost(t + lag) - real(t)| over the real points inside the band.
+    A None real point is outside the band and a None ghost value is skipped (C#: NaN
+    compares false, and a NaN distance never replaces a measured one)."""
     if lag_s is None or real_s is None or real_p is None or len(real_s) != len(real_p):
         return None
     worst: Optional[float] = None
     for t, p in zip(real_s, real_p):
-        if not (MOTION_SHAPE_BAND_LOW < p < MOTION_SHAPE_BAND_HIGH):
+        if p is None or not (MOTION_SHAPE_BAND_LOW < p < MOTION_SHAPE_BAND_HIGH):
             continue
-        g = motion_interpolate(ghost_s, ghost_p, t + lag_s)
+        g = None if t is None else motion_interpolate(ghost_s, ghost_p, t + lag_s)
         if g is None:
             continue
         d = abs(g - p)
@@ -1228,27 +1257,31 @@ def motion_not_modelled(real_p: Sequence[float], ghost_p: Sequence[float]) -> bo
 
 def motion_snapped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
     """Snapped: the ghost jumps under 0.1 -> over 0.9 between adjacent frames while the real
-    takes 3 frames or more."""
+    takes 3 frames or more. A None value compares false (the C# NaN)."""
     if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
         return False
-    high = next((k for k, v in enumerate(real_p) if v > MOTION_SNAP_HIGH), -1)
+    high = next((k for k, v in enumerate(real_p) if v is not None and v > MOTION_SNAP_HIGH), -1)
     if high < 0:
         return False
-    low = next((k for k in range(high - 1, -1, -1) if real_p[k] < MOTION_SNAP_LOW), -1)
+    low = next((k for k in range(high - 1, -1, -1)
+                if real_p[k] is not None and real_p[k] < MOTION_SNAP_LOW), -1)
     if low < 0 or high - low < MOTION_SNAP_REAL_MIN_FRAMES:
         return False
-    return any(ghost_p[k] < MOTION_SNAP_LOW and ghost_p[k + 1] > MOTION_SNAP_HIGH
+    return any(ghost_p[k] is not None and ghost_p[k + 1] is not None
+               and ghost_p[k] < MOTION_SNAP_LOW and ghost_p[k + 1] > MOTION_SNAP_HIGH
                for k in range(len(ghost_p) - 1))
 
 
 def motion_stepped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
     """Stepped: two or more separate holds of the ghost (still, inside the hold band) while
-    the real rises more than 0.05 per frame."""
+    the real rises more than 0.05 per frame. A pair with a None value is not still (the C#
+    NaN compares false), so it ends a hold."""
     if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
         return False
     holds, in_hold = 0, False
     for k in range(len(ghost_p) - 1):
-        still = (abs(ghost_p[k + 1] - ghost_p[k]) <= MOTION_STEP_STILL_EPSILON
+        known = None not in (ghost_p[k], ghost_p[k + 1], real_p[k], real_p[k + 1])
+        still = (known and abs(ghost_p[k + 1] - ghost_p[k]) <= MOTION_STEP_STILL_EPSILON
                  and MOTION_STEP_HOLD_LOW < ghost_p[k] < MOTION_STEP_HOLD_HIGH
                  and real_p[k + 1] - real_p[k] > MOTION_STEP_REAL_RISE)
         if still and not in_hold:
@@ -2931,6 +2964,8 @@ class CaseVerdict:
     state_flags: Tuple[str, ...] = ()
     # A P8 FX case only (design E.4): the FX half of the verdict.
     fx: Optional["FxJudgement"] = None
+    # A P7 motion case only (Appendix H.3): the motion judgement.
+    motion: Optional["MotionJudgement"] = None
 
     @property
     def is_state_case(self) -> bool:
@@ -2950,6 +2985,8 @@ class CaseVerdict:
                         "stateFlags": list(self.state_flags)})
         if self.fx is not None:
             out["fx"] = self.fx.to_dict()
+        if self.motion is not None:
+            out["motion"] = self.motion.to_dict()
         return out
 
 
@@ -3447,6 +3484,395 @@ def run_shape_problem(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
     return None
 
 
+# ---------------------------------------------------------------------------
+# P7: the motion judge (Appendix H.3, piece M4). A motion case's verdict reads the timing
+# measures of its sidecar's ``motion.timing`` block (the instrument check recomputes that
+# block from the per-frame arrays for every motion case, ``motion_case_problems``), never a
+# per-frame picture; the per-frame pictures, ``staggerDev``, ``travelRatio``, the picture
+# progress and the border / jitter / match tags are report-only.
+# ---------------------------------------------------------------------------
+
+def motion_frames(block: Optional[Dict]) -> List[Dict]:
+    """The ``frames[]`` entries of a motion block that are objects, in order."""
+    frames = block.get("frames") if isinstance(block, dict) else None
+    return [f for f in frames if isinstance(f, dict)] if isinstance(frames, list) else []
+
+
+def motion_frame_interval(block: Optional[Dict]) -> float:
+    """The motion's starting frame interval: ``window.spacingS``, else T / n from the block."""
+    window = block.get("window") if isinstance(block, dict) else None
+    spacing = _num(window.get("spacingS")) if isinstance(window, dict) else None
+    if spacing is not None and spacing > 0:
+        return spacing
+    n = (block or {}).get("framesPerMotion")
+    n = n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else MOTION_DEFAULT_FRAMES
+    return motion_spacing_seconds((block or {}).get("predictedS"), n)
+
+
+def motion_servo_sweep(block: Optional[Dict]) -> Optional[float]:
+    """A servo's sweep: the largest ``|realClock - realClock[0]|`` over its frames (None when
+    frame 0 carries no clock)."""
+    clocks = [_num(f.get("realClock")) for f in motion_frames(block)]
+    if not clocks or clocks[0] is None:
+        return None
+    travel = [abs(c - clocks[0]) for c in clocks if c is not None]
+    return max(travel) if travel else None
+
+
+def motion_lag_line(real_duration_s: Optional[float]) -> float:
+    """The lag fail line, ``max(0.5 s, 0.25 T_real)`` (``motion_lag_fails``)."""
+    return max(MOTION_LAG_FAIL_MIN_S, MOTION_LAG_FAIL_REAL_FRACTION * (real_duration_s or 0.0))
+
+
+def motion_angle_line(sweep: Optional[float]) -> float:
+    """A servo's angle fail line, ``max(5 deg, 0.15 x sweep)``."""
+    return max(MOTION_SERVO_ANGLE_FAIL_MIN_DEG, MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION * (sweep or 0.0))
+
+
+def motion_view_names(block: Optional[Dict]) -> List[str]:
+    """The views of a motion case, in the order its first frame lists them."""
+    frames = motion_frames(block)
+    views = frames[0].get("views") if frames else None
+    return [str(v.get("view")) for v in views or [] if isinstance(v, dict)]
+
+
+def motion_frame_views(frame: Dict, which: str) -> List[Dict]:
+    """One frame's ``same`` (or ``matched``) blocks as view records named after their view;
+    a null block is left out."""
+    out: List[Dict] = []
+    for v in frame.get("views") or []:
+        if not isinstance(v, dict) or not isinstance(v.get(which), dict):
+            continue
+        rec = dict(v[which])
+        rec["view"] = v.get("view")
+        out.append(rec)
+    return out
+
+
+def motion_last_frame_route(sidecar: Dict) -> Optional[RouteJudgement]:
+    """The last frame's same-time pictures judged by the P6 end-state rules (``judge_route``
+    with the case's ``structure`` and tags); None without frames."""
+    frames = motion_frames(motion_block(sidecar))
+    if not frames:
+        return None
+    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
+    return judge_route(motion_frame_views(frames[-1], "same"), sidecar.get("structure"), tags)
+
+
+def _motion_frames_with(frames: Sequence[Dict], pred: Callable[[str], bool]) -> List[int]:
+    out = []
+    for i, f in enumerate(frames):
+        if any(isinstance(x, str) and pred(x) for x in f.get("flags") or []):
+            k = f.get("k")
+            out.append(k if isinstance(k, int) and not isinstance(k, bool) else i)
+    return out
+
+
+def motion_picture_t50s(block: Optional[Dict]) -> Dict[str, Optional[float]]:
+    """Per real or same-time ghost atlas row, the picture progress t50 over the real frames'
+    offsets (``imgProgress``; a frame without one compares false)."""
+    frames = motion_frames(block)
+    rs = [_num(f.get("realS")) for f in frames]
+    out: Dict[str, Optional[float]] = {}
+    for view in motion_view_names(block):
+        for row in ("%s:%s" % (MOTION_ROW_REAL, view), "%s:%s" % (MOTION_ROW_GHOST, view)):
+            series = []
+            for f in frames:
+                img = f.get("imgProgress")
+                series.append(_num(img.get(row)) if isinstance(img, dict) else None)
+            out[row] = motion_crossing(rs, series, 0.5)
+    return out
+
+
+def motion_progress_disagreement(block: Optional[Dict]) -> List[str]:
+    """The rows whose picture t50 and pose t50 differ by more than two frame intervals
+    (``progress-disagree``, an instrument hint, report-only): a real row against the real
+    pose t50, a same-time ghost row against the ghost's same-time pose t50."""
+    frames = motion_frames(block)
+    rs = [_num(f.get("realS")) for f in frames]
+    pose = {MOTION_ROW_REAL: motion_crossing(rs, [_num(f.get("realProgress")) for f in frames], 0.5),
+            MOTION_ROW_GHOST: motion_crossing(rs, [_num(f.get("ghostProgress")) for f in frames], 0.5)}
+    interval = motion_frame_interval(block)
+    return [row for row, t50 in motion_picture_t50s(block).items()
+            if motion_progress_disagrees(pose[row.split(":", 1)[0]], t50, interval)]
+
+
+# The case-level flags a motion case may carry beside its timing flags (H.1, H.2).
+_MOTION_CASE_FLAGS: Tuple[str, ...] = (FLAG_MOTION_WINDOW_CAPPED, FLAG_MOTION_CLIPPED_AT_BORDER,
+                                       FLAG_SCOUT_RENDER_DISAGREE)
+_MOTION_FRAME_FLAG_KINDS: Tuple[str, ...] = (FLAG_MOTION_NO_MATCH, FLAG_MOTION_CLIPPED_AT_BORDER,
+                                             FLAG_SCOUT_RENDER_DISAGREE)
+
+
+def motion_flags(sidecar: Dict) -> Tuple[str, ...]:
+    """Every motion flag of a case, in a fixed order: the timing block's flags (C# order),
+    ``motion-window-capped`` (the case flag or ``window.capped``), the other case flags, the
+    frame flag kinds (``no-match``, ``motion-clipped-at-border``, ``scout-render-disagree``,
+    each once) and each ``frame-jitter:<ms>`` tag in frame order, then ``progress-disagree``
+    when ``motion_progress_disagreement`` names a row."""
+    block = motion_block(sidecar)
+    out: List[str] = []
+
+    def add(f: str) -> None:
+        if f not in out:
+            out.append(f)
+
+    timing = block.get("timing") if isinstance(block, dict) else None
+    for f in (timing.get("flags") if isinstance(timing, dict) else None) or []:
+        if isinstance(f, str):
+            add(f)
+    window = block.get("window") if isinstance(block, dict) else None
+    case_flags = [f for f in sidecar.get("flags") or [] if isinstance(f, str)]
+    if (isinstance(window, dict) and window.get("capped") is True) or FLAG_MOTION_WINDOW_CAPPED in case_flags:
+        add(FLAG_MOTION_WINDOW_CAPPED)
+    for f in case_flags:
+        if f in _MOTION_CASE_FLAGS:
+            add(f)
+    frames = motion_frames(block)
+    frame_flags = [x for fr in frames for x in fr.get("flags") or [] if isinstance(x, str)]
+    for kind in _MOTION_FRAME_FLAG_KINDS:
+        if kind in frame_flags:
+            add(kind)
+    for x in frame_flags:
+        if x.startswith(FLAG_FRAME_JITTER_PREFIX):
+            add(x)
+    if motion_progress_disagreement(block):
+        add(FLAG_PROGRESS_DISAGREE)
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class MotionJudgement:
+    """The motion half of a motion case's verdict (H.3): the verdict, its reasons, the flags,
+    the judged measures and the report-only ones."""
+    verdict: str
+    reasons: Tuple[str, ...]
+    flags: Tuple[str, ...]
+    family: Optional[str]
+    kind: Optional[str]
+    measures: Dict[str, Any]
+    report: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"verdict": self.verdict, "reasons": list(self.reasons), "flags": list(self.flags),
+                "family": self.family, "kind": self.kind, "measures": dict(self.measures),
+                "report": copy.deepcopy(self.report)}
+
+
+def _fmt3(v: Optional[float]) -> str:
+    return "null" if v is None else "%.3f" % v
+
+
+def judge_motion(sidecar: Dict) -> MotionJudgement:
+    """The H.3 levels over one motion case's sidecar.
+
+    ``fail``: ``motion-not-modelled``; ``motion-snap``; ``|lagS| > max(0.5 s, 0.25 T_real)``;
+    ``durationRatio`` outside [0.6, 1.67]; ``curveShapeDev > 0.30``; a servo's
+    ``angleMaxDevDeg > max(5 deg, 0.15 x sweep)``; a ``lagS`` or ``durationRatio`` left
+    unmeasured while the real moved and the ghost did not read not-modelled (the ghost never
+    crossed a level the real crossed); on ``robotics`` and ``control-surface`` only, the last
+    frame failing the P6 picture and structure rules. ``warn``: each numeric line at half its
+    distance from the ideal (lag, curve shape and servo angle at half the line, the duration
+    ratio outside [0.8, 1.25]), ``motion-stepped``, and that last frame at warn. ``error``: no
+    motion or timing block, fewer than MOTION_MIN_FRAMES frames, or no real frame reaching
+    0.9 (the window rule failed). The setup fault and the press proof are judge_case's."""
+    block = motion_block(sidecar)
+    family = block.get("family") if isinstance(block, dict) else None
+    kind = block.get("kind") if isinstance(block, dict) else None
+    flags = motion_flags(sidecar)
+    frames = motion_frames(block)
+    timing = block.get("timing") if isinstance(block, dict) else None
+    timing = timing if isinstance(timing, dict) else None
+    reasons: List[str] = []
+    verdict = VERDICT_PASS
+
+    def raise_to(level: str, reason: str) -> None:
+        nonlocal verdict
+        reasons.append("motion:" + reason)
+        if _RANK[level] > _RANK[verdict]:
+            verdict = level
+
+    real_p = [_num(f.get("realProgress")) for f in frames]
+    reached = max([p for p in real_p if p is not None], default=None)
+    real_duration = motion_real_duration(timing)
+    lag = _num((timing or {}).get("lagS"))
+    ratio = _num((timing or {}).get("durationRatio"))
+    shape = _num((timing or {}).get("curveShapeDev"))
+    angle = _num((timing or {}).get("angleMaxDevDeg"))
+    sweep = motion_servo_sweep(block) if kind == MOTION_KIND_SERVO else None
+    lag_line = motion_lag_line(real_duration)
+    angle_line = motion_angle_line(sweep)
+    measures = {
+        "frames": len(frames), "predictedS": _num((block or {}).get("predictedS")),
+        "eventDelayS": _num((block or {}).get("eventDelayS")),
+        "ghostStartDelayS": _num((block or {}).get("ghostStartDelayS")),
+        "realDurationS": real_duration, "realReached": reached,
+        "lagS": lag, "lagLineS": lag_line,
+        "onsetLagS": _num((timing or {}).get("onsetLagS")),
+        "endLagS": _num((timing or {}).get("endLagS")),
+        "durationRatio": ratio, "curveShapeDev": shape,
+        "angleMaxDevDeg": angle if kind == MOTION_KIND_SERVO else None,
+        "servoSweep": sweep, "angleLineDeg": angle_line if kind == MOTION_KIND_SERVO else None,
+    }
+    report: Dict[str, Any] = {
+        "staggerDev": _num((timing or {}).get("staggerDev")),
+        "travelRatio": _num((timing or {}).get("travelRatio")),
+        "pictureT50": motion_picture_t50s(block),
+        "progressDisagree": motion_progress_disagreement(block),
+        "noMatchFrames": _motion_frames_with(frames, lambda x: x == FLAG_MOTION_NO_MATCH),
+        "clippedFrames": _motion_frames_with(frames, lambda x: x == FLAG_MOTION_CLIPPED_AT_BORDER),
+        "jitterFrames": _motion_frames_with(frames, lambda x: x.startswith(FLAG_FRAME_JITTER_PREFIX)),
+        "frameVerdicts": {which: [judge_route(motion_frame_views(f, which), None, ()).verdict
+                                  if motion_frame_views(f, which) else None for f in frames]
+                          for which in ("same", "matched")},
+        "lastFrame": None,
+    }
+    if block is None:
+        raise_to(VERDICT_ERROR, "no-motion-block")
+        return MotionJudgement(verdict, tuple(reasons), flags, family, kind, measures, report)
+    if timing is None:
+        raise_to(VERDICT_ERROR, "no-timing")
+    if len(frames) < MOTION_MIN_FRAMES:
+        raise_to(VERDICT_ERROR, "frames=%d<%d" % (len(frames), MOTION_MIN_FRAMES))
+    if reached is None or reached < MOTION_REAL_REACHED_PROGRESS:
+        raise_to(VERDICT_ERROR, "real-not-reached=%s<%.1f" % (_fmt3(reached), MOTION_REAL_REACHED_PROGRESS))
+    not_modelled = FLAG_MOTION_NOT_MODELLED in flags
+    if not_modelled:
+        raise_to(VERDICT_FAIL, "flag:" + FLAG_MOTION_NOT_MODELLED)
+    if FLAG_MOTION_SNAP in flags:
+        raise_to(VERDICT_FAIL, "flag:" + FLAG_MOTION_SNAP)
+    if FLAG_MOTION_STEPPED in flags:
+        raise_to(VERDICT_WARN, "flag:" + FLAG_MOTION_STEPPED)
+    if timing is not None and not not_modelled and verdict != VERDICT_ERROR:
+        for name, value in (("lagS", lag), ("durationRatio", ratio)):
+            if value is None:
+                raise_to(VERDICT_FAIL, "%s=unmeasured" % name)
+    if lag is not None:
+        if motion_lag_fails(lag, real_duration):
+            raise_to(VERDICT_FAIL, "lagS=%.3f>%.3f" % (lag, lag_line))
+        elif abs(lag) > MOTION_WARN_FRACTION * lag_line:
+            raise_to(VERDICT_WARN, "lagS=%.3f>%.3f" % (lag, MOTION_WARN_FRACTION * lag_line))
+    if ratio is not None:
+        if motion_duration_fails(ratio):
+            raise_to(VERDICT_FAIL, "durationRatio=%.3f" % ratio)
+        elif ratio < MOTION_DURATION_RATIO_WARN_MIN or ratio > MOTION_DURATION_RATIO_WARN_MAX:
+            raise_to(VERDICT_WARN, "durationRatio=%.3f" % ratio)
+    if shape is not None:
+        if shape > MOTION_CURVE_SHAPE_FAIL:
+            raise_to(VERDICT_FAIL, "curveShapeDev=%.3f>%.3f" % (shape, MOTION_CURVE_SHAPE_FAIL))
+        elif shape > MOTION_WARN_FRACTION * MOTION_CURVE_SHAPE_FAIL:
+            raise_to(VERDICT_WARN, "curveShapeDev=%.3f>%.3f" % (shape, MOTION_WARN_FRACTION * MOTION_CURVE_SHAPE_FAIL))
+    if kind == MOTION_KIND_SERVO and angle is not None:
+        if angle > angle_line:
+            raise_to(VERDICT_FAIL, "angleMaxDevDeg=%.3f>%.3f" % (angle, angle_line))
+        elif angle > MOTION_WARN_FRACTION * angle_line:
+            raise_to(VERDICT_WARN, "angleMaxDevDeg=%.3f>%.3f" % (angle, MOTION_WARN_FRACTION * angle_line))
+    if frames and not motion_frame_views(frames[-1], "same"):
+        raise_to(VERDICT_ERROR, "last-frame-no-pictures")
+    last = motion_last_frame_route(sidecar)
+    if last is not None and verdict != VERDICT_ERROR:
+        if family in MOTION_LAST_FRAME_JUDGED_FAMILIES:
+            for r in last.reasons:
+                reasons.append("motion:last-frame:" + r)
+            if _RANK[last.verdict] > _RANK[verdict]:
+                verdict = last.verdict
+        else:
+            report["lastFrame"] = last.to_dict()
+    return MotionJudgement(verdict, tuple(reasons), flags, family, kind, measures, report)
+
+
+def motion_press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
+    """``press_proof_problem`` for a motion case (H.2: the press gate reads it like a state
+    case), with one difference: a servo is driven through its target field, not pressed, so
+    its proof may carry ``action`` null when it ``reached`` its target."""
+    if not isinstance(sidecar, dict):
+        return None
+    block = motion_block(sidecar)
+    proof = sidecar.get("stateProof")
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    if (isinstance(block, dict) and block.get("kind") == MOTION_KIND_SERVO and isinstance(proof, dict)
+            and proof.get("action") is None and not is_setup_fault(setup.get("status"))):
+        return None if proof.get("reached") is True else (
+            "press-proof: servo setup=%s action=null reached=%s" % (setup.get("status"), proof.get("reached")))
+    return press_proof_problem(sidecar)
+
+
+def is_motion_case(sidecar: Optional[Dict]) -> bool:
+    """A sidecar judged by the motion judge: it carries a ``motion`` block or a motion state."""
+    return isinstance(sidecar, dict) and (motion_block(sidecar) is not None
+                                          or is_motion_state(sidecar.get("state")))
+
+
+def judge_motion_case(sidecar: Dict) -> "CaseVerdict":
+    """A motion case's CaseVerdict: ``judge_motion``, raised by the skin proof, and ``error``
+    for a setup fault or a press proof that contradicts the case (judge_case's rules). The
+    worst view and the blob maxima are the last frame's when it is judged, else empty."""
+    case_id = str(sidecar.get("caseId") or "?")
+    skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
+    status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
+    motion = judge_motion(sidecar)
+    verdict, reasons = motion.verdict, list(motion.reasons)
+    last = motion_last_frame_route(sidecar) if motion.family in MOTION_LAST_FRAME_JUDGED_FAMILIES else None
+    skin_verdict, skin_reasons = judge_skin(
+        skin, ghost_built=FLAG_GHOST_NOT_BUILT not in (sidecar.get("flags") or []))
+    reasons.extend(skin_reasons)
+    if skin_verdict is not None and _RANK[skin_verdict] > _RANK[verdict]:
+        verdict = skin_verdict
+    if status is None or is_setup_fault(status):
+        reasons.insert(0, "setup:%s" % (status or "missing"))
+        verdict = VERDICT_ERROR
+    contradiction = motion_press_proof_problem(sidecar)
+    if contradiction is not None:
+        reasons.insert(0, contradiction)
+        verdict = VERDICT_ERROR
+    state = sidecar.get("state")
+    return CaseVerdict(case_id, sidecar.get("part"), skin.get("requested"), sidecar.get("source"),
+                       verdict, tuple(reasons),
+                       None if last is None or last.worst_view is None else "last-frame:%s" % last.worst_view,
+                       last.max_shape_blob_px if last else 0, last.max_shape_blob_pct if last else None,
+                       last.max_color_blob_px if last else 0, status,
+                       state=state if is_state_case(state) else None, family=motion.family,
+                       context=sidecar.get("context"), motion=motion)
+
+
+def motion_case_counts(cases: Iterable["CaseVerdict"]) -> Optional[Dict[str, Any]]:
+    """The verdicts document's ``motion`` section: the motion cases' verdicts per family, the
+    cases per flag kind and the judge's lines; None when the sweep has no motion case."""
+    motion = [c for c in cases if c.motion is not None]
+    if not motion:
+        return None
+    families: Dict[str, Dict[str, int]] = {}
+    flags: Dict[str, int] = {}
+    for c in motion:
+        fam = families.setdefault(str(c.motion.family or PRESS_UNKNOWN_FAMILY), {v: 0 for v in VERDICTS})
+        fam[c.verdict] = fam.get(c.verdict, 0) + 1
+        for kind in sorted({f.split(":", 1)[0] for f in c.motion.flags}):
+            flags[kind] = flags.get(kind, 0) + 1
+    return {"cases": len(motion), "families": dict(sorted(families.items())),
+            "flags": dict(sorted(flags.items())), "thresholds": motion_thresholds()}
+
+
+def motion_thresholds() -> Dict[str, Any]:
+    return {"lagFailMinS": MOTION_LAG_FAIL_MIN_S, "lagFailRealFraction": MOTION_LAG_FAIL_REAL_FRACTION,
+            "durationRatioFail": [MOTION_DURATION_RATIO_FAIL_MIN, MOTION_DURATION_RATIO_FAIL_MAX],
+            "durationRatioWarn": [MOTION_DURATION_RATIO_WARN_MIN, MOTION_DURATION_RATIO_WARN_MAX],
+            "curveShapeFail": MOTION_CURVE_SHAPE_FAIL, "warnFraction": MOTION_WARN_FRACTION,
+            "servoAngleFailMinDeg": MOTION_SERVO_ANGLE_FAIL_MIN_DEG,
+            "servoAngleFailSweepFraction": MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION,
+            "minFrames": MOTION_MIN_FRAMES, "realReachedProgress": MOTION_REAL_REACHED_PROGRESS}
+
+
+def motion_summary(cases: Iterable["CaseVerdict"]) -> str:
+    """The summary line's motion part (empty when the sweep has no motion case)."""
+    counts = motion_case_counts(cases)
+    if counts is None:
+        return ""
+    fl = counts["flags"]
+    return " motion=%d notModelled=%d snap=%d stepped=%d" % (
+        counts["cases"], fl.get(FLAG_MOTION_NOT_MODELLED, 0), fl.get(FLAG_MOTION_SNAP, 0),
+        fl.get(FLAG_MOTION_STEPPED, 0))
+
+
 def judge_case(sidecar: Dict) -> CaseVerdict:
     """Case verdict = the worst view, raised to ``fail`` by a missing / extra RENDERED
     mesh in the structural diff or a skin mismatch; ``error`` for a setup fault (the
@@ -3464,6 +3890,8 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
     A P8 FX case (design E.4, an ``fx`` block) adds its FX half (``apply_fx``): the worse of
     the body routes and the FX measures, an entry whose halves did not converge capped at
     ``warn``; a Waterfall one reads ``reference`` (``apply_fx_reference``)."""
+    if is_motion_case(sidecar):
+        return judge_motion_case(sidecar)
     case_id = str(sidecar.get("caseId") or "?")
     skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
     status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
@@ -3593,6 +4021,163 @@ def judge_state_control(sidecar: Optional[Dict]) -> Tuple[str, str]:
     return CONTROLS_OK, ""
 
 
+# --- the motion controls (Appendix H.3), PartParityMotionRules.Judge* -------------------
+
+def _cs_num(v: Optional[float]) -> str:
+    """PartParityMotionRules.Num: ``nan`` for not measured, else ``0.###``."""
+    if v is None:
+        return "nan"
+    text = "%.3f" % v
+    text = text.rstrip("0").rstrip(".")
+    return "0" if text in ("-0", "") else text
+
+
+def _motion_control_verdict(why: List[str]) -> Tuple[str, str]:
+    return (CONTROLS_OK, "") if not why else (CONTROLS_BAD, "; ".join(why))
+
+
+def _timing_number(timing: Optional[Dict], key: str) -> Optional[float]:
+    return _num(timing.get(key)) if isinstance(timing, dict) else None
+
+
+def judge_motion_real_vs_real(timing: Optional[Dict], frame_interval_s: float, predicted_s: Optional[float],
+                              end_frames_within_allowance: bool, setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeRealVsReal``: copy B's curve against copy A's within the live capture's timing
+    noise floor (``|lagS| <= max(one frame interval, 0.02 T)``, ``|durationRatio - 1| <= 0.05``,
+    ``curveShapeDev <= 0.05`` when measured) and frame 0 and the last frame within the
+    real-vs-real allowance. Returns (outcome, detail)."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(timing, dict):
+        return CONTROLS_BAD, "no timing"
+    lag_allowed = max(frame_interval_s, MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION * (predicted_s or 0.0))
+    lag, ratio, shape = (_timing_number(timing, k) for k in ("lagS", "durationRatio", "curveShapeDev"))
+    why: List[str] = []
+    if lag is None or abs(lag) > lag_allowed:
+        why.append("lagS=" + _cs_num(lag))
+    if ratio is None or abs(ratio - 1.0) > MOTION_REAL_VS_REAL_DURATION_TOLERANCE:
+        why.append("durationRatio=" + _cs_num(ratio))
+    if shape is not None and shape > MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX:
+        why.append("curveShapeDev=" + _cs_num(shape))
+    if not end_frames_within_allowance:
+        why.append("end frames differ")
+    return _motion_control_verdict(why)
+
+
+def judge_motion_ghost_slow(normal: Optional[Dict], slow: Optional[Dict], frame_interval_s: float,
+                            slow_last_frame_passes: bool, setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeGhostSlow``, relative to the same subject's normal route: the duration ratio
+    doubles ([1.9, 2.1]), the onset stays within one frame interval, the slow route fails on
+    duration and its last frame passes the P6 end-state rules."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(normal, dict) or not isinstance(slow, dict):
+        return CONTROLS_BAD, "no timing"
+    why: List[str] = []
+    ratio = _motion_ratio(_timing_number(slow, "durationRatio"), _timing_number(normal, "durationRatio"))
+    if ratio is None or ratio < MOTION_SLOW_RATIO_MIN or ratio > MOTION_SLOW_RATIO_MAX:
+        why.append("ratio=" + _cs_num(ratio))
+    onset = _motion_diff(_timing_number(slow, "onsetLagS"), _timing_number(normal, "onsetLagS"))
+    if onset is None or abs(onset) > frame_interval_s:
+        why.append("onset=" + _cs_num(onset))
+    if not motion_duration_fails(_timing_number(slow, "durationRatio")):
+        why.append("slow route does not fail on duration")
+    if not slow_last_frame_passes:
+        why.append("slow last frame fails the end-state rules")
+    return _motion_control_verdict(why)
+
+
+def motion_late_must_fail_on_lag(real_duration_s: Optional[float]) -> bool:
+    """Whether the late route must fail on lag: only when the 1.0 s shift is past the lag
+    fail line for that real motion (``max(0.5 s, 0.25 T_real)``), so a real motion longer
+    than about 4 s holds the shift inside the line and the requirement is the relative one."""
+    return MOTION_LATE_SHIFT_S > motion_lag_line(real_duration_s)
+
+
+def judge_motion_ghost_late(normal: Optional[Dict], late: Optional[Dict],
+                            setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeGhostLate``, relative to the same subject's normal route: ``lagS(late) -
+    lagS(normal)`` in [0.98, 1.02] s and ``durationRatio`` unchanged within 0.02; the late
+    route failing on lag is required only when ``motion_late_must_fail_on_lag`` (H.3)."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(normal, dict) or not isinstance(late, dict):
+        return CONTROLS_BAD, "no timing"
+    why: List[str] = []
+    shift = _motion_diff(_timing_number(late, "lagS"), _timing_number(normal, "lagS"))
+    if shift is None or shift < MOTION_LATE_LAG_MIN or shift > MOTION_LATE_LAG_MAX:
+        why.append("lag shift=" + _cs_num(shift))
+    dr = _motion_diff(_timing_number(late, "durationRatio"), _timing_number(normal, "durationRatio"))
+    if dr is None or abs(dr) > MOTION_LATE_DURATION_TOLERANCE:
+        why.append("durationRatio change=" + _cs_num(dr))
+    real_duration = motion_real_duration(late)
+    if motion_late_must_fail_on_lag(real_duration) and not motion_lag_fails(
+            _timing_number(late, "lagS"), real_duration):
+        why.append("late route does not fail on lag")
+    return _motion_control_verdict(why)
+
+
+def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
+    """Frame 0 and the last frame of a real-vs-real control within the real-vs-real allowance
+    of 4.5 (``PartParitySweepPlan`` ``ctl-real-vs-real``): every view's same-time block has no
+    real-only or ghost-only pixel and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over
+    the threshold, and some view has coverage."""
+    frames = motion_frames(block)
+    if not frames:
+        return False
+    for frame in (frames[0], frames[-1]):
+        views = [v for v in frame.get("views") or [] if isinstance(v, dict)]
+        if not views:
+            return False
+        for v in views:
+            m = v.get("same")
+            if not isinstance(m, dict) or m.get("realOnlyPx") != 0 or m.get("ghostOnlyPx") != 0 \
+                    or (_num(m.get("colorOverPx")) or 0) > REAL_VS_REAL_COLOR_NOISE_PX:
+                return False
+        if not any((_num((v.get("same") or {}).get("realPx")) or 0) > 0 for v in views):
+            return False
+    return True
+
+
+def motion_normal_id(control_id: str) -> str:
+    """The sidecar id of a slow or late control's normal route."""
+    return control_id + MOTION_CONTROL_NORMAL_SUFFIX
+
+
+def judge_motion_control(cid: str, sidecars: Dict[str, Optional[Dict]]) -> Tuple[str, str]:
+    """A motion control re-judged from its sidecar(s) (H.3), as the C# judges do. Returns
+    (outcome, detail)."""
+    side = sidecars.get(cid)
+    if not isinstance(side, dict):
+        return CONTROLS_BAD, "no sidecar"
+    setup = side.get("setup") if isinstance(side.get("setup"), dict) else {}
+    status = setup.get("status")
+    block = motion_block(side)
+    timing = block.get("timing") if isinstance(block, dict) else None
+    if cid in MOTION_REAL_VS_REAL_CONTROL_IDS:
+        return judge_motion_real_vs_real(timing, motion_frame_interval(block),
+                                         _num((block or {}).get("predictedS")),
+                                         motion_end_frames_within_allowance(block), status)
+    if is_setup_fault(status):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    normal_side = sidecars.get(motion_normal_id(cid))
+    if not isinstance(normal_side, dict):
+        return CONTROLS_BAD, "no normal route sidecar %s" % motion_normal_id(cid)
+    normal_status = (normal_side.get("setup") or {}).get("status") \
+        if isinstance(normal_side.get("setup"), dict) else None
+    if is_setup_fault(normal_status):
+        return CONTROLS_BAD, "normal route setup %s" % (normal_status or "<none>")
+    normal_block = motion_block(normal_side)
+    normal = normal_block.get("timing") if isinstance(normal_block, dict) else None
+    if cid == CONTROL_MOTION_GHOST_SLOW:
+        last = motion_last_frame_route(side)
+        passes = last is not None and last.verdict != VERDICT_FAIL
+        return judge_motion_ghost_slow(normal, timing, motion_frame_interval(block), passes, status)
+    if cid == CONTROL_MOTION_GHOST_LATE:
+        return judge_motion_ghost_late(normal, timing, status)
+    return CONTROLS_BAD, "unknown motion control"
+
+
 def _shape_fails(m: Any) -> bool:
     """``PartParitySweepPlan.ShapeFails``: the larger shape blob over the px or pct line."""
     if not isinstance(m, dict):
@@ -3619,6 +4204,7 @@ def check_controls(manifest: Dict,
     ids = manifest_control_set(manifest)
     settings = manifest.get("settings")
     fx_run = is_fx_run(settings if isinstance(settings, dict) else None)
+    motion_run = is_motion_run(settings if isinstance(settings, dict) else None)
     problems: List[str] = []
     for cid in ids:
         got = outcomes.get(cid)
@@ -3628,6 +4214,10 @@ def check_controls(manifest: Dict,
             continue
         elif got != CONTROLS_OK:
             problems.append("%s:%s" % (cid, got))
+        elif sidecars is not None and motion_run and cid in MOTION_CONTROL_IDS:
+            outcome, detail = judge_motion_control(cid, sidecars)
+            if outcome != CONTROLS_OK:
+                problems.append("%s:recorded-ok-judged-%s(%s)" % (cid, outcome, detail))
         elif sidecars is not None and (fx_run or cid in STATE_CONTROL_IDS):
             outcome, detail = (judge_fx_control(cid, sidecars.get(cid)) if fx_run
                                else judge_state_control(sidecars.get(cid)))
@@ -3669,6 +4259,8 @@ def _sidecar_complete(sidecar: Optional[Dict], case_id: str,
         return "setup.status=%s" % status
     if is_setup_fault(status):
         return None  # a recorded setup fault is a complete record
+    if is_motion_case(sidecar):
+        return motion_sidecar_incomplete(sidecar, atlases)
     views = sidecar.get("views")
     if not isinstance(views, list) or not views:
         return "no-views"
@@ -3794,6 +4386,8 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         if not isinstance(family, str) or not family:
             family = (fx_block(side) or {}).get("family")
         if not isinstance(family, str) or not family:
+            family = (motion_block(side) or {}).get("family")
+        if not isinstance(family, str) or not family:
             family = PRESS_UNKNOWN_FAMILY
         setup = (side or {}).get("setup")
         status = setup.get("status") if isinstance(setup, dict) else None
@@ -3805,8 +4399,8 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         per_family.setdefault(family, []).append((cid, status, detail))
     if not per_family:
         return None
-    order = {f: i for i, f in enumerate(
-        FAMILIES + tuple(f for f in FX_FAMILIES if f not in FAMILIES))}
+    known = FAMILIES + tuple(f for f in FX_FAMILIES if f not in FAMILIES)
+    order = {f: i for i, f in enumerate(known + tuple(f for f in MOTION_FAMILIES if f not in known))}
     rows: List[Tuple[str, int, int]] = []
     problems: List[str] = []
     for family in sorted(per_family, key=lambda f: (order.get(f, len(order)), f)):
@@ -4224,6 +4818,290 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
                     diffs.append("%s/stowedRef.%s:%s!=%s" % (name, key, ref.get(key), got[key]))
             diffs.extend(_stowed_ref_pct_diffs(view, ref))
     return diffs
+
+
+# ---------------------------------------------------------------------------
+# P7: the motion instrument check (Appendix H.3, piece M4).
+#
+# For EVERY motion case (the motion controls and a slow / late control's normal route too):
+# the block shape (every key written, the arrays' lengths agree), the timing block against
+# ``motion_timing`` over its own per-frame arrays (exact to RECOMPUTE_FLOAT_TOLERANCE), each
+# frame's same-time ghost progress against the scout series at that frame's offset (within
+# MOTION_SCOUT_RENDER_TOLERANCE), and ``scout-render-disagree`` anywhere. For every motion
+# control and the seeded ceil(2 %) of the motion part cases with a harvested motion atlas:
+# each frame's same-time and matched measures from the atlas tiles (``recompute_view``, the
+# section 6 shape measures) and each row's picture progress, ``a / (a + b)`` with ``a`` the
+# tolerant mismatch (realOnlyTolPx + ghostOnlyTolPx of the pair) of the frame against the
+# row's frame 0 and ``b`` against the row's last frame.
+# ---------------------------------------------------------------------------
+
+def motion_atlas_matched(case_id: Optional[str]) -> bool:
+    """Whether a motion case's atlas carries the matched rows: every case but the two
+    real-vs-real controls (copy B's live frames stand in for the ghost, no matched row)."""
+    return case_id not in MOTION_REAL_VS_REAL_CONTROL_IDS
+
+
+def motion_sidecar_incomplete(sidecar: Dict, atlases: Optional[Collection[str]]) -> Optional[str]:
+    """Completeness of a captured motion case (not a setup fault): its motion block with
+    frames, and (``atlases`` given) its harvested motion atlas. None: complete."""
+    block = motion_block(sidecar)
+    if block is None:
+        return "no-motion-block"
+    frames = motion_frames(block)
+    if not frames:
+        return "no-motion-frames"
+    # The window rule (H.3): a case judged on fewer frames, on a real part that never got
+    # there, or with no same-time picture at its end has no evidence a verdict could stand on.
+    if len(frames) < MOTION_MIN_FRAMES:
+        return "motion-frames=%d<%d" % (len(frames), MOTION_MIN_FRAMES)
+    if not isinstance(block.get("timing"), dict):
+        return "no-motion-timing"
+    real_p = [_num(f.get("realProgress")) for f in frames]
+    reached = max([p for p in real_p if p is not None], default=None)
+    if reached is None or reached < MOTION_REAL_REACHED_PROGRESS:
+        return "motion-real-not-reached=%s<%.1f" % (_fmt3(reached), MOTION_REAL_REACHED_PROGRESS)
+    if not motion_frame_views(frames[-1], "same"):
+        return "motion-last-frame-no-pictures"
+    if atlases is not None:
+        meta = sidecar.get("motionAtlas")
+        name = meta.get("file") if isinstance(meta, dict) else None
+        if not name:
+            return "no-motion-atlas"
+        if name not in atlases:
+            return "motion-atlas-missing:%s" % name
+    return None
+
+
+def _missing(at: str, block: Any, keys: Sequence[str]) -> List[str]:
+    if not isinstance(block, dict):
+        return ["%s: block missing" % at]
+    gone = [k for k in keys if k not in block]
+    return ["%s: missing key(s) %s" % (at, ",".join(gone))] if gone else []
+
+
+def motion_block_problems(sidecar: Optional[Dict]) -> List[str]:
+    """The shape of a captured motion case's blocks (H.2: every key always written): the
+    ``motion`` block and its window, scout, frames, frame views, transforms and timing carry
+    every key of their tables; the scout's two arrays, and each transform's ghost array, have
+    the scout's length; each transform's real array has one value per frame. A setup fault
+    or a sidecar with no motion block has none (completeness names a missing block)."""
+    if not isinstance(sidecar, dict):
+        return []
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    block = motion_block(sidecar)
+    if block is None or is_setup_fault(setup.get("status")):
+        return []
+    problems = _missing("motion", block, MOTION_KEYS)
+    problems += _missing("motion.window", block.get("window"), MOTION_WINDOW_KEYS)
+    scout = block.get("scout")
+    problems += _missing("motion.scout", scout, MOTION_SCOUT_KEYS)
+    n_scout = None
+    if isinstance(scout, dict):
+        ss, sp = scout.get("s"), scout.get("progress")
+        if not isinstance(ss, list) or not isinstance(sp, list) or len(ss) != len(sp):
+            problems.append("motion.scout: s and progress are not two arrays of one length")
+        else:
+            n_scout = len(ss)
+    frames = motion_frames(block)
+    if len(frames) != len(block.get("frames") or []):
+        problems.append("motion.frames: an entry is not an object")
+    views0 = motion_view_names(block)
+    for i, f in enumerate(frames):
+        problems += _missing("motion.frames[%d]" % i, f, MOTION_FRAME_KEYS)
+        for j, v in enumerate(f.get("views") or []):
+            problems += _missing("motion.frames[%d].views[%d]" % (i, j), v, MOTION_FRAME_VIEW_KEYS)
+            for which in ("same", "matched"):
+                m = v.get(which) if isinstance(v, dict) else None
+                if m is not None:
+                    problems += _missing("motion.frames[%d].views[%d].%s" % (i, j, which), m, START_KEYS)
+        names = [str(v.get("view")) for v in f.get("views") or [] if isinstance(v, dict)]
+        if names != views0:
+            problems.append("motion.frames[%d]: views %s != frame 0's %s" % (i, names, views0))
+    for i, t in enumerate(block.get("transforms") or []):
+        problems += _missing("motion.transforms[%d]" % i, t, MOTION_TRANSFORM_KEYS)
+        if not isinstance(t, dict):
+            continue
+        if not isinstance(t.get("real"), list) or len(t["real"]) != len(frames):
+            problems.append("motion.transforms[%d]: real has not one value per frame" % i)
+        if n_scout is not None and (not isinstance(t.get("ghost"), list) or len(t["ghost"]) != n_scout):
+            problems.append("motion.transforms[%d]: ghost has not one value per scout point" % i)
+    timing = block.get("timing")
+    problems += _missing("motion.timing", timing, MOTION_TIMING_KEYS)
+    if isinstance(timing, dict):
+        for side in ("real", "ghost"):
+            problems += _missing("motion.timing.%s" % side, timing.get(side), MOTION_CROSSING_KEYS)
+    return problems
+
+
+def motion_case_problems(sidecar: Optional[Dict]) -> List[str]:
+    """The checks run on EVERY motion case (no atlas needed): the block shape, the timing
+    block against its recompute from the per-frame arrays, each frame's same-time ghost
+    progress against the scout at that frame's offset, and ``scout-render-disagree`` on the
+    case or any frame (an instrument mismatch, never a ghost finding)."""
+    problems = motion_block_problems(sidecar)
+    block = motion_block(sidecar)
+    if block is None or problems:
+        return problems
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    if is_setup_fault(setup.get("status")):
+        return problems
+    problems += motion_timing_diffs(block.get("timing"), motion_timing(motion_series(block)))
+    scout = block.get("scout") or {}
+    ss, sp = scout.get("s") or [], scout.get("progress") or []
+    for i, f in enumerate(motion_frames(block)):
+        got = _num(f.get("ghostProgress"))
+        want = motion_interpolate(ss, sp, _num(f.get("realS")))
+        if (got is None) != (want is None) or (
+                got is not None and abs(got - want) > MOTION_SCOUT_RENDER_TOLERANCE):
+            problems.append("frame %s: ghostProgress=%s scout=%s" % (f.get("k", i), got, want))
+        if FLAG_SCOUT_RENDER_DISAGREE in (f.get("flags") or []):
+            problems.append("frame %s: %s" % (f.get("k", i), FLAG_SCOUT_RENDER_DISAGREE))
+    if FLAG_SCOUT_RENDER_DISAGREE in (sidecar.get("flags") or []):
+        problems.append("case flag %s" % FLAG_SCOUT_RENDER_DISAGREE)
+    return problems
+
+
+def motion_tolerant_mismatch(a_rows: Sequence[int], b_rows: Sequence[int], width: int) -> int:
+    """Section 6's tolerant mismatch between two tiles: realOnlyTolPx + ghostOnlyTolPx."""
+    m = recompute_view(a_rows, b_rows, width)
+    return m["realOnlyTolPx"] + m["ghostOnlyTolPx"]
+
+
+def recompute_motion_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute one motion case from its decoded motion atlas and return the differences:
+    the layout (rows ``motion_atlas_rows`` over the frames' views, cols the frames' ``k`` in
+    order, tile size, RGBA), each frame's same-time and matched blocks per view (a null
+    matched block must sit over an empty tile), and each row's picture progress
+    (``imgProgress[<row>]``; null is accepted only on a matched row whose block is null)."""
+    width, height, bpp, pixels = atlas
+    block = motion_block(sidecar) or {}
+    meta = sidecar.get("motionAtlas") if isinstance(sidecar.get("motionAtlas"), dict) else {}
+    tile, rows, cols = meta.get("tile"), list(meta.get("rows") or []), list(meta.get("cols") or [])
+    frames = motion_frames(block)
+    views = motion_view_names(block)
+    want_rows = list(motion_atlas_rows(views, motion_atlas_matched(sidecar.get("caseId"))))
+    if not isinstance(tile, int) or isinstance(tile, bool) or tile <= 0 or not frames:
+        return ["motion atlas block unusable: tile=%s frames=%d" % (tile, len(frames))]
+    if rows != want_rows:
+        return ["motion atlas rows=%s (expected %s)" % (rows, want_rows)]
+    want_cols = [f.get("k") for f in frames]
+    if cols != want_cols:
+        return ["motion atlas cols=%s (expected the frames' k %s)" % (cols, want_cols)]
+    if width != tile * len(cols) or height != tile * len(rows):
+        return ["motion atlas size %dx%d != %d cols x %d rows of %d px"
+                % (width, height, len(cols), len(rows), tile)]
+    if bpp != 4:
+        return ["motion atlas is not RGBA (bytes per pixel %d)" % bpp]
+    cache: Dict[Tuple[int, int], List[int]] = {}
+
+    def tile_rows(r: int, c: int) -> List[int]:
+        if (r, c) not in cache:
+            cache[(r, c)] = tile_alpha_rows(pixels, width, bpp, c * tile, r * tile, tile)
+        return cache[(r, c)]
+
+    diffs: List[str] = []
+    last = len(frames) - 1
+    for c, f in enumerate(frames):
+        at = "frame %s" % f.get("k")
+        by_view = {str(v.get("view")): v for v in f.get("views") or [] if isinstance(v, dict)}
+        for view in views:
+            v = by_view.get(view) or {}
+            real = tile_rows(rows.index("%s:%s" % (MOTION_ROW_REAL, view)), c)
+            for which, row_word in (("same", MOTION_ROW_GHOST), ("matched", MOTION_ROW_GHOST_MATCHED)):
+                row_name = "%s:%s" % (row_word, view)
+                if row_name not in rows:
+                    if v.get(which) is not None:
+                        diffs.append("%s %s.%s: a block with no atlas row" % (at, view, which))
+                    continue
+                ghost = tile_rows(rows.index(row_name), c)
+                rec = v.get(which)
+                if rec is None:
+                    if which == "same" or any(ghost):
+                        diffs.append("%s %s.%s: null block over a drawn tile" % (at, view, which))
+                    continue
+                if rec.get("width") != tile or rec.get("height") != tile:
+                    diffs.append("%s %s.%s.size:%sx%s!=%d" % (at, view, which, rec.get("width"),
+                                                              rec.get("height"), tile))
+                    continue
+                named = dict(rec)
+                named["view"] = "%s %s.%s" % (at, view, which)
+                diffs.extend(compare_view(named, recompute_view(real, ghost, tile)))
+        img = f.get("imgProgress") if isinstance(f.get("imgProgress"), dict) else {}
+        for r, row_name in enumerate(rows):
+            got = img.get(row_name)
+            if got is None:
+                matched_null = row_name.startswith(MOTION_ROW_GHOST_MATCHED + ":") and \
+                    (by_view.get(row_name.split(":", 1)[1]) or {}).get("matched") is None
+                if not matched_null:
+                    diffs.append("%s imgProgress[%s]: null" % (at, row_name))
+                continue
+            a = motion_tolerant_mismatch(tile_rows(r, 0), tile_rows(r, c), tile)
+            b = motion_tolerant_mismatch(tile_rows(r, c), tile_rows(r, last), tile)
+            want = motion_picture_progress(a, b)
+            if not _float_equal(got, want):
+                diffs.append("%s imgProgress[%s]:%s!=%s" % (at, row_name, got, want))
+    return diffs
+
+
+def motion_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """Writer cross-checks of a motion run (H.2): a motion run plans ONLY motion cases, a
+    run whose settings name no motion plans none (no motion state, no motion block), and a
+    row family that is not the sidecar's ``motion.family``."""
+    settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
+    motion_run = is_motion_run(settings)
+    problems: List[str] = []
+    for entry in manifest.get("cases") or []:
+        cid = entry.get("caseId") if isinstance(entry, dict) else None
+        if not isinstance(cid, str) or cid in ALL_CONTROL_IDS:
+            continue
+        side = sidecars.get(cid) if isinstance(sidecars.get(cid), dict) else None
+        motion = is_motion_state(entry.get("state")) or is_motion_case(side)
+        if motion and not motion_run:
+            problems.append("%s is a motion case but settings motion=%s plan no motion"
+                            % (cid, _setting(settings, SETTING_MOTION)))
+        elif motion_run and not motion:
+            problems.append("%s state=%s is not a motion case in a motion=%s run"
+                            % (cid, entry.get("state"), _setting(settings, SETTING_MOTION)))
+        block = motion_block(side)
+        if block is not None and entry.get("family") is not None and entry.get("family") != block.get("family"):
+            problems.append("%s row family=%s motion.family=%s" % (cid, entry.get("family"), block.get("family")))
+    return problems
+
+
+def motion_recompute(sidecars: Dict[str, Optional[Dict]], atlases: Collection[str],
+                     part_ids: Sequence[str], control_ids: Sequence[str], run_id: str,
+                     read_png: Optional["PngReader"],
+                     atlas_path: Callable[[str], str]) -> Tuple[List[str], List[str]]:
+    """The motion half of the instrument check. Every motion case of the run (part cases,
+    controls and the slow / late controls' normal routes) gets ``motion_case_problems``;
+    every motion control with a harvested motion atlas, its normal route's, and the seeded
+    sample (``select_recompute_sample``, ceil(2 %), at least one) of the motion part cases
+    with one get ``recompute_motion_case``. Returns (``<caseId>.motion`` ids recomputed,
+    mismatches)."""
+    normals = [motion_normal_id(c) for c in control_ids if c in MOTION_CONTROLS_WITH_NORMAL]
+    every = [c for c in list(part_ids) + list(control_ids) + normals if is_motion_case(sidecars.get(c))]
+    mismatches: List[str] = []
+    for cid in every:
+        mismatches.extend("%s %s" % (cid, p) for p in motion_case_problems(sidecars.get(cid)))
+
+    def file_of(cid: str) -> Optional[str]:
+        side = sidecars.get(cid)
+        meta = side.get("motionAtlas") if isinstance(side, dict) else None
+        name = meta.get("file") if isinstance(meta, dict) else None
+        return name if name in atlases else None
+
+    if read_png is None or not every:
+        return [], mismatches
+    parts = set(part_ids)
+    ids = [c for c in every if c not in parts and file_of(c)]
+    ids += select_recompute_sample([c for c in every if c in parts and file_of(c)], run_id)
+    for cid in ids:
+        try:
+            diffs = recompute_motion_case(sidecars[cid], read_png(atlas_path(file_of(cid))))
+        except Exception as exc:  # noqa: BLE001 - an unreadable atlas is the finding
+            diffs = ["motion atlas unreadable (%s: %s)" % (type(exc).__name__, exc)]
+        mismatches.extend("%s %s" % (cid, d) for d in diffs)
+    return ["%s%s" % (c, MOTION_RECOMPUTE_ID_SUFFIX) for c in ids], mismatches
 
 
 def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
@@ -5285,6 +6163,12 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                                          run_id, read_png, atlas_path)
     mismatches.extend(fx_mismatches)
     mismatches.extend(fx_run_problems(manifest, sweep.sidecars))
+    # The motion half (H.3): the timing arrays of every motion case, the motion atlas of
+    # every motion control and the seeded sample, the block shapes, the run shape.
+    motion_ids, motion_mismatches = motion_recompute(sweep.sidecars, sweep.atlases, part_ids,
+                                                     ctl_ids, run_id, read_png, atlas_path)
+    mismatches.extend(motion_mismatches)
+    mismatches.extend(motion_run_problems(manifest, sweep.sidecars))
     # Writer cross-checks (D.6): a state / context case whose settings say a stowed run,
     # a row and sidecar that disagree on state or context, an ok case whose press proof
     # says the state was never reached.
@@ -5293,12 +6177,13 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         mismatches.append(shape)
     mismatches.extend(case_row_problems(manifest, sweep.sidecars))
     for cid in part_ids:
-        why = press_proof_problem(sweep.sidecars.get(cid))
+        side = sweep.sidecars.get(cid)
+        why = motion_press_proof_problem(side) if is_motion_case(side) else press_proof_problem(side)
         if why:
             mismatches.append("%s %s" % (cid, why))
     if not recompute_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
-    recompute_ids = recompute_ids + fx_ids
+    recompute_ids = recompute_ids + fx_ids + motion_ids
 
     counts = _count(cases)
     gate = None
@@ -5421,7 +6306,7 @@ def format_summary(row: RowResult) -> str:
                            s.gate.counts().get(NOTE_NEAR_LINE_FAIL, 0),
                            s.gate.counts().get(NOTE_IMPROVED, 0),
                            s.gate.counts().get(NOTE_NEW_CASE, 0))))
-        parts[-1] += fx_summary(s.cases) + page_summary(s)
+        parts[-1] += fx_summary(s.cases) + motion_summary(s.cases) + page_summary(s)
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
 
@@ -5472,6 +6357,9 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
     fx_counts = fx_case_counts(sweep.cases)
     if fx_counts is not None:
         doc["fx"] = fx_counts
+    motion_counts = motion_case_counts(sweep.cases)
+    if motion_counts is not None:
+        doc["motion"] = motion_counts
     if sweep.press is not None:
         doc["statePress"] = sweep.press.to_dict()
         doc["stateFlags"] = state_flag_counts(sweep.cases)

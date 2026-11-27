@@ -4330,6 +4330,1018 @@ class FxPressGateTests(unittest.TestCase):
         self.assertEqual(2, res.counts["error"])
 
 
+
+# ---------------------------------------------------------------------------
+# P7 M4: the motion judge. The legacy sweeps first: every stowed / state / FX / burst
+# fixture judged through the entry point the motion judge extends (evaluate_sweep, judge_case,
+# verdicts_document, format_summary, detail_record) must produce byte for byte the document
+# it produced before the motion judge existed. The digests were taken from the tree BEFORE
+# the motion judge was added (commit e01045a0f).
+# ---------------------------------------------------------------------------
+
+def _legacy_burst_sweep(label_dir):
+    """A burst run's sweep as today's judge reads it: the burst control set, each control and
+    two cases in the state-case shape (no burst judge exists yet, so this pins that a burst
+    run's judging does not move)."""
+    settings = {"fx": "explode", "states": "none", "contexts": "air"}
+    cases = [_state_case("fueltank%d--default--vessel-explode-x1--air--0000bbb%d" % (i, i),
+                         part="fuelTank%d" % i, family="jettison", state="vessel-explode-x1",
+                         context="air") for i in range(2)]
+    _build_state_sweep(label_dir, cases, settings=settings)
+    for cid in pp.control_set(settings):
+        doc, masks = _state_case(cid, state="vessel-explode-x1", context="air")
+        _write_state_case(label_dir, doc, masks)
+
+
+def _legacy_sweep_documents(root):
+    """(name, text) per legacy fixture: the verdicts document (sorted keys), the summary line
+    and the detail record of each sweep, judged with the committed reader."""
+    out = []
+
+    def judge(name, sweep, label_dir, gating=False):
+        res = pp.evaluate_sweep(sweep, RUN_ID, gating, gui_mirror.read_png,
+                                lambda n: os.path.join(label_dir, n))
+        row = pp.combine([res], gating)
+        text = (json.dumps(pp.verdicts_document(res, RUN_ID), sort_keys=True) + "\n"
+                + pp.format_summary(row) + "\n"
+                + json.dumps(pp.detail_record(row), sort_keys=True) + "\n")
+        out.append((name, text))
+
+    judge("pp1-committed", _fixture_sweep(), PP1)
+    d = os.path.join(root, "stowed")
+    fx.build_sweep(d, parts=4, tile=STILE, part_ghost_shift=2)
+    judge("stowed-synthetic", _read_dir(d), d)
+    judge("stowed-synthetic-armed", _read_dir(d), d, gating=True)
+    d = os.path.join(root, "stowed-tampered")
+    fx.build_sweep(d, parts=2, tile=STILE)
+    path = os.path.join(d, "ctl-ghost-scale90" + pp.SIDECAR_SUFFIX)
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["views"][0]["realOnlyPx"] += 1
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    judge("stowed-tampered", _read_dir(d), d)
+    d = os.path.join(root, "state")
+    _build_state_sweep(d, StateSweepTests._cases() + StateSweepTests._cases("light", 2, start=10)
+                       + [_state_case("ant9--default--deployed--00000099", ghost=_shifted())])
+    judge("state-clean", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "state-press")
+    _build_state_sweep(d, StateSweepTests._cases(failed=3) + StateSweepTests._cases("light", 2, start=10))
+    judge("state-press", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "state-air")
+    _build_state_sweep(d, [_state_case("chute--default--semi--air--00000001", part="parachuteSingle",
+                                       family="parachute", state="semi", context="air")],
+                       settings={"states": "all", "contexts": "air"})
+    judge("state-air", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "fx")
+    _build_fx_sweep(d, _fx_cases())
+    judge("fx-clean", _read_dir(d, "pp7"), d)
+    d = os.path.join(root, "fx-air")
+    _build_fx_sweep(d, [_fx_case("solid--default--burn-full--air--0000aaaa", context="air")],
+                    settings={"fx": "plume", "contexts": "air"})
+    judge("fx-air", _read_dir(d, "pp7"), d)
+    d = os.path.join(root, "burst")
+    _legacy_burst_sweep(d)
+    judge("burst", _read_dir(d, "pp9"), d)
+    return out
+
+
+class LegacySweepByteIdentityTests(unittest.TestCase):
+    """With the motion judge in place, every stowed / state / FX / burst sweep judges byte for
+    byte as before it: the verdicts document, the summary line and the detail record of each
+    legacy fixture hash to the digests taken from the tree before the motion judge."""
+
+    DIGESTS = (
+        ("pp1-committed", "c2da00880c58f7ea8156228bfe37ec108625dc30059793d2c780e3759d4871a8"),
+        ("stowed-synthetic", "e35f4e67e79107e70d5a07d27ebf0c00f7c3ec8bce0406cc81db61a60f34ce6b"),
+        ("stowed-synthetic-armed", "99a72a70a335c578613e000907b2fd408eb59fac92ed2bd6f080b80a1e5a97be"),
+        ("stowed-tampered", "72d4e25a002b488dc7109d481ebc28f90af30b1ffb6c1c0c6115c0401f28b3a3"),
+        ("state-clean", "99aefe61b6b51ee7a0a9d16ad13185c82d8e5adb09931b22905b372b898f940b"),
+        ("state-press", "2f7e385e74aac0c8850b8efd4d74ba0b4c533875715493e9d2a10a7cc3889c94"),
+        ("state-air", "2a8c78631d7b87561cbcbdd32b9830d7a6fec94d7b0248e9f7de417b83fa4387"),
+        ("fx-clean", "c6022d878483492a91c4cd497e378e60e92e209ed08a3a557aaa64fbf2f1f01a"),
+        ("fx-air", "6e895c012481e4141a6d5e7168d9470266989bf18f1bd5ae59c4c7c5c8649cfa"),
+        ("burst", "84f5bc3a719ee25025f620350016e5a2abc337130f3dfca31b19c24a94959d33"),
+    )
+
+    def test_every_legacy_sweep_judges_byte_identically(self):
+        import hashlib
+        with tempfile.TemporaryDirectory(prefix="pp-legacy-") as root:
+            docs = _legacy_sweep_documents(root)
+        self.assertEqual([n for n, _ in self.DIGESTS], [n for n, _ in docs])
+        for (name, digest), (_n, text) in zip(self.DIGESTS, docs):
+            with self.subTest(sweep=name):
+                self.assertEqual(digest, hashlib.sha256(text.encode("utf-8")).hexdigest())
+                self.assertNotIn('"motion"', text)
+
+    def test_a_legacy_case_never_reaches_the_motion_judge(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        self.assertFalse(pp.is_motion_case(doc))
+        self.assertIsNone(pp.judge_case(doc).motion)
+        self.assertEqual(([], []), pp.motion_recompute({"a": doc}, (), ["a"], [], RUN_ID,
+                                                       gui_mirror.read_png, lambda n: n))
+
+
+# ----- the synthetic motion sidecar and atlas -----
+
+MOTION_VIEWS = ("side-a", "side-b")
+MOTION_STEP_S = 0.25
+MOTION_SCOUT_S = 0.05
+
+
+def _ramp(start, dur):
+    """A linear motion from ``start`` over ``dur`` seconds (a snap when ``dur`` is 0)."""
+    def f(t):
+        if dur <= 0:
+            return 1.0 if t >= start else 0.0
+        return min(1.0, max(0.0, (t - start) / dur))
+    return f
+
+
+def _stairs(start, dur, steps=4):
+    """A staircase over the same span: holds of 1 / steps (servo samples)."""
+    ramp = _ramp(start, dur)
+    return lambda t: 1.0 if ramp(t) >= 1.0 else int(ramp(t) * steps + 1e-9) / steps
+
+
+def _motion_mask(p):
+    """The synthetic part's picture at progress ``p``: a bar that grows by 6 px over the motion."""
+    return fx.rect_mask(STILE, 2, 3, 2 + int(round(6 * p)), 6)
+
+
+def _tol(a, b):
+    m = fx.reference_measure(a, b, SAREA)
+    return m["realOnlyTolPx"] + m["ghostOnlyTolPx"]
+
+
+def _motion_case(case_id, part="longAntenna", family="deployable", kind="clip", real=None, ghost=None,
+                 frames=17, matched=True, state="motion-deployed", context="alone", status="ok",
+                 structure=None, travel_ghost=90.0, ghost_mask=None, frame_flags=None, case_flags=(),
+                 module="ModuleDeployableAntenna"):
+    """(sidecar, rows of tiles) of one synthetic motion case: real frames every 0.25 s (T = 2 s,
+    8 frames per motion), the scout on a 50 ms grid merged with the real offsets, the pose
+    progress of both sides from ``real`` / ``ghost`` (functions of the seconds since the press),
+    each atlas tile a bar whose length follows its progress (``ghost_mask(k, p)`` overrides the
+    same-time ghost tile), the measures and picture progress by the pixel transcription of
+    ``_partparity_fixture``, and the timing block motion_timing gives."""
+    real = real or _ramp(0.5, 2.0)
+    ghost = ghost or real
+    rs = [round(k * MOTION_STEP_S, 10) for k in range(frames)]
+    grid = [round(i * MOTION_SCOUT_S, 10) for i in range(int(round(rs[-1] / MOTION_SCOUT_S)) + 1)]
+    ss = sorted(set(grid + rs))
+    sp = [ghost(t) for t in ss]
+    rp = [real(t) for t in rs]
+    gp = [ghost(t) for t in rs]
+    rows = list(pp.motion_atlas_rows(MOTION_VIEWS, matched))
+    tiles = {r: [] for r in rows}
+    entries = []
+    for k, t in enumerate(rs):
+        ms = pp.motion_matched_offset(ss, sp, rp[k]) if matched else None
+        mp = None if ms is None else ghost(ms)
+        real_tile = _motion_mask(rp[k])
+        ghost_tile = ghost_mask(k, gp[k]) if ghost_mask else _motion_mask(gp[k])
+        matched_tile = fx.empty_mask(STILE) if mp is None else _motion_mask(mp)
+        views = []
+        for v in MOTION_VIEWS:
+            tiles["real:" + v].append(real_tile)
+            tiles["ghost:" + v].append(ghost_tile)
+            same = fx.view_record(v, real_tile, ghost_tile, STILE)
+            rec = {"view": v, "same": {key: same[key] for key in pp.START_KEYS}, "matched": None}
+            if matched:
+                tiles["ghost-matched:" + v].append(matched_tile)
+                if mp is not None:
+                    m = fx.view_record(v, real_tile, matched_tile, STILE)
+                    rec["matched"] = {key: m[key] for key in pp.START_KEYS}
+            views.append(rec)
+        flags = list((frame_flags or {}).get(k, ()))
+        if matched and ms is None:
+            flags.append(pp.FLAG_MOTION_NO_MATCH)
+        entries.append({"k": k, "targetS": t, "realS": t, "ut": 100.0 + t,
+                        "realClock": 45.0 * rp[k] if kind == pp.MOTION_KIND_SERVO else None,
+                        "ghostClock": 45.0 * gp[k] if kind == pp.MOTION_KIND_SERVO else None,
+                        "realProgress": rp[k], "ghostProgress": gp[k], "matchedS": ms,
+                        "matchedProgress": mp, "imgProgress": {}, "views": views, "flags": flags})
+    last = len(rs) - 1
+    for k, e in enumerate(entries):
+        for r in rows:
+            if r.startswith("ghost-matched:") and e["views"][0]["matched"] is None:
+                e["imgProgress"][r] = None
+                continue
+            seq = tiles[r]
+            e["imgProgress"][r] = pp.motion_picture_progress(_tol(seq[0], seq[k]), _tol(seq[k], seq[last]))
+    block = {
+        "family": family, "kind": kind, "module": module, "moduleIndex": 0, "pressUT": 100.0,
+        "predictedS": 2.0, "ghostClipS": 2.0, "eventDelayS": 0.02, "ghostStartDelayS": 0.0,
+        "framesPerMotion": 8,
+        "window": {"endS": rs[-1], "spacingS": MOTION_STEP_S, "capped": False},
+        "scout": {"stepS": MOTION_SCOUT_S, "s": ss, "progress": sp},
+        "frames": entries,
+        "transforms": [{"path": "model/arm", "channel": "rotation", "travelReal": 90.0,
+                        "travelGhost": travel_ghost, "real": list(rp), "ghost": list(sp)}],
+        "timing": None,
+    }
+    block["timing"] = pp.motion_timing(pp.motion_series(block))
+    doc = fx.sidecar(case_id, part, [], STILE, status)
+    doc["state"], doc["context"] = state, context
+    doc["flags"] = list(case_flags)
+    if structure is not None:
+        doc["structure"] = structure
+    doc["stateProof"] = {
+        "family": family, "module": module, "moduleIndex": 0, "state": state,
+        "action": None if kind == pp.MOTION_KIND_SERVO else "Extend", "eventVisible": True,
+        "actionResult": None if kind == pp.MOTION_KIND_SERVO else "invoked", "reached": True,
+        "waitS": 2.1, "endpoint": {"field": "deployState", "value": "EXTENDED"},
+        "events": [{"type": "DeployableExtended", "ut": 100.02, "pid": 100000, "midx": 0}],
+        "ghostEvent": "applied", "ghostStart": None,
+        "startFirstFrame": {"atTarget": None, "trackerDeg": None},
+        "sunTracker": {"targetDeg": None, "eventDeg": None, "startFirstFrameDeg": None},
+        "canopy": {"tiltDeg": None, "wobbleDeg": None}, "nodes": None}
+    doc["motion"] = block
+    doc["motionAtlas"] = {"file": case_id + pp.MOTION_ATLAS_SUFFIX, "tile": STILE, "rows": rows,
+                          "cols": [e["k"] for e in entries]}
+    return doc, [tiles[r] for r in rows]
+
+
+def _motion_fault(case_id, family="deployable", status=pp.SETUP_ACTION_FAILED):
+    """A motion case whose press failed: no motion block, no atlas."""
+    doc = fx.sidecar(case_id, "p", [], STILE, status)
+    doc["state"], doc["context"] = "motion-deployed", "alone"
+    doc["setup"]["detail"] = "the press threw"
+    doc["stateProof"] = {"family": family, "state": "motion-deployed", "action": "Extend",
+                         "actionResult": "threw", "reached": False}
+    doc["motion"] = None
+    doc["motionAtlas"] = None
+    return doc, None
+
+
+def _write_motion_case(label_dir, doc, tiles):
+    if tiles is not None:
+        with open(os.path.join(label_dir, doc["motionAtlas"]["file"]), "wb") as fh:
+            fh.write(gui_mirror.write_png(len(tiles[0]) * STILE, len(tiles) * STILE, 4, _atlas_rows(tiles)))
+    with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _motion_controls(cid, perturbed=True):
+    """The sidecars one motion control writes, each (sidecar, tiles): the real-vs-real ones a
+    single case whose ghost rows are copy B's live frames (no matched row); the slow and late
+    ones the altered route under the control's id and the normal route under
+    ``<id>--normal``. ``perturbed`` False writes the altered route unaltered."""
+    if cid == pp.CONTROL_MOTION_REAL_VS_REAL:
+        return [_motion_case(cid, matched=False)]
+    if cid == pp.CONTROL_MOTION_REAL_VS_REAL_AIR:
+        return [_motion_case(cid, part="parachuteSingle", family="parachute", kind="canopy",
+                             state="motion-semi", context="air", matched=False, module="ModuleParachute")]
+    if cid == pp.CONTROL_MOTION_GHOST_SLOW:
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21, module="ModuleAeroSurface")
+        return [_motion_case(cid, ghost=_ramp(0.5, 4.0) if perturbed else None, **kw),
+                _motion_case(pp.motion_normal_id(cid), **kw)]
+    if cid == pp.CONTROL_MOTION_GHOST_LATE:
+        return [_motion_case(cid, ghost=_ramp(1.5, 2.0) if perturbed else None),
+                _motion_case(pp.motion_normal_id(cid))]
+    raise ValueError(cid)
+
+
+def _build_motion_sweep(label_dir, cases, settings=None, outcomes=None, controls=None):
+    """A COMPLETE motion-run sweep: the run's control set (the capture primitive's controls in
+    the stowed shape, the motion controls from ``controls`` or ``_motion_controls``) and
+    ``cases``, a list of (sidecar, tiles or None). Returns the manifest."""
+    os.makedirs(label_dir, exist_ok=True)
+    settings = dict(settings or {"motion": "all", "frames": "8"})
+    ids = pp.control_set(settings)
+    settings.setdefault("controlSet", ",".join(ids))
+    four = lambda m: [m] * len(fx.VIEWS)  # noqa: E731
+    body = fx.rect_mask(STILE, 3, 3, 6, 6)
+    empty = fx.empty_mask(STILE)
+    for cid in ids:
+        if cid in pp.MOTION_CONTROL_IDS:
+            for doc, tiles in (controls or {}).get(cid) or _motion_controls(cid):
+                _write_motion_case(label_dir, doc, tiles)
+        elif cid == "ctl-empty":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(empty), four(empty), STILE)
+        elif cid == "ctl-ghost-absent":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(body), four(empty), STILE)
+        else:
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(body), four(body), STILE)
+    rows = []
+    for i, (doc, tiles) in enumerate(cases):
+        _write_motion_case(label_dir, doc, tiles)
+        rows.append({"index": i, "caseId": doc["caseId"], "part": doc["part"], "title": doc["part"],
+                     "source": "Squad", "skin": "default", "state": doc["state"],
+                     "context": doc["context"], "sidecar": doc["caseId"] + pp.SIDECAR_SUFFIX,
+                     "setupStatus": doc["setup"]["status"],
+                     "family": (doc.get("stateProof") or {}).get("family")})
+    outcomes = dict(outcomes or {})
+    manifest = {
+        "schema": pp.MANIFEST_SCHEMA, "label": "pp14", "profile": "stock-minimal",
+        "gameDataMods": ["Parsek", "Squad"], "dllHash": "0" * 64, "tile": STILE,
+        "views": list(MOTION_VIEWS), "measure": {}, "settings": settings,
+        "controls": [{"id": c, "subject": "s", "required": "r", "outcome": outcomes.get(c, "ok"),
+                      "detail": ""} for c in ids],
+        "cases": rows, "exclusions": [],
+        "progress": {"complete": True, "cases": len(rows), "completeCases": len(rows),
+                     "setupFaults": 0, "controls": "ok", "crashed": []},
+    }
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+def _motion_cases():
+    return [_motion_case("longantenna--default--motion-deployed--0000aaa1"),
+            _motion_case("gearsmall--default--motion-deployed--0000aaa2", part="GearSmall", family="gear",
+                         module="ModuleWheelDeployment"),
+            _motion_case("hinge.01--default--motion-swept--0000aaa3", part="hinge.01", family="robotics",
+                         kind="servo", state="motion-swept", module="ModuleRoboticServoHinge")]
+
+
+class MotionSweepFixture(unittest.TestCase):
+    """A temp root per test and the evaluate_sweep call over a motion sweep."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pp-motion-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.n = 0
+
+    def _dir(self):
+        self.n += 1
+        return os.path.join(self.root, "s%d" % self.n)
+
+    def _eval(self, cases, gating=False, read_png=gui_mirror.read_png, mutate=None, **kw):
+        d = self._dir()
+        _build_motion_sweep(d, cases, **kw)
+        if mutate is not None:
+            mutate(d)
+        return pp.evaluate_sweep(_read_dir(d, "pp14"), RUN_ID, gating, read_png,
+                                 lambda n: os.path.join(d, n))
+
+
+def _rewrite(label_dir, case_id, change):
+    path = os.path.join(label_dir, case_id + pp.SIDECAR_SUFFIX)
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    change(doc)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _flip_atlas_pixel(label_dir, case_id, row, col, x=10, y=10):
+    path = os.path.join(label_dir, case_id + pp.MOTION_ATLAS_SUFFIX)
+    w, h, bpp, px = gui_mirror.read_png(path)
+    px = bytearray(px)
+    i = ((row * STILE + y) * w + col * STILE + x) * 4 + 3
+    px[i] = 0xff if px[i] < 128 else 0x00
+    with open(path, "wb") as fh:
+        fh.write(gui_mirror.write_png(w, h, 4, bytes(px)))
+
+
+class MotionJudgeTests(unittest.TestCase):
+    """judge_motion's levels of H.3 over synthetic motion sidecars."""
+
+    def _judge(self, doc):
+        return pp.judge_case(doc)
+
+    def test_a_ghost_that_moves_like_the_real_passes(self):
+        doc, _ = _motion_case("a--default--motion-deployed--1")
+        cv = self._judge(doc)
+        self.assertEqual((pp.VERDICT_PASS, ()), (cv.verdict, cv.reasons))
+        self.assertEqual("deployable", cv.family)
+        self.assertEqual("motion-deployed", cv.state)
+        self.assertEqual(0.0, cv.motion.measures["lagS"])
+        self.assertEqual(17, cv.motion.measures["frames"])
+        d = cv.to_dict()
+        self.assertEqual(pp.VERDICT_PASS, d["motion"]["verdict"])
+        json.dumps(d)
+
+    def test_each_fail_line(self):
+        for name, kw, reason in (
+                ("late", dict(ghost=_ramp(1.5, 2.0)), "motion:lagS=1.000>0.500"),
+                ("early", dict(ghost=_ramp(0.0, 1.0), real=_ramp(0.5, 1.0)), "motion:lagS=-0.500"),
+                ("slow", dict(ghost=_ramp(0.5, 3.5), frames=21), "motion:durationRatio=1.750"),
+                ("fast", dict(ghost=_ramp(0.5, 1.0)), "motion:durationRatio=0.500"),
+                ("snapped", dict(ghost=_ramp(1.5, 0.0)), "motion:flag:motion-snap"),
+                ("not-modelled", dict(ghost=lambda t: 0.0), "motion:flag:motion-not-modelled")):
+            with self.subTest(curve=name):
+                cv = self._judge(_motion_case("c--default--motion-deployed--1", **kw)[0])
+                if name == "early":
+                    # -0.5 s against a 1 s motion: at the 0.5 s line, not over it: a warn.
+                    self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+                    self.assertTrue(any(r.startswith(reason) for r in cv.reasons), cv.reasons)
+                    continue
+                self.assertEqual(pp.VERDICT_FAIL, cv.verdict, cv.reasons)
+                self.assertTrue(any(r.startswith(reason) for r in cv.reasons), cv.reasons)
+
+    def test_the_lag_line_scales_with_the_real_motion(self):
+        # A 1 s lag on a 6 s motion (T_real = t98 - t02 = 5.76 s) is under its line,
+        # max(0.5, 0.25 x 5.76 = 1.44) s, and over half of it.
+        cv = self._judge(_motion_case("c--default--motion-deployed--1", real=_ramp(0.5, 6.0),
+                                      ghost=_ramp(1.5, 6.0), frames=33)[0])
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+        self.assertEqual(["motion:lagS=1.000>0.720"], [r for r in cv.reasons if "lagS" in r])
+
+    def test_the_warn_lines_are_half_way(self):
+        for kw, reason in ((dict(ghost=_ramp(0.8, 2.0)), "motion:lagS=0.300>0.250"),
+                           (dict(ghost=_ramp(0.5, 1.5)), "motion:durationRatio=0.750"),
+                           (dict(ghost=_stairs(0.5, 2.0)), "motion:flag:motion-stepped")):
+            with self.subTest(reason=reason):
+                cv = self._judge(_motion_case("w--default--motion-deployed--1", **kw)[0])
+                self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+                self.assertIn(reason, cv.reasons)
+        cv = self._judge(_motion_case("w--default--motion-deployed--1", ghost=_ramp(0.6, 2.0))[0])
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+
+    def test_the_curve_shape_line(self):
+        # A staged real clip (fast, a hold, fast) against a straight-line ghost on time: the
+        # lag stays 0 and the rate inside its warn band, only the curve's shape moves.
+        for bow, level in ((0.2, pp.VERDICT_WARN), (0.35, pp.VERDICT_FAIL)):
+            with self.subTest(bow=bow):
+                real = lambda t, b=bow: _bowed(_ramp(0.5, 2.0)(t), b)  # noqa: E731
+                cv = self._judge(_motion_case("e--default--motion-deployed--1", real=real,
+                                              ghost=_ramp(0.5, 2.0))[0])
+                m = cv.motion.measures
+                self.assertEqual(0.0, m["lagS"])
+                self.assertTrue(pp.MOTION_DURATION_RATIO_WARN_MIN < m["durationRatio"] < 1.0)
+                self.assertEqual(level, cv.verdict, cv.reasons)
+                self.assertEqual(["curveShapeDev"], [r.split(":")[1].split("=")[0] for r in cv.reasons])
+        # The golden's eased clip (bowed 0.15 at most between knots) stays under the warn line.
+        eased = lambda t: _eased(_ramp(0.5, 2.0)(t))  # noqa: E731
+        cv = self._judge(_motion_case("e--default--motion-deployed--1", real=eased, ghost=_ramp(0.5, 2.0))[0])
+        self.assertLess(cv.motion.measures["curveShapeDev"], pp.MOTION_CURVE_SHAPE_FAIL * pp.MOTION_WARN_FRACTION)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+
+    def test_a_servo_is_judged_on_its_angle_too(self):
+        doc, _ = _motion_case("h--default--motion-swept--1", part="hinge.01", family="robotics",
+                              kind="servo", state="motion-swept", ghost=_ramp(0.75, 2.0))
+        cv = self._judge(doc)
+        # 0.25 s late on a 45 deg sweep: about 5.6 deg apart mid-motion, over max(5, 6.75) / 2.
+        self.assertEqual(45.0, cv.motion.measures["servoSweep"])
+        self.assertEqual(6.75, cv.motion.measures["angleLineDeg"])
+        self.assertTrue(any(r.startswith("motion:angleMaxDevDeg=") for r in cv.reasons), cv.reasons)
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict)
+        doc, _ = _motion_case("h--default--motion-swept--1", family="robotics", kind="servo",
+                              state="motion-swept", ghost=_ramp(1.0, 2.0))
+        self.assertEqual(pp.VERDICT_FAIL, self._judge(doc).verdict)
+        # A clip case's angle is not measured and judges nothing.
+        doc, _ = _motion_case("c--default--motion-deployed--1", ghost=_ramp(0.75, 2.0))
+        self.assertIsNone(self._judge(doc).motion.measures["angleMaxDevDeg"])
+
+    def test_the_last_frame_is_judged_on_the_two_new_families_only(self):
+        wrong_end = lambda k, p: fx.rect_mask(STILE, 2, 3, 8, 8) if p >= 1.0 else _motion_mask(p)  # noqa: E731
+        for family, judged in (("robotics", True), ("control-surface", True), ("deployable", False),
+                               ("parachute", False)):
+            with self.subTest(family=family):
+                cv = self._judge(_motion_case("l--default--motion-deployed--1", family=family,
+                                              ghost_mask=wrong_end)[0])
+                if judged:
+                    self.assertEqual(pp.VERDICT_FAIL, cv.verdict, cv.reasons)
+                    self.assertTrue(any(r.startswith("motion:last-frame:shape-blob") for r in cv.reasons))
+                    self.assertEqual("last-frame:side-a", cv.worst_view)
+                    self.assertIsNone(cv.motion.report["lastFrame"])
+                else:
+                    self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+                    self.assertEqual(pp.VERDICT_FAIL, cv.motion.report["lastFrame"]["verdict"])
+        # A rendered mesh missing at the end fails a new family by the structure rule.
+        structure = fx.sidecar("x", "x", [], STILE)["structure"]
+        structure["missingOnGhost"] = [{"key": "model/arm", "mesh": "m", "rendered": True, "nonVisual": False}]
+        cv = self._judge(_motion_case("l--default--motion-swept--1", family="robotics", kind="servo",
+                                      state="motion-swept", structure=structure)[0])
+        self.assertIn("motion:last-frame:missing-rendered:model/arm", cv.reasons)
+
+    def test_the_error_level(self):
+        doc, _ = _motion_case("e--default--motion-deployed--1", frames=4)
+        self.assertIn("motion:frames=4<5", self._judge(doc).reasons)
+        self.assertEqual(pp.VERDICT_ERROR, self._judge(doc).verdict)
+        doc, _ = _motion_case("e--default--motion-deployed--1", real=_ramp(0.5, 20.0))
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertTrue(any(r.startswith("motion:real-not-reached=") for r in cv.reasons))
+        cv = self._judge(_motion_fault("f--default--motion-deployed--1")[0])
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertEqual("setup:action-failed", cv.reasons[0])
+        doc, _ = _motion_case("e--default--motion-deployed--1")
+        doc["motion"]["timing"] = None
+        self.assertIn("motion:no-timing", self._judge(doc).reasons)
+
+    def test_an_unmeasured_judged_measure_fails(self):
+        # The ghost moves (past 0.1) but never reaches half: no t50, no lag, not not-modelled.
+        doc, _ = _motion_case("u--default--motion-deployed--1", ghost=lambda t: min(0.3, _ramp(0.5, 2.0)(t)))
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertIn("motion:lagS=unmeasured", cv.reasons)
+        self.assertIn("motion:durationRatio=unmeasured", cv.reasons)
+
+    def test_the_report_only_measures_never_move_the_verdict(self):
+        doc, _ = _motion_case("r--default--motion-deployed--1", travel_ghost=270.0,
+                              frame_flags={3: ["frame-jitter:140", pp.FLAG_MOTION_CLIPPED_AT_BORDER]},
+                              case_flags=[pp.FLAG_MOTION_WINDOW_CAPPED])
+        doc["motion"]["transforms"].append(dict(doc["motion"]["transforms"][0], path="model/b",
+                                                real=[min(1.0, 2 * p) for p in doc["motion"]["transforms"][0]["real"]]))
+        doc["motion"]["timing"] = pp.motion_timing(pp.motion_series(doc["motion"]))
+        cv = self._judge(doc)
+        self.assertEqual((pp.VERDICT_PASS, ()), (cv.verdict, cv.reasons))
+        self.assertEqual(("travel-differs", "motion-window-capped", "motion-clipped-at-border",
+                          "frame-jitter:140"), cv.motion.flags)
+        self.assertEqual(3.0, cv.motion.report["travelRatio"])
+        self.assertGreater(cv.motion.report["staggerDev"], 0.3)
+        self.assertEqual([3], cv.motion.report["clippedFrames"])
+        self.assertEqual([3], cv.motion.report["jitterFrames"])
+        # A late ghost fails every in-between frame's picture, reported, never judged.
+        cv = self._judge(_motion_case("r--default--motion-deployed--1", ghost=_ramp(1.5, 2.0))[0])
+        self.assertIn(pp.VERDICT_FAIL, cv.motion.report["frameVerdicts"]["same"])
+        self.assertEqual(1, sum(r.startswith("motion:") for r in cv.reasons))
+
+    def test_progress_disagree_is_report_only(self):
+        doc, _ = _motion_case("p--default--motion-deployed--1")
+        for f in doc["motion"]["frames"]:
+            f["imgProgress"]["real:side-a"] = 1.0 if f["realS"] >= 3.75 else 0.0
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertIn(pp.FLAG_PROGRESS_DISAGREE, cv.motion.flags)
+        self.assertEqual(["real:side-a"], cv.motion.report["progressDisagree"])
+
+    def test_a_servo_proof_may_carry_no_action(self):
+        doc, _ = _motion_case("h--default--motion-swept--1", family="robotics", kind="servo",
+                              state="motion-swept")
+        self.assertIsNone(pp.motion_press_proof_problem(doc))
+        doc["stateProof"]["reached"] = False
+        self.assertIn("servo", pp.motion_press_proof_problem(doc))
+        self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+        clip, _ = _motion_case("c--default--motion-deployed--1")
+        clip["stateProof"]["action"] = None
+        self.assertIsNotNone(pp.motion_press_proof_problem(clip))
+
+
+def _bowed(u, b):
+    """A staged clip over u in [0, 1]: through (0.1, 0.1), (0.5, 0.5) and (0.9, 0.9) like a
+    straight line, ``b`` above it just after 0.1 and ``b`` below it just before 0.9."""
+    knots = [(0.0, 0.0), (0.1, 0.1), (0.12, 0.1 + b), (0.5, 0.5), (0.88, 0.9 - b), (0.9, 0.9), (1.0, 1.0)]
+    for (u0, p0), (u1, p1) in zip(knots, knots[1:]):
+        if u <= u1:
+            return p0 + (u - u0) * (p1 - p0) / (u1 - u0)
+    return 1.0
+
+
+def _eased(u):
+    """The golden's eased curve over u in [0, 1] (build_motion_timing_golden.EASED)."""
+    knots = [(0.0, 0.0), (0.1, 0.1), (0.3, 0.15), (0.5, 0.5), (0.7, 0.85), (0.9, 0.9), (1.0, 1.0)]
+    for (u0, p0), (u1, p1) in zip(knots, knots[1:]):
+        if u <= u1:
+            return p0 + (u - u0) * (p1 - p0) / (u1 - u0)
+    return 1.0
+
+
+class MotionControlJudgeTests(unittest.TestCase):
+    """The motion controls' judges, mirrored from PartParityMotionRules.Judge*: each control's
+    perturbation is caught, and an unperturbed control is bad."""
+
+    def _sidecars(self, cid, perturbed=True):
+        return {d["caseId"]: d for d, _ in _motion_controls(cid, perturbed)}
+
+    def test_every_control_meets_its_requirement(self):
+        for cid in pp.MOTION_CONTROL_IDS:
+            with self.subTest(control=cid):
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, self._sidecars(cid)))
+
+    def test_the_altered_routes_fail_the_motion_judge(self):
+        slow = self._sidecars(pp.CONTROL_MOTION_GHOST_SLOW)[pp.CONTROL_MOTION_GHOST_SLOW]
+        self.assertIn("motion:durationRatio=2.000", pp.judge_motion(slow).reasons)
+        late = self._sidecars(pp.CONTROL_MOTION_GHOST_LATE)[pp.CONTROL_MOTION_GHOST_LATE]
+        self.assertIn("motion:lagS=1.000>0.500", pp.judge_motion(late).reasons)
+
+    def test_an_unperturbed_slow_or_late_control_is_bad(self):
+        out = pp.judge_motion_control(pp.CONTROL_MOTION_GHOST_SLOW,
+                                      self._sidecars(pp.CONTROL_MOTION_GHOST_SLOW, perturbed=False))
+        self.assertEqual((pp.CONTROLS_BAD, "ratio=1; slow route does not fail on duration"), out)
+        out = pp.judge_motion_control(pp.CONTROL_MOTION_GHOST_LATE,
+                                      self._sidecars(pp.CONTROL_MOTION_GHOST_LATE, perturbed=False))
+        self.assertEqual((pp.CONTROLS_BAD, "lag shift=0; late route does not fail on lag"), out)
+
+    def test_a_real_vs_real_pair_that_differs_is_bad(self):
+        cid = pp.CONTROL_MOTION_REAL_VS_REAL
+        lagging = {cid: _motion_case(cid, ghost=_ramp(1.0, 2.0), matched=False)[0]}
+        outcome, detail = pp.judge_motion_control(cid, lagging)
+        self.assertEqual(pp.CONTROLS_BAD, outcome)
+        self.assertIn("lagS=0.5", detail)
+        self.assertIn("end frames differ", pp.judge_motion_control(cid, {cid: _motion_case(
+            cid, ghost_mask=lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6),
+            matched=False)[0]})[1])
+        rate = {cid: _motion_case(cid, ghost=_ramp(0.5, 2.2), matched=False)[0]}
+        self.assertIn("durationRatio=1.1", pp.judge_motion_control(cid, rate)[1])
+
+    def test_the_slow_judge_reads_the_onset_and_the_last_frame(self):
+        cid = pp.CONTROL_MOTION_GHOST_SLOW
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21)
+        late_onset = {cid: _motion_case(cid, ghost=_ramp(1.0, 4.0), **kw)[0],
+                      pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        self.assertIn("onset=0.5", pp.judge_motion_control(cid, late_onset)[1])
+        wrong_end = {cid: _motion_case(cid, ghost=_ramp(0.5, 4.0),
+                                       ghost_mask=lambda k, p: fx.rect_mask(STILE, 1, 1, 10, 10) if p >= 1 else _motion_mask(p),
+                                       **kw)[0],
+                     pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        self.assertEqual((pp.CONTROLS_BAD, "slow last frame fails the end-state rules"),
+                         pp.judge_motion_control(cid, wrong_end))
+
+    def test_the_controls_are_judged_relative_to_their_normal_route(self):
+        # A normal route already 0.3 s late moves the late route with it: the shift stays 1 s.
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        sides = {cid: _motion_case(cid, ghost=_ramp(1.8, 2.0))[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), ghost=_ramp(0.8, 2.0))[0]}
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+        cid = pp.CONTROL_MOTION_GHOST_SLOW
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=25)
+        sides = {cid: _motion_case(cid, ghost=_ramp(0.5, 4.4), **kw)[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), ghost=_ramp(0.5, 2.2), **kw)[0]}
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+
+    def test_the_late_route_need_not_fail_on_lag_on_a_long_motion(self):
+        # A 6 s real motion: the lag line is 1.5 s, the 1 s shift is inside it, so the late
+        # control is judged by its relative requirement alone (H.3).
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        kw = dict(real=_ramp(0.5, 6.0), frames=33)
+        sides = {cid: _motion_case(cid, ghost=_ramp(1.5, 6.0), **kw)[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        late = sides[cid]["motion"]["timing"]
+        self.assertFalse(pp.motion_lag_fails(late["lagS"], pp.motion_real_duration(late)))
+        self.assertFalse(pp.motion_late_must_fail_on_lag(pp.motion_real_duration(late)))
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+        # On a 2 s motion the shift is past the line and the late route must fail on lag.
+        self.assertTrue(pp.motion_late_must_fail_on_lag(2.0))
+        self.assertTrue(pp.motion_late_must_fail_on_lag(3.9))
+        self.assertFalse(pp.motion_late_must_fail_on_lag(4.0))
+
+    def test_the_mirrored_judges_on_the_xunit_inputs(self):
+        # PartParityMotionRulesTests' T(lag, ratio, shape, onset, t02, t98) inputs, same outcomes.
+        def t(lag, ratio, shape, onset=0.0, t02=0.5, t98=3.0):
+            return {"lagS": lag, "durationRatio": ratio, "curveShapeDev": shape, "onsetLagS": onset,
+                    "real": {"t02": t02, "t10": 1.0, "t50": 1.75, "t90": 2.5, "t98": t98}}
+        rvr = pp.judge_motion_real_vs_real
+        self.assertEqual(("ok", ""), rvr(t(0.02, 1.01, 0.01), 0.25, 2.0, True, "ok"))
+        self.assertEqual("bad", rvr(t(0.3, 1.0, 0.0), 0.25, 2.0, True, "ok")[0])
+        self.assertIn("lagS", rvr(t(0.3, 1.0, 0.0), 0.25, 2.0, True, "ok")[1])
+        self.assertEqual("bad", rvr(t(0.0, 1.06, 0.0), 0.25, 2.0, True, "ok")[0])
+        self.assertEqual("bad", rvr(t(0.0, 1.0, 0.06), 0.25, 2.0, True, "ok")[0])
+        self.assertEqual("bad", rvr(t(0.0, 1.0, 0.0), 0.25, 2.0, False, "ok")[0])
+        self.assertEqual(("bad", "setup action-failed"), rvr(t(0.0, 1.0, 0.0), 0.25, 2.0, True, "action-failed"))
+        slow = pp.judge_motion_ghost_slow
+        normal = t(0.0, 1.0, 0.0)
+        self.assertEqual("ok", slow(normal, t(1.25, 2.0, 0.2, 0.05), 0.25, True, "ok")[0])
+        self.assertIn("ratio", slow(normal, t(1.25, 1.5, 0.2, 0.05), 0.25, True, "ok")[1])
+        self.assertIn("onset", slow(normal, t(1.25, 2.0, 0.2, 0.5), 0.25, True, "ok")[1])
+        self.assertEqual("bad", slow(normal, t(1.25, 2.0, 0.2, 0.05), 0.25, False, "ok")[0])
+        self.assertEqual("ok", slow(t(0.0, 0.9, 0.0), t(1.0, 1.8, 0.2), 0.25, True, "ok")[0])
+        late = pp.judge_motion_ghost_late
+        normal = t(0.1, 1.0, 0.0)
+        self.assertEqual("ok", late(normal, t(1.1, 1.0, 0.0), "ok")[0])
+        self.assertIn("lag shift", late(normal, t(0.9, 1.0, 0.0), "ok")[1])
+        self.assertIn("durationRatio", late(normal, t(1.1, 1.05, 0.0), "ok")[1])
+        # H.3 (M4): a 10 s real motion holds the 1 s shift inside its 2.5 s lag line, so the
+        # late route need not fail on lag. The xUnit cell still expects "bad" here: the C#
+        # JudgeGhostLate must take the same rule (reported to the C# side, not edited by M4).
+        self.assertEqual(("ok", ""), late(t(0.1, 1.0, 0.0, 0.0, 0.0, 10.0), t(1.1, 1.0, 0.0, 0.0, 0.0, 10.0), "ok"))
+        self.assertEqual("bad", late(t(0.1, 1.0, 0.0, 0.0, 0.0, 3.0), t(0.4, 1.0, 0.0, 0.0, 0.0, 3.0), "ok")[0])
+
+    def test_a_missing_or_faulted_route_is_bad(self):
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        sides = self._sidecars(cid)
+        del sides[pp.motion_normal_id(cid)]
+        self.assertEqual((pp.CONTROLS_BAD, "no normal route sidecar ctl-motion-ghost-late--normal"),
+                         pp.judge_motion_control(cid, sides))
+        sides = self._sidecars(cid)
+        sides[pp.motion_normal_id(cid)]["setup"]["status"] = pp.SETUP_STATE_TIMEOUT
+        self.assertEqual("normal route setup state-timeout", pp.judge_motion_control(cid, sides)[1])
+        sides = self._sidecars(cid)
+        sides[cid]["setup"]["status"] = pp.SETUP_ACTION_FAILED
+        self.assertEqual((pp.CONTROLS_BAD, "setup action-failed"), pp.judge_motion_control(cid, sides))
+        self.assertEqual((pp.CONTROLS_BAD, "no sidecar"), pp.judge_motion_control(cid, {}))
+        sides = self._sidecars(cid)
+        sides[cid]["motion"]["timing"] = None
+        self.assertEqual((pp.CONTROLS_BAD, "no timing"), pp.judge_motion_control(cid, sides))
+
+    def test_the_csharp_number_format(self):
+        self.assertEqual(("nan", "0", "1", "1.5", "-0.3", "0.123", "2"),
+                         tuple(pp._cs_num(v) for v in (None, 0.0, 1.0, 1.5, -0.3, 0.12345, 1.9999)))
+
+
+class MotionSweepTests(MotionSweepFixture):
+    """evaluate_sweep over a synthetic motion run: the controls, the press gate, the
+    instrument recompute of the atlas and of the timing arrays, the verdicts document."""
+
+    def test_a_clean_motion_run_reports(self):
+        res = self._eval(_motion_cases())
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(3, res.counts[pp.VERDICT_PASS])
+        motion_ids = [c for c in res.recompute_ids if c.endswith(pp.MOTION_RECOMPUTE_ID_SUFFIX)]
+        # Every motion control (the slow and late ones with their normal routes) and one case.
+        self.assertEqual(5 + 1, len(motion_ids), motion_ids)
+        self.assertIn("ctl-motion-ghost-late--normal.motion", motion_ids)
+        self.assertEqual(["ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real"], res.recompute_ids[:3])
+        self.assertTrue(res.press.ok)
+        self.assertEqual((("deployable", 1, 0), ("gear", 1, 0), ("robotics", 1, 0)), res.press.families)
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual(3, doc["motion"]["cases"])
+        self.assertEqual({"pass": 1, "warn": 0, "fail": 0, "error": 0}, doc["motion"]["families"]["robotics"])
+        self.assertEqual(pp.MOTION_LAG_FAIL_MIN_S, doc["motion"]["thresholds"]["lagFailMinS"])
+        self.assertEqual(pp.VERDICT_PASS, doc["cases"][0]["motion"]["verdict"])
+        json.dumps(doc, allow_nan=False)
+        summary = pp.format_summary(pp.combine([res], False))
+        self.assertIn(" motion=3 notModelled=0 snap=0 stepped=0", summary)
+
+    def test_an_air_run(self):
+        case = _motion_case("parachutesingle--default--motion-semi--air--0000aaa1", part="parachuteSingle",
+                            family="parachute", kind="canopy", state="motion-semi", context="air")
+        res = self._eval([case], settings={"motion": "parachute", "contexts": "air", "frames": "8"})
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual([pp.CONTROL_MOTION_REAL_VS_REAL_AIR], [c for c, _ in res.controls.outcomes][2:])
+
+    def test_the_findings_are_report_only_until_armed(self):
+        cases = _motion_cases() + [_motion_case("late--default--motion-deployed--0000aaa9",
+                                                ghost=_ramp(1.5, 2.0))]
+        res = self._eval(cases)
+        self.assertEqual((pp.STATUS_REPORT, 1), (res.status, res.counts[pp.VERDICT_FAIL]))
+        self.assertEqual("late--default--motion-deployed--0000aaa9", res.worst()[0].case_id)
+        self.assertEqual(pp.STATUS_FAIL, self._eval(cases, gating=True).status)
+
+    def test_each_control_perturbation_left_out_is_invalid_controls(self):
+        cases = _motion_cases()
+        for cid in pp.MOTION_CONTROL_IDS[:3]:
+            with self.subTest(control=cid):
+                if cid == pp.CONTROL_MOTION_REAL_VS_REAL:
+                    broken = [_motion_case(cid, ghost=_ramp(1.0, 2.0), matched=False)]
+                else:
+                    broken = _motion_controls(cid, perturbed=False)
+                res = self._eval(cases, controls={cid: broken})
+                self.assertEqual((pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND),
+                                 (res.status, res.invalid_subkind), res.problems)
+                self.assertTrue(any("%s:recorded-ok-judged-bad" % cid in p for p in res.problems), res.problems)
+
+    def test_a_missing_normal_route_is_invalid_controls(self):
+        res = self._eval(_motion_cases(), mutate=lambda d: os.remove(os.path.join(
+            d, pp.motion_normal_id(pp.CONTROL_MOTION_GHOST_SLOW) + pp.SIDECAR_SUFFIX)))
+        self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+
+    def test_a_mutated_atlas_frame_is_invalid_instrument(self):
+        # One motion case: it is the sample. A pixel of a mid-motion ghost tile, a matched tile,
+        # a real tile, a control's tile: each is a mismatch naming its frame.
+        case = _motion_case("longantenna--default--motion-deployed--0000aaa1")
+        for cid, row, col, want in ((case[0]["caseId"], 1, 8, "frame 8 side-a.same"),
+                                    (case[0]["caseId"], 2, 8, "frame 8 side-a.matched"),
+                                    (case[0]["caseId"], 3, 4, "frame 4 side-b.same"),
+                                    (case[0]["caseId"], 0, 0, "imgProgress[real:side-a]"),
+                                    (pp.CONTROL_MOTION_GHOST_LATE, 1, 10, "frame 10 side-a.same")):
+            with self.subTest(case=cid, row=row, col=col):
+                res = self._eval([case], mutate=lambda d: _flip_atlas_pixel(d, cid, row, col))
+                self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND),
+                                 (res.status, res.invalid_subkind), res.problems)
+                self.assertTrue(any(m.startswith(cid + " ") and want in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
+
+    def test_a_tampered_timing_or_array_is_invalid_instrument_sampled_or_not(self):
+        cases = _motion_cases()
+        unsampled = [c[0]["caseId"] for c in cases
+                     if c[0]["caseId"] + pp.MOTION_RECOMPUTE_ID_SUFFIX not in self._eval(cases).recompute_ids]
+        self.assertEqual(2, len(unsampled))
+        for change, want in (
+                (lambda doc: doc["motion"]["timing"].__setitem__("lagS", 1e-6), "timing:lagS"),
+                (lambda doc: doc["motion"]["timing"]["real"].__setitem__("t50", 1.6), "timing:real.t50"),
+                (lambda doc: doc["motion"]["timing"].__setitem__("flags", ["motion-snap"]), "timing:flags"),
+                (lambda doc: doc["motion"]["frames"][5].__setitem__("realProgress", 0.9), "timing:"),
+                (lambda doc: doc["motion"]["frames"][6].__setitem__("ghostProgress", 0.31), "frame 6: ghostProgress"),
+                (lambda doc: doc["motion"]["frames"][2]["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE),
+                 "frame 2: scout-render-disagree"),
+                (lambda doc: doc["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE), "case flag scout-render-disagree"),
+                (lambda doc: doc["motion"].pop("ghostClipS"), "motion: missing key(s) ghostClipS"),
+                (lambda doc: doc["motion"]["scout"]["progress"].pop(), "motion.scout: s and progress"),
+                (lambda doc: doc["motion"]["frames"][0]["views"][0].pop("matched"), "views[0]: missing key(s) matched")):
+            with self.subTest(want=want):
+                cid = unsampled[0]
+                res = self._eval(cases, mutate=lambda d: _rewrite(d, cid, change))
+                self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind, res.problems)
+                self.assertTrue(any(m.startswith(cid + " ") and want in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
+
+    def test_scout_render_disagree_on_a_control_is_an_instrument_mismatch(self):
+        cid = pp.motion_normal_id(pp.CONTROL_MOTION_GHOST_SLOW)
+        res = self._eval(_motion_cases(), mutate=lambda d: _rewrite(
+            d, cid, lambda doc: doc["motion"]["frames"][3]["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE)))
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+
+    def test_the_atlas_layout_is_checked(self):
+        cid = _motion_cases()[0][0]["caseId"]
+        for change, want in ((lambda doc: doc["motionAtlas"].__setitem__("rows", ["real:side-a"]), "motion atlas rows"),
+                             (lambda doc: doc["motionAtlas"].__setitem__("cols", [0, 1]), "motion atlas cols"),
+                             (lambda doc: doc["motionAtlas"].__setitem__("tile", 0), "unusable")):
+            with self.subTest(want=want):
+                res = self._eval(_motion_cases()[:1], mutate=lambda d: _rewrite(d, cid, change))
+                self.assertTrue(any(want in m for m in res.recompute_mismatches), res.recompute_mismatches)
+        res = self._eval(_motion_cases()[:1], read_png=None)
+        self.assertIn("no PNG reader: the recompute did not run", res.recompute_mismatches)
+
+    def test_a_missing_motion_atlas_or_block_is_incomplete(self):
+        cid = _motion_cases()[0][0]["caseId"]
+        res = self._eval(_motion_cases()[:1], mutate=lambda d: os.remove(
+            os.path.join(d, cid + pp.MOTION_ATLAS_SUFFIX)))
+        self.assertEqual(pp.INVALID_INCOMPLETE_SUBKIND, res.invalid_subkind)
+        self.assertIn("motion-atlas-missing", " ".join(res.completeness.problems))
+        res = self._eval(_motion_cases()[:1], mutate=lambda d: _rewrite(
+            d, cid, lambda doc: doc["motion"].__setitem__("frames", [])))
+        self.assertIn("no-motion-frames", " ".join(res.completeness.problems))
+
+    def test_the_press_gate_reads_the_motion_families(self):
+        cases = [_motion_fault("hinge%d--default--motion-swept--0000bbb%d" % (i, i), family="robotics")
+                 for i in range(2)] + [_motion_case("hinge9--default--motion-swept--0000bbb9", family="robotics",
+                                                    kind="servo", state="motion-swept")] + _motion_cases()[:1]
+        res = self._eval(cases)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_STATE_PRESS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertEqual((("deployable", 1, 0), ("robotics", 3, 2)), res.press.families)
+        # The family falls back to the motion block when neither the row nor the proof names it.
+        doc, tiles = _motion_case("x--default--motion-open--0000ccc1", family="cargo-bay", state="motion-open")
+        doc["stateProof"]["family"] = None
+        self.assertEqual((("cargo-bay", 1, 0),), self._eval([(doc, tiles)]).press.families)
+
+    def test_the_run_shape(self):
+        # A motion run plans only motion cases; a non-motion run plans none.
+        state_doc, state_masks = _state_case("ant--default--deployed--1")
+        d = self._dir()
+        _build_motion_sweep(d, _motion_cases()[:1])
+        _write_state_case(d, state_doc, state_masks)
+        with open(os.path.join(d, pp.MANIFEST_FILE), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        manifest["cases"].append({"caseId": state_doc["caseId"], "state": "deployed", "context": "alone",
+                                  "family": "deployable"})
+        problems = pp.motion_run_problems(manifest, _read_dir(d, "pp14").sidecars)
+        self.assertEqual(["ant--default--deployed--1 state=deployed is not a motion case in a motion=all run"],
+                         problems)
+        manifest["settings"]["motion"] = "none"
+        self.assertTrue(any("plan no motion" in p for p in pp.motion_run_problems(
+            manifest, _read_dir(d, "pp14").sidecars)))
+        res = self._eval(_motion_cases()[:1], mutate=lambda dd: _rewrite(
+            dd, _motion_cases()[0][0]["caseId"], lambda doc: doc["motion"].__setitem__("family", "gear")))
+        self.assertTrue(any("row family=deployable motion.family=gear" in m for m in res.recompute_mismatches))
+
+    def test_the_regression_gate_runs_over_a_motion_sweep(self):
+        # The shell always passes a GateInput; with no baseline section the report-only row
+        # stays REPORT and the gate's no-baseline red is recorded, not raised.
+        d = self._dir()
+        cases = _motion_cases() + [_motion_case("late--default--motion-deployed--0000aaa9", ghost=_ramp(1.5, 2.0))]
+        _build_motion_sweep(d, cases)
+        res = pp.evaluate_sweep(_read_dir(d, "pp14"), RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(d, n), pp.GateInput("stock-minimal", None))
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        self.assertIsNotNone(res.gate)
+        json.dumps(pp.verdicts_document(res, RUN_ID), allow_nan=False)
+        pp.format_summary(pp.combine([res], False))
+        pp.detail_record(pp.combine([res], False))
+
+    def test_the_recompute_sample_is_seeded_and_two_percent(self):
+        cases = [_motion_case("p%02d--default--motion-deployed--0000%04d" % (i, i), frames=9,
+                              real=_ramp(0.25, 1.0)) for i in range(60)]
+        res = self._eval(cases)
+        sampled = sorted(c[:-len(pp.MOTION_RECOMPUTE_ID_SUFFIX)] for c in res.recompute_ids
+                         if c.endswith(pp.MOTION_RECOMPUTE_ID_SUFFIX) and not c.startswith("ctl-"))
+        self.assertEqual(pp.select_recompute_sample([c[0]["caseId"] for c in cases], RUN_ID), sampled)
+        self.assertEqual(2, len(sampled))
+
+
+class MotionWindowCompletenessTests(MotionSweepFixture):
+    """A motion case that fails the window rule (too few frames, a real part that never got
+    there, no same-time picture at its end) is not a record a verdict can stand on: the armed
+    sweep reads INVALID(incomplete), never PASS over an ``error`` case."""
+
+    def _hinge_without_pictures(self, keep_views):
+        cases = _motion_cases()
+        hinge = cases[2][0]
+        for f in hinge["motion"]["frames"]:
+            if keep_views:
+                for v in f["views"]:
+                    v["same"] = None
+                    v["matched"] = None
+            else:
+                f["views"] = []
+        return cases, hinge["caseId"]
+
+    def test_a_case_with_no_last_frame_pictures_is_incomplete(self):
+        for keep_views in (True, False):
+            cases, hinge_id = self._hinge_without_pictures(keep_views)
+            res = self._eval(cases, gating=True)
+            self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND),
+                             (res.status, res.invalid_subkind), keep_views)
+            self.assertIn(hinge_id + ":motion-last-frame-no-pictures", " ".join(res.problems))
+            verdict = {c.case_id: c for c in res.cases}[hinge_id]
+            self.assertEqual(pp.VERDICT_ERROR, verdict.verdict)
+            self.assertIn("motion:last-frame-no-pictures", verdict.reasons)
+
+    def test_too_few_frames_or_an_unreached_real_part_is_incomplete(self):
+        cases = [_motion_case("longantenna--default--motion-deployed--0000aaa1", frames=3),
+                 _motion_case("gearsmall--default--motion-deployed--0000aaa2", part="GearSmall",
+                              family="gear", module="ModuleWheelDeployment", real=_ramp(10.0, 2.0))]
+        res = self._eval(cases, gating=True)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        text = " ".join(res.problems)
+        self.assertIn("longantenna--default--motion-deployed--0000aaa1:motion-frames=3<5", text)
+        self.assertIn("gearsmall--default--motion-deployed--0000aaa2:motion-real-not-reached=", text)
+
+
+class MotionNoneToleranceTests(unittest.TestCase):
+    """A null progress value (the C# NaN a sidecar writes as null) is read as C# reads a NaN:
+    every comparison with it is false and arithmetic through it is not measured, so the flag
+    and shape helpers never raise on it (the M1 review: they raised TypeError while
+    motion_crossing tolerated it)."""
+
+    def test_snap_and_step_compare_a_null_false(self):
+        real = [0.0, 0.0, 0.3, 0.6, 0.95, 1.0]
+        self.assertTrue(pp.motion_snapped(real, [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        # A null on either side of the jump is no jump; a null real frame is neither low nor high.
+        self.assertFalse(pp.motion_snapped(real, [0.0, 0.0, 0.0, None, 0.95, 1.0]))
+        # The real's last frame under 0.1 is found past the nulls (C#: NaN < 0.1 is false).
+        self.assertTrue(pp.motion_snapped([0.0, None, None, None, 0.95, 1.0], [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        self.assertFalse(pp.motion_snapped([None, None, None, 0.05, 0.95, 1.0], [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        self.assertFalse(pp.motion_snapped([None] * 6, [None] * 6))
+        steps = [0.0, 0.0, 0.3, 0.3, 0.6, 0.6, 1.0, 1.0]
+        real = [0.0, 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0]
+        self.assertTrue(pp.motion_stepped(real, steps))
+        self.assertFalse(pp.motion_stepped(real, [0.0, 0.0, 0.3, None, 0.6, 0.6, 1.0, 1.0]))
+        self.assertFalse(pp.motion_stepped([0.0, 0.1, 0.25, None, 0.55, 0.7, 0.85, 1.0], steps))
+        self.assertFalse(pp.motion_stepped([None] * 8, [None] * 8))
+
+    def test_the_shape_deviation_skips_a_null(self):
+        s = [0.0, 1.0, 2.0, 3.0]
+        self.assertAlmostEqual(0.25, pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [0.0, 0.5, 1.0, 1.0], 0.0))
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, [0.0, 0.5, None, 1.0], s, [0.0, 0.5, 1.0, 1.0], 0.0))
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [0.0, 0.5, None, 1.0], 0.0))
+        self.assertIsNone(pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [None] * 4, 0.0))
+        self.assertIsNone(pp.motion_interpolate(s, [0.0, None, 1.0, 1.0], 0.5))
+        self.assertEqual(1.0, pp.motion_interpolate(s, [0.0, None, 1.0, 1.0], 2.5))
+        self.assertIsNone(pp.motion_interpolate(s, [0.0, 0.5, 1.0, 1.0], None))
+        # A null offset stops the scan with a span that is not positive: C# returns p[k].
+        self.assertEqual(0.5, pp.motion_interpolate([0.0, None, 2.0, 3.0], [0.0, 0.5, 1.0, 1.0], 0.5))
+
+    def test_the_timing_of_a_series_with_nulls_never_raises(self):
+        s = [round(0.25 * k, 10) for k in range(17)]
+        p = [_ramp(0.5, 2.0)(t) for t in s]
+        holed = list(p)
+        holed[5] = holed[9] = None
+        t = pp.motion_timing({"realS": s, "realProgress": holed, "scoutS": s, "scoutProgress": holed,
+                              "ghostSameProgress": holed, "realClock": None, "ghostClock": None,
+                              "transforms": [{"real": holed, "ghost": holed, "travelReal": 1.0,
+                                              "travelGhost": 1.0}]})
+        self.assertEqual([], t["flags"])
+        # The crossing whose bracket holds the null is not measured on either side, and the
+        # measures that read it are not measured either.
+        self.assertIsNone(t["real"]["t50"])
+        self.assertEqual((None, None, None), (t["lagS"], t["curveShapeDev"], t["staggerDev"]))
+        self.assertIsNone(t["durationRatio"])
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, holed, s, holed, 0.0))
+
+
+class MotionSourceSyncTests(unittest.TestCase):
+    """The M4 literals mirrored from the C# side, and the control judges' code shape."""
+
+    @staticmethod
+    def _source(name):
+        with open(os.path.join(CS_DIR, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_real_vs_real_colour_allowance(self):
+        text = self._source("PartParitySweepPlan.cs")
+        self.assertIn("internal const int RealVsRealColorNoisePx = %d;" % pp.REAL_VS_REAL_COLOR_NOISE_PX, text)
+        self.assertIn("m.RealOnlyPx == 0 && m.GhostOnlyPx == 0 && m.ColorOverPx <= RealVsRealColorNoisePx", text)
+
+    def test_the_control_judges_are_the_csharp_ones(self):
+        text = self._source("PartParityMotionRules.cs")
+        for line in (
+                "double lagAllowed = Math.Max(frameIntervalS, RealVsRealLagMotionFraction * predictedS);",
+                "if (double.IsNaN(t.LagS) || Math.Abs(t.LagS) > lagAllowed) why.Add(\"lagS=\" + Num(t.LagS));",
+                "if (double.IsNaN(t.DurationRatio) || Math.Abs(t.DurationRatio - 1.0) > RealVsRealDurationTolerance)",
+                "if (!double.IsNaN(t.CurveShapeDev) && t.CurveShapeDev > RealVsRealCurveShapeMax)",
+                "if (!endFramesWithinAllowance) why.Add(\"end frames differ\");",
+                "double ratio = Ratio(slow.DurationRatio, normal.DurationRatio);",
+                "if (double.IsNaN(ratio) || ratio < SlowRatioMin || ratio > SlowRatioMax) why.Add(\"ratio=\" + Num(ratio));",
+                "double onset = Diff(slow.OnsetLagS, normal.OnsetLagS);",
+                "if (double.IsNaN(onset) || Math.Abs(onset) > frameIntervalS) why.Add(\"onset=\" + Num(onset));",
+                "if (!DurationFails(slow.DurationRatio)) why.Add(\"slow route does not fail on duration\");",
+                "if (!slowLastFramePasses) why.Add(\"slow last frame fails the end-state rules\");",
+                "double shift = Diff(late.LagS, normal.LagS);",
+                "if (double.IsNaN(shift) || shift < LateLagMin || shift > LateLagMax) why.Add(\"lag shift=\" + Num(shift));",
+                "double dr = Diff(late.DurationRatio, normal.DurationRatio);",
+                "if (double.IsNaN(dr) || Math.Abs(dr) > LateDurationTolerance) why.Add(\"durationRatio change=\" + Num(dr));",
+                "private static string Num(double v) => double.IsNaN(v) ? \"nan\" : v.ToString(\"0.###\", Ic);",
+                "detail = \"setup \" + (setupStatus ?? \"<none>\");",
+                "detail = why.Count == 0 ? null : string.Join(\"; \", why.ToArray());"):
+            with self.subTest(line=line):
+                self.assertIn(line, text)
+
+    def test_the_nan_comparisons_the_none_tolerance_mirrors(self):
+        text = self._source("PartParityMotionRules.cs")
+        self.assertIn("if (!(realP[k] > ShapeBandLow && realP[k] < ShapeBandHigh)) continue;", text)
+        self.assertIn("for (int k = 0; k < realP.Count; k++) if (realP[k] > SnapHigh) { high = k; break; }", text)
+        self.assertIn("for (int k = high - 1; k >= 0; k--) if (realP[k] < SnapLow) { low = k; break; }", text)
+        self.assertIn("if (ghostP[k] < SnapLow && ghostP[k + 1] > SnapHigh) return true;", text)
+        self.assertIn("bool still = Math.Abs(ghostP[k + 1] - ghostP[k]) <= StepStillEpsilon", text)
+        self.assertIn("if (double.IsNaN(worst) || d > worst) worst = d;", text)
+        self.assertIn("if (at > s[k]) continue;", text)
+        self.assertIn("return span > 0.0 ? p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span : p[k];", text)
+
+
 # ---------------------------------------------------------------------------
 # P9 X3: the burst measures' Python transcription against the committed C# fixture
 # (Source/Parsek.Tests/Fixtures/PartParity/burst/, PartParityBurstFixture).
