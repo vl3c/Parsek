@@ -5,6 +5,9 @@
 # view (* | a view | event:<view> | start:<view>), measure (shape-blob | color-blob | iou |
 # structure | skin | hidden | drawn | flag:<flag>[*] | * for every picture measure), noisy (the measure moves run to run, so the drift
 # rule is waived for it too; otherwise only the fail verdict is waived and drift still gates),
+# kind (optional, read by the page alone, never by the gate: ruled = the owner ruled on it by
+# name, the reason cites it; accepted = a known cause that is not the ghost's; defect = a real
+# ghost difference not fixed yet, which the page keeps red, as it does an entry without a kind),
 # reason, todo.
 
 schema = 1
@@ -15,6 +18,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: thin outline lines, cosmetic; 404 to 782 px run to run"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -24,6 +28,7 @@ profile = "modded-compat"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: a uniform tint offset over the top face that reads the same to the eye; fails in some runs only"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -33,6 +38,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: ReStock dish seam lines, cosmetic; top 716 to 1138 px and side-b IoU 0.989 to 1.000 run to run"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -42,6 +48,7 @@ profile = "modded-compat"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: one seam line, cosmetic; fails in some runs only"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -51,6 +58,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -60,6 +68,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -69,6 +78,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -78,6 +88,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -87,6 +98,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -96,6 +108,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -105,6 +118,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -114,6 +128,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -123,6 +138,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -132,6 +148,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -141,6 +158,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -150,6 +168,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "ruled"
 reason = "owner ruling 2026-11-22: suspension droop is not modelled (the context-pose cap); a ReStock wheel's free-fall droop settles differently each spawn (roverwheel1 colour 16556 to 27694 px)"
 todo = "GHOST-PARITY-RESIDUALS-2026-11-22"
 
@@ -158,6 +177,7 @@ case = "foldingradlarge--default--deployed--6736a14d"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -166,6 +186,7 @@ case = "foldingradmed--default--deployed--d4291436"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -174,6 +195,7 @@ case = "foldingradsmall--default--deployed--0ea3e9c5"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -182,6 +204,7 @@ case = "largesolarpanel--default--deployed--bd27078e"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -190,6 +213,7 @@ case = "solarpanelox10c--default--deployed--4197065c"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -198,6 +222,7 @@ case = "solarpanelox10l--default--deployed--0443976f"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -206,6 +231,7 @@ case = "solarpanels1--default--deployed--4ff737a1"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -214,6 +240,7 @@ case = "solarpanels2--default--deployed--c3bd172e"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -222,6 +249,7 @@ case = "solarpanels3--default--deployed--fa4a4b3f"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -230,6 +258,7 @@ case = "solarpanels4--default--deployed--b561fb64"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -238,6 +267,7 @@ case = "solarpanelsp10c--default--deployed--540bdd28"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -246,6 +276,7 @@ case = "solarpanelsp10l--default--deployed--cb93fb03"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "a sun tracker is captured up to 0.85 deg short of its aim and the sun's direction changes every run, so its pose and every picture measure move run to run"
 todo = "PARTPARITY-SUN-TRACKER-RESIDUAL"
 
@@ -255,6 +286,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "the running scanner is photographed at another spin phase on each side, different every run"
 todo = "PARTPARITY-SPIN-PHASE"
 
@@ -264,6 +296,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "accepted"
 reason = "the running scanner is photographed at another spin phase on each side, different every run"
 todo = "PARTPARITY-SPIN-PHASE"
 
@@ -273,6 +306,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "accepted"
 reason = "the stock LV-1 shroud rim z-fights on both sides in a different pattern each run (0 to 9165 px top)"
 todo = "PARTPARITY-LV1-SHROUD-ZFIGHT"
 
@@ -282,6 +316,7 @@ profile = "modded-compat"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "accepted"
 reason = "the LV-1 shroud rim z-fights on both sides in a different pattern each run"
 todo = "PARTPARITY-LV1-SHROUD-ZFIGHT"
 
@@ -291,6 +326,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the KE-1 strut and piston rods settle at another roll each spawn; colour only, 37 to 522 px run to run"
 todo = "PARTPARITY-KE1-STRUT-ROLL"
 
@@ -300,6 +336,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the KE-1 strut and piston rods settle at another roll each spawn; colour only, 37 to 522 px run to run"
 todo = "PARTPARITY-KE1-STRUT-ROLL"
 
@@ -309,6 +346,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the KE-1 strut and piston rods settle at another roll each spawn; colour only, 37 to 522 px run to run"
 todo = "PARTPARITY-KE1-STRUT-ROLL"
 
@@ -318,6 +356,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the KE-1 strut and piston rods settle at another roll each spawn; colour only, 37 to 522 px run to run"
 todo = "PARTPARITY-KE1-STRUT-ROLL"
 
@@ -327,6 +366,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the KE-1 strut and piston rods settle at another roll each spawn; colour only, 37 to 522 px run to run"
 todo = "PARTPARITY-KE1-STRUT-ROLL"
 
@@ -335,6 +375,7 @@ case = "kv1pod--default--lit--ae5b8492"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -343,6 +384,7 @@ case = "kv1pod--default--lit--ae5b8492"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -351,6 +393,7 @@ case = "kv2pod--default--lit--8d584199"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -359,6 +402,7 @@ case = "kv2pod--default--lit--8d584199"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -367,6 +411,7 @@ case = "kv3pod--default--lit--68dd9c70"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -375,6 +420,7 @@ case = "kv3pod--default--lit--68dd9c70"
 profile = "stock-minimal"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -383,6 +429,7 @@ case = "kv1pod--green--lit--7216bc60"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -391,6 +438,7 @@ case = "kv1pod--green--lit--7216bc60"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -399,6 +447,7 @@ case = "kv2pod--beige--lit--c0c73f88"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -407,6 +456,7 @@ case = "kv2pod--beige--lit--c0c73f88"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -415,6 +465,7 @@ case = "kv3pod--white--lit--ffd9c690"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -423,6 +474,7 @@ case = "kv3pod--white--lit--ffd9c690"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -431,6 +483,7 @@ case = "size1to0servicemodule--notunnel--lit--f00e65bd"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -439,6 +492,7 @@ case = "size1to0servicemodule--notunnel--lit--f00e65bd"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -447,6 +501,7 @@ case = "restock-service-module-125-625-1--notunnel--lit--0d8c0082"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -455,6 +510,7 @@ case = "restock-service-module-125-625-1--notunnel--lit--0d8c0082"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -463,6 +519,7 @@ case = "telescopicladderbay--default--lit--88b847d8"
 profile = "modded-compat"
 view = "*"
 measure = "flag:state-not-modelled:*"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info on either route"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -471,6 +528,7 @@ case = "telescopicladderbay--default--lit--88b847d8"
 profile = "modded-compat"
 view = "*"
 measure = "flag:start-pose-not-first-frame"
+kind = "accepted"
 reason = "stock shows no light on this part, so the ghost rightly carries no light info and the start route reads not-reached; the pictures match"
 todo = "PARTPARITY-STOCK-INVISIBLE-LIGHT-READBACK"
 
@@ -479,6 +537,7 @@ case = "spotlight1--dark--lit--ff5c246d"
 profile = "modded-compat"
 view = "*"
 measure = "*"
+kind = "accepted"
 reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
 
@@ -487,6 +546,7 @@ case = "spotlight1.v2--dark--lit--e3b2be27"
 profile = "modded-compat"
 view = "*"
 measure = "*"
+kind = "accepted"
 reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
 
@@ -495,6 +555,7 @@ case = "spotlight2.v2--dark--lit--daf1e66a"
 profile = "modded-compat"
 view = "*"
 measure = "*"
+kind = "accepted"
 reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
 
@@ -503,6 +564,7 @@ case = "spotlight3--dark--lit--0fade437"
 profile = "modded-compat"
 view = "*"
 measure = "*"
+kind = "accepted"
 reason = "the real lit lamp draws a Waterfall flare and beam the ghost does not build"
 todo = "GHOST-WATERFALL-LIGHT-FX-MISSING"
 
@@ -512,6 +574,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "accepted"
 reason = "one row of edge-shading pixels (312 px on one side view) flips in some runs; IoU 1, nothing else differs (the modded entry above is the owner ruling, this one is not)"
 todo = "PARTPARITY-ROTOR01-GRAY-EDGE-LINE"
 
@@ -521,6 +584,7 @@ profile = "modded-compat"
 view = "side-b"
 measure = "color-blob"
 noisy = true
+kind = "accepted"
 reason = "one row of edge pixels (259 px) where the real part's alpha is 246 and the ghost's 255, colour equal; 1 of 9 archived PP-2 runs, IoU 1, nothing else differs"
 todo = "PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE"
 
@@ -530,6 +594,7 @@ profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
 noisy = true
+kind = "defect"
 reason = "the deployed claw ends 3.7 mm short of the real pose; outline colour lines 391 to 968 px run to run"
 todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 
@@ -539,6 +604,7 @@ profile = "modded-compat"
 view = "*"
 measure = "*"
 noisy = true
+kind = "defect"
 reason = "the deployed claw ends a few mm off the real pose; outline lines and a 500 to 600 px shape sliver run to run"
 todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 
@@ -547,6 +613,7 @@ case = "highgainantenna5.v2--default--deployed--7003b5f3"
 profile = "stock-minimal"
 view = "*"
 measure = "color-blob"
+kind = "defect"
 reason = "the deployed dish ends 6.3 mm off the real pose; a stable colour difference of about 775 px"
 todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 
@@ -555,6 +622,7 @@ case = "restock-materialbay-radial-1--truss--deployed--aafcccf5"
 profile = "modded-compat"
 view = "*"
 measure = "color-blob"
+kind = "defect"
 reason = "a stable colour difference of about 1765 px on the open bay"
 todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 
@@ -563,6 +631,7 @@ case = "science.module--default--deployed--34dba38a"
 profile = "modded-compat"
 view = "*"
 measure = "color-blob"
+kind = "defect"
 reason = "a stable colour difference of about 1240 px on the open module"
 todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 
@@ -570,6 +639,7 @@ todo = "PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"
 case = "fairingsize2--white--stowed--fgv-3-open-top--9dd2b1aa"
 view = "*"
 measure = "color-blob"
+kind = "defect"
 reason = "the open-top procedural fairing ghost lacks a thin panel seam line the live panels show (a warn near 140 px; its drift still gates)"
 todo = "GHOST-FAIRING-OPEN-TOP-SEAM"
 
@@ -577,6 +647,7 @@ todo = "GHOST-FAIRING-OPEN-TOP-SEAM"
 case = "parachutedrogue--default--d8d09dd5"
 view = "*"
 measure = "drawn"
+kind = "defect"
 reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
 todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
@@ -584,6 +655,7 @@ todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 case = "parachutelarge--default--52e3f572"
 view = "*"
 measure = "drawn"
+kind = "defect"
 reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
 todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
@@ -591,6 +663,7 @@ todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 case = "parachuteradial--default--dd7e38ae"
 view = "*"
 measure = "drawn"
+kind = "defect"
 reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
 todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
@@ -598,6 +671,7 @@ todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 case = "parachutesingle--default--976ec64b"
 view = "*"
 measure = "drawn"
+kind = "defect"
 reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
 todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
@@ -605,6 +679,7 @@ todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 case = "radialdrogue--default--c1ee3063"
 view = "*"
 measure = "drawn"
+kind = "defect"
 reason = "a stowed chute's canopy renderer is enabled on the ghost and disabled on the real part; the stowed pictures match"
 todo = "PARTPARITY-STOWED-CANOPY-RENDERED"
 
@@ -614,5 +689,58 @@ profile = "modded-compat"
 view = "top"
 measure = "color-blob"
 noisy = true
+kind = "accepted"
 reason = "a seam-line colour blob near the 256 px line (12 to 289 px run to run), not yet read by the owner"
 todo = "PARTPARITY-ROVERBODY-WHITE-TOP-SEAM"
+
+# PP-7 (effects in orbit). An fx:<measure> entry names one E.4 measure; noisy waives its drift
+# past the band as well.
+
+[[accepted]]
+case = "rcsblock.v2--angled--rcs-fire--822797e8"
+profile = "stock-minimal"
+view = "*"
+measure = "color-blob"
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: the ghost fires every nozzle at the block's mean power, so its nozzles glow alike where stock lights the fired two of nine; body colour 7177 to 8536 px on all four views, two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.v2--angled--rcs-fire--822797e8"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:colour"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: puffs at mean power; hue L1 0.52 and 0.55 (line 0.5) in one of two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.01.small--angled--rcs-fire--b379820e"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:cross-section"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: every nozzle puffs, so the puffs' centre moves; bottom offset 0.22 and 0.12 (line 0.1) in two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "rcsblock.01.small--angled--rcs-fire--b379820e"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:direction"
+noisy = true
+kind = "defect"
+reason = "owner rulings 2026-11-22 (R4) and 2026-11-24: every nozzle puffs, so the puffs point another way; start route side-b 10.4 and -12.2 deg (line 10) in two runs"
+todo = "RCS-PER-NOZZLE-RECORDING"
+
+[[accepted]]
+case = "liquidenginemini.v2--shroud--burn-full--7a689fdc"
+profile = "stock-minimal"
+view = "*"
+measure = "fx:origin"
+noisy = true
+kind = "accepted"
+reason = "a stray particle behind the nozzle of a sparse flame moves where its envelope starts: side-b -58 px on the start route (line 37) in one of two runs, 18 px in the other; the real side's own sample halves differ by 41 px of length"
+todo = "PARTPARITY-SPARK-FLAME-ORIGIN"

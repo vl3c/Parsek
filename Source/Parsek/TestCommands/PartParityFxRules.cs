@@ -56,9 +56,59 @@ namespace Parsek.TestCommands
         /// <summary>The part carries a <c>MultiModeEngine</c> (the press picks this module's mode).</summary>
         internal bool MultiMode;
 
+        /// <summary>The engine runs on the vessel's main throttle (a <c>main-*</c> case), as in
+        /// ordinary play; every other plume case runs on the independent throttle with the main
+        /// throttle at 0.</summary>
+        internal bool MainThrottle;
+
+        /// <summary>A glow of the part reads the vessel's main throttle while this engine runs
+        /// (<see cref="PartParityFxRules.GlowReadsMainThrottle"/>).</summary>
+        internal bool MainThrottleGlow;
+
         /// <summary><see cref="PartParityFxRules.ReferenceWaterfall"/> for a case judged
         /// reference-only (E.6), else null.</summary>
         internal string Reference;
+
+        // ----- P9 burst and dust cases (design Appendix G); unset on every P8 case -----
+
+        /// <summary>A burst case's <c>explosionPotential</c> (an explode, puff, decouple or
+        /// joint-break case: its part's; a custom stand-in: Parsek's power for its length); NaN otherwise.</summary>
+        internal double ExplosionPotential = double.NaN;
+
+        /// <summary>A vessel-explode case's stack size; 0 otherwise.</summary>
+        internal int StackSize;
+
+        /// <summary>A burst-custom case's stand-in (<see cref="PartParityFxRules.StandInCustom"/> /
+        /// <see cref="PartParityFxRules.StandInPuff"/>); null otherwise.</summary>
+        internal string StandIn;
+
+        /// <summary>A custom explosion's vessel length, metres; NaN otherwise.</summary>
+        internal double StandInLengthM = double.NaN;
+
+        /// <summary>A decouple case's FX group (the decoupler's <c>fxGroupName</c>); null otherwise.</summary>
+        internal string FxGroup;
+
+        /// <summary>A burst case's window, seconds (<see cref="PartParityFxRules.BurstWindowFor"/>); NaN otherwise.</summary>
+        internal double BurstWindowSeconds = double.NaN;
+
+        /// <summary>A dust case's <c>thrustProviderModuleIndex</c> (the engine's prefab index); -1 otherwise.</summary>
+        internal int ThrustProviderModuleIndex = -1;
+
+        /// <summary>A dust case's engine module name (the thrust provider); null otherwise.</summary>
+        internal string EngineModule;
+
+        /// <summary>A dust case's slot surface (<c>terrain</c> / <c>water</c>); null otherwise.</summary>
+        internal string Surface;
+
+        /// <summary>A dust case's slot height as a fraction of <see cref="SurfaceFxMaxDistanceM"/>, and in metres.</summary>
+        internal double SlotFraction = double.NaN;
+        internal double SlotHeightM = double.NaN;
+
+        /// <summary>A dust case's <c>ModuleSurfaceFX</c> fields (stock defaults where the config names none).</summary>
+        internal double SurfaceFxMaxDistanceM = double.NaN;
+        internal double SurfaceFxFalloff = double.NaN;
+        internal double SurfaceFxFxMax = double.NaN;
+        internal string ThrustTransformName;
 
         /// <summary>The same option in another context.</summary>
         internal PartParityFxOption InContext(string context)
@@ -146,6 +196,9 @@ namespace Parsek.TestCommands
 
         /// <summary>The prefab's model carries the <c>ModuleAnimateHeat</c> clip the module names.</summary>
         internal bool HasHeatClip;
+
+        /// <summary>The prefab carries a <c>ModuleSurfaceFX</c> (a dust control's subject must, design G.4).</summary>
+        internal bool HasSurfaceFx;
     }
 
     /// <summary>The subject an FX control runs on, or why it has none.</summary>
@@ -208,7 +261,7 @@ namespace Parsek.TestCommands
     /// <see cref="PartParityStateRules.OrbitContexts"/>, its exclusions) do not change: heat
     /// and <c>plate</c> live here only.
     /// </summary>
-    internal static class PartParityFxRules
+    internal static partial class PartParityFxRules
     {
         // ----- families (E.1 table order) -----
 
@@ -230,11 +283,20 @@ namespace Parsek.TestCommands
         internal const string ArgHeat = "heat";
         internal const string ArgPlate = "plate";
 
-        /// <summary><c>fx=all</c>: every FX word.</summary>
+        /// <summary>Every engine's main-throttle cases. <c>plume</c> plans them only for the
+        /// engines whose throttle a glow does not follow by itself
+        /// (<see cref="GlowReadsMainThrottle"/>).</summary>
+        internal const string ArgPlumeMain = "plume-main";
+
+        /// <summary><c>fx=all</c>: every word of <see cref="ArgWords"/>.</summary>
         internal const string ArgAllToken = "all";
 
-        /// <summary>Every word an <c>fx=</c> csv may name, in canonical order.</summary>
+        /// <summary>The words <c>fx=all</c> stands for, in canonical order.</summary>
         internal static readonly string[] ArgWords = { ArgPlume, ArgRcs, ArgHeat, ArgPlate };
+
+        /// <summary>Every word an <c>fx=</c> csv may name, in canonical order: those of
+        /// <c>fx=all</c>, then the ones a run asks for by name.</summary>
+        internal static readonly string[] ArgKnownWords = { ArgPlume, ArgRcs, ArgHeat, ArgPlate, ArgPlumeMain };
 
         /// <summary>The family an <c>fx=</c> word selects (<c>plate</c> selects the lamps); null
         /// for an unknown word.</summary>
@@ -246,6 +308,12 @@ namespace Parsek.TestCommands
                 case ArgRcs: return FamilyRcs;
                 case ArgHeat: return FamilyHeat;
                 case ArgPlate: return FamilyLight;
+                case ArgPlumeMain: return FamilyPlume;
+                case ArgExplode: return FamilyExplode;
+                case ArgVesselExplode: return FamilyVesselExplode;
+                case ArgBurstCustom: return FamilyBurstCustom;
+                case ArgDecouple: return FamilyDecouple;
+                case ArgDust: return FamilyDust;
                 default: return null;
             }
         }
@@ -254,6 +322,8 @@ namespace Parsek.TestCommands
 
         internal const string StateBurnFull = "burn-full";
         internal const string StateBurnLow = "burn-low";
+        internal const string StateMainFull = "main-full";
+        internal const string StateMainLow = "main-low";
         internal const string StateRcsFire = "rcs-fire";
         internal const string StateHeatMedium = "heat-medium";
         internal const string StateHeatHot = "heat-hot";
@@ -261,7 +331,7 @@ namespace Parsek.TestCommands
 
         /// <summary>Every FX state word, in canonical order.</summary>
         internal static readonly string[] States =
-            { StateBurnFull, StateBurnLow, StateRcsFire, StateHeatMedium, StateHeatHot, StateLit };
+            { StateBurnFull, StateBurnLow, StateMainFull, StateMainLow, StateRcsFire, StateHeatMedium, StateHeatHot, StateLit };
 
         /// <summary>A lamp's context: the light it casts on a matte plate.</summary>
         internal const string ContextPlate = "plate";
@@ -278,12 +348,20 @@ namespace Parsek.TestCommands
         internal const string TypeAblator = PartParityStateRules.TypeAblator;
         internal const string ModuleMultiModeEngine = "MultiModeEngine";
         internal const string ModuleWaterfallFx = "ModuleWaterfallFX";
+        internal const string TypeThrottleGlow = "FXModuleAnimateThrottle";
+        internal const string TypeThrottleEffects = "FXModuleThrottleEffects";
 
         // Config keys and their stock defaults (decompiled KSP 1.12.5 ModuleEngines field initializers).
         internal const string KeyThrottleLocked = "throttleLocked";              // default false
         internal const string KeyUseEngineResponseTime = "useEngineResponseTime"; // default false
         internal const string KeyEngineAccelerationSpeed = "engineAccelerationSpeed";
         internal const string KeyEngineId = "engineID";
+        internal const string KeyDependOnEngineState = "dependOnEngineState";    // default false
+        internal const string KeyDependOnOutput = "dependOnOutput";              // default false
+        internal const string KeyDependOnThrottle = "dependOnThrottle";          // default false
+        internal const string KeyPreferMultiMode = "preferMultiMode";            // default false
+        internal const string KeyEngineName = "engineName";
+        internal const string KeyEngineIndex = "engineIndex";                    // default 0
         internal const string NodePropellant = "PROPELLANT";
         internal const string KeyPropellantName = "name";
 
@@ -318,6 +396,12 @@ namespace Parsek.TestCommands
 
         internal const double BurnFullThrottle = 1.0;
         internal const double BurnLowThrottle = 0.3;
+
+        /// <summary>How long a case of an engine whose glow reads the main throttle burns, from its
+        /// press, before its ghosts are built. Both stock clips (<c>TRJ_Heat</c>,
+        /// <c>TurboJetHeat</c>, responseSpeed 0.0005) close on the throttle by 1/80 a second, so the
+        /// bell is half hot by then; at the end of a spool it is a fifth to a third.</summary>
+        internal const double MainThrottleGlowBurnSeconds = 60.0;
 
         /// <summary>The <c>currentThrottle</c> a plume's done signal reads within this of the request.</summary>
         internal const double ThrottleDoneTolerance = 0.01;
@@ -537,7 +621,9 @@ namespace Parsek.TestCommands
         /// The FX cases of one part and what it leaves out (E.1), at <paramref name="baseKey"/>'s
         /// part, source and base skin (ruling R2). Plume: every <c>as ModuleEngines</c> module
         /// (<c>FlightRecorder.CheckEngineState</c>), <c>burn-full</c> and <c>burn-low</c> (a
-        /// throttle-locked engine: <c>burn-full</c> only, <c>fx-throttle-locked</c>), in the
+        /// throttle-locked engine: <c>burn-full</c> only, <c>fx-throttle-locked</c>), and the same
+        /// two on the vessel's main throttle (<c>main-full</c>, <c>main-low</c>; none for a
+        /// throttle-locked engine, which ignores it), in the
         /// <c>air</c> context when it breathes air (<c>fx-needs-air</c> for an orbit run). RCS:
         /// every <c>as ModuleRCS</c> module, <c>rcs-fire</c>. Heat: every module named
         /// <c>ModuleAnimateHeat</c> (<c>PollAnimateHeat</c>), <c>heat-medium</c> and
@@ -562,7 +648,7 @@ namespace Parsek.TestCommands
             foreach (PartParityStateModule m in part.Modules)
             {
                 if (m == null) continue;
-                if (m.Implements(TypeEngines)) AddPlume(name, m, engineKey++, multiMode, waterfall, cases, r);
+                if (m.Implements(TypeEngines)) AddPlume(part, name, m, engineKey++, multiMode, waterfall, cases, r);
                 if (m.Implements(TypeRcs))
                 {
                     PartParityFxOption rcs = Option(FamilyRcs, m, StateRcsFire, PartParityStateRules.ContextAlone, waterfall);
@@ -594,8 +680,8 @@ namespace Parsek.TestCommands
             return r;
         }
 
-        private static void AddPlume(string part, PartParityStateModule m, int keyIndex, bool multiMode, bool waterfall,
-            List<PartParityFxOption> cases, PartParityFxEnumeration r)
+        private static void AddPlume(PartParityStatePart statePart, string part, PartParityStateModule m, int keyIndex,
+            bool multiMode, bool waterfall, List<PartParityFxOption> cases, PartParityFxEnumeration r)
         {
             bool air = HasPropellant(m, AirPropellant);
             bool locked = PartParityStateRules.ParseBool(m.Value(KeyThrottleLocked), false);
@@ -614,6 +700,18 @@ namespace Parsek.TestCommands
                 PartParityFxOption low = PlumeOption(m, StateBurnLow, BurnLowThrottle, context, air, locked, multiMode, waterfall);
                 low.RecorderKeyIndex = keyIndex;
                 cases.Add(low);
+                bool glow = GlowReadsMainThrottle(statePart, keyIndex);
+                foreach (PartParityFxOption main in new[]
+                {
+                    PlumeOption(m, StateMainFull, BurnFullThrottle, context, air, locked, multiMode, waterfall),
+                    PlumeOption(m, StateMainLow, BurnLowThrottle, context, air, locked, multiMode, waterfall),
+                })
+                {
+                    main.RecorderKeyIndex = keyIndex;
+                    main.MainThrottle = true;
+                    main.MainThrottleGlow = glow;
+                    cases.Add(main);
+                }
             }
             if (air)
                 r.Exclusions.Add(new PartParityFxExclusion
@@ -654,6 +752,44 @@ namespace Parsek.TestCommands
                 Reference = waterfall && (family == FamilyPlume || family == FamilyRcs) ? ReferenceWaterfall : null,
             };
 
+        /// <summary>
+        /// Whether a glow of the part reads the vessel's main throttle while the engine at
+        /// <paramref name="engineKey"/> (its position among the part's engine modules) runs.
+        /// Decompiled <c>FXModuleAnimateThrottle</c> / <c>FXModuleThrottleEffects</c>: with
+        /// <c>dependOnEngineState</c> the target is the named engine's output
+        /// (<c>dependOnOutput</c>) or throttle (<c>dependOnThrottle</c>), and
+        /// <c>vessel.ctrlState.mainThrottle</c> with neither; without it, always the main throttle.
+        /// A module whose config nothing read counts as no such glow.
+        /// </summary>
+        internal static bool GlowReadsMainThrottle(PartParityStatePart part, int engineKey)
+        {
+            if (part?.Modules == null) return false;
+            var engineIds = new List<string>();
+            bool multiMode = false;
+            foreach (PartParityStateModule m in part.Modules)
+            {
+                if (m == null) continue;
+                if (m.Implements(TypeEngines)) engineIds.Add(m.Value(KeyEngineId) ?? string.Empty);
+                if (m.Named(ModuleMultiModeEngine)) multiMode = true;
+            }
+            foreach (PartParityStateModule m in part.Modules)
+            {
+                if (m?.Config == null || (!m.Implements(TypeThrottleGlow) && !m.Implements(TypeThrottleEffects))) continue;
+                if (!PartParityStateRules.ParseBool(m.Value(KeyDependOnEngineState), false)) return true;
+                if (PartParityStateRules.ParseBool(m.Value(KeyDependOnOutput), false)
+                    || PartParityStateRules.ParseBool(m.Value(KeyDependOnThrottle), false)) continue;
+                // The part's MultiModeEngine is whichever of its engines runs; with none, stock's
+                // lookup (PartModuleList.FindEngineInterface) goes on to the name, then the index.
+                if (multiMode && PartParityStateRules.ParseBool(m.Value(KeyPreferMultiMode), false)) return true;
+                string named = m.Value(KeyEngineName);
+                int engine = string.IsNullOrEmpty(named)
+                    ? (int.TryParse(m.Value(KeyEngineIndex), NumberStyles.Integer, Ic, out int i) ? i : 0)
+                    : engineIds.IndexOf(named);
+                if (engine == engineKey) return true;
+            }
+            return false;
+        }
+
         /// <summary>Whether the module's MODULE node has a <c>PROPELLANT</c> child of that name.</summary>
         internal static bool HasPropellant(PartParityStateModule m, string propellant)
         {
@@ -690,14 +826,20 @@ namespace Parsek.TestCommands
             => e != null && (string.Equals(e.Context, PartParityStateRules.ContextAir, StringComparison.Ordinal) == airRun);
 
         /// <summary>Whether an FX key belongs to a run: its family is one the run's <c>fx=</c>
-        /// words select, and its context is the air context exactly when the run is an air run.</summary>
+        /// words select, and its context is the air context exactly when the run is an air run. A
+        /// main-throttle case is selected by <c>plume-main</c>, or by <c>plume</c> when a glow reads
+        /// that throttle; <c>plume-main</c> selects nothing else.</summary>
         internal static bool KeySelected(PartParityCaseKey key, IList<string> fxWords, bool airRun)
         {
             PartParityFxOption o = key?.FxOption;
             if (o == null || fxWords == null) return false;
             bool family = false;
             foreach (string w in fxWords)
-                if (string.Equals(FamilyForArg(w), o.Family, StringComparison.Ordinal)) { family = true; break; }
+            {
+                if (!string.Equals(FamilyForArg(w), o.Family, StringComparison.Ordinal)) continue;
+                bool wantsMain = string.Equals(w, ArgPlumeMain, StringComparison.Ordinal);
+                if (wantsMain ? o.MainThrottle : !o.MainThrottle || o.MainThrottleGlow) { family = true; break; }
+            }
             if (!family) return false;
             bool air = string.Equals(o.Context, PartParityStateRules.ContextAir, StringComparison.Ordinal);
             return air == airRun;
@@ -737,10 +879,10 @@ namespace Parsek.TestCommands
             sb.Append(" fx=").Append(fx ?? TestCommandPartParitySweep.ArgNoneToken)
                 .Append(" contexts=").Append(contexts ?? TestCommandPartParitySweep.ArgNoneToken)
                 .Append(" install=").Append(total.ToString(Ic)).Append(" (");
-            AppendCounts(sb, Families, byFamily);
+            AppendCounts(sb, Families, BuiltFamilies, byFamily);
             sb.Append(") planned=").Append(planned.ToString(Ic))
                 .Append(" excluded=").Append(ex.ToString(Ic)).Append(" (");
-            AppendCounts(sb, ExclusionReasons, byReason);
+            AppendCounts(sb, ExclusionReasons, BuiltExclusionReasons, byReason);
             return sb.Append(')').ToString();
         }
 
@@ -750,21 +892,40 @@ namespace Parsek.TestCommands
             d[key ?? string.Empty] = n + 1;
         }
 
-        private static void AppendCounts(StringBuilder sb, string[] order, Dictionary<string, int> counts)
+        private static void AppendCounts(StringBuilder sb, string[] order, string[] then, Dictionary<string, int> counts)
         {
             bool first = true;
-            foreach (string k in order)
-            {
-                if (!counts.TryGetValue(k, out int n) || n == 0) continue;
-                if (!first) sb.Append(' ');
-                sb.Append(k).Append('=').Append(n.ToString(Ic));
-                first = false;
-            }
+            foreach (string[] list in new[] { order, then })
+                foreach (string k in list)
+                {
+                    if (!counts.TryGetValue(k, out int n) || n == 0) continue;
+                    if (!first) sb.Append(' ');
+                    sb.Append(k).Append('=').Append(n.ToString(Ic));
+                    first = false;
+                }
         }
 
         // =====================================================================================
         // drive (E.2)
         // =====================================================================================
+
+        /// <summary>The <c>requestedThrottle</c> stock gives an engine on the main throttle of a
+        /// vessel under control (decompiled <c>ModuleEngines.UpdateThrottle</c>:
+        /// <c>ctrlState.mainThrottle * (thrustPercentage * 0.01f)</c>). A lone engine has no command
+        /// module, so stock skips that assignment and keeps the value the engine holds; a
+        /// main-throttle case writes it every physics step.</summary>
+        internal static float RequestedThrottleFor(float mainThrottle, float thrustPercentage)
+            => mainThrottle * (thrustPercentage * 0.01f);
+
+        /// <summary>A main-throttle case's vessel holds its throttle and its engine follows it.</summary>
+        internal static bool MainThrottleHeld(double vesselMainThrottle, bool independentThrottle, double requested)
+            => !independentThrottle && !double.IsNaN(vesselMainThrottle) && !double.IsNaN(requested)
+               && Math.Abs(vesselMainThrottle - requested) <= ThrottleDoneTolerance;
+
+        /// <summary>The least time a case burns from its press before its ghosts are built (0 for
+        /// none).</summary>
+        internal static double MinBurnSeconds(PartParityFxOption o)
+            => o != null && o.MainThrottle && o.MainThrottleGlow ? MainThrottleGlowBurnSeconds : 0.0;
 
         /// <summary>The <c>independentThrottlePercentage</c> a plume case authors: 100 or 30.</summary>
         internal static int IndependentThrottlePercentageFor(PartParityFxOption o)
@@ -1160,7 +1321,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The worst-case wall time of one FX wave, the bound a wave is admitted against: the
-        /// spawn cap, the slowest case's press timeout, then for a stochastic wave the longest
+        /// spawn cap, the slowest case's press timeout (or its <see cref="MinBurnSeconds"/> when
+        /// longer), then for a stochastic wave the longest
         /// plateau cap and <see cref="FxCaptureSecondsPerCase"/> per case, for a heat wave the minimum
         /// settle and P6's capture, for a plate wave the light settle cap and the plate capture;
         /// then the teardown.
@@ -1173,7 +1335,7 @@ namespace Parsek.TestCommands
             if (wave != null)
                 foreach (PartParityFxOption o in wave)
                 {
-                    press = Math.Max(press, PressTimeoutSeconds(o));
+                    press = Math.Max(press, Math.Max(PressTimeoutSeconds(o), MinBurnSeconds(o)));
                     PartParityFxBucket b = BucketFor(o);
                     if (b == PartParityFxBucket.Burn || b == PartParityFxBucket.Spool || b == PartParityFxBucket.Rcs)
                         stochastic = true;
@@ -1217,6 +1379,8 @@ namespace Parsek.TestCommands
         /// of the install whose prefab light is a point light, in the stable part order).</summary>
         internal static string[] ControlPreference(string controlId, bool airRun)
         {
+            string[] built = BuiltControlPreference(controlId);
+            if (built != null) return built;
             if (airRun) return SmokeControlParts;
             switch (controlId)
             {
@@ -1290,7 +1454,8 @@ namespace Parsek.TestCommands
             var notes = new List<string>();
             foreach (string part in candidates)
             {
-                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun);
+                string why = SubjectRefusal(facts?.Invoke(part), light, controlId == TestCommandPartParitySweep.ControlHeatEventsDropped && !airRun,
+                    Array.IndexOf(TestCommandPartParitySweep.DustControlIds, controlId) >= 0);
                 if (why == null)
                 {
                     choice.Subject = part;
@@ -1309,18 +1474,21 @@ namespace Parsek.TestCommands
             return choice;
         }
 
-        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip)
+        private static string SubjectRefusal(PartParityFxSubjectFacts f, string lightType, bool needsHeatClip, bool needsSurfaceFx)
         {
             if (f == null || !f.Present) return "absent";
             if (f.HasWaterfall) return "waterfall";
             if (lightType != null && (f.LightTypes == null || !f.LightTypes.Contains(lightType))) return "no-" + lightType.ToLowerInvariant() + "-light";
             if (needsHeatClip && !f.HasHeatClip) return "no-heat-clip";
+            if (needsSurfaceFx && !f.HasSurfaceFx) return "no-surface-fx";
             return null;
         }
 
         /// <summary>A control's subject in words.</summary>
         internal static string ControlSubjectWords(string controlId, bool airRun)
         {
+            string built = BuiltControlSubjectWords(controlId);
+            if (built != null) return built;
             string plume = string.Join(" / ", PlumeControlParts) + " (first with no ModuleWaterfallFX)";
             if (airRun && (controlId == TestCommandPartParitySweep.ControlEmpty || controlId == TestCommandPartParitySweep.ControlGhostAbsent))
                 return SmokeControlParts[0] + " held burning in the air, " + (controlId == TestCommandPartParitySweep.ControlEmpty ? "both sides hidden" : "ghost not built");
@@ -1346,6 +1514,8 @@ namespace Parsek.TestCommands
         /// <summary>A control's required outcome in words.</summary>
         internal static string ControlRequiredWords(string controlId)
         {
+            string built = BuiltControlRequiredWords(controlId);
+            if (built != null) return built;
             switch (controlId)
             {
                 case TestCommandPartParitySweep.ControlEmpty: return "zero coverage on every layer";

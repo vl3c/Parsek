@@ -178,6 +178,17 @@ namespace Parsek.TestCommands
         internal Dictionary<string, string> Fx;
         internal Dictionary<string, string> FxAtlas;
         internal Dictionary<string, string> Strip;
+
+        /// <summary>A burst case's <c>burst</c> block and a dust case's <c>dust</c> block (design
+        /// Appendix G) as JSON fragments per key of <see cref="PartParityJson.BurstKeys"/> and
+        /// <see cref="PartParityJson.DustKeys"/>; null for every other case.</summary>
+        internal Dictionary<string, string> Burst;
+        internal Dictionary<string, string> Dust;
+        /// <summary>A motion case's <c>motion</c> and <c>motionAtlas</c> blocks (Appendix H.2) as
+        /// JSON fragments per key of <see cref="PartParityJson.MotionKeys"/> and
+        /// <see cref="PartParityJson.MotionAtlasKeys"/>; null for every other case.</summary>
+        internal Dictionary<string, string> Motion;
+        internal Dictionary<string, string> MotionAtlas;
     }
 
     /// <summary>One <c>controls[]</c> entry of the manifest.</summary>
@@ -283,6 +294,8 @@ namespace Parsek.TestCommands
             "layers", "flags", "views", "structure", "setup", "log",
             "stateProof", "structureStart", "stowedCaseId",
             "fx", "fxAtlas", "strip",
+            "burst", "dust",
+            "motion", "motionAtlas",
         };
 
         internal static readonly string[] SkinKeys =
@@ -367,7 +380,10 @@ namespace Parsek.TestCommands
             "structure", "inventory", "plate", "reference",
         };
 
-        internal static readonly string[] FxDriveKeys = { "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat" };
+        internal static readonly string[] FxDriveKeys =
+        {
+            "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat", "mainThrottle", "independentThrottle",
+        };
 
         /// <summary><c>warmupS</c>, <c>plateau</c>, <c>particles</c>, <c>layers</c> and
         /// <c>inventory</c> are keyed by side (<c>ghostAll</c> on an rcs case only).</summary>
@@ -419,6 +435,153 @@ namespace Parsek.TestCommands
 
         internal static readonly string[] FxStripKeys = { "file", "frames" };
 
+        // ----- the burst and dust blocks (design Appendix G), every key always written, null when not measured -----
+
+        /// <summary>The keys of a burst case's <c>burst</c> block (design G.2.1, G.3).</summary>
+        internal static readonly string[] BurstKeys =
+        {
+            "family", "module", "moduleIndex", "potential", "stackSize", "standIn", "lengthM", "fxGroup",
+            "windowS", "binS", "bins", "trials", "samples", "trigger", "schedule", "scheduleCompare",
+            "atlas", "views", "structure",
+        };
+
+        /// <summary><c>burst.samples</c> (each side's sample count per bin) and <c>burst.schedule</c> are keyed by side.</summary>
+        internal static readonly string[] BurstSideKeys = { "real", "ghost" };
+
+        /// <summary><c>burst.trigger</c>: the trigger frame and what each side tagged.</summary>
+        internal static readonly string[] BurstTriggerKeys = { "frame", "ut", "realTagged", "ghostTagged", "ghostEvent" };
+
+        /// <summary>One blast of a side's schedule: its frame, its time after the trigger, its
+        /// position relative to the side's own source point, its power and prefab.</summary>
+        internal static readonly string[] BurstScheduleEntryKeys = { "frame", "t", "offsetM", "power", "prefab", "index" };
+
+        /// <summary><c>burst.scheduleCompare</c>: the schedule diff (G.3).</summary>
+        internal static readonly string[] BurstScheduleCompareKeys =
+            { "realCount", "ghostCount", "countDiffers", "indexDiffers", "powerDiffers", "maxOffsetDeltaM" };
+
+        /// <summary><c>burst.atlas</c>: rows <see cref="BurstAtlasRows"/>, columns view-major
+        /// (<c>views</c> x <c>bins</c>).</summary>
+        internal static readonly string[] BurstAtlasKeys = { "file", "rows", "views", "bins", "tile" };
+
+        /// <summary>One <c>burst.views[]</c> entry: a view and layer over every bin.</summary>
+        internal static readonly string[] BurstViewKeys =
+            { "view", "layer", "width", "height", "source", "real", "ghost", "compare", "splitHalf" };
+
+        /// <summary>Each side's projected source point, and the source part's box diameter in the view's pixels.</summary>
+        internal static readonly string[] BurstSourceKeys = { "realPx", "ghostPx", "diameterPx" };
+
+        /// <summary>One side's measures of a view and layer: per bin, then over the bins.</summary>
+        internal static readonly string[] BurstSideMeasureKeys = { "bins", "onsetBin", "peakBin", "lastCoreBin", "peakCorePx" };
+
+        /// <summary>One side's measures of one bin's tile (the E.4 tile rule, radial about the source).</summary>
+        internal static readonly string[] BurstBinMeasureKeys =
+        {
+            "corePx", "envelopePx", "saturatedPx", "coreCentroid", "radiusPx", "meanColor", "chromaticity",
+            "luminance", "hueHistogram",
+        };
+
+        /// <summary>The ghost-minus-real comparison of a view and layer (the G.3 measures).</summary>
+        internal static readonly string[] BurstCompareKeys =
+        {
+            "presence", "onsetDeltaBins", "peakTimeDeltaBins", "durationDelta", "peakAreaRatio", "radiusRatio",
+            "centroidOffset", "chromaDistance", "hueL1", "brightnessRatio", "chromaDistanceMean", "hueL1Mean",
+        };
+
+        /// <summary>One split half (trials 1 and 3, or 2 and 4), numbers only.</summary>
+        internal static readonly string[] BurstHalfKeys = { "trials", "samples", "real", "ghost", "compare" };
+
+        /// <summary>A burst case's atlas rows, top-down.</summary>
+        internal static readonly string[] BurstAtlasRows = { "real-flame", "ghost-flame", "real-smoke", "ghost-smoke" };
+
+        /// <summary>The keys of a dust case's <c>dust</c> block (design G.2.2, G.3).</summary>
+        internal static readonly string[] DustKeys =
+        {
+            "family", "module", "moduleIndex", "engineModule", "engineModuleIndex", "surface", "slotFraction",
+            "heightM", "maxDistanceM", "falloff", "fxMax", "throttle", "drive", "warmupS", "plateau", "hold",
+            "samples", "raycast", "framing", "layers", "atlas", "views", "structure",
+        };
+
+        /// <summary><c>dust.raycast</c>: stock's raycast over the samples (surface, hit counts,
+        /// the mean distance and <c>ScaledFX</c>, the hit point and normal), then each sample.</summary>
+        internal static readonly string[] DustRaycastKeys =
+            { "surface", "hits", "misses", "distanceM", "scaledFx", "pointM", "normal", "samples" };
+
+        internal static readonly string[] DustRaycastSampleKeys = { "hit", "surface", "distanceM", "scaledFx" };
+
+        /// <summary>A dust case's atlas rows (columns <see cref="PartParityFxRules.DustViews"/>): the
+        /// dust layer judged, the engine's flame beside it (the dust-off control's other half).</summary>
+        internal static readonly string[] DustAtlasRows = { "real-dust", "ghost-dust", "real-flame", "ghost-flame" };
+
+        // ----- the motion blocks (Appendix H.2) -----
+
+        /// <summary>A motion case's <c>motion</c> block.</summary>
+        internal static readonly string[] MotionKeys =
+        {
+            "family", "kind", "module", "moduleIndex", "pressUT", "predictedS", "ghostClipS",
+            "eventDelayS", "ghostStartDelayS", "framesPerMotion", "window", "scout", "frames",
+            "transforms", "timing",
+        };
+
+        internal static readonly string[] MotionWindowKeys = { "endS", "spacingS", "capped" };
+
+        /// <summary>The scout series: its grid step, every scout offset (s since the press) and
+        /// the ghost's pose progress at each.</summary>
+        internal static readonly string[] MotionScoutKeys = { "stepS", "s", "progress" };
+
+        /// <summary>One <c>frames[]</c> entry: the real frame's target and actual offsets,
+        /// stock's clock on both sides (the ghost's for a servo only), both sides' pose
+        /// progress at the same time, the matched offset and the progress its render showed,
+        /// the picture progress per atlas row, the per-view measure pairs and the frame's flags.</summary>
+        internal static readonly string[] MotionFrameKeys =
+        {
+            "k", "targetS", "realS", "ut", "realClock", "ghostClock", "realProgress", "ghostProgress",
+            "matchedS", "matchedProgress", "imgProgress", "views", "flags",
+        };
+
+        /// <summary>One frame view: the same-time and the matched pair's measures, each a
+        /// <see cref="StartKeys"/> block (null when the tile was left empty).</summary>
+        internal static readonly string[] MotionFrameViewKeys = { "view", "same", "matched" };
+
+        /// <summary>One <c>transforms[]</c> entry: its path, the channel it is read in, both
+        /// sides' total travel, the real fractions at the real frames and the ghost fractions on
+        /// the scout series.</summary>
+        internal static readonly string[] MotionTransformKeys =
+            { "path", "channel", "travelReal", "travelGhost", "real", "ghost" };
+
+        internal static readonly string[] MotionTimingKeys =
+        {
+            "real", "ghost", "lagS", "onsetLagS", "endLagS", "durationRatio", "curveShapeDev",
+            "staggerDev", "travelRatio", "angleMaxDevDeg", "flags",
+        };
+
+        /// <summary>A side's crossings (<see cref="PartParityMotionRules.CrossingLevels"/>).</summary>
+        internal static readonly string[] MotionCrossingKeys = { "t02", "t10", "t50", "t90", "t98" };
+
+        internal static readonly string[] MotionAtlasKeys = { "file", "tile", "rows", "cols" };
+
+        internal const string MotionRowReal = "real";
+        internal const string MotionRowGhost = "ghost";
+        internal const string MotionRowGhostMatched = "ghost-matched";
+
+        /// <summary>
+        /// The motion atlas rows, top-down (Appendix H.2): per view in the given order
+        /// <c>real:&lt;view&gt;</c>, <c>ghost:&lt;view&gt;</c> (same time) and, when
+        /// <paramref name="matched"/>, <c>ghost-matched:&lt;view&gt;</c> (same progress; the
+        /// real-vs-real control has none). Columns are the frames in order.
+        /// </summary>
+        internal static string[] MotionAtlasRows(IList<string> views, bool matched)
+        {
+            var rows = new List<string>();
+            if (views != null)
+                foreach (string v in views)
+                {
+                    rows.Add(MotionRowReal + ":" + v);
+                    rows.Add(MotionRowGhost + ":" + v);
+                    if (matched) rows.Add(MotionRowGhostMatched + ":" + v);
+                }
+            return rows.ToArray();
+        }
+
         // ----- atlas rows (design D.2) -----
 
         /// <summary>A stowed case's atlas rows, top-down.</summary>
@@ -428,10 +591,19 @@ namespace Parsek.TestCommands
         /// the start-route ghost, the stowed reference ghost.</summary>
         internal static readonly string[] StateAtlasRows = { "real", "ghost", "ghost-start", "ghost-stowed" };
 
+        /// <summary>The atlas rows of a state case whose start route was compared with the loaded
+        /// real part (<see cref="PartParityRampHold"/>): the four, then that real part, which the
+        /// views' <c>start</c> blocks are measured against.</summary>
+        internal static readonly string[] ReloadedStateAtlasRows = { "real", "ghost", "ghost-start", "ghost-stowed", "real-start" };
+
         /// <summary>The atlas rows of a case (a fresh copy): four for a state case, two for a
         /// stowed one. The live capture reads its rows here, so it holds no literal of its own.</summary>
         internal static string[] AtlasRowsFor(bool isStateCase)
             => (string[])(isStateCase ? StateAtlasRows : StowedAtlasRows).Clone();
+
+        /// <summary>As <see cref="AtlasRowsFor(bool)"/>, with the fifth row of a reloaded start route.</summary>
+        internal static string[] AtlasRowsFor(bool isStateCase, bool startReloaded)
+            => isStateCase && startReloaded ? (string[])ReloadedStateAtlasRows.Clone() : AtlasRowsFor(isStateCase);
 
         /// <summary>An FX case's FX atlas rows, top-down (design E.5); its columns are
         /// <see cref="PartParityFxRules.Views"/>.</summary>
@@ -561,6 +733,13 @@ namespace Parsek.TestCommands
             }
             return sb.Append('}').ToString();
         }
+
+        /// <summary>An array of already-serialized items (a motion case's frames and transforms).</summary>
+        internal static string RawArray(IList<string> serializedItems) => serializedItems == null ? "null" : Arr(serializedItems);
+
+        /// <summary>One measure block of a view, the <see cref="StartKeys"/> members (a motion
+        /// frame's same-time and matched pairs); null for none.</summary>
+        internal static string MeasureBlock(PartParityViewRecord v) => v == null ? "null" : Obj(MeasureMembers(v).ToArray());
 
         private static string Arr(IList<string> serializedItems)
         {
@@ -747,6 +926,36 @@ namespace Parsek.TestCommands
                 M("nodes", nodes));
         }
 
+        /// <summary>A side's crossings as a <see cref="MotionCrossingKeys"/> object.</summary>
+        internal static string MotionCrossingsBlock(double[] crossings)
+        {
+            if (crossings == null) return "null";
+            var members = new KeyValuePair<string, string>[MotionCrossingKeys.Length];
+            for (int i = 0; i < members.Length; i++)
+                members[i] = M(MotionCrossingKeys[i], i < crossings.Length ? Num(crossings[i]) : "null");
+            return Obj(members);
+        }
+
+        /// <summary>The <c>timing</c> block of a motion case (Appendix H.1), every key of
+        /// <see cref="MotionTimingKeys"/> in order.</summary>
+        internal static string MotionTimingBlock(PartParityMotionTiming t)
+        {
+            if (t == null) return "null";
+            return Obj(
+                M("real", MotionCrossingsBlock(t.RealCrossings)), M("ghost", MotionCrossingsBlock(t.GhostCrossings)),
+                M("lagS", Num(t.LagS)), M("onsetLagS", Num(t.OnsetLagS)), M("endLagS", Num(t.EndLagS)),
+                M("durationRatio", Num(t.DurationRatio)), M("curveShapeDev", Num(t.CurveShapeDev)),
+                M("staggerDev", Num(t.StaggerDev)), M("travelRatio", Num(t.TravelRatio)),
+                M("angleMaxDevDeg", Num(t.AngleMaxDevDeg)), M("flags", StrArray(t.Flags)));
+        }
+
+        /// <summary>The <c>window</c> block of a motion case (Appendix H.2).</summary>
+        internal static string MotionWindowBlock(PartParityMotionWindow w)
+        {
+            if (w == null) return "null";
+            return Obj(M("endS", Num(w.EndS)), M("spacingS", Num(w.SpacingS)), M("capped", Bool(w.Capped)));
+        }
+
         internal static string StructureBlock(PartParityStructureDiff d)
         {
             if (d == null) return "null";
@@ -828,6 +1037,10 @@ namespace Parsek.TestCommands
                 M("fx", KeyedBlock(FxKeys, c.Fx)),
                 M("fxAtlas", KeyedBlock(FxAtlasKeys, c.FxAtlas)),
                 M("strip", KeyedBlock(FxStripKeys, c.Strip)),
+                M("burst", KeyedBlock(BurstKeys, c.Burst)),
+                M("dust", KeyedBlock(DustKeys, c.Dust)),
+                M("motion", KeyedBlock(MotionKeys, c.Motion)),
+                M("motionAtlas", KeyedBlock(MotionAtlasKeys, c.MotionAtlas)),
             };
             return TopLevel(members);
         }

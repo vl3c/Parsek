@@ -510,6 +510,8 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     ``LogScan.compact()`` value (None when there is no readable KSP.log)."""
     if not isinstance(result, dict):
         return None, "no readable result json"
+    if hlib.is_hold_result(result):
+        return None, "attended hold run (run.py --hold): not indexed"
     verdict = result.get("verdict")
     if not isinstance(verdict, str) or not verdict:
         return None, "result json has no verdict"

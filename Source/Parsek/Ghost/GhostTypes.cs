@@ -321,7 +321,26 @@ namespace Parsek
         /// reads, and so a null transform still carries a truthful "this part is broken" answer.
         /// </summary>
         public bool breakSubtreeHidden;
+
+        /// <summary>
+        /// Stock's full stowed -&gt; deployed motion time in seconds, set only for a family whose
+        /// recorder poller emits its event when stock's motion ENDS (ModuleDeployablePart, gear,
+        /// RetractableLadder, cargo bay, standalone ModuleAnimateGeneric): the clip at the
+        /// module's own speed over the travel it plays. NaN for every other family, whose event
+        /// marks the START and which keeps the clip-from-the-event transition.
+        /// </summary>
+        public double extendMotionSeconds = double.NaN;
+        /// <summary>The same for deployed -&gt; stowed (gear retracts at its own factor).</summary>
+        public double retractMotionSeconds = double.NaN;
+        /// <summary>
+        /// The in-flight transition's own length when it ENDS at its event UT (an end-marked
+        /// family); NaN for a transition that starts at its event and runs the clip.
+        /// </summary>
+        public double transitionDurationSeconds = double.NaN;
+        /// <summary>The recorded event UT an end-marked transition ends at; NaN otherwise.</summary>
+        public double transitionEventUT = double.NaN;
     }
+
 
     /// <summary>
     /// The ghost side of a stock <c>ModuleWheelDamage</c> wheel: the cloned transforms stock
@@ -554,8 +573,8 @@ namespace Parsek
         public List<HeatMaterialState> materialStates;
         // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
         public List<NozzleGlowInfo> nozzleGlows;
-        // Created for glows on materials of their own (NozzleGlowInfo.isColorChanger) alone: no heat
-        // visual, so the part keeps the reentry glow (which leaves those materials' property to them).
+        // Created for glows on materials of their own (NozzleGlowInfo.isColorChanger) or clips that
+        // only move transforms: no heat visual, so the part keeps the reentry glow (which leaves those materials' property to them).
         public bool throttleGlowsOnly;
         // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
         // heat event draws nothing here and the part counts as any other for the reentry glow.
@@ -574,6 +593,28 @@ namespace Parsek
         // Last lens / flare write, so the every-frame light driver skips unchanged writes.
         public bool lensFlareWritten;
         public bool lensFlareWrittenOn;
+        // Stock ModuleLight's fade (decompiled FixedUpdate): its own lights (stockDriven) move
+        // toward their on intensity at brightenSpeed and toward 0 at dimSpeed, and an
+        // animationDim lamp stays lit while it dims. onIntensities is each light's level-1 value.
+        public List<bool> stockDriven;
+        public List<float> onIntensities;
+        public float brightenSpeed;
+        public float dimSpeed;
+        public bool animationDim;
+        // The fade level last written to the module's lights (0 off, 1 on).
+        public float level;
+    }
+
+    /// <summary>One frame of a ghost lamp's stock fade (<see cref="GhostPlaybackLogic.ResolveLightFade"/>).</summary>
+    internal struct LightFadeFrame
+    {
+        // Fraction of each module light's on intensity.
+        public float level;
+        // Whether the module's lights draw.
+        public bool lightsEnabled;
+        // How far the lens / flare colour has gone from the old state to the new, 0 to 1.
+        public float lensFraction;
+        public bool settled;
     }
 
     internal struct ColorChangerMaterialState
@@ -629,6 +670,13 @@ namespace Parsek
         public float emissionScale = 1f;
         public float speedScale = 1f;
         public float currentPower;
+        /// <summary>The emitters stock's <c>ModelMultiParticleFX</c> rule sizes
+        /// (<see cref="GhostPlaybackLogic.ApplyRcsFxRules"/>).</summary>
+        public List<GhostEngineFxRule> fxRules = new List<GhostEngineFxRule>();
+        /// <summary>The thruster transforms the recorded power is the mean over.</summary>
+        public int recordedNozzles = 1;
+        /// <summary>Those of them the recorded part variant leaves active: the ones that can fire.</summary>
+        public int activeNozzles = 1;
         /// <summary>
         /// Read-only record, index-parallel to <see cref="particleSystems"/> as built: the FX
         /// transform each system was built under. Nothing in the build or playback reads it
@@ -807,6 +855,8 @@ namespace Parsek
         public Vector3 localScale;
         // A stock MODEL_MULTI_PARTICLE node, whose instances take stock's nested scale.
         public bool stockNested;
+        // The stock node's emission / energy / speed curves; null for another node type.
+        public GhostEngineFxCurves curves;
     }
 
     internal class FairingGhostInfo
@@ -865,6 +915,24 @@ namespace Parsek
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
         public float vesselLength;
+        // Test-only isolation frame (GhostPlaybackEngine.ArmReentryIsolationForOneFrame): the
+        // mode the next DriveReentryLayers of this ghost applies, consumed by that drive; None
+        // unless a test or the parity rig armed it.
+        public ReentryIsolation isolationArmed;
+        // True while an isolation frame has the fire particle renderer off; the next drive that
+        // does not isolate turns it back on.
+        public bool fireHiddenForIsolation;
+    }
+
+    /// <summary>
+    /// What a test-only reentry isolation frame leaves out of one ghost's reentry drive: the fire
+    /// particles and the shell, or those and Layer A's glow (the char stays: it is the body).
+    /// </summary>
+    internal enum ReentryIsolation
+    {
+        None = 0,
+        FireAndShell = 1,
+        FireShellAndGlow = 2,
     }
 
     internal enum VariantPropertyType { Texture, Color, Float, Skip }
@@ -989,17 +1057,18 @@ namespace Parsek
         /// <summary>Which ghost parts ride which servo's moving half. Null when the ghost has no servo.</summary>
         public ServoFollowerPlan servoFollowerPlan;
         /// <summary>
-        /// The skin the builder applied to each part that has a <c>ModulePartVariants</c>, keyed
-        /// by persistentId. A read-only record of what <c>AddPartVisuals</c> resolved; nothing in
-        /// the build or in playback reads it. Null when no part of the snapshot has variants.
+        /// The skin the builder applied to each part that has a <c>ModulePartVariants</c> or a
+        /// <c>ModuleB9PartSwitch</c>, keyed by persistentId. A read-only record of what
+        /// <c>AddPartVisuals</c> resolved; nothing in the build or in playback reads it. Null when
+        /// no part of the snapshot has a variant or B9 module.
         /// Read it through <see cref="TryGetAppliedSkin"/>.
         /// </summary>
         public Dictionary<uint, GhostAppliedSkin> appliedSkins;
 
         /// <summary>The skin the builder applied to part <paramref name="persistentId"/>; false
-        /// when the part has no variant module or the build drew no visuals for it. The builder
-        /// models no other part switcher (B9PartSwitch subtypes are not applied), so a false here
-        /// for such a part is the answer, not a missing record.</summary>
+        /// when the part has neither a variant module nor a B9PartSwitch module, or the build drew
+        /// no visuals for it. The builder models no other part switcher, so a false here for such
+        /// a part is the answer, not a missing record.</summary>
         internal bool TryGetAppliedSkin(uint persistentId, out GhostAppliedSkin skin)
         {
             skin = null;
@@ -1022,5 +1091,24 @@ namespace Parsek
         /// <summary><c>snapshot</c>, <c>runtime</c>, <c>base</c>, <c>first-fallback</c>,
         /// <c>base-implicit</c>, or null when no variant was resolved.</summary>
         public string variantResolutionPath;
+
+        /// <summary>The subtype the builder applied for each <c>ModuleB9PartSwitch</c> module of the
+        /// part, in config order; null when the part has no B9 module.</summary>
+        public List<GhostAppliedB9Subtype> b9Subtypes;
+    }
+
+    /// <summary>One <c>ModuleB9PartSwitch</c> module's subtype as the ghost builder resolved it
+    /// (<see cref="GhostB9Subtypes.Resolve"/>).</summary>
+    internal sealed class GhostAppliedB9Subtype
+    {
+        /// <summary>The module's <c>moduleID</c>; null for a lone unnamed module.</summary>
+        public string moduleId;
+        /// <summary>The subtype shown; null when the module has no SUBTYPE.</summary>
+        public string subtype;
+        /// <summary><c>snapshot</c>, <c>default</c> or <c>snapshot-unknown</c>.</summary>
+        public string resolutionPath;
+        /// <summary>False when the subtype also carries texture, material or module rules the
+        /// ghost does not model, so the ghost shows it only in part.</summary>
+        public bool modelled;
     }
 }

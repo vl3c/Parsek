@@ -55,6 +55,7 @@ reader in (``run.py`` passes ``harness/tools/gui_mirror.py``'s ``read_png``).
 
 from __future__ import annotations
 
+import copy
 import math
 import random
 import re
@@ -91,6 +92,8 @@ CASE_KEYS: Tuple[str, ...] = (
     "layers", "flags", "views", "structure", "setup", "log",
     "stateProof", "structureStart", "stowedCaseId",
     "fx", "fxAtlas", "strip",
+    "burst", "dust",
+    "motion", "motionAtlas",
 )
 SKIN_KEYS: Tuple[str, ...] = ("module", "moduleId", "requested", "real", "snapshot", "ghost")
 ATLAS_KEYS: Tuple[str, ...] = ("file", "thumb", "tile", "rows", "cols")
@@ -171,10 +174,15 @@ SETUP_STATE_TIMEOUT = "state-timeout"
 # rcs case whose fired nozzles differ from the prediction. Both are setup faults (``error``).
 SETUP_PLATE_NOT_LIT = "plate-not-lit"
 SETUP_RCS_INPUT_MISMATCH = "rcs-input-mismatch"
+# P9 (design Appendix G.4): a burst case whose real side drew nothing it was meant to, and a
+# dust case whose stock raycast never hit a surface. Both are setup faults (``error``).
+SETUP_BURST_NOT_TRIGGERED = "burst-not-triggered"
+SETUP_DUST_NO_STOCK_HIT = "dust-no-stock-hit"
 SETUP_STATUSES: Tuple[str, ...] = (
     SETUP_OK, SETUP_SKIN_NOT_APPLIED, SETUP_SPAWN_TIMEOUT, SETUP_STILL_ANIMATING,
     SETUP_DIED_SETTLING, SETUP_CRASHED, SETUP_DEPTH_MASK_UNREPAIRED, SETUP_ACTION_FAILED,
     SETUP_STATE_TIMEOUT, SETUP_PLATE_NOT_LIT, SETUP_RCS_INPUT_MISMATCH,
+    SETUP_BURST_NOT_TRIGGERED, SETUP_DUST_NO_STOCK_HIT,
 )
 # The stowed run's eight controls (ControlIds): a run without states= / contexts=.
 CONTROL_IDS: Tuple[str, ...] = (
@@ -197,12 +205,34 @@ CONTROL_IDS_FX_ORBIT: Tuple[str, ...] = (
 CONTROL_IDS_FX_AIR: Tuple[str, ...] = (
     "ctl-empty", "ctl-ghost-absent", "ctl-fx-real-vs-real-air", "ctl-fx-plume-off-air",
 )
+# The burst and dust run's controls (BurstControlIds / DustControlIds, design G.4).
+CONTROL_IDS_BURST: Tuple[str, ...] = (
+    "ctl-burst-empty", "ctl-burst-real-vs-real", "ctl-burst-off", "ctl-burst-late",
+    "ctl-burst-power", "ctl-burst-shift", "ctl-burst-hue",
+)
+CONTROL_IDS_DUST: Tuple[str, ...] = ("ctl-dust-real-vs-real", "ctl-dust-off", "ctl-dust-above-reach")
+# The motion run's controls (MotionOrbitControlIds / MotionAirControlIds, Appendix H.3).
+CONTROL_MOTION_REAL_VS_REAL = "ctl-motion-real-vs-real"
+CONTROL_MOTION_GHOST_SLOW = "ctl-motion-ghost-slow"
+CONTROL_MOTION_GHOST_LATE = "ctl-motion-ghost-late"
+CONTROL_MOTION_REAL_VS_REAL_AIR = "ctl-motion-real-vs-real-air"
+CONTROL_IDS_MOTION_ORBIT: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real", CONTROL_MOTION_REAL_VS_REAL,
+    CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE,
+)
+CONTROL_IDS_MOTION_AIR: Tuple[str, ...] = (
+    "ctl-empty", "ctl-ghost-absent", CONTROL_MOTION_REAL_VS_REAL_AIR,
+)
 # OptionalControlIds: no subject on the install records ``n/a`` (ControlsNotApplicable),
 # never ``bad``.
 OPTIONAL_CONTROL_IDS: Tuple[str, ...] = ("ctl-plate-light-off-point",)
+# KnownDifferenceControlIds: ``n/a`` while a known ghost difference stands (G.4, G.8 item 3).
+KNOWN_DIFFERENCE_CONTROL_IDS: Tuple[str, ...] = ("ctl-dust-above-reach",)
 ALL_CONTROL_IDS: Tuple[str, ...] = (
     CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
     + CONTROL_IDS_FX_ORBIT[2:] + CONTROL_IDS_FX_AIR[2:]
+    + CONTROL_IDS_BURST + CONTROL_IDS_DUST
+    + CONTROL_IDS_MOTION_ORBIT[3:] + CONTROL_IDS_MOTION_AIR[2:]
 )
 
 # The states= / contexts= selection (TestCommandPartParitySweep, PartParityStateRules) and
@@ -214,6 +244,9 @@ SETTING_CONTEXTS = "contexts"
 SETTING_CONTROL_SET = "controlSet"
 # TestCommandPartParitySweep.SettingFx: written by an FX run only; absent reads ``none``.
 SETTING_FX = "fx"
+# SettingMotion / SettingFrames: written by a motion run only (Appendix H.2).
+SETTING_MOTION = "motion"
+SETTING_FRAMES = "frames"
 STATE_STOWED = "stowed"
 KNOWN_STATES: Tuple[str, ...] = (
     "stowed", "deployed", "open", "lit", "semi", "full", "jettisoned", "separated",
@@ -265,12 +298,45 @@ def is_fx_run(settings: Optional[Dict]) -> bool:
     return _setting(settings, SETTING_FX) != ARG_NONE
 
 
+def _first_fx_word(settings: Optional[Dict]) -> Optional[str]:
+    fx = _setting(settings, SETTING_FX)
+    return None if fx in (ARG_NONE, FX_ARG_ALL) else fx.split(",")[0]
+
+
+def is_burst_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsBurstRun: ``fx`` of burst words (one kind per run)."""
+    return _first_fx_word(settings) in FX_BURST_ARG_WORDS
+
+
+def is_dust_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsDustRun: ``fx=dust``."""
+    return _first_fx_word(settings) in FX_DUST_ARG_WORDS
+
+
+def is_ground_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsGroundRun: ``contexts=ground``."""
+    return CONTEXT_GROUND in _setting(settings, SETTING_CONTEXTS).split(",")
+
+
+def is_motion_run(settings: Optional[Dict]) -> bool:
+    """TestCommandPartParitySweep.IsMotionRun over a manifest's ``settings``: ``motion``
+    other than ``none`` (a manifest written before P7 has no ``motion`` and reads ``none``)."""
+    return _setting(settings, SETTING_MOTION) != ARG_NONE
+
+
 def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
     """TestCommandPartParitySweep.ControlSetFor, recomputed from a manifest's ``settings``
-    (design D.2, E.5): an FX run its FX set (the air one for ``contexts=air``); no
-    ``states`` / ``contexts`` (absent or ``none``, as every manifest written before P6 reads)
-    is the stowed eight; an air run its four; any other state run the eight plus
-    ``ctl-state-events-dropped``."""
+    (design D.2, E.5, G.4, H.3): a burst or dust run its own set; a motion run its motion
+    set (the air one for ``contexts=air``); an FX run its FX set (the air one for
+    ``contexts=air``); no ``states`` / ``contexts`` (absent or ``none``, as every manifest
+    written before P6 reads) is the stowed eight; an air run its four; any other state run
+    the eight plus ``ctl-state-events-dropped``."""
+    if is_burst_run(settings):
+        return CONTROL_IDS_BURST
+    if is_dust_run(settings):
+        return CONTROL_IDS_DUST
+    if is_motion_run(settings):
+        return CONTROL_IDS_MOTION_AIR if is_air_run(settings) else CONTROL_IDS_MOTION_ORBIT
     if is_fx_run(settings):
         return CONTROL_IDS_FX_AIR if is_air_run(settings) else CONTROL_IDS_FX_ORBIT
     if (_setting(settings, SETTING_STATES) == ARG_NONE
@@ -322,11 +388,27 @@ CONTROLS_NOT_APPLICABLE = "n/a"
 # PartParityJson.StowedAtlasRows / StateAtlasRows (AtlasRowsFor).
 ATLAS_ROWS: Tuple[str, ...] = ("real", "ghost")
 ATLAS_ROWS_STATE: Tuple[str, ...] = ("real", "ghost", "ghost-start", "ghost-stowed")
+# PartParityJson.ReloadedStateAtlasRows: the real part as a load leaves its glow ramp, which
+# the ``start`` blocks are measured against (E.4, "Start-route reload").
+ROW_REAL_START = "real-start"
+ATLAS_ROWS_STATE_RELOADED: Tuple[str, ...] = ATLAS_ROWS_STATE + (ROW_REAL_START,)
+# PartParityRampHold.FlagReloadedPrefix: written exactly when that row is.
+FLAG_START_RELOADED_PREFIX = "start-route-reloaded:"
 
 
-def atlas_rows_for(state_case: bool) -> Tuple[str, ...]:
-    """PartParityJson.AtlasRowsFor: four rows for a state case, two for a stowed one."""
-    return ATLAS_ROWS_STATE if state_case else ATLAS_ROWS
+def atlas_rows_for(state_case: bool, start_reloaded: bool = False) -> Tuple[str, ...]:
+    """PartParityJson.AtlasRowsFor: four rows for a state case (five with a reloaded start
+    route), two for a stowed one."""
+    if not state_case:
+        return ATLAS_ROWS
+    return ATLAS_ROWS_STATE_RELOADED if start_reloaded else ATLAS_ROWS_STATE
+
+
+def start_reloaded(sidecar: Optional[Dict]) -> bool:
+    """The case's flag says its start route was compared with the loaded real part."""
+    flags = sidecar.get("flags") if isinstance(sidecar, dict) else None
+    return any(isinstance(f, str) and f.startswith(FLAG_START_RELOADED_PREFIX)
+               for f in (flags if isinstance(flags, list) else []))
 
 # PartParityMetrics: coverage is alpha >= 0.5, i.e. the alpha byte >= 128.
 COVERAGE_ALPHA_BYTE = 128
@@ -349,9 +431,17 @@ def is_setup_fault(status: Optional[str]) -> bool:
 FX_FAMILIES: Tuple[str, ...] = ("plume", "rcs", "heat", "light")
 FX_STOCHASTIC_FAMILIES: Tuple[str, ...] = ("plume", "rcs")
 FX_ARG_WORDS: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+# Every fx= word a run may name: those of ``all``, then the ones it asks for by name.
+FX_ARG_KNOWN_WORDS: Tuple[str, ...] = FX_ARG_WORDS + ("plume-main",)
 FX_ARG_ALL = "all"
-FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low", "rcs-fire", "heat-medium", "heat-hot", "lit")
+# The plume cases on the vessel's main throttle (PartParityFxOption.MainThrottle); every other
+# plume case runs on the engine's independent throttle with the vessel's at 0.
+FX_MAIN_STATES: Tuple[str, ...] = ("main-full", "main-low")
+FX_STATES: Tuple[str, ...] = ("burn-full", "burn-low") + FX_MAIN_STATES + (
+    "rcs-fire", "heat-medium", "heat-hot", "lit")
 CONTEXT_PLATE = "plate"
+# The one view a plate case photographs (PartParityFxDriver.ViewPlate).
+PLATE_VIEW = "plate"
 FX_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_PLATE)
 FX_EXCLUSION_REASONS: Tuple[str, ...] = (
     "fx-reentry-camera", "fx-blackbody", "fx-ablator-char", "fx-needs-air", "fx-throttle-locked",
@@ -362,8 +452,12 @@ REFERENCE_WATERFALL = "waterfall"
 
 
 def fx_family_for_arg(word: Optional[str]) -> Optional[str]:
-    """PartParityFxRules.FamilyForArg: ``plate`` selects the ``light`` family."""
-    return {"plume": "plume", "rcs": "rcs", "heat": "heat", "plate": "light"}.get(word or "")
+    """PartParityFxRules.FamilyForArg: ``plate`` selects the ``light`` family; each P9 word its
+    own family."""
+    return {"plume": "plume", "rcs": "rcs", "heat": "heat", "plate": "light",
+            "plume-main": "plume",
+            "explode": "explode", "vessel-explode": "vessel-explode",
+            "burst-custom": "burst-custom", "decouple": "decouple", "dust": "dust"}.get(word or "")
 
 
 # Views, layers and sides (E.3); the FX atlas's rows and columns (E.5).
@@ -392,7 +486,13 @@ FX_KEYS: Tuple[str, ...] = (
     "hold", "rcs", "samples", "framing", "layers", "cullingMask", "views", "particles",
     "structure", "inventory", "plate", "reference",
 )
-FX_DRIVE_KEYS: Tuple[str, ...] = ("ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat")
+FX_DRIVE_KEYS: Tuple[str, ...] = (
+    "ignited", "finalThrust", "currentThrottle", "recordedPower", "cheat", "mainThrottle", "independentThrottle",
+)
+# PartParityFxRules.ThrottleDoneTolerance, and the throttle each main-throttle word burns at
+# (BurnFullThrottle, BurnLowThrottle).
+FX_THROTTLE_DONE_TOLERANCE = 0.01
+FX_MAIN_THROTTLES: Dict[str, float] = {"main-full": 1.0, "main-low": 0.3}
 FX_SIDE_KEYS: Tuple[str, ...] = FX_SIDES
 FX_PLATEAU_KEYS: Tuple[str, ...] = ("signal", "settled", "waitS")
 FX_HOLD_KEYS: Tuple[str, ...] = ("maxDriftM", "stepM", "steps")
@@ -430,10 +530,17 @@ FX_MEASURES: Tuple[str, ...] = (
     "brightness", "smoke", "core-iou",
 )
 FX_RCS_REPORT_ONLY_MEASURES: Tuple[str, ...] = ("length", "width", "brightness")
+# The compare keys E.4 judges at a fail line, per kind of view.
+FX_SIDE_VIEW_KEYS: Tuple[str, ...] = (
+    "originDeltaPx", "lateralOffsetPx", "lengthRatio", "widthRatio", "directionDeg",
+    "chromaDistance", "hueL1")
+FX_AXIS_VIEW_KEYS: Tuple[str, ...] = (
+    "crossSectionAreaRatio", "crossSectionOffset", "chromaDistance", "hueL1")
 FX_REASON_FX_MISSING = "fx-missing"
 FX_REASON_FX_EXTRA = "fx-extra"
 FX_REASON_SMOKE_MISSING = "smoke-missing"
 FX_REASON_SMOKE_EXTRA = "smoke-extra"
+FX_MISSING_REASONS: Tuple[str, ...] = (FX_REASON_FX_MISSING, FX_REASON_SMOKE_MISSING)
 TAG_FX_NOT_PLATEAUED_PREFIX = "fx-not-plateaued:"
 CAP_FX_UNSETTLED = "fx-unsettled"
 FLAG_FX_FRAMING_CLAMPED = "fx-framing-clamped"
@@ -513,6 +620,824 @@ def fx_reason(route: str, view: str, layer: str, reason: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The P9 burst and dust contract (design Appendix G, piece X1), mirrored from
+# PartParityFxRules.Burst.cs, PartParityJson.cs and TestCommandPartParitySweep.cs
+# (PartParitySourceSyncTests' test_the_burst_* cells). Every constant the burst measures
+# (X3) and the burst judge (X5) read lives here, so neither adds a mirrored literal.
+# ---------------------------------------------------------------------------
+
+# Families (G.7 order) and the fx= words (each selects its own family).
+BUILT_FAMILIES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple", "dust")
+BURST_FAMILIES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple")
+DUST_FAMILIES: Tuple[str, ...] = ("dust",)
+FX_BURST_ARG_WORDS: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple")
+FX_DUST_ARG_WORDS: Tuple[str, ...] = ("dust",)
+# Every word an fx= csv may name (KnownArgWords); fx=all stays FX_ARG_WORDS (P8).
+FX_KNOWN_ARG_WORDS: Tuple[str, ...] = FX_ARG_KNOWN_WORDS + FX_BURST_ARG_WORDS + FX_DUST_ARG_WORDS
+
+# State words; a stack is vessel-explode-x<n>, a custom explosion custom-l<L>.
+BUILT_STATES: Tuple[str, ...] = (
+    "explode", "puff", "decouple", "joint-break", "dust-low", "dust-high", "dust-water",
+)
+STATE_VESSEL_EXPLODE_PREFIX = "vessel-explode-x"
+STATE_CUSTOM_EXPLOSION_PREFIX = "custom-l"
+# The dust run's context (not a P6 context: KNOWN_CONTEXTS does not hold it) and the burst one.
+CONTEXT_GROUND = "ground"
+CONTEXT_BURST = CONTEXT_AIR
+# Every context a contexts= csv may name (TestCommandPartParitySweep.KnownRunContexts).
+KNOWN_RUN_CONTEXTS: Tuple[str, ...] = KNOWN_CONTEXTS + (CONTEXT_GROUND,)
+
+# The ground context's slots (G.2.2): heights as fractions of each part's maxDistance.
+SURFACE_SLOT_TERRAIN = "terrain"
+SURFACE_SLOT_WATER = "water"
+DUST_SLOT_STATES: Tuple[str, ...] = ("dust-low", "dust-high", "dust-water")
+DUST_SLOT_SURFACES: Tuple[str, ...] = (SURFACE_SLOT_TERRAIN, SURFACE_SLOT_TERRAIN, SURFACE_SLOT_WATER)
+DUST_SLOT_FRACTIONS: Tuple[float, ...] = (0.2, 0.7, 0.4)
+DUST_ABOVE_REACH_FRACTION = 1.2
+# ModuleSurfaceFX's stock field defaults and the pad's FX tag.
+SURFACE_FX_DEFAULT_THRUST_PROVIDER_MODULE_INDEX = -1
+SURFACE_FX_DEFAULT_FX_MAX = 1.0
+SURFACE_FX_DEFAULT_MAX_DISTANCE_M = 50.0
+SURFACE_FX_DEFAULT_FALLOFF = 2.0
+LAUNCHPAD_FX_TAG = "LaunchpadFX"
+DUST_SURFACES: Tuple[str, ...] = ("terrain", "water", "launchpad", "none")
+DUST_SURFACE_NONE = "none"
+
+# Part facts (stock's Part / ModuleDecouplerBase field defaults).
+DEFAULT_EXPLOSION_POTENTIAL = 0.5
+DEFAULT_DECOUPLE_FX_GROUP = "decouple"
+
+# The burst subjects (G.2.1, G.5).
+VESSEL_EXPLODE_STACK_PARTS: Tuple[str, ...] = ("fuelTank", "fuelTankSmallFlat")
+VESSEL_EXPLODE_STACK_SIZES: Tuple[int, ...] = (1, 2, 3, 6)
+CUSTOM_EXPLOSION_LENGTHS_M: Tuple[float, ...] = (1.0, 5.0, 10.0, 15.0, 20.0)
+TERMINAL_EXPLOSION_LENGTH_DIVISOR_M = 20.0
+BURST_CUSTOM_PART = "parsek.customExplosion"
+JOINT_BREAK_PARTS: Tuple[str, ...] = ("fuelTank", "trussPiece1x")
+STAND_IN_CUSTOM = "custom"
+STAND_IN_PUFF = "puff"
+
+# The burst window, bins and trials (G.2.1).
+BURST_WINDOW_S = 4.0
+DECOUPLE_BURST_WINDOW_S = 2.0
+BURST_BIN_S = 0.25
+BURST_TRIALS = 4
+BURST_TRIAL_SPACING_M = 40.0
+BURST_GHOST_SEPARATION_M = 20.0
+FXMONGER_MERGE_DISTANCE_M = 10.0
+BURST_TAG_RADIUS_M = 10.0
+
+# Views and layers (G.2.1, G.2.2).
+BURST_VIEWS: Tuple[str, ...] = ("burst-side", "burst-top", "burst-far")
+DUST_VIEWS: Tuple[str, ...] = ("dust-side", "dust-top", "dust-far")
+DUST_AXIS_VIEW = "dust-top"
+LAYER_DUST = "dust"
+BURST_LAYERS: Tuple[str, ...] = ("flame", "smoke")
+
+# The measures (G.3), their reasons and lines.
+BURST_MEASURES: Tuple[str, ...] = (
+    "presence", "onset", "peak-time", "duration", "peak-area", "radius", "centroid-offset",
+    "colour", "brightness", "smoke", "schedule",
+)
+DUST_MEASURES: Tuple[str, ...] = (
+    "presence", "origin", "lateral", "length", "width", "cross-section", "colour", "brightness",
+)
+BURST_REASON_MISSING = "burst-missing"
+BURST_REASON_EXTRA = "burst-extra"
+DUST_REASON_MISSING = "dust-missing"
+DUST_REASON_EXTRA_PREFIX = "dust-extra:"
+# The G.3 lines (starting guesses). Bin deltas fail over their fail line and warn at or over
+# their warn line; the rest fail / warn outside their band or over their line.
+BURST_THRESHOLDS: Dict[str, float] = {
+    "burstOnsetFailBins": 1, "burstPeakTimeFailBins": 2, "burstPeakTimeWarnBins": 1,
+    "burstDurationFailFraction": 0.40, "burstDurationWarnFraction": 0.20,
+    "burstPeakAreaFailMin": 0.6, "burstPeakAreaFailMax": 1.6,
+    "burstPeakAreaWarnMin": 0.8, "burstPeakAreaWarnMax": 1.25,
+    "burstRadiusPercentile": 0.95,
+    "burstRadiusFailMin": 0.7, "burstRadiusFailMax": 1.4,
+    "burstRadiusWarnMin": 0.85, "burstRadiusWarnMax": 1.18,
+    "burstCentroidOffsetFail": 0.3, "burstCentroidOffsetWarn": 0.15,
+    "burstSchedulePositionToleranceM": 1.0, "burstSchedulePowerEpsilon": 0.0001,
+}
+LEVEL_OK = "ok"
+LEVEL_WARN = "warn"
+LEVEL_FAIL = "fail"
+BUILT_EXCLUSION_REASONS: Tuple[str, ...] = (
+    "decouple-no-fx-group", "dust-no-thrust-provider", "burst-subject-absent",
+)
+
+# The controls (G.4).
+BURST_CONTROL_PARTS: Tuple[str, ...] = ("fuelTank", "fuelTankSmallFlat")
+DUST_CONTROL_PARTS: Tuple[str, ...] = ("liquidEngine2.v2",)
+DUST_ABOVE_REACH_GHOST_JUDGED = False
+BURST_LATE_CONTROL_S = 0.5
+BURST_SHIFT_CONTROL_M = 3.0
+BURST_POWER_CONTROL_INDEX_STEP = 1
+
+# The burst and dust sidecar blocks (PartParityJson), every key always written.
+BURST_KEYS: Tuple[str, ...] = (
+    "family", "module", "moduleIndex", "potential", "stackSize", "standIn", "lengthM", "fxGroup",
+    "windowS", "binS", "bins", "trials", "samples", "trigger", "schedule", "scheduleCompare",
+    "atlas", "views", "structure",
+)
+BURST_SIDE_KEYS: Tuple[str, ...] = ("real", "ghost")
+BURST_TRIGGER_KEYS: Tuple[str, ...] = ("frame", "ut", "realTagged", "ghostTagged", "ghostEvent")
+BURST_SCHEDULE_ENTRY_KEYS: Tuple[str, ...] = ("frame", "t", "offsetM", "power", "prefab", "index")
+BURST_SCHEDULE_COMPARE_KEYS: Tuple[str, ...] = (
+    "realCount", "ghostCount", "countDiffers", "indexDiffers", "powerDiffers", "maxOffsetDeltaM",
+)
+BURST_ATLAS_KEYS: Tuple[str, ...] = ("file", "rows", "views", "bins", "tile")
+BURST_VIEW_KEYS: Tuple[str, ...] = (
+    "view", "layer", "width", "height", "source", "real", "ghost", "compare", "splitHalf",
+)
+BURST_SOURCE_KEYS: Tuple[str, ...] = ("realPx", "ghostPx", "diameterPx")
+BURST_SIDE_MEASURE_KEYS: Tuple[str, ...] = ("bins", "onsetBin", "peakBin", "lastCoreBin", "peakCorePx")
+BURST_BIN_MEASURE_KEYS: Tuple[str, ...] = (
+    "corePx", "envelopePx", "saturatedPx", "coreCentroid", "radiusPx", "meanColor", "chromaticity",
+    "luminance", "hueHistogram",
+)
+BURST_COMPARE_KEYS: Tuple[str, ...] = (
+    "presence", "onsetDeltaBins", "peakTimeDeltaBins", "durationDelta", "peakAreaRatio", "radiusRatio",
+    "centroidOffset", "chromaDistance", "hueL1", "brightnessRatio", "chromaDistanceMean", "hueL1Mean",
+)
+BURST_HALF_KEYS: Tuple[str, ...] = ("trials", "samples", "real", "ghost", "compare")
+BURST_ATLAS_ROWS: Tuple[str, ...] = ("real-flame", "ghost-flame", "real-smoke", "ghost-smoke")
+DUST_KEYS: Tuple[str, ...] = (
+    "family", "module", "moduleIndex", "engineModule", "engineModuleIndex", "surface", "slotFraction",
+    "heightM", "maxDistanceM", "falloff", "fxMax", "throttle", "drive", "warmupS", "plateau", "hold",
+    "samples", "raycast", "framing", "layers", "atlas", "views", "structure",
+)
+DUST_RAYCAST_KEYS: Tuple[str, ...] = (
+    "surface", "hits", "misses", "distanceM", "scaledFx", "pointM", "normal", "samples",
+)
+DUST_RAYCAST_SAMPLE_KEYS: Tuple[str, ...] = ("hit", "surface", "distanceM", "scaledFx")
+DUST_ATLAS_ROWS: Tuple[str, ...] = ("real-dust", "ghost-dust", "real-flame", "ghost-flame")
+BURST_ATLAS_SUFFIX = ".burst.png"
+DUST_ATLAS_SUFFIX = ".dust.png"
+
+
+def is_burst_family(family: Optional[str]) -> bool:
+    return family in BURST_FAMILIES
+
+
+def is_dust_family(family: Optional[str]) -> bool:
+    return family in DUST_FAMILIES
+
+
+def vessel_explode_state(parts: int) -> str:
+    """PartParityFxRules.VesselExplodeState."""
+    return "%s%d" % (STATE_VESSEL_EXPLODE_PREFIX, parts)
+
+
+def burst_window_for(family: Optional[str]) -> float:
+    """PartParityFxRules.BurstWindowFor: 2 s for a decouple case, 4 s for every other burst."""
+    return DECOUPLE_BURST_WINDOW_S if family == "decouple" else BURST_WINDOW_S
+
+
+def burst_bin_count(window_s: float) -> int:
+    """PartParityFxRules.BurstBinCount: 16 bins for 4 s, 8 for 2 s."""
+    if window_s is None or window_s != window_s or window_s <= 0.0:
+        return 0
+    return int(round(window_s / BURST_BIN_S))
+
+
+def burst_bin_index(t: float, window_s: float) -> int:
+    """PartParityFxRules.BurstBinIndex: floor(t / 0.25), -1 before the trigger or past the window."""
+    bins = burst_bin_count(window_s)
+    if t is None or t != t or t < 0.0 or bins == 0:
+        return -1
+    b = int(math.floor(t / BURST_BIN_S))
+    return b if b < bins else -1
+
+
+def is_even_trial(trial: int) -> bool:
+    """PartParityFxRules.IsEvenTrial: trials 1 and 3 (0-based 0, 2) are the even half."""
+    return trial % 2 == 0
+
+
+def terminal_explosion_power(length_m: Optional[float]) -> float:
+    """PartParityFxRules.TerminalExplosionPower: Clamp01(length / 20)."""
+    if length_m is None or length_m != length_m:
+        return 0.0
+    return min(1.0, max(0.0, length_m / TERMINAL_EXPLOSION_LENGTH_DIVISOR_M))
+
+
+def fxmonger_prefab_index(power: Optional[float], prefab_count: int) -> int:
+    """PartParityFxRules.FxMongerPrefabIndex: (int)(Clamp01(power) * (n - 1)), -1 with no prefab."""
+    if prefab_count <= 0 or power is None or power != power:
+        return -1
+    return int(min(1.0, max(0.0, power)) * (prefab_count - 1))
+
+
+def stock_surface_fx_scale(thrust_fraction: float, fx_max: float, distance_m: float,
+                           max_distance_m: float, falloff: float) -> float:
+    """PartParityFxRules.StockSurfaceFxScale: thrust / maxThrust * fxMax * (1 - d / maxDistance)^falloff."""
+    vals = (thrust_fraction, fx_max, distance_m, max_distance_m, falloff)
+    if any(v is None or v != v for v in vals) or max_distance_m <= 0.0 \
+            or distance_m < 0.0 or distance_m >= max_distance_m:
+        return 0.0
+    return thrust_fraction * fx_max * math.pow(1.0 - distance_m / max_distance_m, falloff)
+
+
+def dust_extra_reason(surface: Optional[str]) -> str:
+    """PartParityFxRules.DustExtraReason: ``dust-extra:<surface>``."""
+    return DUST_REASON_EXTRA_PREFIX + (surface or DUST_SURFACE_NONE)
+
+
+def _burst_band(v: float, fail_min: float, fail_max: float, warn_min: float, warn_max: float) -> str:
+    if v < fail_min or v > fail_max:
+        return LEVEL_FAIL
+    if v < warn_min or v > warn_max:
+        return LEVEL_WARN
+    return LEVEL_OK
+
+
+def burst_measure_level(measure: str, value: Optional[float]) -> Optional[str]:
+    """PartParityFxRules.BurstMeasureLevel: the G.3 line of one numeric burst measure (``ok`` /
+    ``warn`` / ``fail``), None for a measure with no numeric line or an undefined value."""
+    if value is None or value != value or value in (float("inf"), float("-inf")):
+        return None
+    t = BURST_THRESHOLDS
+    a = abs(value)
+    if measure == "onset":
+        return LEVEL_FAIL if a > t["burstOnsetFailBins"] else LEVEL_OK
+    if measure == "peak-time":
+        if a > t["burstPeakTimeFailBins"]:
+            return LEVEL_FAIL
+        return LEVEL_WARN if a >= t["burstPeakTimeWarnBins"] else LEVEL_OK
+    if measure == "duration":
+        if a > t["burstDurationFailFraction"]:
+            return LEVEL_FAIL
+        return LEVEL_WARN if a > t["burstDurationWarnFraction"] else LEVEL_OK
+    if measure == "peak-area":
+        return _burst_band(value, t["burstPeakAreaFailMin"], t["burstPeakAreaFailMax"],
+                           t["burstPeakAreaWarnMin"], t["burstPeakAreaWarnMax"])
+    if measure == "radius":
+        return _burst_band(value, t["burstRadiusFailMin"], t["burstRadiusFailMax"],
+                           t["burstRadiusWarnMin"], t["burstRadiusWarnMax"])
+    if measure == "centroid-offset":
+        if a > t["burstCentroidOffsetFail"]:
+            return LEVEL_FAIL
+        return LEVEL_WARN if a > t["burstCentroidOffsetWarn"] else LEVEL_OK
+    if measure == "brightness":
+        return (LEVEL_WARN if value < FX_THRESHOLDS["brightnessWarnMin"]
+                or value > FX_THRESHOLDS["brightnessWarnMax"] else LEVEL_OK)
+    return None
+
+
+def burst_colour_level(chroma_distance: Optional[float], hue_l1: Optional[float]) -> Optional[str]:
+    """PartParityFxRules.BurstColourLevel: E.4's colour lines over a burst (either undefined
+    value reads as unmeasured)."""
+    c = chroma_distance is not None and chroma_distance == chroma_distance
+    h = hue_l1 is not None and hue_l1 == hue_l1
+    if not c and not h:
+        return None
+    t = FX_THRESHOLDS
+    if (c and chroma_distance > t["chromaFail"]) or (h and hue_l1 > t["hueL1Fail"]):
+        return LEVEL_FAIL
+    if ((c and chroma_distance > t["colourWarnFraction"] * t["chromaFail"])
+            or (h and hue_l1 > t["colourWarnFraction"] * t["hueL1Fail"])):
+        return LEVEL_WARN
+    return LEVEL_OK
+
+
+# ---------------------------------------------------------------------------
+# The P7 motion contract (Appendix H; PartParityMotionRules.cs, PartParityJson.cs,
+# mirrored by PartParitySourceSyncTests.test_the_motion_* cells). Every constant the
+# motion judge (M4) reads lives here, and the timing measures of H.1 are recomputed
+# from a sidecar's per-frame arrays by ``motion_timing`` exactly as the C# writes them.
+# ---------------------------------------------------------------------------
+
+# Families (H.1 table order); the motion= words; the last two families are reading-only.
+MOTION_FAMILIES: Tuple[str, ...] = (
+    "deployable", "gear", "ladder", "animation-group", "cargo-bay", "animate-generic",
+    "airbrake", "parachute", "robotics", "control-surface", "light", "cabin-light",
+)
+MOTION_ARG_WORDS: Tuple[str, ...] = MOTION_FAMILIES[:10]
+MOTION_ARG_LIGHT = "light"
+MOTION_ARG_KNOWN_WORDS: Tuple[str, ...] = MOTION_ARG_WORDS + (MOTION_ARG_LIGHT,)
+MOTION_ARG_ALL = "all"
+MOTION_KINDS: Tuple[str, ...] = ("clip", "servo", "surface", "canopy", "fade")
+MOTION_KIND_SERVO = "servo"
+MOTION_STATE_PREFIX = "motion-"
+MOTION_STATES: Tuple[str, ...] = (
+    "motion-deployed", "motion-open", "motion-semi", "motion-full", "motion-swept", "motion-lit",
+)
+CONTEXT_RADIAL = "radial"
+MOTION_ORBIT_CONTEXTS: Tuple[str, ...] = (CONTEXT_ALONE, CONTEXT_RADIAL)
+MOTION_RADIAL_FILLER_PART = "fuelTankSmallFlat"
+# The servo modules the robotic poll reads, and the rotor P7 excludes.
+MOTION_SERVO_MODULES: Tuple[str, ...] = (
+    "ModuleRoboticServoHinge", "ModuleRoboticRotationServo", "ModuleRoboticServoPiston",
+)
+MOTION_ROTOR_MODULE = "ModuleRoboticServoRotor"
+MOTION_EXCLUSION_REASONS: Tuple[str, ...] = (
+    "motion-physics", "light-fade", "synthesized-from-trajectory", "loop-phase", "ground-scan",
+    "rotor-spin-not-primed", "not-polled",
+    "ground-deploy", "no-pose", "fairing-bay", "bay-deploy-not-animated", "no-animation", "auto-deploy",
+)
+MOTION_COUNTS_LITERAL = "motion cases:"
+
+# The frame schedule (H.2, PartParityMotionRules.PlanFrameTargets).
+MOTION_MIN_PREDICTED_S = 0.25
+MOTION_MAX_PREDICTED_S = 30.0
+MOTION_DEFAULT_FRAMES = 8
+MOTION_MIN_FRAMES_PER_MOTION = 4
+MOTION_MAX_FRAMES_PER_MOTION = 16
+MOTION_DOUBLING_BLOCK_MOTIONS = 4
+MOTION_WINDOW_PAD_S = 0.5
+MOTION_WINDOW_CAP_S = 40.0
+MOTION_SERVO_STOP_HOLD_S = 0.25
+MOTION_SCOUT_STEP_S = 0.05
+MOTION_SCOUT_MERGE_EPSILON_S = 1e-9
+MOTION_FRAMING_GROW_FRACTION = 0.2
+MOTION_TILE_PX = 256
+MOTION_DEFAULT_VIEWS: Tuple[str, ...] = ("side-a", "side-b")
+MOTION_SERVO_SWEEP_DEG = 45.0
+MOTION_PISTON_SWEEP_FRACTION = 0.5
+
+# Progress (H.1).
+MOTION_TRANSFORM_STILL_DEG = 0.5
+MOTION_TRANSFORM_STILL_M = 0.001
+MOTION_TRANSFORM_STILL_SCALE = 0.001
+MOTION_CHANNELS: Tuple[str, ...] = ("position", "rotation", "scale")
+MOTION_CROSSING_LEVELS: Tuple[float, ...] = (0.02, 0.10, 0.50, 0.90, 0.98)
+MOTION_SHAPE_BAND_LOW = 0.05
+MOTION_SHAPE_BAND_HIGH = 0.95
+MOTION_MATCH_JUMP_MAX = 0.25
+MOTION_SCOUT_RENDER_TOLERANCE = 1e-4
+
+# Flags (H.1, H.2) and their thresholds.
+MOTION_SNAP_LOW = 0.1
+MOTION_SNAP_HIGH = 0.9
+MOTION_SNAP_REAL_MIN_FRAMES = 3
+MOTION_STEP_REAL_RISE = 0.05
+MOTION_STEP_STILL_EPSILON = 1e-4
+MOTION_STEP_MIN_HOLDS = 2
+MOTION_STEP_HOLD_LOW = 0.02
+MOTION_STEP_HOLD_HIGH = 0.98
+MOTION_NOT_MODELLED_REAL = 0.9
+MOTION_NOT_MODELLED_GHOST = 0.1
+FLAG_MOTION_SNAP = "motion-snap"
+FLAG_MOTION_STEPPED = "motion-stepped"
+FLAG_MOTION_NOT_MODELLED = "motion-not-modelled"
+FLAG_MOTION_WINDOW_CAPPED = "motion-window-capped"
+FLAG_MOTION_CLIPPED_AT_BORDER = "motion-clipped-at-border"
+FLAG_FRAME_JITTER_PREFIX = "frame-jitter:"
+FLAG_MOTION_NO_MATCH = "no-match"
+FLAG_SCOUT_RENDER_DISAGREE = "scout-render-disagree"
+FLAG_TRAVEL_DIFFERS = "travel-differs"
+FLAG_PROGRESS_DISAGREE = "progress-disagree"
+
+# Verdict thresholds (H.3; starting guesses, re-pinned from the reading runs).
+MOTION_LAG_FAIL_MIN_S = 0.5
+MOTION_LAG_FAIL_REAL_FRACTION = 0.25
+MOTION_DURATION_RATIO_FAIL_MIN = 0.6
+MOTION_DURATION_RATIO_FAIL_MAX = 1.67
+MOTION_CURVE_SHAPE_FAIL = 0.30
+MOTION_SERVO_ANGLE_FAIL_MIN_DEG = 5.0
+MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION = 0.15
+MOTION_DURATION_RATIO_WARN_MIN = 0.8
+MOTION_DURATION_RATIO_WARN_MAX = 1.25
+MOTION_WARN_FRACTION = 0.5
+MOTION_MIN_FRAMES = 5
+MOTION_REAL_REACHED_PROGRESS = 0.9
+MOTION_TRAVEL_DIFFERS_MIN = 0.9
+MOTION_TRAVEL_DIFFERS_MAX = 1.1
+MOTION_PROGRESS_DISAGREE_FRAMES = 2
+
+# The motion controls (H.3): subjects and the judges' lines.
+MOTION_CONTROL_PART = "longAntenna"
+MOTION_CONTROL_SLOW_PART = "airbrake1"
+MOTION_CONTROL_AIR_PART = "parachuteSingle"
+MOTION_LATE_SHIFT_S = 1.0
+MOTION_SLOW_CLIP_FACTOR = 2.0
+MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION = 0.02
+MOTION_REAL_VS_REAL_DURATION_TOLERANCE = 0.05
+MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX = 0.05
+MOTION_SLOW_RATIO_MIN = 1.9
+MOTION_SLOW_RATIO_MAX = 2.1
+MOTION_LATE_LAG_MIN = 0.98
+MOTION_LATE_LAG_MAX = 1.02
+MOTION_LATE_DURATION_TOLERANCE = 0.02
+
+# Files and the sidecar's motion blocks (PartParityJson.cs; every key always written).
+MOTION_ATLAS_SUFFIX = ".motion.png"
+MOTION_KEYS: Tuple[str, ...] = (
+    "family", "kind", "module", "moduleIndex", "pressUT", "predictedS", "ghostClipS",
+    "eventDelayS", "ghostStartDelayS", "framesPerMotion", "window", "scout", "frames",
+    "transforms", "timing",
+)
+MOTION_WINDOW_KEYS: Tuple[str, ...] = ("endS", "spacingS", "capped")
+MOTION_SCOUT_KEYS: Tuple[str, ...] = ("stepS", "s", "progress")
+MOTION_FRAME_KEYS: Tuple[str, ...] = (
+    "k", "targetS", "realS", "ut", "realClock", "ghostClock", "realProgress", "ghostProgress",
+    "matchedS", "matchedProgress", "imgProgress", "views", "flags",
+)
+MOTION_FRAME_VIEW_KEYS: Tuple[str, ...] = ("view", "same", "matched")
+MOTION_TRANSFORM_KEYS: Tuple[str, ...] = ("path", "channel", "travelReal", "travelGhost", "real", "ghost")
+MOTION_TIMING_KEYS: Tuple[str, ...] = (
+    "real", "ghost", "lagS", "onsetLagS", "endLagS", "durationRatio", "curveShapeDev",
+    "staggerDev", "travelRatio", "angleMaxDevDeg", "flags",
+)
+MOTION_CROSSING_KEYS: Tuple[str, ...] = ("t02", "t10", "t50", "t90", "t98")
+MOTION_ATLAS_KEYS: Tuple[str, ...] = ("file", "tile", "rows", "cols")
+MOTION_ROW_REAL = "real"
+MOTION_ROW_GHOST = "ghost"
+MOTION_ROW_GHOST_MATCHED = "ghost-matched"
+# The timing keys motion_timing recomputes as numbers (every key but the crossings and flags).
+MOTION_TIMING_NUMBER_KEYS: Tuple[str, ...] = MOTION_TIMING_KEYS[2:-1]
+
+# The motion judge (H.3, piece M4); Python-only words except where noted.
+MOTION_CONTROL_IDS: Tuple[str, ...] = (
+    CONTROL_MOTION_REAL_VS_REAL, CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE,
+    CONTROL_MOTION_REAL_VS_REAL_AIR,
+)
+MOTION_REAL_VS_REAL_CONTROL_IDS: Tuple[str, ...] = (CONTROL_MOTION_REAL_VS_REAL,
+                                                    CONTROL_MOTION_REAL_VS_REAL_AIR)
+# The slow and late controls judge an altered route against the same subject's normal one:
+# the control's own sidecar is the altered route, ``<controlId>--normal`` the normal route
+# over the same real frames (H.3).
+MOTION_CONTROLS_WITH_NORMAL: Tuple[str, ...] = (CONTROL_MOTION_GHOST_SLOW, CONTROL_MOTION_GHOST_LATE)
+MOTION_CONTROL_NORMAL_SUFFIX = "--normal"
+# The two families P6 has no end state for: their last frame is judged by the P6 rules (H.3).
+MOTION_LAST_FRAME_JUDGED_FAMILIES: Tuple[str, ...] = ("robotics", "control-surface")
+# PartParitySweepPlan.RealVsRealColorNoisePx: the real-vs-real allowance of 4.5.
+REAL_VS_REAL_COLOR_NOISE_PX = 8
+# The id suffix the instrument check lists a motion atlas recompute under.
+MOTION_RECOMPUTE_ID_SUFFIX = ".motion"
+
+
+def is_motion_state(state: Optional[str]) -> bool:
+    """PartParityMotionRules.IsMotionState: a ``motion-`` word (any tiebreak suffix)."""
+    return isinstance(state, str) and state.startswith(MOTION_STATE_PREFIX)
+
+
+def motion_atlas_rows(views: Sequence[str], matched: bool = True) -> Tuple[str, ...]:
+    """PartParityJson.MotionAtlasRows: per view ``real:<view>``, ``ghost:<view>`` and, when
+    ``matched``, ``ghost-matched:<view>``."""
+    rows: List[str] = []
+    for v in views or ():
+        rows.append("%s:%s" % (MOTION_ROW_REAL, v))
+        rows.append("%s:%s" % (MOTION_ROW_GHOST, v))
+        if matched:
+            rows.append("%s:%s" % (MOTION_ROW_GHOST_MATCHED, v))
+    return tuple(rows)
+
+
+def motion_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``motion`` block, or None for every other case."""
+    block = sidecar.get("motion") if isinstance(sidecar, dict) else None
+    return block if isinstance(block, dict) else None
+
+
+# ----- the frame schedule (PartParityMotionRules) -----
+
+def _finite(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def clamp_predicted_seconds(t: Any) -> float:
+    """ClampPredictedSeconds: T in [0.25, 30] s; not a finite positive time reads 30."""
+    if not _finite(t) or t <= 0.0:
+        return MOTION_MAX_PREDICTED_S
+    return min(max(float(t), MOTION_MIN_PREDICTED_S), MOTION_MAX_PREDICTED_S)
+
+
+def motion_spacing_seconds(predicted_s: Any, frames_per_motion: int) -> float:
+    """SpacingSeconds: T / frames."""
+    return clamp_predicted_seconds(predicted_s) / max(1, frames_per_motion)
+
+
+def motion_frame_target_seconds(k: int, predicted_s: Any, frames_per_motion: int) -> float:
+    """FrameTargetSeconds: k T / n for the first block of 4 n intervals, each further block
+    at twice the previous block's spacing."""
+    if k <= 0:
+        return 0.0
+    s = motion_spacing_seconds(predicted_s, frames_per_motion)
+    block = MOTION_DOUBLING_BLOCK_MOTIONS * max(1, frames_per_motion)
+    m = 0 if k <= block else (k - 1) // block
+    return block * s * (2.0 ** m - 1.0) + (k - m * block) * s * 2.0 ** m
+
+
+def _nonneg(v: Any) -> float:
+    return float(v) if _finite(v) and v >= 0.0 else 0.0
+
+
+def motion_window_end_seconds(real_done_s: Any, ghost_run_s: Any, control_extra_s: Any = 0.0) -> Tuple[float, bool]:
+    """WindowEndSeconds: (end, capped)."""
+    end = _nonneg(real_done_s) + _nonneg(ghost_run_s) + MOTION_WINDOW_PAD_S + _nonneg(control_extra_s)
+    capped = end > MOTION_WINDOW_CAP_S
+    return (MOTION_WINDOW_CAP_S if capped else end), capped
+
+
+def plan_motion_frame_targets(predicted_s: Any, real_done_s: Any, ghost_run_s: Any,
+                              control_extra_s: Any = 0.0,
+                              frames_per_motion: int = MOTION_DEFAULT_FRAMES) -> Dict[str, Any]:
+    """PlanFrameTargets: ``{"targetsS", "endS", "spacingS", "capped"}``."""
+    end, capped = motion_window_end_seconds(real_done_s, ghost_run_s, control_extra_s)
+    targets: List[float] = []
+    k = 0
+    while True:
+        t = motion_frame_target_seconds(k, predicted_s, frames_per_motion)
+        if t > end + 1e-9:
+            break
+        targets.append(t)
+        k += 1
+    return {"targetsS": targets, "endS": end,
+            "spacingS": motion_spacing_seconds(predicted_s, frames_per_motion), "capped": capped}
+
+
+def motion_frame_jitter_tag(target_s: float, actual_s: float, predicted_s: Any,
+                            frames_per_motion: int = MOTION_DEFAULT_FRAMES) -> Optional[str]:
+    """FrameJitterTag: ``frame-jitter:<ms>`` for a frame later than half a frame interval."""
+    late = actual_s - target_s
+    if not late > motion_spacing_seconds(predicted_s, frames_per_motion) / 2.0:
+        return None
+    ms = math.floor(late * 1000.0 + 0.5) if late >= 0 else -math.floor(-late * 1000.0 + 0.5)
+    return FLAG_FRAME_JITTER_PREFIX + str(int(ms))
+
+
+def motion_picture_progress(a: float, b: float) -> float:
+    """PictureProgress: a / (a + b), 0 when both are 0."""
+    total = a + b
+    return a / total if total > 0 else 0.0
+
+
+def motion_matched_offset(scout_s: Sequence[float], scout_p: Sequence[float], target: float) -> Optional[float]:
+    """MatchedOffset (H.2 step 2): None when the ghost never reaches the target or the
+    bracketing scout interval jumps more than MOTION_MATCH_JUMP_MAX."""
+    if not scout_s or not scout_p or len(scout_s) != len(scout_p):
+        return None
+    if target <= 0.0:
+        return scout_s[0]
+    for k, p in enumerate(scout_p):
+        if p < target:
+            continue
+        if k == 0:
+            return scout_s[0]
+        dp = p - scout_p[k - 1]
+        if dp > MOTION_MATCH_JUMP_MAX:
+            return None
+        if target >= 1.0:
+            return scout_s[k]
+        return scout_s[k - 1] + (target - scout_p[k - 1]) * (scout_s[k] - scout_s[k - 1]) / dp
+    return None
+
+
+# ----- the timing measures (PartParityMotionRules.Timing), None for not measured -----
+
+def motion_crossing(s: Sequence[float], p: Sequence[float], level: float) -> Optional[float]:
+    """Crossing: the first time p reaches level, linear between the bracketing points."""
+    if not s or not p or len(s) != len(p):
+        return None
+    for k, v in enumerate(p):
+        if v is None or not v >= level:
+            continue
+        if k == 0:
+            return s[0]
+        if p[k - 1] is None or s[k] is None or s[k - 1] is None:
+            return None
+        return s[k - 1] + (level - p[k - 1]) * (s[k] - s[k - 1]) / (v - p[k - 1])
+    return None
+
+
+def motion_crossings(s: Sequence[float], p: Sequence[float]) -> List[Optional[float]]:
+    return [motion_crossing(s, p, level) for level in MOTION_CROSSING_LEVELS]
+
+
+def motion_interpolate(s: Sequence[float], p: Sequence[float], at: Optional[float]) -> Optional[float]:
+    """Interpolate: linear between points, the end values outside them. A None is read as
+    the C# NaN a sidecar writes as null: a comparison with it is false (a None offset stops
+    the scan and its span is not positive, so the answer is ``p[k]``), and a None progress
+    the interpolation reads makes the answer None."""
+    if not s or not p or len(s) != len(p) or at is None:
+        return None
+    if s[0] is not None and at <= s[0]:
+        return p[0]
+    for k in range(1, len(s)):
+        if s[k] is not None and at > s[k]:
+            continue
+        span = None if s[k] is None or s[k - 1] is None else s[k] - s[k - 1]
+        if span is None or not span > 0:
+            return p[k]
+        if p[k - 1] is None or p[k] is None:
+            return None
+        return p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span
+    return p[-1]
+
+
+def motion_shape_deviation(real_s: Sequence[float], real_p: Sequence[float], ghost_s: Sequence[float],
+                           ghost_p: Sequence[float], lag_s: Optional[float]) -> Optional[float]:
+    """ShapeDeviation: max |ghost(t + lag) - real(t)| over the real points inside the band.
+    A None real point is outside the band and a None ghost value is skipped (C#: NaN
+    compares false, and a NaN distance never replaces a measured one)."""
+    if lag_s is None or real_s is None or real_p is None or len(real_s) != len(real_p):
+        return None
+    worst: Optional[float] = None
+    for t, p in zip(real_s, real_p):
+        if p is None or not (MOTION_SHAPE_BAND_LOW < p < MOTION_SHAPE_BAND_HIGH):
+            continue
+        g = None if t is None else motion_interpolate(ghost_s, ghost_p, t + lag_s)
+        if g is None:
+            continue
+        d = abs(g - p)
+        if worst is None or d > worst:
+            worst = d
+    return worst
+
+
+def _motion_diff(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    return None if a is None or b is None else a - b
+
+
+def _motion_ratio(num: Optional[float], den: Optional[float]) -> Optional[float]:
+    return None if num is None or den is None or den <= 0 else num / den
+
+
+def motion_not_modelled(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """NotModelled: the real reaches 0.9 and the ghost never 0.1."""
+    real_n = [v for v in real_p or () if v is not None]
+    ghost_n = [v for v in ghost_p or () if v is not None]
+    r = max(real_n) if real_n else None
+    g = max(ghost_n) if ghost_n else None
+    return r is not None and r >= MOTION_NOT_MODELLED_REAL and (g is None or g < MOTION_NOT_MODELLED_GHOST)
+
+
+def motion_snapped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """Snapped: the ghost jumps under 0.1 -> over 0.9 between adjacent frames while the real
+    takes 3 frames or more. A None value compares false (the C# NaN)."""
+    if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
+        return False
+    high = next((k for k, v in enumerate(real_p) if v is not None and v > MOTION_SNAP_HIGH), -1)
+    if high < 0:
+        return False
+    low = next((k for k in range(high - 1, -1, -1)
+                if real_p[k] is not None and real_p[k] < MOTION_SNAP_LOW), -1)
+    if low < 0 or high - low < MOTION_SNAP_REAL_MIN_FRAMES:
+        return False
+    return any(ghost_p[k] is not None and ghost_p[k + 1] is not None
+               and ghost_p[k] < MOTION_SNAP_LOW and ghost_p[k + 1] > MOTION_SNAP_HIGH
+               for k in range(len(ghost_p) - 1))
+
+
+def motion_stepped(real_p: Sequence[float], ghost_p: Sequence[float]) -> bool:
+    """Stepped: two or more separate holds of the ghost (still, inside the hold band) while
+    the real rises more than 0.05 per frame. A pair with a None value is not still (the C#
+    NaN compares false), so it ends a hold."""
+    if real_p is None or ghost_p is None or len(real_p) != len(ghost_p):
+        return False
+    holds, in_hold = 0, False
+    for k in range(len(ghost_p) - 1):
+        known = None not in (ghost_p[k], ghost_p[k + 1], real_p[k], real_p[k + 1])
+        still = (known and abs(ghost_p[k + 1] - ghost_p[k]) <= MOTION_STEP_STILL_EPSILON
+                 and MOTION_STEP_HOLD_LOW < ghost_p[k] < MOTION_STEP_HOLD_HIGH
+                 and real_p[k + 1] - real_p[k] > MOTION_STEP_REAL_RISE)
+        if still and not in_hold:
+            holds += 1
+        in_hold = still
+    return holds >= MOTION_STEP_MIN_HOLDS
+
+
+def motion_max_abs_difference(a: Optional[Sequence[float]], b: Optional[Sequence[float]]) -> Optional[float]:
+    """MaxAbsDifference over the points both carry (a None point is skipped)."""
+    if a is None or b is None:
+        return None
+    worst: Optional[float] = None
+    for x, y in zip(a, b):
+        if x is None or y is None:
+            continue
+        d = abs(x - y)
+        if worst is None or d > worst:
+            worst = d
+    return worst
+
+
+def motion_series(block: Optional[Dict]) -> Optional[Dict[str, Any]]:
+    """The per-frame arrays of a sidecar ``motion`` block, in the shape ``motion_timing``
+    reads: realS / realProgress / ghostSameProgress from ``frames[]``, scoutS / scoutProgress
+    from ``scout``, realClock / ghostClock (a servo only, else None) and the transforms."""
+    if not isinstance(block, dict):
+        return None
+    frames = [f for f in _motion_list(block.get("frames")) if isinstance(f, dict)]
+    scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
+    servo = block.get("kind") == MOTION_KIND_SERVO
+    # Numbers only (a non-number reads as the null C# writes for NaN), so a malformed block
+    # measures as unmeasured instead of raising.
+    return {
+        "realS": [_num(f.get("realS")) for f in frames],
+        "realProgress": [_num(f.get("realProgress")) for f in frames],
+        "ghostSameProgress": [_num(f.get("ghostProgress")) for f in frames],
+        "scoutS": _motion_nums(scout.get("s")),
+        "scoutProgress": _motion_nums(scout.get("progress")),
+        "realClock": [_num(f.get("realClock")) for f in frames] if servo else None,
+        "ghostClock": [_num(f.get("ghostClock")) for f in frames] if servo else None,
+        "transforms": [dict(t, real=_motion_nums(t.get("real")) if isinstance(t.get("real"), list) else None,
+                            ghost=_motion_nums(t.get("ghost")) if isinstance(t.get("ghost"), list) else None,
+                            travelReal=_num(t.get("travelReal")), travelGhost=_num(t.get("travelGhost")))
+                       for t in _motion_list(block.get("transforms")) if isinstance(t, dict)],
+    }
+
+
+def motion_timing(series: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """PartParityMotionRules.Timing over the per-frame arrays: a dict with every
+    MOTION_TIMING_KEYS key (crossings as MOTION_CROSSING_KEYS dicts, flags in C# order),
+    None for not measured. The instrument recompute compares it with the sidecar's
+    ``timing`` block within RECOMPUTE_FLOAT_TOLERANCE."""
+    if not isinstance(series, dict):
+        return None
+    rs, rp = series.get("realS") or [], series.get("realProgress") or []
+    ss, sp = series.get("scoutS") or [], series.get("scoutProgress") or []
+    real = motion_crossings(rs, rp)
+    ghost = motion_crossings(ss, sp)
+    lag = _motion_diff(ghost[2], real[2])
+    out: Dict[str, Any] = {
+        "real": dict(zip(MOTION_CROSSING_KEYS, real)),
+        "ghost": dict(zip(MOTION_CROSSING_KEYS, ghost)),
+        "lagS": lag,
+        "onsetLagS": _motion_diff(ghost[0], real[0]),
+        "endLagS": _motion_diff(ghost[4], real[4]),
+        "durationRatio": _motion_ratio(_motion_diff(ghost[3], ghost[1]), _motion_diff(real[3], real[1])),
+        "curveShapeDev": motion_shape_deviation(rs, rp, ss, sp, lag),
+        "staggerDev": None,
+        "travelRatio": None,
+    }
+    flags: List[str] = []
+    for tr in series.get("transforms") or []:
+        d = motion_shape_deviation(rs, tr.get("real"), ss, tr.get("ghost"), lag)
+        if d is not None and (out["staggerDev"] is None or d > out["staggerDev"]):
+            out["staggerDev"] = d
+        r = _motion_ratio(tr.get("travelGhost"), tr.get("travelReal"))
+        if r is not None and (out["travelRatio"] is None or abs(r - 1.0) > abs(out["travelRatio"] - 1.0)):
+            out["travelRatio"] = r
+    tr_ratio = out["travelRatio"]
+    if tr_ratio is not None and (tr_ratio < MOTION_TRAVEL_DIFFERS_MIN or tr_ratio > MOTION_TRAVEL_DIFFERS_MAX):
+        flags.append(FLAG_TRAVEL_DIFFERS)
+    out["angleMaxDevDeg"] = motion_max_abs_difference(series.get("realClock"), series.get("ghostClock"))
+    same = series.get("ghostSameProgress") or []
+    if motion_not_modelled(rp, sp):
+        flags.append(FLAG_MOTION_NOT_MODELLED)
+    if motion_snapped(rp, same):
+        flags.append(FLAG_MOTION_SNAP)
+    if motion_stepped(rp, same):
+        flags.append(FLAG_MOTION_STEPPED)
+    out["flags"] = flags
+    return out
+
+
+def motion_real_duration(timing: Optional[Dict[str, Any]]) -> Optional[float]:
+    """PartParityMotionTiming.RealDurationS: real t98 - t02."""
+    real = timing.get("real") if isinstance(timing, dict) else None
+    if not isinstance(real, dict):
+        return None
+    return _motion_diff(real.get("t98"), real.get("t02"))
+
+
+def motion_lag_fails(lag_s: Optional[float], real_duration_s: Optional[float]) -> bool:
+    """LagFails: |lagS| > max(0.5 s, 0.25 T_real)."""
+    if lag_s is None:
+        return False
+    return abs(lag_s) > max(MOTION_LAG_FAIL_MIN_S, MOTION_LAG_FAIL_REAL_FRACTION * (real_duration_s or 0.0))
+
+
+def motion_duration_fails(ratio: Optional[float]) -> bool:
+    """DurationFails: outside [0.6, 1.67]."""
+    return ratio is not None and (ratio < MOTION_DURATION_RATIO_FAIL_MIN or ratio > MOTION_DURATION_RATIO_FAIL_MAX)
+
+
+def motion_progress_disagrees(pose_t50: Optional[float], picture_t50: Optional[float],
+                              frame_interval_s: float) -> bool:
+    """ProgressDisagrees: the two t50 more than two frame intervals apart."""
+    return (pose_t50 is not None and picture_t50 is not None
+            and abs(pose_t50 - picture_t50) > MOTION_PROGRESS_DISAGREE_FRAMES * frame_interval_s)
+
+
+def motion_timing_diffs(recorded: Any, recomputed: Optional[Dict[str, Any]]) -> List[str]:
+    """Where a sidecar's ``timing`` block differs from ``motion_timing`` (numbers within
+    RECOMPUTE_FLOAT_TOLERANCE, None against null, flags exactly)."""
+    if not isinstance(recorded, dict) or recomputed is None:
+        return [] if recorded is None and recomputed is None else ["timing:missing"]
+    out: List[str] = []
+
+    def same(a: Any, b: Any) -> bool:
+        if a is None or b is None:
+            return a is None and b is None
+        return _finite(a) and _finite(b) and abs(a - b) <= RECOMPUTE_FLOAT_TOLERANCE
+
+    for side in ("real", "ghost"):
+        rec = recorded.get(side) if isinstance(recorded.get(side), dict) else {}
+        for key in MOTION_CROSSING_KEYS:
+            if not same(rec.get(key), recomputed[side][key]):
+                out.append("timing:%s.%s" % (side, key))
+    for key in MOTION_TIMING_NUMBER_KEYS:
+        if not same(recorded.get(key), recomputed[key]):
+            out.append("timing:%s" % key)
+    if list(recorded.get("flags") or []) != list(recomputed["flags"]):
+        out.append("timing:flags")
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Verdict constants: the ONE place the thresholds live (design 6). Starting guesses,
 # re-pinned after the first full reading run against the controls and a hand-checked
 # sample; a re-pin is an edit here and needs no flight.
@@ -543,8 +1468,9 @@ VERDICT_FAIL = "fail"
 VERDICT_ERROR = "error"
 # An FX ENTRY nothing but presence was judged on (E.4, weak cores); never a case verdict.
 VERDICT_SKIPPED = "skipped"
+VERDICT_EMPTY = "empty"
 VERDICTS: Tuple[str, ...] = (VERDICT_PASS, VERDICT_WARN, VERDICT_FAIL, VERDICT_ERROR)
-_RANK = {VERDICT_PASS: 0, VERDICT_SKIPPED: 0, VERDICT_WARN: 1, VERDICT_FAIL: 2, VERDICT_ERROR: 3}
+_RANK = {VERDICT_PASS: 0, VERDICT_SKIPPED: 0, VERDICT_EMPTY: 0, VERDICT_WARN: 1, VERDICT_FAIL: 2, VERDICT_ERROR: 3}
 
 # Row statuses (saveparse's vocabulary plus INVALID for the three instrument gates).
 STATUS_PASS = "PASS"
@@ -655,8 +1581,13 @@ FX_JUDGED_ROUTES: Tuple[str, ...] = (ROUTE_EVENT, ROUTE_START)
 FX_ROUTE_ROW: Dict[str, str] = {ROUTE_EVENT: "ghost", ROUTE_START: "ghost-start",
                                 FX_ROUTE_ALL: "ghost-all"}
 FX_VIEW_AXIS = "fx-bottom"
+# The views judged across the axis rather than along it: P8's bottom view and the dust run's
+# straight-down view (G.2.2: the surface normal projects to a point there). P8 entries never
+# name ``dust-top``, so a P8 measure reads exactly as before.
+FX_AXIS_VIEWS: Tuple[str, ...] = (FX_VIEW_AXIS, DUST_AXIS_VIEW)
 FX_LAYER_FLAME = "flame"
 FX_LAYER_SMOKE = "smoke"
+FX_FAMILY_PLUME = "plume"
 FX_FAMILY_RCS = "rcs"
 FX_FAMILY_LIGHT = "light"
 # What a stochastic case did not measure, so a check did not run: its FX structure lists (the
@@ -668,14 +1599,21 @@ FLAG_FX_STRUCTURE_NOT_MEASURED = "fx-structure-not-measured"
 FLAG_FX_NOZZLE_NOT_MEASURED = "fx-nozzle-not-measured"
 FLAG_FX_NO_REAL_EFFECT = "fx-no-real-effect"
 FLAG_FX_WEAK_CORE = "fx-weak-core"
+# Findings the owner looked at and wants kept in sight until a todo settles them, whatever the
+# case's verdict (``owner-flagged:<reason>``; it moves no verdict, no cap and no rule). Reason
+# -> the OPEN todo that owns it. Empty since 2026-11-24: ``smoke-extra`` was the ghost's smoke
+# riding the active vessel (GHOST-SMOKE-RIDES-ACTIVE-VESSEL, fixed); what is left of it is a puff
+# either side draws now and then (PARTPARITY-ORBIT-SMOKE-PUFF-NOISE), noise, not an owner's finding.
+FLAG_OWNER_FLAGGED_PREFIX = "owner-flagged:"
+OWNER_FLAGGED_REASONS: Dict[str, str] = {}
 # Flag kinds: the part of a flag before its first ``:``.
 FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
     FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT,
     FLAG_FX_WEAK_CORE)
 # The family of each FX state word (PartParityFxRules.Enumerate).
 FX_STATE_FAMILY: Dict[str, str] = {
-    "burn-full": "plume", "burn-low": "plume", "rcs-fire": "rcs", "heat-medium": "heat",
-    "heat-hot": "heat", "lit": "light"}
+    "burn-full": "plume", "burn-low": "plume", "main-full": "plume", "main-low": "plume",
+    "rcs-fire": "rcs", "heat-medium": "heat", "heat-hot": "heat", "lit": "light"}
 _TIEBREAK_RE = re.compile(r"-m\d+$")
 REASON_FX_UNSETTLED = CAP_FX_UNSETTLED + ":capped at warn"
 # Route, view, layer of one ``fx.views[]`` entry.
@@ -739,7 +1677,7 @@ FxAxis = Tuple[float, float, float, float]
 def fx_axis(view: Any, axis: Any) -> Optional[FxAxis]:
     """PartParityFxMetrics.TryAxis: (ox, oy, ux, uy); None on the axis view or with no
     origin or a zero direction."""
-    if view == FX_VIEW_AXIS or not isinstance(axis, dict):
+    if view in FX_AXIS_VIEWS or not isinstance(axis, dict):
         return None
     origin, direction = axis.get("originPx"), axis.get("dirPx")
     if not (isinstance(origin, list) and len(origin) >= 2
@@ -904,7 +1842,7 @@ def fx_compare(view: Any, axis: Any, real: FxTile, ghost: FxTile) -> Dict[str, O
             out["lateralOffsetPx"] = _fx_across(gc[0], gc[1], a) - _fx_across(rc[0], rc[1], a)
         if real.direction is not None and ghost.direction is not None:
             out["directionDeg"] = fx_wrap_deg(ghost.direction - real.direction)
-    elif view == FX_VIEW_AXIS:
+    elif view in FX_AXIS_VIEWS:
         if r["corePx"] > 0:
             out["crossSectionAreaRatio"] = g["corePx"] / r["corePx"]
         nozzle = axis.get("nozzleDiameterPx") if isinstance(axis, dict) else None
@@ -1117,7 +2055,7 @@ def _fx_axis_problem(view: Any, axis: Any, required: bool) -> Optional[str]:
                 return "axis.%s=%s" % (key, axis[key])
         if axis["nozzleDiameterPx"] is not None and _num(axis["nozzleDiameterPx"]) is None:
             return "axis.nozzleDiameterPx=%s" % axis["nozzleDiameterPx"]
-    if required and view != FX_VIEW_AXIS and fx_axis(view, axis) is None:
+    if required and view not in FX_AXIS_VIEWS and fx_axis(view, axis) is None:
         return "no exhaust axis"
     return None
 
@@ -1153,7 +2091,32 @@ def fx_contradictions(sidecar: Optional[Dict]) -> List[str]:
         lit = _num(plate.get("litPct"))
         if lit is None or lit < PLATE_LIT_MIN_PCT:
             problems.append("plate litPct=%s on an ok case" % plate.get("litPct"))
+    if family == FX_FAMILY_PLUME:
+        problem = fx_throttle_problem(word, fx)
+        if problem is not None:
+            problems.append(problem)
     return problems
+
+
+def fx_throttle_problem(word: str, fx: Dict) -> Optional[str]:
+    """The throttle a plume case says drove it against its state word: a ``main-*`` case's
+    vessel held the word's main throttle and its engine followed it; any other plume case's
+    engine ran on the independent throttle with the vessel's at 0 (a main-throttle case never
+    reaches another one). A sidecar written before the two drive keys is not asked, except for
+    a ``main-*`` case, which no such build could write."""
+    drive = fx.get("drive") if isinstance(fx.get("drive"), dict) else {}
+    main, independent = _num(drive.get("mainThrottle")), drive.get("independentThrottle")
+    if word in FX_MAIN_STATES:
+        want = FX_MAIN_THROTTLES[word]
+        if (main is None or independent is not False or _num(fx.get("throttle")) != want
+                or abs(main - want) > FX_THROTTLE_DONE_TOLERANCE):
+            return ("drive mainThrottle=%s independentThrottle=%s throttle=%s on a %s case"
+                    % (drive.get("mainThrottle"), independent, fx.get("throttle"), word))
+        return None
+    if independent is False or (main is not None and abs(main) > FX_THROTTLE_DONE_TOLERANCE):
+        return "drive mainThrottle=%s independentThrottle=%s on a %s case" % (
+            drive.get("mainThrottle"), independent, word)
+    return None
 
 
 def fx_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
@@ -1226,7 +2189,7 @@ def fx_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List
     on its real side (no control has an rcs subject, so nothing else would notice a capture
     that cannot see a puff; a stock jet legitimately draws no plume, E.12)."""
     settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
-    fx_run = is_fx_run(settings)
+    fx_run = is_fx_run(settings) and not is_burst_run(settings) and not is_dust_run(settings)
     problems: List[str] = []
     rcs: List[bool] = []
     for entry in manifest.get("cases") or []:
@@ -1306,12 +2269,16 @@ class FxFinding:
     """One measure of one entry over a line: ``level`` fail or warn, ``reason`` its token,
     ``side`` the line it crossed without the number (``origin-``, ``length+``,
     ``colour:hueL1``), which two sample halves are compared by. ``capped``: a fail the
-    split-half rule holds at ``warn`` (``fx_cap_findings``)."""
+    split-half rule holds at ``warn`` (``fx_cap_findings``). ``key``: the compare value it read
+    (empty: presence, or a warn-only measure); ``severity``: that value in fail lines
+    (``fx_severity``)."""
     measure: str
     level: str
     reason: str
     side: str = ""
     capped: bool = False
+    key: str = ""
+    severity: float = 0.0
 
 
 def fx_presence_reason(layer: Any, real_core: int, ghost_core: int) -> Optional[str]:
@@ -1356,6 +2323,30 @@ def _outside(v: float, lo: float, hi: float) -> bool:
     return v < lo or v > hi
 
 
+def fx_severity(key: str, value: float, real_length: float) -> Tuple[str, float]:
+    """(side, distance) of one compare value: the side of the line it lies on
+    (``FxFinding.side``) and its distance from a perfect match in fail lines, so 1.0 is the
+    line. ``real_length``: the real plume's length, which scales the origin and lateral lines."""
+    th = FX_THRESHOLDS
+    if key in ("originDeltaPx", "lateralOffsetPx"):
+        measure = "origin" if key == "originDeltaPx" else "lateral"
+        fail = max(th[measure + "FailMinPx"], th[measure + "FailLengthFraction"] * real_length)
+        return measure + ("+" if value > 0 else "-"), abs(value) / fail
+    if key in ("lengthRatio", "widthRatio"):
+        measure = key[:-len("Ratio")]
+        return (measure + ("+" if value > 1.0 else "-"),
+                abs(value - 1.0) / th[measure + "FailFraction"])
+    if key == "directionDeg":
+        return "direction" + ("+" if value > 0 else "-"), abs(value) / th["directionFailDeg"]
+    if key == "crossSectionAreaRatio":
+        if value > 1.0:
+            return "cross-section:area+", (value - 1.0) / (th["crossSectionAreaFailMax"] - 1.0)
+        return "cross-section:area-", (1.0 - value) / (1.0 - th["crossSectionAreaFailMin"])
+    if key == "crossSectionOffset":
+        return "cross-section:offset", value / th["crossSectionOffsetFail"]
+    return "colour:" + key, value / th["chromaFail" if key == "chromaDistance" else "hueL1Fail"]
+
+
 def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     """Every E.4 measure of one ``fx.views[]`` entry over its warn or fail line, in
     FX_MEASURES order. A null measure is not measured and never moves a verdict;
@@ -1372,9 +2363,10 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
     length = _num(real.get("lengthPx")) or 0.0
     found: List[FxFinding] = []
 
-    def add(measure: str, level: Optional[str], text: str, side: str) -> None:
+    def add(measure: str, level: Optional[str], text: str, side: str, key: str = "") -> None:
         if level is not None:
-            found.append(FxFinding(measure, level, text, side))
+            found.append(FxFinding(measure, level, text, side, key=key,
+                                   severity=fx_severity(key, c[key], length)[1] if key else 0.0))
 
     def sign(value: float) -> str:
         return "+" if value > 0 else "-"
@@ -1389,17 +2381,17 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
         if c[key] is not None:
             fail = max(th[measure + "FailMinPx"], th[measure + "FailLengthFraction"] * length)
             add(measure, _over(abs(c[key]), fail, fail * th["offsetWarnFraction"]),
-                "%s=%.2fpx" % (measure, c[key]), measure + sign(c[key]))
+                "%s=%.2fpx" % (measure, c[key]), measure + sign(c[key]), key)
     for measure in ("length", "width"):
         ratio = c[measure + "Ratio"]
         if ratio is not None:
             add(measure, _over(abs(ratio - 1.0), th[measure + "FailFraction"],
                                th[measure + "WarnFraction"]), "%s=%.3f" % (measure, ratio),
-                measure + sign(ratio - 1.0))
+                measure + sign(ratio - 1.0), measure + "Ratio")
     if c["directionDeg"] is not None:
         add("direction", _over(abs(c["directionDeg"]), th["directionFailDeg"],
                                th["directionWarnDeg"]), "direction=%.2fdeg" % c["directionDeg"],
-            "direction" + sign(c["directionDeg"]))
+            "direction" + sign(c["directionDeg"]), "directionDeg")
     area = c["crossSectionAreaRatio"]
     if area is not None:
         level = None
@@ -1408,15 +2400,15 @@ def fx_entry_findings(entry: Dict, rcs_case: bool) -> List[FxFinding]:
         elif _outside(area, th["crossSectionAreaWarnMin"], th["crossSectionAreaWarnMax"]):
             level = VERDICT_WARN
         add("cross-section", level, "cross-section=area %.3f" % area,
-            "cross-section:area" + sign(area - 1.0))
+            "cross-section:area" + sign(area - 1.0), "crossSectionAreaRatio")
     offset = c["crossSectionOffset"]
     if offset is not None and offset > th["crossSectionOffsetFail"]:
         add("cross-section", VERDICT_FAIL, "cross-section=offset %.3f" % offset,
-            "cross-section:offset")
+            "cross-section:offset", "crossSectionOffset")
     for key, line in (("chromaDistance", "chromaFail"), ("hueL1", "hueL1Fail")):
         if c[key] is not None:
             add("colour", _over(c[key], th[line], th[line] * th["colourWarnFraction"]),
-                "colour=%s %.4f" % (key, c[key]), "colour:" + key)
+                "colour=%s %.4f" % (key, c[key]), "colour:" + key, key)
     bright = c["brightnessRatio"]
     if bright is not None and _outside(bright, th["brightnessWarnMin"], th["brightnessWarnMax"]):
         add("brightness", VERDICT_WARN, "brightness=%.3f" % bright,
@@ -1470,7 +2462,7 @@ def fx_unsettled_entries(entries: Sequence[Dict]) -> Dict[FxEntryKey, str]:
 
 
 def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
-    """Whether every fail of this entry is held at ``warn``: its own halves disagree, or it
+    """Whether the fails of this entry are held at ``warn`` (a missing effect's aside): its own halves disagree, or it
     is a smoke entry and another view of its route's smoke disagrees. Smoke is one
     world-space trail seen from four views (in orbit a few stray puffs, E.12 U8): a trail
     that did not settle in one view settled in none. A flame's views are judged apart."""
@@ -1481,9 +2473,11 @@ def fx_entry_capped(key: FxEntryKey, unsettled: Collection[FxEntryKey]) -> bool:
 
 
 def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
-    """The measures one side of an entry fails against ITSELF, its even samples against its
-    odd ones: noise at that size is in the picture, so a fail of that measure says nothing
-    about the ghost. Direction needs the pixels and is not read here."""
+    """The compare keys (``FxFinding.key``; a presence measure by its name) one side of an entry
+    fails against ITSELF, its even samples against its odd ones: noise at that size is in the
+    picture, so a fail of that value says nothing about the ghost. By key and not by measure: a
+    puff whose centre jitters says nothing about its area. Direction needs the pixels and is
+    not read here."""
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves = [split.get(h) if isinstance(split.get(h), dict) else {} for h in FX_SPLIT_HALF_KEYS]
     view, axis = entry.get("view"), entry.get("axis")
@@ -1500,17 +2494,24 @@ def fx_self_failing(entry: Dict, rcs_case: bool) -> FrozenSet[str]:
                                  FxTile(odd, frozenset(), None, []))
         except ArithmeticError:
             continue  # an integer no double's square can hold: malformed too
-        out.update(fx_failing_measures(dict(entry, real=even, ghost=odd, compare=compare),
-                                       rcs_case))
+        out.update(f.key or f.measure for f in fx_entry_findings(
+            dict(entry, real=even, ghost=odd, compare=compare), rcs_case)
+            if f.level == VERDICT_FAIL)
     return frozenset(out)
 
 
 def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
                     capped: bool) -> Tuple[FxFinding, ...]:
-    """The findings of one entry of a case that has an unsettled entry: a fail stands only in
-    an entry that is not ``capped``, when each sample half fails on the same side of the same
-    line, and when neither side fails that measure against itself (``fx_self_failing``);
-    every other fail counts as ``warn``."""
+    """The findings of one entry: a fail stands only when each sample half fails on the same
+    side of the same line, when neither side fails that value against itself
+    (``fx_self_failing``), and in an entry that is not ``capped``; every other fail counts as
+    ``warn``. The rule holds in every case, settled or not: a fail its own samples do not repeat
+    is their noise. ``capped`` does not hold a MISSING effect: an unsettled length or width says
+    nothing about a layer the real part shows in both halves and the ghost in neither. An extra
+    one stays held (the orbit smoke noise, E.4), and the gate asks the baseline
+    (``fx_unmeasured``)."""
+    if not any(f.level == VERDICT_FAIL for f in findings):
+        return tuple(findings)
     split = entry.get("splitHalf") if isinstance(entry.get("splitHalf"), dict) else {}
     halves: List[set] = []
     for h in FX_SPLIT_HALF_KEYS:
@@ -1522,7 +2523,9 @@ def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
     noisy = fx_self_failing(entry, rcs_case)
 
     def stands(f: FxFinding) -> bool:
-        return not capped and all(f.side in h for h in halves) and f.measure not in noisy
+        held = capped and f.reason not in FX_MISSING_REASONS
+        return not held and all(f.side in h for h in halves) \
+            and (f.key or f.measure) not in noisy
 
     return tuple(replace(f, level=VERDICT_WARN, capped=True)
                  if f.level == VERDICT_FAIL and not stands(f) else f for f in findings)
@@ -1530,24 +2533,48 @@ def fx_cap_findings(entry: Dict, findings: Sequence[FxFinding], rcs_case: bool,
 
 def fx_entry_skipped(entry: Dict) -> bool:
     """Both cores weak and anything drawn: the entry's measures were skipped (E.4, weak
-    cores). Two empty pictures agree, and are judged."""
+    cores)."""
     sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
     return fx_both_cores_weak(*(_fx_count(s, "corePx") for s in sides)) \
         and any(_fx_count(s, "envelopePx") for s in sides)
+
+
+def fx_entry_empty(entry: Dict) -> bool:
+    """Nothing drawn on either side, core and envelope (a smoke layer in vacuum). Two empty
+    pictures agree, so the entry moves no verdict, but nothing was compared either: the gate
+    asks the baseline whether the layer is empty there too (``fx_unmeasured``)."""
+    sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    return not any(_fx_count(s, k) for s in sides for k in ("corePx", "envelopePx"))
+
+
+def fx_entry_nulls(entry: Dict, rcs_case: bool) -> Tuple[str, ...]:
+    """The compare keys E.4 judges in this view that are null: checks that did not run (a core
+    with no unsaturated pixel has no colour, one side with no core has no shape). None for an
+    entry that presence decides, that is ``skipped`` or ``empty``: their own words say it."""
+    sides = [entry.get(s) if isinstance(entry.get(s), dict) else {} for s in ("real", "ghost")]
+    cores = tuple(_fx_count(s, "corePx") for s in sides)
+    if fx_both_cores_weak(*cores) or fx_presence_reason(entry.get("layer"), *cores) is not None:
+        return ()
+    compare = entry.get("compare") if isinstance(entry.get("compare"), dict) else {}
+    keys = FX_AXIS_VIEW_KEYS if entry.get("view") == FX_VIEW_AXIS else FX_SIDE_VIEW_KEYS
+    skip = {m + "Ratio" for m in FX_RCS_REPORT_ONLY_MEASURES} if rcs_case else set()
+    return tuple(k for k in keys if k not in skip and _num(compare.get(k)) is None)
 
 
 @dataclass(frozen=True)
 class FxEntryVerdict:
     """One judged entry. ``reference``: shown with its would-be verdict, moves nothing (a
     heat or light case's FX entry). Its verdict is the one it counts with: a capped fail is a
-    ``warn``, and an entry whose measures were skipped (``fx_entry_skipped``) is ``skipped``,
-    which moves nothing (the case's ``fx-weak-core`` flag raises it)."""
+    ``warn``; an entry whose measures were skipped (``fx_entry_skipped``) is ``skipped`` and one
+    with nothing drawn on either side (``fx_entry_empty``) is ``empty``, which move nothing (a
+    skipped one's case is raised by its ``fx-weak-core`` flag). ``nulls``: ``fx_entry_nulls``."""
     route: str
     view: str
     layer: str
     verdict: str
     findings: Tuple[FxFinding, ...]
     reference: bool
+    nulls: Tuple[str, ...] = ()
 
     def to_dict(self) -> Dict[str, Any]:
         return {"route": self.route, "view": self.view, "layer": self.layer,
@@ -1558,18 +2585,23 @@ class FxEntryVerdict:
 
 def judge_fx_entry(entry: Dict, rcs_case: bool, reference: bool = False,
                    unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
-    """One entry. ``unsettled``: the unsettled entries of its case, if any; then the
-    split-half rule (``fx_cap_findings``) decides which fails stand."""
+    """One entry. The split-half rule (``fx_cap_findings``) decides which fails stand;
+    ``unsettled``: the unsettled entries of its case, if any."""
     findings = tuple(fx_entry_findings(entry, rcs_case))
-    if unsettled:
+    if not reference:  # a heat or light case's entries judge nothing
         findings = fx_cap_findings(entry, findings, rcs_case,
                                    fx_entry_capped(fx_entry_key(entry), unsettled))
-    verdict = VERDICT_SKIPPED if not findings and fx_entry_skipped(entry) else VERDICT_PASS
+    verdict = VERDICT_PASS
+    if not findings and fx_entry_skipped(entry):
+        verdict = VERDICT_SKIPPED
+    elif fx_entry_empty(entry):
+        verdict = VERDICT_EMPTY
     for f in findings:
         if _RANK[f.level] > _RANK[verdict]:
             verdict = f.level
     return FxEntryVerdict(str(entry.get("route")), str(entry.get("view")),
-                          str(entry.get("layer")), verdict, findings, reference)
+                          str(entry.get("layer")), verdict, findings, reference,
+                          fx_entry_nulls(entry, rcs_case))
 
 
 @dataclass(frozen=True)
@@ -1752,6 +2784,9 @@ def judge_fx(sidecar: Dict) -> Optional[FxJudgement]:
             reasons.insert(0, "fx-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
             verdict = VERDICT_ERROR
     flags = fx_flags(sidecar, bool(unsettled))
+    if stochastic and reference is None:
+        seen = {f.reason for j in entries for f in j.findings}
+        flags += tuple(FLAG_OWNER_FLAGGED_PREFIX + r for r in OWNER_FLAGGED_REASONS if r in seen)
     for f in flags:
         if f.split(":", 1)[0] in FX_FLAGS_RAISE_TO_WARN:
             reasons.append("flag:%s" % f)
@@ -2017,6 +3052,10 @@ class CaseVerdict:
     state_flags: Tuple[str, ...] = ()
     # A P8 FX case only (design E.4): the FX half of the verdict.
     fx: Optional["FxJudgement"] = None
+    # A P7 motion case only (Appendix H.3): the motion judgement.
+    motion: Optional["MotionJudgement"] = None
+    # A P9 burst or dust case only (Appendix G.3, G.4): the burst or dust judgement.
+    burst: Optional["BurstJudgement"] = None
 
     @property
     def is_state_case(self) -> bool:
@@ -2036,6 +3075,10 @@ class CaseVerdict:
                         "stateFlags": list(self.state_flags)})
         if self.fx is not None:
             out["fx"] = self.fx.to_dict()
+        if self.motion is not None:
+            out["motion"] = self.motion.to_dict()
+        if self.burst is not None:
+            out[self.burst.kind] = self.burst.to_dict()
         return out
 
 
@@ -2085,8 +3128,9 @@ SKIN_FLAG_NOT_MODELLED_B9 = "skin-not-modelled:b9"
 
 def skin_flags(skin: Optional[Dict]) -> Tuple[str, ...]:
     """The ghost-defect skin flags, exactly ``PartParitySkinRules.GhostFlags``: no module,
-    no flags; a B9 module whose ghost name was not read is ``skin-not-modelled:b9`` (the
-    builder applies no B9 subtype); otherwise ``skin-mismatch`` when real and ghost differ
+    no flags; a B9 module whose ghost name is null is ``skin-not-modelled:b9`` (the builder
+    recorded no subtype, or the subtype carries texture, material or module rules it does not
+    apply); otherwise ``skin-mismatch`` when real and ghost differ
     case-insensitively, a null on one side only counting as a difference."""
     if not isinstance(skin, dict) or skin.get("module") is None:
         return ()
@@ -2532,6 +3576,406 @@ def run_shape_problem(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
     return None
 
 
+# ---------------------------------------------------------------------------
+# P7: the motion judge (Appendix H.3, piece M4). A motion case's verdict reads the timing
+# measures of its sidecar's ``motion.timing`` block (the instrument check recomputes that
+# block from the per-frame arrays for every motion case, ``motion_case_problems``), never a
+# per-frame picture; the per-frame pictures, ``staggerDev``, ``travelRatio``, the picture
+# progress and the border / jitter / match tags are report-only.
+# ---------------------------------------------------------------------------
+
+def _motion_list(value: Any) -> List[Any]:
+    """A sidecar array as written, or empty when the writer put anything else there: the
+    readers judge a malformed motion block (``motion_case_problems`` names it), never crash."""
+    return value if isinstance(value, list) else []
+
+
+def _motion_nums(value: Any) -> List[Optional[float]]:
+    """A sidecar number array with every non-number read as None (empty when not an array)."""
+    return [_num(v) for v in _motion_list(value)]
+
+
+def motion_frames(block: Optional[Dict]) -> List[Dict]:
+    """The ``frames[]`` entries of a motion block that are objects, in order."""
+    frames = block.get("frames") if isinstance(block, dict) else None
+    return [f for f in frames if isinstance(f, dict)] if isinstance(frames, list) else []
+
+
+def motion_frame_interval(block: Optional[Dict]) -> float:
+    """The motion's starting frame interval: ``window.spacingS``, else T / n from the block."""
+    window = block.get("window") if isinstance(block, dict) else None
+    spacing = _num(window.get("spacingS")) if isinstance(window, dict) else None
+    if spacing is not None and spacing > 0:
+        return spacing
+    n = (block or {}).get("framesPerMotion")
+    n = n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else MOTION_DEFAULT_FRAMES
+    return motion_spacing_seconds((block or {}).get("predictedS"), n)
+
+
+def motion_servo_sweep(block: Optional[Dict]) -> Optional[float]:
+    """A servo's sweep: the largest ``|realClock - realClock[0]|`` over its frames (None when
+    frame 0 carries no clock)."""
+    clocks = [_num(f.get("realClock")) for f in motion_frames(block)]
+    if not clocks or clocks[0] is None:
+        return None
+    travel = [abs(c - clocks[0]) for c in clocks if c is not None]
+    return max(travel) if travel else None
+
+
+def motion_lag_line(real_duration_s: Optional[float]) -> float:
+    """The lag fail line, ``max(0.5 s, 0.25 T_real)`` (``motion_lag_fails``)."""
+    return max(MOTION_LAG_FAIL_MIN_S, MOTION_LAG_FAIL_REAL_FRACTION * (real_duration_s or 0.0))
+
+
+def motion_angle_line(sweep: Optional[float]) -> float:
+    """A servo's angle fail line, ``max(5 deg, 0.15 x sweep)``."""
+    return max(MOTION_SERVO_ANGLE_FAIL_MIN_DEG, MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION * (sweep or 0.0))
+
+
+def motion_view_names(block: Optional[Dict]) -> List[str]:
+    """The views of a motion case, in the order its first frame lists them."""
+    frames = motion_frames(block)
+    views = _motion_list(frames[0].get("views")) if frames else []
+    return [str(v.get("view")) for v in views if isinstance(v, dict)]
+
+
+def motion_frame_views(frame: Dict, which: str) -> List[Dict]:
+    """One frame's ``same`` (or ``matched``) blocks as view records named after their view;
+    a null block is left out."""
+    out: List[Dict] = []
+    for v in _motion_list(frame.get("views")):
+        if not isinstance(v, dict) or not isinstance(v.get(which), dict):
+            continue
+        rec = dict(v[which])
+        rec["view"] = v.get("view")
+        out.append(rec)
+    return out
+
+
+def motion_last_frame_route(sidecar: Dict) -> Optional[RouteJudgement]:
+    """The last frame's same-time pictures judged by the P6 end-state rules (``judge_route``
+    with the case's ``structure`` and tags); None without frames."""
+    frames = motion_frames(motion_block(sidecar))
+    if not frames:
+        return None
+    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
+    return judge_route(motion_frame_views(frames[-1], "same"), sidecar.get("structure"), tags)
+
+
+def _motion_frames_with(frames: Sequence[Dict], pred: Callable[[str], bool]) -> List[int]:
+    out = []
+    for i, f in enumerate(frames):
+        if any(isinstance(x, str) and pred(x) for x in _motion_list(f.get("flags"))):
+            k = f.get("k")
+            out.append(k if isinstance(k, int) and not isinstance(k, bool) else i)
+    return out
+
+
+def motion_picture_t50s(block: Optional[Dict]) -> Dict[str, Optional[float]]:
+    """Per real or same-time ghost atlas row, the picture progress t50 over the real frames'
+    offsets (``imgProgress``; a frame without one compares false)."""
+    frames = motion_frames(block)
+    rs = [_num(f.get("realS")) for f in frames]
+    out: Dict[str, Optional[float]] = {}
+    for view in motion_view_names(block):
+        for row in ("%s:%s" % (MOTION_ROW_REAL, view), "%s:%s" % (MOTION_ROW_GHOST, view)):
+            series = []
+            for f in frames:
+                img = f.get("imgProgress")
+                series.append(_num(img.get(row)) if isinstance(img, dict) else None)
+            out[row] = motion_crossing(rs, series, 0.5)
+    return out
+
+
+def motion_progress_disagreement(block: Optional[Dict]) -> List[str]:
+    """The rows whose picture t50 and pose t50 differ by more than two frame intervals
+    (``progress-disagree``, an instrument hint, report-only): a real row against the real
+    pose t50, a same-time ghost row against the ghost's same-time pose t50."""
+    frames = motion_frames(block)
+    rs = [_num(f.get("realS")) for f in frames]
+    pose = {MOTION_ROW_REAL: motion_crossing(rs, [_num(f.get("realProgress")) for f in frames], 0.5),
+            MOTION_ROW_GHOST: motion_crossing(rs, [_num(f.get("ghostProgress")) for f in frames], 0.5)}
+    interval = motion_frame_interval(block)
+    return [row for row, t50 in motion_picture_t50s(block).items()
+            if motion_progress_disagrees(pose[row.split(":", 1)[0]], t50, interval)]
+
+
+# The case-level flags a motion case may carry beside its timing flags (H.1, H.2).
+_MOTION_CASE_FLAGS: Tuple[str, ...] = (FLAG_MOTION_WINDOW_CAPPED, FLAG_MOTION_CLIPPED_AT_BORDER,
+                                       FLAG_SCOUT_RENDER_DISAGREE)
+_MOTION_FRAME_FLAG_KINDS: Tuple[str, ...] = (FLAG_MOTION_NO_MATCH, FLAG_MOTION_CLIPPED_AT_BORDER,
+                                             FLAG_SCOUT_RENDER_DISAGREE)
+
+
+def motion_flags(sidecar: Dict) -> Tuple[str, ...]:
+    """Every motion flag of a case, in a fixed order: the timing block's flags (C# order),
+    ``motion-window-capped`` (the case flag or ``window.capped``), the other case flags, the
+    frame flag kinds (``no-match``, ``motion-clipped-at-border``, ``scout-render-disagree``,
+    each once) and each ``frame-jitter:<ms>`` tag in frame order, then ``progress-disagree``
+    when ``motion_progress_disagreement`` names a row."""
+    block = motion_block(sidecar)
+    out: List[str] = []
+
+    def add(f: str) -> None:
+        if f not in out:
+            out.append(f)
+
+    timing = block.get("timing") if isinstance(block, dict) else None
+    for f in (timing.get("flags") if isinstance(timing, dict) else None) or []:
+        if isinstance(f, str):
+            add(f)
+    window = block.get("window") if isinstance(block, dict) else None
+    case_flags = [f for f in _motion_list(sidecar.get("flags")) if isinstance(f, str)]
+    if (isinstance(window, dict) and window.get("capped") is True) or FLAG_MOTION_WINDOW_CAPPED in case_flags:
+        add(FLAG_MOTION_WINDOW_CAPPED)
+    for f in case_flags:
+        if f in _MOTION_CASE_FLAGS:
+            add(f)
+    frames = motion_frames(block)
+    frame_flags = [x for fr in frames for x in _motion_list(fr.get("flags")) if isinstance(x, str)]
+    for kind in _MOTION_FRAME_FLAG_KINDS:
+        if kind in frame_flags:
+            add(kind)
+    for x in frame_flags:
+        if x.startswith(FLAG_FRAME_JITTER_PREFIX):
+            add(x)
+    if motion_progress_disagreement(block):
+        add(FLAG_PROGRESS_DISAGREE)
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class MotionJudgement:
+    """The motion half of a motion case's verdict (H.3): the verdict, its reasons, the flags,
+    the judged measures and the report-only ones."""
+    verdict: str
+    reasons: Tuple[str, ...]
+    flags: Tuple[str, ...]
+    family: Optional[str]
+    kind: Optional[str]
+    measures: Dict[str, Any]
+    report: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"verdict": self.verdict, "reasons": list(self.reasons), "flags": list(self.flags),
+                "family": self.family, "kind": self.kind, "measures": dict(self.measures),
+                "report": copy.deepcopy(self.report)}
+
+
+def _fmt3(v: Optional[float]) -> str:
+    return "null" if v is None else "%.3f" % v
+
+
+def judge_motion(sidecar: Dict) -> MotionJudgement:
+    """The H.3 levels over one motion case's sidecar.
+
+    ``fail``: ``motion-not-modelled``; ``motion-snap``; ``|lagS| > max(0.5 s, 0.25 T_real)``;
+    ``durationRatio`` outside [0.6, 1.67]; ``curveShapeDev > 0.30``; a servo's
+    ``angleMaxDevDeg > max(5 deg, 0.15 x sweep)``; a ``lagS`` or ``durationRatio`` left
+    unmeasured while the real moved and the ghost did not read not-modelled (the ghost never
+    crossed a level the real crossed); on ``robotics`` and ``control-surface`` only, the last
+    frame failing the P6 picture and structure rules. ``warn``: each numeric line at half its
+    distance from the ideal (lag, curve shape and servo angle at half the line, the duration
+    ratio outside [0.8, 1.25]), ``motion-stepped``, and that last frame at warn. ``error``: no
+    motion or timing block, fewer than MOTION_MIN_FRAMES frames, or no real frame reaching
+    0.9 (the window rule failed). The setup fault and the press proof are judge_case's."""
+    block = motion_block(sidecar)
+    family = block.get("family") if isinstance(block, dict) else None
+    kind = block.get("kind") if isinstance(block, dict) else None
+    flags = motion_flags(sidecar)
+    frames = motion_frames(block)
+    timing = block.get("timing") if isinstance(block, dict) else None
+    timing = timing if isinstance(timing, dict) else None
+    reasons: List[str] = []
+    verdict = VERDICT_PASS
+
+    def raise_to(level: str, reason: str) -> None:
+        nonlocal verdict
+        reasons.append("motion:" + reason)
+        if _RANK[level] > _RANK[verdict]:
+            verdict = level
+
+    real_p = [_num(f.get("realProgress")) for f in frames]
+    reached = max([p for p in real_p if p is not None], default=None)
+    real_duration = motion_real_duration(timing)
+    lag = _num((timing or {}).get("lagS"))
+    ratio = _num((timing or {}).get("durationRatio"))
+    shape = _num((timing or {}).get("curveShapeDev"))
+    angle = _num((timing or {}).get("angleMaxDevDeg"))
+    sweep = motion_servo_sweep(block) if kind == MOTION_KIND_SERVO else None
+    lag_line = motion_lag_line(real_duration)
+    angle_line = motion_angle_line(sweep)
+    measures = {
+        "frames": len(frames), "predictedS": _num((block or {}).get("predictedS")),
+        "eventDelayS": _num((block or {}).get("eventDelayS")),
+        "ghostStartDelayS": _num((block or {}).get("ghostStartDelayS")),
+        "realDurationS": real_duration, "realReached": reached,
+        "lagS": lag, "lagLineS": lag_line,
+        "onsetLagS": _num((timing or {}).get("onsetLagS")),
+        "endLagS": _num((timing or {}).get("endLagS")),
+        "durationRatio": ratio, "curveShapeDev": shape,
+        "angleMaxDevDeg": angle if kind == MOTION_KIND_SERVO else None,
+        "servoSweep": sweep, "angleLineDeg": angle_line if kind == MOTION_KIND_SERVO else None,
+    }
+    report: Dict[str, Any] = {
+        "staggerDev": _num((timing or {}).get("staggerDev")),
+        "travelRatio": _num((timing or {}).get("travelRatio")),
+        "pictureT50": motion_picture_t50s(block),
+        "progressDisagree": motion_progress_disagreement(block),
+        "noMatchFrames": _motion_frames_with(frames, lambda x: x == FLAG_MOTION_NO_MATCH),
+        "clippedFrames": _motion_frames_with(frames, lambda x: x == FLAG_MOTION_CLIPPED_AT_BORDER),
+        "jitterFrames": _motion_frames_with(frames, lambda x: x.startswith(FLAG_FRAME_JITTER_PREFIX)),
+        "frameVerdicts": {which: [judge_route(motion_frame_views(f, which), None, ()).verdict
+                                  if motion_frame_views(f, which) else None for f in frames]
+                          for which in ("same", "matched")},
+        "lastFrame": None,
+    }
+    if block is None:
+        raise_to(VERDICT_ERROR, "no-motion-block")
+        return MotionJudgement(verdict, tuple(reasons), flags, family, kind, measures, report)
+    if timing is None:
+        raise_to(VERDICT_ERROR, "no-timing")
+    if len(frames) < MOTION_MIN_FRAMES:
+        raise_to(VERDICT_ERROR, "frames=%d<%d" % (len(frames), MOTION_MIN_FRAMES))
+    if reached is None or reached < MOTION_REAL_REACHED_PROGRESS:
+        raise_to(VERDICT_ERROR, "real-not-reached=%s<%.1f" % (_fmt3(reached), MOTION_REAL_REACHED_PROGRESS))
+    not_modelled = FLAG_MOTION_NOT_MODELLED in flags
+    if not_modelled:
+        raise_to(VERDICT_FAIL, "flag:" + FLAG_MOTION_NOT_MODELLED)
+    if FLAG_MOTION_SNAP in flags:
+        raise_to(VERDICT_FAIL, "flag:" + FLAG_MOTION_SNAP)
+    if FLAG_MOTION_STEPPED in flags:
+        raise_to(VERDICT_WARN, "flag:" + FLAG_MOTION_STEPPED)
+    if timing is not None and not not_modelled and verdict != VERDICT_ERROR:
+        for name, value in (("lagS", lag), ("durationRatio", ratio)):
+            if value is None:
+                raise_to(VERDICT_FAIL, "%s=unmeasured" % name)
+    if lag is not None:
+        if motion_lag_fails(lag, real_duration):
+            raise_to(VERDICT_FAIL, "lagS=%.3f>%.3f" % (lag, lag_line))
+        elif abs(lag) > MOTION_WARN_FRACTION * lag_line:
+            raise_to(VERDICT_WARN, "lagS=%.3f>%.3f" % (lag, MOTION_WARN_FRACTION * lag_line))
+    if ratio is not None:
+        if motion_duration_fails(ratio):
+            raise_to(VERDICT_FAIL, "durationRatio=%.3f" % ratio)
+        elif ratio < MOTION_DURATION_RATIO_WARN_MIN or ratio > MOTION_DURATION_RATIO_WARN_MAX:
+            raise_to(VERDICT_WARN, "durationRatio=%.3f" % ratio)
+    if shape is not None:
+        if shape > MOTION_CURVE_SHAPE_FAIL:
+            raise_to(VERDICT_FAIL, "curveShapeDev=%.3f>%.3f" % (shape, MOTION_CURVE_SHAPE_FAIL))
+        elif shape > MOTION_WARN_FRACTION * MOTION_CURVE_SHAPE_FAIL:
+            raise_to(VERDICT_WARN, "curveShapeDev=%.3f>%.3f" % (shape, MOTION_WARN_FRACTION * MOTION_CURVE_SHAPE_FAIL))
+    if kind == MOTION_KIND_SERVO and angle is not None:
+        if angle > angle_line:
+            raise_to(VERDICT_FAIL, "angleMaxDevDeg=%.3f>%.3f" % (angle, angle_line))
+        elif angle > MOTION_WARN_FRACTION * angle_line:
+            raise_to(VERDICT_WARN, "angleMaxDevDeg=%.3f>%.3f" % (angle, MOTION_WARN_FRACTION * angle_line))
+    if frames and not motion_frame_views(frames[-1], "same"):
+        raise_to(VERDICT_ERROR, "last-frame-no-pictures")
+    last = motion_last_frame_route(sidecar)
+    if last is not None and verdict != VERDICT_ERROR:
+        if family in MOTION_LAST_FRAME_JUDGED_FAMILIES:
+            for r in last.reasons:
+                reasons.append("motion:last-frame:" + r)
+            if _RANK[last.verdict] > _RANK[verdict]:
+                verdict = last.verdict
+        else:
+            report["lastFrame"] = last.to_dict()
+    return MotionJudgement(verdict, tuple(reasons), flags, family, kind, measures, report)
+
+
+def motion_press_proof_problem(sidecar: Optional[Dict]) -> Optional[str]:
+    """``press_proof_problem`` for a motion case (H.2: the press gate reads it like a state
+    case), with one difference: a servo is driven through its target field, not pressed, so
+    its proof may carry ``action`` null when it ``reached`` its target."""
+    if not isinstance(sidecar, dict):
+        return None
+    block = motion_block(sidecar)
+    proof = sidecar.get("stateProof")
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    if (isinstance(block, dict) and block.get("kind") == MOTION_KIND_SERVO and isinstance(proof, dict)
+            and proof.get("action") is None and not is_setup_fault(setup.get("status"))):
+        return None if proof.get("reached") is True else (
+            "press-proof: servo setup=%s action=null reached=%s" % (setup.get("status"), proof.get("reached")))
+    return press_proof_problem(sidecar)
+
+
+def is_motion_case(sidecar: Optional[Dict]) -> bool:
+    """A sidecar judged by the motion judge: it carries a ``motion`` block or a motion state."""
+    return isinstance(sidecar, dict) and (motion_block(sidecar) is not None
+                                          or is_motion_state(sidecar.get("state")))
+
+
+def judge_motion_case(sidecar: Dict) -> "CaseVerdict":
+    """A motion case's CaseVerdict: ``judge_motion``, raised by the skin proof, and ``error``
+    for a setup fault or a press proof that contradicts the case (judge_case's rules). The
+    worst view and the blob maxima are the last frame's when it is judged, else empty."""
+    case_id = str(sidecar.get("caseId") or "?")
+    skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
+    status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
+    motion = judge_motion(sidecar)
+    verdict, reasons = motion.verdict, list(motion.reasons)
+    last = motion_last_frame_route(sidecar) if motion.family in MOTION_LAST_FRAME_JUDGED_FAMILIES else None
+    skin_verdict, skin_reasons = judge_skin(
+        skin, ghost_built=FLAG_GHOST_NOT_BUILT not in (sidecar.get("flags") or []))
+    reasons.extend(skin_reasons)
+    if skin_verdict is not None and _RANK[skin_verdict] > _RANK[verdict]:
+        verdict = skin_verdict
+    if status is None or is_setup_fault(status):
+        reasons.insert(0, "setup:%s" % (status or "missing"))
+        verdict = VERDICT_ERROR
+    contradiction = motion_press_proof_problem(sidecar)
+    if contradiction is not None:
+        reasons.insert(0, contradiction)
+        verdict = VERDICT_ERROR
+    state = sidecar.get("state")
+    return CaseVerdict(case_id, sidecar.get("part"), skin.get("requested"), sidecar.get("source"),
+                       verdict, tuple(reasons),
+                       None if last is None or last.worst_view is None else "last-frame:%s" % last.worst_view,
+                       last.max_shape_blob_px if last else 0, last.max_shape_blob_pct if last else None,
+                       last.max_color_blob_px if last else 0, status,
+                       state=state if is_state_case(state) else None, family=motion.family,
+                       context=sidecar.get("context"), motion=motion)
+
+
+def motion_case_counts(cases: Iterable["CaseVerdict"]) -> Optional[Dict[str, Any]]:
+    """The verdicts document's ``motion`` section: the motion cases' verdicts per family, the
+    cases per flag kind and the judge's lines; None when the sweep has no motion case."""
+    motion = [c for c in cases if c.motion is not None]
+    if not motion:
+        return None
+    families: Dict[str, Dict[str, int]] = {}
+    flags: Dict[str, int] = {}
+    for c in motion:
+        fam = families.setdefault(str(c.motion.family or PRESS_UNKNOWN_FAMILY), {v: 0 for v in VERDICTS})
+        fam[c.verdict] = fam.get(c.verdict, 0) + 1
+        for kind in sorted({f.split(":", 1)[0] for f in c.motion.flags}):
+            flags[kind] = flags.get(kind, 0) + 1
+    return {"cases": len(motion), "families": dict(sorted(families.items())),
+            "flags": dict(sorted(flags.items())), "thresholds": motion_thresholds()}
+
+
+def motion_thresholds() -> Dict[str, Any]:
+    return {"lagFailMinS": MOTION_LAG_FAIL_MIN_S, "lagFailRealFraction": MOTION_LAG_FAIL_REAL_FRACTION,
+            "durationRatioFail": [MOTION_DURATION_RATIO_FAIL_MIN, MOTION_DURATION_RATIO_FAIL_MAX],
+            "durationRatioWarn": [MOTION_DURATION_RATIO_WARN_MIN, MOTION_DURATION_RATIO_WARN_MAX],
+            "curveShapeFail": MOTION_CURVE_SHAPE_FAIL, "warnFraction": MOTION_WARN_FRACTION,
+            "servoAngleFailMinDeg": MOTION_SERVO_ANGLE_FAIL_MIN_DEG,
+            "servoAngleFailSweepFraction": MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION,
+            "minFrames": MOTION_MIN_FRAMES, "realReachedProgress": MOTION_REAL_REACHED_PROGRESS}
+
+
+def motion_summary(cases: Iterable["CaseVerdict"]) -> str:
+    """The summary line's motion part (empty when the sweep has no motion case)."""
+    counts = motion_case_counts(cases)
+    if counts is None:
+        return ""
+    fl = counts["flags"]
+    return " motion=%d notModelled=%d snap=%d stepped=%d" % (
+        counts["cases"], fl.get(FLAG_MOTION_NOT_MODELLED, 0), fl.get(FLAG_MOTION_SNAP, 0),
+        fl.get(FLAG_MOTION_STEPPED, 0))
+
+
 def judge_case(sidecar: Dict) -> CaseVerdict:
     """Case verdict = the worst view, raised to ``fail`` by a missing / extra RENDERED
     mesh in the structural diff or a skin mismatch; ``error`` for a setup fault (the
@@ -2549,6 +3993,10 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
     A P8 FX case (design E.4, an ``fx`` block) adds its FX half (``apply_fx``): the worse of
     the body routes and the FX measures, an entry whose halves did not converge capped at
     ``warn``; a Waterfall one reads ``reference`` (``apply_fx_reference``)."""
+    if is_motion_case(sidecar):
+        return judge_motion_case(sidecar)
+    if is_p9_case(sidecar):
+        return judge_p9_case(sidecar)
     case_id = str(sidecar.get("caseId") or "?")
     skin = sidecar.get("skin") if isinstance(sidecar.get("skin"), dict) else {}
     status = (sidecar.get("setup") or {}).get("status") if isinstance(sidecar.get("setup"), dict) else None
@@ -2678,6 +4126,163 @@ def judge_state_control(sidecar: Optional[Dict]) -> Tuple[str, str]:
     return CONTROLS_OK, ""
 
 
+# --- the motion controls (Appendix H.3), PartParityMotionRules.Judge* -------------------
+
+def _cs_num(v: Optional[float]) -> str:
+    """PartParityMotionRules.Num: ``nan`` for not measured, else ``0.###``."""
+    if v is None:
+        return "nan"
+    text = "%.3f" % v
+    text = text.rstrip("0").rstrip(".")
+    return "0" if text in ("-0", "") else text
+
+
+def _motion_control_verdict(why: List[str]) -> Tuple[str, str]:
+    return (CONTROLS_OK, "") if not why else (CONTROLS_BAD, "; ".join(why))
+
+
+def _timing_number(timing: Optional[Dict], key: str) -> Optional[float]:
+    return _num(timing.get(key)) if isinstance(timing, dict) else None
+
+
+def judge_motion_real_vs_real(timing: Optional[Dict], frame_interval_s: float, predicted_s: Optional[float],
+                              end_frames_within_allowance: bool, setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeRealVsReal``: copy B's curve against copy A's within the live capture's timing
+    noise floor (``|lagS| <= max(one frame interval, 0.02 T)``, ``|durationRatio - 1| <= 0.05``,
+    ``curveShapeDev <= 0.05`` when measured) and frame 0 and the last frame within the
+    real-vs-real allowance. Returns (outcome, detail)."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(timing, dict):
+        return CONTROLS_BAD, "no timing"
+    lag_allowed = max(frame_interval_s, MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION * (predicted_s or 0.0))
+    lag, ratio, shape = (_timing_number(timing, k) for k in ("lagS", "durationRatio", "curveShapeDev"))
+    why: List[str] = []
+    if lag is None or abs(lag) > lag_allowed:
+        why.append("lagS=" + _cs_num(lag))
+    if ratio is None or abs(ratio - 1.0) > MOTION_REAL_VS_REAL_DURATION_TOLERANCE:
+        why.append("durationRatio=" + _cs_num(ratio))
+    if shape is not None and shape > MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX:
+        why.append("curveShapeDev=" + _cs_num(shape))
+    if not end_frames_within_allowance:
+        why.append("end frames differ")
+    return _motion_control_verdict(why)
+
+
+def judge_motion_ghost_slow(normal: Optional[Dict], slow: Optional[Dict], frame_interval_s: float,
+                            slow_last_frame_passes: bool, setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeGhostSlow``, relative to the same subject's normal route: the duration ratio
+    doubles ([1.9, 2.1]), the onset stays within one frame interval, the slow route fails on
+    duration and its last frame passes the P6 end-state rules."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(normal, dict) or not isinstance(slow, dict):
+        return CONTROLS_BAD, "no timing"
+    why: List[str] = []
+    ratio = _motion_ratio(_timing_number(slow, "durationRatio"), _timing_number(normal, "durationRatio"))
+    if ratio is None or ratio < MOTION_SLOW_RATIO_MIN or ratio > MOTION_SLOW_RATIO_MAX:
+        why.append("ratio=" + _cs_num(ratio))
+    onset = _motion_diff(_timing_number(slow, "onsetLagS"), _timing_number(normal, "onsetLagS"))
+    if onset is None or abs(onset) > frame_interval_s:
+        why.append("onset=" + _cs_num(onset))
+    if not motion_duration_fails(_timing_number(slow, "durationRatio")):
+        why.append("slow route does not fail on duration")
+    if not slow_last_frame_passes:
+        why.append("slow last frame fails the end-state rules")
+    return _motion_control_verdict(why)
+
+
+def motion_late_must_fail_on_lag(real_duration_s: Optional[float]) -> bool:
+    """Whether the late route must fail on lag: only when the 1.0 s shift is past the lag
+    fail line for that real motion (``max(0.5 s, 0.25 T_real)``), so a real motion longer
+    than about 4 s holds the shift inside the line and the requirement is the relative one."""
+    return MOTION_LATE_SHIFT_S > motion_lag_line(real_duration_s)
+
+
+def judge_motion_ghost_late(normal: Optional[Dict], late: Optional[Dict],
+                            setup_status: Optional[str]) -> Tuple[str, str]:
+    """``JudgeGhostLate``, relative to the same subject's normal route: ``lagS(late) -
+    lagS(normal)`` in [0.98, 1.02] s and ``durationRatio`` unchanged within 0.02; the late
+    route failing on lag is required only when ``motion_late_must_fail_on_lag`` (H.3)."""
+    if is_setup_fault(setup_status):
+        return CONTROLS_BAD, "setup %s" % (setup_status or "<none>")
+    if not isinstance(normal, dict) or not isinstance(late, dict):
+        return CONTROLS_BAD, "no timing"
+    why: List[str] = []
+    shift = _motion_diff(_timing_number(late, "lagS"), _timing_number(normal, "lagS"))
+    if shift is None or shift < MOTION_LATE_LAG_MIN or shift > MOTION_LATE_LAG_MAX:
+        why.append("lag shift=" + _cs_num(shift))
+    dr = _motion_diff(_timing_number(late, "durationRatio"), _timing_number(normal, "durationRatio"))
+    if dr is None or abs(dr) > MOTION_LATE_DURATION_TOLERANCE:
+        why.append("durationRatio change=" + _cs_num(dr))
+    real_duration = motion_real_duration(late)
+    if motion_late_must_fail_on_lag(real_duration) and not motion_lag_fails(
+            _timing_number(late, "lagS"), real_duration):
+        why.append("late route does not fail on lag")
+    return _motion_control_verdict(why)
+
+
+def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
+    """Frame 0 and the last frame of a real-vs-real control within the real-vs-real allowance
+    of 4.5 (``PartParitySweepPlan`` ``ctl-real-vs-real``): every view's same-time block has no
+    real-only or ghost-only pixel and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over
+    the threshold, and some view has coverage."""
+    frames = motion_frames(block)
+    if not frames:
+        return False
+    for frame in (frames[0], frames[-1]):
+        views = [v for v in _motion_list(frame.get("views")) if isinstance(v, dict)]
+        if not views:
+            return False
+        for v in views:
+            m = v.get("same")
+            if not isinstance(m, dict) or m.get("realOnlyPx") != 0 or m.get("ghostOnlyPx") != 0 \
+                    or (_num(m.get("colorOverPx")) or 0) > REAL_VS_REAL_COLOR_NOISE_PX:
+                return False
+        if not any((_num((v.get("same") or {}).get("realPx")) or 0) > 0 for v in views):
+            return False
+    return True
+
+
+def motion_normal_id(control_id: str) -> str:
+    """The sidecar id of a slow or late control's normal route."""
+    return control_id + MOTION_CONTROL_NORMAL_SUFFIX
+
+
+def judge_motion_control(cid: str, sidecars: Dict[str, Optional[Dict]]) -> Tuple[str, str]:
+    """A motion control re-judged from its sidecar(s) (H.3), as the C# judges do. Returns
+    (outcome, detail)."""
+    side = sidecars.get(cid)
+    if not isinstance(side, dict):
+        return CONTROLS_BAD, "no sidecar"
+    setup = side.get("setup") if isinstance(side.get("setup"), dict) else {}
+    status = setup.get("status")
+    block = motion_block(side)
+    timing = block.get("timing") if isinstance(block, dict) else None
+    if cid in MOTION_REAL_VS_REAL_CONTROL_IDS:
+        return judge_motion_real_vs_real(timing, motion_frame_interval(block),
+                                         _num((block or {}).get("predictedS")),
+                                         motion_end_frames_within_allowance(block), status)
+    if is_setup_fault(status):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    normal_side = sidecars.get(motion_normal_id(cid))
+    if not isinstance(normal_side, dict):
+        return CONTROLS_BAD, "no normal route sidecar %s" % motion_normal_id(cid)
+    normal_status = (normal_side.get("setup") or {}).get("status") \
+        if isinstance(normal_side.get("setup"), dict) else None
+    if is_setup_fault(normal_status):
+        return CONTROLS_BAD, "normal route setup %s" % (normal_status or "<none>")
+    normal_block = motion_block(normal_side)
+    normal = normal_block.get("timing") if isinstance(normal_block, dict) else None
+    if cid == CONTROL_MOTION_GHOST_SLOW:
+        last = motion_last_frame_route(side)
+        passes = last is not None and last.verdict != VERDICT_FAIL
+        return judge_motion_ghost_slow(normal, timing, motion_frame_interval(block), passes, status)
+    if cid == CONTROL_MOTION_GHOST_LATE:
+        return judge_motion_ghost_late(normal, timing, status)
+    return CONTROLS_BAD, "unknown motion control"
+
+
 def _shape_fails(m: Any) -> bool:
     """``PartParitySweepPlan.ShapeFails``: the larger shape blob over the px or pct line."""
     if not isinstance(m, dict):
@@ -2703,7 +4308,10 @@ def check_controls(manifest: Dict,
             outcomes[c["id"]] = str(c.get("outcome"))
     ids = manifest_control_set(manifest)
     settings = manifest.get("settings")
-    fx_run = is_fx_run(settings if isinstance(settings, dict) else None)
+    settings = settings if isinstance(settings, dict) else None
+    p9_run = is_burst_run(settings) or is_dust_run(settings)
+    fx_run = is_fx_run(settings) and not p9_run
+    motion_run = is_motion_run(settings)
     problems: List[str] = []
     for cid in ids:
         got = outcomes.get(cid)
@@ -2711,8 +4319,22 @@ def check_controls(manifest: Dict,
             problems.append("%s:absent" % cid)
         elif control_not_applicable(cid, got):
             continue
+        elif got == CONTROLS_NOT_APPLICABLE and cid in KNOWN_DIFFERENCE_CONTROL_IDS:
+            # n/a while the known difference stands (G.4), and only when its evidence says so.
+            if sidecars is not None:
+                outcome, detail = judge_p9_control(cid, sidecars.get(cid))
+                if outcome != CONTROLS_NOT_APPLICABLE:
+                    problems.append("%s:recorded-n/a-judged-%s(%s)" % (cid, outcome, detail))
         elif got != CONTROLS_OK:
             problems.append("%s:%s" % (cid, got))
+        elif sidecars is not None and p9_run:
+            outcome, detail = judge_p9_control(cid, sidecars.get(cid))
+            if outcome != CONTROLS_OK:
+                problems.append("%s:recorded-ok-judged-%s(%s)" % (cid, outcome, detail))
+        elif sidecars is not None and motion_run and cid in MOTION_CONTROL_IDS:
+            outcome, detail = judge_motion_control(cid, sidecars)
+            if outcome != CONTROLS_OK:
+                problems.append("%s:recorded-ok-judged-%s(%s)" % (cid, outcome, detail))
         elif sidecars is not None and (fx_run or cid in STATE_CONTROL_IDS):
             outcome, detail = (judge_fx_control(cid, sidecars.get(cid)) if fx_run
                                else judge_state_control(sidecars.get(cid)))
@@ -2754,6 +4376,10 @@ def _sidecar_complete(sidecar: Optional[Dict], case_id: str,
         return "setup.status=%s" % status
     if is_setup_fault(status):
         return None  # a recorded setup fault is a complete record
+    if is_motion_case(sidecar):
+        return motion_sidecar_incomplete(sidecar, atlases)
+    if is_p9_case(sidecar):
+        return p9_sidecar_incomplete(sidecar, atlases)
     views = sidecar.get("views")
     if not isinstance(views, list) or not views:
         return "no-views"
@@ -2879,19 +4505,24 @@ def check_state_press(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
         if not isinstance(family, str) or not family:
             family = (fx_block(side) or {}).get("family")
         if not isinstance(family, str) or not family:
+            family = (motion_block(side) or {}).get("family")
+        if not isinstance(family, str) or not family:
+            family = (burst_block(side) or dust_block(side) or {}).get("family")
+        if not isinstance(family, str) or not family:
             family = PRESS_UNKNOWN_FAMILY
         setup = (side or {}).get("setup")
         status = setup.get("status") if isinstance(setup, dict) else None
         detail = setup.get("detail") if isinstance(setup, dict) else None
         if status is None:
             status = entry.get("setupStatus")
-        if fx_press_failed(status, detail, side):
+        if fx_press_failed(status, detail, side) or p9_press_failed(status):
             dead_press.add(cid)
         per_family.setdefault(family, []).append((cid, status, detail))
     if not per_family:
         return None
-    order = {f: i for i, f in enumerate(
-        FAMILIES + tuple(f for f in FX_FAMILIES if f not in FAMILIES))}
+    known = FAMILIES + tuple(f for f in FX_FAMILIES if f not in FAMILIES)
+    known += tuple(f for f in MOTION_FAMILIES if f not in known)
+    order = {f: i for i, f in enumerate(known + tuple(f for f in BUILT_FAMILIES if f not in known))}
     rows: List[Tuple[str, int, int]] = []
     problems: List[str] = []
     for family in sorted(per_family, key=lambda f: (order.get(f, len(order)), f)):
@@ -3181,14 +4812,29 @@ STOWED_REF_PCT_KEYS: Tuple[str, ...] = tuple(k for k in STOWED_REF_KEYS if k.end
 _PCT_BLOB_KEY = {"realOnlyBlobPct": "realOnlyBlobPx", "ghostOnlyBlobPct": "ghostOnlyBlobPx"}
 
 
+def start_reload_problem(sidecar: Dict) -> Optional[str]:
+    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a state
+    case only; None when they agree or no atlas was written."""
+    atlas = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
+    rows = atlas.get("rows")
+    if not isinstance(rows, list):
+        return None
+    row, flag = ROW_REAL_START in rows, start_reloaded(sidecar)
+    if row == flag and not (row and not is_state_case(sidecar.get("state"))):
+        return None
+    return "start reload: flag=%s but atlas rows=%s" % (str(flag).lower(), rows)
+
+
 def state_view_block_problems(sidecar: Dict) -> List[str]:
     """The view-block shape a state case must carry (design D.2, D.6): every view has a
     ``start`` block with every ``START_KEYS`` key and a ``stowedRef`` block with every
-    ``STOWED_REF_KEYS`` key. A stowed case, or a case with no views, has no problem. Run
-    over every state case, not only the recompute sample."""
+    ``STOWED_REF_KEYS`` key, and a reloaded start route has both its flag and its row
+    (``start_reload_problem``, any case). A stowed case, or a case with no views, has no other
+    problem. Run over every case, not only the recompute sample."""
+    reload = start_reload_problem(sidecar)
+    problems: List[str] = [] if reload is None else [reload]
     if not is_state_case(sidecar.get("state")):
-        return []
-    problems: List[str] = []
+        return problems
     for v in sidecar.get("views") or []:
         if not isinstance(v, dict):
             continue
@@ -3248,10 +4894,12 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
     """A state case's four-row atlas (design D.6): rows 1 (ghost) and 2 (ghost-start)
     against row 0 with the full recomputed key set (the view, then its ``start`` block),
     row 3 (ghost-stowed) against row 0 for exactly the keys ``stowedRef`` carries: the
-    counts exactly, the blob percentages against the view's box area. A missing block or
-    key is a difference."""
+    counts exactly, the blob percentages against the view's box area. A case whose start route
+    was reloaded (``start_reloaded``) has a fifth row, the loaded real part, and its row 2 is
+    read against that one. A missing block or key is a difference."""
     width, height, bpp, pixels = atlas
-    want_rows = list(ATLAS_ROWS_STATE)
+    reloaded = start_reloaded(sidecar)
+    want_rows = list(atlas_rows_for(True, reloaded))
     if rows != want_rows:
         return ["atlas rows=%s (expected %s)" % (rows, want_rows)]
     if width != tile * len(cols) or height != tile * len(want_rows):
@@ -3278,9 +4926,11 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
         start = view.get("start")
         if isinstance(start, dict):
             start_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 2 * tile, tile)
+            real_start = real_rows if not reloaded else tile_alpha_rows(
+                pixels, width, bpp, c * tile, want_rows.index(ROW_REAL_START) * tile, tile)
             rec = dict(start)
             rec["view"] = "%s/%s" % (name, ROUTE_START)
-            diffs.extend(compare_view(rec, recompute_view(real_rows, start_rows, tile)))
+            diffs.extend(compare_view(rec, recompute_view(real_start, start_rows, tile)))
         ref = view.get("stowedRef")
         if isinstance(ref, dict):
             stowed_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 3 * tile, tile)
@@ -3290,6 +4940,297 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
                     diffs.append("%s/stowedRef.%s:%s!=%s" % (name, key, ref.get(key), got[key]))
             diffs.extend(_stowed_ref_pct_diffs(view, ref))
     return diffs
+
+
+# ---------------------------------------------------------------------------
+# P7: the motion instrument check (Appendix H.3, piece M4).
+#
+# For EVERY motion case (the motion controls and a slow / late control's normal route too):
+# the block shape (every key written, the arrays' lengths agree), the timing block against
+# ``motion_timing`` over its own per-frame arrays (exact to RECOMPUTE_FLOAT_TOLERANCE), each
+# frame's same-time ghost progress against the scout series at that frame's offset (within
+# MOTION_SCOUT_RENDER_TOLERANCE), and ``scout-render-disagree`` anywhere. For every motion
+# control and the seeded ceil(2 %) of the motion part cases with a harvested motion atlas:
+# each frame's same-time and matched measures from the atlas tiles (``recompute_view``, the
+# section 6 shape measures) and each row's picture progress, ``a / (a + b)`` with ``a`` the
+# tolerant mismatch (realOnlyTolPx + ghostOnlyTolPx of the pair) of the frame against the
+# row's frame 0 and ``b`` against the row's last frame.
+# ---------------------------------------------------------------------------
+
+def motion_atlas_matched(case_id: Optional[str]) -> bool:
+    """Whether a motion case's atlas carries the matched rows: every case but the two
+    real-vs-real controls (copy B's live frames stand in for the ghost, no matched row)."""
+    return case_id not in MOTION_REAL_VS_REAL_CONTROL_IDS
+
+
+def motion_sidecar_incomplete(sidecar: Dict, atlases: Optional[Collection[str]]) -> Optional[str]:
+    """Completeness of a captured motion case (not a setup fault): its motion block with
+    frames, and (``atlases`` given) its harvested motion atlas. None: complete."""
+    block = motion_block(sidecar)
+    if block is None:
+        return "no-motion-block"
+    frames = motion_frames(block)
+    if not frames:
+        return "no-motion-frames"
+    # The window rule (H.3): a case judged on fewer frames, on a real part that never got
+    # there, or with no same-time picture at its end has no evidence a verdict could stand on.
+    if len(frames) < MOTION_MIN_FRAMES:
+        return "motion-frames=%d<%d" % (len(frames), MOTION_MIN_FRAMES)
+    if not isinstance(block.get("timing"), dict):
+        return "no-motion-timing"
+    real_p = [_num(f.get("realProgress")) for f in frames]
+    reached = max([p for p in real_p if p is not None], default=None)
+    if reached is None or reached < MOTION_REAL_REACHED_PROGRESS:
+        return "motion-real-not-reached=%s<%.1f" % (_fmt3(reached), MOTION_REAL_REACHED_PROGRESS)
+    if not motion_frame_views(frames[-1], "same"):
+        return "motion-last-frame-no-pictures"
+    if atlases is not None:
+        meta = sidecar.get("motionAtlas")
+        name = meta.get("file") if isinstance(meta, dict) else None
+        if not name:
+            return "no-motion-atlas"
+        if name not in atlases:
+            return "motion-atlas-missing:%s" % name
+    return None
+
+
+def _missing(at: str, block: Any, keys: Sequence[str]) -> List[str]:
+    if not isinstance(block, dict):
+        return ["%s: block missing" % at]
+    gone = [k for k in keys if k not in block]
+    return ["%s: missing key(s) %s" % (at, ",".join(gone))] if gone else []
+
+
+def motion_block_problems(sidecar: Optional[Dict]) -> List[str]:
+    """The shape of a captured motion case's blocks (H.2: every key always written): the
+    ``motion`` block and its window, scout, frames, frame views, transforms and timing carry
+    every key of their tables; the scout's two arrays, and each transform's ghost array, have
+    the scout's length; each transform's real array has one value per frame. A setup fault
+    or a sidecar with no motion block has none (completeness names a missing block)."""
+    if not isinstance(sidecar, dict):
+        return []
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    block = motion_block(sidecar)
+    if block is None or is_setup_fault(setup.get("status")):
+        return []
+    problems = _missing("motion", block, MOTION_KEYS)
+    problems += _missing("motion.window", block.get("window"), MOTION_WINDOW_KEYS)
+    scout = block.get("scout")
+    problems += _missing("motion.scout", scout, MOTION_SCOUT_KEYS)
+    n_scout = None
+    if isinstance(scout, dict):
+        ss, sp = scout.get("s"), scout.get("progress")
+        if not isinstance(ss, list) or not isinstance(sp, list) or len(ss) != len(sp):
+            problems.append("motion.scout: s and progress are not two arrays of one length")
+        else:
+            n_scout = len(ss)
+    frames = motion_frames(block)
+    if "frames" in block and not isinstance(block["frames"], list):
+        problems.append("motion.frames: not an array")
+    elif len(frames) != len(_motion_list(block.get("frames"))):
+        problems.append("motion.frames: an entry is not an object")
+    views0 = motion_view_names(block)
+    for i, f in enumerate(frames):
+        problems += _missing("motion.frames[%d]" % i, f, MOTION_FRAME_KEYS)
+        for key in ("views", "flags"):
+            if key in f and not isinstance(f[key], list):
+                problems.append("motion.frames[%d].%s: not an array" % (i, key))
+        for j, v in enumerate(_motion_list(f.get("views"))):
+            problems += _missing("motion.frames[%d].views[%d]" % (i, j), v, MOTION_FRAME_VIEW_KEYS)
+            for which in ("same", "matched"):
+                m = v.get(which) if isinstance(v, dict) else None
+                if m is not None:
+                    problems += _missing("motion.frames[%d].views[%d].%s" % (i, j, which), m, START_KEYS)
+        names = [str(v.get("view")) for v in _motion_list(f.get("views")) if isinstance(v, dict)]
+        if names != views0:
+            problems.append("motion.frames[%d]: views %s != frame 0's %s" % (i, names, views0))
+    if "transforms" in block and not isinstance(block["transforms"], list):
+        problems.append("motion.transforms: not an array")
+    for i, t in enumerate(_motion_list(block.get("transforms"))):
+        problems += _missing("motion.transforms[%d]" % i, t, MOTION_TRANSFORM_KEYS)
+        if not isinstance(t, dict):
+            continue
+        if not isinstance(t.get("real"), list) or len(t["real"]) != len(frames):
+            problems.append("motion.transforms[%d]: real has not one value per frame" % i)
+        if n_scout is not None and (not isinstance(t.get("ghost"), list) or len(t["ghost"]) != n_scout):
+            problems.append("motion.transforms[%d]: ghost has not one value per scout point" % i)
+    timing = block.get("timing")
+    problems += _missing("motion.timing", timing, MOTION_TIMING_KEYS)
+    if isinstance(timing, dict):
+        for side in ("real", "ghost"):
+            problems += _missing("motion.timing.%s" % side, timing.get(side), MOTION_CROSSING_KEYS)
+    return problems
+
+
+def motion_case_problems(sidecar: Optional[Dict]) -> List[str]:
+    """The checks run on EVERY motion case (no atlas needed): the block shape, the timing
+    block against its recompute from the per-frame arrays, each frame's same-time ghost
+    progress against the scout at that frame's offset, and ``scout-render-disagree`` on the
+    case or any frame (an instrument mismatch, never a ghost finding)."""
+    problems = motion_block_problems(sidecar)
+    block = motion_block(sidecar)
+    if block is None or problems:
+        return problems
+    setup = sidecar.get("setup") if isinstance(sidecar.get("setup"), dict) else {}
+    if is_setup_fault(setup.get("status")):
+        return problems
+    problems += motion_timing_diffs(block.get("timing"), motion_timing(motion_series(block)))
+    scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
+    ss, sp = _motion_nums(scout.get("s")), _motion_nums(scout.get("progress"))
+    for i, f in enumerate(motion_frames(block)):
+        got = _num(f.get("ghostProgress"))
+        want = motion_interpolate(ss, sp, _num(f.get("realS")))
+        if (got is None) != (want is None) or (
+                got is not None and abs(got - want) > MOTION_SCOUT_RENDER_TOLERANCE):
+            problems.append("frame %s: ghostProgress=%s scout=%s" % (f.get("k", i), got, want))
+        if FLAG_SCOUT_RENDER_DISAGREE in (_motion_list(f.get("flags"))):
+            problems.append("frame %s: %s" % (f.get("k", i), FLAG_SCOUT_RENDER_DISAGREE))
+    if FLAG_SCOUT_RENDER_DISAGREE in _motion_list(sidecar.get("flags")):
+        problems.append("case flag %s" % FLAG_SCOUT_RENDER_DISAGREE)
+    return problems
+
+
+def motion_tolerant_mismatch(a_rows: Sequence[int], b_rows: Sequence[int], width: int) -> int:
+    """Section 6's tolerant mismatch between two tiles: realOnlyTolPx + ghostOnlyTolPx."""
+    m = recompute_view(a_rows, b_rows, width)
+    return m["realOnlyTolPx"] + m["ghostOnlyTolPx"]
+
+
+def recompute_motion_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute one motion case from its decoded motion atlas and return the differences:
+    the layout (rows ``motion_atlas_rows`` over the frames' views, cols the frames' ``k`` in
+    order, tile size, RGBA), each frame's same-time and matched blocks per view (a null
+    matched block must sit over an empty tile), and each row's picture progress
+    (``imgProgress[<row>]``; null is accepted only on a matched row whose block is null)."""
+    width, height, bpp, pixels = atlas
+    block = motion_block(sidecar) or {}
+    meta = sidecar.get("motionAtlas") if isinstance(sidecar.get("motionAtlas"), dict) else {}
+    tile, rows, cols = meta.get("tile"), list(meta.get("rows") or []), list(meta.get("cols") or [])
+    frames = motion_frames(block)
+    views = motion_view_names(block)
+    want_rows = list(motion_atlas_rows(views, motion_atlas_matched(sidecar.get("caseId"))))
+    if not isinstance(tile, int) or isinstance(tile, bool) or tile <= 0 or not frames:
+        return ["motion atlas block unusable: tile=%s frames=%d" % (tile, len(frames))]
+    if rows != want_rows:
+        return ["motion atlas rows=%s (expected %s)" % (rows, want_rows)]
+    want_cols = [f.get("k") for f in frames]
+    if cols != want_cols:
+        return ["motion atlas cols=%s (expected the frames' k %s)" % (cols, want_cols)]
+    if width != tile * len(cols) or height != tile * len(rows):
+        return ["motion atlas size %dx%d != %d cols x %d rows of %d px"
+                % (width, height, len(cols), len(rows), tile)]
+    if bpp != 4:
+        return ["motion atlas is not RGBA (bytes per pixel %d)" % bpp]
+    cache: Dict[Tuple[int, int], List[int]] = {}
+
+    def tile_rows(r: int, c: int) -> List[int]:
+        if (r, c) not in cache:
+            cache[(r, c)] = tile_alpha_rows(pixels, width, bpp, c * tile, r * tile, tile)
+        return cache[(r, c)]
+
+    diffs: List[str] = []
+    last = len(frames) - 1
+    for c, f in enumerate(frames):
+        at = "frame %s" % f.get("k")
+        by_view = {str(v.get("view")): v for v in _motion_list(f.get("views")) if isinstance(v, dict)}
+        for view in views:
+            v = by_view.get(view) or {}
+            real = tile_rows(rows.index("%s:%s" % (MOTION_ROW_REAL, view)), c)
+            for which, row_word in (("same", MOTION_ROW_GHOST), ("matched", MOTION_ROW_GHOST_MATCHED)):
+                row_name = "%s:%s" % (row_word, view)
+                if row_name not in rows:
+                    if v.get(which) is not None:
+                        diffs.append("%s %s.%s: a block with no atlas row" % (at, view, which))
+                    continue
+                ghost = tile_rows(rows.index(row_name), c)
+                rec = v.get(which)
+                if rec is None:
+                    if which == "same" or any(ghost):
+                        diffs.append("%s %s.%s: null block over a drawn tile" % (at, view, which))
+                    continue
+                if rec.get("width") != tile or rec.get("height") != tile:
+                    diffs.append("%s %s.%s.size:%sx%s!=%d" % (at, view, which, rec.get("width"),
+                                                              rec.get("height"), tile))
+                    continue
+                named = dict(rec)
+                named["view"] = "%s %s.%s" % (at, view, which)
+                diffs.extend(compare_view(named, recompute_view(real, ghost, tile)))
+        img = f.get("imgProgress") if isinstance(f.get("imgProgress"), dict) else {}
+        for r, row_name in enumerate(rows):
+            got = img.get(row_name)
+            if got is None:
+                matched_null = row_name.startswith(MOTION_ROW_GHOST_MATCHED + ":") and \
+                    (by_view.get(row_name.split(":", 1)[1]) or {}).get("matched") is None
+                if not matched_null:
+                    diffs.append("%s imgProgress[%s]: null" % (at, row_name))
+                continue
+            a = motion_tolerant_mismatch(tile_rows(r, 0), tile_rows(r, c), tile)
+            b = motion_tolerant_mismatch(tile_rows(r, c), tile_rows(r, last), tile)
+            want = motion_picture_progress(a, b)
+            if not _float_equal(got, want):
+                diffs.append("%s imgProgress[%s]:%s!=%s" % (at, row_name, got, want))
+    return diffs
+
+
+def motion_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """Writer cross-checks of a motion run (H.2): a motion run plans ONLY motion cases, a
+    run whose settings name no motion plans none (no motion state, no motion block), and a
+    row family that is not the sidecar's ``motion.family``."""
+    settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
+    motion_run = is_motion_run(settings)
+    problems: List[str] = []
+    for entry in manifest.get("cases") or []:
+        cid = entry.get("caseId") if isinstance(entry, dict) else None
+        if not isinstance(cid, str) or cid in ALL_CONTROL_IDS:
+            continue
+        side = sidecars.get(cid) if isinstance(sidecars.get(cid), dict) else None
+        motion = is_motion_state(entry.get("state")) or is_motion_case(side)
+        if motion and not motion_run:
+            problems.append("%s is a motion case but settings motion=%s plan no motion"
+                            % (cid, _setting(settings, SETTING_MOTION)))
+        elif motion_run and not motion:
+            problems.append("%s state=%s is not a motion case in a motion=%s run"
+                            % (cid, entry.get("state"), _setting(settings, SETTING_MOTION)))
+        block = motion_block(side)
+        if block is not None and entry.get("family") is not None and entry.get("family") != block.get("family"):
+            problems.append("%s row family=%s motion.family=%s" % (cid, entry.get("family"), block.get("family")))
+    return problems
+
+
+def motion_recompute(sidecars: Dict[str, Optional[Dict]], atlases: Collection[str],
+                     part_ids: Sequence[str], control_ids: Sequence[str], run_id: str,
+                     read_png: Optional["PngReader"],
+                     atlas_path: Callable[[str], str]) -> Tuple[List[str], List[str]]:
+    """The motion half of the instrument check. Every motion case of the run (part cases,
+    controls and the slow / late controls' normal routes) gets ``motion_case_problems``;
+    every motion control with a harvested motion atlas, its normal route's, and the seeded
+    sample (``select_recompute_sample``, ceil(2 %), at least one) of the motion part cases
+    with one get ``recompute_motion_case``. Returns (``<caseId>.motion`` ids recomputed,
+    mismatches)."""
+    normals = [motion_normal_id(c) for c in control_ids if c in MOTION_CONTROLS_WITH_NORMAL]
+    every = [c for c in list(part_ids) + list(control_ids) + normals if is_motion_case(sidecars.get(c))]
+    mismatches: List[str] = []
+    for cid in every:
+        mismatches.extend("%s %s" % (cid, p) for p in motion_case_problems(sidecars.get(cid)))
+
+    def file_of(cid: str) -> Optional[str]:
+        side = sidecars.get(cid)
+        meta = side.get("motionAtlas") if isinstance(side, dict) else None
+        name = meta.get("file") if isinstance(meta, dict) else None
+        return name if name in atlases else None
+
+    if read_png is None or not every:
+        return [], mismatches
+    parts = set(part_ids)
+    ids = [c for c in every if c not in parts and file_of(c)]
+    ids += select_recompute_sample([c for c in every if c in parts and file_of(c)], run_id)
+    for cid in ids:
+        try:
+            diffs = recompute_motion_case(sidecars[cid], read_png(atlas_path(file_of(cid))))
+        except Exception as exc:  # noqa: BLE001 - an unreadable atlas is the finding
+            diffs = ["motion atlas unreadable (%s: %s)" % (type(exc).__name__, exc)]
+        mismatches.extend("%s %s" % (cid, d) for d in diffs)
+    return ["%s%s" % (c, MOTION_RECOMPUTE_ID_SUFFIX) for c in ids], mismatches
 
 
 def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
@@ -3335,11 +5276,20 @@ def select_recompute_sample(part_case_ids: Sequence[str], run_id: str,
 #     (``ghost-not-built*``), a state the ghost does not model or the recorder did not
 #     record (``state-not-*``), a case the capture recorded ``crashed`` (the ghost builder
 #     runs inside that guard).
+# An FX case's numeric measures carry bands too (``fx`` of its entry: the raw compare values of
+# every measure some run read at FX_BAND_MIN of its fail line or more, capped or not). A fail
+# that stands on a baselined case is judged by its band as a body measure is
+# (``fx_drift_limit``): inside, it is a note; past it, the case reds. Presence, smoke and a
+# missing or extra FX asset have no band: each reds unless an entry names it. A waiver (a noisy
+# entry, the split-half cap) holds up to FX_FAR times the limit.
 # A baselined case the sweep could NOT measure any more (another setup fault, a view or a
-# route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or an FX
-# check that did not run, ``fx_unmeasured``) is ``unmeasured``: the armed row is
-# INVALID(parity-incomplete), because silence is neither a pass nor a ghost defect. A fault
-# or an FX check the baseline itself recorded for that case is a note. Moves to the BETTER side, new
+# route missing, a null measure or structure, an FX entry ``skipped`` for weak cores or
+# ``empty`` on both sides, an FX check that did not run, an FX value that is null, a missing or
+# extra effect held at ``warn``, ``fx_unmeasured``, a capped FX fail far past its band) is
+# ``unmeasured``:
+# the armed row is INVALID(parity-incomplete), because silence is neither a pass nor a ghost
+# defect. A fault or an FX check the baseline itself recorded for that case is a note (an
+# empty layer, what most cases' smoke is, not even that). Moves to the BETTER side, new
 # cases that pass, near-line fails and accepted entries that matched nothing are notes:
 # the fix that removes a difference removes its accepted entry and re-pins the baseline
 # in the same commit (``harness/tools/part_parity_baseline.py``).
@@ -3386,6 +5336,8 @@ VIEW_ANY = "*"
 IOU_DIGITS = 4
 # TestCommandPartParitySweep.KnownViews (an accepted entry names one of them).
 KNOWN_VIEWS: Tuple[str, ...] = ("side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero")
+# What an accepted entry may name as its view (a route aside).
+ACCEPT_VIEWS: Tuple[str, ...] = KNOWN_VIEWS + (PLATE_VIEW,) + FX_VIEWS
 
 # Drift tolerances (a measure is worse when it leaves its band by more than these). A
 # blob's limit is hi + max(abs, rel * hi); an IoU's is lo - abs. Pinned from the measured
@@ -3396,6 +5348,19 @@ DRIFT_SHAPE_ABS_PX = 48
 DRIFT_COLOR_ABS_PX = 192
 DRIFT_BLOB_REL = 0.5
 DRIFT_IOU_ABS = 0.01
+# FX measures, in fail lines (``fx_severity``): a standing fail of a baselined case reds past
+# max(1, hi + max(abs, rel * hi)) of its band's far end, the body blobs' rule. A measure every
+# run kept under FX_BAND_MIN reds at the fail line itself, so its band is not stored.
+DRIFT_FX_ABS = 0.5
+DRIFT_FX_REL = 0.5
+FX_BAND_MIN = 0.5
+FX_BAND_KEYS: Tuple[str, ...] = tuple(dict.fromkeys(FX_SIDE_VIEW_KEYS + FX_AXIS_VIEW_KEYS))
+FX_BAND_DIGITS = 4
+# A waiver stretches that limit, it does not lift it: a noisy entry's fail still reds past
+# FX_FAR of the limit, and a fail the split-half rule caps is ``unmeasured`` past it (a plume
+# half as long is 2 fail lines off and unsettles itself; the worst capped reading of the clean
+# runs is 1.66, the Spark's).
+FX_FAR = 1.75
 # A noisy entry waives the drift rule, not a picture that is gone: an IoU under this
 # fraction of its band's low end reds on a noisy case too (a blank ghost reads IoU 0).
 NOISY_IOU_FLOOR = 0.5
@@ -3419,7 +5384,15 @@ GATE_UNMEASURED = "unmeasured"
 
 _CASE_ID_RE = re.compile(r"^[a-z0-9._-]{1,128}$")
 _TODO_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]*[A-Z0-9]$")
-ACCEPTED_KEYS: Tuple[str, ...] = ("case", "profile", "view", "measure", "noisy", "reason", "todo")
+ACCEPTED_KEYS: Tuple[str, ...] = ("case", "profile", "view", "measure", "noisy", "kind", "reason", "todo")
+# What an accepted difference IS, read by the page states (``page_state``) and nothing else:
+# ``ruled``, the owner ruled on it by name (the todo says so); ``accepted``, a known cause that
+# is not the ghost's (an instrument limit, another mod's effect, a stock artifact); ``defect``, a
+# real ghost difference not fixed yet. An entry without one reads as a defect does.
+KIND_RULED = "ruled"
+KIND_ACCEPTED = "accepted"
+KIND_DEFECT = "defect"
+ACCEPTED_KINDS: Tuple[str, ...] = (KIND_RULED, KIND_ACCEPTED, KIND_DEFECT)
 ACCEPTED_REQUIRED: Tuple[str, ...] = ("case", "view", "measure", "reason", "todo")
 _PLACEHOLDER_RE = re.compile(r"^\s*(todo|tbd|fixme|xxx|\?+)?\s*$", re.IGNORECASE)
 
@@ -3460,6 +5433,70 @@ def _band_value(measure: str, lo: float, hi: float) -> List[float]:
     return [int(lo), int(hi)]
 
 
+def fx_entry_label(key: FxEntryKey) -> str:
+    return "%s:%s:%s" % key
+
+
+def fx_case_measures(sidecar: Dict) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """The judged FX entries of one plume or rcs case by ``<route>:<view>:<layer>``: compare
+    key -> (value, distance in fail lines). Left out, as in ``fx_entry_findings``: an entry
+    presence decides, one with two weak cores, and what an rcs case only reports."""
+    fx = fx_block(sidecar)
+    if fx is None or fx.get("family") not in FX_STOCHASTIC_FAMILIES:
+        return {}
+    skip = {m + "Ratio" for m in FX_RCS_REPORT_ONLY_MEASURES} \
+        if fx.get("family") == FX_FAMILY_RCS else set()
+    out: Dict[str, Dict[str, Tuple[float, float]]] = {}
+    for e in fx_entries(sidecar):
+        sides = [e.get(s) if isinstance(e.get(s), dict) else {} for s in ("real", "ghost")]
+        cores = tuple(_fx_count(s, "corePx") for s in sides)
+        if str(e.get("route")) not in FX_JUDGED_ROUTES or fx_both_cores_weak(*cores) \
+                or fx_presence_reason(e.get("layer"), *cores) is not None:
+            continue
+        compare = e.get("compare") if isinstance(e.get("compare"), dict) else {}
+        length = _num(sides[0].get("lengthPx")) or 0.0
+        rec: Dict[str, Tuple[float, float]] = {}
+        for k in FX_BAND_KEYS:
+            x = _num(compare.get(k))
+            if x is not None and k not in skip:
+                rec[k] = (x, fx_severity(k, x, length)[1])
+        out[fx_entry_label(fx_entry_key(e))] = rec
+    return out
+
+
+def fx_baseline_bands(sidecars: Sequence[Dict]) -> Dict[str, Dict[str, List[float]]]:
+    """The FX bands of one case over its runs: entry label -> compare key -> [lo, hi] of the
+    raw values, whatever the split-half rule made of them, for each measure some run read at
+    FX_BAND_MIN of its fail line or more."""
+    values: Dict[Tuple[str, str], List[float]] = {}
+    kept = set()
+    for s in sidecars:
+        for label, rec in fx_case_measures(s).items():
+            for k, (x, severity) in rec.items():
+                values.setdefault((label, k), []).append(x)
+                if severity >= FX_BAND_MIN:
+                    kept.add((label, k))
+    out: Dict[str, Dict[str, List[float]]] = {}
+    scale = 10 ** FX_BAND_DIGITS
+    for label, k in sorted(kept):
+        xs = values[(label, k)]
+        out.setdefault(label, {})[k] = [math.floor(min(xs) * scale) / scale,
+                                        math.ceil(max(xs) * scale) / scale]
+    return out
+
+
+def fx_drift_limit(band: Optional[Sequence[float]], key: str, side: str,
+                   real_length: float) -> float:
+    """The distance, in fail lines, past which a standing fail on ``side`` reds: the band's far
+    end on that side plus its tolerance, never under the fail line itself."""
+    hi = 0.0
+    for x in band or ():
+        band_side, severity = fx_severity(key, float(x), real_length)
+        if band_side == side:
+            hi = max(hi, severity)
+    return max(1.0, hi + max(DRIFT_FX_ABS, DRIFT_FX_REL * hi))
+
+
 def baseline_case_entry(sidecars: Sequence[Dict]) -> Dict[str, Any]:
     """One case's baseline entry from its sidecars in the reading runs (one per run):
     ``setup`` the sorted set of setup statuses seen, ``views`` the measure bands over the
@@ -3490,6 +5527,11 @@ def baseline_case_entry(sidecars: Sequence[Dict]) -> Dict[str, Any]:
     measured = any(isinstance(s, dict) and not is_setup_fault((s.get("setup") or {}).get("status"))
                    for s in sidecars)
     entry = {"setup": statuses, "measured": measured, "views": views}
+    fx_bands = fx_baseline_bands([s for s in sidecars if isinstance(s, dict)
+                                  and not is_setup_fault((s.get("setup") or {}).get("status"))])
+    if fx_bands:
+        # Written only when a run read a measure near its line.
+        entry["fx"] = fx_bands
     if any(isinstance(s, dict) and judge_case(s).verdict == VERDICT_REFERENCE for s in sidecars):
         # Waterfall reference case: never gated (E.6). Written only when true.
         entry["reference"] = True
@@ -3529,7 +5571,8 @@ def build_baseline_section(runs: Sequence[Tuple[str, Dict, Dict[str, Optional[Di
 
 def drift_tolerances() -> Dict[str, Any]:
     return {"shapeAbsPx": DRIFT_SHAPE_ABS_PX, "colorAbsPx": DRIFT_COLOR_ABS_PX,
-            "blobRel": DRIFT_BLOB_REL, "iouAbs": DRIFT_IOU_ABS}
+            "blobRel": DRIFT_BLOB_REL, "iouAbs": DRIFT_IOU_ABS,
+            "fxAbs": DRIFT_FX_ABS, "fxRel": DRIFT_FX_REL}
 
 
 def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
@@ -3564,6 +5607,17 @@ def validate_baseline(doc: Any, profile: Optional[str] = None) -> List[str]:
                             and all(_num(x) is not None for x in band) and band[0] <= band[1]):
                         errors.append("baseline %s/%s %s.%s is not a [lo, hi] band"
                                       % (label, cid, vk, m))
+            bands = entry.get("fx", {})
+            if not isinstance(bands, dict) or not all(isinstance(r, dict) for r in bands.values()):
+                errors.append("baseline %s/%s fx is not an object of entries" % (label, cid))
+                continue
+            for at, rec in bands.items():
+                for k, band in rec.items():
+                    if k not in FX_BAND_KEYS or not (
+                            isinstance(band, list) and len(band) == 2
+                            and all(_num(x) is not None for x in band) and band[0] <= band[1]):
+                        errors.append("baseline %s/%s fx %s.%s is not a [lo, hi] band"
+                                      % (label, cid, at, k))
     return errors
 
 
@@ -3574,7 +5628,7 @@ class AcceptedEntry:
     ACCEPT_GROUPS, or ``flag:<flag>`` with an optional trailing ``*`` for a prefix; ``*`` is
     every PICTURE measure and nothing else),
     ``reason`` and ``todo`` (the ruling or open todo that owns it), ``profile`` (None:
-    every profile) and ``noisy`` (the measure moves run to run, so the drift rule is
+    every profile), ``kind`` (ACCEPTED_KINDS or None, for the page alone) and ``noisy`` (the measure moves run to run, so the drift rule is
     waived for it too; otherwise only its fail verdict is waived and drift still gates)."""
     case: str
     view: str
@@ -3583,6 +5637,7 @@ class AcceptedEntry:
     todo: str
     profile: Optional[str] = None
     noisy: bool = False
+    kind: Optional[str] = None
 
     def covers(self, case_id: str, profile: Optional[str], vk: Optional[str], group: str) -> bool:
         if self.case != case_id:
@@ -3642,7 +5697,7 @@ def parse_accepted(doc: Any) -> Tuple[List[AcceptedEntry], List[str]]:
             errors.append("%s: case %r is not a case id" % (where, case))
         if view != VIEW_ANY:
             route, _, bare = view.rpartition(":")
-            if bare not in KNOWN_VIEWS + FX_VIEWS or route not in ("", ROUTE_EVENT, ROUTE_START):
+            if bare not in ACCEPT_VIEWS or route not in ("", ROUTE_EVENT, ROUTE_START):
                 errors.append("%s: view %r is not *, a view or <event|start>:<view>" % (where, view))
         fx_groups = [GROUP_FX_STRUCTURE] + [GROUP_FX_PREFIX + m for m in FX_MEASURES]
         if measure not in ACCEPT_GROUPS and measure not in fx_groups and not (
@@ -3661,7 +5716,14 @@ def parse_accepted(doc: Any) -> Tuple[List[AcceptedEntry], List[str]]:
         if not isinstance(noisy, bool):
             errors.append("%s: noisy must be a bool" % where)
             noisy = False
-        entry = AcceptedEntry(case, view, measure, row["reason"], row["todo"], profile, noisy)
+        kind = row.get("kind")
+        if kind is not None and kind not in ACCEPTED_KINDS:
+            errors.append("%s: kind %r is not one of %s" % (where, kind, ", ".join(ACCEPTED_KINDS)))
+            kind = None
+        if kind == KIND_RULED and "owner ruling" not in row["reason"]:
+            errors.append("%s: kind ruled needs the owner ruling in its reason" % where)
+            kind = None
+        entry = AcceptedEntry(case, view, measure, row["reason"], row["todo"], profile, noisy, kind)
         key = (case, view, measure, profile)
         if key in seen:
             errors.append("%s: duplicate of an earlier entry (%s)" % (where, entry.label()))
@@ -3682,11 +5744,13 @@ _FX_REASON_RE = re.compile(r"^((event|start):)?fx-[a-z]+(-[a-z]+)?:|^(missing|ex
 class FailReason:
     """A reason that holds a case at ``fail``: ``group`` an ACCEPT_GROUPS member or
     ``flag:<flag>``; ``view`` the view key (None for a case-level reason); ``numeric``
-    when it is a measure over its fail line (the drift rule judges it on a baselined case)."""
+    when it is a measure over its fail line (the drift rule judges it on a baselined case);
+    ``fx`` (a numeric FX reason) its entry label and its finding."""
     reason: str
     group: str
     view: Optional[str]
     numeric: bool
+    fx: Optional[Tuple[str, FxFinding]] = None
 
 
 def _split_route(reason: str) -> Tuple[Optional[str], str]:
@@ -3705,9 +5769,9 @@ def _numeric_over_fail_line(kind: str, value: float) -> bool:
 
 def fx_fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
     """The fail-level FX findings of a case, read from its FX judgement (its reason text
-    mixes warn-level findings in): one per entry and measure over its fail line, one per
-    rendered FX asset one side lacks. They carry no baseline band, so each reds unless an
-    entry names it. An FX half that failed with no finding to show, or FX reasons with no
+    mixes warn-level findings in): one per entry and measure over its fail line (``numeric``,
+    judged by its band on a baselined case, when it has a compare value), one per rendered FX
+    asset one side lacks. Presence, smoke and the assets red unless an entry names them. An FX half that failed with no finding to show, or FX reasons with no
     judgement to read, yields one unexplained reason: a body fail never hides it."""
     fx = verdict.fx
     if fx is None:
@@ -3722,8 +5786,10 @@ def fx_fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
             continue
         for f in j.findings:
             if f.level == VERDICT_FAIL:
+                at = (fx_entry_label((j.route, j.view, j.layer)), f) if f.key else None
                 out.append(FailReason(fx_reason(j.route, j.view, j.layer, f.reason),
-                                      GROUP_FX_PREFIX + f.measure, view_key(j.view, j.route), False))
+                                      GROUP_FX_PREFIX + f.measure, view_key(j.view, j.route),
+                                      at is not None, at))
     for side in ("missing", "extra"):
         out.extend(FailReason("%s-fx:%s" % (side, k), GROUP_FX_STRUCTURE, None, False)
                    for k in fx.structure.get(side) or [])
@@ -3762,6 +5828,7 @@ def fail_reasons(verdict: CaseVerdict) -> List[FailReason]:
         elif rest.startswith("flag:") and state_flag_floor(rest[len("flag:"):]) == VERDICT_FAIL:
             out.append(FailReason(r, GROUP_FLAG_PREFIX + rest[len("flag:"):], None, False))
     out.extend(fx_fail_reasons(verdict))
+    out.extend(p9_fail_reasons(verdict))
     if not out:
         out.append(FailReason("unexplained-fail:%s" % ",".join(verdict.reasons[:3]),
                               GROUP_ANY, None, False))
@@ -3777,16 +5844,34 @@ _FX_NOT_RUN_FLAGS: Tuple[str, ...] = (FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NO
 def fx_unmeasured(verdict: CaseVerdict) -> Tuple[str, ...]:
     """What the FX half of a judged case did not judge, sorted (empty for any other case, an
     ``error`` and a ``reference`` one): ``skipped:<route>:<view>:<layer>`` per judged entry
-    whose two weak cores left only presence (``fx_entry_skipped``), and each flag of a check
-    that did not run. A skip needs BOTH cores weak, the real one too, so one the baseline runs
-    also show is the part's own effect, never a plume the ghost lost."""
+    whose two weak cores left only presence (``fx_entry_skipped``), ``empty:...`` per judged
+    entry with nothing drawn on either side (``fx_entry_empty``), ``null:...:<key>`` per value of
+    a judged entry that was not measured (``fx_entry_nulls``), ``capped:...:<reason>`` per
+    missing or extra effect the split-half rule holds at ``warn``, and each flag of a check that
+    did not run. One the baseline runs also show is the part's own effect."""
     fx = verdict.fx
     if fx is None or verdict.verdict in (VERDICT_ERROR, VERDICT_REFERENCE):
         return ()
-    out = {"skipped:%s:%s:%s" % (e.route, e.view, e.layer) for e in fx.entries
-           if e.verdict == VERDICT_SKIPPED and not e.reference}
+    out = {"%s:%s:%s:%s" % (e.verdict, e.route, e.view, e.layer) for e in fx.entries
+           if e.verdict in (VERDICT_SKIPPED, VERDICT_EMPTY) and not e.reference}
+    out.update("null:%s:%s:%s:%s" % (e.route, e.view, e.layer, k) for e in fx.entries
+               if not e.reference for k in e.nulls)
+    out.update("capped:%s:%s:%s:%s" % (e.route, e.view, e.layer, f.reason) for e in fx.entries
+               if not e.reference for f in e.findings if f.capped and not f.key)
     out.update(f for f in fx.flags if f in _FX_NOT_RUN_FLAGS)
     return tuple(sorted(out))
+
+
+def fx_known_tokens(tokens: Sequence[str]) -> FrozenSet[str]:
+    """The baseline's ``fxUnmeasured`` tokens, where an entry the runs read ``skipped`` (stray
+    particles, two weak cores) may read ``empty``: the strays are not there. Never the reverse:
+    in a layer no run drew, a ghost's faint new smoke is not a stray."""
+    out = set(tokens)
+    for t in tokens:
+        word, _, rest = t.partition(":")
+        if word == VERDICT_SKIPPED:
+            out.add("%s:%s" % (VERDICT_EMPTY, rest))
+    return frozenset(out)
 
 
 @dataclass(frozen=True)
@@ -3921,6 +6006,9 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
     # The baseline's own view set too: a view dropped from the manifest is still owed.
     views = [str(v) for v in manifest.get("views") or []]
     views += [v for v in baseline_views if v not in views]
+    if sidecar.get("context") == CONTEXT_PLATE:
+        # A plate case photographs its plate, the only view it has (E.2).
+        views = [PLATE_VIEW]
     for view in views or sorted({k.split(":")[-1] for k in current}):
         for route in ((ROUTE_EVENT, ROUTE_START) if state_case else (None,)):
             vk = view_key(str(view), route)
@@ -3931,6 +6019,42 @@ def unmeasured_reason(sidecar: Optional[Dict], manifest: Dict,
         if not isinstance(sidecar.get(key), dict):
             return "%s was not measured" % key
     return None
+
+
+def fx_drift_text(at: str, f: FxFinding, reason: str, base: Dict, sidecar: Optional[Dict],
+                  waivers: int = 0) -> Optional[str]:
+    """How one numeric FX finding of the entry ``at`` left its band (None: inside, or not a
+    value). ``waivers``: how often FX_FAR stretches the limit."""
+    if not f.key:
+        return None
+    bands = base.get("fx") if isinstance(base.get("fx"), dict) else {}
+    band = (bands.get(at) or {}).get(f.key)
+    entry = next((e for e in fx_entries(sidecar) if fx_entry_label(fx_entry_key(e)) == at), {})
+    real = entry.get("real") if isinstance(entry.get("real"), dict) else {}
+    limit = fx_drift_limit(band, f.key, f.side, _num(real.get("lengthPx")) or 0.0) \
+        * FX_FAR ** waivers
+    if f.severity <= limit:
+        return None
+    return "%s is %.2f fail lines off, band %s (limit %.2f)" % (
+        reason, f.severity, "[%g, %g]" % tuple(band) if band else "under half its line", limit)
+
+
+def fx_capped_far(verdict: CaseVerdict, base: Dict, entries: Sequence[AcceptedEntry],
+                  profile: Optional[str], sidecar: Optional[Dict]) -> List[str]:
+    """The FX fails of a baselined case that the split-half rule caps and that lie far past
+    their band: the picture did not converge, and what it reads is no noise the runs saw."""
+    out = []
+    for j in verdict.fx.entries if verdict.fx is not None else ():
+        for f in j.findings:
+            if not f.capped or j.reference:
+                continue
+            noisy = any(e.noisy and e.covers(verdict.case_id, profile, view_key(j.view, j.route),
+                                             GROUP_FX_PREFIX + f.measure) for e in entries)
+            text = fx_drift_text(fx_entry_label((j.route, j.view, j.layer)), f, fx_reason(
+                j.route, j.view, j.layer, f.reason), base, sidecar, 1 + noisy)
+            if text is not None:
+                out.append(text)
+    return out
 
 
 def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
@@ -3985,11 +6109,21 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                 notes.append(GateFinding(NOTE_REFERENCE, cid, "reference (Waterfall), not gated"))
             continue
         for fr in fail_reasons(cv) + (qualitative_differences(side) if isinstance(side, dict) else []):
-            cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)), None)
+            over = far = None
+            if baselined and fr.fx is not None:
+                over = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side)
+                far = fx_drift_text(fr.fx[0], fr.fx[1], fr.reason, base, side, 1)
+            # Drift past an FX band is waived by a noisy entry alone, as a body measure's is,
+            # and by no entry far past it.
+            cover = next((e for e in entries if e.covers(cid, profile, fr.view, fr.group)
+                          and (over is None or e.noisy and far is None)), None)
+            over = far or over
             if cover is not None:
                 matched_entries.add(cover)
                 used.append("%s <- %s" % (fr.reason, cover.label()))
                 notes.append(GateFinding(NOTE_ACCEPTED_FAIL, cid, "%s (%s)" % (fr.reason, cover.todo)))
+            elif over is not None:
+                reds.append(GateFinding(GATE_DRIFT, cid, over))
             elif fr.numeric and baselined:
                 notes.append(GateFinding(NOTE_NEAR_LINE_FAIL, cid,
                                          "%s (inside its baseline band's tolerance; the drift "
@@ -3999,12 +6133,17 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                                         "%s%s" % (fr.reason, "" if baselined else " (no baseline: a new case)")))
         if section is None:
             continue
-        known = (base or {}).get("fxUnmeasured") or []
+        known = fx_known_tokens((base or {}).get("fxUnmeasured") or [])
         fx_lost = fx_unmeasured(cv)
         fx_new = [t for t in fx_lost if t not in known] if baselined else []
         fx_noted = [t for t in fx_lost if t not in fx_new]
+        if baselined:
+            unmeasured.extend(GateFinding(GATE_UNMEASURED, cid, "fx not settled: %s" % t)
+                              for t in fx_capped_far(cv, base, entries, profile, side))
         if fx_new:
             unmeasured.append(GateFinding(GATE_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_new)))
+        # A layer drawn by neither side is the usual state of it, not a note.
+        fx_noted = [t for t in fx_noted if not t.startswith(VERDICT_EMPTY + ":")]
         if fx_noted:
             notes.append(GateFinding(NOTE_FX_UNMEASURED, cid, "fx not judged: %s" % ", ".join(fx_noted)))
         if not baselined:
@@ -4056,6 +6195,101 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
                                      "accepted %s %s (%s) matched nothing in this sweep"
                                      % (e.view, e.measure, e.todo)))
     return GateResult(label, profile, runs, reds, notes, used, unmeasured)
+
+
+# The page's reading of a ``fail`` every reason of which the accepted list explains: neither
+# moves the verdict, the counts or the gate, which keep their own.
+PAGE_KNOWN = "known"
+PAGE_ACCEPTED = "accepted"
+PAGE_STATES: Tuple[str, ...] = (PAGE_ACCEPTED, PAGE_KNOWN)
+# What no accepted entry can ever put out of sight: a missing, extra or hidden mesh, a skin, an
+# effect one side lacks, a fail nothing explains.
+PAGE_NEVER_GROUPS: FrozenSet[str] = frozenset((
+    GROUP_STRUCTURE, GROUP_SKIN, GROUP_HIDDEN, GROUP_DRAWN, GROUP_FX_STRUCTURE, GROUP_ANY,
+    GROUP_FX_PREFIX + "presence", GROUP_FX_PREFIX + "smoke"))
+
+
+@dataclass(frozen=True)
+class PageState:
+    """``state``: PAGE_KNOWN (the owner ruled on every reason by name) or PAGE_ACCEPTED (each
+    has a known cause that is not the ghost's, or a ruling). ``entries``: what explains it."""
+    state: str
+    entries: Tuple[AcceptedEntry, ...]
+
+    @property
+    def todos(self) -> Tuple[str, ...]:
+        return tuple(sorted({e.todo for e in self.entries}))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"state": self.state, "todos": list(self.todos),
+                "reasons": sorted({e.reason for e in self.entries})}
+
+
+def page_state(verdict: CaseVerdict, sidecar: Optional[Dict], profile: Optional[str],
+               accepted: Sequence[AcceptedEntry], section: Optional[Dict],
+               gate: Optional["GateResult"]) -> Optional[PageState]:
+    """How the page shows a ``fail`` case, or None when it stays red: every fail reason and every
+    qualitative difference must be covered by an entry of kind ``ruled`` or ``accepted`` for the
+    sweep's own profile, none may be of PAGE_NEVER_GROUPS, and an owner-flagged case always stays
+    red. So does a case whose SIZE nothing bounds: the gate must have judged it against a measured
+    band of its label's baseline (``section``, ``gate``) and neither red nor lost it, so a
+    difference that grew past its band is not the accepted one. (What a ``noisy`` entry waives
+    there it waives here too, Appendix F.)"""
+    if verdict.verdict != VERDICT_FAIL or not isinstance(sidecar, dict):
+        return None
+    if profile is None or section is None or gate is None:
+        return None
+    base = section.get("cases") if isinstance(section.get("cases"), dict) else {}
+    band = base.get(verdict.case_id)
+    if not isinstance(band, dict) or not band.get("measured"):
+        return None
+    if verdict.fx is not None and any(f.startswith(FLAG_OWNER_FLAGGED_PREFIX)
+                                      for f in verdict.fx.flags):
+        return None
+    if any(f.case_id == verdict.case_id for f in gate.reds + gate.unmeasured):
+        return None
+    used: List[AcceptedEntry] = []
+    for fr in fail_reasons(verdict) + qualitative_differences(sidecar):
+        if fr.group in PAGE_NEVER_GROUPS:
+            return None
+        cover = [e for e in accepted if e.covers(verdict.case_id, profile, fr.view, fr.group)]
+        if not cover or any(e.kind not in (KIND_RULED, KIND_ACCEPTED) for e in cover):
+            return None
+        used.extend(cover)
+    if not used:
+        return None
+    state = PAGE_KNOWN if all(e.kind == KIND_RULED for e in used) else PAGE_ACCEPTED
+    return PageState(state, tuple(dict.fromkeys(used)))
+
+
+def sweep_page_states(verdicts: Sequence[CaseVerdict], sidecars: Dict[str, Optional[Dict]],
+                      profile: Optional[str], accepted: Sequence[AcceptedEntry],
+                      section: Optional[Dict], gate: Optional["GateResult"]
+                      ) -> Dict[str, PageState]:
+    """``page_state`` of every case that has one."""
+    out: Dict[str, PageState] = {}
+    for cv in verdicts:
+        st = page_state(cv, sidecars.get(cv.case_id), profile, accepted, section, gate)
+        if st is not None:
+            out[cv.case_id] = st
+    return out
+
+
+def page_summary(sweep: "SweepResult") -> str:
+    """`` pageKnown=<n> pageAccepted=<n> ownerFlagged=<n>`` on the summary line, each only when
+    it is not 0."""
+    states = [s.state for s in sweep.page_states.values()]
+    flagged = sum(1 for c in sweep.cases if owner_flags(c))
+    return "".join(" %s=%d" % (k, n) for k, n in (
+        ("pageKnown", states.count(PAGE_KNOWN)), ("pageAccepted", states.count(PAGE_ACCEPTED)),
+        ("ownerFlagged", flagged)) if n)
+
+
+def owner_flags(verdict: CaseVerdict) -> Tuple[str, ...]:
+    """The owner-flagged findings of a case (``OWNER_FLAGGED_REASONS`` keys), in flag order."""
+    n = len(FLAG_OWNER_FLAGGED_PREFIX)
+    return () if verdict.fx is None else tuple(
+        f[n:] for f in verdict.fx.flags if f.startswith(FLAG_OWNER_FLAGGED_PREFIX))
 
 
 def unaccepted_fails(verdicts: Sequence[CaseVerdict], profile: Optional[str],
@@ -4141,6 +6375,8 @@ class SweepResult:
     # The P5 regression gate (baseline + accepted list); None when the caller passed no
     # GateInput (then an armed sweep fails on any failing case, the pre-P5 rule).
     gate: Optional[GateResult] = None
+    # The failing cases the page shows ``known`` or ``accepted`` (``page_state``), by case id.
+    page_states: Dict[str, PageState] = field(default_factory=dict)
 
     def worst(self, n: int = WORST_CASES_IN_SUMMARY) -> List[CaseVerdict]:
         ranked = [c for c in self.cases if c.verdict in (VERDICT_FAIL, VERDICT_WARN, VERDICT_ERROR)]
@@ -4238,6 +6474,17 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                                          run_id, read_png, atlas_path)
     mismatches.extend(fx_mismatches)
     mismatches.extend(fx_run_problems(manifest, sweep.sidecars))
+    # The motion half (H.3): the timing arrays of every motion case, the motion atlas of
+    # every motion control and the seeded sample, the block shapes, the run shape.
+    motion_ids, motion_mismatches = motion_recompute(sweep.sidecars, sweep.atlases, part_ids,
+                                                     ctl_ids, run_id, read_png, atlas_path)
+    mismatches.extend(motion_mismatches)
+    mismatches.extend(motion_run_problems(manifest, sweep.sidecars))
+    # The P9 half (G.3, G.4): the burst and dust atlas recompute, the block shapes, the run shape.
+    p9_ids, p9_mismatches = p9_recompute(sweep.sidecars, sweep.atlases, part_ids, ctl_ids,
+                                         run_id, read_png, atlas_path)
+    mismatches.extend(p9_mismatches)
+    mismatches.extend(p9_run_problems(manifest, sweep.sidecars))
     # Writer cross-checks (D.6): a state / context case whose settings say a stowed run,
     # a row and sidecar that disagree on state or context, an ok case whose press proof
     # says the state was never reached.
@@ -4246,12 +6493,15 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         mismatches.append(shape)
     mismatches.extend(case_row_problems(manifest, sweep.sidecars))
     for cid in part_ids:
-        why = press_proof_problem(sweep.sidecars.get(cid))
+        side = sweep.sidecars.get(cid)
+        if is_p9_case(side):
+            continue  # no press: its trigger and raycast are p9_block_problems'
+        why = motion_press_proof_problem(side) if is_motion_case(side) else press_proof_problem(side)
         if why:
             mismatches.append("%s %s" % (cid, why))
-    if not recompute_ids and read_png is not None:
+    if not recompute_ids and not p9_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
-    recompute_ids = recompute_ids + fx_ids
+    recompute_ids = recompute_ids + fx_ids + motion_ids + p9_ids
 
     counts = _count(cases)
     gate = None
@@ -4260,6 +6510,9 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                           gate_input.section, gate_input.accepted)
         for err in gate_input.errors:
             gate.reds.insert(0, GateFinding(GATE_NO_BASELINE, None, err))
+    page_states = sweep_page_states(
+        cases, sweep.sidecars, gate_input.profile, gate_input.accepted, gate_input.section,
+        gate) if gate_input is not None else {}
     damaged = host_damage(manifest)
     if damaged:
         # The root cause outranks its symptoms: the controls, completeness and recompute
@@ -4303,7 +6556,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     if not completeness.ok:
         problems.append("completeness: " + "; ".join(completeness.problems))
     return SweepResult(sweep.label, status, subkind, gating, problems, controls,
-                       completeness, cases, recompute_ids, mismatches, counts, press, gate)
+                       completeness, cases, recompute_ids, mismatches, counts, press, gate,
+                       page_states)
 
 
 # The row's INVALID ranking: the host first (its symptoms show in every other gate), then
@@ -4370,7 +6624,7 @@ def format_summary(row: RowResult) -> str:
                            s.gate.counts().get(NOTE_NEAR_LINE_FAIL, 0),
                            s.gate.counts().get(NOTE_IMPROVED, 0),
                            s.gate.counts().get(NOTE_NEW_CASE, 0))))
-        parts[-1] += fx_summary(s.cases)
+        parts[-1] += fx_summary(s.cases) + motion_summary(s.cases) + p9_summary(s.cases) + page_summary(s)
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
 
@@ -4421,11 +6675,22 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
     fx_counts = fx_case_counts(sweep.cases)
     if fx_counts is not None:
         doc["fx"] = fx_counts
+    motion_counts = motion_case_counts(sweep.cases)
+    if motion_counts is not None:
+        doc["motion"] = motion_counts
+    p9_counts = p9_case_counts(sweep.cases)
+    if p9_counts is not None:
+        doc["burst"] = p9_counts
     if sweep.press is not None:
         doc["statePress"] = sweep.press.to_dict()
         doc["stateFlags"] = state_flag_counts(sweep.cases)
     if sweep.gate is not None:
         doc["gate"] = sweep.gate.to_dict()
+    if sweep.page_states:
+        doc["pageStates"] = {cid: s.to_dict() for cid, s in sorted(sweep.page_states.items())}
+    flagged = {cv.case_id: list(owner_flags(cv)) for cv in sweep.cases if owner_flags(cv)}
+    if flagged:
+        doc["ownerFlagged"] = flagged
     return doc
 
 
@@ -4447,3 +6712,1603 @@ def detail_record(row: RowResult) -> Dict[str, Any]:
                         "reds": [f.text() for f in s.gate.reds[:20]]}}
                    for s in row.sweeps],
     }
+
+
+# --- the burst measures (PartParityBurstMetrics.cs, design G.3, piece X3) ---------------
+#
+# A stdlib transcription of PartParityBurstMetrics: every value is computed from the 8-bit
+# tiles the burst atlas holds, in the C# order of operations, so the recompute reproduces
+# the sidecar exactly where integral and to RECOMPUTE_FLOAT_TOLERANCE otherwise.
+
+BURST_EXACT_KEYS: Tuple[str, ...] = ("corePx", "envelopePx", "saturatedPx")
+
+
+def _nearest_rank(values: List[float], q: float) -> float:
+    """PartParityMetrics.NearestRankPercentile: sorted, rank ceil(q n) clamped to 1..n."""
+    values = sorted(values)
+    rank = int(math.ceil(q * len(values)))
+    rank = max(1, min(len(values), rank))
+    return values[rank - 1]
+
+
+def burst_measure_bin(pixels: bytes, width: int, x0: int, y0: int, tile: int, n: int,
+                      source: Optional[Sequence[float]]) -> Tuple[Dict[str, Any], List[str]]:
+    """PartParityBurstMetrics.MeasureBin over the ``tile`` px square at (x0, y0) of an RGBA
+    image ``width`` px wide: every BURST_BIN_MEASURE_KEYS key, and what breaks the tile rule."""
+    k_of = [fx_covered_samples(al, n) for al in range(256)]
+    exact = [fx_tile_alpha(k_of[al], n) == al for al in range(256)]
+    core_of = [fx_is_core(k, n) for k in k_of]
+    problems: List[str] = []
+    has_source = (isinstance(source, (list, tuple)) and len(source) >= 2
+                  and all(_num(v) is not None for v in source[:2]))
+    env = core = sat = sx = sy = un = ur = ug = ub = 0
+    bins = [[0, 0, 0] for _ in range(FX_HUE_BINS)]
+    distances: List[float] = []
+    for y in range(tile):
+        start = ((y0 + y) * width + x0) * 4
+        row = pixels[start:start + tile * 4]
+        if len(row) != tile * 4:
+            raise ValueError("burst atlas tile out of range at row %d" % (y0 + y))
+        if not row.strip(b"\0"):
+            continue
+        for x in range(tile):
+            i = x * 4
+            al = row[i + 3]
+            r, g, b = row[i], row[i + 1], row[i + 2]
+            if not al:
+                if (r or g or b) and len(problems) < 3:
+                    problems.append("colour on an uncovered pixel (%d, %d)" % (x, y))
+                continue
+            if not exact[al] and len(problems) < 3:
+                problems.append("alpha %d at (%d, %d) is no count of %d samples" % (al, x, y, n))
+            if k_of[al] <= 0:
+                continue
+            env += 1
+            saturated = fx_is_saturated(r, g, b)
+            if not saturated:
+                h = fx_hue_bin(r, g, b)
+                if h >= 0:
+                    acc = bins[h]
+                    acc[0] += r
+                    acc[1] += g
+                    acc[2] += b
+            if has_source:
+                dx, dy = x + 0.5 - source[0], y + 0.5 - source[1]
+                distances.append(math.sqrt(dx * dx + dy * dy))
+            if not core_of[al]:
+                continue
+            core += 1
+            sx += x
+            sy += y
+            if saturated:
+                sat += 1
+                continue
+            un += 1
+            ur += r
+            ug += g
+            ub += b
+    m: Dict[str, Any] = {k: None for k in BURST_BIN_MEASURE_KEYS}
+    m.update({"corePx": core, "envelopePx": env, "saturatedPx": sat})
+    if core:
+        m["coreCentroid"] = _fx_pixel_mean(sx, sy, core)
+    if has_source and distances:
+        m["radiusPx"] = _nearest_rank(distances, BURST_THRESHOLDS["burstRadiusPercentile"])
+    if un:
+        m["meanColor"] = [ur / un, ug / un, ub / un]
+        m["luminance"] = fx_luminance(ur, ug, ub) / un
+        total = ur + ug + ub
+        if total:
+            m["chromaticity"] = [ur / total, ug / total]
+    m["hueHistogram"] = [fx_luminance(*acc) for acc in bins]
+    return m, problems
+
+
+def burst_measure_side(bins: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """PartParityBurstMetrics.MeasureSide: onset (first envelope), peak (largest envelope,
+    the earliest on a tie), last core bin and largest core."""
+    side: Dict[str, Any] = {"bins": list(bins), "onsetBin": None, "peakBin": None,
+                            "lastCoreBin": None, "peakCorePx": 0}
+    peak_envelope = 0
+    for b, m in enumerate(bins):
+        if not isinstance(m, dict):
+            continue
+        env, core = m.get("envelopePx") or 0, m.get("corePx") or 0
+        if env > 0 and side["onsetBin"] is None:
+            side["onsetBin"] = b
+        if env > peak_envelope:
+            peak_envelope = env
+            side["peakBin"] = b
+        if core > 0:
+            side["lastCoreBin"] = b
+        if core > side["peakCorePx"]:
+            side["peakCorePx"] = core
+    return side
+
+
+def burst_presence_reason(layer: str, real: Dict[str, Any], ghost: Dict[str, Any]) -> Optional[str]:
+    """PartParityBurstMetrics.PresenceReason: over the window, one side's largest core at the
+    layer's minimum and the other side's 0."""
+    smoke = layer == FX_LAYER_SMOKE
+    low = FX_SMOKE_MIN_PX if smoke else FX_PRESENCE_MIN_PX
+    if real["peakCorePx"] >= low and ghost["peakCorePx"] == 0:
+        return FX_REASON_SMOKE_MISSING if smoke else BURST_REASON_MISSING
+    if ghost["peakCorePx"] >= low and real["peakCorePx"] == 0:
+        return FX_REASON_SMOKE_EXTRA if smoke else BURST_REASON_EXTRA
+    return None
+
+
+def _burst_chroma(a: Any, b: Any) -> Optional[float]:
+    if a is None or b is None:
+        return None
+    dr, dg = b[0] - a[0], b[1] - a[1]
+    return math.sqrt(dr * dr + dg * dg)
+
+
+def _burst_hue_l1(a: Any, b: Any) -> Optional[float]:
+    if a is None or b is None or len(a) != len(b):
+        return None
+    sa = sb = 0.0
+    for x, y in zip(a, b):
+        sa += x
+        sb += y
+    if not sa > 0 or not sb > 0:
+        return None
+    d = 0.0
+    for x, y in zip(a, b):
+        d += abs(x / sa - y / sb)
+    return d
+
+
+def burst_centroid_offset(real_centroid: Any, ghost_centroid: Any, source: Any) -> Optional[float]:
+    """PartParityBurstMetrics.CentroidOffset: each centroid from its own side's source point,
+    ghost minus real, its length over the source part's box diameter."""
+    if real_centroid is None or ghost_centroid is None or not isinstance(source, dict):
+        return None
+    rs, gs, d = source.get("realPx"), source.get("ghostPx"), _num(source.get("diameterPx"))
+    if rs is None or gs is None or d is None or not d > 0:
+        return None
+    dx = (ghost_centroid[0] - gs[0]) - (real_centroid[0] - rs[0])
+    dy = (ghost_centroid[1] - gs[1]) - (real_centroid[1] - rs[1])
+    return math.sqrt(dx * dx + dy * dy) / d
+
+
+def burst_compare(real: Dict[str, Any], ghost: Dict[str, Any], source: Any,
+                  layer: str) -> Dict[str, Any]:
+    """PartParityBurstMetrics.Compare: every BURST_COMPARE_KEYS key, ghost minus real."""
+    c: Dict[str, Any] = {k: None for k in BURST_COMPARE_KEYS}
+    c["presence"] = burst_presence_reason(layer, real, ghost)
+    if real["onsetBin"] is not None and ghost["onsetBin"] is not None:
+        c["onsetDeltaBins"] = float(ghost["onsetBin"] - real["onsetBin"])
+    if real["peakBin"] is not None and ghost["peakBin"] is not None:
+        c["peakTimeDeltaBins"] = float(ghost["peakBin"] - real["peakBin"])
+    if real["lastCoreBin"] is not None and ghost["lastCoreBin"] is not None:
+        c["durationDelta"] = (ghost["lastCoreBin"] - real["lastCoreBin"]) / (real["lastCoreBin"] + 1)
+    if real["peakCorePx"] > 0:
+        c["peakAreaRatio"] = ghost["peakCorePx"] / real["peakCorePx"]
+    p = real["peakBin"]
+    if p is not None:
+        r, g = real["bins"][p], ghost["bins"][p]
+        if isinstance(r, dict) and isinstance(g, dict):
+            rr, gr = _num(r.get("radiusPx")), _num(g.get("radiusPx"))
+            if rr is not None and gr is not None and rr > 0:
+                c["radiusRatio"] = gr / rr
+            c["centroidOffset"] = burst_centroid_offset(r.get("coreCentroid"), g.get("coreCentroid"), source)
+            c["chromaDistance"] = _burst_chroma(r.get("chromaticity"), g.get("chromaticity"))
+            c["hueL1"] = _burst_hue_l1(r.get("hueHistogram"), g.get("hueHistogram"))
+            rl, gl = _num(r.get("luminance")), _num(g.get("luminance"))
+            if rl is not None and gl is not None and rl > 0:
+                c["brightnessRatio"] = gl / rl
+    chroma = hue = 0.0
+    nc = nh = 0
+    for r, g in zip(real["bins"], ghost["bins"]):
+        if not isinstance(r, dict) or not isinstance(g, dict):
+            continue
+        d = _burst_chroma(r.get("chromaticity"), g.get("chromaticity"))
+        if d is not None:
+            chroma += d
+            nc += 1
+        h = _burst_hue_l1(r.get("hueHistogram"), g.get("hueHistogram"))
+        if h is not None:
+            hue += h
+            nh += 1
+    if nc:
+        c["chromaDistanceMean"] = chroma / nc
+    if nh:
+        c["hueL1Mean"] = hue / nh
+    return c
+
+
+def burst_schedule_compare(real: Sequence[Dict], ghost: Sequence[Dict]) -> Dict[str, Any]:
+    """PartParityBurstMetrics.CompareSchedule: every BURST_SCHEDULE_COMPARE_KEYS key, and the
+    level under ``level``."""
+    real, ghost = list(real or []), list(ghost or [])
+    t = BURST_THRESHOLDS
+    s: Dict[str, Any] = {"realCount": len(real), "ghostCount": len(ghost),
+                         "countDiffers": len(real) != len(ghost), "indexDiffers": False,
+                         "powerDiffers": False, "maxOffsetDeltaM": None}
+    position = False
+    for r, g in zip(real, ghost):
+        if r.get("index") != g.get("index"):
+            s["indexDiffers"] = True
+        elif abs(g.get("power") - r.get("power")) > t["burstSchedulePowerEpsilon"]:
+            s["powerDiffers"] = True
+        ro, go = r.get("offsetM") or [], g.get("offsetM") or []
+        total = 0.0
+        for i in range(3):
+            d = (go[i] if len(go) > i else 0.0) - (ro[i] if len(ro) > i else 0.0)
+            total += d * d
+        d = math.sqrt(total)
+        if s["maxOffsetDeltaM"] is None or d > s["maxOffsetDeltaM"]:
+            s["maxOffsetDeltaM"] = d
+        if d > t["burstSchedulePositionToleranceM"]:
+            position = True
+    fail = s["countDiffers"] or s["indexDiffers"] or position
+    s["level"] = LEVEL_FAIL if fail else (LEVEL_WARN if s["powerDiffers"] else LEVEL_OK)
+    return s
+
+
+def burst_failing_measures(layer: str, real: Dict[str, Any], ghost: Dict[str, Any],
+                           c: Dict[str, Any]) -> List[str]:
+    """PartParityBurstMetrics.FailingMeasures: the measures over their fail line, in
+    BURST_MEASURES order (presence alone on a layer one side lacks; only presence where both
+    largest cores are weak; ``smoke`` alone on the smoke layer)."""
+    weak = real["peakCorePx"] < FX_PRESENCE_MIN_PX and ghost["peakCorePx"] < FX_PRESENCE_MIN_PX
+
+    def fails(measure: str, value: Any) -> bool:
+        return value is not None and burst_measure_level(measure, value) == LEVEL_FAIL
+
+    if layer == FX_LAYER_SMOKE:
+        bad = c["presence"] is not None or (not weak and fails("peak-area", c["peakAreaRatio"]))
+        return ["smoke"] if bad else []
+    if c["presence"] is not None:
+        return ["presence"]
+    if weak:
+        return []
+    out = [m for m, key in (("onset", "onsetDeltaBins"), ("peak-time", "peakTimeDeltaBins"),
+                            ("duration", "durationDelta"), ("peak-area", "peakAreaRatio"),
+                            ("radius", "radiusRatio"), ("centroid-offset", "centroidOffset"))
+           if fails(m, c[key])]
+    if (burst_colour_level(c["chromaDistance"], c["hueL1"]) == LEVEL_FAIL
+            or burst_colour_level(c["chromaDistanceMean"], c["hueL1Mean"]) == LEVEL_FAIL):
+        out.append("colour")
+    return out
+
+
+def _burst_value_diffs(at: str, recorded: Any, got: Any, exact: bool) -> List[str]:
+    if isinstance(got, list):
+        if not isinstance(recorded, list) or len(recorded) != len(got):
+            return ["%s:%s!=%s" % (at, recorded, got)]
+        return [d for i, (a, b) in enumerate(zip(recorded, got))
+                for d in _burst_value_diffs("%s[%d]" % (at, i), a, b, exact)]
+    if got is None or isinstance(got, str):
+        return [] if recorded == got else ["%s:%s!=%s" % (at, recorded, got)]
+    if exact:
+        ok = type(recorded) is int and recorded == got
+    else:
+        ok = not isinstance(recorded, (bool, str, list, dict)) and _float_equal(recorded, got)
+    return [] if ok else ["%s:%s!=%s" % (at, recorded, got)]
+
+
+def _burst_side_diffs(at: str, recorded: Any, got: Dict[str, Any]) -> List[str]:
+    if not isinstance(recorded, dict):
+        return ["%s: block missing" % at]
+    out: List[str] = []
+    for key in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx"):
+        out.extend(_burst_value_diffs("%s.%s" % (at, key), recorded.get(key), got[key], True))
+    return out
+
+
+def recompute_burst_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute every ``burst.views[]`` entry from the decoded burst atlas, and the schedule
+    diff from the schedule; return the differences with the sidecar. Each bin's tile is
+    measured; each side's summary and the comparison are recomputed from those measures; the
+    split halves have no tiles, so their comparisons are recomputed from their own recorded
+    side blocks. An atlas whose layout does not match ``burst.atlas`` is itself a difference."""
+    width, height, _bpp, pixels = atlas
+    burst = sidecar.get("burst") if isinstance(sidecar.get("burst"), dict) else {}
+    meta = burst.get("atlas") if isinstance(burst.get("atlas"), dict) else {}
+    tile, bins = meta.get("tile"), meta.get("bins")
+    rows, views = meta.get("rows"), meta.get("views")
+    if type(tile) is not int or tile <= 0 or type(bins) is not int or bins <= 0:
+        return ["burst atlas block unusable: tile=%s bins=%s" % (tile, bins)]
+    if list(rows or []) != list(BURST_ATLAS_ROWS) or not isinstance(views, list) or not views:
+        return ["burst atlas rows=%s views=%s" % (rows, views)]
+    if (width, height) != (len(views) * bins * tile, len(rows) * tile):
+        return ["burst atlas is %dx%d, the block says %dx%d" % (
+            width, height, len(views) * bins * tile, len(rows) * tile)]
+    samples = burst.get("samples") if isinstance(burst.get("samples"), dict) else {}
+    diffs: List[str] = []
+    for e in burst.get("views") or []:
+        view, layer = e.get("view"), e.get("layer")
+        at = "%s:%s" % (view, layer)
+        if view not in views or layer not in BURST_LAYERS:
+            diffs.append("%s: not in the atlas" % at)
+            continue
+        source = e.get("source") if isinstance(e.get("source"), dict) else {}
+        got_sides: Dict[str, Dict[str, Any]] = {}
+        for side in BURST_SIDE_KEYS:
+            n_of = samples.get(side)
+            if not isinstance(n_of, list) or len(n_of) != bins:
+                diffs.append("%s: burst.samples.%s=%s" % (at, side, n_of))
+                break
+            row = rows.index("%s-%s" % (side, layer))
+            measured = []
+            for b in range(bins):
+                n = n_of[b]
+                if type(n) is not int or not 0 <= n <= FX_MAX_SAMPLES:
+                    diffs.append("%s: %s samples[%d]=%s" % (at, side, b, n))
+                    break
+                m, problems = burst_measure_bin(pixels, width, (views.index(view) * bins + b) * tile,
+                                                row * tile, tile, n, source.get("%sPx" % side))
+                diffs.extend("%s.%s.bins[%d]: %s" % (at, side, b, p) for p in problems)
+                measured.append(m)
+            recorded = (e.get(side) or {}).get("bins") if isinstance(e.get(side), dict) else None
+            if not isinstance(recorded, list) or len(recorded) != len(measured):
+                diffs.append("%s.%s.bins: %s entries, %d measured" % (
+                    at, side, None if not isinstance(recorded, list) else len(recorded), len(measured)))
+                continue
+            for b, (rec, m) in enumerate(zip(recorded, measured)):
+                for key in BURST_BIN_MEASURE_KEYS:
+                    diffs.extend(_burst_value_diffs("%s.%s.bins[%d].%s" % (at, side, b, key),
+                                                    (rec or {}).get(key), m[key], key in BURST_EXACT_KEYS))
+            got_sides[side] = burst_measure_side(measured)
+            diffs.extend(_burst_side_diffs("%s.%s" % (at, side), e.get(side), got_sides[side]))
+        if len(got_sides) == 2:
+            got = burst_compare(got_sides["real"], got_sides["ghost"], source, layer)
+            for key in BURST_COMPARE_KEYS:
+                diffs.extend(_burst_value_diffs("%s.compare.%s" % (at, key),
+                                                (e.get("compare") or {}).get(key), got[key], False))
+        halves = e.get("splitHalf") if isinstance(e.get("splitHalf"), dict) else {}
+        for half in FX_SPLIT_HALF_KEYS:
+            h = halves.get(half)
+            if not isinstance(h, dict) or not isinstance(h.get("real"), dict) or not isinstance(h.get("ghost"), dict):
+                diffs.append("%s.splitHalf.%s: block missing" % (at, half))
+                continue
+            sides = {s: burst_measure_side(h[s].get("bins") or []) for s in BURST_SIDE_KEYS}
+            for s in BURST_SIDE_KEYS:
+                diffs.extend(_burst_side_diffs("%s.splitHalf.%s.%s" % (at, half, s), h[s], sides[s]))
+            got = burst_compare(sides["real"], sides["ghost"], source, layer)
+            for key in BURST_COMPARE_KEYS:
+                diffs.extend(_burst_value_diffs("%s.splitHalf.%s.compare.%s" % (at, half, key),
+                                                (h.get("compare") or {}).get(key), got[key], False))
+    schedule = burst.get("schedule") if isinstance(burst.get("schedule"), dict) else {}
+    got = burst_schedule_compare(schedule.get("real") or [], schedule.get("ghost") or [])
+    recorded = burst.get("scheduleCompare") if isinstance(burst.get("scheduleCompare"), dict) else {}
+    for key in BURST_SCHEDULE_COMPARE_KEYS:
+        exact = key != "maxOffsetDeltaM"
+        if isinstance(got[key], bool):
+            if recorded.get(key) is not got[key]:
+                diffs.append("scheduleCompare.%s:%s!=%s" % (key, recorded.get(key), got[key]))
+        else:
+            diffs.extend(_burst_value_diffs("scheduleCompare.%s" % key, recorded.get(key), got[key], exact))
+    return diffs
+
+
+# ---------------------------------------------------------------------------
+# P9 X5: the burst and dust judge (design G.3, G.4, "X5 as built"). A burst case (a ``burst``
+# block) and a dust case (a ``dust`` block) are judged from their own blocks, never from body
+# views: per (event route, view, layer) entry the G.3 measures with the split-half cap, then
+# the schedule, the structural raise, the flags and the contradictions; a dust case reads
+# E.4's measures over its ``dust`` layer and stock's raycast record. The verdicts are
+# Python's (design D7); the control judges transcribe PartParityFxRules.JudgeBurstControl /
+# JudgeDustControl, their detail wording included.
+# ---------------------------------------------------------------------------
+
+# The one route of a P9 rig case (G.4: a recording that starts after a burst replays none).
+P9_ROUTE = ROUTE_EVENT
+STATE_BUILT_EXPLODE, STATE_BUILT_PUFF, STATE_BUILT_DECOUPLE, STATE_BUILT_JOINT_BREAK = BUILT_STATES[:4]
+# The families whose real side is FXMonger's (a schedule of blasts on the real side).
+BURST_FXMONGER_FAMILIES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom")
+# The stand-ins' schedule is reported, never judged: the ghost draws a Parsek fireball or puff,
+# never an FXMonger blast, so its count always differs from the prefab it stands in for.
+BURST_SCHEDULE_REPORTED_FAMILIES: Tuple[str, ...] = ("burst-custom",)
+# The states whose stock side is meant to draw nothing (G.2: a plain joint break).
+BURST_DRAWS_NOTHING_STATES: Tuple[str, ...] = (STATE_BUILT_JOINT_BREAK,)
+# A dust case's layers: the dust judged, the engine's flame measured for ctl-dust-off only.
+DUST_LAYERS: Tuple[str, ...] = (LAYER_DUST, FX_LAYER_FLAME)
+DUST_JUDGED_LAYERS: Tuple[str, ...] = (LAYER_DUST,)
+# The raycast surfaces where stock draws no dust: a ghost that does reads dust-extra:<surface>.
+DUST_NO_DUST_SURFACES: Tuple[str, ...] = (DUST_SURFACE_NONE, DUST_SURFACES[2])
+# Flags (Python's): a structure the writer did not measure, a weak core (E.4's rule), an
+# entry whose trial halves disagree (its fails capped at warn).
+FLAG_BURST_STRUCTURE_NOT_MEASURED = "burst-structure-not-measured"
+FLAG_DUST_STRUCTURE_NOT_MEASURED = "dust-structure-not-measured"
+FLAG_BURST_WEAK_CORE = "burst-weak-core"
+CAP_BURST_UNSETTLED = "burst-unsettled"
+REASON_BURST_UNSETTLED = CAP_BURST_UNSETTLED + ":capped at warn"
+P9_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
+    FLAG_BURST_STRUCTURE_NOT_MEASURED, FLAG_DUST_STRUCTURE_NOT_MEASURED, FLAG_BURST_WEAK_CORE,
+    FLAG_FX_WEAK_CORE)
+P9_KINDS: Tuple[str, ...] = ("burst", "dust")
+# The id suffixes the instrument check lists a burst or dust atlas recompute under.
+BURST_RECOMPUTE_ID_SUFFIX = ".burst"
+DUST_RECOMPUTE_ID_SUFFIX = ".dust"
+# The gate's fail-reason groups of a P9 case (no accepted entry names them: no P9 lane joins
+# the P5 gate before its reading runs, G.4).
+GROUP_BURST_PREFIX = "burst:"
+GROUP_DUST_PREFIX = "dust:"
+
+
+def _d(value: Any) -> Dict:
+    return value if isinstance(value, dict) else {}
+
+
+def burst_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``burst`` block, or None (every non-burst case writes null)."""
+    b = sidecar.get("burst") if isinstance(sidecar, dict) else None
+    return b if isinstance(b, dict) else None
+
+
+def dust_block(sidecar: Optional[Dict]) -> Optional[Dict]:
+    """The sidecar's ``dust`` block, or None."""
+    b = sidecar.get("dust") if isinstance(sidecar, dict) else None
+    return b if isinstance(b, dict) else None
+
+
+def is_p9_case(sidecar: Optional[Dict]) -> bool:
+    """A sidecar judged by the burst or the dust judge: it carries a ``burst`` or ``dust`` block."""
+    return burst_block(sidecar) is not None or dust_block(sidecar) is not None
+
+
+def built_family_for_state(state: Any) -> Optional[str]:
+    """The P9 family a state word belongs to (PartParityFxRules.EnumerateBurstDust), the D.1
+    same-word tiebreak (``-m<index>``) left off; None for any other word."""
+    word = _TIEBREAK_RE.sub("", str(state or ""))
+    if word == STATE_BUILT_EXPLODE:
+        return "explode"
+    if word.startswith(STATE_VESSEL_EXPLODE_PREFIX):
+        return "vessel-explode"
+    if word == STATE_BUILT_PUFF or word.startswith(STATE_CUSTOM_EXPLOSION_PREFIX):
+        return "burst-custom"
+    if word in (STATE_BUILT_DECOUPLE, STATE_BUILT_JOINT_BREAK):
+        return "decouple"
+    if word in DUST_SLOT_STATES:
+        return "dust"
+    return None
+
+
+def p9_press_failed(status: Any) -> bool:
+    """A trigger that drew nothing or a raycast that hit nothing: the press gate counts the
+    case as a dead press (a family over half of them is INVALID(parity-state-press))."""
+    return status in (SETUP_BURST_NOT_TRIGGERED, SETUP_DUST_NO_STOCK_HIT)
+
+
+# --- the burst entries ---------------------------------------------------------------
+
+def burst_entries(sidecar: Optional[Dict]) -> List[Dict]:
+    views = (burst_block(sidecar) or {}).get("views")
+    return [v for v in views if isinstance(v, dict)] if isinstance(views, list) else []
+
+
+def burst_expected_entries() -> List[Tuple[str, str, str]]:
+    """The (route, view, layer) entries a burst case writes: every view and layer, event route."""
+    return [(P9_ROUTE, v, layer) for v in BURST_VIEWS for layer in BURST_LAYERS]
+
+
+def burst_entry_key(entry: Dict) -> FxEntryKey:
+    return P9_ROUTE, str(entry.get("view")), str(entry.get("layer"))
+
+
+def _peak_core(side: Any) -> int:
+    v = _num(_d(side).get("peakCorePx"))
+    return int(v) if v is not None else 0
+
+
+def _side_drew(side: Any) -> bool:
+    """Any bin of the side has an envelope pixel."""
+    bins = _d(side).get("bins")
+    return any((_num(_d(b).get("envelopePx")) or 0) > 0 for b in bins) if isinstance(bins, list) else False
+
+
+def _sign(value: float) -> str:
+    return "+" if value > 0 else "-"
+
+
+def _f4(value: Optional[float]) -> str:
+    return "-" if value is None else "%.4f" % value
+
+
+def _finding_level(level: Optional[str]) -> Optional[str]:
+    return VERDICT_FAIL if level == LEVEL_FAIL else (VERDICT_WARN if level == LEVEL_WARN else None)
+
+
+def burst_findings(layer: Any, real: Any, ghost: Any, compare: Any) -> List[FxFinding]:
+    """Every G.3 measure of one burst entry at or over its warn line, in BURST_MEASURES order;
+    its fails are exactly PartParityBurstMetrics.FailingMeasures (``burst_failing_measures``).
+    A layer one side lacks is its presence reason alone; where both largest cores are weak only
+    presence is judged; the smoke layer is judged on ``smoke`` (its presence, its peak area);
+    colour is read at the real peak bin and over the bins; brightness is warn-only."""
+    c = _d(compare)
+    rp, gp = _peak_core(real), _peak_core(ghost)
+    presence = burst_presence_reason(str(layer), {"peakCorePx": rp}, {"peakCorePx": gp})
+    weak = fx_both_cores_weak(rp, gp)
+    found: List[FxFinding] = []
+
+    def add(measure: str, level: Optional[str], text: str, side: str) -> None:
+        level = _finding_level(level)
+        if level is not None:
+            found.append(FxFinding(measure, level, text, side))
+
+    if layer == FX_LAYER_SMOKE:
+        if presence is not None:
+            return [FxFinding("smoke", VERDICT_FAIL, presence, presence)]
+        area = _num(c.get("peakAreaRatio"))
+        if not weak and area is not None:
+            add("smoke", burst_measure_level("peak-area", area), "smoke=peak-area %.3f" % area,
+                "smoke:peak-area" + _sign(area - 1.0))
+        return found
+    if presence is not None:
+        return [FxFinding("presence", VERDICT_FAIL, presence, presence)]
+    if weak:
+        return []
+    for measure, key, bins in (("onset", "onsetDeltaBins", True), ("peak-time", "peakTimeDeltaBins", True),
+                               ("duration", "durationDelta", False), ("peak-area", "peakAreaRatio", False),
+                               ("radius", "radiusRatio", False), ("centroid-offset", "centroidOffset", False)):
+        v = _num(c.get(key))
+        if v is None:
+            continue
+        if bins:
+            text, side = "%s=%+dbins" % (measure, int(round(v))), measure + _sign(v)
+        elif measure == "duration":
+            text, side = "%s=%+.3f" % (measure, v), measure + _sign(v)
+        elif measure == "centroid-offset":
+            text, side = "%s=%.3f" % (measure, v), measure
+        else:
+            text, side = "%s=%.3f" % (measure, v), measure + _sign(v - 1.0)
+        add(measure, burst_measure_level(measure, v), text, side)
+    for scope, ck, hk in (("peak", "chromaDistance", "hueL1"), ("mean", "chromaDistanceMean", "hueL1Mean")):
+        chroma, hue = _num(c.get(ck)), _num(c.get(hk))
+        add("colour", burst_colour_level(chroma, hue),
+            "colour=%s chroma %s hueL1 %s" % (scope, _f4(chroma), _f4(hue)), "colour:" + scope)
+    bright = _num(c.get("brightnessRatio"))
+    if bright is not None:
+        add("brightness", burst_measure_level("brightness", bright), "brightness=%.3f" % bright,
+            "brightness" + _sign(bright - 1.0))
+    return found
+
+
+def burst_entry_failing(entry: Dict) -> List[str]:
+    """The measures one entry fails (BURST_MEASURES order), read from its findings."""
+    failing = {f.measure for f in burst_findings(entry.get("layer"), entry.get("real"),
+                                                  entry.get("ghost"), entry.get("compare"))
+               if f.level == VERDICT_FAIL}
+    return [m for m in BURST_MEASURES if m in failing]
+
+
+def burst_split_half_disagreement(entry: Dict) -> Optional[str]:
+    """PartParityBurstViewResult.SplitHalfDisagreement over the written halves: the real
+    side's, else the ghost's, as ``<side> presence <reason>`` or ``<side> peakCorePx
+    <even>/<odd>``; None when both sides' halves agree."""
+    split = _d(entry.get("splitHalf"))
+    even, odd = _d(split.get("even")), _d(split.get("odd"))
+    layer = str(entry.get("layer"))
+    for side in BURST_SIDE_KEYS:
+        e, o = _peak_core(even.get(side)), _peak_core(odd.get(side))
+        presence = burst_presence_reason(layer, {"peakCorePx": e}, {"peakCorePx": o})
+        if presence is not None:
+            return "%s presence %s" % (side, presence)
+        larger = max(e, o)
+        if larger > 0 and abs(e - o) > FX_SPLIT_HALF_PCT * larger:
+            return "%s peakCorePx %d/%d" % (side, e, o)
+    return None
+
+
+def burst_entry_skipped(entry: Dict) -> bool:
+    """Both largest cores weak and anything drawn: the entry's measures were skipped."""
+    real, ghost = entry.get("real"), entry.get("ghost")
+    return fx_both_cores_weak(_peak_core(real), _peak_core(ghost)) and (_side_drew(real) or _side_drew(ghost))
+
+
+def burst_weak_core_flag(entry: Dict) -> Optional[str]:
+    """E.4's weak-core flag over a burst entry's largest cores (``fx_weak_core_flag``'s rule):
+    both weak with anything drawn, or one weak where presence does not decide."""
+    real, ghost = entry.get("real"), entry.get("ghost")
+    cores = (_peak_core(real), _peak_core(ghost))
+    layer = str(entry.get("layer"))
+    if fx_both_cores_weak(*cores):
+        if not (_side_drew(real) or _side_drew(ghost)):
+            return None
+    elif min(cores) >= FX_PRESENCE_MIN_PX or burst_presence_reason(
+            layer, {"peakCorePx": cores[0]}, {"peakCorePx": cores[1]}) is not None:
+        return None
+    return "%s:%s:%s:%s:real=%d,ghost=%d" % (
+        (FLAG_BURST_WEAK_CORE, P9_ROUTE, entry.get("view"), layer) + cores)
+
+
+def judge_burst_entry(entry: Dict, unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
+    """One burst entry: its findings, each fail held at ``warn`` when the entry's own trial
+    halves disagree (the per-entry cap, G.4)."""
+    key = burst_entry_key(entry)
+    findings = tuple(burst_findings(entry.get("layer"), entry.get("real"), entry.get("ghost"),
+                                    entry.get("compare")))
+    if key in unsettled:
+        findings = tuple(replace(f, level=VERDICT_WARN, capped=True) if f.level == VERDICT_FAIL else f
+                         for f in findings)
+    verdict = VERDICT_SKIPPED if not findings and burst_entry_skipped(entry) else VERDICT_PASS
+    for f in findings:
+        if _RANK[f.level] > _RANK[verdict]:
+            verdict = f.level
+    return FxEntryVerdict(key[0], key[1], key[2], verdict, findings, False)
+
+
+# --- the schedule ----------------------------------------------------------------------
+
+def _blast_problem(at: str, blast: Any) -> Optional[str]:
+    if not isinstance(blast, dict):
+        return "%s is not a blast" % at
+    missing = [k for k in BURST_SCHEDULE_ENTRY_KEYS if k not in blast]
+    if missing:
+        return "%s: missing key(s) %s" % (at, ",".join(missing))
+    if type(blast["index"]) is not int or type(blast["frame"]) is not int:
+        return "%s: index=%s frame=%s" % (at, blast["index"], blast["frame"])
+    if _num(blast["power"]) is None or _num(blast["t"]) is None or not _fx_numbers(blast["offsetM"], 3):
+        return "%s: power=%s t=%s offsetM=%s" % (at, blast["power"], blast["t"], blast["offsetM"])
+    if blast["prefab"] is not None and not isinstance(blast["prefab"], str):
+        return "%s: prefab=%s" % (at, blast["prefab"])
+    return None
+
+
+def burst_schedule_problems(burst: Dict) -> List[str]:
+    """The schedule's shape (every blast's keys and types) and its diff recomputed."""
+    schedule = burst.get("schedule")
+    if not isinstance(schedule, dict):
+        return ["burst.schedule: block missing"]
+    problems: List[str] = []
+    for side in BURST_SIDE_KEYS:
+        blasts = schedule.get(side)
+        if not isinstance(blasts, list):
+            problems.append("burst.schedule.%s=%s" % (side, blasts))
+            continue
+        problems.extend(p for i, b in enumerate(blasts)
+                        for p in [_blast_problem("burst.schedule.%s[%d]" % (side, i), b)] if p)
+    if problems:
+        return problems
+    got = burst_schedule_compare(schedule["real"], schedule["ghost"])
+    recorded = burst.get("scheduleCompare")
+    problems.extend(_missing_keys("burst.scheduleCompare", recorded, BURST_SCHEDULE_COMPARE_KEYS))
+    if problems:
+        return problems
+    for key in BURST_SCHEDULE_COMPARE_KEYS:
+        if isinstance(got[key], bool):
+            if recorded[key] is not got[key]:
+                problems.append("burst.scheduleCompare.%s:%s!=%s" % (key, recorded[key], got[key]))
+        else:
+            problems.extend(_burst_value_diffs("burst.scheduleCompare.%s" % key, recorded[key], got[key],
+                                               key != "maxOffsetDeltaM"))
+    return problems
+
+
+def burst_schedule_judgement(burst: Dict) -> Tuple[Dict[str, Any], List[FxFinding]]:
+    """The schedule of a burst case (G.3): its diff (``burst_schedule_compare``), whether it
+    is judged (every family but the stand-ins'), and its findings: a count, prefab index or
+    position more than 1 m off fails, a power off inside one index warns (the first pair of
+    each kind is named). A malformed schedule has no findings (``burst_block_problems`` names it)."""
+    family = burst.get("family")
+    doc: Dict[str, Any] = {"judged": family not in BURST_SCHEDULE_REPORTED_FAMILIES, "level": None,
+                           "realCount": None, "ghostCount": None}
+    schedule = _d(burst.get("schedule"))
+    real, ghost = schedule.get("real"), schedule.get("ghost")
+    if not (isinstance(real, list) and isinstance(ghost, list)) or any(
+            _blast_problem("", b) for b in list(real) + list(ghost)):
+        return doc, []
+    sc = burst_schedule_compare(real, ghost)
+    doc.update({"level": sc["level"], "realCount": sc["realCount"], "ghostCount": sc["ghostCount"],
+                "indexDiffers": sc["indexDiffers"], "powerDiffers": sc["powerDiffers"],
+                "maxOffsetDeltaM": sc["maxOffsetDeltaM"]})
+    t = BURST_THRESHOLDS
+    found: List[FxFinding] = []
+    if sc["countDiffers"]:
+        found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=count %d/%d" % (len(real), len(ghost)),
+                               "schedule:count"))
+    kinds = set()
+    for i, (r, g) in enumerate(zip(real, ghost)):
+        if r["index"] != g["index"]:
+            if "index" not in kinds:
+                found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=index blast %d %d/%d"
+                                       % (i, r["index"], g["index"]), "schedule:index"))
+                kinds.add("index")
+        elif abs(g["power"] - r["power"]) > t["burstSchedulePowerEpsilon"] and "power" not in kinds:
+            found.append(FxFinding("schedule", VERDICT_WARN, "schedule=power blast %d %.4f/%.4f"
+                                   % (i, r["power"], g["power"]), "schedule:power"))
+            kinds.add("power")
+        d = math.sqrt(sum((g["offsetM"][k] - r["offsetM"][k]) ** 2 for k in range(3)))
+        if d > t["burstSchedulePositionToleranceM"] and "offset" not in kinds:
+            found.append(FxFinding("schedule", VERDICT_FAIL, "schedule=offset blast %d %.3fm" % (i, d),
+                                   "schedule:offset"))
+            kinds.add("offset")
+    return doc, found
+
+
+# --- the judgement ------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BurstJudgement:
+    """The P9 half of one case (``kind`` burst or dust): ``verdict`` / ``reasons`` over its
+    entries (each under the per-entry split-half cap), the schedule (a burst case), stock's
+    raycast record (a dust case), the structural raise, the flags and the contradictions."""
+    kind: str
+    family: str
+    verdict: str
+    reasons: Tuple[str, ...]
+    entries: Tuple[FxEntryVerdict, ...]
+    unsettled: Tuple[str, ...]
+    flags: Tuple[str, ...]
+    structure: Dict[str, Any]
+    schedule: Optional[Dict[str, Any]] = None
+    raycast: Optional[Dict[str, Any]] = None
+
+    @property
+    def capped(self) -> bool:
+        return any(f.capped for e in self.entries for f in e.findings)
+
+    def to_dict(self) -> Dict[str, Any]:
+        out = {"family": self.family, "verdict": self.verdict, "reasons": list(self.reasons),
+               "entries": [e.to_dict() for e in self.entries], "unsettled": list(self.unsettled),
+               "flags": list(self.flags), "structure": dict(self.structure)}
+        if self.kind == "burst":
+            out["schedule"] = self.schedule
+        else:
+            out["raycast"] = self.raycast
+        return out
+
+
+def _p9_structure(structure: Any) -> Tuple[List[str], List[str], bool]:
+    """(missing, extra, measured) of a P9 block's ``structure`` (FX_STRUCTURE_KEYS)."""
+    s = _d(structure)
+    measured = all(isinstance(s.get(k), list) for k in ("fxMissingOnGhost", "fxExtraOnGhost"))
+    return (_fx_rendered_assets(s.get("fxMissingOnGhost")), _fx_rendered_assets(s.get("fxExtraOnGhost")),
+            measured)
+
+
+def _p9_setup_fault(sidecar: Dict) -> bool:
+    return is_setup_fault(_d(sidecar.get("setup")).get("status"))
+
+
+def burst_contradictions(sidecar: Optional[Dict]) -> List[str]:
+    """What a captured burst part case says against itself (the case is ``error``, the sweep
+    INVALID(parity-instrument)): ``burst.family`` against its state word and the burst context
+    (``air``); a case whose stock side is meant to draw (every state but ``joint-break``) that
+    drew nothing on an ``ok`` setup: no envelope in any entry, no tagged effect
+    (``trigger.realTagged``), or, for an FXMonger family, an empty real schedule. The C# side
+    records that case ``burst-not-triggered``."""
+    burst = burst_block(sidecar)
+    if burst is None or _p9_setup_fault(sidecar):
+        return []
+    family, state = burst.get("family"), sidecar.get("state")
+    problems: List[str] = []
+    if built_family_for_state(state) != family or family not in BURST_FAMILIES:
+        problems.append("burst.family=%s on a %s case" % (family, state))
+    if sidecar.get("context") != CONTEXT_BURST:
+        problems.append("burst case context=%s (the burst context is %s)" % (sidecar.get("context"), CONTEXT_BURST))
+    if _TIEBREAK_RE.sub("", str(state)) not in BURST_DRAWS_NOTHING_STATES:
+        drew = any(_side_drew(e.get("real")) for e in burst_entries(sidecar))
+        trigger = burst.get("trigger")
+        tagged = _num(trigger.get("realTagged")) if isinstance(trigger, dict) else None
+        real = _d(burst.get("schedule")).get("real")
+        blasts = len(real) if isinstance(real, list) else 0
+        if not drew or tagged == 0 or (family in BURST_FXMONGER_FAMILIES and not blasts):
+            problems.append("the real side drew nothing on an ok %s case (envelope=%s realTagged=%s "
+                            "realBlasts=%d; the writer records %s)"
+                            % (state, str(drew).lower(), tagged if tagged is None else int(tagged), blasts,
+                               SETUP_BURST_NOT_TRIGGERED))
+    return problems
+
+
+def burst_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
+    """The flags of a burst case, none of which fails it: the structure the writer did not
+    measure, each entry's weak core, and the cap's ``burst-unsettled``."""
+    burst = burst_block(sidecar) or {}
+    out: List[str] = []
+    if unsettled:
+        out.append(CAP_BURST_UNSETTLED)
+    if not _p9_setup_fault(sidecar):
+        if not _p9_structure(burst.get("structure"))[2]:
+            out.append(FLAG_BURST_STRUCTURE_NOT_MEASURED)
+        for e in burst_entries(sidecar):
+            weak = burst_weak_core_flag(e)
+            if weak is not None and weak not in out:
+                out.append(weak)
+    return tuple(out)
+
+
+def _p9_fold_flags(flags: Sequence[str], verdict: str, reasons: List[str]) -> str:
+    for f in flags:
+        if f.split(":", 1)[0] in P9_FLAGS_RAISE_TO_WARN:
+            reasons.append("flag:%s" % f)
+            if _RANK[VERDICT_WARN] > _RANK[verdict]:
+                verdict = VERDICT_WARN
+    return verdict
+
+
+def judge_burst(sidecar: Dict) -> Optional[BurstJudgement]:
+    """The burst half of a case (G.3, G.4), None without a ``burst`` block: the worst of its
+    entries (each ``event:<view>:<layer>:<reason>``, an entry whose trial halves disagree
+    capped at warn), its schedule (judged for every family but the stand-ins'), a rendered
+    effect missing or extra on the ghost (``missing-burst:<key>`` / ``extra-burst:<key>``,
+    fail), the flags that raise to warn; ``error`` for a lost entry or a contradiction."""
+    burst = burst_block(sidecar)
+    if burst is None:
+        return None
+    family = str(burst.get("family"))
+    raw = burst_entries(sidecar)
+    loose: Dict[FxEntryKey, str] = {}
+    for e in raw:
+        why = burst_split_half_disagreement(e)
+        if why is not None:
+            loose[burst_entry_key(e)] = why
+    entries = tuple(judge_burst_entry(e, loose) for e in raw)
+    verdict = VERDICT_PASS
+    reasons: List[str] = []
+    for j in entries:
+        reasons.extend(fx_reason(j.route, j.view, j.layer, f.reason) for f in j.findings)
+        if _RANK[j.verdict] > _RANK[verdict]:
+            verdict = j.verdict
+    schedule, found = burst_schedule_judgement(burst)
+    schedule["findings"] = [{"level": f.level, "reason": f.reason} for f in found]
+    if schedule["judged"]:
+        for f in found:
+            reasons.append(f.reason)
+            if _RANK[f.level] > _RANK[verdict]:
+                verdict = f.level
+    missing, extra, _ = _p9_structure(burst.get("structure"))
+    if missing or extra:
+        reasons.extend("missing-burst:%s" % k for k in missing)
+        reasons.extend("extra-burst:%s" % k for k in extra)
+        verdict = VERDICT_FAIL
+    have = {burst_entry_key(e) for e in raw}
+    lost = [k for k in burst_expected_entries() if k not in have]
+    if lost and not _p9_setup_fault(sidecar):
+        reasons.insert(0, "burst-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
+        verdict = VERDICT_ERROR
+    flags = burst_flags(sidecar, bool(loose))
+    verdict = _p9_fold_flags(flags, verdict, reasons)
+    contradictions = burst_contradictions(sidecar)
+    if contradictions:
+        reasons[:0] = contradictions
+        verdict = VERDICT_ERROR
+    if verdict == VERDICT_WARN and any(f.capped for e in entries for f in e.findings):
+        reasons.append(REASON_BURST_UNSETTLED)
+    return BurstJudgement("burst", family, verdict, tuple(reasons), entries,
+                          tuple(fx_reason(*k, why) for k, why in loose.items()), flags,
+                          {"missing": missing, "extra": extra}, schedule=schedule)
+
+
+# --- the dust entries ----------------------------------------------------------------------
+
+def dust_entries(sidecar: Optional[Dict]) -> List[Dict]:
+    views = (dust_block(sidecar) or {}).get("views")
+    return [v for v in views if isinstance(v, dict)] if isinstance(views, list) else []
+
+
+def dust_expected_entries() -> List[Tuple[str, str, str]]:
+    """The (route, view, layer) entries a dust case writes: every dust view, the dust and the
+    flame layer, the event route."""
+    return [(P9_ROUTE, v, layer) for v in DUST_VIEWS for layer in DUST_LAYERS]
+
+
+def dust_raycast_surface(sidecar: Optional[Dict]) -> str:
+    surface = _d((dust_block(sidecar) or {}).get("raycast")).get("surface")
+    return surface if isinstance(surface, str) and surface else DUST_SURFACE_NONE
+
+
+def _dust_finding(f: FxFinding, surface: str) -> FxFinding:
+    """E.4's presence reasons in the dust words: ``dust-missing``, ``dust-extra:<surface>``."""
+    if f.reason == FX_REASON_FX_MISSING:
+        return replace(f, reason=DUST_REASON_MISSING)
+    if f.reason == FX_REASON_FX_EXTRA:
+        return replace(f, reason=dust_extra_reason(surface))
+    return f
+
+
+def judge_dust_entry(entry: Dict, surface: str, unsettled: Collection[FxEntryKey] = ()) -> FxEntryVerdict:
+    """One dust-layer entry: E.4's findings (``judge_fx_entry`` with P8's split-half rule),
+    only the dust measures (G.3; no direction, no core IoU), presence in the dust words."""
+    j = judge_fx_entry(entry, False, unsettled=unsettled)
+    findings = tuple(_dust_finding(f, surface) for f in j.findings if f.measure in DUST_MEASURES)
+    verdict = VERDICT_SKIPPED if j.verdict == VERDICT_SKIPPED and not findings else VERDICT_PASS
+    for f in findings:
+        if _RANK[f.level] > _RANK[verdict]:
+            verdict = f.level
+    return replace(j, verdict=verdict, findings=findings)
+
+
+def dust_failing(entry: Dict) -> List[str]:
+    """The dust measures one dust-layer entry fails, DUST_MEASURES order (the evidence of a dust control)."""
+    failing = set(fx_failing_measures(entry))
+    return [m for m in DUST_MEASURES if m in failing]
+
+
+def dust_contradictions(sidecar: Optional[Dict]) -> List[str]:
+    """What a captured dust part case says against itself: ``dust.family`` against its state
+    word and the ground context, and an ``ok`` case whose stock raycast never hit a surface
+    (the writer records that ``dust-no-stock-hit``)."""
+    dust = dust_block(sidecar)
+    if dust is None or _p9_setup_fault(sidecar):
+        return []
+    problems: List[str] = []
+    family, state = dust.get("family"), sidecar.get("state")
+    if family not in DUST_FAMILIES or built_family_for_state(state) != family:
+        problems.append("dust.family=%s on a %s case" % (family, state))
+    if sidecar.get("context") != CONTEXT_GROUND:
+        problems.append("dust case context=%s (the dust context is %s)" % (sidecar.get("context"), CONTEXT_GROUND))
+    raycast = dust.get("raycast")
+    hits = _num(raycast.get("hits")) if isinstance(raycast, dict) else None
+    if not hits:
+        problems.append("stock's raycast hits=%s on an ok %s case (the writer records %s)"
+                        % (None if hits is None else int(hits), state, SETUP_DUST_NO_STOCK_HIT))
+    return problems
+
+
+def dust_flags(sidecar: Dict, unsettled: bool) -> Tuple[str, ...]:
+    """The flags of a dust case: the tags its block implies (``fx-not-plateaued:<side>``,
+    ``fx-framing-clamped``, report-only, as P8's), the structure not measured, each dust
+    entry's weak core (E.4's flag) and the cap's ``fx-unsettled``."""
+    dust = dust_block(sidecar) or {}
+    out: List[str] = []
+    plateau = _d(dust.get("plateau"))
+    for side in FX_SIDES:
+        block = plateau.get(side)
+        if isinstance(block, dict) and block.get("settled") is False:
+            out.append(TAG_FX_NOT_PLATEAUED_PREFIX + side)
+    if _d(dust.get("framing")).get("clamped") is True:
+        out.append(FLAG_FX_FRAMING_CLAMPED)
+    if unsettled:
+        out.append(CAP_FX_UNSETTLED)
+    if not _p9_setup_fault(sidecar):
+        if not _p9_structure(dust.get("structure"))[2]:
+            out.append(FLAG_DUST_STRUCTURE_NOT_MEASURED)
+        for e in dust_entries(sidecar):
+            if e.get("layer") in DUST_JUDGED_LAYERS:
+                weak = fx_weak_core_flag(e)
+                if weak is not None and weak not in out:
+                    out.append(weak)
+    return tuple(out)
+
+
+def judge_dust(sidecar: Dict) -> Optional[BurstJudgement]:
+    """The dust half of a case (G.3), None without a ``dust`` block: the worst of its dust-layer
+    entries (E.4's measures, the dust words, P8's split-half cap), then stock's raycast record:
+    a ghost that draws dust where stock's raycast hit nothing or the pad fails
+    ``dust-extra:<surface>``; a rendered effect missing or extra on the ghost
+    (``missing-dust:<key>`` / ``extra-dust:<key>``) fails; the flags that raise to warn;
+    ``error`` for a lost entry or a contradiction. The flame layer is not judged here (P8 does)."""
+    dust = dust_block(sidecar)
+    if dust is None:
+        return None
+    surface = dust_raycast_surface(sidecar)
+    raw = [e for e in dust_entries(sidecar) if e.get("layer") in DUST_JUDGED_LAYERS]
+    loose = fx_unsettled_entries(raw)
+    entries = tuple(judge_dust_entry(e, surface, loose) for e in raw)
+    verdict = VERDICT_PASS
+    reasons: List[str] = []
+    for j in entries:
+        reasons.extend(fx_reason(j.route, j.view, j.layer, f.reason) for f in j.findings)
+        if _RANK[j.verdict] > _RANK[verdict]:
+            verdict = j.verdict
+    extra_reason = dust_extra_reason(surface)
+    if surface in DUST_NO_DUST_SURFACES and not any(r.endswith(":" + extra_reason) for r in reasons) \
+            and any(_fx_count(e.get("ghost"), "corePx") >= FX_PRESENCE_MIN_PX for e in raw):
+        reasons.append(extra_reason)
+        verdict = VERDICT_FAIL
+    missing, extra, _ = _p9_structure(dust.get("structure"))
+    if missing or extra:
+        reasons.extend("missing-dust:%s" % k for k in missing)
+        reasons.extend("extra-dust:%s" % k for k in extra)
+        verdict = VERDICT_FAIL
+    have = {fx_entry_key(e) for e in dust_entries(sidecar)}
+    lost = [k for k in dust_expected_entries() if k not in have]
+    if lost and not _p9_setup_fault(sidecar):
+        reasons.insert(0, "dust-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
+        verdict = VERDICT_ERROR
+    flags = dust_flags(sidecar, bool(loose))
+    verdict = _p9_fold_flags(flags, verdict, reasons)
+    contradictions = dust_contradictions(sidecar)
+    if contradictions:
+        reasons[:0] = contradictions
+        verdict = VERDICT_ERROR
+    if verdict == VERDICT_WARN and any(f.capped for e in entries for f in e.findings):
+        reasons.append(REASON_FX_UNSETTLED)
+    raycast = _d(dust.get("raycast"))
+    return BurstJudgement("dust", str(dust.get("family")), verdict, tuple(reasons), entries,
+                          tuple(fx_reason(*k, why) for k, why in loose.items()), flags,
+                          {"missing": missing, "extra": extra},
+                          raycast={"surface": surface, "hits": raycast.get("hits"),
+                                   "misses": raycast.get("misses"), "scaledFx": raycast.get("scaledFx")})
+
+
+def judge_p9_case(sidecar: Dict) -> CaseVerdict:
+    """A burst or dust case's CaseVerdict (``judge_burst`` / ``judge_dust``), ``error`` for a
+    setup fault (``burst-not-triggered`` and ``dust-no-stock-hit`` included). The worst view is
+    the first entry at the case's verdict; there are no body views, so no blob maxima."""
+    case_id = str(sidecar.get("caseId") or "?")
+    status = _d(sidecar.get("setup")).get("status")
+    j = judge_burst(sidecar) if burst_block(sidecar) is not None else judge_dust(sidecar)
+    verdict, reasons = j.verdict, list(j.reasons)
+    if status is None or is_setup_fault(status):
+        reasons.insert(0, "setup:%s" % (status or "missing"))
+        verdict = VERDICT_ERROR
+    worst = next(("%s:%s" % (e.view, e.layer) for e in j.entries
+                  if e.verdict == verdict and verdict in (VERDICT_WARN, VERDICT_FAIL)), None)
+    state = sidecar.get("state")
+    return CaseVerdict(case_id, sidecar.get("part"), None, sidecar.get("source"), verdict,
+                       tuple(reasons), worst, 0, None, 0, status,
+                       state=state if is_state_case(state) else None, family=j.family,
+                       context=sidecar.get("context"), burst=j)
+
+
+# --- the block shapes and the recompute ----------------------------------------------------
+
+def _burst_bin_problem(at: str, b: Any) -> Optional[str]:
+    if not isinstance(b, dict):
+        return "%s is not a bin" % at
+    missing = [k for k in BURST_BIN_MEASURE_KEYS if k not in b]
+    if missing:
+        return "%s: missing key(s) %s" % (at, ",".join(missing))
+    for k in BURST_EXACT_KEYS:
+        if type(b[k]) is not int or b[k] < 0:
+            return "%s.%s=%s" % (at, k, b[k])
+    if not b["saturatedPx"] <= b["corePx"] <= b["envelopePx"]:
+        return "%s: corePx=%d envelopePx=%d saturatedPx=%d" % (at, b["corePx"], b["envelopePx"], b["saturatedPx"])
+    for key, count in (("coreCentroid", 2), ("meanColor", 3), ("chromaticity", 2), ("hueHistogram", FX_HUE_BINS)):
+        if b[key] is not None and not _fx_numbers(b[key], count):
+            return "%s.%s=%s" % (at, key, b[key])
+    for key in ("radiusPx", "luminance"):
+        if b[key] is not None and _num(b[key]) is None:
+            return "%s.%s=%s" % (at, key, b[key])
+    if b["hueHistogram"] is None:
+        return "%s.hueHistogram=None" % at
+    if (b["coreCentroid"] is None) != (b["corePx"] == 0):
+        return "%s.coreCentroid=%s with a core of %d px" % (at, b["coreCentroid"], b["corePx"])
+    return None
+
+
+def _burst_sides_problems(at: str, block: Any, bins: Optional[int], source: Any, layer: str) -> List[str]:
+    """A real / ghost / compare block (an entry or one of its halves): each side's keys and
+    bins, its summary recomputed from its own bins, the compare recomputed from the sides."""
+    problems = _missing_keys(at, block, ("real", "ghost", "compare"))
+    if problems:
+        return problems
+    sides: Dict[str, Dict[str, Any]] = {}
+    for name in BURST_SIDE_KEYS:
+        side, sat = block[name], "%s.%s" % (at, name)
+        missing = _missing_keys(sat, side, BURST_SIDE_MEASURE_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        got = side["bins"]
+        if not isinstance(got, list) or (bins is not None and len(got) != bins):
+            problems.append("%s.bins: %s entries, %s bins" % (sat, len(got) if isinstance(got, list) else got, bins))
+            continue
+        bad = [p for i, b in enumerate(got) for p in [_burst_bin_problem("%s.bins[%d]" % (sat, i), b)] if p]
+        if bad:
+            problems.extend(bad[:3])
+            continue
+        sides[name] = burst_measure_side(got)
+        problems.extend(_burst_side_diffs(sat, side, sides[name]))
+    if len(sides) < 2:
+        return problems
+    compare = block["compare"]
+    missing = _missing_keys(at + ".compare", compare, BURST_COMPARE_KEYS)
+    if missing:
+        return problems + missing
+    got = burst_compare(sides["real"], sides["ghost"], source, layer)
+    for key in BURST_COMPARE_KEYS:
+        problems.extend(_burst_value_diffs("%s.compare.%s" % (at, key), compare[key], got[key], False))
+    return problems
+
+
+def burst_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
+    """The shape of a ``burst`` block (G.2.1, X1's tables), run over every captured burst case,
+    sampled or not: every key; the window, bins, bin length and trials the family plans; the
+    sample counts; the atlas block; the trigger; the schedule and its diff recomputed; every
+    expected entry exactly once with its source, sides, bins, summaries and compare recomputed
+    from its own numbers (the pixels are the atlas recompute's); the halves the same way; the
+    structure lists; and, on a part case, the contradictions (``burst_contradictions``)."""
+    burst = burst_block(sidecar)
+    if burst is None or _p9_setup_fault(sidecar):
+        return []
+    problems = _missing_keys("burst", burst, BURST_KEYS)
+    if problems:
+        return problems
+    family = burst["family"]
+    if family not in BURST_FAMILIES:
+        problems.append("burst.family=%s" % family)
+    window = burst_window_for(family)
+    bins = burst_bin_count(window)
+    if (_num(burst["windowS"]) != window or _num(burst["binS"]) != BURST_BIN_S
+            or burst["bins"] != bins or type(burst["bins"]) is not int or burst["trials"] != BURST_TRIALS):
+        problems.append("burst windowS=%s binS=%s bins=%s trials=%s (the %s family plans %s, %s, %d, %d)"
+                        % (burst["windowS"], burst["binS"], burst["bins"], burst["trials"], family,
+                           window, BURST_BIN_S, bins, BURST_TRIALS))
+    samples = burst["samples"]
+    for side in BURST_SIDE_KEYS:
+        n_of = _d(samples).get(side)
+        if not (isinstance(n_of, list) and len(n_of) == bins
+                and all(type(n) is int and 0 <= n <= FX_MAX_SAMPLES for n in n_of)):
+            problems.append("burst.samples.%s=%s" % (side, n_of))
+    meta = burst["atlas"]
+    problems.extend(_missing_keys("burst.atlas", meta, BURST_ATLAS_KEYS))
+    if isinstance(meta, dict) and not problems:
+        if (list(meta.get("rows") or []) != list(BURST_ATLAS_ROWS) or list(meta.get("views") or []) != list(BURST_VIEWS)
+                or meta.get("bins") != bins or type(meta.get("tile")) is not int or meta["tile"] <= 0):
+            problems.append("burst.atlas rows=%s views=%s bins=%s tile=%s"
+                            % (meta.get("rows"), meta.get("views"), meta.get("bins"), meta.get("tile")))
+    trigger = burst["trigger"]
+    if trigger is not None:
+        missing = _missing_keys("burst.trigger", trigger, BURST_TRIGGER_KEYS)
+        problems.extend(missing)
+        if not missing and not (all(type(trigger[k]) is int and trigger[k] >= 0 for k in ("frame", "realTagged", "ghostTagged"))
+                                and _num(trigger["ut"]) is not None
+                                and (trigger["ghostEvent"] is None or isinstance(trigger["ghostEvent"], str))):
+            problems.append("burst.trigger=%s" % trigger)
+    problems.extend(burst_schedule_problems(burst))
+    structure = burst["structure"]
+    if structure is not None:
+        problems.extend(_missing_keys("burst.structure", structure, FX_STRUCTURE_KEYS))
+        for key in FX_STRUCTURE_KEYS if isinstance(structure, dict) else ():
+            if structure.get(key) is not None and not isinstance(structure[key], list):
+                problems.append("burst.structure.%s=%s" % (key, structure[key]))
+    views = burst["views"]
+    if not (isinstance(views, list) and all(isinstance(v, dict) for v in views)):
+        problems.append("burst.views is not a list of entries")
+    tile = _d(meta).get("tile")
+    seen: Dict[FxEntryKey, int] = {}
+    for e in burst_entries(sidecar):
+        key = burst_entry_key(e)
+        seen[key] = seen.get(key, 0) + 1
+        at = "burst:%s:%s" % key[1:]
+        missing = _missing_keys(at, e, BURST_VIEW_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        if key[1] not in BURST_VIEWS or key[2] not in BURST_LAYERS:
+            problems.append("%s: not a known view and layer" % at)
+            continue
+        if type(tile) is not int or e["width"] != tile or e["height"] != tile:
+            problems.append("%s: size %sx%s, tile %s" % (at, e["width"], e["height"], tile))
+        source = e["source"]
+        missing = _missing_keys(at + ".source", source, BURST_SOURCE_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        for k in ("realPx", "ghostPx"):
+            if source[k] is not None and not _fx_numbers(source[k], 2):
+                problems.append("%s.source.%s=%s" % (at, k, source[k]))
+        if source["diameterPx"] is not None and _num(source["diameterPx"]) is None:
+            problems.append("%s.source.diameterPx=%s" % (at, source["diameterPx"]))
+        problems.extend(_burst_sides_problems(at, e, bins, source, key[2]))
+        split = e["splitHalf"]
+        missing = _missing_keys(at + ".splitHalf", split, FX_SPLIT_HALF_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        for half in FX_SPLIT_HALF_KEYS:
+            hat = "%s.splitHalf.%s" % (at, half)
+            block = split[half]
+            missing = _missing_keys(hat, block, BURST_HALF_KEYS)
+            if missing:
+                problems.extend(missing)
+                continue
+            problems.extend(_burst_sides_problems(hat, block, bins, source, key[2]))
+    lost = ["%s:%s" % k[1:] for k in burst_expected_entries() if k not in seen]
+    if lost:
+        problems.append("burst.views lacks %d entr(ies): %s" % (len(lost), ", ".join(lost[:3])))
+    twice = sorted("%s:%s" % k[1:] for k, c in seen.items() if c > 1)
+    if twice:
+        problems.append("burst.views repeats %s" % ", ".join(twice[:3]))
+    if not control:
+        problems.extend(burst_contradictions(sidecar))
+    return problems
+
+
+def dust_block_problems(sidecar: Optional[Dict], control: bool = False) -> List[str]:
+    """The shape of a ``dust`` block, run over every captured dust case: every key, the
+    family, the slot surface, the sample count, the atlas block (FX_ATLAS_KEYS, rows
+    DUST_ATLAS_ROWS, columns DUST_VIEWS), stock's raycast record (its keys, surface, counts and
+    samples agreeing), every expected entry exactly once in E.4's entry shape (FX_VIEW_KEYS,
+    the event route, an axis on every side view, the measures where PartParityFxMetrics
+    defines them, the compare recomputed from the sides), the halves, the structure lists and,
+    on a part case, the contradictions."""
+    dust = dust_block(sidecar)
+    if dust is None or _p9_setup_fault(sidecar):
+        return []
+    problems = _missing_keys("dust", dust, DUST_KEYS)
+    if problems:
+        return problems
+    if dust["family"] not in DUST_FAMILIES:
+        problems.append("dust.family=%s" % dust["family"])
+    if dust["surface"] not in (SURFACE_SLOT_TERRAIN, SURFACE_SLOT_WATER):
+        problems.append("dust.surface=%s" % dust["surface"])
+    n = dust["samples"]
+    if type(n) is not int or not 0 < n <= FX_MAX_SAMPLES:
+        problems.append("dust.samples=%s" % n)
+        n = None
+    meta = dust["atlas"]
+    missing = _missing_keys("dust.atlas", meta, FX_ATLAS_KEYS)
+    problems.extend(missing)
+    if not missing and (list(meta.get("rows") or []) != list(DUST_ATLAS_ROWS)
+                        or list(meta.get("cols") or []) != list(DUST_VIEWS)
+                        or type(meta.get("tile")) is not int or meta["tile"] <= 0):
+        problems.append("dust.atlas rows=%s cols=%s tile=%s" % (meta.get("rows"), meta.get("cols"), meta.get("tile")))
+    raycast = dust["raycast"]
+    missing = _missing_keys("dust.raycast", raycast, DUST_RAYCAST_KEYS)
+    problems.extend(missing)
+    if not missing:
+        hits, misses, rs = raycast["hits"], raycast["misses"], raycast["samples"]
+        if raycast["surface"] not in DUST_SURFACES:
+            problems.append("dust.raycast.surface=%s" % raycast["surface"])
+        if type(hits) is not int or type(misses) is not int or hits < 0 or misses < 0:
+            problems.append("dust.raycast hits=%s misses=%s" % (hits, misses))
+        elif (hits == 0) != (raycast["surface"] == DUST_SURFACE_NONE):
+            problems.append("dust.raycast hits=%d surface=%s" % (hits, raycast["surface"]))
+        if not isinstance(rs, list) or any(_missing_keys("", s, DUST_RAYCAST_SAMPLE_KEYS) for s in rs):
+            problems.append("dust.raycast.samples=%s" % (rs if not isinstance(rs, list) else "malformed"))
+        elif type(hits) is int and type(misses) is int and (
+                len(rs) != hits + misses or sum(1 for s in rs if s.get("hit") is True) != hits):
+            problems.append("dust.raycast hits=%s misses=%s over %d sample(s)" % (hits, misses, len(rs)))
+    structure = dust["structure"]
+    if structure is not None:
+        problems.extend(_missing_keys("dust.structure", structure, FX_STRUCTURE_KEYS))
+    views = dust["views"]
+    if not (isinstance(views, list) and all(isinstance(v, dict) for v in views)):
+        problems.append("dust.views is not a list of entries")
+    tile = _d(meta).get("tile")
+    seen: Dict[FxEntryKey, int] = {}
+    for e in dust_entries(sidecar):
+        key = fx_entry_key(e)
+        seen[key] = seen.get(key, 0) + 1
+        at = "dust:%s:%s:%s" % key
+        missing = _missing_keys(at, e, FX_VIEW_KEYS)
+        if missing:
+            problems.extend(missing)
+            continue
+        if key[0] != P9_ROUTE or key[1] not in DUST_VIEWS or key[2] not in DUST_LAYERS:
+            problems.append("%s: not a known route, view and layer" % at)
+            continue
+        if type(tile) is not int or e["width"] != tile or e["height"] != tile:
+            problems.append("%s: size %sx%s, tile %s" % (at, e["width"], e["height"], tile))
+        bad_axis = _fx_axis_problem(e["view"], e["axis"], True)
+        if bad_axis is not None:
+            problems.append("%s: %s" % (at, bad_axis))
+            continue
+        problems.extend(_fx_measure_problems(at, e["view"], e["axis"], e, e["width"]))
+        problems.extend(_fx_half_problems(at + ".splitHalf", e, n))
+    lost = ["%s:%s:%s" % k for k in dust_expected_entries() if k not in seen]
+    if lost:
+        problems.append("dust.views lacks %d entr(ies): %s" % (len(lost), ", ".join(lost[:3])))
+    twice = sorted("%s:%s:%s" % k for k, c in seen.items() if c > 1)
+    if twice:
+        problems.append("dust.views repeats %s" % ", ".join(twice[:3]))
+    if not control:
+        problems.extend(dust_contradictions(sidecar))
+    return problems
+
+
+def recompute_dust_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
+    """Recompute every ``dust.views[]`` entry from the decoded dust atlas (E.4's tile measures,
+    ``dust-top`` as the axis view) and return the differences with the sidecar; an atlas whose
+    layout does not match ``dust.atlas`` is itself a difference."""
+    width, height, bpp, pixels = atlas
+    dust = dust_block(sidecar) or {}
+    meta = _d(dust.get("atlas"))
+    tile, n = meta.get("tile"), dust.get("samples")
+    if type(tile) is not int or tile <= 0:
+        return ["dust atlas block unusable: tile=%s" % tile]
+    if type(n) is not int or not 0 < n <= FX_MAX_SAMPLES:
+        return ["dust.samples=%s" % n]
+    rows, cols = list(DUST_ATLAS_ROWS), list(DUST_VIEWS)
+    if list(meta.get("rows") or []) != rows or list(meta.get("cols") or []) != cols:
+        return ["dust atlas rows=%s cols=%s (expected %s, %s)" % (meta.get("rows"), meta.get("cols"), rows, cols)]
+    if width != tile * len(cols) or height != tile * len(rows):
+        return ["dust atlas size %dx%d != %d cols x %d rows of %d px" % (width, height, len(cols), len(rows), tile)]
+    if bpp != 4:
+        return ["dust atlas is not RGBA (bytes per pixel %d)" % bpp]
+    diffs: List[str] = []
+    for e in dust_entries(sidecar):
+        view, layer, axis = e.get("view"), e.get("layer"), e.get("axis")
+        at = fx_reason(str(e.get("route")), str(view), str(layer), "")
+        if view not in cols or layer not in DUST_LAYERS:
+            diffs.append("%s not in the dust atlas" % at)
+            continue
+        if e.get("width") != tile or e.get("height") != tile:
+            diffs.append("%ssize:%sx%s!=%d" % (at, e.get("width"), e.get("height"), tile))
+            continue
+        tiles = {}
+        for side in BURST_SIDE_KEYS:
+            t = fx_measure_tile(pixels, width, cols.index(view) * tile, rows.index("%s-%s" % (side, layer)) * tile,
+                                tile, n, view, axis)
+            diffs.extend("%s-%s/%s: %s" % (side, layer, view, p) for p in t.problems)
+            tiles[side] = t
+            rec = _d(e.get(side))
+            for key in FX_SIDE_MEASURE_KEYS:
+                diffs.extend(_fx_value_diffs("%s%s.%s" % (at, side, key), rec.get(key), t.measures[key],
+                                             key in FX_EXACT_KEYS))
+        rec = _d(e.get("compare"))
+        for key, value in fx_compare(view, axis, tiles["real"], tiles["ghost"]).items():
+            diffs.extend(_fx_value_diffs("%scompare.%s" % (at, key), rec.get(key), value, False))
+    return diffs
+
+
+def p9_atlas_file(sidecar: Optional[Dict]) -> Optional[str]:
+    """The burst or dust atlas a P9 case names, or None."""
+    block = burst_block(sidecar) or dust_block(sidecar) or {}
+    name = _d(block.get("atlas")).get("file")
+    return name if isinstance(name, str) and name else None
+
+
+def p9_sidecar_incomplete(sidecar: Dict, atlases: Optional[Collection[str]]) -> Optional[str]:
+    """Completeness of a captured burst or dust case: its entries, and its atlas harvested."""
+    if not (burst_entries(sidecar) or dust_entries(sidecar)):
+        return "no-%s-views" % ("burst" if burst_block(sidecar) is not None else "dust")
+    if atlases is not None:
+        name = p9_atlas_file(sidecar)
+        if name is None:
+            return "no-p9-atlas"
+        if name not in atlases:
+            return "p9-atlas-missing:%s" % name
+    return None
+
+
+def p9_recompute(sidecars: Dict[str, Optional[Dict]], atlases: Collection[str],
+                 part_ids: Sequence[str], control_ids: Sequence[str], run_id: str,
+                 read_png: Optional["PngReader"],
+                 atlas_path: Callable[[str], str]) -> Tuple[List[str], List[str]]:
+    """The P9 half of the instrument check: every captured burst or dust case has its block
+    shape checked; every control with a P9 atlas and the seeded sample of the part cases with
+    one are recomputed from it. Returns (``<caseId>.burst`` / ``.dust`` ids recomputed, mismatches)."""
+    controls = set(control_ids)
+    mismatches: List[str] = []
+    for cid in list(part_ids) + list(control_ids):
+        side = sidecars.get(cid)
+        problems = burst_block_problems(side, cid in controls) + dust_block_problems(side, cid in controls)
+        mismatches.extend("%s %s" % (cid, p) for p in problems)
+    if read_png is None:
+        return [], mismatches
+
+    def file_of(cid: str) -> Optional[str]:
+        name = p9_atlas_file(sidecars.get(cid))
+        return name if name in atlases else None
+
+    ids = [c for c in control_ids if file_of(c)]
+    ids += select_recompute_sample([c for c in part_ids if file_of(c)], run_id)
+    out: List[str] = []
+    for cid in ids:
+        side = sidecars[cid]
+        burst = burst_block(side) is not None
+        try:
+            atlas = read_png(atlas_path(file_of(cid)))
+            diffs = recompute_burst_case(side, atlas) if burst else recompute_dust_case(side, atlas)
+        except Exception as exc:  # noqa: BLE001 - an unreadable atlas is the finding
+            diffs = ["p9 atlas unreadable (%s: %s)" % (type(exc).__name__, exc)]
+        mismatches.extend("%s %s" % (cid, d) for d in diffs)
+        out.append(cid + (BURST_RECOMPUTE_ID_SUFFIX if burst else DUST_RECOMPUTE_ID_SUFFIX))
+    return out, mismatches
+
+
+def p9_run_problems(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> List[str]:
+    """Writer cross-checks of a burst or dust run: a ``burst`` block outside a burst run (or a
+    ``dust`` one outside a dust run), a captured case of such a run without its block, and a
+    manifest row whose family is not the block's."""
+    settings = manifest.get("settings") if isinstance(manifest.get("settings"), dict) else {}
+    runs = {"burst": is_burst_run(settings), "dust": is_dust_run(settings)}
+    problems: List[str] = []
+    for entry in manifest.get("cases") or []:
+        cid = entry.get("caseId") if isinstance(entry, dict) else None
+        side = sidecars.get(cid) if isinstance(cid, str) else None
+        if not isinstance(side, dict) or cid in ALL_CONTROL_IDS:
+            continue
+        for kind, block in (("burst", burst_block(side)), ("dust", dust_block(side))):
+            if block is not None and not runs[kind]:
+                problems.append("%s carries a %s block but settings fx=%s contexts=%s are not a %s run"
+                                % (cid, kind, _setting(settings, SETTING_FX),
+                                   _setting(settings, SETTING_CONTEXTS), kind))
+            elif runs[kind] and block is None and not _p9_setup_fault(side):
+                problems.append("%s has no %s block in an fx=%s run" % (cid, kind, _setting(settings, SETTING_FX)))
+            if block is not None and entry.get("family") is not None and entry.get("family") != block.get("family"):
+                problems.append("%s row family=%s %s.family=%s" % (cid, entry.get("family"), kind, block.get("family")))
+    return problems
+
+
+# --- the controls (G.4, PartParityFxRules.JudgeBurstControl / JudgeDustControl) ------------
+
+def burst_control_evidence(sidecar: Dict) -> Dict[str, Any]:
+    """PartParityBurstControlEvidence read from a control's sidecar: the measures any entry
+    fails (``burst_entry_failing``) and ``schedule`` at its fail level, whether every bin and
+    layer of both sides drew nothing, the schedule's counts and whether its index differs;
+    plus the real flame's largest core (the Python judge's own floor)."""
+    burst = burst_block(sidecar) or {}
+    failing: set = set()
+    entries = burst_entries(sidecar)
+    for e in entries:
+        failing.update(burst_entry_failing(e))
+    schedule = _d(burst.get("schedule"))
+    real, ghost = schedule.get("real"), schedule.get("ghost")
+    ok = isinstance(real, list) and isinstance(ghost, list) and not any(
+        _blast_problem("", b) for b in list(real) + list(ghost))
+    sc = burst_schedule_compare(real, ghost) if ok else None
+    if sc is not None and sc["level"] == LEVEL_FAIL:
+        failing.add("schedule")
+    return {"failing": failing,
+            "allCoverageZero": bool(entries) and not any(_side_drew(e.get(s)) for e in entries for s in BURST_SIDE_KEYS),
+            "realBlasts": sc["realCount"] if sc else 0, "ghostBlasts": sc["ghostCount"] if sc else 0,
+            "indexDiffers": bool(sc and sc["indexDiffers"]),
+            "realFlameCore": max((_peak_core(e.get("real")) for e in entries if e.get("layer") == FX_LAYER_FLAME),
+                                 default=0)}
+
+
+def _ordered(order: Sequence[str], names: Collection[str]) -> str:
+    return ",".join(m for m in order if m in names)
+
+
+def _require(cond: bool, why: str) -> Tuple[str, str]:
+    return (CONTROLS_OK, "") if cond else (CONTROLS_BAD, why)
+
+
+def _require_measures(failing: Collection[str], must_fail: Sequence[str], must_pass: Sequence[str]) -> Tuple[str, str]:
+    for m in must_fail:
+        if m not in failing:
+            return CONTROLS_BAD, "%s passes" % m
+    for m in must_pass:
+        if m in failing:
+            return CONTROLS_BAD, "%s fails" % m
+    return CONTROLS_OK, ""
+
+
+def judge_burst_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """``PartParityFxRules.JudgeBurstControl`` over a control's sidecar, each detail worded as
+    the C# writes it. Stricter in one way, as ``judge_fx_control``: a control other than
+    ``ctl-burst-empty`` whose real flame has no core proves nothing (``no real core``)."""
+    if not isinstance(sidecar, dict):
+        return CONTROLS_BAD, "no sidecar"
+    status = _d(sidecar.get("setup")).get("status")
+    if is_setup_fault(status):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    if burst_block(sidecar) is None:
+        return CONTROLS_BAD, "no burst block"
+    ev = burst_control_evidence(sidecar)
+    f = ev["failing"]
+    if cid == CONTROL_IDS_BURST[0]:  # ctl-burst-empty
+        return _require(ev["allCoverageZero"], "a bin is covered")
+    if cid not in CONTROL_IDS_BURST:
+        return CONTROLS_BAD, "not a burst control: %s" % (cid or "<none>")
+    if ev["realFlameCore"] < FX_PRESENCE_MIN_PX:
+        return CONTROLS_BAD, "no real core"
+    if cid == "ctl-burst-real-vs-real":
+        return _require(not f, "fails " + _ordered(BURST_MEASURES, f))
+    if cid == "ctl-burst-off":
+        if "presence" not in f:
+            return CONTROLS_BAD, "presence passes"
+        return _require(ev["realBlasts"] == 1 and ev["ghostBlasts"] == 0,
+                        "the schedule reads %d against %d" % (ev["realBlasts"], ev["ghostBlasts"]))
+    if cid == "ctl-burst-late":
+        return _require_measures(f, ("onset",), ("peak-area", "colour"))
+    if cid == "ctl-burst-power":
+        if "schedule" not in f or not ev["indexDiffers"]:
+            return CONTROLS_BAD, "the schedule index matches"
+        return _require("peak-area" in f or "radius" in f, "peak area and radius pass")
+    if cid == "ctl-burst-shift":
+        return _require_measures(f, ("centroid-offset",), ("peak-area", "colour"))
+    if cid == "ctl-burst-hue":
+        if "colour" not in f:
+            return CONTROLS_BAD, "colour passes"
+        return _require(len(f) == 1, "fails " + _ordered(BURST_MEASURES, f))
+    return CONTROLS_BAD, "not a burst control: %s" % cid
+
+
+def dust_control_evidence(sidecar: Dict) -> Dict[str, Any]:
+    """PartParityDustControlEvidence read from a control's sidecar: the dust measures the dust
+    entries fail, the measures the flame entries fail, stock's raycast hit, each side's dust
+    covered; plus the real dust's largest core (the Python judge's own floor)."""
+    dust_fail: set = set()
+    flame_fail: set = set()
+    real_cov = ghost_cov = False
+    core = 0
+    for e in dust_entries(sidecar):
+        if e.get("route") != P9_ROUTE:
+            continue
+        if e.get("layer") == LAYER_DUST:
+            dust_fail.update(dust_failing(e))
+            real_cov = real_cov or _fx_count(e.get("real"), "envelopePx") > 0
+            ghost_cov = ghost_cov or _fx_count(e.get("ghost"), "envelopePx") > 0
+            core = max(core, _fx_count(e.get("real"), "corePx"))
+        elif e.get("layer") == FX_LAYER_FLAME:
+            flame_fail.update(fx_failing_measures(e))
+    raycast = _d((dust_block(sidecar) or {}).get("raycast"))
+    return {"dustFailing": dust_fail, "flameFailing": flame_fail,
+            "stockRaycastHit": (_num(raycast.get("hits")) or 0) > 0,
+            "realDustCovered": real_cov, "ghostDustCovered": ghost_cov, "realDustCore": core}
+
+
+def judge_dust_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """``PartParityFxRules.JudgeDustControl`` over a control's sidecar, each detail worded as
+    the C# writes it: ``ok``, ``bad``, or for ``ctl-dust-above-reach`` ``n/a`` while
+    DUST_ABOVE_REACH_GHOST_JUDGED is false and the ghost draws dust where stock missed.
+    Stricter in one way: the real-vs-real and off controls need a real dust core."""
+    if not isinstance(sidecar, dict):
+        return CONTROLS_BAD, "no sidecar"
+    if cid not in CONTROL_IDS_DUST:
+        return CONTROLS_BAD, "not a dust control: %s" % (cid or "<none>")
+    status = _d(sidecar.get("setup")).get("status")
+    above = cid == CONTROL_IDS_DUST[2]
+    if is_setup_fault(status) and not (above and status == SETUP_DUST_NO_STOCK_HIT):
+        return CONTROLS_BAD, "setup %s" % (status or "<none>")
+    if dust_block(sidecar) is None:
+        return CONTROLS_BAD, "no dust block"
+    ev = dust_control_evidence(sidecar)
+    if above:
+        if ev["stockRaycastHit"] or ev["realDustCovered"]:
+            return CONTROLS_BAD, "stock drew dust past its reach"
+        if not ev["ghostDustCovered"]:
+            return CONTROLS_OK, ""
+        if not DUST_ABOVE_REACH_GHOST_JUDGED:
+            return CONTROLS_NOT_APPLICABLE, "the ghost draws dust past stock's reach (G.8 item 3)"
+        return CONTROLS_BAD, "the ghost draws dust past stock's reach"
+    if ev["realDustCore"] < FX_PRESENCE_MIN_PX:
+        return CONTROLS_BAD, "no real dust core"
+    if cid == CONTROL_IDS_DUST[0]:  # ctl-dust-real-vs-real
+        return _require(not ev["dustFailing"], "fails " + _ordered(DUST_MEASURES, ev["dustFailing"]))
+    if "presence" not in ev["dustFailing"]:
+        return CONTROLS_BAD, "dust presence passes"
+    return _require(not ev["flameFailing"], "the flame layer fails " + _ordered(DUST_MEASURES, ev["flameFailing"]))
+
+
+def judge_p9_control(cid: str, sidecar: Optional[Dict]) -> Tuple[str, str]:
+    """A burst or dust run's control re-judged from its sidecar (G.4)."""
+    if cid in CONTROL_IDS_DUST:
+        return judge_dust_control(cid, sidecar)
+    return judge_burst_control(cid, sidecar)
+
+
+# --- the documents and the gate -----------------------------------------------------------
+
+def p9_case_counts(cases: Iterable["CaseVerdict"]) -> Optional[Dict[str, Any]]:
+    """The verdicts document's ``burst`` section: the burst and dust cases' verdicts per
+    family, the cases per flag kind and the lines; None when the sweep has none."""
+    judged = [c for c in cases if c.burst is not None]
+    if not judged:
+        return None
+    families: Dict[str, Dict[str, int]] = {}
+    flags: Dict[str, int] = {}
+    kinds = {k: 0 for k in P9_KINDS}
+    for c in judged:
+        kinds[c.burst.kind] = kinds.get(c.burst.kind, 0) + 1
+        fam = families.setdefault(str(c.burst.family), {v: 0 for v in VERDICTS})
+        fam[c.verdict] = fam.get(c.verdict, 0) + 1
+        for kind in sorted({f.split(":", 1)[0] for f in c.burst.flags}):
+            flags[kind] = flags.get(kind, 0) + 1
+    return {"cases": len(judged), "kinds": kinds, "families": dict(sorted(families.items())),
+            "flags": dict(sorted(flags.items())), "thresholds": dict(BURST_THRESHOLDS)}
+
+
+def p9_summary(cases: Iterable["CaseVerdict"]) -> str:
+    """`` burst=<n> dust=<n>`` on a P9 sweep's summary line, empty otherwise."""
+    counts = p9_case_counts(cases)
+    if counts is None:
+        return ""
+    return " burst=%d dust=%d" % (counts["kinds"]["burst"], counts["kinds"]["dust"])
+
+
+def p9_fail_reasons(verdict: "CaseVerdict") -> List["FailReason"]:
+    """The fail-level findings of a burst or dust case for the gate: one per entry and measure
+    over its fail line (group ``burst:<measure>`` / ``dust:<measure>``), the schedule's, the
+    raycast's ``dust-extra`` and each structure one; empty for any other case."""
+    j = verdict.burst
+    if j is None or j.verdict != VERDICT_FAIL:
+        return []
+    group = GROUP_BURST_PREFIX if j.kind == "burst" else GROUP_DUST_PREFIX
+    out: List[FailReason] = []
+    for e in j.entries:
+        for f in e.findings:
+            if f.level == VERDICT_FAIL:
+                out.append(FailReason(fx_reason(e.route, e.view, e.layer, f.reason), group + f.measure,
+                                      view_key(e.view, e.route), False))
+    if j.schedule and j.schedule.get("judged"):
+        out.extend(FailReason(f["reason"], group + "schedule", None, False)
+                   for f in j.schedule.get("findings") or [] if f["level"] == VERDICT_FAIL)
+    for r in j.reasons:
+        if r.startswith(DUST_REASON_EXTRA_PREFIX):
+            out.append(FailReason(r, group + "raycast", None, False))
+    for side in ("missing", "extra"):
+        out.extend(FailReason("%s-%s:%s" % (side, j.kind, k), group + "structure", None, False)
+                   for k in j.structure.get(side) or [])
+    return out

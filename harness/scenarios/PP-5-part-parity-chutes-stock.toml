@@ -41,7 +41,24 @@ tier = "operator"
 # surface-frame test stand, exhaust straight down, spooled to the request (Goliath: 77 s) and
 # compared with its event-route and start-route ghosts as a distribution over 16 samples per
 # view. The 14 stock jet cases (Wheesley, Juno, Whiplash, Panther in both modes, Goliath, RAPIER
-# in air mode, at full and at 30 %) and the four air FX controls.
+# in air mode, at full and at 30 %), the Whiplash and the wet Panther on the vessel's main
+# throttle (design E.2, 4 cases, never flown here) and the four air FX controls.
+#
+# THE THIRD LABEL, AIR MOTION (phase P7, Appendix H.4, work row M7 of H.7; added 2026-11-27,
+# NEVER FLOWN): the chutes' motion between their stowed and their semi / full canopy,
+# photographed LIVE on target frames from the press beside the event-route ghost posed at
+# each real frame's UT and progress (the orbit motion lanes PP-14 / PP-15 fly every other
+# transforming part). About 70 s of sweep does not earn its own boot and LoadGame, so after
+# the FX label the same host runs `op=reset` and one `op=run contexts=air motion=all` step
+# under the label `pp5mo` (its own directory, manifest and control set: `ctl-empty`,
+# `ctl-ghost-absent` and `ctl-motion-real-vs-real-air`, two Mk16 pressed together, the
+# canopy-scale curves only). The 10 chute motion cases (5 semi, 5 full; design H.1); its step
+# logs the exact counts on its `motion cases: motion=all contexts=air` line. It runs LAST, so
+# a label never flown cannot stop the two flown ones (an unmet step ends the drive). Its
+# motion verdicts are report-only like the rest of the lane; the H.6 item 3 snap (the ghost
+# writes the canopy pose at once) is the expected finding (todo
+# GHOST-DEPLOY-MOTION-TIMING-2026-11-26). Its first flight is a `limit=20` reading flight
+# of this label on a local copy of the spec.
 #
 # STEP SIZING (design D.8). About 1 minute of chute sweep: waves of up to five chutes, each about
 # 20 s (spawn, settle, semi, full, the canopy window, capture), plus the controls. One
@@ -81,7 +98,7 @@ tier = "operator"
 # spec): 10 cases, every chute reached semi and full for real with its events recorded and was
 # captured inside the canopy window, controls ok, complete, recompute 0 mismatches; the 10
 # report-only fails are todo GHOST-CHUTE-CANOPY-AIM.
-description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 14 held air-breathing engine cases over two contexts=air fx=all steps."
+description = "LIVE-PROVEN 2026-11-22 (part ghost parity P6 S7, `2026-11-22_1713`): every stock parachute opened for real (semi, then full) over the KSC showcase band beside its Parsek ghosts (event route, start route, stowed reference), one PartParitySweep contexts=air states=all step on a pad host, judged by the partParity verifier row (controls, press, recompute and completeness gates; part verdicts report-only). A second label, pp5fx (LIVE-PROVEN `2026-11-23_1718`: part ghost parity P8 F7), photographs the 18 held air-breathing engine cases (14 before 2026-11-24) over two contexts=air fx=all steps. A third label, pp5mo (AUTHORED 2026-11-27, NEVER FLOWN: part ghost parity P7 M7), photographs the 10 chute motion cases live over one contexts=air motion=all step."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-5"]
 
@@ -111,6 +128,10 @@ steps = [
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "reset", contexts = "air", fx = "all" }, expect = "OK", budget = 120 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  # The third label: the chutes' motion (Appendix H.4), last so a label never flown cannot
+  # stop the two flown ones. The reset carries the run's own kind, as above.
+  { cmd = "PartParitySweep", args = { label = "pp5mo", op = "reset", contexts = "air", motion = "all" }, expect = "OK", budget = 120 },
+  { cmd = "PartParitySweep", args = { label = "pp5mo", op = "run", contexts = "air", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -141,14 +162,19 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp5fx op=run ok=true label=pp5fx done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp5fx elapsed=[0-9.]+s label=pp5fx done=(true|false) ",
   "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] fx cases: fx=all contexts=air install=[1-9][0-9]* \\(",
+  # The motion label: the same two lines, and the air motion counts (PartParityMotionRules.FormatCounts).
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp5mo op=run ok=true label=pp5mo done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp5mo elapsed=[0-9.]+s label=pp5mo done=(true|false) ",
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] motion cases: motion=all contexts=air install=[1-9][0-9]* \\(",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
 ]
 
 [runtime]
-# The load step 300 s, two resets 120 each, three 540 s run steps (2160 s).
-budgetSeconds = 2400
+# The load step 300 s, three resets 120 each, four 540 s run steps (2820 s; 2400 before the
+# motion label).
+budgetSeconds = 3000
 
 [retry]
 policy = "none"

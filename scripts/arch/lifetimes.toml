@@ -630,6 +630,13 @@ reason = "flight render tracing"
 ExpectedAttitudeSource = "scene: ParsekFlight.Start sets it and ParsekFlight.OnDestroy clears it"
 
 [[type]]
+name = "Parsek.GhostTransientFxRecord"
+reason = "the record of the explosions and part puffs Parsek starts (part parity P9 X2)"
+[type.fields]
+entries = "test-hook: armed only by tests and the part parity burst driver through Arm / Disarm on this type; null (records nothing) otherwise"
+view = "test-hook: the read-only view of entries, set and dropped with it"
+
+[[type]]
 name = "Parsek.GhostWorldSpaceEmitter"
 reason = "ghost smoke that follows the floating origin"
 [type.fields]
@@ -724,6 +731,13 @@ reason = "the Tracking Station scene addon"
 [type.fields]
 tsTailPositionLogKeys = "process: rate-limit keys of the per-frame tail line, composed from the recording id alone, so an entry never goes stale"
 tsTailSlideLogKeys = "process: rate-limit keys of the per-frame tail-slide line, composed from the recording id alone, so an entry never goes stale"
+
+[[type]]
+name = "Parsek.StockExplosionPrefabCache"
+reason = "silent copies of stock's explosion prefabs kept from the flight scene"
+[type.fields]
+holder = "process: the inactive DontDestroyOnLoad holder of the kept copies, taken once from the first live FXMonger"
+copies = "process: the kept copies under that holder, one per FXMonger.explosions entry"
 
 [[type]]
 name = "Parsek.GhostVisualBuilder"

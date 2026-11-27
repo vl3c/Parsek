@@ -119,6 +119,43 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", "Unsubscribed part event hooks");
         }
 
+        /// <summary>
+        /// The <see cref="PartEventType.Decoupled"/> event both recorders write for the child of a
+        /// structural joint break (and the deferred split check's fallback for a new vessel's
+        /// root). Pure, so a caller outside the recorders (the part parity burst driver) builds
+        /// the event a recording holds; <c>PartParityGhostSeamTests</c> pins that every recorder
+        /// site calls it.
+        /// </summary>
+        internal static PartEvent BuildDecoupledPartEvent(uint partPersistentId, string partName, double ut)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = PartEventType.Decoupled,
+                partName = partName ?? "unknown"
+            };
+        }
+
+        /// <summary>
+        /// The part-death event both recorders write from <c>onPartDie</c>.
+        /// <paramref name="deathType"/> is <see cref="ClassifyPartDeath"/>'s answer for the part:
+        /// <see cref="PartEventType.Destroyed"/>, or <see cref="PartEventType.ParachuteDestroyed"/>
+        /// for a part that dies with its canopy out. Pure; pinned with
+        /// <see cref="BuildDecoupledPartEvent"/>.
+        /// </summary>
+        internal static PartEvent BuildDestroyedPartEvent(
+            uint partPersistentId, string partName, double ut, PartEventType deathType)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = deathType,
+                partName = partName ?? "unknown"
+            };
+        }
+
         private void OnPartDie(Part p)
         {
             if (!IsRecording) return;
@@ -133,13 +170,8 @@ namespace Parsek
             bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
             var evtType = ClassifyPartDeath(p.persistentId, hasChute, parachuteStates);
 
-            PartEvents.Add(new PartEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                partPersistentId = p.persistentId,
-                eventType = evtType,
-                partName = p.partInfo?.name ?? "unknown"
-            });
+            PartEvents.Add(BuildDestroyedPartEvent(
+                p.persistentId, p.partInfo?.name, Planetarium.GetUniversalTime(), evtType));
             ActivateHighFidelitySampling(PartEvents[PartEvents.Count - 1].ut, $"part-event-{evtType}");
             ParsekLog.Verbose("Recorder", $"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
             RefreshFinalizationCache(p.vessel, "part_die", force: true);
@@ -474,13 +506,8 @@ namespace Parsek
         /// </summary>
         internal void RecordJointBreakDecoupledEvent(PartJoint joint, double jointBreakUT)
         {
-            PartEvents.Add(new PartEvent
-            {
-                ut = jointBreakUT,
-                partPersistentId = joint.Child.persistentId,
-                eventType = PartEventType.Decoupled,
-                partName = joint.Child.partInfo?.name ?? "unknown"
-            });
+            PartEvents.Add(BuildDecoupledPartEvent(
+                joint.Child.persistentId, joint.Child.partInfo?.name, jointBreakUT));
             ActivateHighFidelitySampling(jointBreakUT, "joint-break");
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
         }
@@ -567,15 +594,7 @@ namespace Parsek
             // the same pid (unlikely but defensive) short-circuits via its own fast path.
             decoupledPartIds.Add(partPid);
 
-            PartEvents.Add(new PartEvent
-            {
-                ut = ut,
-                partPersistentId = partPid,
-                eventType = PartEventType.Decoupled,
-                partName = partName ?? "unknown",
-                value = 0f,
-                moduleIndex = 0
-            });
+            PartEvents.Add(BuildDecoupledPartEvent(partPid, partName, ut));
             ParsekLog.Info("Recorder",
                 $"Fallback Decoupled event recorded: '{partName}' pid={partPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
             return 1;
@@ -1694,60 +1713,9 @@ namespace Parsek
         {
             if (cachedRoboticModules == null) return;
 
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < cachedRoboticModules.Count; i++)
-            {
-                var (part, module, moduleIndex, moduleName) = cachedRoboticModules[i];
-                if (part == null || module == null) continue;
-
-                ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
-                if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
-
-                // Wheel motor spin and wheel steering deflection are derived from the ghost's own
-                // ground motion at playback, and wheel suspension travel is not recorded at all. The
-                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
-                // builder's; only the emission is skipped. See IsRoboticEmissionSkippedModuleName.
-                if (!ShouldEmitRoboticEvents("Recorder", moduleName, key, loggedRoboticModuleKeys,
-                        part.partInfo?.name, part.persistentId, moduleIndex, null))
-                    continue;
-
-                bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);
-                bool hasPosition = TryGetRoboticPositionValue(
-                    module, moduleName, out float positionValue, out float deadband, out string sourceField);
-
-                if (!hasPosition)
-                {
-                    if (loggedRoboticModuleKeys.Add(key))
-                    {
-                        ParsekLog.Verbose("Recorder", $"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
-                            $"midx={moduleIndex} module={moduleName}; fields=[{DescribeModuleFields(module)}]");
-                    }
-                    continue;
-                }
-
-                var events = EvaluateRoboticPoll(
-                    key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown", moduleName, sourceField,
-                    hasMovingSignal, movingSignal, positionValue, deadband, ut,
-                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
-                    roboticMotionWindows, roboticSampleIntervalSeconds,
-                    out string movingSource, out _);
-
-                if (loggedRoboticModuleKeys.Add(key))
-                {
-                    ParsekLog.Verbose("Recorder", FormatRoboticTrackingLine(
-                        part.partInfo?.name, part.persistentId, moduleIndex, moduleName, sourceField,
-                        deadband, movingSource, roboticSampleIntervalSeconds, null));
-                }
-
-                for (int e = 0; e < events.Count; e++)
-                {
-                    PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                        $"val={events[e].value:F3}");
-                }
-            }
+            PartStatePoller.PollRobotics(v, cachedRoboticModules, activeRoboticKeys, lastRoboticPosition,
+                lastRoboticSampleUT, roboticMotionWindows, loggedRoboticModuleKeys,
+                roboticSampleIntervalSeconds, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         #endregion
@@ -1853,11 +1821,13 @@ namespace Parsek
                 // (GhostPlaybackLogic.AutoStartOrphanEnginePlayback / BuildEngineEventKeySet)
                 // only inspects engine events — if a chain-promoted recording reaches
                 // playback with zero engine events, every engine on the ghost auto-starts
-                // at full power, even ones the recorder captured as shut down. Non-engine
-                // seeds (DeployableExtended, LightOn, ParachuteDeployed, etc.) are still
-                // skipped on promotion to preserve the bug A / #263 FindLastInterestingUT
-                // invariant — re-emitting them at a late promotion UT is what blocked
-                // rover boring-tail trim. Engine-only seeds are scoped narrowly enough
+                // at full power, even ones the recorder captured as shut down. The full
+                // non-engine seed set (DeployableExtended, LightOn, ParachuteDeployed, etc.)
+                // is still skipped on promotion to preserve the bug A / #263
+                // FindLastInterestingUT invariant — re-emitting it at a late promotion UT is
+                // what blocked rover boring-tail trim; only a state the recording's ghost
+                // would show wrongly is written (EmitPartStateEventsForPromotion, below), at
+                // a UT that cannot move it. Engine-only seeds are scoped narrowly enough
                 // that they cannot recreate that failure mode: every other recording type
                 // (Quickload-resume, BG promote, normal continuation) lands on an
                 // activeRec that already has engine events, so the engine gate skips too;
@@ -1899,6 +1869,7 @@ namespace Parsek
                 // promotion, so his recording's last word can be out of date.
                 if (v.isEVA)
                     EmitEvaStateSeedEventsForPromotion(v, activeRec, activeRecId);
+                EmitPartStateEventsForPromotion(v, activeRec, activeRecId);
                 return;
             }
 
@@ -1967,7 +1938,7 @@ namespace Parsek
                 $"seed event(s) for chain promotion (activeRec='{activeRecId ?? "(none)"}' had 0 " +
                 $"engine events of {totalEventCount} total — seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} — " +
-                $"non-engine seeds still skipped to preserve bug A / #263 invariant)");
+                $"full seed set still skipped to preserve bug A / #263 invariant)");
         }
 
         /// <summary>
@@ -2031,6 +2002,45 @@ namespace Parsek
                 $"ResetPartEventTrackingState: emitted {emitted} EVA seed event(s) for chain " +
                 $"promotion (activeRec='{activeRecId ?? "(none)"}' " +
                 $"jetpack={jetpackDeployedParts.Count} ragdoll={ragdollParts.Count} " +
+                $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// Emits the part states (parachutes, lights, shrouds, fairings, deployables, gear, bays,
+        /// wheels, heat) that no recorder wrote and the recording's ghost would show wrongly from
+        /// here on (<see cref="PartStateSeeder.EmitPromotionStateEvents"/>). A tracked background
+        /// member is polled up to its promotion and a fresh recording's ghost spawns from the
+        /// snapshot this start captures, so most promotions emit nothing. Runs before
+        /// CaptureStartSnapshots: a recording with no ghost snapshot yet is one whose ghost will
+        /// spawn as the vessel is now. The recorder's own buffer holds only engine, converter and
+        /// EVA seeds here, so the active recording's events are all that has been recorded of
+        /// these families.
+        /// </summary>
+        private void EmitPartStateEventsForPromotion(Vessel v, Recording activeRec, string activeRecId)
+        {
+            if (activeRec == null)
+            {
+                ParsekLog.Verbose("Recorder",
+                    "ResetPartEventTrackingState: part state reconcile skipped (chain promotion, " +
+                    $"no active recording '{activeRecId ?? "(none)"}')");
+                return;
+            }
+
+            double currentUT = Planetarium.GetUniversalTime();
+            double seedUT = ResolveChainPromotionSeedUT(activeRec, currentUT);
+            double lastInterestingUT = RecordingOptimizer.FindLastInterestingUT(activeRec);
+            List<PromotionPartFacts> facts =
+                PartStateSeeder.CollectPromotionPartFacts(v, activeRec.GhostVisualSnapshot);
+            int emitted = PartStateSeeder.EmitPromotionStateEvents(
+                BuildCurrentTrackingSets(), facts, activeRec.PartEvents, PartEvents,
+                seedUT, lastInterestingUT, currentUT, "Recorder");
+            ParsekLog.Verbose("Recorder",
+                $"ResetPartEventTrackingState: part state reconcile emitted {emitted} event(s) for " +
+                $"chain promotion (activeRec='{activeRecId}' parts={facts.Count} " +
+                $"startSnapshot={(activeRec.GhostVisualSnapshot != null ? "recorded" : "pending")} " +
+                $"recordedEvents={activeRec.PartEvents?.Count ?? 0} " +
+                $"lastInterestingUT={lastInterestingUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"seedUT={seedUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)})");
         }

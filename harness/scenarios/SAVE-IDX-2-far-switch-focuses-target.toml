@@ -1,0 +1,176 @@
+schema = 1
+id = "SAVE-IDX-2-far-switch-focuses-target"
+# =====================================================================================
+# SAVE-IDX-2: A FAR SWITCH-TO LANDS ON THE VESSEL THE PLAYER PICKED WHEN A GHOST MAP VESSEL
+# SITS AHEAD OF IT (todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP, far-watch audit F, fix PR #2842;
+# SAVE-IDX-1 is the F5 / F9 half).
+#
+# WHY. Stock's FlightGlobals.setActiveVessel with a target outside the physics bubble fires
+# onVesselSwitchingToUnloaded, saves persistent, then calls
+# FlightDriver.StartAndFocusVessel(HighLogic.CurrentGame.Updated(), vessels.IndexOf(target))
+# (decompiled, KSP 1.12.5). Updated() strips the ghosts from the game it hands over, but
+# IndexOf reads the LIVE list that still holds them, so a target created after a live ghost
+# was focused one slot late per ghost ahead of it. The fix removes every ghost map vessel from
+# the live list inside onVesselSwitchingToUnloaded (ParsekFlight.OnVesselSwitchingToUnloaded ->
+# GhostMapPresence.RemoveAllGhostVesselsBeforeFarSwitch, one `Far Switch-To pre-stock ghost
+# strip:` Info line), so the live index and the stripped game agree; the scene reloads right
+# after, so the ghosts would be torn down a moment later anyway.
+#
+# THE HOST. CN-3's: gloops-airshow plus the `ghost-commnet-timeline` preset (read CN-3's
+# header). The deploy relay's ghost runs 100,000 s and keeps its map ghost the whole lane; the
+# held relay ("CN Held Relay", terminal Orbiting at UT 371.16 with an end snapshot) spawns as
+# a real vessel at its end, so it is appended to the live list AFTER the deploy relay's map
+# ghost. It orbits 2,863 km up, far outside the physics bubble: a switch to it reloads FLIGHT.
+#
+# THE TIMELINE:
+#   ~21      LoadGame boots FLIGHT on the pad capsule; settle at 1x (CN-3: a warp sent before
+#            the unpack is refused `warp-locked`).
+#   ~22      the three relays' map ghosts are created after [asteroid, capsule].
+#   400      WarpToUT (maxRate 50, CN-3's rate) across the doomed relay's end (271.16, its
+#            ghost goes) and the held relay's end (371.16, it spawns in the same frame and its
+#            ghost goes). Live list [asteroid, capsule, Ghost: CN Deploy Relay, CN Held Relay].
+#   EVA      EvaExit release=true + PlantFlag: Jebediah and the flag are appended after the
+#            held relay: [..., ghost, held relay, Jeb, flag]. Without them a one-slot drift
+#            would run past the end of the stripped list and FlightDriver.Start's clamp would
+#            land on the held relay by accident, so the lane could not red.
+#   jump     AlarmJump vessel="CN Held Relay" jump=shown: a stock alarm on the held relay
+#            fires its dialog and Jump is pressed. Nothing records, so no pre-switch dialog
+#            takes it (`runStock=True`) and stock's own SetActiveVessel runs its unloaded
+#            branch. The fix strips the one ghost first (`indexDriftAvoided=1`): IndexOf names
+#            the held relay at 2 in [asteroid, capsule, held relay, Jeb, flag]. Before the fix
+#            it read 3 and the reloaded scene focused Jebediah.
+#   reload   ListHandles kind=chains holds until the reloaded scene's OnFlightReady ran (S0.14),
+#            and `Flight ready focus:` must name the alarm's target pid as 'CN Held Relay'. The
+#            relay continues in a new switch segment under its committed recording (below).
+#
+# WHAT GATES. The alarm's target pid is captured from `alarmjump start` and back-referenced
+# into the strip line and the reloaded focus line, so the lane reds when no ghost was stripped
+# before the switch (`indexDriftAvoided` must be at least 1: no drift means the lane proves
+# nothing), when the switch did not reload, and when the reloaded scene focuses another vessel.
+#
+# NOTHING RECORDS BEFORE THE SWITCH. autoRecordOnLaunch, autoRecordOnEva and
+# autoRecordOnFirstModificationAfterSwitch are off: with a recording live the far switch would
+# take pre-switch Case B (S0.14's merge first), which is not this lane's subject.
+#
+# ONE RECORDING STARTS AFTER IT, BY DESIGN. The held relay is the spawned end of a committed
+# tree, so the reloaded flight focused on it takes a copy of that tree back and continues the
+# relay in a new switch segment under its recording (docs/parsek-flight-recorder-design.md,
+# "Three branches" (1): a Parsek spawn regenerates every part id, so it is a new segment, entry
+# reason `ResumedSpawnedVessel`, the shape MINE-13 pins). The first flight `2026-11-27_1710`
+# (automation DLL 9a283490 from 414a2d37a) read it: `[SwitchSegment] created ...
+# parentRecId=cn3-held-relay ... reason=ResumedSpawnedVessel`, saveParse inFlightCopyTrees=1,
+# VesselSwitchContinuation=1, and recordings 4 (the preset's 3 plus the segment). That flight
+# was PARSEK-FAIL(expectation) on `recordings.count 4 > max 3` ALONE, a spec premise: every log
+# contract matched, `indexDriftAvoided=1`, and the reload focused CN Held Relay. Re-pinned to
+# 4 with the segment line required.
+#
+# PRE-REGISTERED READINGS (written before the first flight; the count premise was wrong, above):
+#   - `alarmjump rejected reason=alarmjump-target-not-found`: the held relay did not spawn by
+#     UT 400; read CN-3's `Orbital vessel spawn` / `Held ghost spawn` lines.
+#   - `alarmjump result ... switched=False sceneLoadRequested=false`: stock refused the switch
+#     (ClearToSave, most likely the kerbal still moving after the flag); add a RecordingState
+#     settle after PlantFlag.
+#   - `indexDriftAvoided=0`: the deploy relay's map ghost was gone or came after the held relay
+#     in the live list; read the `[GhostMap] Created ghost vessel` / `Removed` lines.
+#   - The focus line names 'Jebediah Kerman': the fix is not in the deployed DLL (check the DLL
+#     for the `Far Switch-To pre-stock ghost strip` literal first).
+#
+# FAST-LANE CHECKLIST: (1) reuse: CN-3's host, preset, settle and warp rate, EVA-1's EvaExit /
+# PlantFlag pair, S0.14 / ASR-5's AlarmJump + ListHandles far switch; (2) explicit-UT warp
+# only, to 400 (29 s of game time past the held spawn, not CN-3's 621); (3)-(5) no dwell,
+# burn or coast; (6) retry `once`; (7) recordings exactly the preset's 3 plus the resumed segment; (8) operator until
+# measured; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "A far Switch-To lands on the vessel the player picked when a ghost map vessel sits ahead of it: on gloops-airshow plus the ghost-commnet-timeline preset, the clock is warped past the held relay's spawn, Jebediah EVAs onto the pad and plants a flag, then a stock alarm's Jump switches to the far held relay; the ghost map vessels must be stripped from the live list before stock's IndexOf, and the reloaded scene must focus the held relay, not Jebediah."
+instanceProfile = "stock-minimal"
+tags = ["SAVE-IDX-2", "far-switch", "alarm-jump", "ghost-map", "eva", "flag-plant",
+        "injected-recordings", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-timeline"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },                            expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },                        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },                           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" },  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },                             expect = "OK" },
+  # Settle at 1x before the warp (CN-3's twelve frames).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # Past the held relay's end (371.16): it spawns as a real vessel after the deploy ghost.
+  { cmd = "WarpToUT",       args = { ut = "400", maxRate = "50" },                                          expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+
+  # ---- two vessels created after the held relay ----
+  { cmd = "EvaExit",        args = { release = "true" },                                                    expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                                                      expect = "OK", budget = 180 },
+
+  # ---- the far switch ----
+  { cmd = "MissionMark",    args = { label = "save-idx2-jump" },                                            expect = "OK" },
+  { cmd = "AlarmJump",      args = { vessel = "CN Held Relay", jump = "shown" },                            expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                                     expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "save-idx2-arrived" },                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The preset's 3 plus the held relay's resumed switch segment (measured `2026-11-27_1710`).
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required = [
+  # ---- the host premise: the held relay is a real vessel before the kerbal exists ----
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(CN Held Relay\\) pid=[0-9]+ .*terminal=Orbiting[\\s\\S]*?MISSIONMARK label=save-idx2-jump ut=",
+
+  # ---- stock's switch runs, the ghosts go before its IndexOf, and the reload flies the target ----
+  "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?alarmjump start targetPid=([0-9]+) vessel='CN Held Relay' targetIsGhost=false targetLoaded=false active=[0-9]+ stockWouldShowJump=true decision=\\S+ jump=shown[\\s\\S]*?\\[AlarmJump\\] Jump in FLIGHT targetPid=\\1 runStock=True[\\s\\S]*?\\[GhostMap\\] Far Switch-To pre-stock ghost strip: targetPid=\\1 ghostCount=[1-9][0-9]* liveVesselsBefore=[0-9]+ indexDriftAvoided=[1-9][0-9]* - removed all ghost map vessels before stock IndexOf[\\s\\S]*?\\[Flight\\] Flight ready focus: pid=\\1 name='CN Held Relay' type=\\S+ index=[0-9]+ vessels=[0-9]+[\\s\\S]*?MISSIONMARK label=save-idx2-arrived ut=",
+  "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?alarmjump result targetPid=[0-9]+ targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=\\S+ jump=shown pressed=true before=[0-9]+ after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
+  "listhandles kind=chains count=[0-9]+ truncated=",
+  # The reloaded flight continues the spawned relay in a new segment under its recording.
+  "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?\\[SwitchSegment\\] created intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=cn3-held-relay segmentRecId=\\S+ branchPointId=\\S+ sourcePid=[0-9]+ focusedPid=[0-9]+ focusedName='CN Held Relay' reason=ResumedSpawnedVessel ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "alarmjump rejected",
+  "alarmjump failed",
+  "Far Switch-To pre-stock ghost strip skipped",
+  # The pre-fix outcome: the reload flies the kerbal one slot after the target.
+  "MISSIONMARK label=save-idx2-jump ut=[\\s\\S]*?Flight ready focus: pid=[0-9]+ name='Jebediah Kerman' ",
+  # A pre-switch dialog took the switch: something was recording.
+  "pre-switch auto-resolve: resolution=",
+]
+
+[runtime]
+# Budget arithmetic: 300 LoadGame + 300 WarpToUT + 120 EvaExit + 180 PlantFlag + 120 AlarmJump
+# + 240 ListHandles = 1260, plus 16 settle frames, the fast verbs and a margin.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

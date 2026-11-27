@@ -216,17 +216,17 @@ namespace Parsek.InGameTests
                 // round trip perfectly. The round trip only means something once the value going
                 // into it is PROVABLY not the baseline.
                 GhostPlaybackLogic.ResetFxMagnitudeWriteFailureCountForTesting();
-                float baselineSpeed = SumBaselineStartSpeed(rcs.particleBaselines);
+                float baselineSpeed = SumFxMagnitude(rcs.particleSystems, rcs.kspEmitters);
                 float baselineEmission = SumBaselineMaxEmission(rcs.kspEmitters);
 
                 GhostPlaybackLogic.SetRcsEmission(state, evt, 0.25f);
-                float scaledSpeed = SumStartSpeed(rcs.particleSystems);
+                float scaledSpeed = SumFxMagnitude(rcs.particleSystems, rcs.kspEmitters);
                 float scaledEmission = SumEmitterMaxEmission(rcs.kspEmitters);
 
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
-                float afterSpeed = SumStartSpeed(rcs.particleSystems);
+                float afterSpeed = SumFxMagnitude(rcs.particleSystems, rcs.kspEmitters);
                 float afterEmission = SumEmitterMaxEmission(rcs.kspEmitters);
 
                 int writeFailures = GhostPlaybackLogic.FxMagnitudeWriteFailureCount;
@@ -237,21 +237,18 @@ namespace Parsek.InGameTests
                     "failed' in KSP.log for the field name and its declared type.");
 
                 InGameAssert.IsTrue(scaledSpeed > 0f,
-                    "fixture is vacuous: '" + usedPart + "' produced zero total startSpeedMultiplier " +
+                    "fixture is vacuous: '" + usedPart + "' produced zero total magnitude " +
                     "at 25% power, so the round-trip assertion could not fail");
                 InGameAssert.IsTrue(baselineSpeed > 0f,
-                    "fixture is vacuous: '" + usedPart + "' captured a zero total baseline " +
-                    "startSpeedMultiplier, so 'scaled differs from baseline' could not fail");
+                    "fixture is vacuous: '" + usedPart + "' was built with zero total " +
+                    "magnitude, so 'scaled differs from baseline' could not fail");
 
                 // NON-VACUITY, arm 1: the value the round trip is about must actually BE a scaled
-                // one. This is a HARD assertion rather than a skip, and that is grounded in a
-                // measurement of the fixture population rather than in hope: every stock RCS
-                // MODEL_MULTI_PARTICLE in GameData/Squad declares `speed = 0.0 0.8` / `speed = 1.0
-                // 1.0` (RV-105 and its small variant, the linear port, the Vernor, the Mk1-3 pod),
-                // so a 0.25-power write reads ~0.85 of baseline; and a part whose curve failed to
-                // scan falls back to `power * 10f`, i.e. 0.25 of baseline. Neither can land on 1.0.
-                // The showcase floors cannot lift it either — they are gated on a `parsek-rcs-...`
-                // vessel-name prefix this fixture does not use, and RcsShowcaseSpeedScale is 1f.
+                // one. This is a HARD assertion rather than a skip: every stock RCS
+                // MODEL_MULTI_PARTICLE in GameData/Squad declares `speed = 0.0 0.8` / `1.0 1.0` and
+                // `emission = 0.1 0.0` / `1.0 1.0` (RV-105 and its small variant, the linear port,
+                // the Vernor, the Mk1-3 pod), and a block's nozzle power at 0.25 recorded stays
+                // under 1 (RV-105: 9 / 4 of it, 0.56), so speed and emission are both below full.
                 InGameAssert.IsLessThan(scaledSpeed, baselineSpeed * 0.999f,
                     "S1 NON-VACUITY: at 25% power the plume must be strictly BELOW the captured " +
                     "baseline before the suppress/restore round trip is worth asserting. '" +
@@ -340,16 +337,19 @@ namespace Parsek.InGameTests
                 Vector3 deployedPos = moving.deployedPos;
                 double t0 = Planetarium.GetUniversalTime();
 
-                // ARM 1 — the ANIMATED path. Half a clip in, the transform must be interior.
+                // ARM 1 — the ANIMATED path. Half a motion in, the transform must be interior. A
+                // family whose recorded event marks the END of stock's motion (panels, gear, bays,
+                // ladders, standalone animate generics) is handed an event one motion after t0,
+                // so its motion runs [t0, event]; any other family starts at its event.
+                double motion = GhostPlaybackLogic.DeployMotionSecondsFor(deployable, true);
                 var extend = new PartEvent
                 {
-                    ut = t0,
+                    ut = t0 + GhostPlaybackLogic.EndMarkedMotionSecondsFor(deployable, true),
                     partPersistentId = deployable.partPersistentId,
                     eventType = PartEventType.DeployableExtended
                 };
                 GhostPlaybackLogic.ApplyDeployableState(state, extend, deployed: true, immediate: false);
-                GhostPlaybackLogic.UpdateActiveDeployables(
-                    state, t0 + deployable.clipLengthSeconds * 0.5);
+                GhostPlaybackLogic.UpdateActiveDeployables(state, t0 + motion * 0.5);
 
                 Vector3 midPos = moving.t.localPosition;
                 float toStowed = (midPos - stowedPos).magnitude;
@@ -358,11 +358,11 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(span > 0f, "fixture is vacuous: stowed and deployed poses coincide");
                 InGameAssert.IsGreaterThan(toStowed, span * 0.1f,
-                    "S2: half a clip after the event the panel must have LEFT the stowed pose. " +
+                    "S2: half a motion in the panel must have LEFT the stowed pose. " +
                     "'" + usedPart + "' is still " + toStowed + "m from stowed over a " + span +
                     "m span — the transition is not being advanced by UpdateActiveDeployables.");
                 InGameAssert.IsGreaterThan(toDeployed, span * 0.1f,
-                    "S2: half a clip after the event the panel must NOT have arrived yet. " +
+                    "S2: half a motion in the panel must NOT have arrived yet. " +
                     "'" + usedPart + "' is already " + toDeployed + "m from deployed over a " + span +
                     "m span — this is the snap S2 exists to remove.");
                 InGameAssert.IsTrue(deployable.transitionActive,
@@ -435,13 +435,13 @@ namespace Parsek.InGameTests
 
                 var extend = new PartEvent
                 {
-                    ut = t0,
+                    ut = t0 + GhostPlaybackLogic.EndMarkedMotionSecondsFor(deployable, true),
                     partPersistentId = deployable.partPersistentId,
                     eventType = PartEventType.DeployableExtended
                 };
                 GhostPlaybackLogic.ApplyDeployableState(state, extend, deployed: true, immediate: false);
                 GhostPlaybackLogic.UpdateActiveDeployables(
-                    state, t0 + deployable.clipLengthSeconds * 0.5);
+                    state, t0 + GhostPlaybackLogic.DeployMotionSecondsFor(deployable, true) * 0.5);
                 InGameAssert.IsTrue(deployable.transitionActive,
                     "fixture precondition: the panel must be mid-transition before the loop cycle");
 
@@ -918,17 +918,20 @@ namespace Parsek.InGameTests
         /// <summary>Every magnitude a throttle may change on an engine's sources: speed, size,
         /// lifetime and rate of the particle systems, rate and energy of the emitters.</summary>
         private static float SumEngineMagnitude(EngineGhostInfo engine)
+            => SumFxMagnitude(engine.particleSystems, engine.kspEmitters);
+
+        private static float SumFxMagnitude(List<ParticleSystem> systems, List<KspEmitterRef> emitters)
         {
-            float total = SumStartSpeed(engine.particleSystems) + SumEmitterMaxEmission(engine.kspEmitters);
-            for (int i = 0; i < engine.particleSystems.Count; i++)
+            float total = SumStartSpeed(systems) + SumEmitterMaxEmission(emitters);
+            for (int i = 0; i < systems.Count; i++)
             {
-                ParticleSystem ps = engine.particleSystems[i];
+                ParticleSystem ps = systems[i];
                 if (ps == null) continue;
                 var emission = ps.emission;
                 total += ps.main.startLifetimeMultiplier + emission.rateOverTimeMultiplier;
             }
-            for (int i = 0; i < engine.kspEmitters.Count; i++)
-                if (engine.kspEmitters[i].emitter is KSPParticleEmitter emitter && emitter != null)
+            for (int i = 0; i < emitters.Count; i++)
+                if (emitters[i].emitter is KSPParticleEmitter emitter && emitter != null)
                     total += emitter.maxEnergy + emitter.localVelocity.magnitude;
             return total;
         }
@@ -951,22 +954,6 @@ namespace Parsek.InGameTests
                     // A field we captured but can no longer read is not a test failure — the
                     // production applier degrades the same way. The ParticleSystem arm still holds.
                 }
-            }
-            return total;
-        }
-
-        /// <summary>The CAPTURED build-time magnitude, summed the same way
-        /// <see cref="SumStartSpeed"/> sums the live one — so the two are directly comparable and a
-        /// "scaled differs from baseline" assertion has a real reference to stand on.</summary>
-        private static float SumBaselineStartSpeed(List<GhostFxMagnitudeBaseline> baselines)
-        {
-            if (baselines == null) return 0f;
-            float total = 0f;
-            for (int i = 0; i < baselines.Count; i++)
-            {
-                GhostFxMagnitudeBaseline b = baselines[i];
-                if (!b.captured) continue;
-                total += b.startSpeedMultiplier + b.startSizeMultiplier;
             }
             return total;
         }

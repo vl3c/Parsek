@@ -90,6 +90,16 @@ namespace Parsek.TestCommands
         /// <summary>True when <c>fx=all</c> (the manifest records the token, not the list).</summary>
         internal bool FxAll;
 
+        /// <summary>The <c>motion=</c> words in canonical order (<c>all</c> resolves to every
+        /// <see cref="PartParityMotionRules.ArgWords"/> word), or null for <c>none</c> (Appendix H).</summary>
+        internal List<string> Motion;
+
+        /// <summary>True when <c>motion=all</c> (the manifest records the token, not the list).</summary>
+        internal bool MotionAll;
+
+        /// <summary>The <c>frames=</c> frames per predicted motion time (H.2); a motion run only.</summary>
+        internal int Frames = PartParityMotionRules.DefaultFramesPerMotion;
+
         /// <summary>The views, in canonical order, deduplicated.</summary>
         internal List<string> Views = new List<string>(TestCommandPartParitySweep.RequiredViews);
 
@@ -133,6 +143,10 @@ namespace Parsek.TestCommands
         /// <summary>What an FX case drives (design E.1); null for every other case. Not part of
         /// the identity, like <see cref="StateOption"/>.</summary>
         internal PartParityFxOption FxOption;
+
+        /// <summary>What a motion case presses and reads (Appendix H.1); null for every other
+        /// case. Not part of the identity, like <see cref="StateOption"/>.</summary>
+        internal PartParityMotionOption MotionOption;
     }
 
     /// <summary>One case a step will consider, with its stable index and id.</summary>
@@ -155,7 +169,8 @@ namespace Parsek.TestCommands
     ///
     /// <para>Grammar: <c>PartParitySweep label=&lt;label&gt; [op=reset|run]
     /// [filter=&lt;glob&gt;] [source=&lt;csv&gt;] [skins=default|all]
-    /// [states=none|all|&lt;csv&gt;] [contexts=none|&lt;csv&gt;] [fx=none|all|&lt;csv&gt;] [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
+    /// [states=none|all|&lt;csv&gt;] [contexts=none|&lt;csv&gt;] [fx=none|all|&lt;csv&gt;]
+    /// [motion=none|all|&lt;csv&gt;] [frames=4..16] [views=required|all|&lt;csv&gt;] [tile=256..1024] [shard=&lt;k&gt;/&lt;n&gt;]
     /// [limit=&lt;n&gt;] [controls=true|false] [maxSeconds=60..480]</c>. Every present arg
     /// that does not parse is REJECTED with its own reason, never clamped or defaulted: a
     /// silently widened sweep would run past its step budget, a silently narrowed one would
@@ -188,6 +203,18 @@ namespace Parsek.TestCommands
 
         internal static string FxAtlasFileName(string caseId) => (caseId ?? string.Empty) + FxAtlasSuffix;
         internal static string StripFileName(string caseId) => (caseId ?? string.Empty) + StripSuffix;
+
+        /// <summary>A burst case's time-binned atlas and a dust case's atlas (design Appendix G).</summary>
+        internal const string BurstAtlasSuffix = ".burst.png";
+        internal const string DustAtlasSuffix = ".dust.png";
+
+        internal static string BurstAtlasFileName(string caseId) => (caseId ?? string.Empty) + BurstAtlasSuffix;
+        internal static string DustAtlasFileName(string caseId) => (caseId ?? string.Empty) + DustAtlasSuffix;
+
+        /// <summary>A motion case's strip atlas (Appendix H.2); a motion case writes no still atlas.</summary>
+        internal const string MotionAtlasSuffix = ".motion.png";
+
+        internal static string MotionAtlasFileName(string caseId) => (caseId ?? string.Empty) + MotionAtlasSuffix;
 
         /// <summary>The label directory relative to the KSP root, forward slashes.</summary>
         internal static string RelativeLabelDir(string label) => RootDirName + "/" + (label ?? string.Empty);
@@ -268,11 +295,19 @@ namespace Parsek.TestCommands
         /// prediction (design E.2, E0 U2).</summary>
         internal const string SetupRcsInputMismatch = "rcs-input-mismatch";
 
+        /// <summary>A burst case whose REAL side drew nothing it was meant to: no blast tagged, no
+        /// gas burst (design G.4). Unmeasurable, never a pass.</summary>
+        internal const string SetupBurstNotTriggered = "burst-not-triggered";
+
+        /// <summary>A dust case whose stock raycast hit no surface in any sample (design G.4): its
+        /// slot height is under the part's reach by construction, so this is a setup fault.</summary>
+        internal const string SetupDustNoStockHit = "dust-no-stock-hit";
+
         internal static readonly string[] SetupStatuses =
         {
             SetupOk, SetupSkinNotApplied, SetupSpawnTimeout, SetupStillAnimating,
             SetupDiedSettling, SetupCrashed, SetupDepthMaskUnrepaired, SetupActionFailed, SetupStateTimeout,
-            SetupPlateNotLit, SetupRcsInputMismatch,
+            SetupPlateNotLit, SetupRcsInputMismatch, SetupBurstNotTriggered, SetupDustNoStockHit,
         };
 
         /// <summary>True for a status that is a setup fault: anything but <c>ok</c> and
@@ -350,9 +385,60 @@ namespace Parsek.TestCommands
             ControlEmpty, ControlGhostAbsent, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
         };
 
+        // The burst and dust controls (design G.4); their subjects are PartParityFxRules.BuiltControlPreference's.
+        internal const string ControlBurstEmpty = "ctl-burst-empty";
+        internal const string ControlBurstRealVsReal = "ctl-burst-real-vs-real";
+        internal const string ControlBurstOff = "ctl-burst-off";
+        internal const string ControlBurstLate = "ctl-burst-late";
+        internal const string ControlBurstPower = "ctl-burst-power";
+        internal const string ControlBurstShift = "ctl-burst-shift";
+        internal const string ControlBurstHue = "ctl-burst-hue";
+        internal const string ControlDustRealVsReal = "ctl-dust-real-vs-real";
+        internal const string ControlDustOff = "ctl-dust-off";
+        internal const string ControlDustAboveReach = "ctl-dust-above-reach";
+
+        /// <summary>A burst run's controls (<c>fx=</c> of burst words, <c>contexts=air</c>).</summary>
+        internal static readonly string[] BurstControlIds =
+        {
+            ControlBurstEmpty, ControlBurstRealVsReal, ControlBurstOff, ControlBurstLate, ControlBurstPower,
+            ControlBurstShift, ControlBurstHue,
+        };
+
+        /// <summary>A dust run's controls (<c>fx=dust</c>, <c>contexts=ground</c>).</summary>
+        internal static readonly string[] DustControlIds =
+        {
+            ControlDustRealVsReal, ControlDustOff, ControlDustAboveReach,
+        };
+
+        // The motion controls (Appendix H.3); subjects and judges in PartParityMotionRules.
+        internal const string ControlMotionRealVsReal = "ctl-motion-real-vs-real";
+        internal const string ControlMotionGhostSlow = "ctl-motion-ghost-slow";
+        internal const string ControlMotionGhostLate = "ctl-motion-ghost-late";
+        internal const string ControlMotionRealVsRealAir = "ctl-motion-real-vs-real-air";
+
+        /// <summary>An orbit motion run's controls (<c>motion=</c> without <c>contexts=air</c>):
+        /// the two coverage controls, the capture primitive's real-vs-real, then the three
+        /// motion controls.</summary>
+        internal static readonly string[] MotionOrbitControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlRealVsReal, ControlMotionRealVsReal,
+            ControlMotionGhostSlow, ControlMotionGhostLate,
+        };
+
+        /// <summary>An air motion run's controls: two chutes pressed together.</summary>
+        internal static readonly string[] MotionAirControlIds =
+        {
+            ControlEmpty, ControlGhostAbsent, ControlMotionRealVsRealAir,
+        };
+
         /// <summary>The controls an install may lack a subject for: recorded <c>n/a</c>, never
         /// <c>bad</c> (E0 U9: no part on either install carries a point light).</summary>
         internal static readonly string[] OptionalControlIds = { ControlPlateLightOffPoint };
+
+        /// <summary>The controls that record <c>n/a</c> while a known ghost difference stands
+        /// (design G.4): <c>ctl-dust-above-reach</c> until fix Y3 (G.8 item 3,
+        /// <see cref="PartParityFxRules.DustAboveReachGhostJudged"/>).</summary>
+        internal static readonly string[] KnownDifferenceControlIds = { ControlDustAboveReach };
 
         /// <summary>Every control id any run may plan.</summary>
         internal static readonly string[] AllControlIds =
@@ -363,6 +449,9 @@ namespace Parsek.TestCommands
             ControlFxRealVsReal, ControlFxPlumeOff, ControlFxPlumeShort, ControlFxPlumeHue,
             ControlFxPlumeShift, ControlFxSmokeDropped, ControlHeatEventsDropped, ControlPlateLightOff,
             ControlPlateLightOffPoint, ControlFxRealVsRealAir, ControlFxPlumeOffAir,
+            ControlBurstEmpty, ControlBurstRealVsReal, ControlBurstOff, ControlBurstLate, ControlBurstPower,
+            ControlBurstShift, ControlBurstHue, ControlDustRealVsReal, ControlDustOff, ControlDustAboveReach,
+            ControlMotionRealVsReal, ControlMotionGhostSlow, ControlMotionGhostLate, ControlMotionRealVsRealAir,
         };
 
         internal const string ControlsOk = "ok";
@@ -388,12 +477,21 @@ namespace Parsek.TestCommands
         internal const string StatesArgInvalidReason = "states-arg-invalid";
         internal const string ContextsArgInvalidReason = "contexts-arg-invalid";
         internal const string FxArgInvalidReason = "fx-arg-invalid";
+        internal const string MotionArgInvalidReason = "motion-arg-invalid";
+        internal const string FramesArgInvalidReason = "frames-arg-invalid";
         internal const string ViewsArgInvalidReason = "views-arg-invalid";
         internal const string TileArgInvalidReason = "tile-arg-invalid";
         internal const string ShardArgInvalidReason = "shard-arg-invalid";
         internal const string LimitArgInvalidReason = "limit-arg-invalid";
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
+
+        /// <summary>REJECTED: a well-formed burst or dust run (design G.7) while the live burst
+        /// and dust driver (piece X4) is not built; the grammar alone is <see cref="TryParseGrammar"/>.</summary>
+        internal const string BurstDustRunsNotBuiltReason = "burst-dust-runs-not-built";
+
+        /// <summary>False until the live burst and dust driver (design G.7 piece X4) lands.</summary>
+        internal const bool BurstDustRunsBuilt = false;
 
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
@@ -416,16 +514,16 @@ namespace Parsek.TestCommands
             LabelArgMissingReason, LabelArgInvalidReason, OpArgInvalidReason,
             FilterArgInvalidReason, SourceArgInvalidReason, SkinsArgInvalidReason,
             StatesArgInvalidReason, ContextsArgInvalidReason, FxArgInvalidReason,
-            ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
+            MotionArgInvalidReason, FramesArgInvalidReason, ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
+            BurstDustRunsNotBuiltReason, NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
         /// <summary>Every arg key the verb reads.</summary>
         internal static readonly string[] ArgKeys =
         {
-            "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "views", "tile",
-            "shard", "limit", "controls", "maxSeconds",
+            "label", "op", "filter", "source", "skins", "states", "contexts", "fx", "motion", "frames",
+            "views", "tile", "shard", "limit", "controls", "maxSeconds",
         };
 
         // ----- states= and contexts= (design D.2) -----
@@ -446,6 +544,11 @@ namespace Parsek.TestCommands
         /// written only by an FX run, so every other run's settings stay what they were.</summary>
         internal const string SettingFx = "fx";
 
+        /// <summary>The manifest settings a motion run records its <c>motion=</c> and
+        /// <c>frames=</c> under (Appendix H.2); written only by a motion run.</summary>
+        internal const string SettingMotion = "motion";
+        internal const string SettingFrames = "frames";
+
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
 
         // ----- arg parse -----
@@ -456,13 +559,25 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
-        /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. A burst or dust run
+        /// (design G.7) is refused <c>burst-dust-runs-not-built</c> (detail <c>fx=..</c>) while
+        /// <see cref="BurstDustRunsBuilt"/> is false. On a refusal <paramref name="rejectReason"/> is the reason token and
         /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
-            => TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);
+        {
+            if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
+            if (!BurstDustRunsBuilt && IsBurstDustRun(parsed))
+            {
+                rejectReason = BurstDustRunsNotBuiltReason;
+                rejectDetail = "fx=" + FormatFx(parsed);
+                parsed = null;
+                return false;
+            }
+            return true;
+        }
 
         /// <summary>
         /// The arg grammar alone: every arg of one step, each present one that does not parse
@@ -533,10 +648,33 @@ namespace Parsek.TestCommands
             if (raw != null)
             {
                 if (!TryParseFx(raw, out List<string> fx, out bool fxAll)
-                    || (fx != null && !FxCombinationValid(a)))
+                    || (fx != null && !FxCombinationValid(a, fx)))
                 { rejectReason = FxArgInvalidReason; return Reject("fx", raw, out rejectDetail); }
                 a.Fx = fx;
                 a.FxAll = fxAll;
+            }
+            // The ground context is the dust run's alone: without fx= it would plan nothing.
+            if (a.Fx == null && IsGroundRun(a))
+            { rejectReason = ContextsArgInvalidReason; return Reject("contexts", FormatContexts(a), out rejectDetail); }
+
+            raw = Get(args, "motion");
+            if (raw != null)
+            {
+                if (!TryParseMotion(raw, out List<string> motion, out bool motionAll)
+                    || (motion != null && !MotionCombinationValid(a)))
+                { rejectReason = MotionArgInvalidReason; return Reject("motion", raw, out rejectDetail); }
+                a.Motion = motion;
+                a.MotionAll = motionAll;
+            }
+
+            raw = Get(args, "frames");
+            if (raw != null)
+            {
+                if (!IsMotionRun(a)
+                    || !TryParseIntInRange(raw, PartParityMotionRules.MinFramesPerMotion,
+                        PartParityMotionRules.MaxFramesPerMotion, out int frames))
+                { rejectReason = FramesArgInvalidReason; return Reject("frames", raw, out rejectDetail); }
+                a.Frames = frames;
             }
 
             raw = Get(args, "views");
@@ -546,6 +684,7 @@ namespace Parsek.TestCommands
                 { rejectReason = ViewsArgInvalidReason; return Reject("views", raw, out rejectDetail); }
                 a.Views = views;
             }
+            else if (IsMotionRun(a)) a.Views = new List<string>(PartParityMotionRules.DefaultViews);
 
             raw = Get(args, "tile");
             if (raw != null)
@@ -554,6 +693,7 @@ namespace Parsek.TestCommands
                 { rejectReason = TileArgInvalidReason; return Reject("tile", raw, out rejectDetail); }
                 a.Tile = tile;
             }
+            else if (IsMotionRun(a)) a.Tile = PartParityMotionRules.MotionTilePx;
 
             raw = Get(args, "shard");
             if (raw != null)
@@ -698,17 +838,28 @@ namespace Parsek.TestCommands
             return TryParseKnownCsv(raw, PartParityStateRules.KnownStates, out states);
         }
 
+        /// <summary>Every context a <c>contexts=</c> csv may name, in canonical order: P6's
+        /// (<see cref="PartParityStateRules.KnownContexts"/>), then the dust run's <c>ground</c>
+        /// (design G.2.2), which lives in the FX rules so P6's tables do not change.</summary>
+        internal static readonly string[] KnownRunContexts =
+        {
+            PartParityStateRules.ContextAlone, PartParityStateRules.ContextStacked, PartParityStateRules.ContextAir,
+            PartParityStateRules.ContextFgv, PartParityFxRules.ContextGround,
+        };
+
         /// <summary>
         /// <c>none</c> (null) or a csv of known contexts (canonical order, duplicates dropped).
         /// <c>air</c> stands alone: the air cases need a host at the pad and the orbit cases an
-        /// orbiting one, so one step never plans both.
+        /// orbiting one, so one step never plans both. <c>ground</c> stands alone too, and only
+        /// an <c>fx=dust</c> run names it (the grammar refuses it otherwise).
         /// </summary>
         internal static bool TryParseContexts(string raw, out List<string> contexts)
         {
             contexts = null;
             if (raw == ArgNoneToken) return true;
-            if (!TryParseKnownCsv(raw, PartParityStateRules.KnownContexts, out List<string> list)) return false;
+            if (!TryParseKnownCsv(raw, KnownRunContexts, out List<string> list)) return false;
             if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;
+            if (list.Contains(PartParityFxRules.ContextGround) && list.Count > 1) return false;
             contexts = list;
             return true;
         }
@@ -731,7 +882,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// <c>none</c> (null), <c>all</c> (every <see cref="PartParityFxRules.ArgWords"/> word),
-        /// or a csv of FX words (canonical order, duplicates dropped, no empty item).
+        /// or a csv of <see cref="PartParityFxRules.ArgKnownWords"/> (canonical order, duplicates
+        /// dropped, no empty item).
         /// </summary>
         internal static bool TryParseFx(string raw, out List<string> fx, out bool all)
         {
@@ -744,15 +896,35 @@ namespace Parsek.TestCommands
                 all = true;
                 return true;
             }
-            return TryParseKnownCsv(raw, PartParityFxRules.ArgWords, out fx);
+            return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);
         }
 
-        /// <summary>An <c>fx=</c> run plans FX cases only (design E.5), so it names no
-        /// <c>states=</c> and at most <c>contexts=air</c>: a P6 state word or an orbit context
-        /// beside it would be silently ignored. The parse reads <c>fx=</c> after both.</summary>
-        internal static bool FxCombinationValid(PartParitySweepArgs a)
-            => a.States == null
-               && (a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir));
+        /// <summary>
+        /// An <c>fx=</c> run plans FX cases only (design E.5), so it names no <c>states=</c>: a P6
+        /// state word beside it would be silently ignored. Its words are of ONE kind (design G.7),
+        /// since each kind has its own host, context and control set: P8 words with at most
+        /// <c>contexts=air</c>; burst words with exactly <c>contexts=air</c> (a burst never runs in
+        /// the orbit context, G.2.1); the dust word with exactly <c>contexts=ground</c>. The parse
+        /// reads <c>fx=</c> after <c>states=</c> and <c>contexts=</c>.
+        /// </summary>
+        internal static bool FxCombinationValid(PartParitySweepArgs a, IList<string> fx)
+        {
+            if (a.States != null || fx == null) return false;
+            bool burst = false, dust = false, p8 = false;
+            foreach (string w in fx)
+            {
+                if (PartParityFxRules.IsBurstArg(w)) burst = true;
+                else if (PartParityFxRules.IsDustArg(w)) dust = true;
+                else p8 = true;
+            }
+            if ((burst ? 1 : 0) + (dust ? 1 : 0) + (p8 ? 1 : 0) != 1) return false;
+            if (burst) return OnlyContext(a, PartParityStateRules.ContextAir);
+            if (dust) return OnlyContext(a, PartParityFxRules.ContextGround);
+            return a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir);
+        }
+
+        private static bool OnlyContext(PartParitySweepArgs a, string context)
+            => a.Contexts != null && a.Contexts.Count == 1 && a.Contexts[0] == context;
 
         /// <summary>The <c>fx=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
         internal static string FormatFx(PartParitySweepArgs args)
@@ -764,6 +936,65 @@ namespace Parsek.TestCommands
         /// <summary>True when the step names <c>fx=</c> other than <c>none</c>: it plans ONLY
         /// the FX cases of its families (design E.5).</summary>
         internal static bool IsFxRun(PartParitySweepArgs args) => args?.Fx != null;
+
+        /// <summary>A burst run (design G.2.1): <c>fx=</c> of burst words (the grammar keeps a run to one kind).</summary>
+        internal static bool IsBurstRun(PartParitySweepArgs args)
+            => args?.Fx != null && args.Fx.Count > 0 && PartParityFxRules.IsBurstArg(args.Fx[0]);
+
+        /// <summary>A dust run (design G.2.2): <c>fx=dust</c>.</summary>
+        internal static bool IsDustRun(PartParitySweepArgs args)
+            => args?.Fx != null && args.Fx.Count > 0 && PartParityFxRules.IsDustArg(args.Fx[0]);
+
+        /// <summary>A burst or dust run (design G.7): refused until the live driver lands.</summary>
+        internal static bool IsBurstDustRun(PartParitySweepArgs args) => IsBurstRun(args) || IsDustRun(args);
+
+        /// <summary>True for a ground run: <c>contexts=ground</c> (the dust cases, design G.2.2).</summary>
+        internal static bool IsGroundRun(PartParitySweepArgs args)
+            => args?.Contexts != null && args.Contexts.Contains(PartParityFxRules.ContextGround);
+
+        /// <summary>A run whose host is the pad host (design D.4, G.2): an air run or a ground run.</summary>
+        internal static bool IsPadHostRun(PartParitySweepArgs args) => IsAirRun(args) || IsGroundRun(args);
+
+        /// <summary>
+        /// <c>none</c> (null), <c>all</c> (every <see cref="PartParityMotionRules.ArgWords"/>
+        /// word, never <c>light</c>), or a csv of <see cref="PartParityMotionRules.ArgKnownWords"/>
+        /// (canonical order, duplicates dropped, no empty item).
+        /// </summary>
+        internal static bool TryParseMotion(string raw, out List<string> motion, out bool all)
+        {
+            motion = null;
+            all = false;
+            if (raw == ArgNoneToken) return true;
+            if (raw == PartParityMotionRules.ArgAllToken)
+            {
+                motion = new List<string>(PartParityMotionRules.ArgWords);
+                all = true;
+                return true;
+            }
+            return TryParseKnownCsv(raw, PartParityMotionRules.ArgKnownWords, out motion);
+        }
+
+        /// <summary>A <c>motion=</c> run plans motion cases only (Appendix H.1), so it names no
+        /// <c>states=</c>, no <c>fx=</c> and at most <c>contexts=air</c> (the chute cases); the
+        /// parse reads <c>motion=</c> after all three.</summary>
+        internal static bool MotionCombinationValid(PartParitySweepArgs a)
+            => a.States == null && a.Fx == null
+               && (a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir));
+
+        /// <summary>The <c>motion=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
+        internal static string FormatMotion(PartParitySweepArgs args)
+        {
+            if (args?.Motion == null) return ArgNoneToken;
+            return args.MotionAll ? PartParityMotionRules.ArgAllToken : string.Join(",", args.Motion.ToArray());
+        }
+
+        /// <summary>True when the step names <c>motion=</c> other than <c>none</c>: it plans ONLY
+        /// the motion cases of its families (Appendix H.1).</summary>
+        internal static bool IsMotionRun(PartParitySweepArgs args) => args?.Motion != null;
+
+        /// <summary>A motion case: its state is a motion word (Appendix H.1).</summary>
+        internal static bool IsMotionCase(PartParityCaseKey key)
+            => key != null && (key.MotionOption != null || PartParityMotionRules.IsMotionState(key.State));
 
         /// <summary>The <c>states=</c> setting token: <c>none</c>, <c>all</c>, or the csv.</summary>
         internal static string FormatStates(PartParitySweepArgs args)
@@ -792,7 +1023,8 @@ namespace Parsek.TestCommands
 
         /// <summary>The manifest settings a run records its selection under, in order:
         /// <c>states</c>, <c>contexts</c>, <c>controlSet</c> (the ids, comma-joined), then
-        /// <c>fx</c> for an FX run only (a manifest without it reads <c>none</c>).</summary>
+        /// <c>fx</c> for an FX run only (a manifest without it reads <c>none</c>), then
+        /// <c>motion</c> and <c>frames</c> for a motion run only (Appendix H.2).</summary>
         internal static List<KeyValuePair<string, string>> StateSettings(PartParitySweepArgs args)
         {
             var settings = new List<KeyValuePair<string, string>>
@@ -802,6 +1034,11 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>(SettingControlSet, string.Join(",", ControlSetFor(args))),
             };
             if (IsFxRun(args)) settings.Add(new KeyValuePair<string, string>(SettingFx, FormatFx(args)));
+            if (IsMotionRun(args))
+            {
+                settings.Add(new KeyValuePair<string, string>(SettingMotion, FormatMotion(args)));
+                settings.Add(new KeyValuePair<string, string>(SettingFrames, args.Frames.ToString(Ic)));
+            }
             return settings;
         }
 
@@ -811,11 +1048,15 @@ namespace Parsek.TestCommands
         /// the eight stowed controls (<see cref="ControlIds"/>, so PP-1 / PP-2 are unchanged);
         /// an air run <see cref="AirControlIds"/>; any other state run
         /// <see cref="OrbitStateControlIds"/>; an FX run (design E.5)
-        /// <see cref="FxAirControlIds"/> or <see cref="FxOrbitControlIds"/>. <c>controls=false</c>
+        /// <see cref="FxAirControlIds"/> or <see cref="FxOrbitControlIds"/>; a motion run
+        /// (Appendix H.3) <see cref="MotionAirControlIds"/> or <see cref="MotionOrbitControlIds"/>. <c>controls=false</c>
         /// runs none of them, but the set is still the run's (the manifest records it).
         /// </summary>
         internal static string[] ControlSetFor(PartParitySweepArgs args)
         {
+            if (IsBurstRun(args)) return (string[])BurstControlIds.Clone();
+            if (IsDustRun(args)) return (string[])DustControlIds.Clone();
+            if (IsMotionRun(args)) return (string[])(IsAirRun(args) ? MotionAirControlIds : MotionOrbitControlIds).Clone();
             if (IsFxRun(args)) return (string[])(IsAirRun(args) ? FxAirControlIds : FxOrbitControlIds).Clone();
             if (!IsStateRun(args)) return (string[])ControlIds.Clone();
             return (string[])(IsAirRun(args) ? AirControlIds : OrbitStateControlIds).Clone();
@@ -928,13 +1169,34 @@ namespace Parsek.TestCommands
         /// limit selection. <c>skins=</c> governs stowed cases only (state cases are at the
         /// base skin, ruling R2). An FX run (design E.5) plans ONLY the FX keys of its
         /// <c>fx=</c> families, the air cases for <c>contexts=air</c> and the orbit ones
-        /// otherwise (<see cref="PartParityFxRules.KeySelected"/>), then the same selection.
+        /// otherwise (<see cref="PartParityFxRules.KeySelected"/>), then the same selection. A
+        /// motion run (Appendix H.1) plans ONLY the motion keys of its <c>motion=</c> families
+        /// the same way (<see cref="PartParityMotionRules.KeySelected"/>).
         /// </summary>
         internal static List<PartParityPlannedCase> PlanCases(
             IEnumerable<PartParityCaseKey> stowedKeys, IEnumerable<PartParityCaseKey> stateKeys,
-            PartParitySweepArgs args, IEnumerable<PartParityCaseKey> fxKeys = null)
+            PartParitySweepArgs args, IEnumerable<PartParityCaseKey> fxKeys = null,
+            IEnumerable<PartParityCaseKey> motionKeys = null)
         {
             if (args == null) args = new PartParitySweepArgs();
+            if (IsBurstDustRun(args))
+            {
+                var built = new List<PartParityCaseKey>();
+                string context = IsBurstRun(args) ? PartParityFxRules.ContextBurst : PartParityFxRules.ContextGround;
+                if (fxKeys != null)
+                    foreach (var k in fxKeys)
+                        if (PartParityFxRules.BuiltKeySelected(k, args.Fx, context)) built.Add(k);
+                return SelectCases(built, args);
+            }
+            if (IsMotionRun(args))
+            {
+                var motion = new List<PartParityCaseKey>();
+                bool air = IsAirRun(args);
+                if (motionKeys != null)
+                    foreach (var k in motionKeys)
+                        if (PartParityMotionRules.KeySelected(k, args.Motion, air)) motion.Add(k);
+                return SelectCases(motion, args);
+            }
             if (IsFxRun(args))
             {
                 var fx = new List<PartParityCaseKey>();
@@ -1210,14 +1472,14 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The admission of a run by its kind: an orbit run (stowed or state) needs an orbiting
-        /// host, as above; an air run (design D.4) a host PRELAUNCH or LANDED within
+        /// host, as above; an air run (design D.4) or a ground run (design G.2.2) a host PRELAUNCH or LANDED within
         /// <see cref="AirHostMaxPadDistanceM"/> of the KSC pad, else <c>host-not-at-pad</c>.
         /// A non-finite distance is not at the pad.
         /// </summary>
         internal static string DecideHostAdmission(PartParitySweepArgs args, bool hasActiveVessel,
             bool activeVesselOrbiting, bool activeVesselLandedOrPrelaunch, double distanceToPadM)
         {
-            if (!IsAirRun(args)) return DecideHostAdmission(hasActiveVessel, activeVesselOrbiting);
+            if (!IsPadHostRun(args)) return DecideHostAdmission(hasActiveVessel, activeVesselOrbiting);
             if (!hasActiveVessel) return NoActiveVesselReason;
             bool near = !double.IsNaN(distanceToPadM) && !double.IsInfinity(distanceToPadM)
                         && distanceToPadM >= 0.0 && distanceToPadM <= AirHostMaxPadDistanceM;

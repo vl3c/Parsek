@@ -87,7 +87,7 @@ namespace Parsek.TestCommands
         /// <c>depth-mask-unrepaired</c> setup fault; Info when it repaired; Verbose when every
         /// module was intact), none for any other part.
         /// </summary>
-        private static void RepairDepthMasks(WaveCase wc, Part part)
+        internal static void RepairDepthMasks(WaveCase wc, Part part)
         {
             List<PartParityDepthMaskRepair.ModuleResult> results = PartParityDepthMaskRepair.Repair(part);
             if (results.Count == 0) return;
@@ -107,7 +107,7 @@ namespace Parsek.TestCommands
         /// a stacked shroud under the part below), before anything reads the real renderers. One
         /// Info line and the flag <c>colorchanger-leak-repaired:&lt;n&gt;</c> when it reset any.
         /// </summary>
-        private static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
+        internal static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
         {
             // Mesh renderers only, the set the capture records and photographs (an engine's
             // idle FX quads carry a colour changer's _TintColor too and draw nothing here).
@@ -191,7 +191,7 @@ namespace Parsek.TestCommands
             if (pidText != null) uint.TryParse(pidText, NumberStyles.Integer, Ic, out pid);
             GhostAppliedSkin applied = null;
             bool recorded = build != null && build.TryGetAppliedSkin(pid, out applied);
-            proof.Ghost = PartParitySkinRules.GhostSkin(proof, recorded ? applied.variantName : null);
+            proof.Ghost = PartParitySkinRules.GhostSkin(proof, recorded ? applied : null);
             foreach (string f in PartParitySkinRules.GhostFlags(proof))
                 if (!wc.Flags.Contains(f)) wc.Flags.Add(f);
             ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: skin proof module={proof.Module ?? "<none>"} " +
@@ -490,6 +490,7 @@ namespace Parsek.TestCommands
             s.Flags.AddRange(wc.Flags);
             if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Fx != null) PartParityFxDriver.FillSidecar(ctx, wc, s);
+            if (wc.Motion != null) PartParityMotionDriver.FillSidecar(ctx, wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));
@@ -510,7 +511,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows),
+                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows, wc.RealStartTiles.Count > 0),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }
@@ -529,7 +530,9 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[][][] rows = wc.State != null && wc.State.FourRows
+            byte[][][] rows = wc.State != null && wc.State.FourRows && wc.RealStartTiles.Count > 0
+                ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray(), wc.RealStartTiles.ToArray() }
+                : wc.State != null && wc.State.FourRows
                 ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray() }
                 : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
             byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);

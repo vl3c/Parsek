@@ -8,6 +8,7 @@ validate, and every armed PP lane must have a baseline section for each label it
 """
 
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -526,7 +527,7 @@ class GateTests(unittest.TestCase):
 
 
 class FxGateTests(unittest.TestCase):
-    """FX cases in the gate (design E.4, E.6). No FX lane is armed today."""
+    """FX cases in the gate (design E.4, E.6)."""
 
     ID = "engine--default--burn-full--0000aaaa"
 
@@ -577,11 +578,17 @@ class FxGateTests(unittest.TestCase):
                 cv = pp.judge_case(doc)
                 self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
                 frs = pp.fail_reasons(cv)
-                self.assertTrue(frs and all(f.group.startswith("fx:") and not f.numeric for f in frs), frs)
+                self.assertTrue(frs and all(f.group.startswith("fx:") for f in frs), frs)
+                # Presence decides alone; a measure is judged by its band.
+                self.assertEqual({name == "short"}, {f.numeric for f in frs})
                 self.assertIn("fx:" + measures, {f.group for f in frs})
                 self.assertTrue(self._gate_of(doc, self._case()).reds)
-                accepted = [_entry(self.ID, "*", g) for g in {f.group for f in frs}]
+                accepted = [_entry(self.ID, "*", g, noisy=name == "short") for g in {f.group for f in frs}]
                 self.assertEqual([], self._gate_of(doc, self._case(), accepted).reds)
+                # An entry that is not noisy waives the fail, not the drift past its band.
+                accepted = [_entry(self.ID, "*", g) for g in {f.group for f in frs}]
+                self.assertEqual([pp.GATE_DRIFT] * 3 if name == "short" else [],
+                                 _kinds(self._gate_of(doc, self._case(), accepted).reds))
 
     def test_a_missing_fx_asset_is_its_own_reason(self):
         structure = {"fxMissingOnGhost": [{"key": "fx/Plume", "rendered": True}], "fxExtraOnGhost": [],
@@ -612,27 +619,105 @@ class FxGateTests(unittest.TestCase):
         # E.4: the unsettled entry's own fail is a warn; the same plume missing in the settled
         # views still reds, and nothing names the capped view.
         loosen = tp.FxJudgeTests._loosen
-        doc = self._case(event=tp._broken("off"))
+        doc = self._case(event=tp._broken("short"))
         loosen(doc, views=("fx-side-a",))
         cv = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
         # The reason TEXT still holds the capped finding: only the judgement says it is capped.
-        self.assertIn("event:fx-side-a:flame:fx-missing", cv.reasons)
-        self.assertEqual({"event:%s" % v for v in pp.FX_VIEWS if v != "fx-side-a"},
-                         {f.view for f in pp.fail_reasons(cv)})
+        self.assertIn("event:fx-side-a:flame:length=0.576", cv.reasons)
+        self.assertEqual({"event:fx-side-b", "event:fx-far"}, {f.view for f in pp.fail_reasons(cv)})
         g = self._gate_of(doc, self._case())
-        self.assertEqual(len(pp.FX_VIEWS) - 1, len(g.reds), [f.text() for f in g.reds])
-        # Every entry of the missing plume unsettled: a warn, so no reason and no red.
-        doc = self._case(event=tp._broken("off"))
+        self.assertEqual(2, len(g.reds), [f.text() for f in g.reds])
+        # Every entry of it unsettled: a warn (1.70 fail lines, under FX_FAR), so no red.
+        doc = self._case(event=tp._broken("short"))
         loosen(doc)
         cv = pp.judge_case(doc)
         self.assertEqual((pp.VERDICT_WARN, []), (cv.verdict, pp.fail_reasons(cv)))
         g = self._gate_of(doc, self._case())
         self.assertEqual(([], []), (g.reds, g.unmeasured))
+        # A missing plume is missing, settled or not.
+        doc = self._case(event=tp._broken("off"))
+        loosen(doc)
+        g = self._gate_of(doc, self._case())
+        # Three views: _loosen left the bottom's real core to one half alone (held, and said).
+        self.assertEqual(({pp.GATE_UNACCEPTED_FAIL}, 3), (set(_kinds(g.reds)), len(g.reds)))
+        self.assertIn("capped:event:fx-bottom:flame:fx-missing", g.unmeasured[0].detail)
+
+    def test_a_capped_fail_far_past_its_band_is_unmeasured(self):
+        # A plume that shrank unsettles itself (the same stray pixels are more than 10 % of it).
+        def short(ratio, **kw):
+            doc = self._measured("lengthRatio", ratio, **kw)
+            tp.FxJudgeTests._loosen(doc, views=("fx-side-a",))
+            return doc
+        doc = short(0.5)  # 2 fail lines off
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertIn("event:fx-side-a:flame:length=0.500 is 2.00 fail lines off", g.unmeasured[0].detail)
+        # Under FX_FAR of its limit it is the noise the cap is for; its band moves the limit.
+        self.assertEqual([], self._gate_of(short(0.6), self._case()).unmeasured)  # 1.6
+        self.assertEqual([], self._gate_of(doc, short(0.55)).unmeasured)  # limit 2.7
+        self.assertTrue(self._gate_of(doc, short(1.6)).unmeasured)  # the other side
+        # A noisy entry stretches it once more, and no further; another measure's does nothing.
+        noisy = [_entry(self.ID, "*", "fx:length", noisy=True)]
+        self.assertEqual([], self._gate_of(doc, self._case(), noisy).unmeasured)
+        self.assertTrue(self._gate_of(short(0.2), self._case(), noisy).unmeasured)  # 3.2 > 3.06
+        for entry in (_entry(self.ID, "*", "fx:length"), _entry(self.ID, "*", "fx:width", noisy=True)):
+            self.assertTrue(self._gate_of(doc, self._case(), [entry]).unmeasured)
+        # A new case and a reference one owe nothing.
+        section = _section([{self.ID: doc}])
+        section["cases"] = {}
+        self.assertEqual([], _gate({self.ID: doc}, section).unmeasured)
+
+    def test_a_noisy_entry_does_not_lift_the_line(self):
+        noisy = [_entry(self.ID, "*", "fx:colour", noisy=True)]
+        for value, reds in ((0.8, 0), (0.86, 0), (0.9, 1), (2.0, 1)):  # 1.6, 1.72, 1.8, 4 lines
+            g = self._gate_of(self._measured("hueL1", value), self._case(), noisy)
+            self.assertEqual([pp.GATE_DRIFT] * reds, _kinds(g.reds), value)
+            self.assertEqual([], g.unmeasured)  # it stands: a red, not an open reading
+
+    def test_a_value_that_is_null_is_not_judged(self):
+        # A ghost whose core clips everywhere has no colour to compare.
+        for key, view in (("chromaDistance", "fx-side-a"), ("hueL1", "fx-bottom"),
+                          ("lengthRatio", "fx-far"), ("crossSectionAreaRatio", "fx-bottom")):
+            with self.subTest(key):
+                doc = self._measured(key, None, view)
+                self.assertEqual(("null:event:%s:flame:%s" % (view, key),), pp.fx_unmeasured(pp.judge_case(doc)))
+                g = self._gate_of(doc, self._case())
+                self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+                self.assertTrue(self._gate_of(doc, doc).ok)
+        # Owed: what E.4 judges in that view, never what an rcs case only reports.
+        side, axis = (tp._fx_entry("event", v, "flame", tp._fx_side(tp.REAL_FX, "flame", v),
+                                   tp._fx_side(tp.REAL_FX, "flame", v)) for v in ("fx-side-a", "fx-bottom"))
+        for e, keys in ((side, pp.FX_SIDE_VIEW_KEYS), (axis, pp.FX_AXIS_VIEW_KEYS)):
+            self.assertEqual((), pp.fx_entry_nulls(e, False))
+            e["compare"] = {k: None for k in pp.FX_COMPARE_KEYS}
+            self.assertEqual(keys, pp.fx_entry_nulls(e, False))
+            self.assertEqual(tuple(k for k in keys if k not in ("lengthRatio", "widthRatio")),
+                             pp.fx_entry_nulls(e, True))
+        # Faint new smoke (one core 64 to 255 px, the other 0) is neither extra nor comparable.
+        dark = dict(tp.REAL_FX, smoke=tp.FX_DARK)
+        puff = (tp._plume(length=20, width=12, rgb=tp.GREY), tp._disc(7, rgb=tp.GREY))
+        doc = self._case(real=dark, event={"smoke": puff})
+        self.assertNotIn("smoke-extra", " ".join(pp.judge_case(doc).reasons))
+        g = self._gate_of(doc, self._case(real=dark))
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        self.assertIn("null:event:fx-side-a:smoke:lengthRatio", g.unmeasured[0].detail)
+
+    def test_an_extra_effect_held_at_warn_is_not_silent(self):
+        dark = dict(tp.REAL_FX, smoke=tp.FX_DARK)
+        doc = self._case(real=dark, event={"smoke": tp.REAL_FX["smoke"]})
+        self.assertTrue(self._gate_of(doc, self._case(real=dark)).reds)
+        tp.FxJudgeTests._loosen(doc, layer="smoke", side="ghost")
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        g = self._gate_of(doc, self._case(real=dark))
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertIn("capped:event:fx-far:smoke:smoke-extra", g.unmeasured[0].detail)
+        self.assertTrue(self._gate_of(doc, doc).ok)
 
     def test_a_body_fail_beside_capped_fx_fails_is_gated_by_its_body_reasons(self):
         # No unsettled sample is in a body route, so the cap never holds it.
-        doc = self._case(event=tp._broken("off"))
+        doc = self._case(event=tp._broken("turned"))
         tp.FxJudgeTests._loosen(doc)
         doc["views"][0]["colorBlobPx"] = 10 ** 6
         cv = pp.judge_case(doc)
@@ -686,6 +771,226 @@ class FxGateTests(unittest.TestCase):
             self.ID: dict(entry, fxUnmeasured="x")}}}}
         self.assertTrue(any("fxUnmeasured" in e for e in pp.validate_baseline(bad, "p")))
 
+    def test_a_layer_that_went_empty_on_both_sides_is_unmeasured(self):
+        dark = dict(tp.REAL_FX, smoke=tp.FX_DARK)
+        doc = self._case(real=dark)
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(doc).verdict)
+        empty = {"empty:%s:%s:smoke" % (r, v) for r in ("event", "start") for v in pp.FX_VIEWS}
+        self.assertEqual(empty, set(pp.fx_unmeasured(pp.judge_case(doc))))
+        g = self._gate_of(doc, self._case())
+        self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertIn("empty:event:fx-far:smoke", g.unmeasured[0].detail)
+        # One view of it alone is enough.
+        one = self._case()
+        for e in one["fx"]["views"]:
+            if (e["view"], e["layer"]) == ("fx-far", "flame"):
+                for side in ("real", "ghost"):
+                    e[side] = dict(e[side], corePx=0, envelopePx=0)
+        g = self._gate_of(one, self._case())
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        # A core with no envelope (or the reverse) is drawn.
+        for key in ("corePx", "envelopePx"):
+            for side in ("real", "ghost"):
+                e = {"real": {"corePx": 0, "envelopePx": 0}, "ghost": {"corePx": 0, "envelopePx": 0}}
+                self.assertTrue(pp.fx_entry_empty(e))
+                e[side][key] = 1
+                self.assertFalse(pp.fx_entry_empty(e))
+        # No accepted entry makes it measured; the baseline's own empty layer is no finding.
+        accepted = [_entry(self.ID, "*", "*", noisy=True), _entry(self.ID, "*", "fx:smoke"),
+                    _entry(self.ID, "*", "fx:presence")]
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(self._gate_of(doc, self._case(), accepted).unmeasured))
+        g = self._gate_of(doc, doc)
+        self.assertEqual((True, []), (g.ok, g.notes))
+        # A layer only one side lost is a presence red, as ever.
+        g = self._gate_of(self._case(event={"smoke": tp.FX_DARK}), self._case())
+        self.assertEqual({pp.GATE_UNACCEPTED_FAIL}, set(_kinds(g.reds)))
+
+    def test_a_skipped_layer_may_go_empty_and_never_the_reverse(self):
+        # The strays the runs skipped may not be there; faint new smoke is not a stray.
+        empty = self._case(real=dict(tp.REAL_FX, smoke=tp.FX_DARK))
+        g = self._gate_of(empty, self._weak_smoke())
+        self.assertEqual(([], []), (g.reds, g.unmeasured))
+        smear = tp._fx_tile({(x, 0): (1, tp.GREY) for x in range(tp.FTILE)})
+        for now in (self._weak_smoke(), self._case(real=dict(tp.REAL_FX, smoke=tp.FX_DARK),
+                                                   event={"smoke": (smear, smear)})):
+            g = self._gate_of(now, empty)
+            self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)))
+        self.assertEqual({"skipped:a", "empty:a", "fx-x"}, pp.fx_known_tokens(["skipped:a", "fx-x"]))
+        self.assertEqual({"empty:a"}, pp.fx_known_tokens(["empty:a"]))
+
+    def _measured(self, key, value, view="fx-side-a", route="event", half=None, **kw):
+        """A clean case with one compare value set, in both sample halves too (``half`` there)."""
+        doc = self._case(**kw)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["view"], e["layer"]) == (route, view, "flame"):
+                e["compare"][key] = value
+                for h in pp.FX_SPLIT_HALF_KEYS:
+                    e["splitHalf"][h]["compare"][key] = value if half is None else half
+        return doc
+
+    # key -> (view, identity, a warn-level value, a fail, the same fail on the other side)
+    BANDED = {"originDeltaPx": ("fx-side-a", 0.0, 3.0, 9.0, -9.0),
+              "lateralOffsetPx": ("fx-side-a", 0.0, 3.0, 9.0, -9.0),
+              "lengthRatio": ("fx-side-a", 1.0, 1.2, 1.5, 0.5),
+              "widthRatio": ("fx-side-a", 1.0, 1.25, 1.6, 0.4),
+              "directionDeg": ("fx-side-a", 0.0, 8.0, 20.0, -20.0),
+              "crossSectionAreaRatio": ("fx-bottom", 1.0, 1.5, 2.2, 0.2),
+              "crossSectionOffset": ("fx-bottom", 0.0, 0.08, 0.2, None),
+              "chromaDistance": ("fx-side-a", 0.0, 0.05, 0.12, None),
+              "hueL1": ("fx-side-a", 0.0, 0.4, 1.0, None)}
+
+    def test_a_banded_measure_reds_only_past_its_band(self):
+        self.assertEqual(sorted(pp.FX_BAND_KEYS), sorted(self.BANDED))
+        for key, (view, same, near, far, other) in self.BANDED.items():
+            with self.subTest(key):
+                def case(value, **kw):
+                    return self._measured(key, value, view, **kw)
+                worse = case(far)
+                self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(worse).verdict)
+                # Clean in every run: the fail line decides.
+                g = self._gate_of(worse, self._case())
+                self.assertEqual([pp.GATE_DRIFT], _kinds(g.reds), [f.text() for f in g.reds])
+                # Capped in the runs (one half alone showed it), standing now: its band holds it.
+                capped = case(far, half=same)
+                self.assertEqual(pp.VERDICT_WARN, pp.judge_case(capped).verdict)
+                g = self._gate_of(worse, capped)
+                self.assertEqual(([], [], [pp.NOTE_NEAR_LINE_FAIL]), (g.reds, g.unmeasured, _kinds(g.notes)))
+                band = _section([{self.ID: capped}])["cases"][self.ID]["fx"]
+                self.assertEqual({"event:%s:flame" % view: {key: [far, far]}}, band)
+                # Not the other route's, nor another view's, nor the other side's.
+                moved = self._measured(key, far, view, "start")
+                self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(moved, capped).reds))
+                if other is not None:
+                    self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(case(other), capped).reds))
+                # Past it: red, accepted or not, unless the entry is noisy; far past it, always.
+                for scale, noisy_reds in ((2, 0), (4, 1)):
+                    gone = case(same + scale * (far - same))
+                    group = "fx:" + pp.fail_reasons(pp.judge_case(gone))[0].fx[1].measure
+                    self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(gone, capped).reds))
+                    self.assertEqual([pp.GATE_DRIFT], _kinds(self._gate_of(
+                        gone, capped, [_entry(self.ID, "*", group)]).reds))
+                    self.assertEqual([pp.GATE_DRIFT] * noisy_reds, _kinds(self._gate_of(
+                        gone, capped, [_entry(self.ID, "*", group, noisy=True)]).reds), scale)
+                # A new case has no band: an uncovered fail reds as one.
+                section = _section([{self.ID: capped}])
+                section["cases"] = {}
+                self.assertEqual([pp.GATE_UNACCEPTED_FAIL], _kinds(_gate({self.ID: worse}, section).reds))
+                # What only drifts under the line is no fail, so no red.
+                self.assertEqual([], self._gate_of(case(near), self._case()).reds)
+
+    def test_the_fx_limit_is_never_under_the_fail_line(self):
+        limit = pp.fx_drift_limit
+        self.assertEqual(1.0, limit(None, "hueL1", "colour:hueL1", 0.0))
+        self.assertEqual(1.0, limit([0.0, 0.2], "hueL1", "colour:hueL1", 0.0))  # 0.4 of the line
+        self.assertAlmostEqual(1.3, limit([0.0, 0.4], "hueL1", "colour:hueL1", 0.0))
+        self.assertAlmostEqual(3.0, limit([0.0, 1.0], "hueL1", "colour:hueL1", 0.0))  # hi 2 x 1.5
+        # A signed measure: each side by the band's end on it.
+        self.assertAlmostEqual(2.7, limit([-18.0, 8.0], "directionDeg", "direction-", 0.0))
+        self.assertAlmostEqual(1.3, limit([-18.0, 8.0], "directionDeg", "direction+", 0.0))
+        # Pixels against the current plume's own line (10 % of its length here).
+        self.assertAlmostEqual(1.5, limit([0.0, 40.0], "originDeltaPx", "origin+", 400.0))
+        self.assertAlmostEqual(15.0, limit([0.0, 40.0], "originDeltaPx", "origin+", 10.0))
+
+    def test_fx_severity_is_one_at_every_fail_line(self):
+        # The judge's own line (fx_entry_findings) and the band's unit agree, both sides.
+        for key, (view, same, _near, far, other) in self.BANDED.items():
+            for value in (far, other):
+                if value is None:
+                    continue
+                with self.subTest(key=key, value=value):
+                    lo, hi = same, value
+                    for _ in range(60):  # bisect the judge's line
+                        mid = (lo + hi) / 2.0
+                        fails = pp.judge_case(self._measured(key, mid, view)).verdict == pp.VERDICT_FAIL
+                        lo, hi = (lo, mid) if fails else (mid, hi)
+                    doc = self._measured(key, value, view)
+                    length = next(e for e in doc["fx"]["views"] if e["view"] == view)["real"]["lengthPx"] or 0.0
+                    self.assertAlmostEqual(1.0, pp.fx_severity(key, hi, length)[1], 6)
+                    f = pp.fail_reasons(pp.judge_case(doc))[0].fx[1]
+                    self.assertEqual((f.side, f.severity), pp.fx_severity(key, value, length))
+
+    def test_only_what_is_judged_is_banded(self):
+        def bands(*docs):
+            return _section([{self.ID: d} for d in docs])["cases"][self.ID].get("fx")
+        self.assertIsNone(bands(self._case()))
+        self.assertIsNone(bands(self._measured("lengthRatio", 1.12)))
+        # From half the line: a case near it in the runs may cross it by the tolerance.
+        near = self._measured("lengthRatio", 1.2)
+        self.assertEqual({"event:fx-side-a:flame": {"lengthRatio": [1.2, 1.2]}}, bands(near))
+        for value, kind in ((1.32, pp.NOTE_NEAR_LINE_FAIL), (1.34, pp.GATE_DRIFT)):
+            g = self._gate_of(self._measured("lengthRatio", value), near)
+            self.assertEqual([kind], _kinds(g.reds + g.notes))
+        self.assertEqual({"event:fx-side-a:flame": {"lengthRatio": [1.0, 1.3]}},
+                         bands(self._case(), self._measured("lengthRatio", 1.3)))
+        # A layer presence decides, or with two weak cores, has no measure to band.
+        self.assertIsNone(bands(self._case(event=tp._broken("off"))))
+        faint = self._weak_smoke()
+        for e in faint["fx"]["views"]:
+            if e["layer"] == "smoke":
+                e["compare"]["lengthRatio"] = 3.0
+        self.assertIsNone(bands(faint))
+        # R4: what an rcs case only reports.
+        rcs = self._measured("lengthRatio", 3.0, family="rcs", state="rcs-fire", rcs=tp.FxJudgeTests.RCS)
+        self.assertIsNone(bands(rcs))
+        self.assertIsNotNone(bands(self._measured("originDeltaPx", 9.0, family="rcs", state="rcs-fire",
+                                                  rcs=tp.FxJudgeTests.RCS)))
+        # A run that faulted adds nothing.
+        fault = self._measured("lengthRatio", 3.0)
+        fault["setup"] = {"status": "crashed", "detail": None}
+        self.assertIsNone(bands(self._case(), fault))
+        # The committed shape is checked.
+        entry = _section([{self.ID: self._measured("lengthRatio", 1.3)}])["cases"][self.ID]
+        def errs(**kw):
+            return pp.validate_baseline({"schema": pp.BASELINE_SCHEMA, "profile": "p", "labels": {
+                "pp1": {"cases": {self.ID: dict(entry, **kw)}}}}, "p")
+        self.assertEqual([], errs())
+        for bad in ("x", {"a": 1}, {"a": {"lengthRatio": [2, 1]}}, {"a": {"nonsense": [1, 2]}}):
+            self.assertTrue(errs(fx=bad), bad)
+
+    def _plate(self, color=0, start_color=0, **kw):
+        """A lit lamp's plate case as the C# writes one: the one view ``plate``, both routes."""
+        doc = self._case()
+        tp.FxJudgeTests._as_family(doc, "light", "lit", plate={"litPct": 0.4}, views=None)
+        view = dict(doc["views"][0], view=pp.PLATE_VIEW, colorBlobPx=color)
+        view["start"] = dict(view["start"], colorBlobPx=start_color)
+        doc.update({"context": pp.CONTEXT_PLATE, "views": [view]})
+        doc.update(kw)
+        return doc
+
+    def _plate_gate(self, doc, base, accepted=()):
+        m = dict(_manifest([self.ID]), views=list(tp.fx.VIEWS))
+        section = pp.build_baseline_section([("r", m, {self.ID: base})])
+        return pp.gate_sweep("pp7", "stock-minimal", m, {self.ID: doc}, [pp.judge_case(doc)],
+                             section, list(accepted))
+
+    def test_a_plate_case_is_measured_by_its_plate(self):
+        g = self._plate_gate(self._plate(), self._plate())
+        self.assertEqual((True, []), (g.ok, g.notes), [f.text() for f in g.unmeasured])
+        # A ghost light that went out (or wrong) reds, on either route.
+        for kw in ({"color": 900}, {"start_color": 900}):
+            g = self._plate_gate(self._plate(**kw), self._plate())
+            self.assertEqual([pp.GATE_DRIFT], _kinds(g.reds))
+            self.assertIn(":plate colorBlobPx", g.reds[0].detail)
+        # Its own measures are owed: no plate, a route lost, a null measure.
+        whole = self._plate()["views"][0]
+        for views in ([], [dict(whole, view="side-a")], [dict(whole, start=None)],
+                      [dict(whole, colorBlobPx=None)], [dict(whole, start=dict(whole["start"], iou=None))]):
+            g = self._plate_gate(self._plate(views=views), self._plate())
+            self.assertEqual(([], [pp.GATE_UNMEASURED]), (g.reds, _kinds(g.unmeasured)), views)
+        # The structure of both routes too, and a plate that reads under its floor.
+        for key in ("structure", "structureStart"):
+            g = self._plate_gate(self._plate(**{key: None}), self._plate())
+            self.assertEqual([pp.GATE_UNMEASURED], _kinds(g.unmeasured))
+        dim = self._plate()
+        dim["fx"]["plate"] = {"litPct": 0.01}
+        self.assertEqual([pp.GATE_UNMEASURED], _kinds(self._plate_gate(dim, self._plate()).unmeasured))
+        # Only a plate case: any other still owes the manifest's views.
+        other = self._plate(context="alone")
+        self.assertIn("side-a", pp.unmeasured_reason(other, {"views": ["side-a"]}))
+        # An accepted entry may name the view.
+        row = {"case": self.ID, "view": "event:plate", "measure": "color-blob", "reason": "r x", "todo": "A-TODO"}
+        self.assertEqual([], pp.parse_accepted({"schema": 1, "accepted": [row]})[1])
+
     def test_an_fx_check_that_did_not_run_is_unmeasured(self):
         lists = {"fxMissingOnGhost": None, "fxExtraOnGhost": [], "fxDiffers": [], "lightsDiffer": []}
         doc = self._case(structure=lists)
@@ -693,7 +998,9 @@ class FxGateTests(unittest.TestCase):
         self.assertEqual([pp.GATE_UNMEASURED], _kinds(self._gate_of(doc, self._case()).unmeasured))
         self.assertTrue(self._gate_of(doc, doc).ok)
         dark = self._case(real=tp.NO_FX)
-        self.assertEqual((pp.FLAG_FX_NO_REAL_EFFECT,), pp.fx_unmeasured(pp.judge_case(dark)))
+        lost = pp.fx_unmeasured(pp.judge_case(dark))
+        self.assertEqual({pp.FLAG_FX_NO_REAL_EFFECT}, {t for t in lost if not t.startswith("empty:")})
+        self.assertEqual(16, len(lost) - 1)
         self.assertEqual(set(pp.FX_FLAGS_RAISE_TO_WARN), set(pp._FX_NOT_RUN_FLAGS) | {pp.FLAG_FX_WEAK_CORE})
 
     def test_a_reference_case_or_entry_and_one_weak_core_owe_no_fx_measure(self):
@@ -723,6 +1030,161 @@ class FxGateTests(unittest.TestCase):
         self.assertTrue(errs(measure="fx:nonsense"))
         self.assertTrue(errs(view="event:fx-nonsense"))
         self.assertFalse(_entry(self.ID, "*", "*").covers(self.ID, None, "event:fx-side-a", "fx:length"))
+
+
+class PageStateTests(unittest.TestCase):
+    """What the page calls ``known`` / ``accepted``: a reading of the accepted list that moves
+    no verdict, no count and no red, and can put nothing structural out of sight."""
+
+    CID = "part--default--0000aaaa"
+
+    def _fail(self, **kw):
+        kw.setdefault("views", [_view(color=900)])
+        return _case(self.CID, **kw)
+
+    def _e(self, kind, measure="color-blob", **kw):
+        return dataclasses.replace(_entry(self.CID, measure=measure, **kw), kind=kind)
+
+    def _state(self, doc, entries, section=None, profile="stock-minimal"):
+        # The baseline a case of this shape would have, unless the cell brings its own.
+        section = section if section is not None else _section([{doc["caseId"]: doc}])
+        gate = _gate({doc["caseId"]: doc}, section, entries, profile=profile)
+        return pp.page_state(pp.judge_case(doc), doc, profile, entries, section, gate)
+
+    def test_ruled_reads_known_and_accepted_reads_accepted(self):
+        doc = self._fail()
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        self.assertEqual(pp.PAGE_KNOWN, self._state(doc, [self._e("ruled")]).state)
+        st = self._state(doc, [self._e("accepted")])
+        self.assertEqual((pp.PAGE_ACCEPTED, ("SOME-TODO-1",)), (st.state, st.todos))
+        # One reason ruled, another only accepted: accepted.
+        doc = self._fail(views=[_view(color=900), _view("top", real=500)])
+        self.assertEqual(pp.PAGE_ACCEPTED, self._state(
+            doc, [self._e("ruled"), self._e("accepted", measure="shape-blob")]).state)
+
+    def test_a_defect_or_an_entry_without_a_kind_stays_red(self):
+        doc = self._fail()
+        for kind in ("defect", None):
+            self.assertIsNone(self._state(doc, [self._e(kind)]), kind)
+        # A second, unkinded entry over the same reason keeps it red too.
+        self.assertIsNone(self._state(doc, [self._e("ruled"), self._e("defect", measure="*")]))
+
+    def test_every_reason_must_be_covered(self):
+        doc = self._fail(views=[_view(color=900), _view("top", real=500)])
+        self.assertIsNone(self._state(doc, [self._e("ruled")]))
+        self.assertIsNone(self._state(doc, [self._e("ruled", profile="modded-compat")]))
+        self.assertIsNone(self._state(doc, []))
+
+    def test_nothing_structural_is_ever_put_out_of_sight(self):
+        mesh = {"key": "model/mesh", "rendered": True, "mesh": "m", "nonVisual": None}
+        for group, doc in (
+                ("structure", self._fail(structure={"missingOnGhost": [mesh]})),
+                ("structure", self._fail(structure={"extraOnGhost": [mesh]})),
+                ("skin", self._fail(skin={"module": "ModulePartVariants", "requested": "a",
+                                          "real": "a", "ghost": "b"})),
+                ("hidden", self._fail(structure={"renderedDiffers": [
+                    {"key": "model/mesh", "real": True, "ghost": False}]})),
+                ("drawn", self._fail(structure={"renderedDiffers": [
+                    {"key": "model/mesh", "real": False, "ghost": True}]}))):
+            entries = [self._e("ruled", measure="*"), self._e("ruled", measure="color-blob"),
+                       self._e("ruled", measure=group)]
+            self.assertIsNone(self._state(doc, entries), group)
+        # The same picture without it reads known.
+        self.assertIsNotNone(self._state(self._fail(), [self._e("ruled", measure="*")]))
+        self.assertTrue({"structure", "skin", "hidden", "drawn", "fx:structure", "fx:presence",
+                         "fx:smoke", "*"} <= pp.PAGE_NEVER_GROUPS)
+
+    def test_a_missing_effect_or_an_owner_flagged_case_stays_red(self):
+        fxt = tp
+        doc = fxt._fx_case(event={"flame": fxt.FX_DARK}, start={"flame": fxt.FX_DARK})[0]
+        cid = doc["caseId"]
+        kinds = [dataclasses.replace(_entry(cid, measure="fx:%s" % m), kind="ruled")
+                 for m in pp.FX_MEASURES] + [dataclasses.replace(_entry(cid, measure="fx:structure"), kind="ruled")]
+        self.assertIsNone(self._state(doc, kinds))
+        hue = fxt._fx_case(event=fxt._flame_of((90, 170, 250)), start=fxt._flame_of((90, 170, 250)))[0]
+        self.assertEqual(pp.PAGE_KNOWN, self._state(hue, kinds).state)
+        saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {
+            next(f.reason for e in pp.judge_case(hue).fx.entries for f in e.findings): "T"}
+        try:
+            self.assertIsNone(self._state(hue, kinds))
+        finally:
+            pp.OWNER_FLAGGED_REASONS = saved
+
+    def test_a_warn_a_pass_an_error_and_a_lost_sidecar_have_none(self):
+        for doc in (_case(self.CID, views=[_view(color=100)]), _case(self.CID),
+                    self._fail(status="spawn-timeout")):
+            self.assertIsNone(self._state(doc, [self._e("ruled", measure="*")]))
+        section = _section([{self.CID: self._fail()}])
+        gate = _gate({self.CID: self._fail()}, section, [self._e("ruled")])
+        self.assertIsNone(pp.page_state(pp.judge_case(self._fail()), None, "stock-minimal",
+                                        [self._e("ruled")], section, gate))
+
+    def test_a_case_the_gate_reds_stays_red(self):
+        doc = self._fail()
+        entries = [self._e("accepted")]  # not noisy: its drift still gates
+        near = _section([{self.CID: self._fail(views=[_view(color=850)])}])
+        self.assertEqual(pp.PAGE_ACCEPTED, self._state(doc, entries, near).state)
+        far = _section([{self.CID: self._fail(views=[_view(color=300)])}])
+        self.assertTrue(_gate({self.CID: doc}, far, entries).reds)
+        self.assertIsNone(self._state(doc, entries, far))
+
+    def test_a_difference_nothing_bounds_the_size_of_stays_red(self):
+        # No baseline, another profile's, a case the section lacks or holds only as a setup fault:
+        # a ``*`` entry would cover a picture difference of any size there.
+        doc, entries = self._fail(views=[_view(color=200000, real=200000, iou=0.05)]), [self._e("ruled", measure="*")]
+        cv, section = pp.judge_case(doc), _section([{self.CID: doc}])
+        gate = _gate({self.CID: doc}, section, entries)
+        args = {"profile": "stock-minimal", "section": section, "gate": gate}
+        self.assertIsNotNone(pp.page_state(cv, doc, accepted=entries, **args))
+        for gone in ({"section": None}, {"gate": None}, {"profile": None}):
+            self.assertIsNone(pp.page_state(cv, doc, accepted=entries, **dict(args, **gone)), gone)
+        other = _section([{"other--default--0000bbbb": self._fail()}])
+        self.assertIsNone(self._state(doc, entries, other))
+        fault = _section([{self.CID: self._fail(status="spawn-timeout")}])
+        self.assertIsNone(self._state(doc, entries, fault))
+        # Bounded by its own band: what was 900 px in the baseline and is 200000 now stays red.
+        self.assertIsNone(self._state(doc, entries, _section([{self.CID: self._fail()}])))
+
+    def test_the_kind_moves_neither_the_gate_nor_the_verdict(self):
+        doc = self._fail()
+        section = _section([{self.CID: doc}])
+        results = [_gate({self.CID: doc}, section, [self._e(k)]) for k in (None, "ruled", "accepted", "defect")]
+        self.assertEqual(1, len({(r.ok, tuple(f.text() for f in r.reds + r.notes)) for r in results}))
+
+    def test_the_kind_is_parsed_and_a_ruling_must_be_cited(self):
+        def parse(**kw):
+            row = {"case": self.CID, "view": "*", "measure": "color-blob", "todo": "SOME-TODO-1",
+                   "reason": "owner ruling 2026-11-22: cosmetic"}
+            row.update(kw)
+            return pp.parse_accepted({"schema": 1, "accepted": [row]})
+        entries, errors = parse(kind="ruled")
+        self.assertEqual(([], "ruled"), (errors, entries[0].kind))
+        self.assertIsNone(parse()[0][0].kind)
+        for bad in ({"kind": "fine"}, {"kind": 3}, {"kind": "ruled", "reason": "looks fine"}):
+            entries, errors = parse(**bad)
+            self.assertEqual((1, None), (len(errors), entries[0].kind), bad)
+
+    def test_the_committed_list_names_a_kind_for_every_entry(self):
+        with open(os.path.join(COMMITTED_DIR, pp.ACCEPTED_FILE), "rb") as fh:
+            entries, errors = pp.parse_accepted(tomllib.load(fh))
+        self.assertEqual([], errors)
+        self.assertEqual([], [e.label() for e in entries if e.kind not in pp.ACCEPTED_KINDS])
+        # Only a todo that records the ruling may back ``ruled``; the lamps have none by name.
+        ruled = {e.todo for e in entries if e.kind == pp.KIND_RULED}
+        self.assertEqual({"GHOST-PARITY-RESIDUALS-2026-11-22"}, ruled)
+        by_todo = {e.todo: e.kind for e in entries}
+        self.assertEqual("accepted", by_todo["GHOST-WATERFALL-LIGHT-FX-MISSING"])
+        self.assertEqual("defect", by_todo["PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22"])
+
+    def test_the_sweep_carries_its_states_and_the_summary_counts_them(self):
+        doc = self._fail()
+        section, entries = _section([{self.CID: doc}]), [self._e("ruled")]
+        gate = _gate({self.CID: doc}, section, entries)
+        states = pp.sweep_page_states([pp.judge_case(doc)], {self.CID: doc}, "stock-minimal",
+                                      entries, section, gate)
+        self.assertEqual({self.CID: "known"}, {c: s.state for c, s in states.items()})
+        self.assertEqual({}, pp.sweep_page_states([pp.judge_case(doc)], {self.CID: doc},
+                                                  "stock-minimal", entries, None, None))
 
 
 class EvaluateSweepGateTests(unittest.TestCase):
@@ -778,6 +1240,19 @@ class EvaluateSweepGateTests(unittest.TestCase):
         accepted = tuple(_entry(c, measure="*", noisy=True) for c in ids)
         res = self._eval(sweep, True, pp.GateInput("p", section, accepted))
         self.assertEqual(pp.STATUS_PASS, res.status, [f.text() for f in res.gate.reds])
+        self.assertEqual({}, res.page_states)
+        self.assertNotIn("page", pp.format_summary(pp.combine([res], True)))
+        # The same entries with a kind: the same gate, and the page's states beside it.
+        kinds = tuple(dataclasses.replace(e, kind="accepted") for e in accepted)
+        res2 = self._eval(sweep, True, pp.GateInput("p", section, kinds))
+        self.assertEqual((res.status, res.counts, res.gate.to_dict()),
+                         (res2.status, res2.counts, res2.gate.to_dict()))
+        self.assertEqual({}, self._eval(sweep, False, pp.GateInput("p", None, kinds)).page_states)
+        failing = {c.case_id for c in res2.cases if c.verdict == pp.VERDICT_FAIL}
+        self.assertTrue(failing)
+        self.assertEqual(failing, set(res2.page_states))
+        self.assertEqual({"accepted"}, {d["state"] for d in pp.verdicts_document(res2, "run")["pageStates"].values()})
+        self.assertIn(" pageAccepted=%d" % len(failing), pp.format_summary(pp.combine([res2], True)))
 
     def test_report_only_records_the_gate_and_never_fails(self):
         sweep = self._sweep(parts=2, part_ghost_shift=3)
@@ -891,6 +1366,38 @@ class BaselineToolTests(unittest.TestCase):
             with mock.patch.object(pp, name, return_value=mock.Mock(problems=["bad"])):
                 self.assertEqual(ppb.EXIT_USAGE, self._run("write", "--label", "pp1", d)[0], name)
         self.assertEqual(0, self._run("write", "--label", "pp1", d)[0])
+
+    def test_an_fx_sweep_is_pinned_from_the_archive(self):
+        # The archive keeps no atlas: the FX one and the strip are taken as present too.
+        cid = FxGateTests.ID
+        clean = FxGateTests()._case()
+        near = FxGateTests()._measured("lengthRatio", 1.3)
+        capped = FxGateTests()._measured("hueL1", 0.8, half=0.1)
+        for doc, name in ((clean, "c.strip.png"), (near, "n.strip.png")):
+            doc["strip"] = {"file": name}
+        r1 = self._sweep_dir("f1", {cid: clean}, label="pp7")
+        r2 = self._sweep_dir("f2", {cid: near}, label="pp7")
+        with mock.patch.object(pp, "check_completeness", return_value=mock.Mock(problems=[])) as seen:
+            self._accept('[[accepted]]\ncase = "%s"\nview = "*"\nmeasure = "fx:length"\n'
+                         'reason = "known"\ntodo = "SOME-TODO-1"\n' % cid)
+            rc, out, err = self._run("write", "--label", "pp7", r1, r2)
+        self.assertEqual(0, rc, err)
+        for call, doc in zip(seen.call_args_list, (clean, near)):
+            for block in ("atlas", "fxAtlas", "strip"):
+                self.assertIn(doc[block]["file"], call.args[4])
+        self.assertIn("fxBanded=1", out)
+        # A band past its fail line is said, capped or accepted.
+        self.assertIn("fx band past its line: %s event:fx-side-a:flame lengthRatio [1, 1.3] (1.20 lines)" % cid, out)
+        self.assertEqual(0, self._run("check", r2)[0])
+        # spread names the FX movement in fail lines.
+        rc, out, _ = self._run("spread", r1, r2)
+        self.assertIn("fx (fail lines): n=", out)
+        self.assertIn("d=1.20       %s event:fx-side-a:flame lengthRatio 0.00 -> 1.20" % cid, out)
+        # A fail the sample halves do not repeat needs no accepted entry, and its band holds it.
+        r3 = self._sweep_dir("f3", {cid: capped}, label="pp7")
+        rc, out, err = self._run("write", "--label", "pp7", r3)
+        self.assertEqual(0, rc, err)
+        self.assertIn("hueL1 [0.8, 0.8] (1.60 lines)", out)
 
     def test_run_id_of_both_layouts(self):
         self.assertEqual("2026-11-22_0033_PP-1", ppb.run_id_of(os.path.join("x", "2026-11-22_0033_PP-1_partparity", "pp1")))

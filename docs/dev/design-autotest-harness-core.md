@@ -1218,10 +1218,28 @@ last KSP exited; the snapshot doubles as a crash marker restored by the next
 start. Slot children never touch it. Pure half `harness/lib/unityprefs.py`,
 shell `harness/tools/unity_prefs.py`; a failure is one Warn.
 
-**INVALID subkinds.** `port-busy`, `runner-token`, `slot-locked` and
-`slot-profile-mismatch` (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`) are pre-boot
-refusals about the machine: not retryable, and in
-`FLAKE_EXEMPT_INVALID_SUBKINDS`.
+**INVALID subkinds.** `port-busy`, `runner-token`, `slot-locked`,
+`slot-profile-mismatch`, `lease-invalid` and `lease-exclusive`
+(`hlib.PARALLEL_RUN_INVALID_SUBKINDS`) are pre-boot refusals about the
+machine: not retryable, and in `FLAKE_EXEMPT_INVALID_SUBKINDS`.
+
+#### Copy leases (AMENDED 2026-11-27)
+
+A second way to share the PC, beside the parallel runner: one agent thread
+(one worktree) LEASES one copy across many calls, so two threads fly at once.
+The lease registry `automation/.ksp-lease-<slot>.json` (pure contract
+`harness/lib/leases.py`, I/O `harness/provision/leaseio.py`, CLI
+`harness/tools/ksp_lease.py`) carries a token, the owner, the worktree, a time
+to live (no pid: a lease spans processes) and the DLL pin. Claims are written
+under a momentary machine lock and capped (2, or 3 when the owner is away);
+every machine owner checks the registry while holding the machine lock and
+refuses on a live lease (`leaseio.acquire_machine`), so the two modes exclude
+each other. `provision.py --lease` and `run.py --lease` take only the leased
+copy's slot lock; the run admits against the lease's DLL pin instead of copy 1's
+DLL, renews the lease at every attempt boundary, scopes the zombie probe and
+spaces launches like a slot child, and refuses lanes that need the whole
+machine (`lease-exclusive`). Operator contract: `harness/README.md` "Copy
+leases".
 
 #### The parallel runner (`harness/tools/parallel_runner.py`)
 
@@ -1445,6 +1463,12 @@ a handle and act on it; (c) the seam's `ListHandles` verb
 (`design-autotest-command-seam.md`, "#### ListHandles"), the enumeration those references
 read. Every decision is pure in `hlib` / `mlib`; `run.py` and `mission_runner.py` do only
 the file I/O around it.
+
+Amendment (watch lanes, 2026-11-22): a reference may carry a numeric offset,
+`${ref.field+N}` / `${ref.field-N}` (`N` a decimal), added to the captured value at
+substitution time (`hlib.substitute_handle_refs`; written back as `repr(float)`). A
+non-numeric field with an offset is unresolved (`no-such-field`). The watch lanes use it to
+land 5 s after `StartLoopPlayback`'s captured `relaunchUt`.
 
 **The capture store.** After a step's FIRST terminal response line (the first-wins rule
 above) with `verdict=OK`, every payload field except the four envelope keys `id`, `cmd`,
@@ -1715,6 +1739,78 @@ seam surfaces its (retryable driver-INVALID) TIMEOUT. `hlib.dispatch_deferral_bu
 spec-pinned larger per-step budget still wins; capped at the run budget). This closes
 the gap where only the two-phase `RunTests`/`LoadGame`/`InvokeRewind`/`TimeJump` verbs
 were protected.
+
+### Attended hold mode (watch lanes)
+
+Owner decision 2026-11-22 (`docs/dev/plans/remove-player-looping.md` section 10.5 item 2,
+on branch `mission-clone-removal`): the visual checks the owner does by looping a mission in
+the Advanced Missions tab (a liftoff, a landing near a base, a docking, a transfer in map
+view) move into the harness, so he can say "take this mission, make a test out of it, I
+want to watch it". Four pieces, all additive:
+
+**1. `run.py --hold`.** One scenario (`--id` or `--spec PATH`), seam driver only
+(`watchlane.hold_refusal`: no `phase = "mission"` step, no `[driver.autorun]`), never in a
+slot. The run takes the machine lock as any run does, admits, stages and launches as
+usual, and drives the steps before the HOLD POINT (`watchlane.plan_hold`: the step labelled
+by the optional `[watch] holdBefore = "<label>"`, else the first `FlushAndQuit`, else the
+end of the list). Steps from the hold point on are not written to the channel. During the
+setup the run budget is not enforced; a step that misses its `expect`, outwaits its step
+wait or carries an unresolved `${...}` reference starts the hold at once instead of killing
+the game (the owner sees the state it stopped in). The boot-stall watchdog stays on. Then it HOLDS: no verifier chain, no budget,
+only `poll_exit`, until KSP exits (the owner closes it: `owner-closed`), a stop request is
+dropped (`stop-request`, the harness closes KSP) or `--hold-max-minutes` (default 240; 0 =
+none) runs out (`hold-ceiling`). The hold heartbeats the machine and slot locks every 60 s
+and logs a status line every 5 min.
+
+**The result.** `watchlane.classify_hold`: `OBSERVED`, never `PASS` (the run asserted
+nothing), with subkind `setup-incomplete` when a setup step did not come back as expected;
+`INVALID(boot-crash | boot-hang)` when the boot never reached the seam. A hold refused
+before launch (admission, preflight, staging, seed) keeps the refusal's own INVALID
+verdict and is tagged like any hold record (`hold.endReason = refused-before-launch`). OBSERVED is
+deliberately not a member of `hlib.VERDICTS`. The record carries `mode = "hold"` and a
+`hold` block (hold index and source, setup complete, the unmet step, end reason, held
+seconds, the ceiling, the skipped steps), collect-logs runs (as on every non-PASS run), and
+the produced-save snapshot, artifact harvest (screenshots, KSP.log) and contact sheet run
+as usual. One attempt, no retry. Kept out of every counted surface: `run._run_hold` never
+archives or indexes the run and skips the coverage / flake refresh, `run.load_all_results`
+drops a `mode = "hold"` record (so coverage, flake and the duration ledger never see one),
+and `runindex.build_row` refuses one (so an `archive_results.py` back-fill cannot index
+it either); `hlib.is_hold_result` is the one predicate. Exit code 0 on OBSERVED, 1
+otherwise.
+
+**2. The view preamble** (`watchlane.view_preamble_steps`), one per scene kind. Flight
+scenes (`liftoff`, `landing`, `docking`): `EnterWatchMode tree=<id>` (the Watch button;
+the ghost must be on the active vessel's body and within the 300 km watch-entry range,
+so the lane's focus vessel matters: `LoadGame focusPid=`) then `CaptureScreenshot`. Map
+scenes (`transfer`): `EnterMapView`, `MapCamera focus=<body> pitch= heading=0 distance=
+hold=4.5` (the picture protocol of design-map-mirror.md), `CaptureScreenshot` and
+`DumpMapGeometry` under one label. The setup before it (`watchlane.setup_steps`): LoadGame,
+StopRecording / DiscardTree, the recorder and tracer settings, `MissionConfig loop=true`,
+`StartLoopPlayback` (lands 15 s before the next launch); then either a `--at` instant
+(`TimeJump ut=T`, `WarpToUT ut=T+5 maxRate=1`, the TP picture lanes' pattern, with T read
+off a reading run's log) or, without one, `WarpToUT ut=${slp.relaunchUt+5} maxRate=1` (ride
+the 15 s lead to 5 s past the launch at 1x so the ghost exists when the camera looks; a warp that targets the launch UT itself stops a fraction of a second short of it). No seam verb targets a
+ghost in map view; in a hold the owner clicks it.
+
+**3. The tree handle.** `tree=` on `MissionConfig`, `StartLoopPlayback` and
+`EnterWatchMode` also takes `first` / `latest` (committed-tree list order, the save's
+order) or `name:<mission name>` (the tree's display name, `MissionStore.DisplayNameForTree`,
+case-insensitive, exactly one match), resolved by the pure
+`TestCommands/TestCommandTreeHandle.cs` (REJECTED `tree-handle-no-trees` /
+`tree-handle-no-match` / `tree-handle-ambiguous`). A plain id is not a handle and passes
+through unchanged, so every id-pinned spec is byte-identical in behaviour. The offline twin
+`watchlane.resolve_tree_handle` / `read_save_trees` resolves the same vocabulary against a
+save file; `test_watchlane.TreeHandleSourceSyncTests` keeps the literals equal.
+
+**4. The authoring path.** `harness/tools/make_watch_lane.py --save <fixture> --tree
+<handle> --scene <kind> --id <lane>` (`--list` shows the save's trees) writes a spec whose
+header records the generator command; the spec pins the resolved tree id (the handle is
+kept in `[watch] treeHandle`). A committed fixture's lane goes to `scenarios/<id>.toml`
+(`test_watchlane.CommittedWatchLaneSyncTests` regenerates every committed `[watch]` spec
+and reds on a hand edit); an operator-local fixture's lane (`fixtures/local-saves/`) goes to
+the gitignored `scenarios/local/`, flown with `run.py --spec`. Watch lanes are `tier =
+"operator"`. Flown unattended they are ordinary light lanes (the TP picture lanes'
+expectations: the verbs' ok lines, no refusal or error line).
 
 ### Pipelined post-quit verification
 

@@ -123,8 +123,12 @@ namespace Parsek
                                 ? parentUnit.OverlapCadenceSeconds
                                 : GhostPlaybackLogic.UnitLaunchCadenceSeconds(parentUnit);
                             double debrisDuration = traj.EndUT - traj.StartUT;
-                            bool debrisEndsAtOwnEnd = debrisHasFall
-                                || GhostPlaybackLogic.EndsInPredictedTail(traj, traj.EndUT);
+                            // Every copy ends at its own end (owner ruling 2026-11-24). Debris is not a
+                            // unit member, so the watch camera never holds a copy of it.
+                            var debrisEnds = new GhostPlaybackLogic.OverlapCopyEnds(
+                                traj.EndUT,
+                                recorded: !debrisHasFall
+                                    && !GhostPlaybackLogic.EndsInPredictedTail(traj, traj.EndUT));
                             if (debrisDuration <= 0)
                             {
                                 GhostRenderTrace.EmitGuardSkip(
@@ -154,10 +158,10 @@ namespace Parsek
                                 {
                                     GhostRenderTrace.EmitGuardSkip(
                                         traj, i, ctx.currentUT, "debris-unit-overlap-warp-hidden");
-                                    if (debrisEndsAtOwnEnd)
-                                        DropEndedFallAtWarp(
-                                            i, traj, f, ctx, launchCadence, debrisDuration,
-                                            debrisScheduleStartUT, debrisHasFall, ref state, ref ghostActive);
+                                    DropEndedCopyAtWarp(
+                                        i, traj, f, ctx, launchCadence, debrisDuration,
+                                        debrisScheduleStartUT, debrisHasFall, debrisEnds,
+                                        ref state, ref ghostActive);
                                     if (ghostActive && state != null && state.ghost != null && IsGhostMeshActive(state))
                                     {
                                         DeactivateGhostMesh(state);
@@ -185,7 +189,7 @@ namespace Parsek
                                 launchCadence, debrisDuration,
                                 debrisPlaybackStartUT, debrisScheduleStartUT,
                                 suppressVisualFx, suppressDebrisOverlapGhosts,
-                                keepCadence: debrisHasFall, endAtOwnEnd: debrisEndsAtOwnEnd);
+                                keepCadence: debrisHasFall, ends: debrisEnds);
                             LogLoopSyncedDebrisOverlapVisibility(
                                 i, traj, ctx.currentUT, launchCadence,
                                 debrisDuration, debrisPlaybackStartUT, debrisScheduleStartUT,
@@ -840,7 +844,7 @@ namespace Parsek
             bool suppressVisualFx, bool suppressOverlapGhosts = false,
             bool stopAfterSuppressOverlapGhostsForTesting = false,
             bool keepCadence = false,
-            bool endAtOwnEnd = false)
+            GhostPlaybackLogic.OverlapCopyEnds ends = default(GhostPlaybackLogic.OverlapCopyEnds))
         {
             if (ctx.currentUT < scheduleStartUT)
             {
@@ -849,7 +853,7 @@ namespace Parsek
                 if (primaryState != null) DestroyGhost(index, traj, flags, reason: "before activation start UT");
                 if (!keepCadence || suppressOverlapGhosts
                     || !UpdateFirstRunFallBeforeFirstCopy(
-                        index, traj, flags, ctx, duration, playbackStartUT, scheduleStartUT, suppressVisualFx))
+                        index, traj, flags, ctx, duration, playbackStartUT, scheduleStartUT, suppressVisualFx, ends))
                     DestroyAllOverlapGhosts(index);
                 CountFrameSkip(GhostPlaybackSkipReason.BeforeActivation);
                 return;
@@ -892,25 +896,25 @@ namespace Parsek
             if (suppressOverlapGhosts && stopAfterSuppressOverlapGhostsForTesting)
                 return;
 
-            // A loop edit renumbers the launches: a fall copy of the schedule before it is never read on
-            // this one (nor a fall's copy on a path that draws no fall).
-            if (endAtOwnEnd)
+            // A loop edit renumbers the launches: a copy of the schedule before it is never read on this
+            // one (nor a mission copy on a path that draws a standalone loop).
+            if (ends.AtOwnEnd)
                 primaryState = DropStaleFallCopies(
                     index, traj, flags, ctx, primaryState, lastCycle, duration, cycleDuration,
-                    playbackStartUT, scheduleStartUT);
+                    playbackStartUT, scheduleStartUT, ends.Recorded);
             else
                 DropUndrivenFallCopies(index, traj, flags, ctx);
 
-            // A fall whose period is longer than its window: the newest copy ends at its own end and
-            // its cycle is not drawn again. (A copy whose end is recorded is held there, below.)
-            if (endAtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
+            // A period longer than the window: the newest copy ends at its own end and its cycle is not
+            // drawn again before the next launch.
+            if (ends.AtOwnEnd && GhostPlaybackLogic.HasOverlapCopyEnded(
                     ctx.currentUT, lastCycle, scheduleStartUT, cycleDuration, duration))
             {
-                EndNewestFallCopy(
+                EndNewestCopy(
                     index, traj, flags, ctx, primaryState, lastCycle,
                     duration, cycleDuration, playbackStartUT, scheduleStartUT,
                     suppressVisualFx,
-                    keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                    keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue, ends);
                 return;
             }
 
@@ -970,9 +974,12 @@ namespace Parsek
                     primaryState = CreatePendingSpawnState(
                         traj, primaryLoopUT, PendingSpawnLifecycle.OverlapPrimaryEnter, flags);
                     primaryState.loopCycleIndex = lastCycle;
-                    if (endAtOwnEnd)
+                    if (ends.AtOwnEnd)
+                    {
                         primaryState.fallClockOffsetUT =
                             scheduleStartUT + lastCycle * cycleDuration - playbackStartUT;
+                        primaryState.recordedEndCopy = ends.Recorded;
+                    }
                     ghostStates[index] = primaryState;
                     GhostVisualLoadStatus overlapPrimarySpawnStatus = EnsureGhostVisualsLoaded(
                         index, traj, primaryState, primaryLoopUT, "overlap primary first spawn",
@@ -1107,7 +1114,8 @@ namespace Parsek
             // Update overlap ghosts (older cycles)
             UpdateExpireAndPositionOverlaps(index, traj, flags, ctx, overlaps,
                 duration, cycleDuration, playbackStartUT, scheduleStartUT, suppressVisualFx,
-                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue);
+                keepCadence ? GhostPlaybackLogic.OldestDrawnFallCycle(lastCycle) : long.MinValue,
+                ends: ends);
         }
 
         /// <summary>
@@ -1122,7 +1130,8 @@ namespace Parsek
             double playbackStartUT, double scheduleStartUT,
             bool suppressVisualFx,
             long oldestDrawnCycle = long.MinValue,
-            GhostPlaybackLogic.LoopUnit? fallUnit = null)
+            GhostPlaybackLogic.LoopUnit? fallUnit = null,
+            GhostPlaybackLogic.OverlapCopyEnds ends = default(GhostPlaybackLogic.OverlapCopyEnds))
         {
             for (int i = overlaps.Count - 1; i >= 0; i--)
             {
@@ -1154,9 +1163,21 @@ namespace Parsek
                 double phase = GhostPlaybackLogic.OverlapCopyPhaseSeconds(
                     ctx.currentUT, cycle, scheduleStartUT, cycleDuration, playbackStartUT, fallUnit);
 
-                // Expired cycle
+                // Expired cycle: a copy ends where its own window ends, never at the recording's end
+                // beyond a trim.
                 if (phase > duration)
                 {
+                    double endUT = GhostPlaybackLogic.ResolveOverlapCopyEndUT(ends, traj);
+                    bool explodesAtEnd = !ovState.explosionFired
+                        && GhostPlaybackLogic.OverlapCopyExplodes(ends, traj);
+                    GhostPlaybackLogic.WatchedCopyEnd watchedEnd =
+                        GhostPlaybackLogic.DecideWatchedCopyEnd(ends, cycle, explodesAtEnd);
+                    if (watchedEnd == GhostPlaybackLogic.WatchedCopyEnd.HoldForNextRow
+                        && TryHoldEndedWatchedCopy(
+                            index, traj, flags, ctx, ovState, phase, duration, playbackStartUT, endUT,
+                            suppressVisualFx, watchedEnd))
+                        continue;
+
                     // Bug #613 (PR #594 P1 round 2): clear retire signal so
                     // PositionGhostAtLoopEndpoint -> PositionLoop -> relative
                     // retire branch can flag this overlap expiry. Without the
@@ -1167,15 +1188,15 @@ namespace Parsek
                     if (ovState.ghost != null)
                     {
                         ovState.anchorRetiredThisFrame = false;
-                        PositionGhostAtLoopEndpoint(
-                            index, traj, flags, ovState, ctx.currentUT, ctx.warpRate);
+                        PositionGhostAtLoopEndUT(
+                            index, traj, ovState, endUT);
                         overlapExpiryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
                             ovState.anchorRetiredThisFrame);
                     }
-                    bool triggerExplosionAtExpiry = !overlapExpiryRetired
-                        && !ovState.explosionFired
-                        && GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(
-                            traj, ResolveLoopPlaybackEndpointUT(traj));
+                    if (ends.AtOwnEnd && !overlapExpiryRetired)
+                        ApplyEndPartEvents(
+                            index, traj, ovState, endUT, phase - duration, suppressVisualFx);
+                    bool triggerExplosionAtExpiry = !overlapExpiryRetired && explodesAtEnd;
                     if (overlapExpiryRetired)
                     {
                         ParsekLog.VerboseRateLimited("Engine", $"overlap-expiry-suppressed-{index}",
@@ -1187,21 +1208,29 @@ namespace Parsek
                     }
 
                     // Fire camera event for overlap expiry (never for the first run's kept fall: no
-                    // watch cycle names it, so the camera is not on it)
-                    if (!overlapExpiryRetired && cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
-                    {
+                    // watch cycle names it, so the camera is not on it). A retired anchor leaves the copy
+                    // at no usable position; the watch of a mission copy still holds, where the camera is.
+                    bool anchorUnresolved = overlapExpiryRetired || ovState.ghost == null;
+                    if (cycle != GhostPlaybackLogic.FirstRunFallCycleIndex
+                        && (!overlapExpiryRetired
+                            || watchedEnd != GhostPlaybackLogic.WatchedCopyEnd.NotWatched))
                         OnOverlapCameraAction?.Invoke(new CameraActionEvent
                         {
                             Index = index,
                             Action = triggerExplosionAtExpiry
                                 ? CameraActionType.ExplosionHoldStart
-                                : CameraActionType.ExplosionHoldEnd,
+                                : watchedEnd != GhostPlaybackLogic.WatchedCopyEnd.NotWatched
+                                    ? CameraActionType.EndHoldStart
+                                    : CameraActionType.ExplosionHoldEnd,
                             NewCycleIndex = cycle,
-                            AnchorPosition = ovState.ghost != null ? ReadGhostWorldPosition(ovState) : Vector3.zero,
+                            AnchorPosition = anchorUnresolved ? Vector3.zero : ReadGhostWorldPosition(ovState),
+                            AnchorUnresolved = anchorUnresolved,
                             HoldUntilUT = ctx.currentUT + GhostPlayback.OverlapExplosionHoldSeconds,
                             Trajectory = traj, Flags = flags
                         });
 
+                    if (!overlapExpiryRetired && cycle != GhostPlaybackLogic.FirstRunFallCycleIndex)
+                    {
                         // Fire overlap expired event
                         OnOverlapExpired?.Invoke(new OverlapExpiredEvent
                         {
@@ -1212,6 +1241,8 @@ namespace Parsek
                         });
                     }
 
+                    LogRecordedCopyEnd(
+                        index, traj, ovState, phase, playbackStartUT, endUT, ends, watchedEnd);
                     ParsekLog.VerboseRateLimited("Engine", "overlap-expired",
                         $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
                     DestroyOverlapGhostState(ovState, index, traj, "overlap expired");
@@ -1385,11 +1416,17 @@ namespace Parsek
             double frameUT,
             float warpRate)
         {
+            PositionGhostAtLoopEndUT(index, traj, state, ResolveLoopPlaybackEndpointUT(traj));
+        }
+
+        private void PositionGhostAtLoopEndUT(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, double endUT)
+        {
             if (state?.ghost == null || traj == null || positioner == null)
                 return;
 
             PositionLoopAtPlaybackUT(
-                index, traj, state, ResolveLoopPlaybackEndpointUT(traj), true,
+                index, traj, state, endUT, true,
                 "GhostPlaybackEngine.PositionGhostAtLoopEndpoint");
         }
 

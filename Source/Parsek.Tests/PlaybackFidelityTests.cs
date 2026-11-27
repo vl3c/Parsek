@@ -610,6 +610,42 @@ namespace Parsek.Tests
                 1f, ground - 900.0, ground, out _));
         }
 
+        [Fact]
+        public void DustGroundPoint_SitsOnTheGroundStraightBelowTheGhost()
+        {
+            // A ghost 12 m above its launch ground, on a body whose up here is not world up.
+            var ghost = new Vector3(100f, 200f, 300f);
+            var up = new Vector3(0f, 0.6f, 0.8f);
+            Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, up, 82.0, 70.0);
+            Vector3 expected = ghost - up * (12f - GhostPlaybackLogic.LaunchDustGroundLiftMeters);
+            Assert.True(Vector3.Distance(expected, p) < 1e-3f, $"got {p}, expected {expected}");
+            // Only along the normal: no sideways drift off the spot under the ghost.
+            Vector3 d = p - ghost;
+            Assert.True(Vector3.Cross(d, up).magnitude < 1e-3f, $"offset {d} is not along {up}");
+        }
+
+        [Fact]
+        public void DustGroundPoint_OnTheGroundOrBadInput_StaysAtTheGhostLifted()
+        {
+            var ghost = new Vector3(5f, 6f, 7f);
+            Vector3 up = Vector3.up;
+            Vector3 lifted = ghost + up * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
+            foreach (double alt in new[] { 70.0, 65.0, double.NaN, double.PositiveInfinity })
+            {
+                Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, up, alt, 70.0);
+                Assert.True(Vector3.Distance(lifted, p) < 1e-4f, $"alt={alt}: got {p}");
+            }
+        }
+
+        [Fact]
+        public void DustGroundPoint_NeverReachesBelowTheDustCeiling()
+        {
+            var ghost = Vector3.zero;
+            Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, Vector3.up, 5000.0, 70.0);
+            AssertClose(GhostPlaybackLogic.LaunchDustGroundLiftMeters - GhostPlaybackLogic.LaunchDustMaxAglMeters,
+                p.y, 3);
+        }
+
         // ------------------------------------------------ S3: warp-gap decay of a smoothed rate
 
         [Fact]

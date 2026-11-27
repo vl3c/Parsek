@@ -1,0 +1,61 @@
+{
+ "scenarioId": "PPS-20b-burst-spike-modded-restock",
+ "runId": "2026-11-27_2009_PPS-20b-burst-spike-modded-restock",
+ "verdict": "PARSEK-FAIL",
+ "reason": null,
+ "attempt": 1,
+ "attemptsWallSeconds": 90,
+ "subkind": "results",
+ "verifierStatus": {
+  "analyzer": "PASS",
+  "anomalySweep": "SKIPPED",
+  "batchComplete": "PASS",
+  "driverValidity": "PASS",
+  "expectations": "SKIPPED",
+  "ghostLifecycle": "REPORT",
+  "ledgerOracle": "SKIPPED",
+  "logValidate": "PASS",
+  "renderCompose": "REPORT",
+  "saveParse": "REPORT",
+  "subprocessRetry": [],
+  "testResults": "FAIL",
+  "unityExceptions": "SKIPPED"
+ },
+ "steps": [
+  [
+   "LoadGame",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "RunTests",
+   "OK",
+   true
+  ],
+  [
+   "FlushAndQuit",
+   "OK",
+   true
+  ]
+ ]
+}

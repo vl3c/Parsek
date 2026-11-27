@@ -260,19 +260,19 @@ namespace Parsek.Tests
             AssertQuiet();
         }
 
-        // Out of this rule's scope on purpose: copies with a recorded end keep the old demotion.
+        // A copy with a recorded end is ended by the same rule, under its own wording.
         [Fact]
-        public void PeriodEdit_OfARecordedEnd_KeepsTheOldHandling()
+        public void PeriodEdit_OfARecordedEnd_EndsTheOldCopyQuietly()
         {
             var probe = new ZoneProbe();
             GhostPlaybackEngine engine = Engine(Unit(100), probe);
             MockTrajectory debris = Traj(60, 117, predictedEnd: false, name: "Booster");
-            GhostPlaybackState copy = Seed(engine, 40, DebrisIndex);
-            DebrisFrame(engine, probe, debris, Ctx(300));
-            Assert.True(engine.TryGetOverlapGhosts(DebrisIndex, out var overlaps));
-            Assert.Same(copy, overlaps.Single());
-            Assert.True(double.IsNaN(copy.fallClockOffsetUT));
+            Seed(engine, 40, DebrisIndex);
+            Assert.True(double.IsNaN(DebrisFrame(engine, probe, debris, Ctx(300))));
+            Assert.Equal(0, Copies(engine, DebrisIndex));
+            Assert.Equal(new[] { "cycle=40" }, destroyed);
             Assert.DoesNotContain(logLines, l => l.Contains(QuietLine));
+            Assert.Contains(logLines, l => l.Contains(QuietLine.Replace("Fall", "Loop")));
         }
 
         // ---- a unit whose cycles are not uniform ----

@@ -8833,7 +8833,8 @@ class ClassifyVerdictMatrixTests(unittest.TestCase):
         self.assertEqual("PASS", self._classify(d, v).verdict)
 
     def test_parallel_run_subkinds_are_flake_exempt(self):
-        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch"),
+        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch",
+                          "lease-invalid", "lease-exclusive"),
                          hlib.PARALLEL_RUN_INVALID_SUBKINDS)
         for subkind in hlib.PARALLEL_RUN_INVALID_SUBKINDS:
             with self.subTest(subkind=subkind):
@@ -11001,6 +11002,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
+        "LDL-1-looped-debris-no-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WL-1's no-rewind loop setup on refly-a-recorded, two loop launches at 1x with the ghost tracer on, requiring the six booster debris ghosts on each launch (todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL). AUTHORED 2026-11-27 with the fix, LIVE-PROVEN on its first flight `2026-11-27_1708`; owed: arming its ghostLifecycle windows and the ordinary tier call",
+        "WL-1-liftoff-kerbin.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
+        "WL-2-landing-mun.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
+        "WL-4-transfer-duna.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
         "WR-1-world-record-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WF-1's twin for the repeatable world-record nodes (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 pay once per career, earliest crossing wins) on `cs-career-new`: a committed Jumping Flea hop crosses the altitude and speed thresholds, a Rewind-to-Launch, a relaunch held on the pad past the committed crossings under a live recorder, the same hop again (both hops inside the one mission `record_climb_rewind`), then LedgerGroundTruth. AUTHORED 2026-10-27; LIVE-PROVEN on its second flight `2026-10-27_1723` (the first stalled on a mission bug, fixed); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-3b-career-hire-upgrade.toml": "operator by the calibration discipline, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant): three contract accepts, the career's first hire, the Mission Control upgrade and basicRocketry research, each ledgered, then a same-craft relaunch whose rollout must be ledgered, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0426`); owed: the ordinary promotion call",
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
@@ -11032,6 +11037,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-22-patents-licensing-recovery.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `lab-pad-career` (stock-minimal): the pad lab recovered with its 12.5 science under Patents Licensing: stock's payout booked once as the recovery and the converter's yield once as its strategy leg. LIVE-PROVEN 2026-10-31 (`2026-10-31_0405`); owed: the ordinary promotion call",
         "RW-23-strategy-part-purchase-rebuy.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal, new: L2's pad host with entry purchases on and reputation 120): Aggressive Negotiations active, the RT-10 Hammer bought at its discounted entry cost with both strategy legs naming the purchase, a Rewind-to-Launch, the second purchase refused, and the crossing applying the purchase and its legs once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1836`, 138 s); owed: the ordinary promotion call",
         "RW-24-strategy-slot-needed-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `career-pad-craft-purchase` (stock-minimal): Aggressive Negotiations activated at T1, a Rewind-to-Launch before it, and a second strategy refused SlotNeeded on the Administration button and through the seam, then the crossing activating the committed one once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1808`, 129 s); owed: the ordinary promotion call",
+        "SAVE-IDX-1-quickload-keeps-eva-focus.toml": "tier=operator by the calibration discipline, NOT debt: the F5 / F9 active-vessel index lane (todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP, fix PR #2842) on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset): Jebediah EVAs and plants a flag after relay A's map ghost exists, a quicksave is loaded back as the player's load, and the reloaded focus must be the vessel the save named. AUTHORED 2026-11-27, FLOWN GREEN 2026-11-27 (`2026-11-27_1708`, PASS attempt 1, tag `flown`); operator until its p50 is measured, not a human review call",
+        "SAVE-IDX-2-far-switch-focuses-target.toml": "tier=operator by the calibration discipline, NOT debt: the far Switch-To half of SAVE-IDX-1 (same todo and fix) on CN-3's host (gloops-airshow plus the ghost-commnet-timeline preset): the held relay spawned after the deploy relay's map ghost, Jebediah and a flag after it, then a stock alarm Jump to the far held relay; the ghosts must be stripped before stock's IndexOf and the reload must focus the held relay. AUTHORED 2026-11-27, first flight `2026-11-27_1710` red on a count spec error and re-pinned, FLOWN GREEN 2026-11-27 (`2026-11-27_2139`, PASS attempt 1, tag `flown`); operator until its p50 is measured, not a human review call",
         "CN-5-ghost-relay-after-mid-replay-save-load.toml": "tier=operator by the calibration discipline, NOT debt: the replay-scope-across-a-save-load lane (todo REPLAY-SCOPE-LOST-ON-SAVE-LOAD) on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset): a quicksave written ~978 s into relays A and B's window and loaded back as the player's load (a Cold load), then CN-1's GhostCommNet rulings and A's map ghost read again. LIVE-PROVEN 2026-11-01 (`2026-11-01_0124`, PASS attempt 1, 97 s; red on main's DLL `2026-11-01_0103`, the bug); owed: the tier call (CN-1 is nightly)",
         "CN-4-ghost-commnet-relay-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's CommNet-across-a-rewind lane on CN-1's host (gloops-airshow plus the ghost-commnet-relay preset): a pad recording committed at UT 1000 and rewound to, the pod relaunched from the SPH, and CN-1's GhostCommNet rulings read again in the rewound flight with every old node removed with the old scene. first flight 2026-10-31_2359 matched every required line (relays re-registered with CN-1's rulings, batch passed=4 skipped=5) and red only on a forbidden line the batch's own final-restore Cold load matched, since scoped; LIVE-PROVEN on the re-fly 2026-11-01_0010 (PASS attempt 1, 129 s); owed: the tier call (CN-1 is nightly)",
         "SWS-1-save-switch-through-main-menu.toml": "tier=operator by the calibration discipline, NOT debt: the test-gap audit's save-switch lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): NewGame as= quits to the main menu into a new sandbox in another folder that must hold no recordings, LoadGame brings the career back whole, and a VAB launch passes LedgerGroundTruth. LIVE-PROVEN 2026-10-31 (run 2026-10-31_2358, PASS attempt 1, 96 s, committed 34 / 0 / 34); stays operator because stock-tree is not in the nightly instance set",
@@ -11051,8 +11058,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
-        "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp5fx`, photographs the 14 held air-breathing engine cases (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): LIVE-PROVEN `2026-11-23_1718`",
-        "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp6fx`, photographs the 14 held air-breathing engine cases as Waterfall references (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): LIVE-PROVEN `2026-11-23_1725`",
+        "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp5fx`, photographs the 14 held air-breathing engine cases (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): LIVE-PROVEN `2026-11-23_1718`; since 2026-11-27 a third label, `pp5mo`, photographs the 10 chute motion cases live (Appendix H.4, H.7 row M7), authored and never flown, run last in the lane",
+        "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`). Since 2026-11-23 a second label, `pp6fx`, photographs the 14 held air-breathing engine cases as Waterfall references (Appendix E.8, E.9 row F7; branch `fx-air-lanes`): LIVE-PROVEN `2026-11-23_1725`; since 2026-11-27 a third label, `pp6mo`, photographs the 10 chute motion cases live (Appendix H.4, H.7 row M7), authored and never flown, run last in the lane",
         "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape flew green 2026-11-22 (`2026-11-22_0033`, PASS attempt 1); nothing owed beyond its status row",
         "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). AUTHORED 2026-11-21, LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, after the 2026-11-21 reading runs); nothing owed beyond its status row",
         "PP-3-part-parity-states-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit state reading run on stock-minimal (design-part-ghost-parity.md Appendix D, D.10 row S6; owner rulings R2 / R3): every transforming stock part deployed / open / lit / jettisoned beside its event-route, start-route and stowed ghosts over two `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts ARMED 2026-11-23 by P5 (the regression gate against harness/partparity/, design Appendix F). AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1656`, PASS attempt 1, after the reading run `2026-11-22_1627`); nothing owed beyond its status row",
@@ -11061,9 +11068,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "PP-8-part-parity-fx-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, where a Waterfall part's plume reads `reference` (never judged); parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1232`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-9-part-parity-fx-restock.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-restock (ReStock and ReStock+ without Waterfall, owner ruling R6; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, every case judged; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1050`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-10-part-parity-fx-air-restock.toml": "tier=operator by PURPOSE, NOT debt: the air half of PP-9 (design-part-ghost-parity.md Appendix E.2 F7 as built, E.6 / E.8, E.9 row F7): every modded-restock air-breathing engine held 1600 m over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route and start-route ghosts over two `contexts=air fx=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-23 (`2026-11-23_1712`, PASS attempt 1, first flight, authored on branch `fx-air-lanes`)",
+        "PP-11-part-parity-mod-parts.toml": "tier=operator by PURPOSE, NOT debt: PP-2's shape on modded-compat narrowed with `source=UtilityWeight,SHED` to the two pinned part mods the owner asked for (Utility Weight 2.0.0, PicoPort 0.1.6.4; design-part-ghost-parity.md section 10): their parts in every skin beside their Parsek ghosts, the live proof of the B9 subtype TRANSFORM offsets on ghosts (todo GHOST-B9-SUBTYPE-TRANSFORMS), judged by the partParity verifier row; parity verdicts are report-only. AUTHORED 2026-11-26 (branch `mod-parts`), LIVE-PROVEN 2026-11-27 (`2026-11-27_1808` / `_1810`, tag `flown`), `pp11` baseline pinned from those two runs",
+        "PP-14-part-parity-motion-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit MOTION reading run on stock-minimal (design-part-ghost-parity.md Appendix H, H.4, H.7 row M6): every transforming stock part pressed for real in LKO and photographed live through its motion beside its event-route ghost posed at each real frame's UT and progress, over three `motion=all` PartParitySweep steps on PP-3's host, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; motion verdicts are report-only. AUTHORED 2026-11-27 (branch `claude/project-thread-sif2cl-m6`), never flown (tag `pending-flight`); what is open is the first flight (a `limit=20` reading flight, then the full one, after the live engine M3), not a human review call",
+        "PP-15-part-parity-motion-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-14's orbit motion reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix H, H.4, H.7 row M6) over three `motion=all` PartParitySweep steps on PP-4's host; motion verdicts are report-only. AUTHORED 2026-11-27 (branch `claude/project-thread-sif2cl-m6`), never flown (tag `pending-flight`); what is open is the first flight (a `limit=20` reading flight, then the full one, after the live engine M3), not a human review call",
         "GM-1-scenario-saves-inert.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-INERT-GAME-MODES's lane on the derived fixture `gm-scenario-modes` (stock-minimal, b1-pad-craft restamped): a stock SCENARIO save carrying a Parsek node and a stock SCENARIO_NON_RESUMABLE training save loaded into FLIGHT; the inert game-mode lines, the refused StartRecording, the inert OnLoad stash / OnSave write-back round trip and no normal ParsekScenario load, save or backup pinned. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight, then a daily promotion call (no warps, three loads)",
         "MC-6-route-rewind-timeline-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of H6 on modded-compat (not in the nightly instance set): H6's RouteRewindTimeline batch on gloops-airshow, steps and contracts verbatim, the batch split interim until the first flight. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
         "MC-7-rewind-merge-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of S4.1 on modded-compat (not in the nightly instance set): the B9 Re-Fly merge cycle on gloops-airshow + rewind-b9, steps and contracts verbatim, the rewind block report-only until a green reading. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
+        "PSP-1-part-state-across-in-place-resume.toml": "tier=operator by the calibration discipline (authored 2026-11-24, LIVE-PROVEN 2026-11-26 `2026-11-26_1811`, tag `flown`), NOT debt; todo PART-STATES-LOST-AT-PROMOTION on PBR-1's host `pbr-break-rover` (stock-minimal): a wheel broken while recording and committed, the panel broken while no recorder runs, the rover saved and reloaded so its committed recording resumes in place; one DeployableBroken promotion seed, none on the unchanged auto-resume before it, and both breaks applied on the ghost after Rewind-to-Launch. Owed: the ordinary promotion call",
         "PBR-1-panel-wheel-break-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-PART-BREAKS's flight lane on the derived fixture `pbr-break-rover` (stock-minimal, MINE-6 / SRV-1's rover pair with one RTG swapped for a retracted SP-L 1x6): the panel and a rover wheel broken by PartAction breakpanel / breakwheel (stock breakPanels / DamageWheel) while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; both recorder break edges, the ghost's break-subtree map and both apply lines pinned. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
         "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-rover` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, swung +90 / -90 by PartAction servomax / servomin while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away, the recorder's live hinge angle, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. First flight 2026-11-20 red on the old pad host (lane design and todo RECORDER-SERVO-ANGLE-PAW-ONLY), REDESIGNED 2026-11-21, never flown since; owed: its re-flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1151`, runner run b3-flights-4); owed: the ordinary promotion call",
         "SRV-2-rotor-spin-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo RECORDER-ROTOR-RPM-PAW-ONLY's flight lane on the derived fixture `srv-rotor-rover` (stock-tree, SRV-1's install, not in the nightly instance set): an EM-16 rotor carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, engaged by PartAction rotoron, held at 30 RPM and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the recorder's live RPM read and steady-spin moving signal, the ghost's follower plan / bind, first rotor spin and first re-pose pinned. AUTHORED 2026-11-21, NEVER FLOWN; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1227`, its third: a seam fix and a lane fix, runner run b3-flights-6); owed: the ordinary promotion call",
@@ -11667,6 +11678,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "SOI-1-mun-exit-physics-burn.toml": "tier=operator by the calibration discipline, NOT debt; AUTHORED 2026-11-04, LIVE-PROVEN 2026-11-04_1851 - R3 of the replay-theory audit (an off-rails SOI change splits the open TrackSection), a 1x burn through the Mun SOI exit on `mun-park-kerbalx` with its outcomes pre-registered in the header; its pre-fix negative control flew red 2026-11-04_2231, nothing open",
         "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
         "LF-3-predicted-fall-outlasts-loop-period.toml": "tier=operator by the calibration discipline (the recorded span, the fall length and the number of impacts per stage ride the seam's own clock, first run is a calibration reading), NOT debt; todo LOOP-TIMING-READ-THE-PREDICTED-FALL (owner ruling R4c, 2026-11-24): a probe-cored booster dropped 62 km above the pad (`gs1-armed-chute-drop`) and looped at 300 s, above its ~121 s predicted fall (each copy ends at its impact, before the next launch), then at 15 s and 5 s, below it: the cadence reads the recorded span, each copy falls to its explosion, the copies past the 20 cap end quietly; AUTHORED 2026-11-24, never flown (tag `pending-flight`); what is open is the flight, not a human review call",
+        "WRC-1-watch-row-change-overlap-loop.toml": "tier=operator by the calibration discipline (the loop anchor and with it the UT of the watched row change are predicted from the PhaseLock rule, first run is a calibration reading), NOT debt; todo OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END (owner ruling 2026-11-24, branch `loop-own-end`): AIR-1's harvest `air-circuit-recorded` (the Mallard's circuit cut into a 362 s flight row and a 34 s afloat row) looped at 120 s and one launch watched across its row change at 1x, the hand-off landing on the same launch's copy of the next row; AUTHORED 2026-11-26, LIVE-PROVEN 2026-11-26 (run 2026-11-26_2012, PASS attempt 1, 175 s, second flight); owed: the ordinary promotion call",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
@@ -15104,6 +15116,15 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     arming is a per-scenario operator decision and this lane has never
         #     flown.
         "GS-6-part-event-applier-sweep.toml",
+        # [D] THE NO-REWIND LOOP DEBRIS HOST (2026-11-27, todo
+        #     MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL): a mission loop armed from a
+        #     loaded save, with no Rewind-to-Launch putting the flight in replay scope,
+        #     so the six loop-synced booster debris recordings are the subject. The
+        #     per-launch claim gates through logContracts; the block counts the debris
+        #     spawn / destroy lines over two launches (6 recordings, 12 + 12 lines,
+        #     read on the first flight `2026-11-27_1708`, PASS attempt 1). REPORT-ONLY
+        #     until the arming pass.
+        "LDL-1-looped-debris-no-rewind.toml",
         # [D] THE SECOND DECLARER, and the first whose census IS the point rather
         #     than a balance check: the synthetic PART SHOWCASE corpus (243
         #     ghost-only, one-part recordings standing in front of the KSC pad,
@@ -19455,25 +19476,92 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         fx_text = self._source("TestCommands", "PartParityFxRules.cs")
         fx = self._string_consts(fx_text)
         self.assertEqual(list(hlib.PARTPARITY_FX_VALUES), self._identifier_array(fx_text, "ArgWords", fx))
+        self.assertEqual(list(hlib.PARTPARITY_FX_KNOWN_VALUES),
+                         self._identifier_array(fx_text, "ArgKnownWords", fx))
+        # `all` is ArgWords alone: a main-throttle control sweep is asked for by name.
+        body = text[text.index("internal static bool TryParseFx("):]
+        body = body[:body.index("internal static bool FxCombinationValid(")]
+        self.assertIn("fx = new List<string>(PartParityFxRules.ArgWords);", body)
+        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);", body)
         self.assertEqual(hlib.PARTPARITY_FX_ALL_TOKEN, fx["ArgAllToken"])
         parse = text[text.index("internal static bool TryParseGrammar("):text.index(
             "private static bool Reject(")]
         self.assertIn("TryParseFx(raw, out List<string> fx, out bool fxAll)", parse)
-        self.assertIn("|| (fx != null && !FxCombinationValid(a)))", parse)
+        self.assertIn("|| (fx != null && !FxCombinationValid(a, fx)))", parse)
         self.assertIn("{ rejectReason = FxArgInvalidReason; return Reject(\"fx\", raw, out rejectDetail); }", parse)
         # The parse reads fx= after states= and contexts= (the combination rule needs both).
         self.assertLess(parse.index('Get(args, "contexts")'), parse.index('Get(args, "fx")'))
         combo = text[text.index("internal static bool FxCombinationValid("):]
-        combo = combo[:combo.index(";") + 1]
-        self.assertIn("a.States == null", combo)
-        self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
+        combo = combo[:combo.index("private static bool OnlyContext(")]
+        self.assertIn("if (a.States != null || fx == null) return false;", combo)
+        self.assertIn("return a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir);",
                       combo)
-        args = text[text.index("internal static bool TryParseArgs("):text.index(
-            "internal static bool TryParseGrammar(")]
-        self.assertIn("=> TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);", args)
+        # P9 (design G.7): one kind of word per run; burst words with exactly contexts=air,
+        # the dust word with exactly contexts=ground.
+        self.assertIn("if ((burst ? 1 : 0) + (dust ? 1 : 0) + (p8 ? 1 : 0) != 1) return false;", combo)
+        self.assertIn("if (burst) return OnlyContext(a, PartParityStateRules.ContextAir);", combo)
+        self.assertIn("if (dust) return OnlyContext(a, PartParityFxRules.ContextGround);", combo)
         self.assertNotIn("fx-runs-not-built", text)
         self.assertNotIn("fx-runs-not-built", hlib.PARTPARITY_REASONS)
         self.assertNotIn("fx-runs-not-built", hlib._SEAM_REFUSAL_SUBKINDS)
+
+    def test_the_burst_dust_arg_mirrors_the_c_sharp(self):
+        # P9 X1 (design-part-ghost-parity.md G.7): the burst and dust words, the ground
+        # context, and the interim refusal of a well-formed burst or dust run (the F1 pattern).
+        text, consts = self._pure()
+        burst_text = self._source("TestCommands", "PartParityFxRules.Burst.cs")
+        burst = self._string_consts(burst_text)
+        self.assertEqual(list(hlib.PARTPARITY_FX_BURST_VALUES),
+                         self._identifier_array(burst_text, "BurstArgWords", burst))
+        self.assertEqual(list(hlib.PARTPARITY_FX_DUST_VALUES),
+                         self._identifier_array(burst_text, "DustArgWords", burst))
+        self.assertEqual(hlib.PARTPARITY_GROUND_CONTEXT, burst["ContextGround"])
+        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);", text)
+        self.assertIn("if (!TryParseKnownCsv(raw, KnownRunContexts, out List<string> list)) return false;", text)
+        self.assertIn("if (list.Contains(PartParityFxRules.ContextGround) && list.Count > 1) return false;", text)
+        parse = text[text.index("internal static bool TryParseGrammar("):text.index(
+            "private static bool Reject(")]
+        self.assertIn("if (a.Fx == null && IsGroundRun(a))", parse)
+        self.assertLess(parse.index('Get(args, "fx")'), parse.index("if (a.Fx == null && IsGroundRun(a))"))
+        self.assertEqual(hlib.PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON, consts["BurstDustRunsNotBuiltReason"])
+        m = re.search(r"internal const bool BurstDustRunsBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "BurstDustRunsBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_BURST_DUST_RUNS_BUILT, m.group(1) == "true")
+        args = text[text.index("internal static bool TryParseArgs("):text.index(
+            "internal static bool TryParseGrammar(")]
+        self.assertIn("if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;", args)
+        self.assertIn("if (!BurstDustRunsBuilt && IsBurstDustRun(parsed))", args)
+        self.assertIn("rejectDetail = \"fx=\" + FormatFx(parsed);", args)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS["burst-dust-runs-not-built"])
+
+    def test_the_burst_dust_validator_answers_what_the_seam_answers(self):
+        v = hlib.validate_part_parity_sweep_step
+        for step, reason in (
+                ({"label": "pp11", "fx": "explode"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "alone"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "dust"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "dust", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode,dust", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "plume,explode", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "plume", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "all", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "air", "states": "lit"}, "fx-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground", "fx": "none"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground", "states": "all"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground,air"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "air"}, "burst-dust-runs-not-built"),
+                ({"label": "pp11", "fx": "decouple,burst-custom", "contexts": "air"}, "burst-dust-runs-not-built"),
+                ({"label": "pp11", "fx": "dust", "contexts": "ground"}, "burst-dust-runs-not-built")):
+            with self.subTest(step=step):
+                errors = v(0, step)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(reason, errors[0])
+        # Every P8 step still validates.
+        for fx in ("plume", "all", "plume,rcs,heat,plate"):
+            self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
+            self.assertEqual([], v(0, {"label": "pp8", "fx": fx, "contexts": "air"}))
 
     def test_the_fx_validator_answers_what_the_seam_answers(self):
         v = hlib.validate_part_parity_sweep_step
@@ -19488,7 +19576,7 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
                 self.assertEqual(1, len(errors), errors)
                 self.assertIn(reason, errors[0])
         # An orbit FX run validates, and so does the held-jet air one.
-        for fx in ("plume", "all", "plume,rcs"):
+        for fx in ("plume", "all", "plume,rcs", "plume-main", "plume,plume-main"):
             self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
             self.assertEqual([], v(0, {"label": "pp5fx", "fx": fx, "contexts": "air"}))
         # fx=none is no FX run: a P6 step beside it validates as before.
@@ -19496,6 +19584,70 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual([], v(0, {"label": "pp5", "fx": "none", "states": "all", "contexts": "air"}))
         # contexts= is canonicalised as the C# parse does: air,air is the air context.
         self.assertEqual([], v(0, {"label": "pp10", "fx": "plume", "contexts": "air,air"}))
+
+    def test_the_motion_arg_mirrors_the_c_sharp(self):
+        # motion= / frames= (design-part-ghost-parity.md Appendix H): the words are
+        # PartParityMotionRules', the parse reads them through TryParseMotion and
+        # MotionCombinationValid after states=, contexts= and fx=, and frames= only on a
+        # motion run, in PartParityMotionRules' range.
+        text, consts = self._pure()
+        mo_text = self._source("TestCommands", "PartParityMotionRules.cs")
+        mo = self._string_consts(mo_text)
+        for name, ref in re.findall(r"internal const string (\w+) = PartParityStateRules\.(\w+);", mo_text):
+            mo[name] = self._string_consts(self._source("TestCommands", "PartParityStateRules.cs"))[ref]
+        self.assertEqual(list(hlib.PARTPARITY_MOTION_VALUES), self._identifier_array(mo_text, "ArgWords", mo))
+        self.assertEqual(list(hlib.PARTPARITY_MOTION_KNOWN_VALUES),
+                         self._identifier_array(mo_text, "ArgKnownWords", mo))
+        self.assertEqual(hlib.PARTPARITY_MOTION_ALL_TOKEN, mo["ArgAllToken"])
+        self.assertEqual(hlib.PARTPARITY_FRAMES_RANGE,
+                         (self._int_const(mo_text, "MinFramesPerMotion"),
+                          self._int_const(mo_text, "MaxFramesPerMotion")))
+        body = text[text.index("internal static bool TryParseMotion("):]
+        body = body[:body.index("internal static bool MotionCombinationValid(")]
+        self.assertIn("motion = new List<string>(PartParityMotionRules.ArgWords);", body)
+        self.assertIn("return TryParseKnownCsv(raw, PartParityMotionRules.ArgKnownWords, out motion);", body)
+        parse = text[text.index("internal static bool TryParseGrammar("):text.index(
+            "private static bool Reject(")]
+        self.assertIn("TryParseMotion(raw, out List<string> motion, out bool motionAll)", parse)
+        self.assertIn("|| (motion != null && !MotionCombinationValid(a)))", parse)
+        self.assertIn("{ rejectReason = MotionArgInvalidReason; return Reject(\"motion\", raw, out rejectDetail); }", parse)
+        self.assertIn("{ rejectReason = FramesArgInvalidReason; return Reject(\"frames\", raw, out rejectDetail); }", parse)
+        self.assertIn("if (!IsMotionRun(a)", parse)
+        self.assertIn("PartParityMotionRules.MinFramesPerMotion", parse)
+        self.assertLess(parse.index('Get(args, "fx")'), parse.index('Get(args, "motion")'))
+        self.assertLess(parse.index('Get(args, "motion")'), parse.index('Get(args, "frames")'))
+        combo = text[text.index("internal static bool MotionCombinationValid("):]
+        combo = combo[:combo.index(";") + 1]
+        self.assertIn("a.States == null && a.Fx == null", combo)
+        self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
+                      combo)
+        self.assertNotIn("motion-runs-not-built", text)
+
+    def test_the_motion_validator_answers_what_the_seam_answers(self):
+        v = hlib.validate_part_parity_sweep_step
+        for step, reason in (
+                ({"label": "pp14", "motion": "all", "states": "all"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "fx": "plume"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "contexts": "stacked"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "All"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "gear,"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "jettison"}, "motion-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "frames": "3"}, "frames-arg-invalid"),
+                ({"label": "pp14", "motion": "all", "frames": "17"}, "frames-arg-invalid"),
+                ({"label": "pp14", "frames": "8"}, "frames-arg-invalid"),
+                ({"label": "pp14", "motion": "none", "frames": "8"}, "frames-arg-invalid")):
+            with self.subTest(step=step):
+                errors = v(0, step)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(reason, errors[0])
+        for motion in ("all", "gear", "robotics,control-surface", "light"):
+            self.assertEqual([], v(0, {"label": "pp14", "motion": motion}))
+            self.assertEqual([], v(0, {"label": "pp14", "motion": motion, "frames": "12"}))
+            self.assertEqual([], v(0, {"label": "pp5mo", "motion": motion, "contexts": "air"}))
+        # motion=none is no motion run: a P6 or P8 step beside it validates as before.
+        self.assertEqual([], v(0, {"label": "pp3", "motion": "none", "states": "all"}))
+        self.assertEqual([], v(0, {"label": "pp7", "motion": "none", "fx": "all"}))
+        self.assertEqual([], v(0, {"label": "pp14", "motion": "all", "fx": "none", "states": "none"}))
 
     def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
         text, consts = self._pure()
@@ -19712,7 +19864,7 @@ class PartParityAirLaneShapeTests(unittest.TestCase):
                 self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, run_steps[0]["budget"])
                 self.assertEqual(partparity.CONTROL_IDS_AIR,
                                  partparity.control_set({"states": a["states"], "contexts": a["contexts"]}))
-                self.assertEqual([label, label + "fx"], partparity.sweep_labels(spec))
+                self.assertEqual([label, label + "fx", label + "mo"], partparity.sweep_labels(spec))
                 self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
                                  partparity.gating_armed(spec["expectations"]))
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
@@ -19739,8 +19891,8 @@ class PartParityAirFxLaneShapeTests(unittest.TestCase):
     own label, an air FX reset, two resuming `contexts=air fx=all` steps over the whole install,
     the air FX control set, every step inside the S8 cap, its own log pins, report-only verdicts."""
 
-    LANES = {"PP-5-part-parity-chutes-stock.toml": ("pp5fx", "stock-minimal", ["pp5", "pp5fx"]),
-             "PP-6-part-parity-chutes-modded.toml": ("pp6fx", "modded-compat", ["pp6", "pp6fx"]),
+    LANES = {"PP-5-part-parity-chutes-stock.toml": ("pp5fx", "stock-minimal", ["pp5", "pp5fx", "pp5mo"]),
+             "PP-6-part-parity-chutes-modded.toml": ("pp6fx", "modded-compat", ["pp6", "pp6fx", "pp6mo"]),
              "PP-10-part-parity-fx-air-restock.toml": ("pp10", "modded-restock", ["pp10"])}
 
     def test_each_lane_runs_every_air_fx_case_in_two_steps_from_the_pad(self):
@@ -19755,8 +19907,12 @@ class PartParityAirFxLaneShapeTests(unittest.TestCase):
                 self.assertNotIn("WarpToUT", [s["cmd"] for s in steps])
                 every = [s for s in steps if s["cmd"] == hlib.PARTPARITY_VERB]
                 sweeps = [s for s in every if s["args"]["label"] == label]
-                # The air FX label is last: nothing of another label follows it.
-                self.assertEqual(sweeps, every[-len(sweeps):])
+                # The air FX label's steps run in one block, and only the never-flown motion
+                # label (PartParityMotionLaneShapeTests) may follow it.
+                first = every.index(sweeps[0])
+                self.assertEqual(sweeps, every[first:first + len(sweeps)])
+                after = {s["args"]["label"] for s in every[first + len(sweeps):]}
+                self.assertEqual(set(labels[labels.index(label) + 1:]), after)
                 self.assertEqual("FlushAndQuit", steps[-1]["cmd"])
                 # The reset is admitted by its run kind too.
                 self.assertEqual({"label": label, "op": "reset", "contexts": "air", "fx": "all"},
@@ -19866,6 +20022,58 @@ class PartParityLaneShapeTests(unittest.TestCase):
         self.assertNotIn("pending-flight", spec["tags"])
 
 
+class PartParityModPartsLaneShapeTests(unittest.TestCase):
+    """PP-11 (design-part-ghost-parity.md section 10, todo GHOST-B9-SUBTYPE-TRANSFORMS): PP-2's
+    host and steps on modded-compat, narrowed by `source=` to the two pinned part mods, its own
+    label, every step inside the S8 cap, report-only verdicts, and a pin on the ghost builder's
+    B9 TRANSFORM line for the weight."""
+
+    NAME = "PP-11-part-parity-mod-parts.toml"
+
+    def test_the_lane_sweeps_the_two_mods_in_every_skin(self):
+        spec = load_spec(self.NAME)
+        self.assertEqual("modded-compat", spec["instanceProfile"])
+        self.assertEqual("operator", spec["tier"])
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB]
+        self.assertEqual({"label": "pp11", "op": "reset"}, sweeps[0]["args"])
+        self.assertEqual(2, len(sweeps[1:]))
+        for step in sweeps[1:]:
+            a = step["args"]
+            self.assertEqual(("pp11", "run", "UtilityWeight,SHED", "all", "true", "480"),
+                             (a["label"], a["op"], a.get("source"), a.get("skins"),
+                              a.get("controls"), a.get("maxSeconds")))
+            for key in ("limit", "filter", "shard"):
+                self.assertNotIn(key, a)
+            self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
+        self.assertEqual(["pp11"], partparity.sweep_labels(spec))
+        self.assertFalse(partparity.gating_armed(spec["expectations"]))
+        self.assertNotIn(self.NAME, PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS)
+        total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
+        self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+        self.assertEqual("none", spec["retry"]["policy"])
+        self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+        self.assertIn("flown", spec["tags"])
+        self.assertNotIn("pending-flight", spec["tags"])
+
+    def test_the_b9_pin_matches_the_builder_line_only_when_an_offset_was_applied(self):
+        required = load_spec(self.NAME)["expectations"]["logContracts"]["required"]
+        pins = [p for p in required if "B9 TRANSFORM offsets applied=" in p]
+        self.assertEqual(1, len(pins), required)
+        line = ("[Parsek][VERBOSE][GhostVisual]   Part 'UtilityWeight.OsmiumTank' pid=1234: "
+                "B9 TRANSFORM offsets applied=1 matchedNotCloned=0 (B9PartSwitchSize=2.5m(snapshot))")
+        self.assertTrue(re.search(pins[0], line))
+        self.assertIsNone(re.search(pins[0], line.replace("applied=1", "applied=0")))
+        self.assertIsNone(re.search(pins[0], line.replace("UtilityWeight.OsmiumTank", "fuelTank")))
+
+    def test_the_b9_pin_tracks_the_csharp_literal(self):
+        src = os.path.join(REPO_ROOT, "Source", "Parsek", "Ghost", "GhostVisualBuilder.B9Subtypes.cs")
+        with open(src, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("B9 TRANSFORM offsets applied={applied} ", text)
+        self.assertIn('"GhostVisual"', text)
+
+
 class PartParityStateLaneShapeTests(unittest.TestCase):
     """The two orbit state lanes (design-part-ghost-parity.md D.8 / D.10 row S6): a
     `states=all` orbit run over the whole install (no `contexts=`, so `alone` and `stacked`
@@ -19957,7 +20165,7 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
     `fx=all` orbit run over the whole install (no `states=` and no `contexts=`, so the air
     cases stay F7's; no `skins=`, which governs stowed cases only), its own label so it never
     shares another lane's directory, the orbit FX control set, every step inside the S8 cap,
-    report-only verdicts and a budget covering every step. PP-9 flies PP-8's parts on the
+    the armed roster's verdict for it and a budget covering every step. PP-9 flies PP-8's parts on the
     Waterfall-free install, so its case list is the same and its steps are too."""
 
     LANES = {"PP-7-part-parity-fx-stock.toml": ("pp7", "stock-minimal", 4),
@@ -19992,7 +20200,8 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
                 self.assertEqual(load_spec("PP-3-part-parity-states-stock.toml")["driver"]["steps"][:len(pre)], pre)
                 self.assertEqual("WarpToUT", pre[-1]["cmd"])
                 self.assertEqual([label], partparity.sweep_labels(spec))
-                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertEqual(name in PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS,
+                                 partparity.gating_armed(spec["expectations"]))
                 self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
                 total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
                 self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
@@ -20009,7 +20218,8 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
             spec = load_spec(name)
             for label in partparity.sweep_labels(spec):
                 labels.setdefault(label, []).append(name)
-        self.assertGreaterEqual(set(labels), {"pp5", "pp5fx", "pp6", "pp6fx", "pp7", "pp8", "pp9", "pp10"})
+        self.assertGreaterEqual(set(labels), {"pp5", "pp5fx", "pp5mo", "pp6", "pp6fx", "pp6mo", "pp7", "pp8",
+                                              "pp9", "pp10", "pp14", "pp15"})
         self.assertEqual({}, {k: v for k, v in labels.items() if len(v) > 1})
 
     def test_each_lane_pins_its_own_step_line_and_the_fx_counts_line(self):
@@ -20056,6 +20266,138 @@ class PartParityFxLaneShapeTests(unittest.TestCase):
         self.assertIn("ParsekLog.Info(Tag, PartParityFxRules.FormatCounts(", runner)
 
 
+
+class PartParityMotionLaneShapeTests(unittest.TestCase):
+    """The P7 motion runs (design-part-ghost-parity.md Appendix H.4, work rows M6 / M7 of
+    H.7). The two orbit motion lanes PP-14 / PP-15: PP-3's host and setup, a `motion=all`
+    orbit run over the whole install (no `states=`, `fx=` or `contexts=`, so the chutes stay
+    the air label's; no `frames=`, the default 8), a reset of the run's own kind, three
+    resuming steps inside the S8 cap, the orbit motion control set, report-only verdicts and
+    never in the armed roster (PP-3 / PP-4 are armed and the P5 gate would red a motion label
+    there `no-baseline`). The air motion label `pp5mo` / `pp6mo` of PP-5 / PP-6: an air reset
+    and one `contexts=air motion=all` step, LAST in the lane so a never-flown label cannot
+    stop the two flown ones (an unmet step ends the drive), the air motion control set."""
+
+    ORBIT = {"PP-14-part-parity-motion-stock.toml": ("pp14", "stock-minimal"),
+             "PP-15-part-parity-motion-modded.toml": ("pp15", "modded-compat")}
+    AIR = {"PP-5-part-parity-chutes-stock.toml": ("pp5mo", "stock-minimal"),
+           "PP-6-part-parity-chutes-modded.toml": ("pp6mo", "modded-compat")}
+
+    def test_each_orbit_lane_runs_every_orbit_motion_case_in_three_steps(self):
+        for name, (label, profile) in self.ORBIT.items():
+            with self.subTest(lane=name):
+                spec = load_spec(name)
+                self.assertEqual(profile, spec["instanceProfile"])
+                self.assertEqual("operator", spec["tier"])
+                self.assertEqual("fixtures/saves/eva2-lko-crewed", spec["fixture"]["saveTemplate"])
+                self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+                steps = spec["driver"]["steps"]
+                sweeps = [s for s in steps if s["cmd"] == hlib.PARTPARITY_VERB]
+                # The reset is admitted by its run kind: an orbit motion reset, an orbiting host.
+                self.assertEqual({"label": label, "op": "reset", "motion": hlib.PARTPARITY_MOTION_ALL_TOKEN},
+                                 sweeps[0]["args"])
+                self.assertEqual(3, len(sweeps[1:]))
+                for step in sweeps[1:]:
+                    a = step["args"]
+                    self.assertEqual({"label": label, "op": "run", "motion": hlib.PARTPARITY_MOTION_ALL_TOKEN,
+                                      "controls": "true", "maxSeconds": "480"}, a)
+                    self.assertEqual("OK", step["expect"])
+                    self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
+                    self.assertEqual(partparity.CONTROL_IDS_MOTION_ORBIT,
+                                     partparity.control_set({"motion": a["motion"]}))
+                # PP-3's setup ahead of the sweep: no auto-record, verbose lines, the sunlit window.
+                pre = steps[:steps.index(sweeps[0])]
+                self.assertEqual(load_spec("PP-3-part-parity-states-stock.toml")["driver"]["steps"][:len(pre)], pre)
+                self.assertEqual("WarpToUT", pre[-1]["cmd"])
+                # Quit without saving.
+                self.assertEqual("FlushAndQuit", steps[-1]["cmd"])
+                self.assertEqual([label], partparity.sweep_labels(spec))
+                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertNotIn(name, PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS)
+                self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
+                total = sum(int(s.get("budget", 0) or 0) for s in steps)
+                self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+                self.assertEqual("none", spec["retry"]["policy"])
+                self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+                # Never flown: the live engine is M3; the first flight is a limit=20 reading.
+                self.assertIn("pending-flight", spec["tags"])
+                self.assertNotIn("flown", spec["tags"])
+
+    def test_each_air_lane_runs_its_motion_label_last_in_one_step(self):
+        for name, (label, profile) in self.AIR.items():
+            with self.subTest(lane=name):
+                spec = load_spec(name)
+                self.assertEqual(profile, spec["instanceProfile"])
+                steps = spec["driver"]["steps"]
+                every = [s for s in steps if s["cmd"] == hlib.PARTPARITY_VERB]
+                sweeps = [s for s in every if s["args"]["label"] == label]
+                self.assertEqual(sweeps, every[-len(sweeps):])
+                self.assertEqual("FlushAndQuit", steps[-1]["cmd"])
+                self.assertEqual({"label": label, "op": "reset", "contexts": "air",
+                                  "motion": hlib.PARTPARITY_MOTION_ALL_TOKEN}, sweeps[0]["args"])
+                self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, max(s["budget"] for s in sweeps))
+                (run,) = sweeps[1:]
+                a = run["args"]
+                self.assertEqual({"label": label, "op": "run", "contexts": "air",
+                                  "motion": hlib.PARTPARITY_MOTION_ALL_TOKEN,
+                                  "controls": "true", "maxSeconds": "480"}, a)
+                self.assertEqual("OK", run["expect"])
+                self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, run["budget"])
+                self.assertEqual(partparity.CONTROL_IDS_MOTION_AIR,
+                                 partparity.control_set({"motion": a["motion"], "contexts": a["contexts"]}))
+                # The lane stays report-only, so the label meets no P5 baseline gate.
+                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                total = sum(int(s.get("budget", 0) or 0) for s in steps)
+                self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+                self.assertEqual(3000, spec["runtime"]["budgetSeconds"])
+
+    def test_each_motion_label_pins_its_step_line_and_its_counts_line(self):
+        lanes = [(n, l, "none") for n, (l, _p) in self.ORBIT.items()] + \
+                [(n, l, "air") for n, (l, _p) in self.AIR.items()]
+        for name, label, context in lanes:
+            with self.subTest(lane=name, label=label):
+                contracts = load_spec(name)["expectations"]["logContracts"]
+                required = contracts["required"]
+                self.assertEqual(["\\[Parsek\\]\\[ERROR\\]"], contracts["forbidden"])
+                self.assertEqual(1, sum("partparitysweep complete label=%s " % label in p for p in required))
+                pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+                line = ("[Parsek][INFO][PartParity] PartParity step label=%s op=run ok=true "
+                        "label=%s done=true next=97 cases=97 complete=97 crashed=0 "
+                        "setupFaults=0 controls=ok wall=455.0" % (label, label))
+                (pin,) = [p for p in pins if re.search(p, line)]
+                self.assertIn("label=%s " % label, pin)
+                for bad in (line.replace("label=" + label, "label=pp3"), line.replace("controls=ok", "controls=bad"),
+                            line.replace("crashed=0", "crashed=1")):
+                    self.assertIsNone(re.search(pin, bad))
+                (counts,) = [p for p in required if "motion cases:" in p]
+                good = ("[Parsek][INFO][PartParity] motion cases: motion=all contexts=%s install=91 "
+                        "(deployable=19 gear=8) planned=91 excluded=12 (motion-physics=12)" % context)
+                self.assertTrue(re.search(counts, good))
+                other = "air" if context == "none" else "none"
+                for bad in (good.replace("contexts=" + context, "contexts=" + other),
+                            good.replace("motion=all", "motion=gear"), good.replace("install=91", "install=0"),
+                            good.replace("motion cases:", "state cases:")):
+                    self.assertIsNone(re.search(counts, bad))
+
+    def test_the_motion_counts_pin_is_the_csharp_literal(self):
+        """The `motion cases:` pin rides on PartParityMotionRules.MotionCountsLiteral (M1) and,
+        once the live engine M3 is in the tree (`PartParityMotionDriver.cs`), on the sweep
+        runner's Info call on the PartParity tag (reads OUTSIDE harness/)."""
+        root = os.path.join(HERE, "..", "..", "Source", "Parsek", "TestCommands")
+        with open(os.path.join(root, "PartParityMotionRules.cs"), encoding="utf-8") as fh:
+            rules = fh.read()
+        self.assertIn('MotionCountsLiteral = "motion cases:"', rules)
+        self.assertIn('.Append(" motion=")', rules)
+        self.assertIn('.Append(" contexts=")', rules)
+        self.assertIn('.Append(" install=")', rules)
+        self.assertEqual(partparity.MOTION_COUNTS_LITERAL, "motion cases:")
+        if not os.path.isfile(os.path.join(root, "PartParityMotionDriver.cs")):
+            self.skipTest("the live motion engine (H.7 row M3) is not in this tree yet; "
+                          "it must log PartParityMotionRules.FormatCounts on the PartParity tag")
+        with open(os.path.join(root, "PartParitySweepRunner.cs"), encoding="utf-8") as fh:
+            runner = fh.read()
+        self.assertIn("ParsekLog.Info(Tag, PartParityMotionRules.FormatCounts(", runner)
+
 class PartParityArmedRosterTests(unittest.TestCase):
     """The partParity row's PART verdicts are report-only unless a spec declares
     `[expectations.partParity] gating = true`. Arming follows the saveparse arming rule:
@@ -20068,10 +20410,12 @@ class PartParityArmedRosterTests(unittest.TestCase):
     # Armed 2026-11-23 (P5, design section 10 and Appendix F) after two matching reading runs
     # each: PP-1 2026-11-22_2159 / _2317, PP-2 _2236 / _2343, PP-3 _2220 / _2328, PP-4
     # 2026-11-22_2359 / 2026-11-23_0016. PP-5 / PP-6 stay report-only: a canopy follows the
-    # airflow, so no measure band holds run to run.
+    # airflow, so no measure band holds run to run. PP-7 alone of the effects lanes armed
+    # 2026-11-24 (owner ruling; design Appendix F).
     PARTPARITY_ARMED_SPECS = {"PP-1-part-parity-stock.toml", "PP-2-part-parity-modded.toml",
                               "PP-3-part-parity-states-stock.toml",
-                              "PP-4-part-parity-states-modded.toml"}
+                              "PP-4-part-parity-states-modded.toml",
+                              "PP-7-part-parity-fx-stock.toml"}
 
     def test_no_committed_spec_arms_part_parity_gating(self):
         armed = []

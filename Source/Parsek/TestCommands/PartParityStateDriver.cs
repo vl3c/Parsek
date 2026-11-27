@@ -399,7 +399,7 @@ namespace Parsek.TestCommands
                 ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {d}");
         }
 
-        private static void AddCharge(ConfigNode part)
+        internal static void AddCharge(ConfigNode part)
         {
             ConfigNode r = part.AddNode("RESOURCE");
             r.AddValue("name", "ElectricCharge");
@@ -1224,9 +1224,9 @@ namespace Parsek.TestCommands
 
         private static Transform GhostPivot(GhostPlaybackState state, uint pid) => SunInfo(state, pid)?.pivotTransform;
 
-        private static string NewRecId() => "pp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        internal static string NewRecId() => "pp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-        private static void Place(GhostCoOrbitalRig.LiveGhost g, Transform partT)
+        internal static void Place(GhostCoOrbitalRig.LiveGhost g, Transform partT)
         {
             GameObject root = g.Build.root;
             root.transform.SetParent(partT, false);
@@ -1239,7 +1239,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The ghost's deployable clip for the subject part, clamped the way playback
         /// clamps it (the 3 s default when the ghost has no deployable info).</summary>
-        private static double ClampedClip(GhostPlaybackState state, uint pid)
+        internal static double ClampedClip(GhostPlaybackState state, uint pid)
         {
             if (state?.deployableInfos != null && state.deployableInfos.TryGetValue(pid, out DeployableGhostInfo d) && d != null)
                 return GhostPlaybackLogic.ClampDeployableClipSeconds(d.clipLengthSeconds);
@@ -1389,7 +1389,7 @@ namespace Parsek.TestCommands
 
         /// <summary>A ghost's renderers, split: the subject's shown, a context filler's
         /// (<c>ghost_part_&lt;fillerPid&gt;</c>) hidden.</summary>
-        private static void SplitGhost(GhostCoOrbitalRig.LiveGhost g, List<uint> fillerPids, List<Renderer> shown, List<Renderer> hidden)
+        internal static void SplitGhost(GhostCoOrbitalRig.LiveGhost g, List<uint> fillerPids, List<Renderer> shown, List<Renderer> hidden)
         {
             var fillerRoots = new List<Transform>();
             Transform root = g.Build.root.transform;
@@ -1406,7 +1406,7 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static Transform FindChildNamed(Transform root, string name)
+        internal static Transform FindChildNamed(Transform root, string name)
         {
             foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
                 if (t.name == name) return t;
@@ -1578,6 +1578,58 @@ namespace Parsek.TestCommands
             wc.RealTiles.Add(shot.Real);
             wc.GhostTiles.Add(shot.Ghost);
             wc.ViewRecords.Add(record);
+        }
+
+        /// <summary>One view's start pair again, the real part as a load leaves its glow
+        /// (<see cref="PartParityRampHold"/>): real and start-route ghost in one frame, body
+        /// renderers only, everything else forced off; null when the capture failed.</summary>
+        internal static PartParityStartPair CaptureStartPair(StepContext ctx, WaveCase wc, string view)
+        {
+            PartParityStateRun run = wc.State;
+            var ghostRoots = new List<Transform>();
+            foreach (var g in new[] { wc.Ghost, run.StartGhost, run.StowedGhost, wc.Fx?.BrokenGhost })
+                if (g?.Build?.root != null) ghostRoots.Add(g.Build.root.transform);
+            ClassifyReal(wc, ghostRoots, out List<Renderer> realShown, out List<Renderer> realHidden);
+            var all = new List<Renderer>(realShown);
+            all.AddRange(realHidden);
+            all.AddRange(run.EventShown);
+            all.AddRange(run.StartShown);
+            all.AddRange(run.StowedShown);
+            all.AddRange(run.GhostHidden);
+            all.AddRange(PartParityFxDriver.HideSet());
+            var sides = new List<IList<Renderer>> { PartParityFxDriver.BodyOnly(realShown), PartParityFxDriver.BodyOnly(run.StartShown) };
+            PartParityViewShot shot = ctx.Capture.CaptureSides(wc.Real.rootPart.transform, wc.Shared, wc.OrthoSize, view,
+                all, sides, wc.CullingMask);
+            if (shot.Error != null)
+            {
+                ParsekLog.Warn(Tag, $"case {wc.CaseId} view {view}: start reload capture error {shot.Error}");
+                return null;
+            }
+            int tile = ctx.Capture.Tile;
+            return new PartParityStartPair
+            {
+                View = view, RealTile = shot.Real, GhostTile = shot.Ghost,
+                Record = new PartParityViewRecord
+                {
+                    Measures = PartParityMetrics.Measure(shot.Real, shot.Ghost, tile, tile, shot.ProjectedBoxAreaPx),
+                    RealMatte = shot.RealMatte, GhostMatte = shot.GhostMatte,
+                },
+            };
+        }
+
+        /// <summary>The re-photographed start pairs, one per captured view in order, replace the
+        /// views' start blocks and start-route tiles; their real tiles are atlas row 5.</summary>
+        internal static void CommitStartPairs(WaveCase wc, IList<PartParityStartPair> pairs)
+        {
+            for (int v = 0; v < pairs.Count; v++)
+            {
+                wc.RealStartTiles.Add(pairs[v].RealTile);
+                wc.GhostStartTiles[v] = pairs[v].GhostTile;
+                wc.ViewRecords[v].Start = pairs[v].Record;
+                PartParityViewMeasures m = pairs[v].Record.Measures;
+                if ((m.TouchesBorderReal || m.TouchesBorderGhost) && !wc.Flags.Contains(PartParityCaseCapture.FlagClippedAtBorder))
+                    wc.Flags.Add(PartParityCaseCapture.FlagClippedAtBorder);
+            }
         }
 
         // =====================================================================================

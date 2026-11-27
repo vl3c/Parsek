@@ -53,6 +53,9 @@ import ledgerverify  # noqa: E402  (the ledger-oracle verifier's decision core, 
 import partparity  # noqa: E402  (the part ghost parity pure sibling behind the partParity row)
 import missionverify  # noqa: E402  (the mission-verdict decision core, shared with mutmission)
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
+import leaseio  # noqa: E402  (copy-lease file I/O; pure decisions live in lib/leases)
+import leases  # noqa: E402  (the copy-lease contract: one thread owns one install copy)
+import parallel  # noqa: E402  (exclusive-lane detection and the window-mode resolution)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
@@ -61,6 +64,7 @@ import slotrun  # noqa: E402  (install-slot decisions: ports, runner token, laun
 import slots  # noqa: E402  (the install-slot contract shared with provision and the runner)
 import samplingq  # noqa: E402  (the recording-sampling measures behind the saveParse row's sampling block)
 import saveparse  # noqa: E402
+import watchlane  # noqa: E402  (the attended hold mode and the watch-lane generator)
 
 # ---------------------------------------------------------------------------
 # Path layout (mirrors provision.py so the harness and the provisioner agree on
@@ -451,6 +455,11 @@ class Runtime:
         except Exception:  # noqa: BLE001 - placement is report-only
             return None
 
+    def virtual_desktops(self) -> Tuple[List[str], Optional[str]]:
+        """(desktop ids, current id) from the registry; ([], None) off Windows.
+        The parallel runner's reader, loaded by file path (``--lease`` runs only)."""
+        return _load_parallel_runner_module().read_virtual_desktops()
+
     def minimize_process_windows(self, pid: int) -> Optional[int]:
         """Minimise (without activating) every visible top-level window of
         ``pid``. Returns how many were minimised, or None when unsupported."""
@@ -798,6 +807,33 @@ def _windows_minimize_process_windows(pid: int) -> int:
     return len(found)
 
 
+_parallel_runner_module = None
+
+
+def _load_parallel_runner_module():
+    """Load harness/tools/parallel_runner.py by FILE PATH (the unity_prefs rule)
+    for its virtual-desktop registry reader."""
+    global _parallel_runner_module
+    if _parallel_runner_module is not None:
+        return _parallel_runner_module
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, "parallel_runner.py")
+    spec = importlib.util.spec_from_file_location("parsek_parallel_runner", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load parallel_runner from %s" % path)
+    module = importlib.util.module_from_spec(spec)
+    # Registered BEFORE exec: its @dataclass declarations look their module up in
+    # sys.modules (Python 3.13 raises on a module missing there).
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
+    _parallel_runner_module = module
+    return module
+
+
 _unity_prefs_module = None
 
 
@@ -1079,7 +1115,13 @@ def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_roo
     """The I/O half of hlib.decide_reference_dll_drift: hash this instance's and
     the reference instance's DEPLOYED Parsek.dll. One Info line either way.
     Keyed on the instance DIR: only the reference dir itself is skipped, so a
-    copy of stock-minimal (``automation/stock-minimal-2``) is compared too."""
+    copy of stock-minimal (``automation/stock-minimal-2``) is compared too.
+
+    A ``--lease`` run compares against its lease's DLL PIN instead (the hash its
+    owner provisioned or accepted at claim): two leased copies may carry two
+    different builds on purpose, and a copy someone else deployed over refuses."""
+    if _CTX.lease_mode:
+        return _lease_dll_drift(instance_dir, umbrella_root, logger)
     ref_dir = resolve_instance_dir(hlib.REFERENCE_DLL_PROFILE, umbrella_root, None)
     same = ref_dir is not None and slots.same_instance_dir(ref_dir, instance_dir)
     mine = _sha256_file(os.path.join(instance_dir, PARSEK_DLL_REL))
@@ -1097,6 +1139,22 @@ def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_roo
                     % (hlib.REFERENCE_DLL_PROFILE, "DRIFT" if diff else "match",
                        mine[:12], ref[:12]))
     return diff
+
+
+def _lease_dll_drift(instance_dir: str, umbrella_root: str,
+                     logger: HarnessLogger) -> Optional["provlib.ManifestDiff"]:
+    """The lease half of the reference-DLL check (leases.decide_dll_pin), against
+    the registry's CURRENT pin (a provision under the lease re-pins)."""
+    lease = leaseio.read_lease(umbrella_root, _CTX.lease_slot) or _CTX.lease
+    mine = _sha256_file(os.path.join(instance_dir, PARSEK_DLL_REL))
+    drift = leases.decide_dll_pin(lease, mine)
+    if drift is None:
+        logger.info("Admit", "admit parsek-dll vs lease pin (%s): match instance=%s"
+                    % (_CTX.lease_slot, (mine or "")[:12]))
+        return None
+    logger.warn("Admit", "admit parsek-dll vs lease pin (%s): DRIFT pin=%s instance=%s"
+                % (_CTX.lease_slot, drift[0][:16], drift[1][:16]))
+    return provlib.ManifestDiff(leases.LEASE_DLL_DIFF_FIELD, drift[0], drift[1], "changed")
 
 
 def admit_instance_dir(profile: Optional[str], instance_dir: str, umbrella_root: str,
@@ -1121,7 +1179,12 @@ def admit_instance_dir(profile: Optional[str], instance_dir: str, umbrella_root:
         for d in admit_diff:
             logger.warn("Admit", "admit drift field=%s expected=%s actual=%s"
                         % (d["field"], d["expected"], d["actual"]))
-        if reference_diff is not None:
+        if reference_diff is not None and _CTX.lease_mode:
+            logger.warn("Admit", "admit refused: the leased copy %s deploys another Parsek.dll "
+                                 "than its lease pin; re-provision it under the lease: "
+                                 "python provision/provision.py --profile %s --lease"
+                        % (_CTX.lease_slot, _CTX.lease_profile))
+        elif reference_diff is not None:
             logger.warn("Admit", "admit refused: instance=%s deploys another Parsek.dll than "
                                  "%s (the instance every routine provision updates); "
                                  "provision it (a HUMAN call): %s"
@@ -1177,8 +1240,10 @@ def acquire_run_lock(umbrella_root: str, runtime: Runtime, logger: HarnessLogger
     rather than a bare remove.
     """
     lock_path = run_lock_path(umbrella_root)
-    path, reason, holder = machinelock.acquire(
-        lock_path,
+    # A machine owner refuses while any copy lease is live (leaseio.acquire_machine
+    # takes the lock, checks the lease registry, and gives it back on a live one).
+    path, reason, holder = leaseio.acquire_machine(
+        lock_path, umbrella_root,
         payload_fn=lambda: _lock_payload(runtime, selection),
         now_fn=runtime.now,
         pid_alive_fn=runtime.pid_alive,
@@ -1238,9 +1303,18 @@ class SelectionContext:
     def __init__(self, slot: Optional[str] = None,
                  window_mode: str = slotrun.WINDOW_NORMAL,
                  desktop_id: Optional[str] = None,
-                 umbrella_root: Optional[str] = None):
+                 umbrella_root: Optional[str] = None,
+                 lease_requested: bool = False,
+                 lease: Optional[Dict] = None,
+                 lease_decision: Optional["leases.UseDecision"] = None):
         self.slot = slot
         self.slot_profile = slots.parse_slot_name(slot)[0] if slot else None
+        # ``--lease``: this worktree's copy lease (lib/leases.py). ``lease`` is the
+        # registry payload when the lease was live at selection start, else None and
+        # ``lease_decision`` says why; every lane is then refused lease-invalid.
+        self.lease_requested = bool(lease_requested)
+        self.lease = dict(lease) if lease else None
+        self.lease_decision = lease_decision
         self.window_mode = window_mode
         self.desktop_id = desktop_id
         self.umbrella_root = umbrella_root
@@ -1252,6 +1326,19 @@ class SelectionContext:
     @property
     def slot_mode(self) -> bool:
         return self.slot is not None
+
+    @property
+    def lease_mode(self) -> bool:
+        """A ``--lease`` run holding a live lease (not a slot child)."""
+        return self.lease is not None
+
+    @property
+    def lease_slot(self) -> Optional[str]:
+        return str(self.lease["slot"]) if self.lease else None
+
+    @property
+    def lease_profile(self) -> Optional[str]:
+        return slots.parse_slot_name(self.lease_slot)[0] if self.lease else None
 
     def note_result(self, result: Dict, path: str) -> None:
         with self._results_lock:
@@ -1337,6 +1424,9 @@ def _selection_boundary_check(umbrella_root: str, runtime: Runtime, logger,
             logger.error("Lock", "runner check failed: %s; stopping this slot child"
                          % decision.reason)
             return hlib.RUNNER_TOKEN_SUBKIND, "runner check failed: %s" % decision.reason
+    if _CTX.lease_requested and not renew_lease(umbrella_root, runtime, logger):
+        return (hlib.LEASE_INVALID_SUBKIND,
+                "the copy lease of %s is no longer this worktree's" % (_CTX.lease_slot or "?"))
     lost = heartbeat_slot_locks(runtime, logger, selection)
     if lost is not None:
         logger.error("Lock", "lost the slot lock of %s mid-selection; stopping" % lost)
@@ -1344,10 +1434,41 @@ def _selection_boundary_check(umbrella_root: str, runtime: Runtime, logger,
     return None
 
 
+def renew_lease(umbrella_root: str, runtime: Runtime, logger) -> bool:
+    """Renew this worktree's copy lease (its time to live runs from now again).
+    False when the lease is no longer ours: the caller stops, it never flies on a
+    copy another thread may now hold."""
+    if not _CTX.lease:
+        return False
+    updated = leaseio.renew_if_ours(umbrella_root, str(_CTX.lease["token"]), _CTX.lease_slot,
+                                    runtime.now(),
+                                    holding_slot_lock=_CTX.lease_slot in _CTX.slot_locks)
+    if updated is None:
+        logger.error("Lease", "copy lease of %s lost (released, expired or re-claimed); "
+                              "stopping" % _CTX.lease_slot)
+        _CTX.lease_decision = leases.UseDecision(
+            False, "lease-lost", _CTX.lease_slot,
+            "the lease of %s was released, expired or re-claimed while this run held it"
+            % _CTX.lease_slot)
+        return False
+    _CTX.lease = updated
+    logger.verbose("Lease", "copy lease renewed %s" % leases.describe_lease(updated, runtime.now()))
+    return True
+
+
 def _lane_instance(spec: Dict, umbrella_root: str, args) -> Tuple[Optional[str], Optional[str]]:
     """(instance dir, refusal subkind) for one lane. A slot child flies only lanes
-    of its slot's profile, in its slot's dir."""
+    of its slot's profile, in its slot's dir; so does a ``--lease`` run, in its
+    leased copy, and it refuses a lane that needs the whole machine."""
     profile = spec.get("instanceProfile")
+    if _CTX.lease_requested:
+        if not _CTX.lease:
+            return None, hlib.LEASE_INVALID_SUBKIND
+        if profile != _CTX.lease_profile:
+            return None, hlib.SLOT_PROFILE_MISMATCH_SUBKIND
+        if spec.get("id") is not None and parallel.exclusive_reason(spec):
+            return None, hlib.LEASE_EXCLUSIVE_SUBKIND
+        return slots.instance_dir(umbrella_root, _CTX.lease_slot), None
     if _CTX.slot_mode:
         if profile != _CTX.slot_profile:
             return None, hlib.SLOT_PROFILE_MISMATCH_SUBKIND
@@ -1428,7 +1549,15 @@ def _acquire_launch_lock(lock_path: str, runtime: Runtime, logger) -> bool:
     """The O_EXCL mini-lock around one spacing wait + launch. A lock older than
     LAUNCH_LOCK_STALE_SECONDS is removed; after LAUNCH_LOCK_WAIT_SECONDS the
     launch goes ahead without it (spacing never stalls a run)."""
-    start = runtime.now()
+    return _acquire_mini_lock(lock_path, runtime.now, runtime.sleep, logger, "launch-spacing",
+                              "launching")
+
+
+def _acquire_mini_lock(lock_path: str, now_fn, sleep_fn, logger, label: str,
+                       going_ahead: str) -> bool:
+    """A best-effort O_EXCL mutex file (``_acquire_launch_lock``'s rule): stale
+    past LAUNCH_LOCK_STALE_SECONDS, given up on past LAUNCH_LOCK_WAIT_SECONDS."""
+    start = now_fn()
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     while True:
         try:
@@ -1439,23 +1568,22 @@ def _acquire_launch_lock(lock_path: str, runtime: Runtime, logger) -> bool:
             except OSError:
                 continue
             if age > LAUNCH_LOCK_STALE_SECONDS:
-                logger.warn("Launch", "launch-spacing lock %s is %.0fs old; removing it"
-                            % (lock_path, age))
+                logger.warn("Launch", "%s lock %s is %.0fs old; removing it"
+                            % (label, lock_path, age))
                 try:
                     os.remove(lock_path)
                 except OSError:
                     pass
                 continue
-            if runtime.now() - start > LAUNCH_LOCK_WAIT_SECONDS:
-                logger.warn("Launch", "launch-spacing lock %s still held after %.0fs; "
-                                      "launching without it" % (lock_path,
-                                                                LAUNCH_LOCK_WAIT_SECONDS))
+            if now_fn() - start > LAUNCH_LOCK_WAIT_SECONDS:
+                logger.warn("Launch", "%s lock %s still held after %.0fs; %s without it"
+                            % (label, lock_path, LAUNCH_LOCK_WAIT_SECONDS, going_ahead))
                 return False
-            runtime.sleep(0.2)
+            sleep_fn(0.2)
             continue
         except OSError as exc:
-            logger.warn("Launch", "launch-spacing lock unusable (%s); launching without it"
-                        % exc)
+            logger.warn("Launch", "%s lock unusable (%s); %s without it"
+                        % (label, exc, going_ahead))
             return False
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write("%d\n" % os.getpid())
@@ -1465,9 +1593,9 @@ def _acquire_launch_lock(lock_path: str, runtime: Runtime, logger) -> bool:
 def spaced_launch(umbrella_root: str, runtime: Runtime, logger, launch_fn):
     """Run ``launch_fn`` (it starts KSP) at least ``runtime.launch_spacing_seconds``
     after the previous KSP start on the machine (slots.launch_stamp_path), and
-    stamp this start right after it. Slot children only: a serial run is the one
-    KSP on the machine. Retries pass through here too."""
-    if not _CTX.slot_mode:
+    stamp this start right after it. Slot children and ``--lease`` runs only: a
+    serial run is the one KSP on the machine. Retries pass through here too."""
+    if not (_CTX.slot_mode or _CTX.lease_mode):
         return launch_fn()
     stamp = slots.launch_stamp_path(umbrella_root)
     lock_path = stamp + ".lock"
@@ -2476,6 +2604,11 @@ class DriveResult:
         # Set instead when the channel could not be read/parsed, so an unreadable channel
         # records a GAP rather than being indistinguishable from "the mission wrote nothing".
         self.mid_mission_seam_read_error: Optional[str] = None
+        # Attended hold (run.py --hold): True once the drive reached the hold point
+        # with KSP still running; the first setup step that did not come back as
+        # expected ({"id", "cmd", "verdict", "reason"}), which starts the hold early.
+        self.hold_reached = False
+        self.hold_unmet_step: Optional[Dict] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -2848,7 +2981,12 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                runtime: Runtime, logger: HarnessLogger, run_budget: float,
                mission_ctx: Optional[MissionContext] = None,
                run_id: Optional[str] = None,
-               boot_watch: Optional[BootWatch] = None) -> DriveResult:
+               boot_watch: Optional[BootWatch] = None,
+               hold_plan: Optional["watchlane.HoldPlan"] = None) -> DriveResult:
+    """Drive the spec's steps. With ``hold_plan`` (run.py --hold) the drive stops
+    BEFORE the hold point with KSP left running, the run budget is not enforced,
+    and a setup step that misses its expect or outwaits its step wait starts the
+    hold early instead of killing the game (design "Attended hold mode")."""
     result = DriveResult()
     steps = (spec.get("driver", {}) or {}).get("steps", []) or []
     commands_path = os.path.join(instance_dir, "parsek-test-commands.txt")
@@ -2866,6 +3004,12 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
 
     for i, step in enumerate(steps):
         step_id = hlib.step_id_for_index(i)
+        if hold_plan is not None and i >= hold_plan.hold_index:
+            result.hold_reached = True
+            result.response_lines = _read_response_lines(responses_path)
+            logger.info("Hold", "hold point reached at step=%d (%s); %d step(s) not driven"
+                        % (i, hold_plan.source, len(hold_plan.skipped)))
+            return result
         # Checked BEFORE the mission handoff: a refused pre-mission step skips the
         # mission step itself (plan_unmet_step_tail), so no mission budget is spent.
         if tail_plan is not None and i in tail_plan.skipped_indices:
@@ -2939,6 +3083,16 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                         "kind=%s: %s; the command line is NOT written -> INVALID"
                         % (i, step_id, verb, miss["arg"], miss["ref"], miss["kind"],
                            miss["reason"]))
+            if hold_plan is not None:
+                # Attended: never kill the owner's game; hold with the setup incomplete.
+                result.hold_unmet_step = {"id": step_id, "cmd": verb,
+                                          "verdict": "UNRESOLVED-HANDLE",
+                                          "reason": miss["reason"]}
+                result.hold_reached = True
+                logger.warn("Hold", "setup step id=%s cmd=%s has an unresolved handle; "
+                                    "holding now with the setup incomplete (no kill)"
+                            % (step_id, verb))
+                return result
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Drive", "kill complete pids=%s" % result.killed_pids)
             return result
@@ -3011,6 +3165,15 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                         logger.info("Drive", "captured id=%s label=%s fields=%s"
                                     % (step_id, label if label else "-",
                                        ",".join(captured)))
+                if hold_plan is not None and verdict != record_step["expect"]:
+                    result.hold_unmet_step = {
+                        "id": step_id, "cmd": verb, "verdict": verdict,
+                        "reason": (terminal or {}).get("msg", "") or ""}
+                    result.hold_reached = True
+                    logger.warn("Hold", "setup step UNMET id=%s cmd=%s verdict=%s expect=%s; "
+                                        "holding now with the setup incomplete"
+                                % (step_id, verb, verdict, record_step["expect"]))
+                    return result
                 if tail_plan is None and verdict != record_step["expect"]:
                     _maybe_stop_after_unmet_step(result, step_id, verb, verdict, terminal,
                                                  logger)
@@ -3065,7 +3228,15 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                         logger.info("Boot-Wait", "kill complete pids=%s" % result.killed_pids)
                         _wait_for_killed_exit(proc, runtime, logger, "Boot-Wait")
                         return result
-            if now - run_start > run_budget:
+            if hold_plan is not None and now - step_start > step_wait:
+                result.hold_unmet_step = {"id": step_id, "cmd": verb, "verdict": "NO-REPLY",
+                                          "reason": "no reply within %.0fs" % step_wait}
+                result.hold_reached = True
+                logger.warn("Hold", "setup step id=%s cmd=%s got no reply within %.0fs; "
+                                    "holding now with the setup incomplete (no kill)"
+                            % (step_id, verb, step_wait))
+                return result
+            if hold_plan is None and now - run_start > run_budget:
                 logger.warn("Budget", "budget exceeded scope=run elapsed=%.0f; killing process tree root pid=%d"
                             % (now - run_start, proc.pid))
                 result.killed = True
@@ -3094,6 +3265,11 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     # All steps got a terminal response; drain a final read and wait briefly for a
     # clean self-exit (the QUIT owner). A clean exit is the normal PASS path.
     result.response_lines = _read_response_lines(responses_path)
+    if hold_plan is not None:
+        # Every step was setup (no FlushAndQuit, no holdBefore): hold after the last.
+        result.hold_reached = True
+        logger.info("Hold", "hold point reached after the last step (%s)" % hold_plan.source)
+        return result
     deadline = runtime.now() + 30.0
     while runtime.now() < deadline:
         exit_code = runtime.poll_exit(proc)
@@ -4796,7 +4972,8 @@ def _make_run_id(scenario_id: str, attempt: int, run_ordinal: int = 1,
 def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runtime,
                 attempt: int, prior_boot_crashed: bool, logger: HarnessLogger,
                 run_ordinal: int = 1, defer_post_quit: bool = False,
-                wait_for_prior_ksp: bool = False):
+                wait_for_prior_ksp: bool = False,
+                hold: Optional["HoldContext"] = None):
     """One attempt. Returns its result dict, or, with ``defer_post_quit`` (the
     pipelined selection loop), a ``_DeferredAttempt`` whose ``finish(logger)`` runs
     everything after KSP exited (verifier chain, classify, result + artifact
@@ -4818,9 +4995,17 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                 spec, profile, attempt, started, start_wall, runtime, verdict,
                 admission=admission, logger=lg, run_id=run_id),
                 fail=lambda lg, exc: _post_quit_failure(lg, exc, admission))
+        # A hold refused before launch is still a hold run: tagged, so no flake /
+        # coverage / index reader counts its INVALID.
+        hold_extra = None
+        if hold is not None:
+            hold_extra = {hlib.RESULT_MODE_KEY: hlib.RESULT_MODE_HOLD,
+                          "hold": watchlane.build_hold_block(
+                              hold.plan, watchlane.END_REFUSED_BEFORE_LAUNCH, False,
+                              None, None, hold.max_minutes)}
         return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                 verdict, admission=admission, logger=logger,
-                                run_id=run_id)
+                                run_id=run_id, result_extra=hold_extra)
 
     def _post_quit_failure(lg, exc, admission):
         # The pipelined worker raised. The lane still gets a result row, INVALID and
@@ -5040,7 +5225,16 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ---- DRIVE + BUDGET ----------------------------------------------
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
                            run_budget, mission_ctx=mission_ctx, run_id=run_id,
-                           boot_watch=boot_watch)
+                           boot_watch=boot_watch,
+                           hold_plan=hold.plan if hold is not None else None)
+
+        # ---- ATTENDED HOLD (run.py --hold) ---------------------------------
+        # No verifier chain: hold the game open until the owner closes it, then
+        # write the OBSERVED record (design "Attended hold mode").
+        if hold is not None:
+            return _finish_hold(spec, profile, started, start_wall, runtime,
+                                admission_rec, drive, proc, run_save_name,
+                                instance_dir, run_id, hold, logger)
 
         # ---- PART PARITY HARVEST ------------------------------------------
         # The lane's KSP has exited and the instance lock is still held: move the
@@ -5099,6 +5293,96 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         restore_ksp_screen_settings(instance_dir, logger, "teardown")
         # And the stock gameplay settings a `kspSettings` lane moved.
         restore_ksp_gameplay_settings(instance_dir, logger, "teardown")
+
+
+class HoldContext:
+    """What ``run.py --hold`` hands run_attempt: the hold plan, the ceiling and
+    the locks the hold loop keeps alive."""
+
+    def __init__(self, plan: "watchlane.HoldPlan", max_minutes: float,
+                 lock_path: Optional[str], selection: str):
+        self.plan = plan
+        self.max_minutes = max_minutes
+        self.lock_path = lock_path
+        self.selection = selection
+
+
+def _hold_until_closed(proc, runtime: Runtime, logger: HarnessLogger,
+                       hold: HoldContext) -> Tuple[str, float, Optional[int]]:
+    """Keep the game open until KSP exits, a stop request lands or the ceiling
+    runs out. Heartbeats the machine and slot locks so a long hold never loses
+    them. Returns (end reason, held seconds, exit code)."""
+    start = runtime.now()
+    last_beat = start
+    last_status = start
+    ceiling = max(0.0, float(hold.max_minutes)) * 60.0
+    logger.info("Hold", "HOLDING: the game stays open until you close KSP "
+                        "(ceiling %g min, 0 = none; drop %s to end it early)"
+                % (hold.max_minutes, stop_request_path()))
+    while True:
+        code = runtime.poll_exit(proc)
+        now = runtime.now()
+        held = now - start
+        stop = code is None and consume_stop_request(logger)
+        reason = watchlane.decide_hold_end(held, ceiling, code is not None, stop)
+        if reason is not None:
+            if reason != watchlane.END_OWNER_CLOSED:
+                logger.warn("Hold", "hold ended reason=%s after %.0fs; closing KSP pid=%s"
+                            % (reason, held, getattr(proc, "pid", "?")))
+                runtime.kill_tree(proc)
+                _wait_for_killed_exit(proc, runtime, logger, "Hold")
+                code = runtime.poll_exit(proc)
+            else:
+                logger.info("Hold", "KSP closed (exit=%s) after a %.0fs hold" % (code, held))
+            return reason, held, code
+        if now - last_beat >= watchlane.HOLD_HEARTBEAT_SECONDS:
+            last_beat = now
+            if not heartbeat_run_lock(hold.lock_path, runtime, logger,
+                                      selection=hold.selection):
+                logger.warn("Hold", "the machine lock is no longer held by this run; "
+                                    "the hold goes on, but nothing else should launch "
+                                    "beside this KSP")
+            heartbeat_slot_locks(runtime, logger, hold.selection)
+        if now - last_status >= watchlane.HOLD_STATUS_LOG_SECONDS:
+            last_status = now
+            logger.info("Hold", "still holding: %.0f min" % (held / 60.0))
+        runtime.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _finish_hold(spec: Dict, profile, started: str, start_wall: float,
+                 runtime: Runtime, admission_rec: Dict, drive: "DriveResult", proc,
+                 run_save_name: str, instance_dir: str, run_id: str,
+                 hold: HoldContext, logger: HarnessLogger) -> Dict:
+    """Hold (when the drive reached the hold point), then write the OBSERVED
+    record: no verifier chain, collect-logs + artifacts as on any non-PASS run,
+    and nothing a coverage / flake / index reader counts (``mode = "hold"``)."""
+    held_seconds: Optional[float] = None
+    if drive.boot_crashed:
+        end_reason = watchlane.END_BOOT_CRASH
+    elif drive.boot_hung:
+        end_reason = watchlane.END_BOOT_HANG
+    elif drive.exit_code is not None or not drive.hold_reached:
+        end_reason = watchlane.END_CLOSED_DURING_SETUP
+    else:
+        end_reason, held_seconds, code = _hold_until_closed(proc, runtime, logger, hold)
+        drive.exit_code = code
+    setup_complete = (drive.hold_reached and drive.hold_unmet_step is None
+                      and end_reason not in (watchlane.END_CLOSED_DURING_SETUP,
+                                             watchlane.END_BOOT_CRASH,
+                                             watchlane.END_BOOT_HANG))
+    verdict_s, subkind, note = watchlane.classify_hold(end_reason, setup_complete)
+    # Positional on purpose: a hold result is never indexed, so its note is not one
+    # of the run index's note producers (test_runindex.NoteProducerSourceSyncTests).
+    verdict = hlib.Verdict(verdict_s, subkind, False, note, False, note)
+    logger.info("Classify", "hold run verdict=%s subkind=%s endReason=%s setupComplete=%s"
+                % (verdict_s, subkind or "-", end_reason, setup_complete))
+    extra = {hlib.RESULT_MODE_KEY: hlib.RESULT_MODE_HOLD,
+             "hold": watchlane.build_hold_block(hold.plan, end_reason, setup_complete,
+                                                held_seconds, drive.hold_unmet_step,
+                                                hold.max_minutes)}
+    return _finish_result(spec, profile, 1, started, start_wall, runtime, verdict,
+                          admission_rec, drive, None, run_save_name, instance_dir,
+                          logger, run_id=run_id, result_extra=extra)
 
 
 def _verify_classify_finish(spec: Dict, profile, attempt: int, started: str,
@@ -5172,10 +5456,11 @@ def _verify_classify_finish(spec: Dict, profile, attempt: int, started: str,
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,
-                     admission, logger, run_id, drive=None, facts=None):
+                     admission, logger, run_id, drive=None, facts=None, result_extra=None):
     """Build + write a result for an early-refusal path (no launch / no verify)."""
     return _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
-                          admission, drive, facts, None, None, logger, run_id=run_id)
+                          admission, drive, facts, None, None, logger, run_id=run_id,
+                          result_extra=result_extra)
 
 
 # ---------------------------------------------------------------------------
@@ -6131,10 +6416,22 @@ def _load_run_index_module():
     return module
 
 
+RUN_INDEX_MUTEX_NAME = ".index-append.lock"
+
+
 def _index_archived_runs(archive_root: str, run_ids: Sequence[str], logger) -> None:
     """Append just-archived attempts to ``<archive>/index.jsonl`` (A7).
     Verdict-neutral: any failure is one Warn line and the run goes on; the
     index can always be rebuilt from the archive (``run_index.py rebuild``)."""
+    mutex = None
+    if _CTX.lease_mode:
+        # Two leased threads append from two worktrees; append_runs is a
+        # read-modify-replace, so serialize it machine-wide (O_EXCL mini-lock,
+        # never stalls: past the wait it appends without it).
+        mutex = os.path.join(archive_root, RUN_INDEX_MUTEX_NAME)
+        if not _acquire_mini_lock(mutex, time.time, time.sleep, logger, "run-index",
+                                  "appending"):
+            mutex = None
     try:
         module = _load_run_index_module()
         counts, skipped, path = module.append_runs(archive_root, list(run_ids))
@@ -6142,6 +6439,12 @@ def _index_archived_runs(archive_root: str, run_ids: Sequence[str], logger) -> N
         logger.warn("Archive", "run index append FAILED for %s (%s: %s); verdict unaffected"
                     % (", ".join(run_ids), type(exc).__name__, exc))
         return
+    finally:
+        if mutex:
+            try:
+                os.remove(mutex)
+            except OSError:
+                pass
     logger.info("Archive", "run index %s: %s%s"
                 % (path, module.format_append_counts(counts),
                    "" if not skipped else " (%s)" % "; ".join("%s: %s" % s for s in skipped)))
@@ -6150,7 +6453,8 @@ def _index_archived_runs(archive_root: str, run_ids: Sequence[str], logger) -> N
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
                    admission, drive, facts, run_save_name, instance_dir, logger,
                    run_id: Optional[str] = None,
-                   post_quit_copy: Optional["_PostQuitCopy"] = None) -> Dict:
+                   post_quit_copy: Optional["_PostQuitCopy"] = None,
+                   result_extra: Optional[Dict] = None) -> Dict:
     scenario_id = spec.get("id")
     ended = utcnow_iso()
     wall = int(runtime.now() - start_wall)
@@ -6299,6 +6603,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         # attempt's result), then enriched and re-written below.
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
+    if result_extra:
+        # Additive keys (the attended hold's ``mode`` / ``hold``); absent on every
+        # other run, so a normal record is byte-identical.
+        result.update(result_extra)
     write_result(result, logger)
     # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: take the run's own copy of
     # the produced save while the machine lock is still held. Verdict-neutral.
@@ -6392,7 +6700,9 @@ def load_all_results(results_dir: Optional[str] = None) -> List[Dict]:
         except (OSError, ValueError):
             continue
         ok, _ = hlib.check_schema(obj)
-        if ok:
+        # An attended hold run asserted nothing: no coverage, flake or duration
+        # reader may count it (watchlane / design "Attended hold mode").
+        if ok and not hlib.is_hold_result(obj):
             out.append(obj)
     return out
 
@@ -6567,6 +6877,8 @@ def build_select_expr(args) -> Optional[str]:
         return "--cadence %s" % args.cadence
     if getattr(args, "ids_file", None):
         return "--ids-file %s" % args.ids_file
+    if getattr(args, "spec", None):
+        return "--spec %s" % args.spec
     return None
 
 
@@ -6753,9 +7065,21 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                                     "perpr|daily|nightly|weekly|pending-fixture|operator|longhaul)")
     sel.add_argument("--tag", help="run every spec carrying this tag")
     sel.add_argument("--cadence", help="run the tier set a cadence maps to (per-pr|daily|nightly|weekly)")
+    sel.add_argument("--spec", help="run ONE spec file given by path (an operator's own "
+                                    "watch lane under scenarios/local/, which is gitignored)")
     sel.add_argument("--ids-file", help="run the scenario ids listed in this file (one per line, "
                                         "# comments allowed) in FILE order; the selection "
                                         "tools/tier_runner.py --tier full plans")
+    parser.add_argument("--hold", action="store_true",
+                        help="attended watch mode (one scenario, seam driver): run the setup "
+                             "steps, stop before the hold point (the first FlushAndQuit, or "
+                             "[watch] holdBefore), keep KSP open until you close it, then "
+                             "write an OBSERVED result that no coverage / flake / run-index "
+                             "reader counts")
+    parser.add_argument("--hold-max-minutes", type=float,
+                        default=watchlane.DEFAULT_HOLD_MAX_MINUTES,
+                        help="--hold only: close KSP after this many minutes held "
+                             "(default %(default)s; 0 = no ceiling)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the action plan and validate every selected "
                              "spec; launch nothing. Exits 1 if any spec is invalid.")
@@ -6788,10 +7112,17 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                         help="write a parsek-run-report/1 JSON (per lane: verdict, failure "
                              "class, attempts, run ids, wall, result paths) to this path at "
                              "the end, refusals included")
-    parser.add_argument("--window", choices=slotrun.WINDOW_MODES, default=slotrun.WINDOW_NORMAL,
+    parser.add_argument("--window", choices=slotrun.WINDOW_MODES, default=None,
                         help="what happens to the KSP window after boot: desktop (Parsek moves "
                              "it to --desktop-id; minimised when that did not happen), "
-                             "minimize, or normal (default)")
+                             "minimize, or normal (default; desktop under --lease, on the "
+                             "last virtual desktop that is not the current one)")
+    parser.add_argument("--lease", action="store_true",
+                        help="fly in this worktree's leased install copy "
+                             "(tools/ksp_lease.py claim): takes that copy's slot lock only, "
+                             "never the machine lock, renews the lease at every attempt, "
+                             "admits the copy against the lease's DLL pin, refuses a lane of "
+                             "another profile or one that needs the whole machine")
     parser.add_argument("--desktop-id",
                         help="virtual desktop GUID handed to KSP as %s"
                              % slotrun.DESKTOP_ID_ENV)
@@ -6813,14 +7144,47 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             parser.error("--slot and --instance-dir are mutually exclusive")
     if args.tests_prebuilt and slot is None:
         parser.error("--tests-prebuilt is accepted only with --slot")
+    if args.lease:
+        if slot is not None:
+            parser.error("--lease and --slot are mutually exclusive")
+        if args.instance_dir:
+            parser.error("--lease and --instance-dir are mutually exclusive")
+        if args.hold:
+            parser.error("--hold cannot run under a lease (it needs the whole machine)")
+    if args.hold:
+        if slot is not None:
+            parser.error("--hold cannot run in a slot (it needs the owner at the screen)")
+        if not (args.id or args.spec):
+            parser.error("--hold takes exactly one scenario: --id ID or --spec PATH")
 
     runtime = runtime or Runtime()
     umbrella_root = os.path.abspath(args.umbrella_root) if args.umbrella_root else DEFAULT_UMBRELLA_ROOT
-    ctx = SelectionContext(slot=slot, window_mode=args.window, desktop_id=args.desktop_id,
-                           umbrella_root=umbrella_root)
+    lease = lease_decision = None
+    window_mode = args.window or (slotrun.WINDOW_DESKTOP if args.lease else slotrun.WINDOW_NORMAL)
+    desktop_id = args.desktop_id
+    if args.lease:
+        lease_decision, lease = leaseio.resolve(WORKTREE_ROOT, umbrella_root, runtime.now())
+        if not lease_decision.ok:
+            lease = None
+        if window_mode == slotrun.WINDOW_DESKTOP and not desktop_id:
+            try:
+                desktops, current = runtime.virtual_desktops()
+            except Exception as exc:  # noqa: BLE001 - an unreadable registry falls back below
+                print("[run] --lease window: cannot read the virtual desktops (%s: %s); "
+                      "falling back" % (type(exc).__name__, exc), flush=True)
+                desktops, current = [], None
+            resolution = parallel.resolve_window_mode(window_mode, desktops, current)
+            window_mode, desktop_id = resolution.mode, resolution.desktop_id
+            print("[run] --lease window=%s desktopId=%s (%d virtual desktop(s) read)"
+                  % (window_mode, desktop_id or "-", len(desktops)), flush=True)
+    ctx = SelectionContext(slot=slot, window_mode=window_mode, desktop_id=desktop_id,
+                           umbrella_root=umbrella_root, lease_requested=bool(args.lease),
+                           lease=lease, lease_decision=lease_decision)
     global _CTX
     prev_ctx, _CTX = _CTX, ctx
-    runtime.scope_ksp_to_instance = ctx.slot_mode
+    # A slot child and a leased run share the PC with other KSPs: only a KSP in
+    # their own instance counts as a zombie.
+    runtime.scope_ksp_to_instance = ctx.slot_mode or ctx.lease_requested
     logger = HarnessLogger(default_harness_log_path(slot) if slot
                            else default_harness_log_path())
     selected_ids: List[str] = []
@@ -6862,7 +7226,16 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     if expr is None:
         logger.error("Select", "no selection given (use --id / --tier / --tag / --cadence / --ids-file)")
         return 2
-    if getattr(args, "ids_file", None):
+    if getattr(args, "spec", None):
+        spec_path = os.path.abspath(args.spec)
+        try:
+            one = load_toml(spec_path)
+        except (OSError, ValueError) as exc:
+            logger.error("Select", "cannot read --spec %s: %s" % (args.spec, exc))
+            return 2
+        one["_path"] = spec_path
+        selected = [one]
+    elif getattr(args, "ids_file", None):
         try:
             with open(args.ids_file, "r", encoding="utf-8") as fh:
                 ids_text = fh.read()
@@ -6882,6 +7255,14 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     if _CTX.slot_mode:
         logger.info("Select", "slot mode slot=%s instance=%s window=%s"
                     % (_CTX.slot, slots.instance_dir(umbrella_root, _CTX.slot), _CTX.window_mode))
+    if _CTX.lease_mode:
+        logger.info("Select", "lease mode %s instance=%s window=%s%s"
+                    % (leases.describe_lease(_CTX.lease, runtime.now()),
+                       slots.instance_dir(umbrella_root, _CTX.lease_slot), _CTX.window_mode,
+                       (" desktop=%s" % _CTX.desktop_id) if _CTX.desktop_id else ""))
+    elif _CTX.lease_requested:
+        logger.error("Select", "lease mode requested but refused: %s"
+                     % _lane_refusal_note(hlib.LEASE_INVALID_SUBKIND, None, None))
 
     def instance_root_fn(profile):
         return _lane_instance({"instanceProfile": profile}, umbrella_root, args)[0] \
@@ -6923,9 +7304,22 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     if getattr(args, "admit_only", False):
         return admit_only(selected, umbrella_root, args, runtime, logger)
 
+    if getattr(args, "hold", False):
+        if len(selected) != 1:
+            logger.error("Hold", "--hold needs exactly one scenario; the selection has %d"
+                         % len(selected))
+            return 2
+        refusal = watchlane.hold_refusal(selected[0])
+        if refusal:
+            logger.error("Hold", "cannot hold %s: %s" % (selected[0].get("id"), refusal))
+            return 2
+
     if _CTX.slot_mode:
         return _run_slot_child(selected, specs, registry, umbrella_root, args, runtime,
                                logger, expr)
+    if _CTX.lease_requested:
+        return _run_leased(selected, specs, registry, umbrella_root, args, runtime, logger,
+                           expr)
 
     # ---- MACHINE LOCK (whole invocation) ---------------------------------
     # Acquired ONCE here, around the entire selection, and released in the
@@ -6946,6 +7340,9 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     # shares: snapshot now, restore after the last KSP exited (below).
     _unity_prefs_step(runtime, umbrella_root, logger, begin=True)
     try:
+        if getattr(args, "hold", False):
+            return _run_hold(selected[0], registry, umbrella_root, args, runtime,
+                             logger, lock_path, expr)
         return _run_selection(selected, specs, registry, umbrella_root, args,
                               runtime, logger, lock_path, expr)
     finally:
@@ -6983,6 +7380,33 @@ def _run_slot_child(selected, specs, registry, umbrella_root: str, args, runtime
         return 1
     logger.info("Lock", "runner check ok: %s" % decision.reason)
     instance_dir = slots.instance_dir(umbrella_root, _CTX.slot)
+    try:
+        if not ensure_instance_slot_lock(instance_dir, umbrella_root, runtime, logger, expr):
+            note = _lane_refusal_note(hlib.SLOT_LOCKED_SUBKIND, None, instance_dir)
+            for spec in selected:
+                _write_selection_refusal_result(spec, hlib.SLOT_LOCKED_SUBKIND, note, logger)
+            return 1
+        return _run_selection(selected, specs, registry, umbrella_root, args, runtime,
+                              logger, None, expr)
+    finally:
+        release_slot_locks(logger)
+
+
+def _run_leased(selected, specs, registry, umbrella_root: str, args, runtime, logger,
+                expr: str) -> int:
+    """A ``--lease`` run: no machine lock and no Unity prefs duty (a lease claim
+    took the prefs snapshot, the last release restores it), the lease renewed now
+    and at every attempt boundary, the leased copy's slot lock for the selection.
+    Every other duty of a serial run stays: this worktree's results, coverage and
+    retention sweeps are its own, and the run-index append takes a machine-wide
+    mutex."""
+    if not _CTX.lease or not renew_lease(umbrella_root, runtime, logger):
+        note = _lane_refusal_note(hlib.LEASE_INVALID_SUBKIND, None, None)
+        logger.error("Lease", "refusing selection '%s': %s" % (expr, note))
+        for spec in selected:
+            _write_selection_refusal_result(spec, hlib.LEASE_INVALID_SUBKIND, note, logger)
+        return 1
+    instance_dir = slots.instance_dir(umbrella_root, _CTX.lease_slot)
     try:
         if not ensure_instance_slot_lock(instance_dir, umbrella_root, runtime, logger, expr):
             note = _lane_refusal_note(hlib.SLOT_LOCKED_SUBKIND, None, instance_dir)
@@ -7212,7 +7636,7 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
                 instance_dir, umbrella_root, runtime, logger, expr):
             refusal = hlib.SLOT_LOCKED_SUBKIND
         if refusal is not None:
-            note = _lane_refusal_note(refusal, profile, instance_dir)
+            note = _lane_refusal_note(refusal, profile, instance_dir, spec)
             logger.warn("Admit", "lane %s refused INVALID(%s): %s"
                         % (spec.get("id"), refusal, note))
             _write_selection_refusal_result(spec, refusal, note, logger)
@@ -7236,6 +7660,45 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     # The caller (run) owns logger.close() -- it must happen AFTER the lock is
     # released in its finally, so a release warning still reaches the log.
     return exit_code
+
+
+def _run_hold(spec, registry, umbrella_root, args, runtime, logger, lock_path,
+              expr) -> int:
+    """``--hold``: one attempt, no retry, under the already-held machine lock.
+    The verifier chain never runs, so the Parsek.Tests build is needed only when
+    staging injects recordings. Exit 0 on OBSERVED, 1 otherwise."""
+    clear_stale_stop_request(logger)
+    validation = hlib.validate_spec(spec, registry, _load_bug_ids(), None)
+    for w in validation.warnings:
+        logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
+    if validation.errors:
+        for problem in validation.errors:
+            logger.error("Select", "spec invalid id=%s: %s" % (spec.get("id"), problem))
+        return 1
+    injected = ((spec.get("fixture") or {}).get("injectedRecordings") or "none")
+    if injected != "none" and not _prebuild_tests_for_selection(runtime, logger):
+        logger.error("Hold", "Parsek.Tests build failed; the injector needs it")
+        return 1
+    instance_dir, refusal = _lane_instance(spec, umbrella_root, args)
+    if refusal is None and instance_dir is not None and not ensure_instance_slot_lock(
+            instance_dir, umbrella_root, runtime, logger, expr):
+        refusal = hlib.SLOT_LOCKED_SUBKIND
+    if refusal is not None or instance_dir is None:
+        logger.error("Hold", "lane %s refused: %s" % (
+            spec.get("id"), _lane_refusal_note(refusal or "instance-unresolved",
+                                               spec.get("instanceProfile"), instance_dir)))
+        return 1
+    plan = watchlane.plan_hold(spec)
+    hold = HoldContext(plan, float(args.hold_max_minutes), lock_path, expr)
+    logger.info("Hold", "hold run id=%s: drive steps 0..%d, hold before step %d (%s); "
+                        "skipped=%s"
+                % (spec.get("id"), plan.hold_index - 1, plan.hold_index, plan.source,
+                   [c for _i, c in plan.skipped]))
+    result = run_attempt(spec, instance_dir, umbrella_root, runtime, 1, False, logger,
+                         hold=hold)
+    logger.info("Hold", "hold run done: verdict=%s note=%s (not archived, not indexed)"
+                % (result.get("verdict"), result.get("note")))
+    return 0 if result.get("verdict") == hlib.HOLD_VERDICT_OBSERVED else 1
 
 
 class _ScenarioRetryState:
@@ -7651,7 +8114,7 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                                                       logger, expr):
                     refusal = hlib.SLOT_LOCKED_SUBKIND
                 if refusal is not None:
-                    note = _lane_refusal_note(refusal, profile, instance_dir)
+                    note = _lane_refusal_note(refusal, profile, instance_dir, spec)
                     logger.warn("Admit", "lane %s refused INVALID(%s): %s"
                                 % (spec.get("id"), refusal, note))
                     flown = (None, _DeferredAttempt(
@@ -7735,10 +8198,22 @@ def _accept_prebuilt_tests(runtime, logger) -> bool:
     return True
 
 
-def _lane_refusal_note(subkind: str, profile, instance_dir: Optional[str]) -> str:
+def _lane_refusal_note(subkind: str, profile, instance_dir: Optional[str],
+                       spec: Optional[Dict] = None) -> str:
+    if subkind == hlib.SLOT_PROFILE_MISMATCH_SUBKIND and _CTX.lease_requested:
+        return ("lane profile %s is not the leased copy %s's profile %s"
+                % (profile, _CTX.lease_slot, _CTX.lease_profile))
     if subkind == hlib.SLOT_PROFILE_MISMATCH_SUBKIND:
         return ("lane profile %s is not slot %s's profile %s"
                 % (profile, _CTX.slot, _CTX.slot_profile))
+    if subkind == hlib.LEASE_INVALID_SUBKIND:
+        decision = _CTX.lease_decision
+        return ("no live copy lease for this worktree (%s)"
+                % (("%s: %s" % (decision.reason, decision.detail)) if decision is not None
+                   else "lost mid-selection"))
+    if subkind == hlib.LEASE_EXCLUSIVE_SUBKIND:
+        return ("lane %s needs the whole machine (%s); fly it with no copy lease live"
+                % ((spec or {}).get("id"), parallel.exclusive_reason(spec or {}) or "exclusive"))
     if subkind == hlib.SLOT_LOCKED_SUBKIND:
         return ("the slot lock of %s is held by another live process"
                 % (slotrun.instance_slot_name(instance_dir) or instance_dir))

@@ -1,0 +1,2 @@
+# [Parsek] WARN/ERROR lines between 23:33:21 and 23:35:17
+[LOG 23:35:14.630] [Parsek][WARN][TestRunner] Late vessel switch to '#autoLOC_501224' inside the reload commit window (armedBy='CommitValidatedGameLoad:b1-pad-craft/ptb-64487573'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).

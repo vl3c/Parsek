@@ -64,14 +64,45 @@ namespace Parsek
             return models + prefabs + legacy;
         }
 
+        /// <summary>
+        /// Writes every stock-ruled emitter of a firing RCS module for its recorded power: stock's
+        /// <c>ModelMultiParticleFX.OnEvent(power, nozzle)</c>, from the asset baselines. Returns the
+        /// emitters written.
+        /// </summary>
+        internal static int ApplyRcsFxRules(RcsGhostInfo info)
+        {
+            if (info?.fxRules == null || info.fxRules.Count == 0 || !(info.currentPower > 0f)) return 0;
+            float power = GhostEngineFxPower.RcsNozzlePower(
+                info.currentPower, info.recordedNozzles, info.activeNozzles);
+            float emission = 0f;
+            for (int i = 0; i < info.fxRules.Count; i++)
+            {
+                GhostEngineFxRule rule = info.fxRules[i];
+                emission = GhostEngineFxPower.RcsEmission(
+                    rule.curves.emission.Value(power), power, info.activeNozzles);
+                WriteModelEmitter(rule, emission, power);
+            }
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                $"rcs-fx-power-{info.partPersistentId}-{info.moduleIndex}",
+                $"RCS FX power: pid={info.partPersistentId} midx={info.moduleIndex} " +
+                $"recorded={info.currentPower.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"nozzles={info.activeNozzles}/{info.recordedNozzles} " +
+                $"power={power.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"emission={emission.ToString("F3", CultureInfo.InvariantCulture)} models={info.fxRules.Count}", 10.0);
+            return info.fxRules.Count;
+        }
+
         // Particle ECalls; NoInlining keeps them out of ApplyEngineFxRules, which a headless test
         // may call with no rules.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void WriteModelEmitter(GhostEngineFxRule rule, float power)
+            => WriteModelEmitter(rule, rule.curves.emission.Value(power), power);
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void WriteModelEmitter(GhostEngineFxRule rule, float emission, float power)
         {
             KSPParticleEmitter emitter = rule.emitter;
             if (emitter == null) return;
-            float emission = rule.curves.emission.Value(power);
             float energy = rule.curves.energy.Value(power);
             emitter.minEmission = GhostEngineFxPower.EmissionRate(rule.minEmission, emission);
             emitter.maxEmission = GhostEngineFxPower.EmissionRate(rule.maxEmission, emission);
@@ -186,6 +217,15 @@ namespace Parsek
                 if (!ShouldApplyThrustFraction(info.thrustFraction, fraction)) continue;
                 info.thrustFraction = fraction;
                 ApplyEngineFxRules(info);
+                // The share sets a thrust-driven plume's power (stock's finalThrust / maxThrust);
+                // a reading against the real engine needs it.
+                ParsekLog.VerboseRateLimited("GhostVisual",
+                    $"engine-thrust-share-{info.partPersistentId}-{info.moduleIndex}",
+                    $"Engine FX thrust share: part='{info.partName}' pid={info.partPersistentId} " +
+                    $"midx={info.moduleIndex} throttle={info.currentPower.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"share={fraction.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"mach={air.mach.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"density={air.density.ToString("F3", CultureInfo.InvariantCulture)}", 5.0);
             }
         }
 

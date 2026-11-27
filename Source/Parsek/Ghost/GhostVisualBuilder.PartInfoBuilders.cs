@@ -469,6 +469,10 @@ namespace Parsek
                 var sampledStates = SampleDeployableStates(prefab, deployable);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "Deployable", logUnresolved: true);
+                // PollDeployables emits at EXTENDED / RETRACTED, the end of stock's clip, which
+                // ModuleDeployablePart plays at speed 1 in flight (decompiled Extend / Retract).
+                if (deployableInfo != null)
+                    StampEndMarkedDeployMotion(deployableInfo, partName, persistentId, "Deployable", 1f, 1f, 1f);
 
                 // S6: the break subtree, resolved INDEPENDENTLY of the animation cascade above.
                 // A fixed (non-retractable) panel has no animationName and so produces no
@@ -505,6 +509,13 @@ namespace Parsek
                     var sampledStates = SampleGearStates(prefab, animStateName, animTrfName, depPos);
                     deployableInfo = ResolveSampledStatesToDeployableInfo(
                         sampledStates, modelNodeTransform, persistentId, partName, "Gear", logUnresolved: false);
+                    // PollGear emits at "Deployed" / "Retracted", the end of stock's clip, which
+                    // ModuleWheelDeployment plays at its own extend / retract duration factors
+                    // (decompiled: animationState.speed = extendDurationFactor; the stock legs
+                    // extend at 0.5).
+                    if (deployableInfo != null)
+                        StampEndMarkedDeployMotion(deployableInfo, partName, persistentId, "Gear",
+                            wheel.extendDurationFactor, wheel.retractDurationFactor, 1f);
                     break; // one deployment module per part
                 }
             }
@@ -520,6 +531,9 @@ namespace Parsek
                 var sampledStates = SampleRetractableLadderStates(prefab, ladderAnimName, ladderAnimRootName);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "Ladder", logUnresolved: true);
+                // PollLadders emits at Extended / Retracted, the end of stock's clip (speed 1).
+                if (deployableInfo != null)
+                    StampEndMarkedDeployMotion(deployableInfo, partName, persistentId, "Ladder", 1f, 1f, 1f);
             }
 
             // Detect ModuleAnimationGroup deploy animations (e.g. drills) — reuses DeployableGhostInfo
@@ -538,6 +552,10 @@ namespace Parsek
                 var sampledStates = SampleStandaloneAnimateGenericStates(prefab, standaloneAnimateGenericAnimName);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "AnimateGeneric", logUnresolved: true);
+                // PollAnimateGeneric emits at animTime 0.99 / 0.01, the end of stock's clip, which
+                // the Toggle event plays at speed 1 in flight (decompiled UpdateAnimSwitch).
+                if (deployableInfo != null)
+                    StampEndMarkedDeployMotion(deployableInfo, partName, persistentId, "AnimateGeneric", 1f, 1f, 1f);
             }
 
             // Detect ModuleAeroSurface visual transforms (airbrakes/control surfaces).
@@ -606,6 +624,12 @@ namespace Parsek
                             prefab, animModule.animationName, cargoBay.closedPosition, deployLimitStop);
                         deployableInfo = ResolveSampledStatesToDeployableInfo(
                             sampledStates, modelNodeTransform, persistentId, partName, "CargoBay", logUnresolved: true);
+                        // PollCargoBays emits once the doors settle at an end or the deploy-limit
+                        // stop, the end of stock's clip (Toggle, speed 1); a limited bay travels
+                        // only the share of the clip up to its stop.
+                        if (deployableInfo != null)
+                            StampEndMarkedDeployMotion(deployableInfo, partName, persistentId, "CargoBay", 1f, 1f,
+                                CargoBayMotionTravel(cargoBay.closedPosition, deployLimitStop));
 
                         if (deployableInfo != null)
                         {
@@ -688,6 +712,34 @@ namespace Parsek
                 $"    Deployable '{partName}' pid={persistentId}: break subtree '{breakName}' " +
                 $"resolved from {resolvedFrom}", 30.0);
             return ghostBreak;
+        }
+
+        /// <summary>
+        /// Pure: the share of a cargo bay's clip its open motion travels: to the deploy-limit
+        /// stop when one applies, else the whole clip.
+        /// </summary>
+        internal static float CargoBayMotionTravel(float closedPosition, float? deployLimitStop)
+        {
+            if (!deployLimitStop.HasValue) return 1f;
+            float closedEnd = closedPosition > 0.5f ? 1f : 0f;
+            return Mathf.Clamp01(Mathf.Abs(deployLimitStop.Value - closedEnd));
+        }
+
+        /// <summary>
+        /// Marks a deployable info built for a family whose recorder event marks the END of
+        /// stock's motion, with its two motion times; one Verbose line per part build.
+        /// </summary>
+        private static void StampEndMarkedDeployMotion(
+            DeployableGhostInfo info, string partName, uint persistentId, string family,
+            float extendSpeedFactor, float retractSpeedFactor, float travel)
+        {
+            GhostPlaybackLogic.StampEndMarkedMotion(info, extendSpeedFactor, retractSpeedFactor, travel);
+            ParsekLog.VerboseRateLimited("GhostVisual", $"deploy-motion-end-stamp-{partName}",
+                string.Format(CultureInfo.InvariantCulture,
+                    "    {0} '{1}' pid={2}: event marks the end of the motion; extend={3:F2}s retract={4:F2}s " +
+                    "(clip={5:F2}s speed={6:F2}/{7:F2} travel={8:F2})",
+                    family, partName, persistentId, info.extendMotionSeconds, info.retractMotionSeconds,
+                    info.clipLengthSeconds, extendSpeedFactor, retractSpeedFactor, travel), 60.0);
         }
 
         /// <summary>
@@ -784,6 +836,8 @@ namespace Parsek
             Texture moduleCookie = ResolveReStockLightCookie(prefab, partName);
 
             var clonedLights = new List<Light>();
+            var drivenFlags = new List<bool>();
+            var onIntensities = new List<float>();
             for (int li = 0; li < prefabLights.Length; li++)
             {
                 Light srcLight = prefabLights[li];
@@ -830,6 +884,8 @@ namespace Parsek
                     : srcLight.renderMode;
                 ghostLight.enabled = false;
                 clonedLights.Add(ghostLight);
+                drivenFlags.Add(driven);
+                onIntensities.Add(clonedIntensity);
             }
 
             if (clonedLights.Count > 0)
@@ -837,7 +893,12 @@ namespace Parsek
                 var info = new LightGhostInfo
                 {
                     partPersistentId = persistentId,
-                    lights = clonedLights
+                    lights = clonedLights,
+                    stockDriven = drivenFlags,
+                    onIntensities = onIntensities,
+                    brightenSpeed = lightModule.lightBrightenSpeed,
+                    dimSpeed = lightModule.lightDimSpeed,
+                    animationDim = lightModule.useAnimationDim
                 };
                 AttachLightLensAndFlare(info, lightModule, partNode, modelRoot, cloneMap,
                     persistentId, partName);
@@ -845,7 +906,8 @@ namespace Parsek
                     $"  Light '{partName}' pid={persistentId}: {clonedLights.Count} light(s), " +
                     $"{stockDriven} driven as stock ('{lightModule.lightName}') at intensity " +
                     $"{ModuleLightSettledIntensity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"color {stockColor} cookies={cookies}", 60.0);
+                    $"color {stockColor} cookies={cookies} fade brighten={info.brightenSpeed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"dim={info.dimSpeed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} animationDim={info.animationDim}", 60.0);
                 return info;
             }
 

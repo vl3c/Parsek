@@ -19,6 +19,7 @@ pixel-by-pixel transcription of ``PartParityMetrics.Measure``.
 Run: ``cd harness && python -m unittest discover -s lib -q``.
 """
 
+import contextlib
 import copy
 import gzip
 import json
@@ -995,6 +996,11 @@ class PartParitySourceSyncTests(unittest.TestCase):
         self.assertEqual(list(pp.ATLAS_ROWS), self._string_array(text, "StowedAtlasRows"))
         self.assertEqual(list(pp.ATLAS_ROWS_STATE), self._string_array(text, "StateAtlasRows"))
         self.assertIn("isStateCase ? StateAtlasRows : StowedAtlasRows", text)
+        self.assertEqual(list(pp.ATLAS_ROWS_STATE_RELOADED),
+                         self._string_array(text, "ReloadedStateAtlasRows"))
+        self.assertIn("isStateCase && startReloaded ? (string[])ReloadedStateAtlasRows", text)
+        self.assertEqual(pp.FLAG_START_RELOADED_PREFIX, self._string_consts(
+            self._source("PartParityRampHold.cs"))["FlagReloadedPrefix"])
         capture = self._source("PartParityCaseCapture.cs")
         self.assertIn("PartParityJson.AtlasRowsFor(", capture)
         self.assertNotIn('"ghost-start"', capture)
@@ -1071,6 +1077,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
         rules = self._string_consts(self._source("PartParityStateRules.cs"))
         sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
         consts = self._string_consts(fx_text)
+        # The partial PartParityFxRules.Burst.cs (P9) holds the burst and dust words FamilyForArg maps.
+        consts.update(self._string_consts(self._source("PartParityFxRules.Burst.cs")))
         for name, ref in re.findall(
                 r"internal const string (\w+) = PartParityStateRules\.(\w+);", fx_text):
             consts[name] = rules[ref]
@@ -1098,12 +1106,176 @@ class PartParitySourceSyncTests(unittest.TestCase):
             raise AssertionError("numeric const %s not found" % name)
         return float(m.group(1))
 
+    # ----- the P7 motion contract (Appendix H, M1) -----
+
+    @staticmethod
+    def _motion_num(text, name):
+        m = re.search(r"internal const (?:int|double) %s = ([0-9.eE+-]+);" % re.escape(name), text)
+        if m is None:
+            raise AssertionError("numeric const %s not found" % name)
+        return float(m.group(1))
+
+    def _motion_consts(self):
+        text = self._source("PartParityMotionRules.cs")
+        rules = self._string_consts(self._source("PartParityStateRules.cs"))
+        sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
+        plan = self._string_consts(self._source("PartParitySweepPlan.cs"))
+        consts = self._string_consts(text)
+        for owner, table in (("PartParityStateRules", rules), ("TestCommandPartParitySweep", sweep),
+                             ("PartParitySweepPlan", plan)):
+            for name, ref in re.findall(r"internal const string (\w+) = %s\.(\w+);" % owner, text):
+                consts[name] = table[ref]
+        return text, consts, {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
+
+    def test_the_motion_rules_tables(self):
+        text, consts, others = self._motion_consts()
+        for cs, mirror in (("Families", pp.MOTION_FAMILIES), ("ArgWords", pp.MOTION_ARG_WORDS),
+                           ("ArgKnownWords", pp.MOTION_ARG_KNOWN_WORDS), ("Kinds", pp.MOTION_KINDS),
+                           ("States", pp.MOTION_STATES), ("OrbitContexts", pp.MOTION_ORBIT_CONTEXTS),
+                           ("ServoModules", pp.MOTION_SERVO_MODULES),
+                           ("ExclusionReasons", pp.MOTION_EXCLUSION_REASONS),
+                           ("Channels", pp.MOTION_CHANNELS), ("DefaultViews", pp.MOTION_DEFAULT_VIEWS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._qualified_array(text, cs, consts, others))
+        self.assertEqual(list(pp.MOTION_CROSSING_KEYS), self._string_array(text, "CrossingKeys"))
+        m = re.search(r"CrossingLevels\s*=\s*\{(.*?)\};", text, flags=re.S)
+        self.assertEqual(list(pp.MOTION_CROSSING_LEVELS), [float(x) for x in re.findall(r"[0-9.]+", m.group(1))])
+        for name, mirror in (("ArgLight", pp.MOTION_ARG_LIGHT), ("ArgAllToken", pp.MOTION_ARG_ALL),
+                             ("KindServo", pp.MOTION_KIND_SERVO), ("StatePrefix", pp.MOTION_STATE_PREFIX),
+                             ("ContextRadial", pp.CONTEXT_RADIAL),
+                             ("RadialFillerPart", pp.MOTION_RADIAL_FILLER_PART),
+                             ("ModuleServoRotor", pp.MOTION_ROTOR_MODULE),
+                             ("FlagMotionSnap", pp.FLAG_MOTION_SNAP), ("FlagMotionStepped", pp.FLAG_MOTION_STEPPED),
+                             ("FlagMotionNotModelled", pp.FLAG_MOTION_NOT_MODELLED),
+                             ("FlagWindowCapped", pp.FLAG_MOTION_WINDOW_CAPPED),
+                             ("FlagClippedAtBorder", pp.FLAG_MOTION_CLIPPED_AT_BORDER),
+                             ("FlagFrameJitterPrefix", pp.FLAG_FRAME_JITTER_PREFIX),
+                             ("FlagNoMatch", pp.FLAG_MOTION_NO_MATCH),
+                             ("FlagScoutRenderDisagree", pp.FLAG_SCOUT_RENDER_DISAGREE),
+                             ("FlagTravelDiffers", pp.FLAG_TRAVEL_DIFFERS),
+                             ("FlagProgressDisagree", pp.FLAG_PROGRESS_DISAGREE),
+                             ("ControlPart", pp.MOTION_CONTROL_PART), ("ControlSlowPart", pp.MOTION_CONTROL_SLOW_PART),
+                             ("ControlAirPart", pp.MOTION_CONTROL_AIR_PART),
+                             ("MotionCountsLiteral", pp.MOTION_COUNTS_LITERAL)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+
+    def test_the_motion_constants(self):
+        text = self._source("PartParityMotionRules.cs")
+        for name, mirror in (
+                ("MinPredictedSeconds", pp.MOTION_MIN_PREDICTED_S), ("MaxPredictedSeconds", pp.MOTION_MAX_PREDICTED_S),
+                ("DefaultFramesPerMotion", pp.MOTION_DEFAULT_FRAMES),
+                ("MinFramesPerMotion", pp.MOTION_MIN_FRAMES_PER_MOTION),
+                ("MaxFramesPerMotion", pp.MOTION_MAX_FRAMES_PER_MOTION),
+                ("DoublingBlockMotions", pp.MOTION_DOUBLING_BLOCK_MOTIONS),
+                ("WindowPadSeconds", pp.MOTION_WINDOW_PAD_S), ("WindowCapSeconds", pp.MOTION_WINDOW_CAP_S),
+                ("ServoStopHoldSeconds", pp.MOTION_SERVO_STOP_HOLD_S), ("ScoutStepSeconds", pp.MOTION_SCOUT_STEP_S),
+                ("ScoutMergeEpsilonSeconds", pp.MOTION_SCOUT_MERGE_EPSILON_S),
+                ("FramingGrowFraction", pp.MOTION_FRAMING_GROW_FRACTION), ("MotionTilePx", pp.MOTION_TILE_PX),
+                ("ServoSweepDeg", pp.MOTION_SERVO_SWEEP_DEG), ("PistonSweepFraction", pp.MOTION_PISTON_SWEEP_FRACTION),
+                ("TransformStillDeg", pp.MOTION_TRANSFORM_STILL_DEG), ("TransformStillM", pp.MOTION_TRANSFORM_STILL_M),
+                ("TransformStillScale", pp.MOTION_TRANSFORM_STILL_SCALE),
+                ("ShapeBandLow", pp.MOTION_SHAPE_BAND_LOW), ("ShapeBandHigh", pp.MOTION_SHAPE_BAND_HIGH),
+                ("MatchJumpMax", pp.MOTION_MATCH_JUMP_MAX), ("ScoutRenderTolerance", pp.MOTION_SCOUT_RENDER_TOLERANCE),
+                ("SnapLow", pp.MOTION_SNAP_LOW), ("SnapHigh", pp.MOTION_SNAP_HIGH),
+                ("SnapRealMinFrames", pp.MOTION_SNAP_REAL_MIN_FRAMES), ("StepRealRise", pp.MOTION_STEP_REAL_RISE),
+                ("StepStillEpsilon", pp.MOTION_STEP_STILL_EPSILON), ("StepMinHolds", pp.MOTION_STEP_MIN_HOLDS),
+                ("StepHoldLow", pp.MOTION_STEP_HOLD_LOW), ("StepHoldHigh", pp.MOTION_STEP_HOLD_HIGH),
+                ("NotModelledReal", pp.MOTION_NOT_MODELLED_REAL), ("NotModelledGhost", pp.MOTION_NOT_MODELLED_GHOST),
+                ("LagFailMinSeconds", pp.MOTION_LAG_FAIL_MIN_S), ("LagFailRealFraction", pp.MOTION_LAG_FAIL_REAL_FRACTION),
+                ("DurationRatioFailMin", pp.MOTION_DURATION_RATIO_FAIL_MIN),
+                ("DurationRatioFailMax", pp.MOTION_DURATION_RATIO_FAIL_MAX),
+                ("CurveShapeFail", pp.MOTION_CURVE_SHAPE_FAIL),
+                ("ServoAngleFailMinDeg", pp.MOTION_SERVO_ANGLE_FAIL_MIN_DEG),
+                ("ServoAngleFailSweepFraction", pp.MOTION_SERVO_ANGLE_FAIL_SWEEP_FRACTION),
+                ("DurationRatioWarnMin", pp.MOTION_DURATION_RATIO_WARN_MIN),
+                ("DurationRatioWarnMax", pp.MOTION_DURATION_RATIO_WARN_MAX),
+                ("WarnFraction", pp.MOTION_WARN_FRACTION), ("MinFrames", pp.MOTION_MIN_FRAMES),
+                ("RealReachedProgress", pp.MOTION_REAL_REACHED_PROGRESS),
+                ("TravelDiffersMin", pp.MOTION_TRAVEL_DIFFERS_MIN), ("TravelDiffersMax", pp.MOTION_TRAVEL_DIFFERS_MAX),
+                ("ProgressDisagreeFrames", pp.MOTION_PROGRESS_DISAGREE_FRAMES),
+                ("LateShiftSeconds", pp.MOTION_LATE_SHIFT_S), ("SlowClipFactor", pp.MOTION_SLOW_CLIP_FACTOR),
+                ("RealVsRealLagMotionFraction", pp.MOTION_REAL_VS_REAL_LAG_MOTION_FRACTION),
+                ("RealVsRealDurationTolerance", pp.MOTION_REAL_VS_REAL_DURATION_TOLERANCE),
+                ("RealVsRealCurveShapeMax", pp.MOTION_REAL_VS_REAL_CURVE_SHAPE_MAX),
+                ("SlowRatioMin", pp.MOTION_SLOW_RATIO_MIN), ("SlowRatioMax", pp.MOTION_SLOW_RATIO_MAX),
+                ("LateLagMin", pp.MOTION_LATE_LAG_MIN), ("LateLagMax", pp.MOTION_LATE_LAG_MAX),
+                ("LateDurationTolerance", pp.MOTION_LATE_DURATION_TOLERANCE)):
+            with self.subTest(const=name):
+                self.assertEqual(float(mirror), self._motion_num(text, name))
+        # The two surface constants are the airbrake rule (D.3), by reference.
+        self.assertIn("internal const double SurfaceStillDeg = PartParityStateRules.AirbrakeStillDeg;", text)
+        self.assertIn("internal const double SurfaceStillWindowSeconds = PartParityStateRules.AirbrakeWindowSeconds;", text)
+
+    def test_the_motion_math_is_the_csharp_shape(self):
+        # The definitions motion_timing transcribes, by their code shape.
+        text = self._source("PartParityMotionRules.cs")
+        self.assertIn("int m = k <= block ? 0 : (k - 1) / block;", text)
+        self.assertIn("return blockStart + (k - m * block) * s * Math.Pow(2.0, m);", text)
+        self.assertIn("return s[k - 1] + (level - p[k - 1]) * (s[k] - s[k - 1]) / (p[k] - p[k - 1]);", text)
+        self.assertIn("if (!(realP[k] > ShapeBandLow && realP[k] < ShapeBandHigh)) continue;", text)
+        self.assertIn("t.LagS = Diff(t.GhostCrossings[2], t.RealCrossings[2]);", text)
+        self.assertIn("t.DurationRatio = Ratio(Diff(t.GhostCrossings[3], t.GhostCrossings[1]), "
+                      "Diff(t.RealCrossings[3], t.RealCrossings[1]));", text)
+        timing = text[text.index("internal static PartParityMotionTiming Timing("):]
+        timing = timing[:timing.index("private static double Max(")]
+        # The flags in their order: travel-differs, then not-modelled, snap, stepped.
+        order = [timing.index(f) for f in ("FlagTravelDiffers", "FlagMotionNotModelled", "FlagMotionSnap",
+                                           "FlagMotionStepped")]
+        self.assertEqual(sorted(order), order)
+        self.assertIn("Snapped(s.RealProgress, s.GhostSameProgress)", timing)
+        self.assertIn("NotModelled(s.RealProgress, s.ScoutProgress)", timing)
+
+    def test_the_motion_key_tables(self):
+        text = self._source("PartParityJson.cs")
+        for cs, mirror in (("MotionKeys", pp.MOTION_KEYS), ("MotionWindowKeys", pp.MOTION_WINDOW_KEYS),
+                           ("MotionScoutKeys", pp.MOTION_SCOUT_KEYS), ("MotionFrameKeys", pp.MOTION_FRAME_KEYS),
+                           ("MotionFrameViewKeys", pp.MOTION_FRAME_VIEW_KEYS),
+                           ("MotionTransformKeys", pp.MOTION_TRANSFORM_KEYS),
+                           ("MotionTimingKeys", pp.MOTION_TIMING_KEYS),
+                           ("MotionCrossingKeys", pp.MOTION_CROSSING_KEYS),
+                           ("MotionAtlasKeys", pp.MOTION_ATLAS_KEYS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        consts = self._string_consts(text)
+        self.assertEqual((pp.MOTION_ROW_REAL, pp.MOTION_ROW_GHOST, pp.MOTION_ROW_GHOST_MATCHED),
+                         (consts["MotionRowReal"], consts["MotionRowGhost"], consts["MotionRowGhostMatched"]))
+        rows = text[text.index("internal static string[] MotionAtlasRows("):]
+        rows = rows[:rows.index("return rows.ToArray();")]
+        self.assertLess(rows.index("MotionRowReal + "), rows.index("MotionRowGhost + "))
+        self.assertIn("if (matched) rows.Add(MotionRowGhostMatched + \":\" + v);", rows)
+
+    def test_the_motion_sweep_contract(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS_MOTION_ORBIT), self._ident_array(text, "MotionOrbitControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_MOTION_AIR), self._ident_array(text, "MotionAirControlIds", consts))
+        self.assertEqual((pp.SETTING_MOTION, pp.SETTING_FRAMES), (consts["SettingMotion"], consts["SettingFrames"]))
+        self.assertEqual(pp.MOTION_ATLAS_SUFFIX, consts["MotionAtlasSuffix"])
+        # ControlSetFor reads the motion run FIRST, and IsMotionRun is `motion` not none.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertLess(body.index("IsMotionRun(args)"), body.index("IsFxRun(args)"))
+        self.assertIn("IsAirRun(args) ? MotionAirControlIds : MotionOrbitControlIds", body)
+        self.assertIn("internal static bool IsMotionRun(PartParitySweepArgs args) => args?.Motion != null;", text)
+        settings = text[text.index("internal static List<KeyValuePair<string, string>> StateSettings("):]
+        settings = settings[:settings.index("internal static string[] ControlSetFor(")]
+        self.assertLess(settings.index("SettingFx"), settings.index("SettingMotion"))
+        self.assertLess(settings.index("SettingMotion"), settings.index("SettingFrames"))
+        self.assertIn("if (IsMotionRun(args))", settings)
+        plan = text[text.index("internal static List<PartParityPlannedCase> PlanCases("):]
+        plan = plan[:plan.index("private static bool SourceSelected(")]
+        self.assertLess(plan.index("IsMotionRun(args)"), plan.index("IsFxRun(args)"))
+        self.assertEqual(pp.CONTROL_IDS_MOTION_ORBIT, pp.control_set({"motion": "all"}))
+        self.assertEqual(pp.CONTROL_IDS_MOTION_AIR, pp.control_set({"motion": "all", "contexts": "air"}))
+
     def test_the_fx_rules_tables(self):
         text, consts, rules, sweep = self._fx_consts()
         others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
         for cs, mirror in (("Families", pp.FX_FAMILIES),
                            ("StochasticFamilies", pp.FX_STOCHASTIC_FAMILIES),
-                           ("ArgWords", pp.FX_ARG_WORDS), ("States", pp.FX_STATES),
+                           ("ArgWords", pp.FX_ARG_WORDS),
+                           ("ArgKnownWords", pp.FX_ARG_KNOWN_WORDS), ("States", pp.FX_STATES),
                            ("OrbitContexts", pp.FX_ORBIT_CONTEXTS),
                            ("ExclusionReasons", pp.FX_EXCLUSION_REASONS),
                            ("Views", pp.FX_VIEWS), ("RendererLayers", pp.FX_RENDERER_LAYERS),
@@ -1126,11 +1298,20 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("FlagRcsKnownDifferencePrefix", pp.FLAG_RCS_KNOWN_DIFFERENCE_PREFIX)):
             with self.subTest(const=name):
                 self.assertEqual(mirror, consts[name])
+        # The one view a plate case photographs (the gate owes it and no other).
+        plate = self._source("PartParityFxDriver.Plate.cs")
+        self.assertIn('internal const string ViewPlate = "%s";' % pp.PLATE_VIEW, plate)
         # FamilyForArg's switch, case by case: plate selects the lamps.
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
         pairs = re.findall(r"case (\w+): return (\w+);", body)
-        self.assertEqual(len(pp.FX_ARG_WORDS), len(pairs))
+        # Every word an fx= csv may name maps (the P8 words with plume-main, then the P9 words, design G.7).
+        self.assertEqual(len(pp.FX_KNOWN_ARG_WORDS), len(pairs))
+        self.assertEqual(pp.FX_MAIN_STATES, (consts["StateMainFull"], consts["StateMainLow"]))
+        self.assertEqual({"main-full": self._num_const(text, "BurnFullThrottle"),
+                          "main-low": self._num_const(text, "BurnLowThrottle")}, pp.FX_MAIN_THROTTLES)
+        self.assertIn("PlumeOption(m, StateMainFull, BurnFullThrottle, ", text)
+        self.assertIn("PlumeOption(m, StateMainLow, BurnLowThrottle, ", text)
         for arg, family in pairs:
             with self.subTest(arg=arg):
                 self.assertEqual(consts[family], pp.fx_family_for_arg(consts[arg]))
@@ -1148,6 +1329,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
                              ("SmokeMinPx", pp.FX_SMOKE_MIN_PX),
                              ("SplitHalfPct", pp.FX_SPLIT_HALF_PCT),
                              ("PlateLitMinPct", pp.PLATE_LIT_MIN_PCT),
+                             ("ThrottleDoneTolerance", pp.FX_THROTTLE_DONE_TOLERANCE),
                              ("PlateLitMinLum", pp.PLATE_LIT_MIN_LUM),
                              ("StripFrames", pp.FX_STRIP_FRAMES)):
             with self.subTest(const=name):
@@ -1246,7 +1428,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
         # rules, and P6's tables are what PP-3 to PP-6 plan today.
         rules = self._source("PartParityStateRules.cs")
         for word in ("plume", "plate", "rcs-fire", "burn-full", "burn-low", "heat-medium",
-                     "heat-hot") + pp.FX_EXCLUSION_REASONS:
+                     "heat-hot") + pp.FX_MAIN_STATES + pp.FX_EXCLUSION_REASONS:
             with self.subTest(word=word):
                 self.assertNotIn('"%s"' % word, rules)
         self.assertEqual(("alone", "stacked", "fgv"), pp.ORBIT_CONTEXTS)
@@ -1269,6 +1451,351 @@ class PartParitySourceSyncTests(unittest.TestCase):
                     self.assertFalse(pp.is_fx_run(settings))
         self.assertEqual(8, len(pp.CONTROL_IDS))
         self.assertEqual(pp.CONTROL_IDS + ("ctl-state-events-dropped",), pp.CONTROL_IDS_ORBIT_STATE)
+
+    # ----- P9 X1: the burst and dust contract (design Appendix G) -----
+
+    def _burst_consts(self):
+        """The string consts of PartParityFxRules.Burst.cs, with the main FX rules' and the
+        state rules' (a ``= PartParityStateRules.X`` alias resolved), and the sweep's."""
+        fx_text, fx, rules, sweep = self._fx_consts()
+        text = self._source("PartParityFxRules.Burst.cs")
+        consts = dict(fx)
+        consts.update(self._string_consts(text))
+        for name, ref in re.findall(r"internal const string (\w+) = PartParityStateRules\.(\w+);", text):
+            consts[name] = rules[ref]
+        return text, consts, rules, sweep
+
+    @staticmethod
+    def _double_array(text, name):
+        m = re.search(r"\b%s\s*=\s*\{(.*?)\};" % re.escape(name), text, flags=re.S)
+        if m is None:
+            raise AssertionError("array %s not found" % name)
+        return [float(v) for v in re.findall(r"-?[0-9]+(?:\.[0-9]+)?", m.group(1))]
+
+    def test_the_burst_rules_tables(self):
+        text, consts, rules, sweep = self._burst_consts()
+        others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
+        for cs, mirror in (("BuiltFamilies", pp.BUILT_FAMILIES), ("BurstFamilies", pp.BURST_FAMILIES),
+                           ("DustFamilies", pp.DUST_FAMILIES), ("BurstArgWords", pp.FX_BURST_ARG_WORDS),
+                           ("DustArgWords", pp.FX_DUST_ARG_WORDS), ("KnownArgWords", pp.FX_KNOWN_ARG_WORDS),
+                           ("BuiltStates", pp.BUILT_STATES), ("DustSlotStates", pp.DUST_SLOT_STATES),
+                           ("DustSlotSurfaces", pp.DUST_SLOT_SURFACES), ("DustSurfaces", pp.DUST_SURFACES),
+                           ("BurstViews", pp.BURST_VIEWS), ("DustViews", pp.DUST_VIEWS),
+                           ("BurstLayers", pp.BURST_LAYERS), ("BurstMeasures", pp.BURST_MEASURES),
+                           ("DustMeasures", pp.DUST_MEASURES),
+                           ("BuiltExclusionReasons", pp.BUILT_EXCLUSION_REASONS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._qualified_array(text, cs, consts, others))
+        for cs, mirror in (("VesselExplodeStackParts", pp.VESSEL_EXPLODE_STACK_PARTS),
+                           ("JointBreakParts", pp.JOINT_BREAK_PARTS),
+                           ("BurstControlParts", pp.BURST_CONTROL_PARTS),
+                           ("DustControlParts", pp.DUST_CONTROL_PARTS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        self.assertEqual(list(pp.DUST_SLOT_FRACTIONS),
+                         [self._num_const(text, n) for n in
+                          re.findall(r"\b(\w+Fraction)\b",
+                                     re.search(r"DustSlotFractions\s*=\s*\{(.*?)\};", text, re.S).group(1))])
+        self.assertEqual([float(v) for v in pp.VESSEL_EXPLODE_STACK_SIZES],
+                         self._double_array(text, "VesselExplodeStackSizes"))
+        self.assertEqual(list(pp.CUSTOM_EXPLOSION_LENGTHS_M), self._double_array(text, "CustomExplosionLengthsM"))
+        for name, mirror in (("StateVesselExplodePrefix", pp.STATE_VESSEL_EXPLODE_PREFIX),
+                             ("StateCustomExplosionPrefix", pp.STATE_CUSTOM_EXPLOSION_PREFIX),
+                             ("ContextGround", pp.CONTEXT_GROUND), ("ContextBurst", pp.CONTEXT_BURST),
+                             ("SurfaceSlotTerrain", pp.SURFACE_SLOT_TERRAIN),
+                             ("SurfaceSlotWater", pp.SURFACE_SLOT_WATER),
+                             ("LaunchpadFxTag", pp.LAUNCHPAD_FX_TAG),
+                             ("DustSurfaceNone", pp.DUST_SURFACE_NONE),
+                             ("DefaultDecoupleFxGroup", pp.DEFAULT_DECOUPLE_FX_GROUP),
+                             ("BurstCustomPart", pp.BURST_CUSTOM_PART),
+                             ("StandInCustom", pp.STAND_IN_CUSTOM), ("StandInPuff", pp.STAND_IN_PUFF),
+                             ("ViewDustTop", pp.DUST_AXIS_VIEW), ("LayerDust", pp.LAYER_DUST),
+                             ("ReasonBurstMissing", pp.BURST_REASON_MISSING),
+                             ("ReasonBurstExtra", pp.BURST_REASON_EXTRA),
+                             ("ReasonDustMissing", pp.DUST_REASON_MISSING),
+                             ("ReasonDustExtraPrefix", pp.DUST_REASON_EXTRA_PREFIX),
+                             ("LevelOk", pp.LEVEL_OK), ("LevelWarn", pp.LEVEL_WARN),
+                             ("LevelFail", pp.LEVEL_FAIL)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+        self.assertIn("internal const string DustAxisView = ViewDustTop;", text)
+        self.assertIn("internal const string ContextBurst = PartParityStateRules.ContextAir;", text)
+        # The P9 states and the ground context stay out of P6's tables.
+        state_rules = self._source("PartParityStateRules.cs")
+        for word in pp.BUILT_STATES + (pp.CONTEXT_GROUND,) + pp.BUILT_FAMILIES:
+            with self.subTest(word=word):
+                self.assertNotIn('"%s"' % word, state_rules)
+
+    def test_the_burst_constants(self):
+        text = self._source("PartParityFxRules.Burst.cs")
+        for name, mirror in (("DustAboveReachFraction", pp.DUST_ABOVE_REACH_FRACTION),
+                             ("SurfaceFxDefaultFxMax", pp.SURFACE_FX_DEFAULT_FX_MAX),
+                             ("SurfaceFxDefaultMaxDistanceM", pp.SURFACE_FX_DEFAULT_MAX_DISTANCE_M),
+                             ("SurfaceFxDefaultFalloff", pp.SURFACE_FX_DEFAULT_FALLOFF),
+                             ("DefaultExplosionPotential", pp.DEFAULT_EXPLOSION_POTENTIAL),
+                             ("TerminalExplosionLengthDivisorM", pp.TERMINAL_EXPLOSION_LENGTH_DIVISOR_M),
+                             ("BurstWindowSeconds", pp.BURST_WINDOW_S),
+                             ("DecoupleBurstWindowSeconds", pp.DECOUPLE_BURST_WINDOW_S),
+                             ("BurstBinSeconds", pp.BURST_BIN_S), ("BurstTrials", pp.BURST_TRIALS),
+                             ("BurstTrialSpacingM", pp.BURST_TRIAL_SPACING_M),
+                             ("BurstGhostSeparationM", pp.BURST_GHOST_SEPARATION_M),
+                             ("FxMongerMergeDistanceM", pp.FXMONGER_MERGE_DISTANCE_M),
+                             ("BurstTagRadiusM", pp.BURST_TAG_RADIUS_M),
+                             ("BurstLateControlSeconds", pp.BURST_LATE_CONTROL_S),
+                             ("BurstShiftControlM", pp.BURST_SHIFT_CONTROL_M),
+                             ("BurstPowerControlIndexStep", pp.BURST_POWER_CONTROL_INDEX_STEP)):
+            with self.subTest(const=name):
+                self.assertEqual(float(mirror), self._num_const(text, name))
+        m = re.search(r"internal const int SurfaceFxDefaultThrustProviderModuleIndex = (-?[0-9]+);", text)
+        self.assertEqual(pp.SURFACE_FX_DEFAULT_THRUST_PROVIDER_MODULE_INDEX, int(m.group(1)))
+        m = re.search(r"internal const bool DustAboveReachGhostJudged = (true|false);", text)
+        self.assertEqual(pp.DUST_ABOVE_REACH_GHOST_JUDGED, m.group(1) == "true")
+        # Every G.3 line has its mirror, none added on one side only.
+        cs = re.findall(r"internal const (?:int|double) (Burst(?:Onset|PeakTime|Duration|PeakArea|Radius|"
+                        r"CentroidOffset|Schedule)\w*) =", text)
+        self.assertEqual(sorted(k[0].upper() + k[1:] for k in pp.BURST_THRESHOLDS), sorted(cs))
+        for key, value in pp.BURST_THRESHOLDS.items():
+            with self.subTest(threshold=key):
+                self.assertEqual(float(value), self._num_const(text, key[0].upper() + key[1:]))
+        # The lines' code shapes the Python transcribes.
+        self.assertIn("case MeasureOnset: return a > BurstOnsetFailBins ? LevelFail : LevelOk;", text)
+        self.assertIn("(a >= BurstPeakTimeWarnBins ? LevelWarn : LevelOk)", text)
+        self.assertIn("return (int)(p * (prefabCount - 1));", text)
+        self.assertIn("return thrustFraction * fxMax * Math.Pow(1.0 - distanceM / maxDistanceM, falloff);", text)
+        self.assertIn("int b = (int)Math.Floor(t / BurstBinSeconds);", text)
+
+    def test_the_burst_lines_agree_with_the_xunit_table(self):
+        # The xUnit TheG3Lines rows, run through the Python transcription.
+        path = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "PartParityBurstContractTests.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            tests = fh.read()
+        body = tests[tests.index("// measure, value, level (the G.3 lines)"):tests.index("public void TheG3Lines(")]
+        rows = re.findall(r'\[InlineData\("([a-z-]+)", (-?[0-9.]+), "(ok|warn|fail)"\)\]', body)
+        self.assertGreaterEqual(len(rows), 20)
+        for measure, value, level in rows:
+            with self.subTest(measure=measure, value=value):
+                self.assertEqual(level, pp.burst_measure_level(measure, float(value)))
+        self.assertIsNone(pp.burst_measure_level("radius", float("nan")))
+        self.assertIsNone(pp.burst_measure_level("schedule", 1.0))
+        self.assertEqual("warn", pp.burst_colour_level(0.02, 0.0))
+        self.assertEqual("fail", pp.burst_colour_level(None, 0.6))
+        self.assertIsNone(pp.burst_colour_level(None, None))
+        # The helpers, by the xUnit cell's values.
+        self.assertEqual((16, 8), (pp.burst_bin_count(pp.burst_window_for("explode")),
+                                   pp.burst_bin_count(pp.burst_window_for("decouple"))))
+        self.assertEqual([0, 0, 1, 15, -1, -1], [pp.burst_bin_index(t, 4.0) for t in (0.0, 0.2499, 0.25, 3.99, 4.0, -0.01)])
+        self.assertEqual([0, 1, 3, -1], [pp.fxmonger_prefab_index(0.0, 4), pp.fxmonger_prefab_index(0.5, 4),
+                                         pp.fxmonger_prefab_index(1.5, 4), pp.fxmonger_prefab_index(0.5, 0)])
+        self.assertAlmostEqual(0.5 * 0.8 ** 1.7, pp.stock_surface_fx_scale(1.0, 0.5, 6.0, 30.0, 1.7), places=12)
+        self.assertEqual(0.0, pp.stock_surface_fx_scale(1.0, 0.5, 30.0, 30.0, 1.7))
+        self.assertEqual(0.25, pp.terminal_explosion_power(5.0))
+        self.assertEqual("dust-extra:none", pp.dust_extra_reason(None))
+        self.assertEqual("vessel-explode-x6", pp.vessel_explode_state(6))
+        self.assertEqual([True, False, True, False], [pp.is_even_trial(i) for i in range(4)])
+
+    def test_the_burst_sweep_contract(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS_BURST), self._ident_array(text, "BurstControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_DUST), self._ident_array(text, "DustControlIds", consts))
+        self.assertEqual(list(pp.KNOWN_DIFFERENCE_CONTROL_IDS),
+                         self._ident_array(text, "KnownDifferenceControlIds", consts))
+        self.assertEqual((pp.SETUP_BURST_NOT_TRIGGERED, pp.SETUP_DUST_NO_STOCK_HIT),
+                         (consts["SetupBurstNotTriggered"], consts["SetupDustNoStockHit"]))
+        self.assertEqual((pp.BURST_ATLAS_SUFFIX, pp.DUST_ATLAS_SUFFIX),
+                         (consts["BurstAtlasSuffix"], consts["DustAtlasSuffix"]))
+        fx_text, fx, rules, _ = self._fx_consts()
+        burst = self._string_consts(self._source("PartParityFxRules.Burst.cs"))
+        self.assertEqual(list(pp.KNOWN_RUN_CONTEXTS),
+                         self._qualified_array(text, "KnownRunContexts", {},
+                                               {"PartParityStateRules": rules, "PartParityFxRules": burst}))
+        # ControlSetFor reads the burst and dust runs before the FX one; control_set mirrors it.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertLess(body.index("if (IsBurstRun(args)) return (string[])BurstControlIds.Clone();"),
+                        body.index("if (IsFxRun(args))"))
+        self.assertLess(body.index("if (IsDustRun(args)) return (string[])DustControlIds.Clone();"),
+                        body.index("if (IsFxRun(args))"))
+        self.assertEqual(pp.CONTROL_IDS_BURST, pp.control_set(
+            {"fx": "explode,vessel-explode,burst-custom,decouple", "contexts": "air"}))
+        self.assertEqual(pp.CONTROL_IDS_DUST, pp.control_set({"fx": "dust", "contexts": "ground"}))
+        self.assertTrue(pp.is_burst_run({"fx": "decouple", "contexts": "air"}))
+        self.assertTrue(pp.is_dust_run({"fx": "dust"}) and pp.is_ground_run({"contexts": "ground"}))
+        self.assertTrue(set(pp.CONTROL_IDS_BURST) | set(pp.CONTROL_IDS_DUST) <= set(pp.ALL_CONTROL_IDS))
+        self.assertEqual(len(pp.ALL_CONTROL_IDS), len(set(pp.ALL_CONTROL_IDS)))
+        for status in (pp.SETUP_BURST_NOT_TRIGGERED, pp.SETUP_DUST_NO_STOCK_HIT):
+            self.assertIn(status, pp.SETUP_STATUSES)
+            self.assertTrue(pp.is_setup_fault(status))
+
+    def test_the_burst_json_tables(self):
+        text = self._source("PartParityJson.cs")
+        for cs, mirror in (("BurstKeys", pp.BURST_KEYS), ("BurstSideKeys", pp.BURST_SIDE_KEYS),
+                           ("BurstTriggerKeys", pp.BURST_TRIGGER_KEYS),
+                           ("BurstScheduleEntryKeys", pp.BURST_SCHEDULE_ENTRY_KEYS),
+                           ("BurstScheduleCompareKeys", pp.BURST_SCHEDULE_COMPARE_KEYS),
+                           ("BurstAtlasKeys", pp.BURST_ATLAS_KEYS), ("BurstViewKeys", pp.BURST_VIEW_KEYS),
+                           ("BurstSourceKeys", pp.BURST_SOURCE_KEYS),
+                           ("BurstSideMeasureKeys", pp.BURST_SIDE_MEASURE_KEYS),
+                           ("BurstBinMeasureKeys", pp.BURST_BIN_MEASURE_KEYS),
+                           ("BurstCompareKeys", pp.BURST_COMPARE_KEYS), ("BurstHalfKeys", pp.BURST_HALF_KEYS),
+                           ("BurstAtlasRows", pp.BURST_ATLAS_ROWS), ("DustKeys", pp.DUST_KEYS),
+                           ("DustRaycastKeys", pp.DUST_RAYCAST_KEYS),
+                           ("DustRaycastSampleKeys", pp.DUST_RAYCAST_SAMPLE_KEYS),
+                           ("DustAtlasRows", pp.DUST_ATLAS_ROWS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        for key, table in (("burst", "BurstKeys"), ("dust", "DustKeys")):
+            self.assertRegex(text, r'M\("%s", KeyedBlock\(%s, c\.\w+\)\)' % (key, table))
+        burst = pp.CASE_KEYS.index("burst")
+        self.assertEqual(("strip", "burst", "dust"), pp.CASE_KEYS[burst - 1:burst + 2])
+
+    def test_with_every_p8_fx_value_the_control_set_is_unchanged(self):
+        # The no-change cell of design G.7 on the Python side: the settings every P8 run could
+        # write recompute F1 / F7's control sets, never a burst or dust one.
+        for fx in ("all", "plume", "rcs", "heat", "plate", "plume,rcs,heat,plate"):
+            for contexts, want in ((None, pp.CONTROL_IDS_FX_ORBIT), ("air", pp.CONTROL_IDS_FX_AIR)):
+                settings = {"states": "none", "contexts": contexts or "none", "fx": fx}
+                with self.subTest(settings=settings):
+                    self.assertEqual(want, pp.control_set(settings))
+                    self.assertFalse(pp.is_burst_run(settings) or pp.is_dust_run(settings))
+                    self.assertIsNone(pp.control_set_disagreement(
+                        {"settings": dict(settings, controlSet=",".join(want))}))
+        self.assertEqual(pp.FX_ARG_WORDS, pp.FX_KNOWN_ARG_WORDS[:4])
+
+
+class PartParityMotionMathTests(unittest.TestCase):
+    """The P7 motion contract's Python half (Appendix H, piece M1): the committed timing
+    golden is exactly what harness/tools/build_motion_timing_golden.py writes (the C#
+    PartParityMotionRulesTests recompute it within 1e-9), each synthetic curve moves only its
+    own measure, the frame schedule agrees with the C# cells' numbers, the sidecar reader
+    builds the series the timing reads, and with motion=none every P6 / P8 manifest's control
+    set is what it was."""
+
+    GOLDEN = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "Fixtures", "PartParity", "motion",
+                          "timing-golden.json")
+
+    @staticmethod
+    def _builder():
+        import importlib.util
+        path = os.path.join(REPO_ROOT, "harness", "tools", "build_motion_timing_golden.py")
+        spec = importlib.util.spec_from_file_location("build_motion_timing_golden", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _golden(self):
+        with open(self.GOLDEN, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_the_committed_golden_is_the_builders(self):
+        b = self._builder()
+        with open(self.GOLDEN, encoding="utf-8") as fh:
+            committed = fh.read()
+        self.assertEqual(b.render(b.build()), committed,
+                         "re-run python harness/tools/build_motion_timing_golden.py --write")
+
+    def test_each_curve_moves_exactly_its_own_measure(self):
+        cases = self._golden()["cases"]
+        same = pp.motion_timing(cases[0]["series"])
+        self.assertEqual("same", cases[0]["name"])
+        self.assertEqual([], same["flags"])
+        for c in cases:
+            with self.subTest(case=c["name"]):
+                t = pp.motion_timing(c["series"])
+                self.assertEqual([], pp.motion_timing_diffs(c["timing"], t))
+                moves = set(c["moves"])
+                for key in pp.MOTION_TIMING_NUMBER_KEYS:
+                    a, b = t[key], same[key]
+                    unchanged = (a is None and b is None) or (
+                        a is not None and b is not None and abs(a - b) <= pp.RECOMPUTE_FLOAT_TOLERANCE)
+                    self.assertEqual(key in moves, not unchanged, key)
+                self.assertEqual(sorted(m[5:] for m in moves if m.startswith("flag:")), sorted(t["flags"]))
+        by = {c["name"]: pp.motion_timing(c["series"]) for c in cases}
+        self.assertAlmostEqual(1.0, by["late"]["lagS"], places=9)
+        self.assertAlmostEqual(2.0, by["slow"]["durationRatio"], places=9)
+        self.assertTrue(pp.motion_lag_fails(by["late"]["lagS"], pp.motion_real_duration(by["late"])))
+        self.assertTrue(pp.motion_duration_fails(by["slow"]["durationRatio"]))
+        self.assertFalse(pp.motion_duration_fails(by["same"]["durationRatio"]))
+
+    def test_a_recorded_timing_block_that_differs_is_named(self):
+        c = self._golden()["cases"][1]
+        t = pp.motion_timing(c["series"])
+        rec = json.loads(json.dumps(c["timing"]))
+        rec["lagS"] += 1e-6
+        rec["real"]["t50"] = None
+        rec["flags"] = ["motion-snap"]
+        self.assertEqual(["timing:real.t50", "timing:lagS", "timing:flags"], pp.motion_timing_diffs(rec, t))
+        self.assertEqual(["timing:missing"], pp.motion_timing_diffs(None, t))
+        self.assertEqual([], pp.motion_timing_diffs(None, None))
+
+    def test_the_sidecar_reader_builds_the_series(self):
+        c = self._golden()["cases"][-1]
+        s = c["series"]
+        block = {k: None for k in pp.MOTION_KEYS}
+        block.update({
+            "kind": "servo",
+            "scout": {"stepS": 0.05, "s": s["scoutS"], "progress": s["scoutProgress"]},
+            "frames": [dict({k: None for k in pp.MOTION_FRAME_KEYS}, k=i, realS=t, realProgress=p,
+                            ghostProgress=g, realClock=rc, ghostClock=gc)
+                       for i, (t, p, g, rc, gc) in enumerate(zip(s["realS"], s["realProgress"],
+                                                                 s["ghostSameProgress"], s["realClock"],
+                                                                 s["ghostClock"]))],
+            "transforms": s["transforms"],
+        })
+        sidecar = {"motion": block}
+        self.assertIs(block, pp.motion_block(sidecar))
+        self.assertIsNone(pp.motion_block({"motion": None}))
+        series = pp.motion_series(pp.motion_block(sidecar))
+        self.assertEqual([], pp.motion_timing_diffs(c["timing"], pp.motion_timing(series)))
+        # A clip case carries no servo clock: angleMaxDevDeg is not measured.
+        block["kind"] = "clip"
+        self.assertIsNone(pp.motion_timing(pp.motion_series(block))["angleMaxDevDeg"])
+
+    def test_the_frame_schedule_matches_the_csharp_cells(self):
+        w = pp.plan_motion_frame_targets(2.0, 2.1, 2.0, 0.0, 8)
+        self.assertAlmostEqual(4.6, w["endS"], places=12)
+        self.assertEqual(19, len(w["targetsS"]))
+        self.assertFalse(w["capped"])
+        self.assertEqual(23, len(pp.plan_motion_frame_targets(2.0, 2.1, 2.0, 1.0, 8)["targetsS"]))
+        capped = pp.plan_motion_frame_targets(30.0, 30.0, 30.0)
+        self.assertTrue(capped["capped"])
+        self.assertEqual(40.0, capped["endS"])
+        self.assertAlmostEqual(8.5, pp.motion_frame_target_seconds(33, 2.0, 8), places=12)
+        self.assertAlmostEqual(25.0, pp.motion_frame_target_seconds(65, 2.0, 8), places=12)
+        self.assertEqual(0.25, pp.clamp_predicted_seconds(0.1))
+        self.assertEqual(30.0, pp.clamp_predicted_seconds(float("nan")))
+        self.assertIsNone(pp.motion_frame_jitter_tag(1.0, 1.125, 2.0))
+        self.assertEqual("frame-jitter:126", pp.motion_frame_jitter_tag(1.0, 1.126, 2.0))
+        self.assertAlmostEqual(0.15, pp.motion_matched_offset([0, 0.1, 0.2, 0.3], [0, 0.2, 0.4, 0.6], 0.3))
+        self.assertIsNone(pp.motion_matched_offset([0, 0.1, 0.2, 0.3], [0, 0, 1, 1], 0.5))
+        self.assertEqual(0.25, pp.motion_picture_progress(10, 30))
+        self.assertTrue(pp.motion_progress_disagrees(1.0, 1.6, 0.25))
+
+    def test_the_atlas_rows_and_the_motion_words(self):
+        self.assertEqual(("real:side-a", "ghost:side-a", "ghost-matched:side-a",
+                          "real:side-b", "ghost:side-b", "ghost-matched:side-b"),
+                         pp.motion_atlas_rows(pp.MOTION_DEFAULT_VIEWS))
+        self.assertEqual(("real:side-a", "ghost:side-a"), pp.motion_atlas_rows(("side-a",), matched=False))
+        self.assertTrue(pp.is_motion_state("motion-swept-m2"))
+        self.assertFalse(pp.is_motion_state("deployed"))
+        self.assertEqual(tuple(hlib.PARTPARITY_MOTION_VALUES), pp.MOTION_ARG_WORDS)
+        self.assertEqual(tuple(hlib.PARTPARITY_MOTION_KNOWN_VALUES), pp.MOTION_ARG_KNOWN_WORDS)
+
+    def test_with_motion_none_every_p6_and_p8_manifest_reads_its_old_control_set(self):
+        for settings, expected in (
+                ({}, pp.CONTROL_IDS),
+                ({"states": "all"}, pp.CONTROL_IDS_ORBIT_STATE),
+                ({"states": "all", "contexts": "air"}, pp.CONTROL_IDS_AIR),
+                ({"contexts": "air"}, pp.CONTROL_IDS_AIR),
+                ({"fx": "all"}, pp.CONTROL_IDS_FX_ORBIT),
+                ({"fx": "all", "contexts": "air"}, pp.CONTROL_IDS_FX_AIR)):
+            for motion in (None, "none", ""):
+                s = dict(settings)
+                if motion is not None:
+                    s["motion"] = motion
+                with self.subTest(settings=s):
+                    self.assertFalse(pp.is_motion_run(s))
+                    self.assertEqual(expected, pp.control_set(s))
 
 
 class PartParityFxReaderTests(unittest.TestCase):
@@ -1327,6 +1854,8 @@ class PartParityStateReaderTests(unittest.TestCase):
     def test_atlas_rows_and_state_cases(self):
         self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False))
         self.assertEqual(("real", "ghost", "ghost-start", "ghost-stowed"), pp.atlas_rows_for(True))
+        self.assertEqual(pp.atlas_rows_for(True) + ("real-start",), pp.atlas_rows_for(True, True))
+        self.assertEqual(("real", "ghost"), pp.atlas_rows_for(False, True))
         self.assertFalse(pp.is_state_case("stowed"))
         self.assertFalse(pp.is_state_case(None))
         self.assertTrue(pp.is_state_case("deployed-m3"))
@@ -1999,6 +2528,89 @@ class StateRecomputeTests(unittest.TestCase):
         d["views"][0]["stowedRef"]["realOnlyBlobPct"] = 2.0
         self.assertTrue(any("side-a.stowedRef.realOnlyBlobPct" in x
                             for x in pp.recompute_case(d, atlas)))
+
+
+def _reloaded_case(case_id="engine--default--burn-full--0000aaaa", start=None, real_start=None, **kw):
+    """A state case whose start route was compared with the loaded real part: the fifth atlas
+    row, the flag, and every ``start`` block measured against that row."""
+    start = start or _stowed()
+    real_start = real_start or start
+    doc, masks = _state_case(case_id, start=start, **kw)
+    for v in doc["views"]:
+        rec = fx.view_record(v["view"], real_start, start, STILE)
+        v["start"] = {k: rec[k] for k in pp.START_KEYS}
+    doc["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE_RELOADED)
+    doc["flags"] = list(doc["flags"]) + [pp.FLAG_START_RELOADED_PREFIX + "1"]
+    return doc, masks + (real_start,)
+
+
+class StartReloadTests(unittest.TestCase):
+    """E.4 "Start-route reload": the start route against the real part as a load leaves it."""
+
+    def _recompute(self, doc, masks):
+        n = len(doc["views"])
+        rows = [[m] * n for m in masks]
+        return pp.recompute_case(doc, (n * STILE, len(rows) * STILE, 4, _atlas_rows(rows)))
+
+    def test_the_start_route_is_judged_and_recomputed_against_the_loaded_row(self):
+        # The ghost's start pose differs from the burning part and equals the loaded one.
+        doc, masks = _reloaded_case()
+        self.assertEqual([], self._recompute(doc, masks))
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+        # The same start ghost against the burning part (no reload) fails: the row decides.
+        plain, plain_masks = _state_case("engine--default--burn-full--0000aaaa", start=_stowed())
+        self.assertEqual([], self._recompute(plain, plain_masks))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(plain).verdict)
+
+    def test_a_ghost_wrong_after_a_load_still_fails(self):
+        doc, masks = _reloaded_case(start=_stowed(), real_start=_deployed())
+        self.assertEqual([], self._recompute(doc, masks))
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+
+    def test_a_start_block_measured_from_the_burning_row_is_a_mismatch(self):
+        doc, masks = _reloaded_case()
+        for v in doc["views"]:
+            rec = fx.view_record(v["view"], _deployed(), _stowed(), STILE)
+            v["start"] = {k: rec[k] for k in pp.START_KEYS}
+        self.assertTrue(any("/start" in d for d in self._recompute(doc, masks)))
+
+    def test_the_event_route_is_untouched_by_the_loaded_row(self):
+        doc, masks = _reloaded_case(ghost=_stowed())
+        self.assertEqual([], self._recompute(doc, masks))
+        self.assertTrue(any(r.startswith("event:shape-blob")
+                            for r in pp.judge_case(doc).reasons))
+
+    def test_the_flag_and_the_row_go_together(self):
+        doc, _masks = _reloaded_case()
+        self.assertIsNone(pp.start_reload_problem(doc))
+        bare = copy.deepcopy(doc)
+        bare["flags"] = []
+        self.assertIn("flag=false", pp.start_reload_problem(bare))
+        four = copy.deepcopy(doc)
+        four["atlas"]["rows"] = list(pp.ATLAS_ROWS_STATE)
+        self.assertIn("flag=true", pp.start_reload_problem(four))
+        stowed = copy.deepcopy(doc)
+        stowed["state"], stowed["context"] = "stowed", "alone"
+        self.assertIsNotNone(pp.start_reload_problem(stowed))
+        # It is checked on every case of a sweep, sampled or not, through the view-block walk.
+        self.assertIn(pp.start_reload_problem(bare), pp.state_view_block_problems(bare))
+        self.assertIn(pp.start_reload_problem(stowed), pp.state_view_block_problems(stowed))
+        self.assertEqual([], pp.state_view_block_problems(doc))
+
+    def test_a_sweep_with_a_rowless_flag_is_invalid(self):
+        cases = [_state_case("engine%d--default--deployed--0000aaa%d" % (i, i)) for i in range(3)]
+        for doc, _masks in cases:
+            doc["flags"] = [pp.FLAG_START_RELOADED_PREFIX + "2"]
+        root = tempfile.mkdtemp(prefix="pp-reload-")
+        self.addCleanup(shutil.rmtree, root, True)
+        d = os.path.join(root, "s")
+        _build_state_sweep(d, cases)
+        res = _judge_fx_dir(d)
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        # The sampled case's recompute names its rows, the two unsampled ones the walk names.
+        self.assertEqual(2, sum("start reload" in m for m in res.recompute_mismatches))
+        self.assertEqual(1, sum("atlas rows=" in m and "expected" in m for m in res.recompute_mismatches))
 
 
 class StateSweepTests(unittest.TestCase):
@@ -2781,13 +3393,15 @@ class FxJudgeTests(unittest.TestCase):
         # It counts as a pass: the flag raises the case, the routes read pass.
         self.assertEqual((("event", "pass"), ("start", "pass")), c.fx.routes)
         self.assertNotIn(pp.VERDICT_SKIPPED, pp.VERDICTS)
-        # Two empty pictures agree, and are judged.
+        # Two empty pictures agree: nothing to compare, and the entry says so.
         smear = _fx_tile({(x, 0): (1, GREY) for x in range(FTILE)})
         for real, ghost, skipped in ((FX_DARK, FX_DARK, False), ((smear, smear), FX_DARK, True),
                                      (FX_DARK, (smear, smear), True)):
             e = pp.judge_case(_fx_case(real=dict(REAL_FX, smoke=real), event={"smoke": ghost})[0])
             got = {x.verdict for x in e.fx.entries if x.layer == "smoke" and x.route == "event"}
-            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_PASS}, got)
+            self.assertEqual({pp.VERDICT_SKIPPED if skipped else pp.VERDICT_EMPTY}, got)
+            self.assertEqual((("event", "pass"), ("start", "pass")), e.fx.routes)
+        self.assertNotIn(pp.VERDICT_EMPTY, pp.VERDICTS)
         gone = pp.judge_case(_fx_case(event=_broken("off"))[0])
         self.assertIn(pp.VERDICT_FAIL, {x.verdict for x in gone.fx.entries if x.layer == "flame"})
 
@@ -2906,6 +3520,34 @@ class FxJudgeTests(unittest.TestCase):
             self.assertEqual(["fx.family=plume stateProof.family=%s" % family], pp.fx_block_problems(doc))
             self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
 
+    def test_a_plume_case_says_which_throttle_drove_it(self):
+        drive = {"ignited": True, "currentThrottle": 1.0, "recordedPower": 1.0}
+        for state, throttle, main, independent, ok in (
+                ("main-full", 1.0, 1.0, False, True), ("main-low-m2", 0.3, 0.3, False, True),
+                ("main-low", 0.3, 0.295, False, True),
+                ("main-full", 1.0, 0.0, False, False), ("main-full", 1.0, 1.0, True, False),
+                ("main-full", 1.0, 1.0, None, False), ("main-full", 1.0, None, False, False),
+                ("main-low", 0.3, 1.0, False, False), ("main-low", 1.0, 1.0, False, False),
+                ("main-low", None, 0.3, False, False),
+                ("burn-full", 1.0, 0.0, True, True), ("burn-low-m1", 0.3, 0.0, True, True),
+                ("burn-full", 1.0, None, None, True),  # a sidecar from before the keys
+                ("burn-full", 1.0, 1.0, True, False), ("burn-low", 0.3, 0.0, False, False)):
+            with self.subTest(state=state, main=main, independent=independent):
+                doc = _fx_case(state=state)[0]
+                doc["fx"]["throttle"] = throttle
+                doc["fx"]["drive"] = dict(drive, mainThrottle=main, independentThrottle=independent)
+                problems = pp.fx_block_problems(doc)
+                self.assertEqual(ok, not problems, problems)
+                self.assertEqual(not ok, pp.judge_case(doc).verdict == pp.VERDICT_ERROR)
+        # No drive block at all: an older burn case is not asked, a main case is.
+        doc = _fx_case(state="burn-full")[0]
+        self.assertEqual([], pp.fx_block_problems(doc))
+        doc = _fx_case(state="main-full")[0]
+        self.assertIn("on a main-full case", pp.fx_block_problems(doc)[0])
+        # A case that never reached its throttle is a setup fault, not a contradiction.
+        doc["setup"] = {"status": "state-timeout", "detail": None}
+        self.assertEqual([], pp.fx_block_problems(doc))
+
     def test_a_dark_plate_is_an_error_never_a_pass(self):
         doc = _fx_case()[0]
         for plate in (None, {"litPct": None}, {"litPct": 0.0}, {"litPct": 0.0199}):
@@ -3019,8 +3661,28 @@ class FxJudgeTests(unittest.TestCase):
                 else:
                     m["lengthPx"] *= 0.89
 
+    def test_the_cap_never_holds_a_missing_effect(self):
+        # size1p5.tank.05 draws smoke alone, and its real halves' width (79 / 88 px) unsettle all
+        # of it: the whole ghost smoke could go without a fail.
+        for layer, reason in (("flame", "fx-missing"), ("smoke", "smoke-missing")):
+            for side in ("real", "ghost"):
+                doc = _fx_case(event={layer: FX_DARK})[0]
+                self._loosen(doc, layer=layer, side=side)
+                c = pp.judge_case(doc)
+                self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+                standing = {f.reason for e in c.fx.entries for f in e.findings if not f.capped}
+                self.assertEqual({reason}, standing)
+        # Shown by one half of the real side alone, it is that half's noise.
+        doc = _fx_case(event={"flame": FX_DARK})[0]
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["real"]["corePx"] = 0
+        c = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("capped:event:fx-far:flame:fx-missing", pp.fx_unmeasured(c))
+
     def test_an_unsettled_entry_caps_its_own_fails_at_warn(self):
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
         self._loosen(doc)
         c = pp.judge_case(doc)
@@ -3029,20 +3691,20 @@ class FxJudgeTests(unittest.TestCase):
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertTrue(c.fx.unsettled[0].startswith("event:fx-side-a:flame:real length even="))
         capped = [f for e in c.fx.entries if e.layer == "flame" and e.route == "event" for f in e.findings]
-        self.assertEqual({("presence", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
+        self.assertEqual({("direction", pp.VERDICT_WARN, True)}, {(f.measure, f.level, f.capped) for f in capped})
         self.assertEqual({True}, {r["capped"] for e in c.to_dict()["fx"]["entries"] for r in e["reasons"]})
-        # One unsettled entry says nothing about the others: the plume is missing in three views.
-        doc = _fx_case(event=_broken("off"))[0]
+        # One unsettled entry says nothing about the others: the plume is turned in two more views.
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc, views=("fx-side-a",))
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertNotIn(pp.REASON_FX_UNSETTLED, c.reasons)
         self.assertIn(pp.CAP_FX_UNSETTLED, c.fx.flags)
         self.assertEqual({"fx-side-a": pp.VERDICT_WARN, "fx-side-b": pp.VERDICT_FAIL,
-                          "fx-bottom": pp.VERDICT_FAIL, "fx-far": pp.VERDICT_FAIL},
+                          "fx-bottom": pp.VERDICT_PASS, "fx-far": pp.VERDICT_FAIL},
                          {e.view: e.verdict for e in c.fx.entries if (e.route, e.layer) == ("event", "flame")})
         # The other route's fails are not this one's.
-        doc = _fx_case(event=_broken("off"), start=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"), start=_broken("turned"))[0]
         self._loosen(doc)
         self.assertEqual((("event", pp.VERDICT_WARN), ("start", pp.VERDICT_FAIL)), pp.judge_case(doc).fx.routes)
 
@@ -3052,7 +3714,7 @@ class FxJudgeTests(unittest.TestCase):
         self._loosen(doc)
         c = pp.judge_case(doc)  # a rendered asset the ghost lacks
         self.assertEqual((pp.VERDICT_FAIL, pp.VERDICT_FAIL), (c.verdict, c.fx.verdict))
-        doc = _fx_case(event=_broken("off"))[0]
+        doc = _fx_case(event=_broken("turned"))[0]
         self._loosen(doc)
         doc["views"][0]["colorBlobPx"] = 10 ** 6  # the body route (PP-9's nozzle glow)
         c = pp.judge_case(doc)
@@ -3071,15 +3733,21 @@ class FxJudgeTests(unittest.TestCase):
         c = pp.judge_case(doc)
         self.assertEqual(pp.VERDICT_WARN, c.verdict)
         self.assertEqual({"smoke-extra"}, {f.reason for e in c.fx.entries for f in e.findings if f.capped})
+        # Held, but said: the gate asks whether the baseline runs show it too.
+        self.assertEqual({"capped:%s:%s:smoke:smoke-extra" % (r, v) for r in ("event", "start") for v in pp.FX_VIEWS},
+                         set(pp.fx_unmeasured(c)))
         # A flame's views are judged apart (above), and smoke never caps a flame.
         doc = _fx_case(event=_broken("off"))[0]
         self._loosen(doc, layer="smoke")
         self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
 
-    def test_beside_an_unsettled_entry_a_fail_stands_only_when_both_halves_show_it(self):
-        def judged(name, spoil):
+    def test_a_fail_stands_only_when_both_halves_show_it(self):
+        # In every case, settled or not: whether the halves of another entry agree says nothing
+        # about this one.
+        def judged(name, spoil, loose):
             doc = _fx_case(event=_broken(name))[0]
-            self._loosen(doc, layer="smoke")  # the case has an unsettled entry
+            if loose:
+                self._loosen(doc, layer="smoke")  # the case has an unsettled entry
             for e in doc["fx"]["views"]:
                 if (e["route"], e["layer"]) == ("event", "flame"):
                     spoil(e)
@@ -3089,21 +3757,35 @@ class FxJudgeTests(unittest.TestCase):
                 ("wide", "widthRatio", 1.0, 0.5), ("shifted-along", "originDeltaPx", 0.0, -30.0),
                 ("shifted-across", "lateralOffsetPx", 0.0, -30.0), ("turned", "directionDeg", 0.0, -60.0)):
             with self.subTest(name):
-                self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None).verdict)
-                for value in (agree, other):  # one half passes, or fails the other way
-                    c = judged(name, lambda e: e["splitHalf"]["odd"]["compare"].update({key: value}))
-                    self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value))
-                    self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
-        # Without an unsettled entry the same halves decide nothing: no settled fail is lowered.
+                for loose in (True, False):
+                    self.assertEqual(pp.VERDICT_FAIL, judged(name, lambda e: None, loose).verdict)
+                    for value in (agree, other):  # one half passes, or fails the other way
+                        for half in pp.FX_SPLIT_HALF_KEYS:
+                            c = judged(name, lambda e: e["splitHalf"][half]["compare"].update({key: value}),
+                                       loose)
+                            self.assertEqual(pp.VERDICT_WARN, c.verdict, (name, value, half, loose))
+                            self.assertIn(pp.REASON_FX_UNSETTLED, c.reasons)
+                            self.assertEqual(loose, pp.CAP_FX_UNSETTLED in c.fx.flags)
+        # Presence too: an effect one half of the samples alone drew is not an extra one.
+        doc = _fx_case(real=dict(REAL_FX, flame=FX_DARK), event={"flame": REAL_FX["flame"]})[0]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["layer"]) == ("event", "flame"):
+                e["splitHalf"]["odd"]["ghost"]["corePx"] = 0
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+
+    def test_the_half_rule_needs_the_halves(self):
+        # A fail whose halves were not written does not stand, and fx_block_problems
+        # (INVALID parity-instrument, every captured case) is what that sweep reads.
         doc = _fx_case(event=_broken("wide"))[0]
         for e in doc["fx"]["views"]:
-            e["splitHalf"]["odd"]["compare"]["widthRatio"] = 1.0
-        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+            e["splitHalf"] = None
+        self.assertEqual(pp.VERDICT_WARN, pp.judge_case(doc).verdict)
+        self.assertTrue(pp.fx_block_problems(doc))
 
-    def test_beside_an_unsettled_entry_a_measure_noisy_against_itself_is_capped(self):
+    def test_a_measure_noisy_against_itself_is_capped(self):
         def doc_of(side, dx):
             doc = _fx_case(event=_broken("offset-section"))[0]
-            self._loosen(doc, layer="smoke")
             for e in doc["fx"]["views"]:
                 if e["view"] == "fx-bottom" and e["layer"] == "flame":
                     e["splitHalf"]["odd"][side]["coreCentroid"][0] += dx
@@ -3115,7 +3797,27 @@ class FxJudgeTests(unittest.TestCase):
             self.assertEqual(pp.VERDICT_WARN, c.verdict)
             e = next(e for e in doc_of(side, 20.0)["fx"]["views"]
                      if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
-            self.assertEqual({"cross-section"}, set(pp.fx_self_failing(e, False)))
+            self.assertEqual({"crossSectionOffset"}, set(pp.fx_self_failing(e, False)))
+            # A centre that jitters against itself says nothing about the area, nor a hue that
+            # does about the chromaticity.
+            doc = _fx_case(event=_broken("thin-section"))[0]
+            for e in doc["fx"]["views"]:
+                if e["view"] == "fx-bottom" and e["layer"] == "flame":
+                    e["splitHalf"]["odd"][side]["coreCentroid"][0] += 20.0
+            self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(doc).verdict)
+        doc = _fx_case(event=_broken("hue"))[0]
+        for e in doc["fx"]["views"]:
+            for h in pp.FX_SPLIT_HALF_KEYS:
+                if e["layer"] == "flame":
+                    e["splitHalf"][h]["real"]["hueHistogram"] = [1.0 if i == (h == "odd") else 0.0 for i in range(12)]
+        c = pp.judge_case(doc)
+        standing = {f.key for e in c.fx.entries for f in e.findings if f.level == pp.VERDICT_FAIL}
+        self.assertEqual({"chromaDistance"}, standing)
+        for e in doc["fx"]["views"]:
+            if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"):
+                self.assertEqual({"hueL1"}, set(pp.fx_self_failing(e, False)))
+        e = next(e for e in doc_of("ghost", 20.0)["fx"]["views"]
+                 if (e["route"], e["view"], e["layer"]) == ("event", "fx-bottom", "flame"))
         # A malformed half proves no noise (fx_block_problems is the finding).
         e["splitHalf"]["odd"]["ghost"]["hueHistogram"] = "x"
         self.assertEqual(frozenset(), pp.fx_self_failing(e, False))
@@ -3249,6 +3951,76 @@ class FxJudgeTests(unittest.TestCase):
         bad["fx"]["views"] = None
         bad["setup"] = {"status": "state-timeout", "detail": None}
         self.assertEqual([], pp.fx_block_problems(bad))
+
+
+def _flame_of(rgb):
+    return {"flame": (_plume(rgb=rgb), _disc(rgb=rgb))}
+
+
+@contextlib.contextmanager
+def owner_flagged(reason="smoke-extra", todo="PARTPARITY-ORBIT-SMOKE-PUFF-NOISE"):
+    """An owner's mark on ``reason`` while the block runs (the committed set may be empty)."""
+    saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {reason: todo}
+    try:
+        yield
+    finally:
+        pp.OWNER_FLAGGED_REASONS = saved
+
+
+class OwnerFlagTests(unittest.TestCase):
+    """A flagged reason stays in sight whatever the case's verdict, and moves none."""
+
+    def setUp(self):
+        flag = owner_flagged()
+        flag.__enter__()
+        self.addCleanup(flag.__exit__, None, None, None)
+
+    def _case(self, **kw):
+        real = dict(REAL_FX, smoke=FX_DARK)
+        return _fx_case(real=real, event={"smoke": REAL_FX["smoke"]}, start={"smoke": REAL_FX["smoke"]}, **kw)[0]
+
+    def test_a_flagged_finding_marks_the_case(self):
+        doc = self._case()
+        cv = pp.judge_case(doc)
+        self.assertIn("event:fx-side-a:smoke:smoke-extra", cv.reasons)
+        self.assertEqual(("smoke-extra",), pp.owner_flags(cv))
+        self.assertIn("owner-flagged:smoke-extra", cv.fx.flags)
+        self.assertEqual(1, pp.fx_case_counts([cv])["flags"]["owner-flagged"])
+
+    def test_a_capped_one_still_marks_it(self):
+        doc = self._case()
+        for e in pp.fx_entries(doc):
+            if e["layer"] == "smoke":
+                e["splitHalf"]["odd"]["ghost"] = dict(e["splitHalf"]["odd"]["ghost"], corePx=0)
+        cv = pp.judge_case(doc)
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+        self.assertEqual(("smoke-extra",), pp.owner_flags(cv))
+
+    def test_the_mark_moves_nothing_and_a_clean_or_reference_case_has_none(self):
+        self.assertEqual((), pp.owner_flags(pp.judge_case(_fx_case()[0])))
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(_fx_case()[0]).verdict)
+        ref = pp.judge_case(self._case(reference=pp.REFERENCE_WATERFALL))
+        self.assertEqual((pp.VERDICT_REFERENCE, ()), (ref.verdict, pp.owner_flags(ref)))
+        flagged = pp.judge_case(self._case())
+        saved, pp.OWNER_FLAGGED_REASONS = pp.OWNER_FLAGGED_REASONS, {}
+        try:
+            plain = pp.judge_case(self._case())
+        finally:
+            pp.OWNER_FLAGGED_REASONS = saved
+        self.assertEqual((plain.verdict, plain.reasons), (flagged.verdict, flagged.reasons))
+
+    def test_the_todo_that_owns_a_committed_flag_is_open(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "docs", "dev",
+                            "todo-and-known-bugs.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        committed = self._committed
+        for todo in committed.values():
+            self.assertIn("\n## %s:" % todo, text, "flag a reason only while its todo is open")
+        # The booster smoke is the ghost's fixed defect, its rest noise: no mark on it.
+        self.assertNotIn("smoke-extra", committed)
+
+    _committed = dict(pp.OWNER_FLAGGED_REASONS)
 
 
 def _fx_control(cid):
@@ -3621,6 +4393,2133 @@ class FxPressGateTests(unittest.TestCase):
             res = _judge_fx_dir(os.path.join(tmp, "pp7"))
         self.assertEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
         self.assertEqual(2, res.counts["error"])
+
+
+
+# ---------------------------------------------------------------------------
+# P7 M4: the motion judge. The legacy sweeps first: every stowed / state / FX / burst
+# fixture judged through the entry point the motion judge extends (evaluate_sweep, judge_case,
+# verdicts_document, format_summary, detail_record) must produce byte for byte the document
+# it produced before the motion judge existed. The digests were taken from the tree BEFORE
+# the motion judge was added (commit e01045a0f).
+# ---------------------------------------------------------------------------
+
+def _legacy_burst_sweep(label_dir):
+    """A burst run's sweep in the state-case shape: the burst control set, each control and
+    two cases, none with a burst block. Before P9 X5 this pinned that a burst run's judging did
+    not move; since X5 it pins that such a run reads INVALID (no burst block anywhere)."""
+    settings = {"fx": "explode", "states": "none", "contexts": "air"}
+    cases = [_state_case("fueltank%d--default--vessel-explode-x1--air--0000bbb%d" % (i, i),
+                         part="fuelTank%d" % i, family="jettison", state="vessel-explode-x1",
+                         context="air") for i in range(2)]
+    _build_state_sweep(label_dir, cases, settings=settings)
+    for cid in pp.control_set(settings):
+        doc, masks = _state_case(cid, state="vessel-explode-x1", context="air")
+        _write_state_case(label_dir, doc, masks)
+
+
+def _legacy_sweep_documents(root):
+    """(name, text) per legacy fixture: the verdicts document (sorted keys), the summary line
+    and the detail record of each sweep, judged with the committed reader."""
+    out = []
+
+    def judge(name, sweep, label_dir, gating=False):
+        res = pp.evaluate_sweep(sweep, RUN_ID, gating, gui_mirror.read_png,
+                                lambda n: os.path.join(label_dir, n))
+        row = pp.combine([res], gating)
+        text = (json.dumps(pp.verdicts_document(res, RUN_ID), sort_keys=True) + "\n"
+                + pp.format_summary(row) + "\n"
+                + json.dumps(pp.detail_record(row), sort_keys=True) + "\n")
+        out.append((name, text))
+
+    judge("pp1-committed", _fixture_sweep(), PP1)
+    d = os.path.join(root, "stowed")
+    fx.build_sweep(d, parts=4, tile=STILE, part_ghost_shift=2)
+    judge("stowed-synthetic", _read_dir(d), d)
+    judge("stowed-synthetic-armed", _read_dir(d), d, gating=True)
+    d = os.path.join(root, "stowed-tampered")
+    fx.build_sweep(d, parts=2, tile=STILE)
+    path = os.path.join(d, "ctl-ghost-scale90" + pp.SIDECAR_SUFFIX)
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["views"][0]["realOnlyPx"] += 1
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    judge("stowed-tampered", _read_dir(d), d)
+    d = os.path.join(root, "state")
+    _build_state_sweep(d, StateSweepTests._cases() + StateSweepTests._cases("light", 2, start=10)
+                       + [_state_case("ant9--default--deployed--00000099", ghost=_shifted())])
+    judge("state-clean", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "state-press")
+    _build_state_sweep(d, StateSweepTests._cases(failed=3) + StateSweepTests._cases("light", 2, start=10))
+    judge("state-press", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "state-air")
+    _build_state_sweep(d, [_state_case("chute--default--semi--air--00000001", part="parachuteSingle",
+                                       family="parachute", state="semi", context="air")],
+                       settings={"states": "all", "contexts": "air"})
+    judge("state-air", _read_dir(d, "pp3"), d)
+    d = os.path.join(root, "fx")
+    _build_fx_sweep(d, _fx_cases())
+    judge("fx-clean", _read_dir(d, "pp7"), d)
+    d = os.path.join(root, "fx-air")
+    _build_fx_sweep(d, [_fx_case("solid--default--burn-full--air--0000aaaa", context="air")],
+                    settings={"fx": "plume", "contexts": "air"})
+    judge("fx-air", _read_dir(d, "pp7"), d)
+    d = os.path.join(root, "burst")
+    _legacy_burst_sweep(d)
+    judge("burst", _read_dir(d, "pp9"), d)
+    return out
+
+
+class LegacySweepByteIdentityTests(unittest.TestCase):
+    """With the motion judge in place, every stowed / state / FX / burst sweep judges byte for
+    byte as before it: the verdicts document, the summary line and the detail record of each
+    legacy fixture hash to the digests taken from the tree before the motion judge."""
+
+    DIGESTS = (
+        ("pp1-committed", "c2da00880c58f7ea8156228bfe37ec108625dc30059793d2c780e3759d4871a8"),
+        ("stowed-synthetic", "e35f4e67e79107e70d5a07d27ebf0c00f7c3ec8bce0406cc81db61a60f34ce6b"),
+        ("stowed-synthetic-armed", "99a72a70a335c578613e000907b2fd408eb59fac92ed2bd6f080b80a1e5a97be"),
+        ("stowed-tampered", "72d4e25a002b488dc7109d481ebc28f90af30b1ffb6c1c0c6115c0401f28b3a3"),
+        ("state-clean", "99aefe61b6b51ee7a0a9d16ad13185c82d8e5adb09931b22905b372b898f940b"),
+        ("state-press", "2f7e385e74aac0c8850b8efd4d74ba0b4c533875715493e9d2a10a7cc3889c94"),
+        ("state-air", "2a8c78631d7b87561cbcbdd32b9830d7a6fec94d7b0248e9f7de417b83fa4387"),
+        ("fx-clean", "c6022d878483492a91c4cd497e378e60e92e209ed08a3a557aaa64fbf2f1f01a"),
+        ("fx-air", "6e895c012481e4141a6d5e7168d9470266989bf18f1bd5ae59c4c7c5c8649cfa"),
+        # Re-pinned by P9 X5 on purpose: the burst judge now judges a burst run, so these
+        # legacy burst cases (state-case shape, no burst block) read INVALID(parity-controls)
+        # with "no burst block" on every control and every case.
+        ("burst", "385fe91299e8ef5f522ee2403ef381f8af03af723b6efd7f0fb2ea822008c9c6"),
+    )
+
+    def test_every_legacy_sweep_judges_byte_identically(self):
+        import hashlib
+        with tempfile.TemporaryDirectory(prefix="pp-legacy-") as root:
+            docs = _legacy_sweep_documents(root)
+        self.assertEqual([n for n, _ in self.DIGESTS], [n for n, _ in docs])
+        for (name, digest), (_n, text) in zip(self.DIGESTS, docs):
+            with self.subTest(sweep=name):
+                self.assertEqual(digest, hashlib.sha256(text.encode("utf-8")).hexdigest())
+                self.assertNotIn('"motion"', text)
+
+    def test_a_legacy_case_never_reaches_the_motion_judge(self):
+        doc, _ = _state_case("ant--default--deployed--1")
+        self.assertFalse(pp.is_motion_case(doc))
+        self.assertIsNone(pp.judge_case(doc).motion)
+        self.assertEqual(([], []), pp.motion_recompute({"a": doc}, (), ["a"], [], RUN_ID,
+                                                       gui_mirror.read_png, lambda n: n))
+
+
+# ----- the synthetic motion sidecar and atlas -----
+
+MOTION_VIEWS = ("side-a", "side-b")
+MOTION_STEP_S = 0.25
+MOTION_SCOUT_S = 0.05
+
+
+def _ramp(start, dur):
+    """A linear motion from ``start`` over ``dur`` seconds (a snap when ``dur`` is 0)."""
+    def f(t):
+        if dur <= 0:
+            return 1.0 if t >= start else 0.0
+        return min(1.0, max(0.0, (t - start) / dur))
+    return f
+
+
+def _stairs(start, dur, steps=4):
+    """A staircase over the same span: holds of 1 / steps (servo samples)."""
+    ramp = _ramp(start, dur)
+    return lambda t: 1.0 if ramp(t) >= 1.0 else int(ramp(t) * steps + 1e-9) / steps
+
+
+def _motion_mask(p):
+    """The synthetic part's picture at progress ``p``: a bar that grows by 6 px over the motion."""
+    return fx.rect_mask(STILE, 2, 3, 2 + int(round(6 * p)), 6)
+
+
+def _tol(a, b):
+    m = fx.reference_measure(a, b, SAREA)
+    return m["realOnlyTolPx"] + m["ghostOnlyTolPx"]
+
+
+def _motion_case(case_id, part="longAntenna", family="deployable", kind="clip", real=None, ghost=None,
+                 frames=17, matched=True, state="motion-deployed", context="alone", status="ok",
+                 structure=None, travel_ghost=90.0, ghost_mask=None, frame_flags=None, case_flags=(),
+                 module="ModuleDeployableAntenna"):
+    """(sidecar, rows of tiles) of one synthetic motion case: real frames every 0.25 s (T = 2 s,
+    8 frames per motion), the scout on a 50 ms grid merged with the real offsets, the pose
+    progress of both sides from ``real`` / ``ghost`` (functions of the seconds since the press),
+    each atlas tile a bar whose length follows its progress (``ghost_mask(k, p)`` overrides the
+    same-time ghost tile), the measures and picture progress by the pixel transcription of
+    ``_partparity_fixture``, and the timing block motion_timing gives."""
+    real = real or _ramp(0.5, 2.0)
+    ghost = ghost or real
+    rs = [round(k * MOTION_STEP_S, 10) for k in range(frames)]
+    grid = [round(i * MOTION_SCOUT_S, 10) for i in range(int(round(rs[-1] / MOTION_SCOUT_S)) + 1)]
+    ss = sorted(set(grid + rs))
+    sp = [ghost(t) for t in ss]
+    rp = [real(t) for t in rs]
+    gp = [ghost(t) for t in rs]
+    rows = list(pp.motion_atlas_rows(MOTION_VIEWS, matched))
+    tiles = {r: [] for r in rows}
+    entries = []
+    for k, t in enumerate(rs):
+        ms = pp.motion_matched_offset(ss, sp, rp[k]) if matched else None
+        mp = None if ms is None else ghost(ms)
+        real_tile = _motion_mask(rp[k])
+        ghost_tile = ghost_mask(k, gp[k]) if ghost_mask else _motion_mask(gp[k])
+        matched_tile = fx.empty_mask(STILE) if mp is None else _motion_mask(mp)
+        views = []
+        for v in MOTION_VIEWS:
+            tiles["real:" + v].append(real_tile)
+            tiles["ghost:" + v].append(ghost_tile)
+            same = fx.view_record(v, real_tile, ghost_tile, STILE)
+            rec = {"view": v, "same": {key: same[key] for key in pp.START_KEYS}, "matched": None}
+            if matched:
+                tiles["ghost-matched:" + v].append(matched_tile)
+                if mp is not None:
+                    m = fx.view_record(v, real_tile, matched_tile, STILE)
+                    rec["matched"] = {key: m[key] for key in pp.START_KEYS}
+            views.append(rec)
+        flags = list((frame_flags or {}).get(k, ()))
+        if matched and ms is None:
+            flags.append(pp.FLAG_MOTION_NO_MATCH)
+        entries.append({"k": k, "targetS": t, "realS": t, "ut": 100.0 + t,
+                        "realClock": 45.0 * rp[k] if kind == pp.MOTION_KIND_SERVO else None,
+                        "ghostClock": 45.0 * gp[k] if kind == pp.MOTION_KIND_SERVO else None,
+                        "realProgress": rp[k], "ghostProgress": gp[k], "matchedS": ms,
+                        "matchedProgress": mp, "imgProgress": {}, "views": views, "flags": flags})
+    last = len(rs) - 1
+    for k, e in enumerate(entries):
+        for r in rows:
+            if r.startswith("ghost-matched:") and e["views"][0]["matched"] is None:
+                e["imgProgress"][r] = None
+                continue
+            seq = tiles[r]
+            e["imgProgress"][r] = pp.motion_picture_progress(_tol(seq[0], seq[k]), _tol(seq[k], seq[last]))
+    block = {
+        "family": family, "kind": kind, "module": module, "moduleIndex": 0, "pressUT": 100.0,
+        "predictedS": 2.0, "ghostClipS": 2.0, "eventDelayS": 0.02, "ghostStartDelayS": 0.0,
+        "framesPerMotion": 8,
+        "window": {"endS": rs[-1], "spacingS": MOTION_STEP_S, "capped": False},
+        "scout": {"stepS": MOTION_SCOUT_S, "s": ss, "progress": sp},
+        "frames": entries,
+        "transforms": [{"path": "model/arm", "channel": "rotation", "travelReal": 90.0,
+                        "travelGhost": travel_ghost, "real": list(rp), "ghost": list(sp)}],
+        "timing": None,
+    }
+    block["timing"] = pp.motion_timing(pp.motion_series(block))
+    doc = fx.sidecar(case_id, part, [], STILE, status)
+    doc["state"], doc["context"] = state, context
+    doc["flags"] = list(case_flags)
+    if structure is not None:
+        doc["structure"] = structure
+    doc["stateProof"] = {
+        "family": family, "module": module, "moduleIndex": 0, "state": state,
+        "action": None if kind == pp.MOTION_KIND_SERVO else "Extend", "eventVisible": True,
+        "actionResult": None if kind == pp.MOTION_KIND_SERVO else "invoked", "reached": True,
+        "waitS": 2.1, "endpoint": {"field": "deployState", "value": "EXTENDED"},
+        "events": [{"type": "DeployableExtended", "ut": 100.02, "pid": 100000, "midx": 0}],
+        "ghostEvent": "applied", "ghostStart": None,
+        "startFirstFrame": {"atTarget": None, "trackerDeg": None},
+        "sunTracker": {"targetDeg": None, "eventDeg": None, "startFirstFrameDeg": None},
+        "canopy": {"tiltDeg": None, "wobbleDeg": None}, "nodes": None}
+    doc["motion"] = block
+    doc["motionAtlas"] = {"file": case_id + pp.MOTION_ATLAS_SUFFIX, "tile": STILE, "rows": rows,
+                          "cols": [e["k"] for e in entries]}
+    return doc, [tiles[r] for r in rows]
+
+
+def _motion_fault(case_id, family="deployable", status=pp.SETUP_ACTION_FAILED):
+    """A motion case whose press failed: no motion block, no atlas."""
+    doc = fx.sidecar(case_id, "p", [], STILE, status)
+    doc["state"], doc["context"] = "motion-deployed", "alone"
+    doc["setup"]["detail"] = "the press threw"
+    doc["stateProof"] = {"family": family, "state": "motion-deployed", "action": "Extend",
+                         "actionResult": "threw", "reached": False}
+    doc["motion"] = None
+    doc["motionAtlas"] = None
+    return doc, None
+
+
+def _write_motion_case(label_dir, doc, tiles):
+    if tiles is not None:
+        with open(os.path.join(label_dir, doc["motionAtlas"]["file"]), "wb") as fh:
+            fh.write(gui_mirror.write_png(len(tiles[0]) * STILE, len(tiles) * STILE, 4, _atlas_rows(tiles)))
+    with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _motion_controls(cid, perturbed=True):
+    """The sidecars one motion control writes, each (sidecar, tiles): the real-vs-real ones a
+    single case whose ghost rows are copy B's live frames (no matched row); the slow and late
+    ones the altered route under the control's id and the normal route under
+    ``<id>--normal``. ``perturbed`` False writes the altered route unaltered."""
+    if cid == pp.CONTROL_MOTION_REAL_VS_REAL:
+        return [_motion_case(cid, matched=False)]
+    if cid == pp.CONTROL_MOTION_REAL_VS_REAL_AIR:
+        return [_motion_case(cid, part="parachuteSingle", family="parachute", kind="canopy",
+                             state="motion-semi", context="air", matched=False, module="ModuleParachute")]
+    if cid == pp.CONTROL_MOTION_GHOST_SLOW:
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21, module="ModuleAeroSurface")
+        return [_motion_case(cid, ghost=_ramp(0.5, 4.0) if perturbed else None, **kw),
+                _motion_case(pp.motion_normal_id(cid), **kw)]
+    if cid == pp.CONTROL_MOTION_GHOST_LATE:
+        return [_motion_case(cid, ghost=_ramp(1.5, 2.0) if perturbed else None),
+                _motion_case(pp.motion_normal_id(cid))]
+    raise ValueError(cid)
+
+
+def _build_motion_sweep(label_dir, cases, settings=None, outcomes=None, controls=None):
+    """A COMPLETE motion-run sweep: the run's control set (the capture primitive's controls in
+    the stowed shape, the motion controls from ``controls`` or ``_motion_controls``) and
+    ``cases``, a list of (sidecar, tiles or None). Returns the manifest."""
+    os.makedirs(label_dir, exist_ok=True)
+    settings = dict(settings or {"motion": "all", "frames": "8"})
+    ids = pp.control_set(settings)
+    settings.setdefault("controlSet", ",".join(ids))
+    four = lambda m: [m] * len(fx.VIEWS)  # noqa: E731
+    body = fx.rect_mask(STILE, 3, 3, 6, 6)
+    empty = fx.empty_mask(STILE)
+    for cid in ids:
+        if cid in pp.MOTION_CONTROL_IDS:
+            for doc, tiles in (controls or {}).get(cid) or _motion_controls(cid):
+                _write_motion_case(label_dir, doc, tiles)
+        elif cid == "ctl-empty":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(empty), four(empty), STILE)
+        elif cid == "ctl-ghost-absent":
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(body), four(empty), STILE)
+        else:
+            fx.write_case(label_dir, cid, "fuelTankSmallFlat", four(body), four(body), STILE)
+    rows = []
+    for i, (doc, tiles) in enumerate(cases):
+        _write_motion_case(label_dir, doc, tiles)
+        rows.append({"index": i, "caseId": doc["caseId"], "part": doc["part"], "title": doc["part"],
+                     "source": "Squad", "skin": "default", "state": doc["state"],
+                     "context": doc["context"], "sidecar": doc["caseId"] + pp.SIDECAR_SUFFIX,
+                     "setupStatus": doc["setup"]["status"],
+                     "family": (doc.get("stateProof") or {}).get("family")})
+    outcomes = dict(outcomes or {})
+    manifest = {
+        "schema": pp.MANIFEST_SCHEMA, "label": "pp14", "profile": "stock-minimal",
+        "gameDataMods": ["Parsek", "Squad"], "dllHash": "0" * 64, "tile": STILE,
+        "views": list(MOTION_VIEWS), "measure": {}, "settings": settings,
+        "controls": [{"id": c, "subject": "s", "required": "r", "outcome": outcomes.get(c, "ok"),
+                      "detail": ""} for c in ids],
+        "cases": rows, "exclusions": [],
+        "progress": {"complete": True, "cases": len(rows), "completeCases": len(rows),
+                     "setupFaults": 0, "controls": "ok", "crashed": []},
+    }
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+def _motion_cases():
+    return [_motion_case("longantenna--default--motion-deployed--0000aaa1"),
+            _motion_case("gearsmall--default--motion-deployed--0000aaa2", part="GearSmall", family="gear",
+                         module="ModuleWheelDeployment"),
+            _motion_case("hinge.01--default--motion-swept--0000aaa3", part="hinge.01", family="robotics",
+                         kind="servo", state="motion-swept", module="ModuleRoboticServoHinge")]
+
+
+class MotionSweepFixture(unittest.TestCase):
+    """A temp root per test and the evaluate_sweep call over a motion sweep."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pp-motion-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.n = 0
+
+    def _dir(self):
+        self.n += 1
+        return os.path.join(self.root, "s%d" % self.n)
+
+    def _eval(self, cases, gating=False, read_png=gui_mirror.read_png, mutate=None, **kw):
+        d = self._dir()
+        _build_motion_sweep(d, cases, **kw)
+        if mutate is not None:
+            mutate(d)
+        return pp.evaluate_sweep(_read_dir(d, "pp14"), RUN_ID, gating, read_png,
+                                 lambda n: os.path.join(d, n))
+
+
+def _rewrite(label_dir, case_id, change):
+    path = os.path.join(label_dir, case_id + pp.SIDECAR_SUFFIX)
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    change(doc)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _flip_atlas_pixel(label_dir, case_id, row, col, x=10, y=10):
+    path = os.path.join(label_dir, case_id + pp.MOTION_ATLAS_SUFFIX)
+    w, h, bpp, px = gui_mirror.read_png(path)
+    px = bytearray(px)
+    i = ((row * STILE + y) * w + col * STILE + x) * 4 + 3
+    px[i] = 0xff if px[i] < 128 else 0x00
+    with open(path, "wb") as fh:
+        fh.write(gui_mirror.write_png(w, h, 4, bytes(px)))
+
+
+class MotionJudgeTests(unittest.TestCase):
+    """judge_motion's levels of H.3 over synthetic motion sidecars."""
+
+    def _judge(self, doc):
+        return pp.judge_case(doc)
+
+    def test_a_ghost_that_moves_like_the_real_passes(self):
+        doc, _ = _motion_case("a--default--motion-deployed--1")
+        cv = self._judge(doc)
+        self.assertEqual((pp.VERDICT_PASS, ()), (cv.verdict, cv.reasons))
+        self.assertEqual("deployable", cv.family)
+        self.assertEqual("motion-deployed", cv.state)
+        self.assertEqual(0.0, cv.motion.measures["lagS"])
+        self.assertEqual(17, cv.motion.measures["frames"])
+        d = cv.to_dict()
+        self.assertEqual(pp.VERDICT_PASS, d["motion"]["verdict"])
+        json.dumps(d)
+
+    def test_each_fail_line(self):
+        for name, kw, reason in (
+                ("late", dict(ghost=_ramp(1.5, 2.0)), "motion:lagS=1.000>0.500"),
+                ("early", dict(ghost=_ramp(0.0, 1.0), real=_ramp(0.5, 1.0)), "motion:lagS=-0.500"),
+                ("slow", dict(ghost=_ramp(0.5, 3.5), frames=21), "motion:durationRatio=1.750"),
+                ("fast", dict(ghost=_ramp(0.5, 1.0)), "motion:durationRatio=0.500"),
+                ("snapped", dict(ghost=_ramp(1.5, 0.0)), "motion:flag:motion-snap"),
+                ("not-modelled", dict(ghost=lambda t: 0.0), "motion:flag:motion-not-modelled")):
+            with self.subTest(curve=name):
+                cv = self._judge(_motion_case("c--default--motion-deployed--1", **kw)[0])
+                if name == "early":
+                    # -0.5 s against a 1 s motion: at the 0.5 s line, not over it: a warn.
+                    self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+                    self.assertTrue(any(r.startswith(reason) for r in cv.reasons), cv.reasons)
+                    continue
+                self.assertEqual(pp.VERDICT_FAIL, cv.verdict, cv.reasons)
+                self.assertTrue(any(r.startswith(reason) for r in cv.reasons), cv.reasons)
+
+    def test_the_lag_line_scales_with_the_real_motion(self):
+        # A 1 s lag on a 6 s motion (T_real = t98 - t02 = 5.76 s) is under its line,
+        # max(0.5, 0.25 x 5.76 = 1.44) s, and over half of it.
+        cv = self._judge(_motion_case("c--default--motion-deployed--1", real=_ramp(0.5, 6.0),
+                                      ghost=_ramp(1.5, 6.0), frames=33)[0])
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+        self.assertEqual(["motion:lagS=1.000>0.720"], [r for r in cv.reasons if "lagS" in r])
+
+    def test_the_warn_lines_are_half_way(self):
+        for kw, reason in ((dict(ghost=_ramp(0.8, 2.0)), "motion:lagS=0.300>0.250"),
+                           (dict(ghost=_ramp(0.5, 1.5)), "motion:durationRatio=0.750"),
+                           (dict(ghost=_stairs(0.5, 2.0)), "motion:flag:motion-stepped")):
+            with self.subTest(reason=reason):
+                cv = self._judge(_motion_case("w--default--motion-deployed--1", **kw)[0])
+                self.assertEqual(pp.VERDICT_WARN, cv.verdict, cv.reasons)
+                self.assertIn(reason, cv.reasons)
+        cv = self._judge(_motion_case("w--default--motion-deployed--1", ghost=_ramp(0.6, 2.0))[0])
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+
+    def test_the_curve_shape_line(self):
+        # A staged real clip (fast, a hold, fast) against a straight-line ghost on time: the
+        # lag stays 0 and the rate inside its warn band, only the curve's shape moves.
+        for bow, level in ((0.2, pp.VERDICT_WARN), (0.35, pp.VERDICT_FAIL)):
+            with self.subTest(bow=bow):
+                real = lambda t, b=bow: _bowed(_ramp(0.5, 2.0)(t), b)  # noqa: E731
+                cv = self._judge(_motion_case("e--default--motion-deployed--1", real=real,
+                                              ghost=_ramp(0.5, 2.0))[0])
+                m = cv.motion.measures
+                self.assertEqual(0.0, m["lagS"])
+                self.assertTrue(pp.MOTION_DURATION_RATIO_WARN_MIN < m["durationRatio"] < 1.0)
+                self.assertEqual(level, cv.verdict, cv.reasons)
+                self.assertEqual(["curveShapeDev"], [r.split(":")[1].split("=")[0] for r in cv.reasons])
+        # The golden's eased clip (bowed 0.15 at most between knots) stays under the warn line.
+        eased = lambda t: _eased(_ramp(0.5, 2.0)(t))  # noqa: E731
+        cv = self._judge(_motion_case("e--default--motion-deployed--1", real=eased, ghost=_ramp(0.5, 2.0))[0])
+        self.assertLess(cv.motion.measures["curveShapeDev"], pp.MOTION_CURVE_SHAPE_FAIL * pp.MOTION_WARN_FRACTION)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+
+    def test_a_servo_is_judged_on_its_angle_too(self):
+        doc, _ = _motion_case("h--default--motion-swept--1", part="hinge.01", family="robotics",
+                              kind="servo", state="motion-swept", ghost=_ramp(0.75, 2.0))
+        cv = self._judge(doc)
+        # 0.25 s late on a 45 deg sweep: about 5.6 deg apart mid-motion, over max(5, 6.75) / 2.
+        self.assertEqual(45.0, cv.motion.measures["servoSweep"])
+        self.assertEqual(6.75, cv.motion.measures["angleLineDeg"])
+        self.assertTrue(any(r.startswith("motion:angleMaxDevDeg=") for r in cv.reasons), cv.reasons)
+        self.assertEqual(pp.VERDICT_WARN, cv.verdict)
+        doc, _ = _motion_case("h--default--motion-swept--1", family="robotics", kind="servo",
+                              state="motion-swept", ghost=_ramp(1.0, 2.0))
+        self.assertEqual(pp.VERDICT_FAIL, self._judge(doc).verdict)
+        # A clip case's angle is not measured and judges nothing.
+        doc, _ = _motion_case("c--default--motion-deployed--1", ghost=_ramp(0.75, 2.0))
+        self.assertIsNone(self._judge(doc).motion.measures["angleMaxDevDeg"])
+
+    def test_the_last_frame_is_judged_on_the_two_new_families_only(self):
+        wrong_end = lambda k, p: fx.rect_mask(STILE, 2, 3, 8, 8) if p >= 1.0 else _motion_mask(p)  # noqa: E731
+        for family, judged in (("robotics", True), ("control-surface", True), ("deployable", False),
+                               ("parachute", False)):
+            with self.subTest(family=family):
+                cv = self._judge(_motion_case("l--default--motion-deployed--1", family=family,
+                                              ghost_mask=wrong_end)[0])
+                if judged:
+                    self.assertEqual(pp.VERDICT_FAIL, cv.verdict, cv.reasons)
+                    self.assertTrue(any(r.startswith("motion:last-frame:shape-blob") for r in cv.reasons))
+                    self.assertEqual("last-frame:side-a", cv.worst_view)
+                    self.assertIsNone(cv.motion.report["lastFrame"])
+                else:
+                    self.assertEqual(pp.VERDICT_PASS, cv.verdict, cv.reasons)
+                    self.assertEqual(pp.VERDICT_FAIL, cv.motion.report["lastFrame"]["verdict"])
+        # A rendered mesh missing at the end fails a new family by the structure rule.
+        structure = fx.sidecar("x", "x", [], STILE)["structure"]
+        structure["missingOnGhost"] = [{"key": "model/arm", "mesh": "m", "rendered": True, "nonVisual": False}]
+        cv = self._judge(_motion_case("l--default--motion-swept--1", family="robotics", kind="servo",
+                                      state="motion-swept", structure=structure)[0])
+        self.assertIn("motion:last-frame:missing-rendered:model/arm", cv.reasons)
+
+    def test_the_error_level(self):
+        doc, _ = _motion_case("e--default--motion-deployed--1", frames=4)
+        self.assertIn("motion:frames=4<5", self._judge(doc).reasons)
+        self.assertEqual(pp.VERDICT_ERROR, self._judge(doc).verdict)
+        doc, _ = _motion_case("e--default--motion-deployed--1", real=_ramp(0.5, 20.0))
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertTrue(any(r.startswith("motion:real-not-reached=") for r in cv.reasons))
+        cv = self._judge(_motion_fault("f--default--motion-deployed--1")[0])
+        self.assertEqual(pp.VERDICT_ERROR, cv.verdict)
+        self.assertEqual("setup:action-failed", cv.reasons[0])
+        doc, _ = _motion_case("e--default--motion-deployed--1")
+        doc["motion"]["timing"] = None
+        self.assertIn("motion:no-timing", self._judge(doc).reasons)
+
+    def test_an_unmeasured_judged_measure_fails(self):
+        # The ghost moves (past 0.1) but never reaches half: no t50, no lag, not not-modelled.
+        doc, _ = _motion_case("u--default--motion-deployed--1", ghost=lambda t: min(0.3, _ramp(0.5, 2.0)(t)))
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_FAIL, cv.verdict)
+        self.assertIn("motion:lagS=unmeasured", cv.reasons)
+        self.assertIn("motion:durationRatio=unmeasured", cv.reasons)
+
+    def test_the_report_only_measures_never_move_the_verdict(self):
+        doc, _ = _motion_case("r--default--motion-deployed--1", travel_ghost=270.0,
+                              frame_flags={3: ["frame-jitter:140", pp.FLAG_MOTION_CLIPPED_AT_BORDER]},
+                              case_flags=[pp.FLAG_MOTION_WINDOW_CAPPED])
+        doc["motion"]["transforms"].append(dict(doc["motion"]["transforms"][0], path="model/b",
+                                                real=[min(1.0, 2 * p) for p in doc["motion"]["transforms"][0]["real"]]))
+        doc["motion"]["timing"] = pp.motion_timing(pp.motion_series(doc["motion"]))
+        cv = self._judge(doc)
+        self.assertEqual((pp.VERDICT_PASS, ()), (cv.verdict, cv.reasons))
+        self.assertEqual(("travel-differs", "motion-window-capped", "motion-clipped-at-border",
+                          "frame-jitter:140"), cv.motion.flags)
+        self.assertEqual(3.0, cv.motion.report["travelRatio"])
+        self.assertGreater(cv.motion.report["staggerDev"], 0.3)
+        self.assertEqual([3], cv.motion.report["clippedFrames"])
+        self.assertEqual([3], cv.motion.report["jitterFrames"])
+        # A late ghost fails every in-between frame's picture, reported, never judged.
+        cv = self._judge(_motion_case("r--default--motion-deployed--1", ghost=_ramp(1.5, 2.0))[0])
+        self.assertIn(pp.VERDICT_FAIL, cv.motion.report["frameVerdicts"]["same"])
+        self.assertEqual(1, sum(r.startswith("motion:") for r in cv.reasons))
+
+    def test_progress_disagree_is_report_only(self):
+        doc, _ = _motion_case("p--default--motion-deployed--1")
+        for f in doc["motion"]["frames"]:
+            f["imgProgress"]["real:side-a"] = 1.0 if f["realS"] >= 3.75 else 0.0
+        cv = self._judge(doc)
+        self.assertEqual(pp.VERDICT_PASS, cv.verdict)
+        self.assertIn(pp.FLAG_PROGRESS_DISAGREE, cv.motion.flags)
+        self.assertEqual(["real:side-a"], cv.motion.report["progressDisagree"])
+
+    def test_a_servo_proof_may_carry_no_action(self):
+        doc, _ = _motion_case("h--default--motion-swept--1", family="robotics", kind="servo",
+                              state="motion-swept")
+        self.assertIsNone(pp.motion_press_proof_problem(doc))
+        doc["stateProof"]["reached"] = False
+        self.assertIn("servo", pp.motion_press_proof_problem(doc))
+        self.assertEqual(pp.VERDICT_ERROR, pp.judge_case(doc).verdict)
+        clip, _ = _motion_case("c--default--motion-deployed--1")
+        clip["stateProof"]["action"] = None
+        self.assertIsNotNone(pp.motion_press_proof_problem(clip))
+
+
+def _bowed(u, b):
+    """A staged clip over u in [0, 1]: through (0.1, 0.1), (0.5, 0.5) and (0.9, 0.9) like a
+    straight line, ``b`` above it just after 0.1 and ``b`` below it just before 0.9."""
+    knots = [(0.0, 0.0), (0.1, 0.1), (0.12, 0.1 + b), (0.5, 0.5), (0.88, 0.9 - b), (0.9, 0.9), (1.0, 1.0)]
+    for (u0, p0), (u1, p1) in zip(knots, knots[1:]):
+        if u <= u1:
+            return p0 + (u - u0) * (p1 - p0) / (u1 - u0)
+    return 1.0
+
+
+def _eased(u):
+    """The golden's eased curve over u in [0, 1] (build_motion_timing_golden.EASED)."""
+    knots = [(0.0, 0.0), (0.1, 0.1), (0.3, 0.15), (0.5, 0.5), (0.7, 0.85), (0.9, 0.9), (1.0, 1.0)]
+    for (u0, p0), (u1, p1) in zip(knots, knots[1:]):
+        if u <= u1:
+            return p0 + (u - u0) * (p1 - p0) / (u1 - u0)
+    return 1.0
+
+
+class MotionControlJudgeTests(unittest.TestCase):
+    """The motion controls' judges, mirrored from PartParityMotionRules.Judge*: each control's
+    perturbation is caught, and an unperturbed control is bad."""
+
+    def _sidecars(self, cid, perturbed=True):
+        return {d["caseId"]: d for d, _ in _motion_controls(cid, perturbed)}
+
+    def test_every_control_meets_its_requirement(self):
+        for cid in pp.MOTION_CONTROL_IDS:
+            with self.subTest(control=cid):
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, self._sidecars(cid)))
+
+    def test_the_altered_routes_fail_the_motion_judge(self):
+        slow = self._sidecars(pp.CONTROL_MOTION_GHOST_SLOW)[pp.CONTROL_MOTION_GHOST_SLOW]
+        self.assertIn("motion:durationRatio=2.000", pp.judge_motion(slow).reasons)
+        late = self._sidecars(pp.CONTROL_MOTION_GHOST_LATE)[pp.CONTROL_MOTION_GHOST_LATE]
+        self.assertIn("motion:lagS=1.000>0.500", pp.judge_motion(late).reasons)
+
+    def test_an_unperturbed_slow_or_late_control_is_bad(self):
+        out = pp.judge_motion_control(pp.CONTROL_MOTION_GHOST_SLOW,
+                                      self._sidecars(pp.CONTROL_MOTION_GHOST_SLOW, perturbed=False))
+        self.assertEqual((pp.CONTROLS_BAD, "ratio=1; slow route does not fail on duration"), out)
+        out = pp.judge_motion_control(pp.CONTROL_MOTION_GHOST_LATE,
+                                      self._sidecars(pp.CONTROL_MOTION_GHOST_LATE, perturbed=False))
+        self.assertEqual((pp.CONTROLS_BAD, "lag shift=0; late route does not fail on lag"), out)
+
+    def test_a_real_vs_real_pair_that_differs_is_bad(self):
+        cid = pp.CONTROL_MOTION_REAL_VS_REAL
+        lagging = {cid: _motion_case(cid, ghost=_ramp(1.0, 2.0), matched=False)[0]}
+        outcome, detail = pp.judge_motion_control(cid, lagging)
+        self.assertEqual(pp.CONTROLS_BAD, outcome)
+        self.assertIn("lagS=0.5", detail)
+        self.assertIn("end frames differ", pp.judge_motion_control(cid, {cid: _motion_case(
+            cid, ghost_mask=lambda k, p: _motion_mask(p) if k else fx.rect_mask(STILE, 1, 3, 2, 6),
+            matched=False)[0]})[1])
+        rate = {cid: _motion_case(cid, ghost=_ramp(0.5, 2.2), matched=False)[0]}
+        self.assertIn("durationRatio=1.1", pp.judge_motion_control(cid, rate)[1])
+
+    def test_the_slow_judge_reads_the_onset_and_the_last_frame(self):
+        cid = pp.CONTROL_MOTION_GHOST_SLOW
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=21)
+        late_onset = {cid: _motion_case(cid, ghost=_ramp(1.0, 4.0), **kw)[0],
+                      pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        self.assertIn("onset=0.5", pp.judge_motion_control(cid, late_onset)[1])
+        wrong_end = {cid: _motion_case(cid, ghost=_ramp(0.5, 4.0),
+                                       ghost_mask=lambda k, p: fx.rect_mask(STILE, 1, 1, 10, 10) if p >= 1 else _motion_mask(p),
+                                       **kw)[0],
+                     pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        self.assertEqual((pp.CONTROLS_BAD, "slow last frame fails the end-state rules"),
+                         pp.judge_motion_control(cid, wrong_end))
+
+    def test_the_controls_are_judged_relative_to_their_normal_route(self):
+        # A normal route already 0.3 s late moves the late route with it: the shift stays 1 s.
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        sides = {cid: _motion_case(cid, ghost=_ramp(1.8, 2.0))[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), ghost=_ramp(0.8, 2.0))[0]}
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+        cid = pp.CONTROL_MOTION_GHOST_SLOW
+        kw = dict(part="airbrake1", family="airbrake", kind="surface", frames=25)
+        sides = {cid: _motion_case(cid, ghost=_ramp(0.5, 4.4), **kw)[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), ghost=_ramp(0.5, 2.2), **kw)[0]}
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+
+    def test_the_late_route_need_not_fail_on_lag_on_a_long_motion(self):
+        # A 6 s real motion: the lag line is 1.5 s, the 1 s shift is inside it, so the late
+        # control is judged by its relative requirement alone (H.3).
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        kw = dict(real=_ramp(0.5, 6.0), frames=33)
+        sides = {cid: _motion_case(cid, ghost=_ramp(1.5, 6.0), **kw)[0],
+                 pp.motion_normal_id(cid): _motion_case(pp.motion_normal_id(cid), **kw)[0]}
+        late = sides[cid]["motion"]["timing"]
+        self.assertFalse(pp.motion_lag_fails(late["lagS"], pp.motion_real_duration(late)))
+        self.assertFalse(pp.motion_late_must_fail_on_lag(pp.motion_real_duration(late)))
+        self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_motion_control(cid, sides))
+        # On a 2 s motion the shift is past the line and the late route must fail on lag.
+        self.assertTrue(pp.motion_late_must_fail_on_lag(2.0))
+        self.assertTrue(pp.motion_late_must_fail_on_lag(3.9))
+        self.assertFalse(pp.motion_late_must_fail_on_lag(4.0))
+
+    def test_the_mirrored_judges_on_the_xunit_inputs(self):
+        # PartParityMotionRulesTests' T(lag, ratio, shape, onset, t02, t98) inputs, same outcomes.
+        def t(lag, ratio, shape, onset=0.0, t02=0.5, t98=3.0):
+            return {"lagS": lag, "durationRatio": ratio, "curveShapeDev": shape, "onsetLagS": onset,
+                    "real": {"t02": t02, "t10": 1.0, "t50": 1.75, "t90": 2.5, "t98": t98}}
+        rvr = pp.judge_motion_real_vs_real
+        self.assertEqual(("ok", ""), rvr(t(0.02, 1.01, 0.01), 0.25, 2.0, True, "ok"))
+        self.assertEqual("bad", rvr(t(0.3, 1.0, 0.0), 0.25, 2.0, True, "ok")[0])
+        self.assertIn("lagS", rvr(t(0.3, 1.0, 0.0), 0.25, 2.0, True, "ok")[1])
+        self.assertEqual("bad", rvr(t(0.0, 1.06, 0.0), 0.25, 2.0, True, "ok")[0])
+        self.assertEqual("bad", rvr(t(0.0, 1.0, 0.06), 0.25, 2.0, True, "ok")[0])
+        self.assertEqual("bad", rvr(t(0.0, 1.0, 0.0), 0.25, 2.0, False, "ok")[0])
+        self.assertEqual(("bad", "setup action-failed"), rvr(t(0.0, 1.0, 0.0), 0.25, 2.0, True, "action-failed"))
+        slow = pp.judge_motion_ghost_slow
+        normal = t(0.0, 1.0, 0.0)
+        self.assertEqual("ok", slow(normal, t(1.25, 2.0, 0.2, 0.05), 0.25, True, "ok")[0])
+        self.assertIn("ratio", slow(normal, t(1.25, 1.5, 0.2, 0.05), 0.25, True, "ok")[1])
+        self.assertIn("onset", slow(normal, t(1.25, 2.0, 0.2, 0.5), 0.25, True, "ok")[1])
+        self.assertEqual("bad", slow(normal, t(1.25, 2.0, 0.2, 0.05), 0.25, False, "ok")[0])
+        self.assertEqual("ok", slow(t(0.0, 0.9, 0.0), t(1.0, 1.8, 0.2), 0.25, True, "ok")[0])
+        late = pp.judge_motion_ghost_late
+        normal = t(0.1, 1.0, 0.0)
+        self.assertEqual("ok", late(normal, t(1.1, 1.0, 0.0), "ok")[0])
+        self.assertIn("lag shift", late(normal, t(0.9, 1.0, 0.0), "ok")[1])
+        self.assertIn("durationRatio", late(normal, t(1.1, 1.05, 0.0), "ok")[1])
+        # H.3 (M4): a 10 s real motion holds the 1 s shift inside its 2.5 s lag line, so the
+        # late route need not fail on lag. The xUnit cell still expects "bad" here: the C#
+        # JudgeGhostLate must take the same rule (reported to the C# side, not edited by M4).
+        self.assertEqual(("ok", ""), late(t(0.1, 1.0, 0.0, 0.0, 0.0, 10.0), t(1.1, 1.0, 0.0, 0.0, 0.0, 10.0), "ok"))
+        self.assertEqual("bad", late(t(0.1, 1.0, 0.0, 0.0, 0.0, 3.0), t(0.4, 1.0, 0.0, 0.0, 0.0, 3.0), "ok")[0])
+
+    def test_a_missing_or_faulted_route_is_bad(self):
+        cid = pp.CONTROL_MOTION_GHOST_LATE
+        sides = self._sidecars(cid)
+        del sides[pp.motion_normal_id(cid)]
+        self.assertEqual((pp.CONTROLS_BAD, "no normal route sidecar ctl-motion-ghost-late--normal"),
+                         pp.judge_motion_control(cid, sides))
+        sides = self._sidecars(cid)
+        sides[pp.motion_normal_id(cid)]["setup"]["status"] = pp.SETUP_STATE_TIMEOUT
+        self.assertEqual("normal route setup state-timeout", pp.judge_motion_control(cid, sides)[1])
+        sides = self._sidecars(cid)
+        sides[cid]["setup"]["status"] = pp.SETUP_ACTION_FAILED
+        self.assertEqual((pp.CONTROLS_BAD, "setup action-failed"), pp.judge_motion_control(cid, sides))
+        self.assertEqual((pp.CONTROLS_BAD, "no sidecar"), pp.judge_motion_control(cid, {}))
+        sides = self._sidecars(cid)
+        sides[cid]["motion"]["timing"] = None
+        self.assertEqual((pp.CONTROLS_BAD, "no timing"), pp.judge_motion_control(cid, sides))
+
+    def test_the_csharp_number_format(self):
+        self.assertEqual(("nan", "0", "1", "1.5", "-0.3", "0.123", "2"),
+                         tuple(pp._cs_num(v) for v in (None, 0.0, 1.0, 1.5, -0.3, 0.12345, 1.9999)))
+
+
+class MotionSweepTests(MotionSweepFixture):
+    """evaluate_sweep over a synthetic motion run: the controls, the press gate, the
+    instrument recompute of the atlas and of the timing arrays, the verdicts document."""
+
+    def test_a_clean_motion_run_reports(self):
+        res = self._eval(_motion_cases())
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual(3, res.counts[pp.VERDICT_PASS])
+        motion_ids = [c for c in res.recompute_ids if c.endswith(pp.MOTION_RECOMPUTE_ID_SUFFIX)]
+        # Every motion control (the slow and late ones with their normal routes) and one case.
+        self.assertEqual(5 + 1, len(motion_ids), motion_ids)
+        self.assertIn("ctl-motion-ghost-late--normal.motion", motion_ids)
+        self.assertEqual(["ctl-empty", "ctl-ghost-absent", "ctl-real-vs-real"], res.recompute_ids[:3])
+        self.assertTrue(res.press.ok)
+        self.assertEqual((("deployable", 1, 0), ("gear", 1, 0), ("robotics", 1, 0)), res.press.families)
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual(3, doc["motion"]["cases"])
+        self.assertEqual({"pass": 1, "warn": 0, "fail": 0, "error": 0}, doc["motion"]["families"]["robotics"])
+        self.assertEqual(pp.MOTION_LAG_FAIL_MIN_S, doc["motion"]["thresholds"]["lagFailMinS"])
+        self.assertEqual(pp.VERDICT_PASS, doc["cases"][0]["motion"]["verdict"])
+        json.dumps(doc, allow_nan=False)
+        summary = pp.format_summary(pp.combine([res], False))
+        self.assertIn(" motion=3 notModelled=0 snap=0 stepped=0", summary)
+
+    def test_an_air_run(self):
+        case = _motion_case("parachutesingle--default--motion-semi--air--0000aaa1", part="parachuteSingle",
+                            family="parachute", kind="canopy", state="motion-semi", context="air")
+        res = self._eval([case], settings={"motion": "parachute", "contexts": "air", "frames": "8"})
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual([pp.CONTROL_MOTION_REAL_VS_REAL_AIR], [c for c, _ in res.controls.outcomes][2:])
+
+    def test_the_findings_are_report_only_until_armed(self):
+        cases = _motion_cases() + [_motion_case("late--default--motion-deployed--0000aaa9",
+                                                ghost=_ramp(1.5, 2.0))]
+        res = self._eval(cases)
+        self.assertEqual((pp.STATUS_REPORT, 1), (res.status, res.counts[pp.VERDICT_FAIL]))
+        self.assertEqual("late--default--motion-deployed--0000aaa9", res.worst()[0].case_id)
+        self.assertEqual(pp.STATUS_FAIL, self._eval(cases, gating=True).status)
+
+    def test_each_control_perturbation_left_out_is_invalid_controls(self):
+        cases = _motion_cases()
+        for cid in pp.MOTION_CONTROL_IDS[:3]:
+            with self.subTest(control=cid):
+                if cid == pp.CONTROL_MOTION_REAL_VS_REAL:
+                    broken = [_motion_case(cid, ghost=_ramp(1.0, 2.0), matched=False)]
+                else:
+                    broken = _motion_controls(cid, perturbed=False)
+                res = self._eval(cases, controls={cid: broken})
+                self.assertEqual((pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND),
+                                 (res.status, res.invalid_subkind), res.problems)
+                self.assertTrue(any("%s:recorded-ok-judged-bad" % cid in p for p in res.problems), res.problems)
+
+    def test_a_missing_normal_route_is_invalid_controls(self):
+        res = self._eval(_motion_cases(), mutate=lambda d: os.remove(os.path.join(
+            d, pp.motion_normal_id(pp.CONTROL_MOTION_GHOST_SLOW) + pp.SIDECAR_SUFFIX)))
+        self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
+
+    def test_a_mutated_atlas_frame_is_invalid_instrument(self):
+        # One motion case: it is the sample. A pixel of a mid-motion ghost tile, a matched tile,
+        # a real tile, a control's tile: each is a mismatch naming its frame.
+        case = _motion_case("longantenna--default--motion-deployed--0000aaa1")
+        for cid, row, col, want in ((case[0]["caseId"], 1, 8, "frame 8 side-a.same"),
+                                    (case[0]["caseId"], 2, 8, "frame 8 side-a.matched"),
+                                    (case[0]["caseId"], 3, 4, "frame 4 side-b.same"),
+                                    (case[0]["caseId"], 0, 0, "imgProgress[real:side-a]"),
+                                    (pp.CONTROL_MOTION_GHOST_LATE, 1, 10, "frame 10 side-a.same")):
+            with self.subTest(case=cid, row=row, col=col):
+                res = self._eval([case], mutate=lambda d: _flip_atlas_pixel(d, cid, row, col))
+                self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND),
+                                 (res.status, res.invalid_subkind), res.problems)
+                self.assertTrue(any(m.startswith(cid + " ") and want in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
+
+    def test_a_tampered_timing_or_array_is_invalid_instrument_sampled_or_not(self):
+        cases = _motion_cases()
+        unsampled = [c[0]["caseId"] for c in cases
+                     if c[0]["caseId"] + pp.MOTION_RECOMPUTE_ID_SUFFIX not in self._eval(cases).recompute_ids]
+        self.assertEqual(2, len(unsampled))
+        for change, want in (
+                (lambda doc: doc["motion"]["timing"].__setitem__("lagS", 1e-6), "timing:lagS"),
+                (lambda doc: doc["motion"]["timing"]["real"].__setitem__("t50", 1.6), "timing:real.t50"),
+                (lambda doc: doc["motion"]["timing"].__setitem__("flags", ["motion-snap"]), "timing:flags"),
+                (lambda doc: doc["motion"]["frames"][5].__setitem__("realProgress", 0.9), "timing:"),
+                (lambda doc: doc["motion"]["frames"][6].__setitem__("ghostProgress", 0.31), "frame 6: ghostProgress"),
+                (lambda doc: doc["motion"]["frames"][2]["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE),
+                 "frame 2: scout-render-disagree"),
+                (lambda doc: doc["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE), "case flag scout-render-disagree"),
+                (lambda doc: doc["motion"].pop("ghostClipS"), "motion: missing key(s) ghostClipS"),
+                (lambda doc: doc["motion"]["scout"]["progress"].pop(), "motion.scout: s and progress"),
+                (lambda doc: doc["motion"]["frames"][0]["views"][0].pop("matched"), "views[0]: missing key(s) matched")):
+            with self.subTest(want=want):
+                cid = unsampled[0]
+                res = self._eval(cases, mutate=lambda d: _rewrite(d, cid, change))
+                self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind, res.problems)
+                self.assertTrue(any(m.startswith(cid + " ") and want in m for m in res.recompute_mismatches),
+                                res.recompute_mismatches)
+
+    def test_scout_render_disagree_on_a_control_is_an_instrument_mismatch(self):
+        cid = pp.motion_normal_id(pp.CONTROL_MOTION_GHOST_SLOW)
+        res = self._eval(_motion_cases(), mutate=lambda d: _rewrite(
+            d, cid, lambda doc: doc["motion"]["frames"][3]["flags"].append(pp.FLAG_SCOUT_RENDER_DISAGREE)))
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+
+    def test_the_atlas_layout_is_checked(self):
+        cid = _motion_cases()[0][0]["caseId"]
+        for change, want in ((lambda doc: doc["motionAtlas"].__setitem__("rows", ["real:side-a"]), "motion atlas rows"),
+                             (lambda doc: doc["motionAtlas"].__setitem__("cols", [0, 1]), "motion atlas cols"),
+                             (lambda doc: doc["motionAtlas"].__setitem__("tile", 0), "unusable")):
+            with self.subTest(want=want):
+                res = self._eval(_motion_cases()[:1], mutate=lambda d: _rewrite(d, cid, change))
+                self.assertTrue(any(want in m for m in res.recompute_mismatches), res.recompute_mismatches)
+        res = self._eval(_motion_cases()[:1], read_png=None)
+        self.assertIn("no PNG reader: the recompute did not run", res.recompute_mismatches)
+
+    def test_a_missing_motion_atlas_or_block_is_incomplete(self):
+        cid = _motion_cases()[0][0]["caseId"]
+        res = self._eval(_motion_cases()[:1], mutate=lambda d: os.remove(
+            os.path.join(d, cid + pp.MOTION_ATLAS_SUFFIX)))
+        self.assertEqual(pp.INVALID_INCOMPLETE_SUBKIND, res.invalid_subkind)
+        self.assertIn("motion-atlas-missing", " ".join(res.completeness.problems))
+        res = self._eval(_motion_cases()[:1], mutate=lambda d: _rewrite(
+            d, cid, lambda doc: doc["motion"].__setitem__("frames", [])))
+        self.assertIn("no-motion-frames", " ".join(res.completeness.problems))
+
+    def test_the_press_gate_reads_the_motion_families(self):
+        cases = [_motion_fault("hinge%d--default--motion-swept--0000bbb%d" % (i, i), family="robotics")
+                 for i in range(2)] + [_motion_case("hinge9--default--motion-swept--0000bbb9", family="robotics",
+                                                    kind="servo", state="motion-swept")] + _motion_cases()[:1]
+        res = self._eval(cases)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_STATE_PRESS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertEqual((("deployable", 1, 0), ("robotics", 3, 2)), res.press.families)
+        # The family falls back to the motion block when neither the row nor the proof names it.
+        doc, tiles = _motion_case("x--default--motion-open--0000ccc1", family="cargo-bay", state="motion-open")
+        doc["stateProof"]["family"] = None
+        self.assertEqual((("cargo-bay", 1, 0),), self._eval([(doc, tiles)]).press.families)
+
+    def test_the_run_shape(self):
+        # A motion run plans only motion cases; a non-motion run plans none.
+        state_doc, state_masks = _state_case("ant--default--deployed--1")
+        d = self._dir()
+        _build_motion_sweep(d, _motion_cases()[:1])
+        _write_state_case(d, state_doc, state_masks)
+        with open(os.path.join(d, pp.MANIFEST_FILE), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        manifest["cases"].append({"caseId": state_doc["caseId"], "state": "deployed", "context": "alone",
+                                  "family": "deployable"})
+        problems = pp.motion_run_problems(manifest, _read_dir(d, "pp14").sidecars)
+        self.assertEqual(["ant--default--deployed--1 state=deployed is not a motion case in a motion=all run"],
+                         problems)
+        manifest["settings"]["motion"] = "none"
+        self.assertTrue(any("plan no motion" in p for p in pp.motion_run_problems(
+            manifest, _read_dir(d, "pp14").sidecars)))
+        res = self._eval(_motion_cases()[:1], mutate=lambda dd: _rewrite(
+            dd, _motion_cases()[0][0]["caseId"], lambda doc: doc["motion"].__setitem__("family", "gear")))
+        self.assertTrue(any("row family=deployable motion.family=gear" in m for m in res.recompute_mismatches))
+
+    def test_the_regression_gate_runs_over_a_motion_sweep(self):
+        # The shell always passes a GateInput; with no baseline section the report-only row
+        # stays REPORT and the gate's no-baseline red is recorded, not raised.
+        d = self._dir()
+        cases = _motion_cases() + [_motion_case("late--default--motion-deployed--0000aaa9", ghost=_ramp(1.5, 2.0))]
+        _build_motion_sweep(d, cases)
+        res = pp.evaluate_sweep(_read_dir(d, "pp14"), RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(d, n), pp.GateInput("stock-minimal", None))
+        self.assertEqual(pp.STATUS_REPORT, res.status, res.problems)
+        self.assertIsNotNone(res.gate)
+        json.dumps(pp.verdicts_document(res, RUN_ID), allow_nan=False)
+        pp.format_summary(pp.combine([res], False))
+        pp.detail_record(pp.combine([res], False))
+
+    def test_the_recompute_sample_is_seeded_and_two_percent(self):
+        cases = [_motion_case("p%02d--default--motion-deployed--0000%04d" % (i, i), frames=9,
+                              real=_ramp(0.25, 1.0)) for i in range(60)]
+        res = self._eval(cases)
+        sampled = sorted(c[:-len(pp.MOTION_RECOMPUTE_ID_SUFFIX)] for c in res.recompute_ids
+                         if c.endswith(pp.MOTION_RECOMPUTE_ID_SUFFIX) and not c.startswith("ctl-"))
+        self.assertEqual(pp.select_recompute_sample([c[0]["caseId"] for c in cases], RUN_ID), sampled)
+        self.assertEqual(2, len(sampled))
+
+
+class MotionWindowCompletenessTests(MotionSweepFixture):
+    """A motion case that fails the window rule (too few frames, a real part that never got
+    there, no same-time picture at its end) is not a record a verdict can stand on: the armed
+    sweep reads INVALID(incomplete), never PASS over an ``error`` case."""
+
+    def _hinge_without_pictures(self, keep_views):
+        cases = _motion_cases()
+        hinge = cases[2][0]
+        for f in hinge["motion"]["frames"]:
+            if keep_views:
+                for v in f["views"]:
+                    v["same"] = None
+                    v["matched"] = None
+            else:
+                f["views"] = []
+        return cases, hinge["caseId"]
+
+    def test_a_case_with_no_last_frame_pictures_is_incomplete(self):
+        for keep_views in (True, False):
+            cases, hinge_id = self._hinge_without_pictures(keep_views)
+            res = self._eval(cases, gating=True)
+            self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND),
+                             (res.status, res.invalid_subkind), keep_views)
+            self.assertIn(hinge_id + ":motion-last-frame-no-pictures", " ".join(res.problems))
+            verdict = {c.case_id: c for c in res.cases}[hinge_id]
+            self.assertEqual(pp.VERDICT_ERROR, verdict.verdict)
+            self.assertIn("motion:last-frame-no-pictures", verdict.reasons)
+
+    def test_too_few_frames_or_an_unreached_real_part_is_incomplete(self):
+        cases = [_motion_case("longantenna--default--motion-deployed--0000aaa1", frames=3),
+                 _motion_case("gearsmall--default--motion-deployed--0000aaa2", part="GearSmall",
+                              family="gear", module="ModuleWheelDeployment", real=_ramp(10.0, 2.0))]
+        res = self._eval(cases, gating=True)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        text = " ".join(res.problems)
+        self.assertIn("longantenna--default--motion-deployed--0000aaa1:motion-frames=3<5", text)
+        self.assertIn("gearsmall--default--motion-deployed--0000aaa2:motion-real-not-reached=", text)
+
+
+class MotionNoneToleranceTests(unittest.TestCase):
+    """A null progress value (the C# NaN a sidecar writes as null) is read as C# reads a NaN:
+    every comparison with it is false and arithmetic through it is not measured, so the flag
+    and shape helpers never raise on it (the M1 review: they raised TypeError while
+    motion_crossing tolerated it)."""
+
+    def test_snap_and_step_compare_a_null_false(self):
+        real = [0.0, 0.0, 0.3, 0.6, 0.95, 1.0]
+        self.assertTrue(pp.motion_snapped(real, [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        # A null on either side of the jump is no jump; a null real frame is neither low nor high.
+        self.assertFalse(pp.motion_snapped(real, [0.0, 0.0, 0.0, None, 0.95, 1.0]))
+        # The real's last frame under 0.1 is found past the nulls (C#: NaN < 0.1 is false).
+        self.assertTrue(pp.motion_snapped([0.0, None, None, None, 0.95, 1.0], [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        self.assertFalse(pp.motion_snapped([None, None, None, 0.05, 0.95, 1.0], [0.0, 0.0, 0.0, 0.05, 0.95, 1.0]))
+        self.assertFalse(pp.motion_snapped([None] * 6, [None] * 6))
+        steps = [0.0, 0.0, 0.3, 0.3, 0.6, 0.6, 1.0, 1.0]
+        real = [0.0, 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1.0]
+        self.assertTrue(pp.motion_stepped(real, steps))
+        self.assertFalse(pp.motion_stepped(real, [0.0, 0.0, 0.3, None, 0.6, 0.6, 1.0, 1.0]))
+        self.assertFalse(pp.motion_stepped([0.0, 0.1, 0.25, None, 0.55, 0.7, 0.85, 1.0], steps))
+        self.assertFalse(pp.motion_stepped([None] * 8, [None] * 8))
+
+    def test_the_shape_deviation_skips_a_null(self):
+        s = [0.0, 1.0, 2.0, 3.0]
+        self.assertAlmostEqual(0.25, pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [0.0, 0.5, 1.0, 1.0], 0.0))
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, [0.0, 0.5, None, 1.0], s, [0.0, 0.5, 1.0, 1.0], 0.0))
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [0.0, 0.5, None, 1.0], 0.0))
+        self.assertIsNone(pp.motion_shape_deviation(s, [0.0, 0.5, 0.75, 1.0], s, [None] * 4, 0.0))
+        self.assertIsNone(pp.motion_interpolate(s, [0.0, None, 1.0, 1.0], 0.5))
+        self.assertEqual(1.0, pp.motion_interpolate(s, [0.0, None, 1.0, 1.0], 2.5))
+        self.assertIsNone(pp.motion_interpolate(s, [0.0, 0.5, 1.0, 1.0], None))
+        # A null offset stops the scan with a span that is not positive: C# returns p[k].
+        self.assertEqual(0.5, pp.motion_interpolate([0.0, None, 2.0, 3.0], [0.0, 0.5, 1.0, 1.0], 0.5))
+
+    def test_the_timing_of_a_series_with_nulls_never_raises(self):
+        s = [round(0.25 * k, 10) for k in range(17)]
+        p = [_ramp(0.5, 2.0)(t) for t in s]
+        holed = list(p)
+        holed[5] = holed[9] = None
+        t = pp.motion_timing({"realS": s, "realProgress": holed, "scoutS": s, "scoutProgress": holed,
+                              "ghostSameProgress": holed, "realClock": None, "ghostClock": None,
+                              "transforms": [{"real": holed, "ghost": holed, "travelReal": 1.0,
+                                              "travelGhost": 1.0}]})
+        self.assertEqual([], t["flags"])
+        # The crossing whose bracket holds the null is not measured on either side, and the
+        # measures that read it are not measured either.
+        self.assertIsNone(t["real"]["t50"])
+        self.assertEqual((None, None, None), (t["lagS"], t["curveShapeDev"], t["staggerDev"]))
+        self.assertIsNone(t["durationRatio"])
+        self.assertEqual(0.0, pp.motion_shape_deviation(s, holed, s, holed, 0.0))
+
+
+class MotionSourceSyncTests(unittest.TestCase):
+    """The M4 literals mirrored from the C# side, and the control judges' code shape."""
+
+    @staticmethod
+    def _source(name):
+        with open(os.path.join(CS_DIR, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_real_vs_real_colour_allowance(self):
+        text = self._source("PartParitySweepPlan.cs")
+        self.assertIn("internal const int RealVsRealColorNoisePx = %d;" % pp.REAL_VS_REAL_COLOR_NOISE_PX, text)
+        self.assertIn("m.RealOnlyPx == 0 && m.GhostOnlyPx == 0 && m.ColorOverPx <= RealVsRealColorNoisePx", text)
+
+    def test_the_control_judges_are_the_csharp_ones(self):
+        text = self._source("PartParityMotionRules.cs")
+        for line in (
+                "double lagAllowed = Math.Max(frameIntervalS, RealVsRealLagMotionFraction * predictedS);",
+                "if (double.IsNaN(t.LagS) || Math.Abs(t.LagS) > lagAllowed) why.Add(\"lagS=\" + Num(t.LagS));",
+                "if (double.IsNaN(t.DurationRatio) || Math.Abs(t.DurationRatio - 1.0) > RealVsRealDurationTolerance)",
+                "if (!double.IsNaN(t.CurveShapeDev) && t.CurveShapeDev > RealVsRealCurveShapeMax)",
+                "if (!endFramesWithinAllowance) why.Add(\"end frames differ\");",
+                "double ratio = Ratio(slow.DurationRatio, normal.DurationRatio);",
+                "if (double.IsNaN(ratio) || ratio < SlowRatioMin || ratio > SlowRatioMax) why.Add(\"ratio=\" + Num(ratio));",
+                "double onset = Diff(slow.OnsetLagS, normal.OnsetLagS);",
+                "if (double.IsNaN(onset) || Math.Abs(onset) > frameIntervalS) why.Add(\"onset=\" + Num(onset));",
+                "if (!DurationFails(slow.DurationRatio)) why.Add(\"slow route does not fail on duration\");",
+                "if (!slowLastFramePasses) why.Add(\"slow last frame fails the end-state rules\");",
+                "double shift = Diff(late.LagS, normal.LagS);",
+                "if (double.IsNaN(shift) || shift < LateLagMin || shift > LateLagMax) why.Add(\"lag shift=\" + Num(shift));",
+                "double dr = Diff(late.DurationRatio, normal.DurationRatio);",
+                "if (double.IsNaN(dr) || Math.Abs(dr) > LateDurationTolerance) why.Add(\"durationRatio change=\" + Num(dr));",
+                "private static string Num(double v) => double.IsNaN(v) ? \"nan\" : v.ToString(\"0.###\", Ic);",
+                "detail = \"setup \" + (setupStatus ?? \"<none>\");",
+                "detail = why.Count == 0 ? null : string.Join(\"; \", why.ToArray());"):
+            with self.subTest(line=line):
+                self.assertIn(line, text)
+
+    def test_the_nan_comparisons_the_none_tolerance_mirrors(self):
+        text = self._source("PartParityMotionRules.cs")
+        self.assertIn("if (!(realP[k] > ShapeBandLow && realP[k] < ShapeBandHigh)) continue;", text)
+        self.assertIn("for (int k = 0; k < realP.Count; k++) if (realP[k] > SnapHigh) { high = k; break; }", text)
+        self.assertIn("for (int k = high - 1; k >= 0; k--) if (realP[k] < SnapLow) { low = k; break; }", text)
+        self.assertIn("if (ghostP[k] < SnapLow && ghostP[k + 1] > SnapHigh) return true;", text)
+        self.assertIn("bool still = Math.Abs(ghostP[k + 1] - ghostP[k]) <= StepStillEpsilon", text)
+        self.assertIn("if (double.IsNaN(worst) || d > worst) worst = d;", text)
+        self.assertIn("if (at > s[k]) continue;", text)
+        self.assertIn("return span > 0.0 ? p[k - 1] + (at - s[k - 1]) * (p[k] - p[k - 1]) / span : p[k];", text)
+
+
+# ---------------------------------------------------------------------------
+# P9 X3: the burst measures' Python transcription against the committed C# fixture
+# (Source/Parsek.Tests/Fixtures/PartParity/burst/, PartParityBurstFixture).
+# ---------------------------------------------------------------------------
+
+BURST_FIXTURE = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "Fixtures", "PartParity", "burst",
+                             "burstfixturepart--default--explode--air--ddae84c8")
+
+
+def _burst_fixture():
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        return json.load(fh), gui_mirror.read_png(BURST_FIXTURE + pp.BURST_ATLAS_SUFFIX)
+
+
+class BurstMeasureTests(unittest.TestCase):
+    """The Python transcription of PartParityBurstMetrics (design G.3) against the committed
+    C# fixture: every bin measure, side summary, comparison, split-half comparison and the
+    schedule diff recomputes; every tampered number and a mutated pixel are mismatches."""
+
+    def test_the_c_sharp_fixture_recomputes(self):
+        side, atlas = _burst_fixture()
+        self.assertEqual([], pp.recompute_burst_case(side, atlas))
+        burst = side["burst"]
+        self.assertEqual(6, len(burst["views"]))
+        self.assertEqual([8] * 16, burst["samples"]["real"])
+        self.assertEqual(pp.BURST_KEYS, tuple(burst))
+        self.assertIsNone(side["fx"])
+
+    def test_every_value_of_the_fixture_is_bit_identical(self):
+        side, (w, _h, _bpp, px) = _burst_fixture()
+        burst = side["burst"]
+        meta, n_of = burst["atlas"], burst["samples"]["real"]
+        tile, bins, rows, views = meta["tile"], meta["bins"], meta["rows"], meta["views"]
+        checked = 0
+        for e in burst["views"]:
+            sides = {}
+            for name in pp.BURST_SIDE_KEYS:
+                y = rows.index("%s-%s" % (name, e["layer"])) * tile
+                measured = []
+                for b in range(bins):
+                    m, problems = pp.burst_measure_bin(px, w, (views.index(e["view"]) * bins + b) * tile, y,
+                                                       tile, n_of[b], e["source"]["%sPx" % name])
+                    self.assertEqual([], problems)
+                    for key in pp.BURST_BIN_MEASURE_KEYS:
+                        self.assertEqual(e[name]["bins"][b][key], m[key], (e["view"], e["layer"], name, b, key))
+                        checked += 1
+                    measured.append(m)
+                sides[name] = pp.burst_measure_side(measured)
+                for key in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx"):
+                    self.assertEqual(e[name][key], sides[name][key])
+                    checked += 1
+            got = pp.burst_compare(sides["real"], sides["ghost"], e["source"], e["layer"])
+            for key in pp.BURST_COMPARE_KEYS:
+                self.assertEqual(e["compare"][key], got[key], (e["view"], e["layer"], key))
+                checked += 1
+        self.assertEqual(6 * 2 * 16 * 9 + 6 * 2 * 4 + 6 * 12, checked)
+
+    def test_the_failing_measures_are_the_c_sharp_ones(self):
+        # PartParityBurstMetricsTests.Fixture_ExercisesEveryMeasureItClaims, from the sidecar.
+        side, _ = _burst_fixture()
+        want = {("burst-side", "flame"): ["onset"], ("burst-side", "smoke"): [],
+                ("burst-top", "flame"): ["centroid-offset"], ("burst-top", "smoke"): ["smoke"],
+                ("burst-far", "flame"): ["colour"], ("burst-far", "smoke"): ["smoke"]}
+        for e in side["burst"]["views"]:
+            got = pp.burst_failing_measures(e["layer"], e["real"], e["ghost"], e["compare"])
+            self.assertEqual(want[(e["view"], e["layer"])], got, (e["view"], e["layer"]))
+        sc = pp.burst_schedule_compare(side["burst"]["schedule"]["real"], side["burst"]["schedule"]["ghost"])
+        self.assertEqual("warn", sc["level"])
+        self.assertTrue(sc["powerDiffers"])
+        self.assertEqual("smoke-missing", next(e for e in side["burst"]["views"]
+                                               if (e["view"], e["layer"]) == ("burst-top", "smoke"))["compare"]["presence"])
+
+    def test_every_tampered_fixture_number_is_a_mismatch(self):
+        side, atlas = _burst_fixture()
+        targets = [("bins", k) for k in pp.BURST_BIN_MEASURE_KEYS] \
+            + [("side", k) for k in ("onsetBin", "peakBin", "lastCoreBin", "peakCorePx")] \
+            + [("compare", k) for k in pp.BURST_COMPARE_KEYS if k != "presence"]
+        for block, key in targets:
+            with self.subTest(block=block, key=key):
+                bad = copy.deepcopy(side)
+                if block == "bins":
+                    holder = next(b for e in bad["burst"]["views"] for b in e["real"]["bins"]
+                                  if b[key] is not None)
+                elif block == "side":
+                    holder = next(e["real"] for e in bad["burst"]["views"] if e["real"][key] is not None)
+                else:
+                    holder = next(e["compare"] for e in bad["burst"]["views"] if e["compare"][key] is not None)
+                value = holder[key]
+                if isinstance(value, list):
+                    value[-1] += 0.001
+                else:
+                    holder[key] = value + (1 if key in pp.BURST_EXACT_KEYS or block == "side" else 1e-6)
+                diffs = pp.recompute_burst_case(bad, atlas)
+                self.assertGreaterEqual(len(diffs), 1, diffs)
+                self.assertTrue(any(key in d for d in diffs), diffs)
+        # A presence reason and a schedule fact.
+        bad = copy.deepcopy(side)
+        bad["burst"]["views"][3]["compare"]["presence"] = None
+        self.assertTrue(any("compare.presence" in d for d in pp.recompute_burst_case(bad, atlas)))
+        bad = copy.deepcopy(side)
+        bad["burst"]["scheduleCompare"]["powerDiffers"] = False
+        self.assertEqual(["scheduleCompare.powerDiffers:False!=True"], pp.recompute_burst_case(bad, atlas))
+
+    def test_a_split_half_number_is_rechecked(self):
+        side, atlas = _burst_fixture()
+        side["burst"]["views"][0]["splitHalf"]["even"]["compare"]["peakAreaRatio"] += 1e-6
+        diffs = pp.recompute_burst_case(side, atlas)
+        self.assertEqual(1, len(diffs), diffs)
+        self.assertIn("splitHalf.even.compare.peakAreaRatio", diffs[0])
+
+    def test_a_mutated_atlas_pixel_is_a_mismatch(self):
+        side, (w, h, bpp, px) = _burst_fixture()
+        tile, bins = side["burst"]["atlas"]["tile"], side["burst"]["atlas"]["bins"]
+        mutated = bytearray(px)
+        # The real flame of burst-side, bin 6, its centre pixel: drop it from the envelope.
+        x, y = 6 * tile + tile // 2, tile // 2
+        i = (y * w + x) * 4
+        self.assertGreater(mutated[i + 3], 0)
+        mutated[i:i + 4] = b"\0\0\0\0"
+        diffs = pp.recompute_burst_case(side, (w, h, bpp, bytes(mutated)))
+        self.assertTrue(any("burst-side:flame.real.bins[6].envelopePx" in d for d in diffs), diffs[:5])
+        # An alpha no sample count writes.
+        mutated = bytearray(px)
+        mutated[i + 3] = 1
+        self.assertTrue(any("is no count of 8 samples" in d for d in pp.recompute_burst_case(side, (w, h, bpp, bytes(mutated)))))
+
+    def test_the_layout_is_checked(self):
+        side, (w, h, bpp, px) = _burst_fixture()
+        self.assertIn("burst atlas is", pp.recompute_burst_case(side, (w - 48, h, bpp, px))[0])
+        bad = copy.deepcopy(side)
+        bad["burst"]["atlas"]["rows"] = ["real-flame"]
+        self.assertIn("rows=", pp.recompute_burst_case(bad, (w, h, bpp, px))[0])
+
+    def test_the_c_sharp_measures_hold_no_constant_of_their_own(self):
+        # Every constant is PartParityFxRules' (design G.7 X3), so the transcription reads
+        # BURST_THRESHOLDS / FX_* and no number of its own.
+        path = os.path.join(CS_DIR, "PartParityBurstMetrics.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            text = _strip_cs_comments(fh.read())
+        self.assertNotIn("const ", text)
+        self.assertNotIn("static readonly", text)
+        for literal in ("0.95", "0.6", "1.6", "0.3", "64", "256", "0.0001"):
+            self.assertNotRegex(text, r"(?<![\w.])%s(?![\w.])" % re.escape(literal), literal)
+        self.assertIn("PartParityMetrics.NearestRankPercentile(distances, PartParityFxRules.BurstRadiusPercentile)", text)
+        self.assertIn("if (real.PeakCorePx >= min && ghost.PeakCorePx == 0)", text)
+        self.assertIn("(double)(ghost.LastCoreBin.Value - real.LastCoreBin.Value) / (real.LastCoreBin.Value + 1)", text)
+
+    def test_the_schedule_and_presence_rules_on_their_own(self):
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        self.assertEqual("ok", pp.burst_schedule_compare([blast], [dict(blast, offsetM=[0.9, 0, 0])])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [dict(blast, index=0)])["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare([blast], [dict(blast, offsetM=[3.0, 0, 0])])["level"])
+        self.assertEqual("warn", pp.burst_schedule_compare([blast], [dict(blast, power=0.6)])["level"])
+        side = lambda core: {"peakCorePx": core}
+        self.assertEqual("burst-missing", pp.burst_presence_reason("flame", side(64), side(0)))
+        self.assertEqual("burst-extra", pp.burst_presence_reason("flame", side(0), side(64)))
+        self.assertIsNone(pp.burst_presence_reason("flame", side(63), side(0)))
+        self.assertIsNone(pp.burst_presence_reason("smoke", side(255), side(0)))
+        self.assertEqual("smoke-missing", pp.burst_presence_reason("smoke", side(256), side(0)))
+
+
+def _hand_side(cores, chroma=None):
+    """Per-bin cores (envelope = core) and chromaticities (None: undefined), as
+    PartParityBurstMetricsTests.HandSide builds them."""
+    return pp.burst_measure_side([{"corePx": c, "envelopePx": c,
+                                   "chromaticity": None if chroma is None else chroma[b]}
+                                  for b, c in enumerate(cores)])
+
+
+def _hand_failing(layer, real, ghost, real_chroma=None, ghost_chroma=None):
+    r, g = _hand_side(real, real_chroma), _hand_side(ghost, ghost_chroma)
+    return pp.burst_failing_measures(layer, r, g, pp.burst_compare(r, g, None, layer))
+
+
+class BurstFailLineTests(unittest.TestCase):
+    """The fail lines no fixture entry reaches, on the hand-built measures of
+    PartParityBurstMetricsTests.TheFailLines_OnHandBuiltMeasures_AreTheOnesThePythonTwinPins
+    (same inputs, same failing lists), and the schedule's boundary cases of
+    TheSchedule_PositionLineIsStrict_AndPowerIsReadInsideOneIndexOnly."""
+
+    def test_duration_fails_past_its_line_and_warns_inside_it(self):
+        real = [0, 100, 200, 300, 200, 150, 100, 50]
+        self.assertEqual(["duration"], _hand_failing("flame", real, [0, 100, 200, 300, 0, 0, 0, 0]))
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 200, 300, 200, 0, 0, 0]))
+
+    def test_peak_time_fails_past_its_line_and_warns_on_it(self):
+        real = [0, 100, 300, 200, 200, 200, 100, 50]
+        self.assertEqual(["peak-time"], _hand_failing("flame", real, [0, 100, 200, 200, 200, 300, 100, 50]))
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 200, 200, 300, 200, 100, 50]))
+
+    def test_a_peak_tie_is_the_earliest_bin(self):
+        real = [0, 100, 300, 200, 200, 300, 100, 50]
+        self.assertEqual(2, _hand_side(real)["peakBin"])
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 300, 200, 200, 200, 100, 50]))
+
+    def test_the_weak_core_boundary(self):
+        low = pp.FX_PRESENCE_MIN_PX
+        self.assertEqual([], _hand_failing("flame", [0, 0, low - 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, low - 1, 0, 0, 0]))
+        self.assertEqual(["onset", "duration"],
+                         _hand_failing("flame", [0, 0, low, 0, 0, 0, 0, 0], [0, 0, 0, 0, low - 1, 0, 0, 0]))
+        self.assertEqual(["onset", "duration"],
+                         _hand_failing("flame", [0, 0, low - 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, low, 0, 0, 0]))
+
+    def test_the_smoke_peak_area_under_the_weak_core_rule(self):
+        low = pp.FX_PRESENCE_MIN_PX
+        ghost = [0, 0, 15, 18, 15, 0, 0, 0]
+        self.assertEqual([], _hand_failing("smoke", [0, 0, 50, low - 1, 50, 0, 0, 0], ghost))
+        self.assertEqual(["smoke"], _hand_failing("smoke", [0, 0, 50, low, 50, 0, 0, 0], ghost))
+
+    def test_a_colour_wrong_off_the_peak_bin_fails_on_the_mean(self):
+        same, other = [0.5, 0.3], [0.3, 0.5]
+        real_chroma = [None, same, same, same, same, same, None, None]
+        ghost_chroma = [None, other, other, same, other, other, None, None]
+        cores = [0, 100, 200, 300, 200, 100, 0, 0]
+        self.assertEqual(["colour"], _hand_failing("flame", cores, cores, real_chroma, ghost_chroma))
+        r, g = _hand_side(cores, real_chroma), _hand_side(cores, ghost_chroma)
+        c = pp.burst_compare(r, g, None, "flame")
+        self.assertEqual(0.0, c["chromaDistance"])
+        self.assertGreater(c["chromaDistanceMean"], pp.FX_THRESHOLDS["chromaFail"])
+
+    def test_the_schedule_position_line_is_strict(self):
+        tol = pp.BURST_THRESHOLDS["burstSchedulePositionToleranceM"]
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        s = pp.burst_schedule_compare([blast], [dict(blast, offsetM=[tol, 0.0, 0.0])])
+        self.assertEqual(tol, s["maxOffsetDeltaM"])
+        self.assertEqual("ok", s["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare(
+            [blast], [dict(blast, offsetM=[tol + 0.001, 0.0, 0.0])])["level"])
+
+    def test_power_is_read_inside_one_index_only(self):
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        s = pp.burst_schedule_compare([blast], [dict(blast, index=2, power=0.6)])
+        self.assertEqual("fail", s["level"])
+        self.assertTrue(s["indexDiffers"])
+        self.assertFalse(s["powerDiffers"])
+        s = pp.burst_schedule_compare([blast], [dict(blast, power=0.6, offsetM=[3.0, 0.0, 0.0])])
+        self.assertEqual("fail", s["level"])
+        self.assertFalse(s["indexDiffers"])
+        self.assertTrue(s["powerDiffers"])
+
+
+# ---------------------------------------------------------------------------
+# P9 X5: the burst and dust judge over synthetic sweeps. A burst case is built in the row
+# shape X1 / X3 fixed (the C# fixture's top level, a burst block whose every bin is measured
+# from its own atlas tile by the X3 transcription); a dust case in E.4's entry shape over the
+# dust views (design G.7 "X5 as built").
+# ---------------------------------------------------------------------------
+
+BTILE, BN, BBINS = 32, 8, 16
+BURST_SRC = {"realPx": [16.0, 16.0], "ghostPx": [16.0, 16.0], "diameterPx": 10.0}
+FLAME_R = (0, 5, 7, 9, 10, 10, 9, 8, 7, 6, 5, 0, 0, 0, 0, 0)
+SMOKE_R = (0, 0, 8, 10, 12, 13, 13, 12, 11, 10, 9, 8, 0, 0, 0, 0)
+HUE = (60, 90, 200)
+
+
+def _bspec(layer, radii=None, dx=0, rgb=None, scale=1.0, late=0, cut=None):
+    """One side's per-bin discs of a layer: radii (``late`` bins later, ``cut`` blank from
+    that bin on, each radius times ``scale``), the centre ``dx`` px right of the source."""
+    radii = list(radii or (FLAME_R if layer == "flame" else SMOKE_R))
+    radii = ([0] * late + radii)[:BBINS]
+    if cut is not None:
+        radii = radii[:cut] + [0] * (BBINS - cut)
+    return {"r": tuple(int(round(r * scale)) for r in radii), "dx": dx,
+            "rgb": rgb or (ORANGE if layer == "flame" else GREY)}
+
+
+BLANK_SPEC = {"r": (0,) * BBINS, "dx": 0, "rgb": ORANGE}
+_BURST_TILES = {}
+_BURST_BINS = {}
+
+
+def _burst_disc(radius, dx, rgb):
+    key = (radius, dx, rgb)
+    if key not in _BURST_TILES:
+        out = bytearray(BTILE * BTILE * 4)
+        cx, cy = 16 + dx, 16
+        for y in range(BTILE):
+            for x in range(BTILE):
+                if radius and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= radius * radius:
+                    i = (y * BTILE + x) * 4
+                    out[i:i + 4] = bytes(rgb) + bytes([pp.fx_tile_alpha(BN, BN)])
+        _BURST_TILES[key] = bytes(out)
+    return _BURST_TILES[key]
+
+
+def _burst_tiles(spec):
+    return [_burst_disc(r, spec["dx"], spec["rgb"]) for r in spec["r"]]
+
+
+def _burst_side(tiles, source):
+    out = []
+    for t in tiles:
+        key = (t, tuple(source))
+        if key not in _BURST_BINS:
+            m, problems = pp.burst_measure_bin(t, BTILE, 0, 0, BTILE, BN, source)
+            assert not problems, problems
+            _BURST_BINS[key] = m
+        out.append(copy.deepcopy(_BURST_BINS[key]))
+    return pp.burst_measure_side(out)
+
+
+def _burst_half(trials, real_tiles, ghost_tiles, layer):
+    r = _burst_side(real_tiles, BURST_SRC["realPx"])
+    g = _burst_side(ghost_tiles, BURST_SRC["ghostPx"])
+    return {"trials": trials, "samples": [BN // 2] * len(real_tiles), "real": r, "ghost": g,
+            "compare": pp.burst_compare(r, g, BURST_SRC, layer)}
+
+
+def _burst_entry(view, layer, real, ghost, odd_ghost=None):
+    rt, gt = _burst_tiles(real), _burst_tiles(ghost)
+    whole = _burst_half(None, rt, gt, layer)
+    even = _burst_half([1, 3], rt, gt, layer)
+    odd = _burst_half([2, 4], rt, _burst_tiles(odd_ghost) if odd_ghost else gt, layer)
+    doc = {"view": view, "layer": layer, "width": BTILE, "height": BTILE, "source": BURST_SRC,
+           "real": whole["real"], "ghost": whole["ghost"], "compare": whole["compare"],
+           "splitHalf": {"even": even, "odd": odd}}
+    return json.loads(json.dumps(doc))
+
+
+def _blast(index=1, power=0.5, offset=(0.0, 0.0, 0.0)):
+    return {"frame": 12, "t": 0.0, "offsetM": list(offset), "power": power,
+            "prefab": "fx-explosion-%d" % index, "index": index}
+
+
+def _burst_case(case_id="fueltank--default--explode--air--0000c0de", ghost=None, real=None,
+                family="explode", state="explode", context="air", part="fuelTank",
+                schedule=None, structure=True, trigger=True, status="ok", views=None, odd=None):
+    """(sidecar, {(row, view): [tile per bin]}) of one burst case. ``real`` / ``ghost`` are
+    {layer: spec} (default: the real burst, the ghost the real one with its layers replaced);
+    ``views`` {(view, layer): ghost spec} overrides one entry; ``odd`` {(view, layer): spec}
+    the odd trial half's ghost."""
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    real = dict({layer: _bspec(layer) for layer in pp.BURST_LAYERS}, **(real or {}))
+    ghost = dict(real, **(ghost or {}))
+    views = views or {}
+    odd = odd or {}
+    doc.update({"caseId": case_id, "part": part, "title": part, "source": "Squad",
+                "state": state, "context": context, "setup": {"status": status, "detail": None}})
+    window = pp.burst_window_for(family)
+    bins = pp.burst_bin_count(window)
+    cut = lambda spec: dict(spec, r=tuple(spec["r"][:bins]))  # noqa: E731
+    real, ghost = {k: cut(v) for k, v in real.items()}, {k: cut(v) for k, v in ghost.items()}
+    views, odd = {k: cut(v) for k, v in views.items()}, {k: cut(v) for k, v in odd.items()}
+    blocks = schedule if schedule is not None else ([_blast()], [_blast()])
+    sc = pp.burst_schedule_compare(*blocks)
+    entries, tiles = [], {}
+    for view in pp.BURST_VIEWS:
+        for layer in pp.BURST_LAYERS:
+            g = views.get((view, layer), ghost[layer])
+            entries.append(_burst_entry(view, layer, real[layer], g, odd.get((view, layer))))
+            tiles[("real-" + layer, view)] = _burst_tiles(real[layer])
+            tiles[("ghost-" + layer, view)] = _burst_tiles(g)
+    doc["burst"] = {
+        "family": family, "module": None, "moduleIndex": None, "potential": 0.5, "stackSize": None,
+        "standIn": "custom" if family == "burst-custom" else None, "lengthM": None, "fxGroup": None,
+        "windowS": window, "binS": pp.BURST_BIN_S, "bins": bins, "trials": pp.BURST_TRIALS,
+        "samples": {"real": [BN] * bins, "ghost": [BN] * bins},
+        "trigger": {"frame": 12, "ut": 100.5, "realTagged": 3, "ghostTagged": 3,
+                    "ghostEvent": "Destroyed"} if trigger else None,
+        "schedule": {"real": blocks[0], "ghost": blocks[1]},
+        "scheduleCompare": {k: sc[k] for k in pp.BURST_SCHEDULE_COMPARE_KEYS},
+        "atlas": {"file": case_id + pp.BURST_ATLAS_SUFFIX, "rows": list(pp.BURST_ATLAS_ROWS),
+                  "views": list(pp.BURST_VIEWS), "bins": bins, "tile": BTILE},
+        "views": entries,
+        "structure": {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [],
+                      "lightsDiffer": []} if structure is True else structure,
+    }
+    return json.loads(json.dumps(doc)), tiles
+
+
+def _burst_atlas(doc, tiles):
+    meta = doc["burst"]["atlas"]
+    views, bins = meta["views"], meta["bins"]
+    width = len(views) * bins * BTILE
+    out = bytearray()
+    for row in meta["rows"]:
+        for y in range(BTILE):
+            for v in views:
+                for t in tiles[(row, v)]:
+                    out += t[y * BTILE * 4:(y + 1) * BTILE * 4]
+    return width, len(meta["rows"]) * BTILE, 4, bytes(out)
+
+
+BROKEN_BURSTS = {
+    # name: (ghost {layer: spec}, the measures the flame entries fail, the smoke entries fail)
+    "intact": ({}, [], []),
+    "late": ({"flame": _bspec("flame", late=2), "smoke": _bspec("smoke", late=2)}, ["onset"], []),
+    "peak-late": ({"flame": _bspec("flame", radii=(0, 5, 6, 7, 8, 9, 9, 10, 8, 6, 5, 0, 0, 0, 0, 0))},
+                  ["peak-time"], []),
+    "cut": ({"flame": _bspec("flame", cut=6)}, ["duration"], []),
+    "small": ({"flame": _bspec("flame", scale=0.7), "smoke": _bspec("smoke", scale=0.7)},
+              ["peak-area"], ["smoke"]),
+    "big": ({"flame": _bspec("flame", scale=1.3)}, ["peak-area"], []),
+    "shifted": ({"flame": _bspec("flame", dx=4)}, ["centroid-offset"], []),
+    "hue": ({"flame": _bspec("flame", rgb=HUE)}, ["colour"], []),
+    "missing": ({"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, ["presence"], ["smoke"]),
+}
+
+
+def _burst_control(cid):
+    """(sidecar, tiles) of one burst control whose evidence meets its requirement."""
+    flame = lambda **kw: {"flame": _bspec("flame", **kw)}  # noqa: E731
+    if cid == "ctl-burst-empty":
+        return _burst_case(cid, real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                           schedule=([], []))
+    if cid == "ctl-burst-off":
+        return _burst_case(cid, ghost={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                           schedule=([_blast()], []))
+    if cid == "ctl-burst-power":
+        return _burst_case(cid, ghost=flame(scale=1.4), schedule=([_blast()], [_blast(2, 1.0)]))
+    ghost = {"ctl-burst-late": flame(late=2), "ctl-burst-shift": flame(dx=4),
+             "ctl-burst-hue": flame(rgb=HUE)}.get(cid, {})
+    return _burst_case(cid, ghost=ghost)
+
+
+def _write_p9_case(label_dir, doc, tiles):
+    if doc.get("burst") is not None:
+        atlas, name = _burst_atlas(doc, tiles), doc["burst"]["atlas"]["file"]
+    else:
+        atlas, name = _dust_atlas(doc, tiles), doc["dust"]["atlas"]["file"]
+    with open(os.path.join(label_dir, name), "wb") as fh:
+        fh.write(gui_mirror.write_png(*atlas))
+    with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _build_p9_sweep(label_dir, cases, settings, controls=None, outcomes=None, label="pp9"):
+    """A COMPLETE burst or dust sweep: every control of the run's set (``controls`` overrides
+    one; an ``n/a`` control writes no sidecar) and ``cases``, a list of (sidecar, tiles)."""
+    os.makedirs(label_dir, exist_ok=True)
+    settings = dict(settings)
+    ids = pp.control_set(settings)
+    settings.setdefault("controlSet", ",".join(ids))
+    outcomes = dict(outcomes or {})
+    make = _dust_control if pp.is_dust_run(settings) else _burst_control
+    for cid in ids:
+        if outcomes.get(cid) != pp.CONTROLS_NOT_APPLICABLE:
+            _write_p9_case(label_dir, *((controls or {}).get(cid) or make(cid)))
+    rows = []
+    for i, (doc, tiles) in enumerate(cases):
+        _write_p9_case(label_dir, doc, tiles)
+        block = doc.get("burst") or doc.get("dust") or {}
+        rows.append({"index": i, "caseId": doc["caseId"], "part": doc["part"], "title": doc["part"],
+                     "source": "Squad", "skin": "default", "state": doc["state"],
+                     "context": doc["context"], "sidecar": doc["caseId"] + pp.SIDECAR_SUFFIX,
+                     "setupStatus": doc["setup"]["status"], "maxShapeBlobPx": 0,
+                     "maxColorBlobPx": 0, "minIou": 1, "missingRendered": 0, "extraRendered": 0,
+                     "family": block.get("family"), "actionResult": None, "reached": None})
+    manifest = {
+        "schema": pp.MANIFEST_SCHEMA, "label": label, "profile": "stock-minimal",
+        "gameDataMods": ["Parsek", "Squad"], "dllHash": "0" * 64, "tile": STILE,
+        "views": list(fx.VIEWS), "measure": {}, "settings": settings,
+        "controls": [{"id": c, "subject": "s", "required": "r", "outcome": outcomes.get(c, "ok"),
+                      "detail": ""} for c in ids],
+        "cases": rows, "exclusions": [],
+        "progress": {"complete": True, "cases": len(rows), "completeCases": len(rows),
+                     "setupFaults": 0, "controls": "ok", "crashed": []},
+    }
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+BURST_SETTINGS = {"fx": "explode", "states": "none", "contexts": "air"}
+DUST_SETTINGS = {"fx": "dust", "states": "none", "contexts": "ground"}
+
+
+def _judge_p9_dir(label_dir, gating=False, read_png=gui_mirror.read_png, label="pp9"):
+    return pp.evaluate_sweep(_read_dir(label_dir, label), RUN_ID, gating, read_png,
+                             lambda n: os.path.join(label_dir, n))
+
+
+def _burst_cases(n=3, **kw):
+    return [_burst_case("fueltank%d--default--explode--air--0000c0d%d" % (i, i), **kw) for i in range(n)]
+
+
+# ----- the synthetic dust case -----
+
+DUST_REAL = {"dust": (_plume(y0=14, width=20, rgb=GREY), _disc(14, rgb=GREY)),
+             "flame": (_plume(), _disc())}
+NO_DUST = {"dust": FX_DARK, "flame": DUST_REAL["flame"]}
+
+
+def _dust_tile_of(table, layer, view):
+    side, top = table[layer]
+    return top if view == pp.DUST_AXIS_VIEW else side
+
+
+def _dust_raycast(hits=4, surface="terrain"):
+    sample = {"hit": hits > 0, "surface": surface, "distanceM": 10.0 if hits else None,
+              "scaledFx": 0.64 if hits else 0.0}
+    return {"surface": surface, "hits": hits, "misses": 0 if hits else 4,
+            "distanceM": 10.0 if hits else None, "scaledFx": 0.64 if hits else 0.0,
+            "pointM": [0.0, -10.0, 0.0] if hits else None, "normal": [0.0, 1.0, 0.0] if hits else None,
+            "samples": [dict(sample) for _ in range(4)]}
+
+
+def _dust_case(case_id="liquidengine2.v2--default--dust-low--ground--0000d057", ghost=None, real=None,
+               raycast=None, status="ok", state="dust-low", structure=True):
+    """(sidecar, {(row, view): tile}) of one dust case: E.4's entries over the dust views (the
+    dust and the flame layer, the event route), ``ghost`` the real tables with layers replaced."""
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    real = dict(DUST_REAL, **(real or {}))
+    ghost = dict(real, **(ghost or {}))
+    doc.update({"caseId": case_id, "part": "liquidEngine2.v2", "title": "LV-T45", "source": "Squad",
+                "state": state, "context": pp.CONTEXT_GROUND, "setup": {"status": status, "detail": None},
+                "burst": None})
+    entries = [_fx_entry(pp.P9_ROUTE, v, layer, _dust_tile_of(real, layer, v), _dust_tile_of(ghost, layer, v))
+               for _r, v, layer in pp.dust_expected_entries()]
+    tiles = {(side + "-" + layer, v): _dust_tile_of(real if side == "real" else ghost, layer, v)
+             for side in ("real", "ghost") for layer in pp.DUST_LAYERS for v in pp.DUST_VIEWS}
+    doc["dust"] = {
+        "family": "dust", "module": "ModuleSurfaceFX", "moduleIndex": 1,
+        "engineModule": "ModuleEnginesFX", "engineModuleIndex": 0, "surface": "terrain",
+        "slotFraction": 0.2, "heightM": 10.0, "maxDistanceM": 50.0, "falloff": 2.0, "fxMax": 1.0,
+        "throttle": 1.0, "drive": "throttle", "warmupS": 2.0,
+        "plateau": {"real": {"settled": True}, "ghost": {"settled": True}}, "hold": 1.0,
+        "samples": FN, "raycast": raycast or _dust_raycast(), "framing": {"clamped": False},
+        "layers": list(pp.DUST_LAYERS),
+        "atlas": {"file": case_id + pp.DUST_ATLAS_SUFFIX, "rows": list(pp.DUST_ATLAS_ROWS),
+                  "cols": list(pp.DUST_VIEWS), "tile": FTILE},
+        "views": entries,
+        "structure": {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [],
+                      "lightsDiffer": []} if structure is True else structure,
+    }
+    return json.loads(json.dumps(doc)), tiles
+
+
+def _dust_atlas(doc, tiles):
+    meta = doc["dust"]["atlas"]
+    rows, cols = meta["rows"], meta["cols"]
+    out = bytearray()
+    for row in rows:
+        for y in range(FTILE):
+            for v in cols:
+                out += tiles[(row, v)][y * FTILE * 4:(y + 1) * FTILE * 4]
+    return len(cols) * FTILE, len(rows) * FTILE, 4, bytes(out)
+
+
+def _dust_control(cid):
+    if cid == "ctl-dust-off":
+        return _dust_case(cid, ghost={"dust": FX_DARK})
+    if cid == "ctl-dust-above-reach":
+        return _dust_case(cid, real={"dust": FX_DARK}, raycast=_dust_raycast(0, "none"),
+                          state="dust-high")
+    return _dust_case(cid)
+
+
+def _dust_cases(n=3, **kw):
+    return [_dust_case("engine%d--default--dust-low--ground--0000d05%d" % (i, i), **kw) for i in range(n)]
+
+
+def _burst_fails(doc):
+    """{(view, layer): failing measures} of a burst case, from the judge's own findings."""
+    return {(e["view"], e["layer"]): pp.burst_entry_failing(e) for e in doc["burst"]["views"]}
+
+
+class BurstJudgeTests(unittest.TestCase):
+    """judge_burst (design G.3, G.4): the findings' fails are exactly the C# FailingMeasures,
+    each broken ghost fails its own measure, the per-entry split-half cap, the schedule judged
+    or reported, the structural raise, the flags and the contradictions."""
+
+    def test_the_fails_are_the_c_sharp_failing_measures(self):
+        side, _ = _burst_fixture()
+        docs = [side] + [_burst_case(ghost=g)[0] for g, _f, _s in BROKEN_BURSTS.values()]
+        checked = 0
+        for doc in docs:
+            for e in doc["burst"]["views"]:
+                self.assertEqual(pp.burst_failing_measures(e["layer"], e["real"], e["ghost"], e["compare"]),
+                                 pp.burst_entry_failing(e), (doc["caseId"], e["view"], e["layer"]))
+                checked += 1
+        self.assertEqual(6 * len(docs), checked)
+
+    def test_each_broken_ghost_fails_its_own_measure(self):
+        for name, (ghost, flame, smoke) in BROKEN_BURSTS.items():
+            with self.subTest(ghost=name):
+                doc, _ = _burst_case(ghost=ghost)
+                self.assertEqual([], pp.burst_block_problems(doc))
+                for (view, layer), got in _burst_fails(doc).items():
+                    self.assertEqual(flame if layer == "flame" else smoke, got, (view, layer))
+                v = pp.judge_case(doc)
+                self.assertEqual("pass" if name == "intact" else "fail", v.verdict, v.reasons)
+                for measure in flame:
+                    for view in pp.BURST_VIEWS:
+                        self.assertTrue(any(r.startswith("event:%s:flame:%s" % (view, measure)) or
+                                            r == "event:%s:flame:burst-missing" % view for r in v.reasons),
+                                        (measure, view, v.reasons))
+
+    def test_the_c_sharp_fixture_judges_to_its_own_reasons(self):
+        side, _ = _burst_fixture()
+        v = pp.judge_case(side)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual((
+            "event:burst-side:flame:onset=+2bins", "event:burst-side:flame:peak-time=+2bins",
+            "event:burst-top:flame:centroid-offset=0.371", "event:burst-top:smoke:smoke-missing",
+            "event:burst-far:flame:colour=peak chroma 0.4680 hueL1 2.0000",
+            "event:burst-far:flame:colour=mean chroma 0.4680 hueL1 2.0000",
+            "event:burst-far:smoke:smoke=peak-area 0.359",
+            "schedule=power blast 0 0.5000/0.5500", "flag:burst-structure-not-measured"), v.reasons)
+        self.assertEqual("burst-side:flame", v.worst_view)
+        self.assertEqual("burst", v.burst.kind)
+        doc = v.to_dict()["burst"]
+        self.assertEqual({"judged": True, "level": "warn", "realCount": 1, "ghostCount": 1,
+                          "indexDiffers": False, "powerDiffers": True},
+                         {k: doc["schedule"][k] for k in ("judged", "level", "realCount", "ghostCount",
+                                                          "indexDiffers", "powerDiffers")})
+        groups = sorted({r.group for r in pp.p9_fail_reasons(v)})
+        self.assertEqual(["burst:centroid-offset", "burst:onset", "burst:smoke", "burst:colour"],
+                         sorted(groups, key=["burst:centroid-offset", "burst:onset", "burst:smoke",
+                                             "burst:colour"].index))
+
+    def test_a_split_half_disagreement_caps_that_entry_only(self):
+        late = {("burst-side", "flame"): _bspec("flame", late=2)}
+        doc, _ = _burst_case(views=late, odd={("burst-side", "flame"): BLANK_SPEC})
+        self.assertEqual([], pp.burst_block_problems(doc))
+        self.assertEqual("ghost presence burst-missing",
+                         pp.burst_split_half_disagreement(doc["burst"]["views"][0]))
+        j = pp.judge_burst(doc)
+        self.assertEqual("warn", j.verdict, j.reasons)
+        self.assertTrue(j.capped)
+        self.assertEqual(("event:burst-side:flame:ghost presence burst-missing",), j.unsettled)
+        self.assertIn(pp.CAP_BURST_UNSETTLED, j.flags)
+        self.assertEqual(pp.REASON_BURST_UNSETTLED, j.reasons[-1])
+        # The same break on a settled entry fails; a cap never reaches another entry.
+        both = {**late, ("burst-top", "flame"): _bspec("flame", late=2)}
+        doc, _ = _burst_case(views=both, odd={("burst-side", "flame"): BLANK_SPEC})
+        j = pp.judge_burst(doc)
+        self.assertEqual("fail", j.verdict)
+        self.assertEqual(["warn", "fail"], [e.verdict for e in j.entries if e.layer == "flame"][:2])
+        self.assertNotIn(pp.REASON_BURST_UNSETTLED, j.reasons)
+        # Halves within the 10 % line agree.
+        doc, _ = _burst_case(odd={("burst-side", "flame"): _bspec("flame", scale=0.98)})
+        self.assertIsNone(pp.burst_split_half_disagreement(doc["burst"]["views"][0]))
+
+    def test_the_schedule_is_judged_for_every_family_but_the_stand_ins(self):
+        cases = {
+            "count": (([_blast()], []), "fail", "schedule=count 1/0"),
+            "index": (([_blast()], [_blast(2, 1.0)]), "fail", "schedule=index blast 0 1/2"),
+            "offset": (([_blast()], [_blast(offset=(3.0, 0.0, 0.0))]), "fail", "schedule=offset blast 0 3.000m"),
+            "power": (([_blast()], [_blast(power=0.55)]), "warn", "schedule=power blast 0 0.5000/0.5500"),
+            "near": (([_blast()], [_blast(offset=(1.0, 0.0, 0.0))]), "pass", None),
+        }
+        for name, (schedule, verdict, reason) in cases.items():
+            with self.subTest(schedule=name):
+                doc, _ = _burst_case(schedule=schedule)
+                self.assertEqual([], pp.burst_block_problems(doc))
+                v = pp.judge_case(doc)
+                self.assertEqual(verdict, v.verdict, v.reasons)
+                self.assertEqual([reason] if reason else [], list(v.reasons))
+                if verdict == "fail":
+                    self.assertEqual(["burst:schedule"], [r.group for r in pp.p9_fail_reasons(v)])
+        # A stand-in's schedule is reported, never judged.
+        doc, _ = _burst_case("parsek.customexplosion--default--custom-l5--air--00000c05",
+                             family="burst-custom", state="custom-l5", part=pp.BURST_CUSTOM_PART,
+                             schedule=([_blast()], []))
+        v = pp.judge_case(doc)
+        self.assertEqual("pass", v.verdict, v.reasons)
+        sched = v.burst.schedule
+        self.assertFalse(sched["judged"])
+        self.assertEqual([{"level": "fail", "reason": "schedule=count 1/0"}], sched["findings"])
+
+    def test_a_rendered_effect_missing_or_extra_fails_and_an_unmeasured_structure_warns(self):
+        doc, _ = _burst_case(structure={"fxMissingOnGhost": ["fx_explosion_med"], "fxExtraOnGhost": [
+            {"key": "puff", "rendered": False}, "spark"], "fxDiffers": [], "lightsDiffer": []})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(("missing-burst:fx_explosion_med", "extra-burst:spark"), v.reasons)
+        self.assertEqual(["burst:structure", "burst:structure"], [r.group for r in pp.p9_fail_reasons(v)])
+        doc, _ = _burst_case(structure=None)
+        v = pp.judge_case(doc)
+        self.assertEqual(("warn", ("flag:burst-structure-not-measured",)), (v.verdict, v.reasons))
+
+    def test_a_weak_core_skips_the_measures_and_warns(self):
+        tiny = (0, 2, 3, 4, 3, 2, 0) + (0,) * 9
+        doc, _ = _burst_case(real={"flame": _bspec("flame", radii=tiny)},
+                             ghost={"flame": _bspec("flame", radii=tiny, late=3)})
+        j = pp.judge_burst(doc)
+        flame = [e for e in j.entries if e.layer == "flame"]
+        self.assertEqual(["skipped"] * 3, [e.verdict for e in flame])
+        self.assertEqual("warn", j.verdict, j.reasons)
+        weak = [f for f in j.flags if f.startswith(pp.FLAG_BURST_WEAK_CORE)]
+        self.assertEqual(3, len(weak), j.flags)
+        self.assertTrue(weak[0].startswith("burst-weak-core:event:burst-side:flame:real="), weak[0])
+
+    def test_what_a_case_says_against_itself_is_an_error(self):
+        bad = {
+            "family": dict(family="decouple", state="explode"),
+            "context": dict(context="orbit"),
+            "nothing-drawn": dict(real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, schedule=([], [])),
+            "no-blast": dict(schedule=([], [])),
+        }
+        want = {"family": "burst.family=decouple on a explode case",
+                "context": "burst case context=orbit (the burst context is air)",
+                "nothing-drawn": "the real side drew nothing on an ok explode case (envelope=false "
+                                 "realTagged=3 realBlasts=0; the writer records burst-not-triggered)",
+                "no-blast": "the real side drew nothing on an ok explode case (envelope=true "
+                            "realTagged=3 realBlasts=0; the writer records burst-not-triggered)"}
+        for name, kw in bad.items():
+            with self.subTest(case=name):
+                doc, _ = _burst_case(**kw)
+                v = pp.judge_case(doc)
+                self.assertEqual("error", v.verdict, v.reasons)
+                self.assertEqual(want[name], v.reasons[0])
+                self.assertIn(want[name], pp.burst_block_problems(doc))
+                self.assertEqual([], pp.burst_block_problems(doc, control=True)
+                                 if name in ("nothing-drawn", "no-blast", "context") else [])
+        # A plain joint break is meant to draw nothing on stock's side; a decouple puff draws.
+        doc, _ = _burst_case("fueltank--default--joint-break--air--00000b0b", family="decouple",
+                             state="joint-break", real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                             schedule=([], []))
+        self.assertEqual(8, doc["burst"]["bins"])
+        self.assertEqual([], pp.burst_contradictions(doc))
+        self.assertEqual("pass", pp.judge_case(doc).verdict)
+        doc, _ = _burst_case("fueltank--default--decouple--air--00000b0c", family="decouple", state="decouple",
+                             real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, schedule=([], []))
+        self.assertEqual("error", pp.judge_case(doc).verdict)
+        # A setup fault is error with no contradiction on top.
+        doc, _ = _burst_case(status=pp.SETUP_BURST_NOT_TRIGGERED, real={"flame": BLANK_SPEC})
+        v = pp.judge_case(doc)
+        self.assertEqual(("error", "setup:burst-not-triggered"), (v.verdict, v.reasons[0]))
+        self.assertEqual([], pp.burst_block_problems(doc))
+
+    def test_a_lost_entry_is_an_error(self):
+        doc, _ = _burst_case()
+        del doc["burst"]["views"][3]
+        v = pp.judge_case(doc)
+        self.assertEqual("error", v.verdict)
+        self.assertEqual("burst-no-entries:1 lost, first event:burst-top:smoke", v.reasons[0])
+        self.assertIn("burst.views lacks 1 entr(ies): burst-top:smoke", pp.burst_block_problems(doc))
+
+    def test_the_block_shape_is_checked(self):
+        doc, _ = _burst_case()
+        self.assertEqual([], pp.burst_block_problems(doc))
+        cases = {
+            "window": (lambda b: b.update(windowS=2.0), "burst windowS=2.0"),
+            "samples": (lambda b: b["samples"]["real"].pop(), "burst.samples.real="),
+            "atlas": (lambda b: b["atlas"].update(views=["burst-side"]), "burst.atlas rows="),
+            "trigger": (lambda b: b["trigger"].update(realTagged=-1), "burst.trigger="),
+            "blast": (lambda b: b["schedule"]["ghost"][0].pop("index"), "burst.schedule.ghost[0]: missing key(s) index"),
+            "scheduleCompare": (lambda b: b["scheduleCompare"].update(countDiffers=True),
+                                "burst.scheduleCompare.countDiffers:True!=False"),
+            "compare": (lambda b: b["views"][2]["compare"].update(peakAreaRatio=0.5),
+                        "burst:burst-top:flame.compare.peakAreaRatio"),
+            "summary": (lambda b: b["views"][0]["real"].update(peakBin=9), "burst:burst-side:flame.real.peakBin"),
+            "half": (lambda b: b["views"][0]["splitHalf"]["odd"]["ghost"].update(onsetBin=0),
+                     "burst:burst-side:flame.splitHalf.odd.ghost.onsetBin"),
+            "bin": (lambda b: b["views"][0]["ghost"]["bins"][4].update(saturatedPx=10 ** 6),
+                    "burst:burst-side:flame.ghost.bins[4]: corePx="),
+            "twice": (lambda b: b["views"].append(copy.deepcopy(b["views"][0])), "burst.views repeats burst-side:flame"),
+            "structure": (lambda b: b["structure"].update(fxDiffers="x"), "burst.structure.fxDiffers=x"),
+            "keys": (lambda b: b.pop("lengthM"), "burst: missing key(s) lengthM"),
+        }
+        for name, (change, text) in cases.items():
+            with self.subTest(change=name):
+                bad = copy.deepcopy(doc)
+                change(bad["burst"])
+                problems = pp.burst_block_problems(bad)
+                self.assertTrue(any(text in p for p in problems), problems)
+
+
+class BurstControlJudgeTests(unittest.TestCase):
+    """judge_burst_control transcribes PartParityFxRules.JudgeBurstControl: every control is met
+    by the ghost built for it and refuses every other control's ghost, worded as the C# words it."""
+
+    def test_every_control_is_met_by_its_own_ghost(self):
+        for cid in pp.CONTROL_IDS_BURST:
+            with self.subTest(control=cid):
+                doc, _ = _burst_control(cid)
+                self.assertEqual([], pp.burst_block_problems(doc, control=True))
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_burst_control(cid, doc))
+
+    def test_every_control_refuses_every_other_controls_ghost(self):
+        docs = {cid: _burst_control(cid)[0] for cid in pp.CONTROL_IDS_BURST}
+        for cid in pp.CONTROL_IDS_BURST:
+            for other, doc in docs.items():
+                if other != cid:
+                    with self.subTest(control=cid, ghost=other):
+                        self.assertEqual(pp.CONTROLS_BAD, pp.judge_burst_control(cid, doc)[0])
+
+    def test_the_details_are_the_c_sharp_wording(self):
+        intact = _burst_case("x")[0]
+        late_hue = _burst_case("x", ghost={"flame": _bspec("flame", late=2, rgb=HUE)})[0]
+        want = {
+            ("ctl-burst-empty", "intact"): "a bin is covered",
+            ("ctl-burst-real-vs-real", "late-hue"): "fails onset,colour",
+            ("ctl-burst-off", "intact"): "presence passes",
+            ("ctl-burst-late", "intact"): "onset passes",
+            ("ctl-burst-late", "late-hue"): "colour fails",
+            ("ctl-burst-power", "intact"): "the schedule index matches",
+            ("ctl-burst-shift", "intact"): "centroid-offset passes",
+            ("ctl-burst-hue", "intact"): "colour passes",
+            ("ctl-burst-hue", "late-hue"): "fails onset,colour",
+        }
+        docs = {"intact": intact, "late-hue": late_hue}
+        for (cid, ghost), detail in want.items():
+            with self.subTest(control=cid, ghost=ghost):
+                self.assertEqual((pp.CONTROLS_BAD, detail), pp.judge_burst_control(cid, docs[ghost]))
+        off = _burst_case("x", ghost={"flame": BLANK_SPEC, "smoke": BLANK_SPEC})[0]
+        self.assertEqual((pp.CONTROLS_BAD, "the schedule reads 1 against 1"),
+                         pp.judge_burst_control("ctl-burst-off", off))
+        power = _burst_case("x", schedule=([_blast()], [_blast(2, 1.0)]))[0]
+        self.assertEqual((pp.CONTROLS_BAD, "peak area and radius pass"),
+                         pp.judge_burst_control("ctl-burst-power", power))
+        empty = _burst_control("ctl-burst-empty")[0]
+        self.assertEqual((pp.CONTROLS_BAD, "no real core"), pp.judge_burst_control("ctl-burst-late", empty))
+        fault = _burst_case("x", status=pp.SETUP_BURST_NOT_TRIGGERED)[0]
+        self.assertEqual((pp.CONTROLS_BAD, "setup burst-not-triggered"),
+                         pp.judge_burst_control("ctl-burst-late", fault))
+        self.assertEqual((pp.CONTROLS_BAD, "no burst block"),
+                         pp.judge_burst_control("ctl-burst-late", _dust_case("x")[0]))
+        self.assertEqual((pp.CONTROLS_BAD, "not a burst control: ctl-empty"),
+                         pp.judge_burst_control("ctl-empty", intact))
+
+    def test_the_detail_literals_are_the_c_sharp_ones(self):
+        import inspect
+        with open(os.path.join(CS_DIR, "PartParityFxRules.Burst.cs"), encoding="utf-8-sig") as fh:
+            text = _strip_cs_comments(fh.read())
+        burst = inspect.getsource(pp.judge_burst_control) + inspect.getsource(pp._require_measures)
+        dust = inspect.getsource(pp.judge_dust_control)
+        pairs = [(burst, lit) for lit in (
+            "a bin is covered", "fails ", "presence passes", "the schedule reads ", " against ",
+            "the schedule index matches", "peak area and radius pass", "colour passes",
+            "not a burst control: ", "setup ", " passes", " fails")] + [(dust, lit) for lit in (
+                "dust presence passes", "the flame layer fails ", "stock drew dust past its reach",
+                "the ghost draws dust past stock's reach (G.8 item 3)",
+                "the ghost draws dust past stock's reach", "not a dust control: ")]
+        for source, literal in pairs:
+            with self.subTest(literal=literal):
+                self.assertIn('"%s' % literal if not literal.startswith(" ") else literal, text)
+                self.assertIn(literal.strip() if literal.strip() else literal, source)
+        # The order each judge reads its requirements in (must-fail, then must-pass).
+        self.assertIn("new[] { MeasureOnset }, new[] { MeasurePeakArea, MeasureColour }", text)
+        self.assertIn("new[] { MeasureCentroidOffset }, new[] { MeasurePeakArea, MeasureColour }", text)
+        self.assertIn('_require_measures(f, ("onset",), ("peak-area", "colour"))', burst)
+        self.assertIn('_require_measures(f, ("centroid-offset",), ("peak-area", "colour"))', burst)
+        self.assertIn("e.RealBlasts == 1 && e.GhostBlasts == 0", text)
+        self.assertIn('ev["realBlasts"] == 1 and ev["ghostBlasts"] == 0', burst)
+
+
+class DustJudgeTests(unittest.TestCase):
+    """judge_dust: E.4's measures over the dust layer in the dust words, stock's raycast record,
+    the flame layer left to P8, the axis view and the contradictions."""
+
+    def test_an_intact_dust_case_passes_and_recomputes(self):
+        doc, tiles = _dust_case()
+        self.assertEqual([], pp.dust_block_problems(doc))
+        self.assertEqual([], pp.recompute_dust_case(doc, _dust_atlas(doc, tiles)))
+        v = pp.judge_case(doc)
+        self.assertEqual(("pass", ()), (v.verdict, v.reasons))
+        self.assertEqual("dust", v.burst.kind)
+        self.assertEqual({"surface": "terrain", "hits": 4, "misses": 0, "scaledFx": 0.64},
+                         v.to_dict()["dust"]["raycast"])
+
+    def test_the_top_view_is_the_axis_view(self):
+        # dust-top is measured as P8 measures fx-bottom: the cross-section, no exhaust axis.
+        doc, _ = _dust_case()
+        top = next(e for e in doc["dust"]["views"] if e["view"] == "dust-top" and e["layer"] == "dust")
+        side = next(e for e in doc["dust"]["views"] if e["view"] == "dust-side" and e["layer"] == "dust")
+        self.assertIsNotNone(top["compare"]["crossSectionOffset"])
+        self.assertIsNone(side["compare"]["crossSectionOffset"])
+        self.assertIn(pp.DUST_AXIS_VIEW, pp.FX_AXIS_VIEWS)
+
+    def test_a_ghost_without_dust_reads_dust_missing(self):
+        doc, _ = _dust_case(ghost={"dust": FX_DARK})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(tuple("event:%s:dust:dust-missing" % w for w in pp.DUST_VIEWS), v.reasons)
+        self.assertEqual(["dust:presence"] * 3, [r.group for r in pp.p9_fail_reasons(v)])
+
+    def test_dust_where_stock_draws_none_reads_dust_extra_with_the_surface(self):
+        doc, _ = _dust_case(real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(tuple("event:%s:dust:dust-extra:terrain" % w for w in pp.DUST_VIEWS), v.reasons)
+        # On the pad stock draws none, so dust on both sides still fails the ghost, once.
+        doc, _ = _dust_case(raycast=_dust_raycast(4, "launchpad"))
+        v = pp.judge_case(doc)
+        self.assertEqual(("fail", ("dust-extra:launchpad",)), (v.verdict, v.reasons))
+        self.assertEqual(["dust:raycast"], [r.group for r in pp.p9_fail_reasons(v)])
+        doc, _ = _dust_case(real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]},
+                            raycast=_dust_raycast(4, "launchpad"))
+        v = pp.judge_case(doc)
+        self.assertEqual(tuple("event:%s:dust:dust-extra:launchpad" % w for w in pp.DUST_VIEWS), v.reasons)
+
+    def test_the_flame_layer_is_not_judged_here(self):
+        doc, _ = _dust_case(ghost={"flame": FX_DARK})
+        v = pp.judge_case(doc)
+        self.assertEqual(("pass", ()), (v.verdict, v.reasons))
+        self.assertEqual({"dust"}, {e.layer for e in v.burst.entries})
+
+    def test_a_broken_dust_plume_fails_its_measure(self):
+        doc, _ = _dust_case(ghost={"dust": (_plume(y0=14, width=20, rgb=GREEN), _disc(14, rgb=GREEN))})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertTrue(all(":colour=" in r or ":dust:colour" in r for r in v.reasons), v.reasons)
+        self.assertEqual(3, len([e for e in doc["dust"]["views"] if e["layer"] == "dust"
+                                 and pp.dust_failing(e) == ["colour"]]))
+
+    def test_the_raycast_record_is_checked(self):
+        doc, _ = _dust_case()
+        cases = {
+            "surface": (lambda r: r.update(surface="none"), "dust.raycast hits=4 surface=none"),
+            "count": (lambda r: r["samples"].pop(), "dust.raycast hits=4 misses=0 over 3 sample(s)"),
+            "word": (lambda r: r.update(surface="lava"), "dust.raycast.surface=lava"),
+            "keys": (lambda r: r.pop("normal"), "dust.raycast: missing key(s) normal"),
+        }
+        for name, (change, text) in cases.items():
+            with self.subTest(change=name):
+                bad = copy.deepcopy(doc)
+                change(bad["dust"]["raycast"])
+                problems = pp.dust_block_problems(bad)
+                self.assertTrue(any(text in p for p in problems), problems)
+        bad = copy.deepcopy(doc)
+        bad["dust"]["atlas"]["cols"] = list(pp.FX_VIEWS)
+        self.assertTrue(any("dust.atlas rows=" in p for p in pp.dust_block_problems(bad)))
+
+    def test_what_a_dust_case_says_against_itself_is_an_error(self):
+        doc, _ = _dust_case(raycast=_dust_raycast(0, "none"))
+        v = pp.judge_case(doc)
+        self.assertEqual("error", v.verdict)
+        self.assertEqual("stock's raycast hits=0 on an ok dust-low case (the writer records dust-no-stock-hit)",
+                         v.reasons[0])
+        doc, _ = _dust_case()
+        doc["context"] = "air"
+        self.assertEqual("dust case context=air (the dust context is ground)", pp.judge_case(doc).reasons[0])
+        doc, _ = _dust_case(state="explode")
+        self.assertEqual("dust.family=dust on a explode case", pp.judge_case(doc).reasons[0])
+        doc, _ = _dust_case(status=pp.SETUP_DUST_NO_STOCK_HIT, raycast=_dust_raycast(0, "none"))
+        v = pp.judge_case(doc)
+        self.assertEqual(("error", "setup:dust-no-stock-hit"), (v.verdict, v.reasons[0]))
+        doc, _ = _dust_case()
+        doc["dust"]["views"].pop()
+        self.assertEqual("dust-no-entries:1 lost, first event:dust-far:flame", pp.judge_case(doc).reasons[0])
+
+    def test_the_dust_controls(self):
+        for cid in pp.CONTROL_IDS_DUST:
+            with self.subTest(control=cid):
+                doc, _ = _dust_control(cid)
+                self.assertEqual([], pp.dust_block_problems(doc, control=True))
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_dust_control(cid, doc))
+        intact, off = _dust_case("x")[0], _dust_control("ctl-dust-off")[0]
+        self.assertEqual((pp.CONTROLS_BAD, "fails presence"), pp.judge_dust_control("ctl-dust-real-vs-real", off))
+        self.assertEqual((pp.CONTROLS_BAD, "dust presence passes"), pp.judge_dust_control("ctl-dust-off", intact))
+        flame_too = _dust_case("x", ghost={"dust": FX_DARK, "flame": FX_DARK})[0]
+        self.assertEqual((pp.CONTROLS_BAD, "the flame layer fails presence"),
+                         pp.judge_dust_control("ctl-dust-off", flame_too))
+        self.assertEqual((pp.CONTROLS_BAD, "stock drew dust past its reach"),
+                         pp.judge_dust_control("ctl-dust-above-reach", intact))
+        above = _dust_case("x", real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]},
+                           raycast=_dust_raycast(0, "none"))[0]
+        above["setup"]["status"] = pp.SETUP_DUST_NO_STOCK_HIT
+        self.assertEqual((pp.CONTROLS_NOT_APPLICABLE, "the ghost draws dust past stock's reach (G.8 item 3)"),
+                         pp.judge_dust_control("ctl-dust-above-reach", above))
+        self.assertEqual((pp.CONTROLS_BAD, "setup dust-no-stock-hit"),
+                         pp.judge_dust_control("ctl-dust-off", above))
+        above["setup"]["status"] = pp.SETUP_OK
+        self.assertEqual((pp.CONTROLS_BAD, "no real dust core"),
+                         pp.judge_dust_control("ctl-dust-real-vs-real", above))
+        self.assertEqual((pp.CONTROLS_BAD, "not a dust control: ctl-burst-off"),
+                         pp.judge_dust_control("ctl-burst-off", intact))
+
+
+class P9SweepTests(unittest.TestCase):
+    """evaluate_sweep over synthetic burst and dust sweeps: the clean run, the instrument
+    check over the burst and the dust atlas, completeness, the controls re-judged, the
+    known-difference n/a and the press gate."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pp-p9-")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _dir(self, name):
+        return os.path.join(self.root, name)
+
+    def test_a_clean_burst_sweep_reports(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases() + [_burst_case("fueltank9--default--explode--air--0000c0d9",
+                                                         ghost=BROKEN_BURSTS["late"][0])], BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual({"cases": 4, "pass": 3, "warn": 0, "fail": 1, "error": 0}, res.counts)
+        self.assertEqual(len(pp.CONTROL_IDS_BURST) + 1, len(res.recompute_ids))
+        self.assertTrue(all(i.endswith(pp.BURST_RECOMPUTE_ID_SUFFIX) for i in res.recompute_ids))
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual({"burst": 4, "dust": 0}, doc["burst"]["kinds"])
+        self.assertEqual(1, doc["burst"]["families"]["explode"]["fail"])
+        self.assertIn(" burst=4 dust=0", pp.format_summary(pp.combine([res], False)))
+        armed = _judge_p9_dir(d, gating=True)
+        self.assertEqual(pp.STATUS_FAIL, armed.status)
+
+    def test_a_clean_dust_sweep_reports(self):
+        d = self._dir("d")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertTrue(all(i.endswith(pp.DUST_RECOMPUTE_ID_SUFFIX) for i in res.recompute_ids))
+        self.assertEqual({"burst": 0, "dust": 3}, pp.verdicts_document(res, RUN_ID)["burst"]["kinds"])
+
+    def _flip(self, d, name, x, y):
+        path = os.path.join(d, name)
+        w, h, bpp, px = gui_mirror.read_png(path)
+        px = bytearray(px)
+        i = (y * w + x) * 4
+        px[i:i + 4] = b"\0\0\0\0" if px[i + 3] else bytes(ORANGE) + b"\xff"
+        with open(path, "wb") as fh:
+            fh.write(gui_mirror.write_png(w, h, bpp, bytes(px)))
+
+    def test_a_mutated_burst_atlas_is_invalid_instrument(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS)
+        # The real flame of burst-side, bin 4, its centre pixel.
+        self._flip(d, "ctl-burst-real-vs-real" + pp.BURST_ATLAS_SUFFIX, 4 * BTILE + 16, 16)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("ctl-burst-real-vs-real burst-side:flame.real.bins[4].corePx" in p
+                            for p in res.problems), res.problems)
+
+    def test_a_mutated_dust_atlas_is_invalid_instrument(self):
+        d = self._dir("d")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS)
+        # The real dust of dust-top (the disc), its centre pixel.
+        self._flip(d, "ctl-dust-real-vs-real" + pp.DUST_ATLAS_SUFFIX, FTILE + 24, 24)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any(p.startswith("recompute:") and "ctl-dust-real-vs-real event:dust-top:dust:real."
+                            in p for p in res.problems), res.problems)
+
+    def test_a_tampered_part_case_is_invalid_instrument_sampled_or_not(self):
+        d = self._dir("b")
+        cases = _burst_cases(6)
+        cases[5][0]["burst"]["views"][4]["compare"]["radiusRatio"] = 9.0
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("burst:burst-far:flame.compare.radiusRatio" in p for p in res.problems), res.problems)
+        # No reader: the block shapes are still checked, and the missing recompute is named.
+        res = _judge_p9_dir(d, read_png=None)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+
+    def test_a_missing_atlas_is_incomplete(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS)
+        os.remove(os.path.join(d, "fueltank1--default--explode--air--0000c0d1" + pp.BURST_ATLAS_SUFFIX))
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("p9-atlas-missing:fueltank1" in p for p in res.problems), res.problems)
+
+    def test_a_control_recorded_ok_is_rejudged(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS,
+                        controls={"ctl-burst-late": _burst_case("ctl-burst-late")})
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertIn("controls: ctl-burst-late:recorded-ok-judged-bad(onset passes)", res.problems)
+
+    def test_the_known_difference_reads_n_a_only_on_its_evidence(self):
+        above = _dust_case("ctl-dust-above-reach", real={"dust": FX_DARK},
+                           ghost={"dust": DUST_REAL["dust"]}, raycast=_dust_raycast(0, "none"))
+        d = self._dir("na")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above},
+                        outcomes={"ctl-dust-above-reach": "n/a"})
+        _write_p9_case(d, *above)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        # n/a recorded, but the ghost drew no dust: the control is met, so n/a is a lie.
+        d = self._dir("na-ok")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-above-reach": "n/a"})
+        _write_p9_case(d, *_dust_control("ctl-dust-above-reach"))
+        res = _judge_p9_dir(d)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        self.assertIn("controls: ctl-dust-above-reach:recorded-n/a-judged-ok()", res.problems)
+        # ok recorded while the evidence reads n/a.
+        d = self._dir("ok-na")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above})
+        res = _judge_p9_dir(d)
+        self.assertTrue(any("ctl-dust-above-reach:recorded-ok-judged-n/a" in p for p in res.problems), res.problems)
+        # Any other control recorded n/a is not met.
+        d = self._dir("other")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-off": "n/a"})
+        self.assertIn("controls: ctl-dust-off:n/a", _judge_p9_dir(d).problems)
+
+    def test_dead_presses_red_the_press_gate(self):
+        d = self._dir("b")
+        cases = _burst_cases(3)
+        for doc, _ in cases[:2]:
+            doc["setup"]["status"] = pp.SETUP_BURST_NOT_TRIGGERED
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_STATE_PRESS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("family=explode 2/3" in p for p in res.problems), res.problems)
+        d = self._dir("d")
+        cases = _dust_cases(3)
+        cases[0][0]["setup"]["status"] = pp.SETUP_DUST_NO_STOCK_HIT
+        _build_p9_sweep(d, cases, DUST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertNotEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+
+    def test_a_block_outside_its_run_is_an_instrument_problem(self):
+        d = self._dir("b")
+        cases = _burst_cases(2) + [_dust_case("engine9--default--dust-low--ground--0000d059")]
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        self.assertTrue(any("engine9--default--dust-low--ground--0000d059 carries a dust block" in p
+                            for p in res.problems), res.problems)
 
 
 if __name__ == "__main__":

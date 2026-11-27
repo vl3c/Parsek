@@ -8,10 +8,42 @@ All notable changes to Parsek are documented here.
 
 Not released yet.
 
+### Changed
+
+- **Recordings keep the settled throttle value.** A replayed engine ends on the throttle you left it
+  at, not up to 5% off; new flights only. (ENGINE-THROTTLE-EVENT-STEP)
+
 ### Fixed
 
+- **Looped missions show their dropped boosters.** A looping launch's debris now shows on every
+  loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
+- **Ghost explosions, puffs, launch dust and reentry fire stay in the air they were made in.**
+  They no longer ride along with your own vessel while it flies.
+- **Ghost launch dust spreads flat across the ground** like stock's, instead of a ring standing
+  upright around the rocket.
+- **A ghost crash at the Space Center or with the game paused uses KSP's own explosion**, the same
+  grey smoke as in flight, once you have been in flight that session.
+- **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
+  boosters with sparks showed only their flame and smoke.
+- **Ghost lamps fade on and off as the real lamp does** instead of snapping.
+- **F9 loads onto the vessel you saved on.** With a ghost replaying in orbit, a quickload or far
+  Switch-To could focus a later vessel, such as your flag. (SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP)
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
+- **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
+  while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
+- **Ghosts of resizable B9PartSwitch parts keep the size you picked.** A Utility Weight set to
+  2.5 m or 5 m used to replay at its default 1.25 m. (todo GHOST-B9-SUBTYPE-TRANSFORMS)
+- **In an overlapping loop each ghost ends when its own recording ends.** It no longer stands frozen
+  until the next launch, or explodes a launch late. (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END)
+- **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
+  speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
+- **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and
+  ladders opened only once the recorded part had finished. (GHOST-DEPLOY-MOTION-TIMING-2026-11-26)
+
+### Added
+
+- **Dev: Utility Weight and PicoPort on the modded test installs.** Lane PP-11 checks their ghosts.
 
 ## 1.0.3
 
