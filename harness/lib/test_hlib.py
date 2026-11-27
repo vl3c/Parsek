@@ -8833,7 +8833,8 @@ class ClassifyVerdictMatrixTests(unittest.TestCase):
         self.assertEqual("PASS", self._classify(d, v).verdict)
 
     def test_parallel_run_subkinds_are_flake_exempt(self):
-        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch"),
+        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch",
+                          "lease-invalid", "lease-exclusive"),
                          hlib.PARALLEL_RUN_INVALID_SUBKINDS)
         for subkind in hlib.PARALLEL_RUN_INVALID_SUBKINDS:
             with self.subTest(subkind=subkind):

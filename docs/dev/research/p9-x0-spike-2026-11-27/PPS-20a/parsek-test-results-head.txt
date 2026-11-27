@@ -1,0 +1,12 @@
+Parsek In-Game Test Results
+Exported at: 2026-11-27 21:57:16
+Export scene (current): FLIGHT
+Total discovered tests: 727
+Scenes with captured results: 1
+  FLIGHT         last run 2026-11-27 21:57:13   captured=1  Passed=0  Failed=1  Skipped=0
+--------------------------------------------------------------------------------
+
+FAILURES (grouped by scene):
+  [FLIGHT]
+    FAIL  PartParityBurstSpikeInGameTests.BurstSpike (13997.8ms)
+

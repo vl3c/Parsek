@@ -60,6 +60,9 @@ if _LIB_DIR not in sys.path:
     sys.path.append(_LIB_DIR)  # appended: nothing in harness/lib may shadow this dir
 
 import slots  # noqa: E402  (the shared slots contract: names, dirs, ports, lock paths)
+import leases  # noqa: E402  (the copy-lease contract: one thread owns one install copy)
+
+import leaseio  # noqa: E402  (copy-lease file I/O, shared with run.py and tools/ksp_lease.py)
 
 # ---------------------------------------------------------------------------
 # Paths + context
@@ -108,6 +111,10 @@ class ProvisionContext:
     # Parallel-run slot copy (harness/lib/slots.py). 1 = the profile's own
     # instanceDir, exactly as before slots existed; k >= 2 = automation/<profile>-<k>.
     copy: int = 1
+    # --lease: this worktree's live copy lease (harness/lib/leases.py). The
+    # provision then takes only that copy's slot lock (never the machine lock),
+    # touches only that copy, and re-pins the lease to the DLL it deployed.
+    lease: Optional[Dict] = None
 
     @property
     def dev_install(self) -> str:
@@ -456,11 +463,21 @@ def phase_preflight(ctx: ProvisionContext) -> None:
     # thing that ever stopped it was the coarse EC-1 "any KSP alive" probe below,
     # which passes during the harness's entire pre-launch and post-exit windows.
     # One shared file makes provisioning and running mutually exclusive.
+    if ctx.lease is not None:
+        _preflight_leased_lock(ctx)
+        return
     lock_path = machinelock.lock_path_for(ctx.umbrella_root)
     if ctx.dry_run:
         # DECIDE ONLY: a dry-run reports whether it COULD acquire and writes
         # nothing. Refusing here keeps `--dry-run` an honest preview of the real
         # run's admission.
+        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now(), _pid_alive)
+        if live_lease is not None:
+            abort(ctx, "Preflight", "EC-10",
+                  "a copy lease is live (%s); a plain provision needs the whole machine. "
+                  "Provision a leased copy with --lease from the worktree that holds it"
+                  % leases.describe_lease(live_lease, _now()))
+            return
         existing = machinelock.read_lock(lock_path)
         decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive,
                                         lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
@@ -477,8 +494,10 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         # whose FileExistsError branch unconditionally os.replace'd the lockfile
         # -- reachable with no stale lock at all, and it overwrote a live harness
         # run's lock and then DEPLOYed over its instance.
-        acquired, reason, holder = machinelock.acquire(
-            lock_path,
+        # leaseio.acquire_machine also refuses (giving the lock back) while any
+        # copy lease is live: a leased copy is provisioned only under its lease.
+        acquired, reason, holder = leaseio.acquire_machine(
+            lock_path, ctx.umbrella_root,
             payload_fn=lambda: {"pid": os.getpid(), "timestamp": _now(),
                                 "worktree": WORKTREE_ROOT,
                                 "selection": "provision:%s" % ctx.profile_name,
@@ -489,6 +508,10 @@ def phase_preflight(ctx: ProvisionContext) -> None:
             log_fn=lambda level, msg: log(ctx, level, "Preflight", msg))
         log(ctx, "Info", "Preflight", "lock decision=%s path=%s" % (reason, lock_path))
         if acquired is None:
+            if reason == leaseio.REFUSED_SLOT_HELD:
+                _refuse_on_live_slot_locks(ctx, "Preflight")
+                if ctx.aborted:
+                    return
             abort(ctx, "Preflight", "EC-10",
                   "machine locked by live %s; a harness run or another provision is active"
                   % machinelock.describe_holder(holder))
@@ -509,6 +532,52 @@ def phase_preflight(ctx: ProvisionContext) -> None:
     if not ctx.dry_run and _ksp_running_against(ctx.instance_dir):
         abort(ctx, "Preflight", "EC-1", "close KSP for instance %s" % ctx.profile_name)
         return
+    log(ctx, "Info", "Preflight", "profile loaded name=%s devSourcedMods=%d"
+        % (ctx.profile_name, len(ctx.profile.get("devSourcedMods", []) or [])))
+
+
+def _preflight_leased_lock(ctx: ProvisionContext) -> None:
+    """The lock half of PREFLIGHT under ``--lease``: no machine lock (a sibling
+    lease may be flying its own copy right now), this copy's slot lock instead
+    (so no leased run starts in it mid-provision, and a run already in it
+    refuses this provision), and a PATH-SCOPED KSP check (a KSP in another copy
+    is expected)."""
+    lease = ctx.lease or {}
+    decision, current = leaseio.resolve(WORKTREE_ROOT, ctx.umbrella_root, _now())
+    if not decision.ok or decision.slot != ctx.slot:
+        abort(ctx, "Preflight", "EC-10", "copy lease not usable (%s: %s)"
+              % (decision.reason, decision.detail))
+        return
+    log(ctx, "Info", "Preflight", "lease mode %s (machine lock not taken)"
+        % leases.describe_lease(current or lease, _now()))
+    if ctx.dry_run:
+        if not _refuse_on_live_slot_locks(ctx, "Preflight", only_slot=ctx.slot):
+            return
+    else:
+        slot_lock = slots.slot_lock_path(ctx.umbrella_root, ctx.slot)
+        acquired, reason, holder = machinelock.acquire(
+            slot_lock,
+            payload_fn=lambda: {"pid": os.getpid(), "timestamp": _now(),
+                                "worktree": WORKTREE_ROOT, "slot": ctx.slot,
+                                "selection": "provision:%s (lease)" % ctx.slot,
+                                "startedIso": _utcnow_iso()},
+            now_fn=_now, pid_alive_fn=_pid_alive,
+            lease_seconds=provlib.DEFAULT_LEASE_SECONDS,
+            log_fn=lambda level, msg: log(ctx, level, "Preflight", msg))
+        log(ctx, "Info", "Preflight", "slot-lock decision=%s path=%s" % (reason, slot_lock))
+        if acquired is None:
+            abort(ctx, "Preflight", "EC-10",
+                  "slot %s locked by live %s; a run is flying in the leased copy"
+                  % (ctx.slot, machinelock.describe_holder(holder)))
+            return
+        ctx.lock_path = slot_lock  # type: ignore[attr-defined]
+        ctx.lock_acquired = True  # type: ignore[attr-defined]
+    if not ctx.dry_run:
+        running = _ksp_running_in_dir(ctx.instance_dir)
+        if running:
+            abort(ctx, "Preflight", "EC-1", "close KSP for the leased copy %s (pid=%s)"
+                  % (ctx.slot, ", ".join(str(pid) for pid, _exe in running)))
+            return
     log(ctx, "Info", "Preflight", "profile loaded name=%s devSourcedMods=%d"
         % (ctx.profile_name, len(ctx.profile.get("devSourcedMods", []) or [])))
 
@@ -1598,7 +1667,7 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         # verified provision the harness may admit (design EC-6).
         _clear_incomplete_marker(ctx)
     log(ctx, "Info" if ok else "Error", "Verify",
-        "instance=%s result=%s drift=%d" % (ctx.profile_name, "OK" if ok else "DRIFT", len(drift)))
+        "instance=%s slot=%s result=%s drift=%d" % (ctx.profile_name, ctx.slot, "OK" if ok else "DRIFT", len(drift)))
     return ok
 
 
@@ -3001,12 +3070,17 @@ def remove_copy(ctx: ProvisionContext, lister=None) -> int:
         decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive,
                                         lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
         log(ctx, "Info", "Remove", "lock decision=%s (dry-run: not written)" % decision.reason)
+        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now(), _pid_alive)
+        if live_lease is not None:
+            abort(ctx, "Remove", "EC-10", "a copy lease is live (%s)"
+                  % leases.describe_lease(live_lease, _now()))
+            return _finish(ctx, 2)
         if not decision.acquired:
             abort(ctx, "Remove", "EC-10", "machine locked by live %s" % machinelock.describe_holder(existing))
             return _finish(ctx, 2)
     else:
-        acquired, reason, holder = machinelock.acquire(
-            lock_path,
+        acquired, reason, holder = leaseio.acquire_machine(
+            lock_path, ctx.umbrella_root,
             payload_fn=lambda: {"pid": os.getpid(), "timestamp": _now(),
                                 "worktree": WORKTREE_ROOT,
                                 "selection": "provision-remove:%s" % ctx.slot,
@@ -3016,6 +3090,10 @@ def remove_copy(ctx: ProvisionContext, lister=None) -> int:
             log_fn=lambda level, msg: log(ctx, level, "Remove", msg))
         log(ctx, "Info", "Remove", "lock decision=%s path=%s" % (reason, lock_path))
         if acquired is None:
+            if reason == leaseio.REFUSED_SLOT_HELD:
+                _refuse_on_live_slot_locks(ctx, "Remove")
+                if ctx.aborted:
+                    return _finish(ctx, 2)
             abort(ctx, "Remove", "EC-10", "machine locked by live %s" % machinelock.describe_holder(holder))
             return _finish(ctx, 2)
         ctx.lock_path = lock_path  # type: ignore[attr-defined]
@@ -3043,7 +3121,30 @@ def remove_copy(ctx: ProvisionContext, lister=None) -> int:
     return _finish(ctx, 0)
 
 
+def _repin_lease(ctx: ProvisionContext) -> None:
+    """After a successful provision under ``--lease``: pin the lease to the DLL now
+    deployed in the copy, so every later leased run admits exactly this build."""
+    deployed = os.path.join(ctx.instance_dir, "GameData", "Parsek", "Plugins", "Parsek.dll")
+    try:
+        sha = sha256_file(deployed)
+    except OSError as exc:
+        log(ctx, "Warn", "Summary", "lease pin skipped: cannot hash %s (%s)" % (deployed, exc))
+        return
+    updated = leaseio.renew_if_ours(ctx.umbrella_root, str((ctx.lease or {}).get("token")),
+                                    ctx.slot, _now(),
+                                    pin=(sha, leases.DLL_SOURCE_PROVISION, _utcnow_iso()),
+                                    holding_slot_lock=bool(getattr(ctx, "lock_acquired", False)))
+    if updated is None:
+        log(ctx, "Warn", "Summary", "lease pin NOT written: the lease of %s is no longer this "
+                                    "worktree's" % ctx.slot)
+        return
+    log(ctx, "Info", "Summary", "lease pinned slot=%s dll=%s" % (ctx.slot, sha[:16]))
+
+
 def _finish(ctx: ProvisionContext, code: int) -> int:
+    if code == 0 and ctx.lease is not None and not ctx.dry_run and not ctx.aborted \
+            and not getattr(ctx, "remove", False):
+        _repin_lease(ctx)
     # Release the instance lock this run acquired (live only). Only remove a lock
     # we own; a lock held by another live run was refused, not written, here.
     if getattr(ctx, "lock_acquired", False) and not ctx.dry_run:
@@ -3167,7 +3268,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--krpc-src", help="explicit path to a kRPC git clone for BUILD-TT/PIN "
                    "(else a module-owned shallow clone under harness/provision/.cache/krpc-src)")
     p.add_argument("--umbrella-root", help="override the umbrella root (default: parent of this worktree)")
-    p.add_argument("--copy", type=int, default=1, metavar="K",
+    p.add_argument("--lease", action="store_true",
+                   help="provision this worktree's leased copy (tools/ksp_lease.py claim): "
+                   "takes that copy's slot lock instead of the machine lock, so another "
+                   "thread's leased copy keeps flying; re-pins the lease to the deployed DLL")
+    p.add_argument("--copy", type=int, default=None, metavar="K",
                    help="slot copy to provision (default 1 = the profile's own instanceDir); "
                    "K >= 2 provisions automation/<profile>-<K> with that slot's kRPC ports "
                    "(harness/lib/slots.py)")
@@ -3182,6 +3287,26 @@ def main(argv: Optional[List[str]] = None) -> int:
                                    dry_run=args.dry_run)
     if not args.profile:
         p.error("--profile is required (unless --seed-cache-from is given)")
+    umbrella = args.umbrella_root or os.path.abspath(os.path.join(WORKTREE_ROOT, ".."))
+    lease = None
+    if args.lease:
+        if args.remove:
+            p.error("--lease and --remove are exclusive (removing a copy needs the machine)")
+        decision, lease = leaseio.resolve(WORKTREE_ROOT, umbrella, _now())
+        if not decision.ok:
+            print("[Provision][Error][Preflight] EC-10 copy lease not usable (%s): %s"
+                  % (decision.reason, decision.detail))
+            return 2
+        lease_profile, lease_copy = slots.parse_slot_name(decision.slot)
+        if lease_profile != args.profile:
+            p.error("the leased copy %s is profile %s, not %s"
+                    % (decision.slot, lease_profile, args.profile))
+        if args.copy is not None and args.copy != lease_copy:
+            p.error("the leased copy is %s (copy %d), not copy %d"
+                    % (decision.slot, lease_copy, args.copy))
+        args.copy = lease_copy
+    if args.copy is None:
+        args.copy = 1
     copy_error = validate_copy_args(args.profile, args.copy, args.remove, args.repair)
     if copy_error:
         p.error(copy_error)
@@ -3191,7 +3316,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     pins = load_toml(PINS_PATH)
     profile = load_toml(profile_path)
-    umbrella = args.umbrella_root or os.path.abspath(os.path.join(WORKTREE_ROOT, ".."))
 
     ctx = ProvisionContext(
         profile_name=args.profile,
@@ -3203,6 +3327,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         parsek_dll_override=args.parsek_dll,
         krpc_src_override=args.krpc_src,
         copy=args.copy,
+        lease=lease,
     )
     if args.remove:
         ctx.remove = True  # type: ignore[attr-defined]
