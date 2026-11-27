@@ -1694,60 +1694,9 @@ namespace Parsek
         {
             if (cachedRoboticModules == null) return;
 
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < cachedRoboticModules.Count; i++)
-            {
-                var (part, module, moduleIndex, moduleName) = cachedRoboticModules[i];
-                if (part == null || module == null) continue;
-
-                ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
-                if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
-
-                // Wheel motor spin and wheel steering deflection are derived from the ghost's own
-                // ground motion at playback, and wheel suspension travel is not recorded at all. The
-                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
-                // builder's; only the emission is skipped. See IsRoboticEmissionSkippedModuleName.
-                if (!ShouldEmitRoboticEvents("Recorder", moduleName, key, loggedRoboticModuleKeys,
-                        part.partInfo?.name, part.persistentId, moduleIndex, null))
-                    continue;
-
-                bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);
-                bool hasPosition = TryGetRoboticPositionValue(
-                    module, moduleName, out float positionValue, out float deadband, out string sourceField);
-
-                if (!hasPosition)
-                {
-                    if (loggedRoboticModuleKeys.Add(key))
-                    {
-                        ParsekLog.Verbose("Recorder", $"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
-                            $"midx={moduleIndex} module={moduleName}; fields=[{DescribeModuleFields(module)}]");
-                    }
-                    continue;
-                }
-
-                var events = EvaluateRoboticPoll(
-                    key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown", moduleName, sourceField,
-                    hasMovingSignal, movingSignal, positionValue, deadband, ut,
-                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
-                    roboticMotionWindows, roboticSampleIntervalSeconds,
-                    out string movingSource, out _);
-
-                if (loggedRoboticModuleKeys.Add(key))
-                {
-                    ParsekLog.Verbose("Recorder", FormatRoboticTrackingLine(
-                        part.partInfo?.name, part.persistentId, moduleIndex, moduleName, sourceField,
-                        deadband, movingSource, roboticSampleIntervalSeconds, null));
-                }
-
-                for (int e = 0; e < events.Count; e++)
-                {
-                    PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                        $"val={events[e].value:F3}");
-                }
-            }
+            PartStatePoller.PollRobotics(v, cachedRoboticModules, activeRoboticKeys, lastRoboticPosition,
+                lastRoboticSampleUT, roboticMotionWindows, loggedRoboticModuleKeys,
+                roboticSampleIntervalSeconds, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         #endregion

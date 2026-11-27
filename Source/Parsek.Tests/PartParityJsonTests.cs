@@ -110,7 +110,9 @@ namespace Parsek.Tests
             "  \"stowedCaseId\": null,\n" +
             "  \"fx\": null,\n" +
             "  \"fxAtlas\": null,\n" +
-            "  \"strip\": null\n" +
+            "  \"strip\": null,\n" +
+            "  \"burst\": null,\n" +
+            "  \"dust\": null\n" +
             "}\n";
 
         [Fact]

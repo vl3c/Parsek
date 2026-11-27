@@ -133,6 +133,9 @@ namespace Parsek
             // --- Small spark burst (additive) ---
             BuildPuffSparkBurst(obj, scale);
 
+            // World-space and on its own: without this it rides along with a flying active vessel.
+            GhostWorldSpaceEmitter.AttachOwn(obj);
+
             smokePs.Play();
             Object.Destroy(obj, 3f);
 
@@ -478,6 +481,10 @@ namespace Parsek
 
             // --- Smoke child particle system ---
             var smokePs = BuildExplosionSmokeChild(obj, vesselLength);
+
+            // Stock moves its own explosions (FXMonger.offsetPositions); this one is Parsek's.
+            GhostWorldSpaceEmitter.AttachOwn(obj);
+
             if (smokePs != null)
                 smokePs.Play();
 
@@ -581,6 +588,9 @@ namespace Parsek
 
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             ps.Clear(true);
+
+            // The dust it has sprayed stays on the ground when the floating origin shifts.
+            GhostWorldSpaceEmitter.AttachOwn(dustObj);
 
             ParsekLog.Verbose("GhostVisual", $"Launch dust built for '{vesselName}'");
             return new LaunchDustInfo
