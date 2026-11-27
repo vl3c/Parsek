@@ -4088,6 +4088,71 @@ there). Definitions, which `partparity.py` transcribes (`burst_measure_bin`, `bu
   their side blocks and the schedule diff, and reds on every tampered number, a mutated pixel,
   an alpha no sample count writes and a wrong layout.
 
+X2 as built (2026-11-27, no flight, no behaviour change; IL proofs in
+`<umbrella>/logs/refactor/p9-x2/`). Built on main after ghost-fx-9 (#2837) merged. Pinned by
+`PartParityGhostSeamTests`; the whole-assembly `il_compare.py` of the build before and after lists
+only the members below as changed or new.
+- `PartEvent` builders. `FlightRecorder.BuildDecoupledPartEvent(pid, partName, ut)` and
+  `BuildDestroyedPartEvent(pid, partName, ut, deathType)` (`FlightRecorder.PartEvents.cs`), the
+  `partName ?? "unknown"` inside them. The death builder takes `ClassifyPartDeath`'s answer
+  rather than fixing `Destroyed`, because the part-die handler writes `ParachuteDestroyed` for a
+  part dying with its canopy out; X4 runs the same two calls. Callers: `OnPartDie`,
+  `RecordJointBreakDecoupledEvent` and the deferred split check's `RecordFallbackDecoupleEvent`
+  in the active recorder, `OnBackgroundPartDie` and `OnBackgroundPartJointBreak` in the background
+  recorder (the part-die handlers live in those same two files). The source pin reds on an inline
+  `new PartEvent` of a decouple or death type anywhere in `Source/Parsek` outside `InGameTests/`
+  and the builders, and on any recorder call fed other reads than the joint child, its name and
+  the UT. The fallback's explicit `value = 0f, moduleIndex = 0` were the struct defaults.
+- Launch dust frame body. `GhostPlaybackEngine.DriveLaunchDustFrame(recIdx, state, enginePower,
+  altitude, groundRefAltitude, ref lazyBuildCount)` (`GhostPlaybackEngine.ReentryFx.cs`) is the
+  tail of `UpdateLaunchDust` from the intensity gate on (intensity, the lazy build under the
+  shared per-frame cap, the emission and size drive, the log line); `UpdateLaunchDust` keeps the
+  warp, engine power and ground-reference latch gates and passes its ghost's
+  `lastInterpolatedAltitude`, `launchDustGroundRefAltitude` and `frameLazyReentryBuildCount`. The
+  latch and intensity math the plan located in `GhostPlaybackLogic.SynthesizedMotion.cs` (1271 to
+  1318) and the build in `GhostVisualBuilder.TransientFx.cs` (509 to 592) were statics already and
+  did not move; the plan's `ReentryFx.cs` 197 to 212 is the latch, which stays in the caller (a
+  case has no trajectory to latch from). A case sets `state.launchDustPendingBuild` itself before
+  its first call, as the latch does. Proof (`fold_launch_dust.py`): the static's body folded back
+  into its call site, each parameter load replaced by the caller's argument expression (the by-ref
+  counter's `ldind.i4` / `stind.i4` reading as the field's `ldfld` / `stfld`, a value parameter's
+  `ldarga` as the expression's address, the static's `ret` as the caller's), equals the old
+  `UpdateLaunchDust` instruction for instruction (308) and local for local (19, by order of first
+  use and type), with the seam's two `nop`s dropped; swapping two substituted operands reds it.
+- Transient FX record. `GhostTransientFxRecord` (`Ghost/GhostTransientFxRecord.cs`): entries of
+  kind (`StockExplosion`, `CustomExplosion`, `PartPuff`), world position, the FXMonger power (NaN
+  for Parsek's own), the size argument (vessel length for the fireball, the part scale before the
+  clamp for the puff; NaN for a stock blast), the GameObject (null for a stock blast, whose object
+  FXMonger instantiates in its `LateUpdate`) and a sequence number. Noted at the three starts:
+  `TryTriggerStockExplosionFx` once the call returned (outside its try, so a note can never turn a
+  queued blast into the fallback), `SpawnExplosionFx` and `SpawnPartPuffFx` just before they
+  return their object (so the puff `SpawnPartPuffAtPart` drops is recorded). Decision: it records
+  only while armed (`Arm` opens a fresh record, `Disarm` drops it; readers get a read-only view),
+  because an always-on list of GameObjects grows for the whole session; unarmed a start costs one
+  null check. The X4 driver arms it for a run. Lifetimes: `entries` and `view` are `test-hook`
+  in `scripts/arch/lifetimes.toml`, written only by the record's own `Arm` / `Disarm`, so the
+  test-hook-written-by-production finding stays 0.
+- `GhostPlaybackEngine.TerminalExplosionPower(vesselLength)` (`SpawnDestroy.cs`, the line the plan
+  named held): `Clamp01(length / VesselLengthPowerDivisor)`, read by `PlayDestroyedExplosion`;
+  its IL is the four replaced instructions. `ParsekKSC` and the manual preview in
+  `ParsekFlightPlaybackHost` compute the same expression and were left alone (not X2's files).
+- Reentry isolation frame. `GhostPlaybackEngine.ArmReentryIsolationForOneFrame(state, mode)` with
+  `ReentryIsolation.FireAndShell` or `FireShellAndGlow` (the two ghost isolation frames of G.2.3):
+  the next `DriveReentryLayers` of that ghost consumes it, turns the fire particle renderer off
+  (the particles keep simulating), skips the shell's `DrawMesh` passes and, for the glow mode,
+  drives Layer A cold; the char keeps the drive's intensity (it is the body layer). The first
+  drive that does not isolate turns the renderer back on, so two isolation frames in a row keep
+  it off across both. The armed mode and the hidden flag live on the ghost's `ReentryFxInfo`
+  (false for a ghost with no reentry FX built), so every drive path, the warp drive-to-zero
+  included, restores it, and a rebuilt or destroyed info carries no stale flag.
+- Ratchet: the five seams no production code calls yet (`Arm`, `Disarm`, `Entries`, `IsArmed`,
+  `ArmReentryIsolationForOneFrame`; X4 and X8 call them) raise `uncalledInAssembly` from 374 to
+  377 (it read 372 before X2), pinned by name in `scripts/arch/facts_pins.toml` as F2 did. Only
+  that section was re-written from the build (the pin requires bound = keys), so it also takes in
+  the swaps earlier PRs left inside the old bound (7 keys in, 9 out); the other sections are as
+  they were.
+- No CHANGELOG entry (no behaviour change); no todo entry.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
@@ -4190,9 +4255,11 @@ Per side the case reads a PROGRESS curve p(t) in [0, 1] over the time t since th
   list, paired by part path with the real part's transforms; a servo's moving transform; a chute's
   canopy transform). For each transform, its travel since frame 0, accumulated frame to frame (so a
   turn past 180 degrees is not folded back), over its total travel on that side: position, rotation
-  and scale, whichever moved most. A transform that moves less than 0.5 deg and 1 mm on a side is
-  left out. The side's p(t) is the travel-weighted mean. Each side is normalised by its OWN frame 0
-  and its own final pose, so an end-pose difference (P6's finding) does not bend the curve.
+  and scale, whichever moved most against its still threshold (0.5 deg, 1 mm, 0.001 scale units).
+  A transform that moves less than all three on a side is left out. The side's p(t) is the
+  travel-weighted mean, each transform weighted by its travel in its channel over that channel's
+  still threshold. Each side is normalised by its OWN frame 0 and its own final pose, so an
+  end-pose difference (P6's finding) does not bend the curve.
 - Picture progress (secondary, recomputable in Python from the atlas). Per view, a(t) = tolerant
   mismatch pixels (section 6) between frame t and frame 0 of the same row, b(t) = against the row's
   last frame, p = a / (a + b) (0 when both are 0).
@@ -4212,7 +4279,7 @@ t98 (end): the real's between its frames (T / 8 apart, H.2), the ghost's on its 
 | `staggerDev` | the same per transform, the largest over transforms | a staged clip played all at once |
 | `travelRatio` | per transform, ghost total travel over real | a rotation that takes the short way round |
 | `motion-snap` | the ghost rises from under 0.1 to over 0.9 between two adjacent frames while the real takes 3 frames or more | a snap where stock animates |
-| `motion-stepped` | the ghost holds still over 2 or more adjacent frames, twice or more, while the real rises more than 0.05 per frame | a staircase (servo samples) |
+| `motion-stepped` | the ghost holds still (within 1e-4) between adjacent frames, in 2 or more separate holds, while the real rises more than 0.05 per frame; a hold counts only strictly inside 0.02 < p < 0.98, so a late start or a snap's flat ends is not a step | a staircase (servo samples) |
 | `motion-not-modelled` | the real reaches 0.9 and the ghost never reaches 0.1 in the window | a motion the ghost does not show at all |
 | `angleMaxDevDeg` | servos only: max over frames of the angle (or travel) difference at the same time | servo pose over time |
 
@@ -4230,27 +4297,39 @@ presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to 
 | `deployable` (panels, antennas, radiators) | `motion-deployed` | 19 / 22 | sun trackers: the tracking pivot is left out of the progress transforms (its slew after the done signal is P6's, D.3) |
 | `gear` (gear, legs, deploying wheels) | `motion-deployed` | 8 / 9 | free-fall droop as P6 (`context-dependent`), which moves no deploy transform |
 | `ladder` | `motion-deployed` | 2 / 2 | |
-| `animation-group` (drills, in orbit) | `motion-deployed` | 3 / 4 | the stock ISRU stays `auto-deploy` (D.1) |
+| `animation-group` (drills, in orbit) | `motion-deployed` | 4 / 4 | the stock ISRU stays `auto-deploy` (D.1) |
 | `cargo-bay` | `motion-open` | 8 / 9 | |
 | `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
 | `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
 | `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
-| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 22 `BaseServo` parts with the rotors (D.1), counted per install by M1 | target swept (H.2); rotors excluded (`rotor-spin-not-primed`, below) |
-| `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 parts (D.1), counted per install by M1 | the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
+| `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 13 / 13 (4 rotation servos, 5 hinges, 4 pistons; the 22 `BaseServo` parts less 9 rotors) | target swept (H.2); the servo modules by the robotic poll's exact names (`FlightRecorder.IsRoboticModuleName` less the rotor); rotors excluded (`rotor-spin-not-primed`, below), any other `BaseServo` `not-polled` |
+| `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 / 24 | every module named exactly `ModuleControlSurface` (PollControlSurfaces); the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
 
-Not in P7, each a manifest exclusion with its reason (never silently dropped):
+Counted by M1 over the committed part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-
+<profile>.txt` (the state lists' parts with a case or an exclusion here): 91 orbit cases and 10 chute
+cases on stock-minimal, 101 and 10 on modded-compat, plus the reading-only light cases (15 + 26 /
+18 + 37). Every P6 exclusion of a motion family carries over with its P6 reason (`ground-deploy`,
+`no-pose`, `fairing-bay`, `bay-deploy-not-animated`, `no-animation`, `auto-deploy`).
 
-- `motion-physics`: jettisons and fairings. The shroud or panels leave as free physical objects
+Not in P7, each a manifest exclusion with its reason (never silently dropped). An exclusion names
+a MOTION, not a part: `synthesized-from-trajectory` and `loop-phase` also stand beside a case of the
+same module (a control surface's deploy is a case, its flight deflection is excluded; a drill's
+deploy is a case, its running loop is excluded):
+
+- `motion-physics`: jettisons and fairings, every module implementing `ModuleJettison` or
+  `ModuleProceduralFairing` (48 / 78). The shroud or panels leave as free physical objects
   and the ghost hides them at the event; there is no animation on either side (P6 covers the end).
 - `light-fade`: lights and cabin lights. A brightness ramp, not a motion, and the ghost snaps it on
   by design (`GhostPlaybackLogic.HeatDeployablesLights.cs:1057-1060`); selectable by name
-  (`motion=light`) for a reading run, never in `motion=all`.
+  (`motion=light`, kind `fade`, one case per P6 light case) for a reading run, never in
+  `motion=all`; a run that names `light` lists no `light-fade` row.
 - `synthesized-from-trajectory`: engine gimbals and control-surface flight deflection. The ghost
   derives them from its own body rates (`GhostPlaybackLogic.SynthesizedMotion.cs:25-31`) and the
   recorder records no gimbal, so a held lone part has nothing to compare; they need a flown vessel
   (a later reference lane, like P8's R1).
 - `loop-phase`: running drills, converters and spinning scanners (`ConverterLoopGhostInfo`), whose
-  phase depends on the start time (PARTPARITY-SPIN-PHASE); their period is a later P7 piece.
+  phase depends on the start time (PARTPARITY-SPIN-PHASE); their period is a later P7 piece. Every
+  `ModuleAnimationGroup` on a part with no `ModuleGroundPart` (5 / 4).
 - `ground-scan`: `ModuleRobotArmScanner` (extends only while scanning a surface feature).
 - `rotor-spin-not-primed`: rotors (`ModuleRoboticServoRotor`). A primed ghost never spins one:
   `PrimeHiddenPartStateAtUT` re-walks every event from the first
@@ -4283,16 +4362,19 @@ Frame schedule (pure, `PartParityMotionRules.PlanFrameTargets`):
   playing `AnimationState` `length / |speed|` (stock's own clock); a servo `|target - start| /
   traverseVelocity`; an airbrake or control surface `deployAngle / actuatorSpeed`; a chute the semi
   or full clip over its module speed (confirmed by M0, U6). Clamped to [0.25, 30] s.
-- Targets `t_k = k T / 8` from the press (frame 0 at the press frame, before stock moves anything).
-  Capture continues at that spacing until the real done signal (P6's rule, D.3) plus the GHOST's own
-  expected run (its built clip length, known before the press from the framing ghost below; a
-  servo's 0.25 s stop hold) plus 0.5 s, so a ghost that starts when the real ends is still in the
-  window: about 17 to 25 frames for a clip (a window of about 2 T + 1 s); past 33 frames the
-  spacing doubles; a 40 s cap ends the window (flag `motion-window-capped`). A control's altered
-  route (H.3) extends the window by its own change (its doubled clip, its 1 s shift).
+- Targets `t_k = k T / n` from the press (frame 0 at the press frame, before stock moves anything),
+  n the step's `frames=` (4 to 16, default 8; `frames-arg-invalid` out of range or on a step that is
+  not a motion run). Capture continues at that spacing until the real done signal (P6's rule, D.3)
+  plus the GHOST's own expected run (its built clip length, known before the press from the framing
+  ghost below; a servo's 0.25 s stop hold) plus 0.5 s, so a ghost that starts when the real ends is
+  still in the window: about 17 to 25 frames for a clip (a window of about 2 T + 1 s); after every
+  block of 4 n intervals the spacing doubles (past frame 33 at the default 8, again past frame 65);
+  a 40 s cap ends the window (flag `motion-window-capped`). A control's altered route (H.3) extends
+  the window by its own change (its doubled clip, its 1 s shift).
 - A target is taken on the first end-of-frame at or after it; the actual offset is recorded
-  (`realS`), and a frame later than T / 16 is tagged `frame-jitter:<ms>`. The ghost rows use the
-  actual offsets, so the same-time pair has no time skew at all.
+  (`realS`), and a frame later than half the starting spacing (T / 16 at the default 8) is tagged
+  `frame-jitter:<ms>`. The ghost rows use the actual offsets, so the same-time pair has no time
+  skew at all.
 
 Real side, live: at each target frame, after `WaitForEndOfFrame`, the case renders ONLY the real
 side (the ghosts do not exist yet, apart from the framing ghost, hidden) through
@@ -4341,10 +4423,19 @@ Ghost side, after the real motion: once the window has ended,
    `GhostPlaybackLogic.SynthesizedMotion.cs:19`).
 
 Views: `side-a` and `side-b` (4.3) at 256 px by default (`views=` widens them, `tile=` sets the
-size); a motion row of 17 frames is a strip, not a still, and the end states at 512 px are P6's.
+size; the motion defaults apply only when the step names neither); a motion row of 17 frames is a
+strip, not a still, and the end states at 512 px are P6's.
+
+The args (M1): `motion=none|all|<csv>` over the family words and `light` (`all` is the ten judged
+families), and `frames=4..16`. A motion run plans ONLY motion cases, so it names no `states=`, no
+`fx=` and at most `contexts=air` (the chutes); anything else beside it is `motion-arg-invalid`.
+There is no interim refusal: until M3 the runner hands `PlanCases` no motion keys, so a motion step
+plans no case.
 
 The motion atlas `<caseId>.motion.png`: rows `real:<view>`, `ghost:<view>` (same time),
-`ghost-matched:<view>` (same progress) for each view, columns the frames in order: 6 rows x 17
+`ghost-matched:<view>` (same progress) for each view, grouped by view in the views' order
+(`PartParityJson.MotionAtlasRows`; the real-vs-real control has no matched row), columns the
+frames in order: 6 rows x 17
 columns of 256 px (4352 x 1536 px) by default. It is the case's strip: the viewer crops and plays it
 (H.5) and `--gif` turns it into an animation. The P6 four-row still atlas is not written by a
 motion case.
@@ -4369,14 +4460,21 @@ hidden and left out of the records like a stacked filler. Press: the module's de
 
 Sidecar (`parsek-part-parity-case/1`, additive keys, every key always written, null when not
 measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` block (`family`,
-`kind` `clip|servo|surface|canopy`, `pressUT`, `predictedS`, `ghostClipS`, `eventDelayS`,
-`ghostStartDelayS`, `window` {`endS`, `spacingS`, `capped`}, `scout` {`stepS`, the ghost's pose
-progress at every grid UT}, `frames[]` {`k`, `targetS`, `realS`,
-`realClock`, `realProgress`, `ghostProgress`, `matchedS`, `imgProgress` per row and view, `views[]`
-with `same` and `matched` measure blocks}, `transforms[]` {`path`, `travelReal`, `travelGhost`, the
-per-frame fractions of both sides}, `timing` {`real` and `ghost` crossings, the H.1 measures and
-flags}), `motionAtlas` {`file`, `tile`, `rows`, `cols`}; the manifest's `settings` gain `motion` and
-`frames`. `stateProof` (D.2) keeps the press, done signal and events, so the press gate reads a
+`kind` `clip|servo|surface|canopy|fade`, `module`, `moduleIndex`, `pressUT`, `predictedS`,
+`ghostClipS`, `eventDelayS`, `ghostStartDelayS`, `framesPerMotion`, `window` {`endS`, `spacingS`,
+`capped`}, `scout` {`stepS`, `s` (every scout offset since the press), `progress` (the ghost's pose
+progress at each)}, `frames[]` {`k`, `targetS`, `realS`, `ut`, `realClock`, `ghostClock` (a servo's
+position on the scout at the same UT, null otherwise), `realProgress`, `ghostProgress` (same time),
+`matchedS`, `matchedProgress` (the matched render's own progress), `imgProgress` per atlas row,
+`views[]` {`view`, `same`, `matched`, each a `start`-shaped measure block}, `flags`}, `transforms[]`
+{`path`, `channel`, `travelReal`, `travelGhost`, `real` (fractions at the real frames), `ghost`
+(fractions on the scout)}, `timing` {`real` and `ghost` crossings `t02` to `t98`, the H.1 measures
+and `flags`}), `motionAtlas` {`file`, `tile`, `rows`, `cols`}; the manifest's `settings` gain
+`motion` and `frames`, written by a motion run only (every other run's settings are unchanged).
+The timing block is a pure function of those arrays (`PartParityMotionRules.Timing`, written by
+`PartParityJson.MotionTimingBlock`); `partparity.motion_timing` recomputes it, and both sides are
+pinned to the committed golden `Source/Parsek.Tests/Fixtures/PartParity/motion/timing-golden.json`
+(written by `harness/tools/build_motion_timing_golden.py`). `stateProof` (D.2) keeps the press, done signal and events, so the press gate reads a
 motion case like a state case.
 
 ### H.3 Controls, verdicts, report-only
@@ -4390,20 +4488,35 @@ subject) and the slow control on `airbrake1` (below), each judged RELATIVE to it
 | --- | --- | --- |
 | `ctl-motion-real-vs-real` | two `longAntenna` in one wave, pressed in the same frame; copy B's live frames stand in for the ghost rows (same index; no matched row) | both copies' curves agree: `|lagS|` at most one frame interval or 0.02 T, `|durationRatio - 1| <= 0.05`, `curveShapeDev <= 0.05`; frame 0 and the last frame within the real-vs-real allowance of 4.5. This is the timing noise floor of the live capture. |
 | `ctl-motion-ghost-slow` | `airbrake1`, a START-marked family: its event marks the start of stock's motion, so the ghost's transition starts at the event and runs its built clip. The normal case plus a second event route whose built deploy info has its clip length doubled (the rig's own ghost instance, after the build; no production code changes). Not `longAntenna`: an END-marked family plays its motion over [event UT - motion, event UT] with the motion time stamped from the clip at build (#2838, `GhostPlaybackLogic.DeployMotionEnd.cs`), so a doubled clip after the build changes nothing and a doubled motion time moves the start before the press | `durationRatio(slow) / durationRatio(normal)` in [1.9, 2.1], the onset unchanged within one frame interval, the slow route failing on duration while its last frame passes the P6 end-state rules: an end-state comparison cannot see it, the motion judge does |
-| `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02, the late route failing on lag |
+| `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02; the late route failing on lag only when the 1.0 s shift is past that motion's lag fail line, `max(0.5 s, 0.25 T_real)`, i.e. for T_real under 4 s, since a longer real motion holds a 1 s lag inside its line and the relative requirement is then the whole test |
 
 An air motion run records `ctl-empty`, `ctl-ghost-absent` and `ctl-motion-real-vs-real-air` (two
 `parachuteSingle` pressed together, the canopy-scale curves only). A control that does not behave
-is INVALID(parity-controls).
+is INVALID(parity-controls). The C# judges of the three motion controls are pure
+(`PartParityMotionRules.JudgeRealVsReal`, `JudgeGhostSlow`, `JudgeGhostLate`, M1) over two routes'
+timing blocks; the slow and late ones compare the altered route with the same subject's normal
+route (ratio of ratios, difference of lags), so the product's own timing cannot move them.
+
+What the controls write and how Python re-judges them (M4, `judge_motion_control`, the C# judges
+transcribed with their detail words): a real-vs-real control is one motion sidecar under its id,
+copy B's live frames as its ghost rows and scout (no matched row). The slow and late controls each
+write TWO motion sidecars over the same real frames: the ALTERED route under the control's id (its
+rows show the slowed or late ghost) and the normal route under `<controlId>--normal`, each with its
+own motion atlas; a missing or faulted normal route is `bad`. The real-vs-real end-frame allowance
+is read from frame 0 and the last frame: every view's same-time block with `realOnlyPx = 0`,
+`ghostOnlyPx = 0` and `colorOverPx <= 8` (`RealVsRealColorNoisePx`, the 4.5 rule) and some view
+covered. The slow route's last frame passes when its same-time pictures and the case's `structure`
+do not fail the P6 rules (`judge_route`). A control the manifest records `ok` that Python judges
+`bad` is INVALID(parity-controls).
 
 Verdicts (`harness/lib/partparity.py`, `judge_motion`; every threshold a constant at the top of the
 module, starting guesses re-pinned from the reading runs against the controls, no flight needed):
 
 | Level | Rule |
 | --- | --- |
-| `fail` | `motion-not-modelled`; `motion-snap`; `|lagS| > max(0.5 s, 0.25 T_real)` (T_real = real t98 - t02); `durationRatio` outside [0.6, 1.67]; `curveShapeDev > 0.30`; servos `angleMaxDevDeg > max(5 deg, 0.15 x sweep)`; on the two new families only (servos, control surfaces), the last frame judged by the P6 picture and structure rules |
-| `warn` | each numeric line at half its distance from the ideal value (lag and deviations at half, ratios outside [0.8, 1.25]); `motion-stepped` |
-| `error` | a P6 setup fault (`action-failed`, `state-timeout`, ...), `frames < 5`, or no real frame reaching 0.9 inside the window (the window rule failed) |
+| `fail` | `motion-not-modelled`; `motion-snap`; `|lagS| > max(0.5 s, 0.25 T_real)` (T_real = real t98 - t02); `durationRatio` outside [0.6, 1.67]; `curveShapeDev > 0.30`; servos `angleMaxDevDeg > max(5 deg, 0.15 x sweep)` (sweep: the largest `|realClock - realClock[0]|` over the frames); `lagS` or `durationRatio` not measured while the real moved and the ghost is not `motion-not-modelled` (the ghost never crossed a level the real crossed); on the two new families only (servos, control surfaces), the last frame judged by the P6 picture and structure rules (its same-time blocks and the case's `structure`, `judge_route`) |
+| `warn` | each numeric line at half its distance from the ideal value (lag, `curveShapeDev` and the servo angle at half their lines, `durationRatio` outside [0.8, 1.25]); `motion-stepped`; the new families' last frame at warn |
+| `error` | a P6 setup fault (`action-failed`, `state-timeout`, ...), a contradicting press proof (a servo, driven through its field, may carry `action` null when it `reached` its target), no `motion` or `timing` block, fewer than 5 frames, no real frame reaching 0.9 inside the window, or a last frame with no same-time picture (the window rule failed; outside a setup fault each of these also makes the sidecar incomplete, so an armed sweep reads INVALID(incomplete), never PASS over it) |
 
 Report-only from the start, never in a verdict: the per-frame picture verdicts (a late ghost fails
 every in-between frame; the timing measures carry that finding once), `staggerDev`, `travelRatio`
@@ -4420,6 +4533,45 @@ from the sidecar's per-frame arrays (a pure function, exact to 1e-9); `scout-ren
 any case is a mismatch. The lanes are report-only (`gating = false`); arming follows the P5 rule
 (two matching reading runs, a baseline section per label with regression keys
 `<caseId>/motion/<measure>`, an accepted list for the known differences of H.6).
+
+Built (M4, `harness/lib/partparity.py`). Entry points: `judge_case` hands a motion case (a `motion`
+block or a `motion-` state) to `judge_motion_case` / `judge_motion` (a `MotionJudgement` on the
+case's verdict: verdict, reasons `motion:<...>`, flags, judged measures, report-only measures);
+`evaluate_sweep` adds `motion_recompute`, `motion_run_problems` and the motion controls
+(`judge_motion_control`) to its gates; `verdicts_document` adds a `motion` section (per-family
+verdicts, cases per flag kind, the judge's lines) and each motion case's `motion` dict, and the
+summary line a `motion=` part, only when the sweep has a motion case, so a stowed, state, FX or
+burst sweep's document is byte for byte what it was (pinned by digest). The flags are the timing
+block's, then `motion-window-capped`, the case flags, the frame flag kinds and each
+`frame-jitter:<ms>`, then `progress-disagree` (report-only, computed here from `imgProgress`).
+What the instrument check reads, so M3 writes it so:
+
+- Every motion case (the controls and the normal routes too): every key of the motion tables
+  present, `scout.s` and `scout.progress` one length, each transform's `real` one value per frame
+  and `ghost` one per scout point, every frame listing the views in frame 0's order; the `timing`
+  block equal to `motion_timing` of the arrays (numbers within 1e-9, flags exactly); each frame's
+  `ghostProgress` within 1e-4 of the scout series at that frame's `realS`; no
+  `scout-render-disagree` on the case or any frame.
+- The motion atlas: `motionAtlas.rows` is `MotionAtlasRows` over the frames' views (no matched row
+  for a real-vs-real control), `motionAtlas.cols` the frames' `k` in order. Per frame and view the
+  `same` block is `recompute_view` of the `real:` and `ghost:` tiles and the `matched` block of the
+  `real:` and `ghost-matched:` tiles (a null `matched` block sits over an empty tile); the counts,
+  bboxes and border flags equal, centroids and IoU within 1e-9. `imgProgress` is an object keyed
+  by atlas row name; its value is `a / (a + b)` with `a` the tolerant mismatch (realOnlyTolPx +
+  ghostOnlyTolPx of the pair) of the frame's tile against the row's frame-0 tile and `b` against
+  the row's last tile; null only on a matched row whose block is null.
+- The run: a motion run plans only motion cases and a run whose settings name no motion plans
+  none; a row's `family` equals its sidecar's `motion.family`. A captured motion case is complete
+  with a `motion` block, at least one frame and a harvested motion atlas. The press gate counts a
+  motion case like a state case, its family the row's, else `stateProof.family`, else
+  `motion.family`.
+
+A null in a progress array is read as the C# NaN it stands for: every comparison with it is false
+and arithmetic through it is not measured (`motion_snapped`, `motion_stepped`,
+`motion_shape_deviation` and `motion_interpolate` tolerate it like `motion_crossing`; the C#
+writes no NaN into the pose arrays today). Not yet motion-aware: the P5 regression gate, which
+reads a failing motion case as `unexplained-fail` when armed; the motion keys of the baseline
+arrive with arming.
 
 ### H.4 Lanes and wall time
 
@@ -4542,10 +4694,10 @@ subsection.
 | # | PR | Files | Runs alongside | Acceptance |
 | --- | --- | --- | --- | --- |
 | M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
-| M1 | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
+| M1 (DONE 2026-11-27) | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins. BUILT: the counts of H.1, the timing golden shared by both sides, `test_hlib.py`'s arg cells | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs`, `FlightRecorder.PartModuleStates.cs` (the active sink's ownership guard) | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green. Done 2026-11-27: il_compare lists only `CheckRoboticState` (now the wrapper), the new `PollRobotics` and the `PartPollSink.ShouldPollCachedModule` guard with its active override; the moved body differs from the old one only by fields read as arguments and the sink indirection |
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
-| M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
+| M4 (DONE 2026-11-27) | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before. BUILT (H.3 "Built"): a synthetic motion sidecar + atlas builder in the tests; every control's perturbation caught (and an unperturbed one bad); mutated atlas tiles and tampered arrays INVALID(parity-instrument); ten legacy stowed / state / FX / burst sweeps hash to their pre-M4 digests. For the C# side: `JudgeGhostLate` must require the lag fail only when the 1.0 s shift is past the line (its xUnit cell for a 10 s motion expects `bad`), and M3 writes the slow / late normal route as `<controlId>--normal` |
 | M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
 | M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
 | M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |

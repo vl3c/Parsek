@@ -214,9 +214,27 @@ namespace Parsek
             if (double.IsInfinity(state.launchDustGroundRefAltitude))
                 return;
 
+            DriveLaunchDustFrame(recIdx, state, enginePower, state.lastInterpolatedAltitude,
+                state.launchDustGroundRefAltitude, ref frameLazyReentryBuildCount);
+        }
+
+        /// <summary>
+        /// The launch dust frame body once the ghost has engine power and a ground reference:
+        /// the intensity gate (<paramref name="altitude"/> above
+        /// <paramref name="groundRefAltitude"/>), the lazy build under the shared per-frame build
+        /// cap (<paramref name="lazyBuildCount"/>, the engine's own counter in production), and the
+        /// emission and size drive. <see cref="UpdateLaunchDust"/> passes the ghost's interpolated
+        /// altitude and its latched reference; the part parity dust cases pass a held slot's case
+        /// altitude and terrain altitude. A ghost whose <c>launchDustInfo</c> is still null builds
+        /// only with <c>launchDustPendingBuild</c> set; a build that returns null latches the
+        /// ghost's reference to "never" as the per-frame path does.
+        /// </summary>
+        internal static void DriveLaunchDustFrame(
+            int recIdx, GhostPlaybackState state, float enginePower,
+            double altitude, double groundRefAltitude, ref int lazyBuildCount)
+        {
             if (!GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                    enginePower, state.lastInterpolatedAltitude,
-                    state.launchDustGroundRefAltitude, out float intensity))
+                    enginePower, altitude, groundRefAltitude, out float intensity))
             {
                 DriveLaunchDustToZero(state);
                 return;
@@ -225,14 +243,14 @@ namespace Parsek
             if (state.launchDustInfo == null)
             {
                 if (!state.launchDustPendingBuild) return;
-                if (frameLazyReentryBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame)
+                if (lazyBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame)
                 {
                     ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-throttle-{recIdx}",
                         $"Launch dust build throttled for ghost #{recIdx}; retrying next frame " +
-                        $"(used {frameLazyReentryBuildCount}/{GhostPlayback.MaxLazyReentryBuildsPerFrame})", 1.0);
-                    return;   // pending flag stays set — retry while the gate is still open
+                        $"(used {lazyBuildCount}/{GhostPlayback.MaxLazyReentryBuildsPerFrame})", 1.0);
+                    return;   // pending flag stays set: retry while the gate is still open
                 }
-                frameLazyReentryBuildCount++;
+                lazyBuildCount++;
                 state.launchDustPendingBuild = false;
                 state.launchDustInfo = GhostVisualBuilder.TryBuildLaunchDust(
                     state.ghost, state.vesselName);
@@ -258,8 +276,8 @@ namespace Parsek
                 $"Launch dust ghost #{recIdx} \"{state.vesselName}\" " +
                 $"intensity={intensity.ToString("F3", CultureInfo.InvariantCulture)} " +
                 $"power={enginePower.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"alt={state.lastInterpolatedAltitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"groundRef={state.launchDustGroundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}",
+                $"alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"groundRef={groundRefAltitude.ToString("F1", CultureInfo.InvariantCulture)}",
                 5.0);
         }
 
@@ -387,6 +405,13 @@ namespace Parsek
                     $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
             }
 
+            // Test-only isolation frame; None (and nothing hidden) unless a test armed it.
+            ReentryIsolation isolation = ConsumeReentryIsolation(info, recIdx);
+            bool isolateFire = ReentryIsolationHidesFireAndShell(isolation);
+            if (isolateFire != info.fireHiddenForIsolation)
+                SetReentryFireShownForIsolation(info, !isolateFire, recIdx);
+            float glowIntensity = ReentryIsolationGlowIntensity(intensity, isolation);
+
             // Layer A: Heat glow (material emission)
             if (info.glowMaterials != null)
             {
@@ -395,7 +420,7 @@ namespace Parsek
                     HeatMaterialState ms = info.glowMaterials[i];
                     if (ms.material == null) continue;
 
-                    if (intensity <= GhostVisualBuilder.ReentryLayerAThreshold)
+                    if (glowIntensity <= GhostVisualBuilder.ReentryLayerAThreshold)
                     {
                         if (!string.IsNullOrEmpty(ms.emissiveProperty))
                             ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
@@ -404,7 +429,7 @@ namespace Parsek
                     }
                     else
                     {
-                        float glowFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, intensity);
+                        float glowFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, glowIntensity);
                         Color targetEmission = Color.Lerp(GhostVisualBuilder.ReentryHotEmissionLow,
                             GhostVisualBuilder.ReentryHotEmissionHigh, glowFraction);
                         if (!string.IsNullOrEmpty(ms.emissiveProperty))
@@ -423,7 +448,7 @@ namespace Parsek
 
             // Fire envelope particles. Visible density is controlled primarily by the
             // emission-rate range; maxParticles only supplies headroom for the denser stream.
-            if (info.fireParticles != null)
+            if (info.fireParticles != null && !isolateFire)
             {
                 if (intensity > GhostVisualBuilder.ReentryFireThreshold)
                 {
@@ -449,7 +474,7 @@ namespace Parsek
 
             // Fire shell overlay
             if (info.fireShellMeshes != null && info.fireShellMaterial != null
-                && intensity > GhostVisualBuilder.ReentryFireThreshold)
+                && !isolateFire && intensity > GhostVisualBuilder.ReentryFireThreshold)
             {
                 Vector3 velDir = surfaceVel.normalized;
                 float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
@@ -476,6 +501,65 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Test-only: the next reentry drive of this ghost (one frame) leaves out the fire
+        /// particles and the shell, or with <see cref="ReentryIsolation.FireShellAndGlow"/> also
+        /// drives Layer A cold; the drive after it restores them. This is the ghost half of the
+        /// FXC isolation frames (design-part-ghost-parity.md G.2.3). The fire particles keep
+        /// simulating; only their renderer is off for the frame. Returns false (nothing armed)
+        /// for a ghost with no reentry FX built yet.
+        /// </summary>
+        internal static bool ArmReentryIsolationForOneFrame(GhostPlaybackState state, ReentryIsolation mode)
+        {
+            ReentryFxInfo info = state?.reentryFxInfo;
+            if (info == null)
+            {
+                ParsekLog.Verbose("ReentryFx",
+                    $"Reentry isolation not armed for \"{state?.vesselName ?? "?"}\": no reentry FX built");
+                return false;
+            }
+            info.isolationArmed = mode;
+            ParsekLog.Verbose("ReentryFx",
+                $"Reentry isolation armed for one frame: \"{state.vesselName}\" mode={mode}");
+            return true;
+        }
+
+        /// <summary>The armed isolation mode, cleared so it applies to one drive only.</summary>
+        internal static ReentryIsolation ConsumeReentryIsolation(ReentryFxInfo info, int recIdx)
+        {
+            if (info == null) return ReentryIsolation.None;
+            ReentryIsolation mode = info.isolationArmed;
+            if (mode == ReentryIsolation.None) return mode;
+            info.isolationArmed = ReentryIsolation.None;
+            ParsekLog.Verbose("ReentryFx",
+                $"Reentry isolation frame applied to ghost #{recIdx}: mode={mode}");
+            return mode;
+        }
+
+        internal static bool ReentryIsolationHidesFireAndShell(ReentryIsolation mode)
+        {
+            return mode == ReentryIsolation.FireAndShell || mode == ReentryIsolation.FireShellAndGlow;
+        }
+
+        /// <summary>The intensity Layer A reads: 0 (cold) under a glow isolation frame, else the drive's.</summary>
+        internal static float ReentryIsolationGlowIntensity(float intensity, ReentryIsolation mode)
+        {
+            return mode == ReentryIsolation.FireShellAndGlow ? 0f : intensity;
+        }
+
+        // Not inlined: the renderer write is a Unity call the drive's pure halves stay clear of.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SetReentryFireShownForIsolation(ReentryFxInfo info, bool shown, int recIdx)
+        {
+            info.fireHiddenForIsolation = !shown;
+            ParsekLog.Verbose("ReentryFx",
+                $"Reentry fire renderer {(shown ? "restored" : "hidden")} for isolation on ghost #{recIdx}" +
+                (info.fireParticles == null ? " (no fire particles built)" : ""));
+            if (info.fireParticles == null) return;
+            var psRenderer = info.fireParticles.GetComponent<ParticleSystemRenderer>();
+            if (psRenderer != null) psRenderer.enabled = shown;
         }
 
         #endregion

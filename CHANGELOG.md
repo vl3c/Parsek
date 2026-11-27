@@ -15,6 +15,8 @@ Not released yet.
 
 ### Fixed
 
+- **Looped missions show their dropped boosters.** A looping launch's debris now shows on every
+  loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
 - **Ghost explosions, puffs, launch dust and reentry fire stay in the air they were made in.**
   They no longer ride along with your own vessel while it flies.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other

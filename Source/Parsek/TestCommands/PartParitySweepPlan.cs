@@ -238,6 +238,7 @@ namespace Parsek.TestCommands
         /// subjects (<see cref="PartParityFxRules.ControlSubjectWords"/>).</summary>
         internal static string ControlSubject(string controlId, bool airRun, bool fxRun)
         {
+            if (IsMotionOnlyControl(controlId)) return PartParityMotionRules.ControlSubjectWords(controlId);
             if (fxRun || IsFxOnlyControl(controlId)) return PartParityFxRules.ControlSubjectWords(controlId, airRun);
             if (airRun && controlId == TestCommandPartParitySweep.ControlRealVsReal)
                 return ControlAirPart + " armed and falling, real captured as both sides";
@@ -259,6 +260,7 @@ namespace Parsek.TestCommands
 
         internal static string ControlRequired(string controlId)
         {
+            if (IsMotionOnlyControl(controlId)) return PartParityMotionRules.ControlRequiredWords(controlId);
             if (IsFxOnlyControl(controlId)) return PartParityFxRules.ControlRequiredWords(controlId);
             switch (controlId)
             {
@@ -278,6 +280,14 @@ namespace Parsek.TestCommands
         }
 
         internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.AllControlIds, id) >= 0;
+
+        /// <summary>A control only a motion run plans (Appendix H.3): the four motion
+        /// controls, not the coverage pair or the capture primitive's real-vs-real.</summary>
+        internal static bool IsMotionOnlyControl(string id)
+            => id != TestCommandPartParitySweep.ControlEmpty && id != TestCommandPartParitySweep.ControlGhostAbsent
+               && id != TestCommandPartParitySweep.ControlRealVsReal
+               && (Array.IndexOf(TestCommandPartParitySweep.MotionOrbitControlIds, id) >= 0
+                   || Array.IndexOf(TestCommandPartParitySweep.MotionAirControlIds, id) >= 0);
 
         /// <summary>A control only an FX run plans (every FX control but the two coverage ones,
         /// the burst and dust controls of design G.4 included).</summary>

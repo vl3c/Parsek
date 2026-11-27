@@ -119,6 +119,43 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", "Unsubscribed part event hooks");
         }
 
+        /// <summary>
+        /// The <see cref="PartEventType.Decoupled"/> event both recorders write for the child of a
+        /// structural joint break (and the deferred split check's fallback for a new vessel's
+        /// root). Pure, so a caller outside the recorders (the part parity burst driver) builds
+        /// the event a recording holds; <c>PartParityGhostSeamTests</c> pins that every recorder
+        /// site calls it.
+        /// </summary>
+        internal static PartEvent BuildDecoupledPartEvent(uint partPersistentId, string partName, double ut)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = PartEventType.Decoupled,
+                partName = partName ?? "unknown"
+            };
+        }
+
+        /// <summary>
+        /// The part-death event both recorders write from <c>onPartDie</c>.
+        /// <paramref name="deathType"/> is <see cref="ClassifyPartDeath"/>'s answer for the part:
+        /// <see cref="PartEventType.Destroyed"/>, or <see cref="PartEventType.ParachuteDestroyed"/>
+        /// for a part that dies with its canopy out. Pure; pinned with
+        /// <see cref="BuildDecoupledPartEvent"/>.
+        /// </summary>
+        internal static PartEvent BuildDestroyedPartEvent(
+            uint partPersistentId, string partName, double ut, PartEventType deathType)
+        {
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = deathType,
+                partName = partName ?? "unknown"
+            };
+        }
+
         private void OnPartDie(Part p)
         {
             if (!IsRecording) return;
@@ -133,13 +170,8 @@ namespace Parsek
             bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
             var evtType = ClassifyPartDeath(p.persistentId, hasChute, parachuteStates);
 
-            PartEvents.Add(new PartEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                partPersistentId = p.persistentId,
-                eventType = evtType,
-                partName = p.partInfo?.name ?? "unknown"
-            });
+            PartEvents.Add(BuildDestroyedPartEvent(
+                p.persistentId, p.partInfo?.name, Planetarium.GetUniversalTime(), evtType));
             ActivateHighFidelitySampling(PartEvents[PartEvents.Count - 1].ut, $"part-event-{evtType}");
             ParsekLog.Verbose("Recorder", $"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
             RefreshFinalizationCache(p.vessel, "part_die", force: true);
@@ -474,13 +506,8 @@ namespace Parsek
         /// </summary>
         internal void RecordJointBreakDecoupledEvent(PartJoint joint, double jointBreakUT)
         {
-            PartEvents.Add(new PartEvent
-            {
-                ut = jointBreakUT,
-                partPersistentId = joint.Child.persistentId,
-                eventType = PartEventType.Decoupled,
-                partName = joint.Child.partInfo?.name ?? "unknown"
-            });
+            PartEvents.Add(BuildDecoupledPartEvent(
+                joint.Child.persistentId, joint.Child.partInfo?.name, jointBreakUT));
             ActivateHighFidelitySampling(jointBreakUT, "joint-break");
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
         }
@@ -567,15 +594,7 @@ namespace Parsek
             // the same pid (unlikely but defensive) short-circuits via its own fast path.
             decoupledPartIds.Add(partPid);
 
-            PartEvents.Add(new PartEvent
-            {
-                ut = ut,
-                partPersistentId = partPid,
-                eventType = PartEventType.Decoupled,
-                partName = partName ?? "unknown",
-                value = 0f,
-                moduleIndex = 0
-            });
+            PartEvents.Add(BuildDecoupledPartEvent(partPid, partName, ut));
             ParsekLog.Info("Recorder",
                 $"Fallback Decoupled event recorded: '{partName}' pid={partPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
             return 1;

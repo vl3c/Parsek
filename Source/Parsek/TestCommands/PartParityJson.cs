@@ -184,6 +184,11 @@ namespace Parsek.TestCommands
         /// <see cref="PartParityJson.DustKeys"/>; null for every other case.</summary>
         internal Dictionary<string, string> Burst;
         internal Dictionary<string, string> Dust;
+        /// <summary>A motion case's <c>motion</c> and <c>motionAtlas</c> blocks (Appendix H.2) as
+        /// JSON fragments per key of <see cref="PartParityJson.MotionKeys"/> and
+        /// <see cref="PartParityJson.MotionAtlasKeys"/>; null for every other case.</summary>
+        internal Dictionary<string, string> Motion;
+        internal Dictionary<string, string> MotionAtlas;
     }
 
     /// <summary>One <c>controls[]</c> entry of the manifest.</summary>
@@ -290,6 +295,7 @@ namespace Parsek.TestCommands
             "stateProof", "structureStart", "stowedCaseId",
             "fx", "fxAtlas", "strip",
             "burst", "dust",
+            "motion", "motionAtlas",
         };
 
         internal static readonly string[] SkinKeys =
@@ -505,6 +511,76 @@ namespace Parsek.TestCommands
         /// <summary>A dust case's atlas rows (columns <see cref="PartParityFxRules.DustViews"/>): the
         /// dust layer judged, the engine's flame beside it (the dust-off control's other half).</summary>
         internal static readonly string[] DustAtlasRows = { "real-dust", "ghost-dust", "real-flame", "ghost-flame" };
+
+        // ----- the motion blocks (Appendix H.2) -----
+
+        /// <summary>A motion case's <c>motion</c> block.</summary>
+        internal static readonly string[] MotionKeys =
+        {
+            "family", "kind", "module", "moduleIndex", "pressUT", "predictedS", "ghostClipS",
+            "eventDelayS", "ghostStartDelayS", "framesPerMotion", "window", "scout", "frames",
+            "transforms", "timing",
+        };
+
+        internal static readonly string[] MotionWindowKeys = { "endS", "spacingS", "capped" };
+
+        /// <summary>The scout series: its grid step, every scout offset (s since the press) and
+        /// the ghost's pose progress at each.</summary>
+        internal static readonly string[] MotionScoutKeys = { "stepS", "s", "progress" };
+
+        /// <summary>One <c>frames[]</c> entry: the real frame's target and actual offsets,
+        /// stock's clock on both sides (the ghost's for a servo only), both sides' pose
+        /// progress at the same time, the matched offset and the progress its render showed,
+        /// the picture progress per atlas row, the per-view measure pairs and the frame's flags.</summary>
+        internal static readonly string[] MotionFrameKeys =
+        {
+            "k", "targetS", "realS", "ut", "realClock", "ghostClock", "realProgress", "ghostProgress",
+            "matchedS", "matchedProgress", "imgProgress", "views", "flags",
+        };
+
+        /// <summary>One frame view: the same-time and the matched pair's measures, each a
+        /// <see cref="StartKeys"/> block (null when the tile was left empty).</summary>
+        internal static readonly string[] MotionFrameViewKeys = { "view", "same", "matched" };
+
+        /// <summary>One <c>transforms[]</c> entry: its path, the channel it is read in, both
+        /// sides' total travel, the real fractions at the real frames and the ghost fractions on
+        /// the scout series.</summary>
+        internal static readonly string[] MotionTransformKeys =
+            { "path", "channel", "travelReal", "travelGhost", "real", "ghost" };
+
+        internal static readonly string[] MotionTimingKeys =
+        {
+            "real", "ghost", "lagS", "onsetLagS", "endLagS", "durationRatio", "curveShapeDev",
+            "staggerDev", "travelRatio", "angleMaxDevDeg", "flags",
+        };
+
+        /// <summary>A side's crossings (<see cref="PartParityMotionRules.CrossingLevels"/>).</summary>
+        internal static readonly string[] MotionCrossingKeys = { "t02", "t10", "t50", "t90", "t98" };
+
+        internal static readonly string[] MotionAtlasKeys = { "file", "tile", "rows", "cols" };
+
+        internal const string MotionRowReal = "real";
+        internal const string MotionRowGhost = "ghost";
+        internal const string MotionRowGhostMatched = "ghost-matched";
+
+        /// <summary>
+        /// The motion atlas rows, top-down (Appendix H.2): per view in the given order
+        /// <c>real:&lt;view&gt;</c>, <c>ghost:&lt;view&gt;</c> (same time) and, when
+        /// <paramref name="matched"/>, <c>ghost-matched:&lt;view&gt;</c> (same progress; the
+        /// real-vs-real control has none). Columns are the frames in order.
+        /// </summary>
+        internal static string[] MotionAtlasRows(IList<string> views, bool matched)
+        {
+            var rows = new List<string>();
+            if (views != null)
+                foreach (string v in views)
+                {
+                    rows.Add(MotionRowReal + ":" + v);
+                    rows.Add(MotionRowGhost + ":" + v);
+                    if (matched) rows.Add(MotionRowGhostMatched + ":" + v);
+                }
+            return rows.ToArray();
+        }
 
         // ----- atlas rows (design D.2) -----
 
@@ -843,6 +919,36 @@ namespace Parsek.TestCommands
                 M("nodes", nodes));
         }
 
+        /// <summary>A side's crossings as a <see cref="MotionCrossingKeys"/> object.</summary>
+        internal static string MotionCrossingsBlock(double[] crossings)
+        {
+            if (crossings == null) return "null";
+            var members = new KeyValuePair<string, string>[MotionCrossingKeys.Length];
+            for (int i = 0; i < members.Length; i++)
+                members[i] = M(MotionCrossingKeys[i], i < crossings.Length ? Num(crossings[i]) : "null");
+            return Obj(members);
+        }
+
+        /// <summary>The <c>timing</c> block of a motion case (Appendix H.1), every key of
+        /// <see cref="MotionTimingKeys"/> in order.</summary>
+        internal static string MotionTimingBlock(PartParityMotionTiming t)
+        {
+            if (t == null) return "null";
+            return Obj(
+                M("real", MotionCrossingsBlock(t.RealCrossings)), M("ghost", MotionCrossingsBlock(t.GhostCrossings)),
+                M("lagS", Num(t.LagS)), M("onsetLagS", Num(t.OnsetLagS)), M("endLagS", Num(t.EndLagS)),
+                M("durationRatio", Num(t.DurationRatio)), M("curveShapeDev", Num(t.CurveShapeDev)),
+                M("staggerDev", Num(t.StaggerDev)), M("travelRatio", Num(t.TravelRatio)),
+                M("angleMaxDevDeg", Num(t.AngleMaxDevDeg)), M("flags", StrArray(t.Flags)));
+        }
+
+        /// <summary>The <c>window</c> block of a motion case (Appendix H.2).</summary>
+        internal static string MotionWindowBlock(PartParityMotionWindow w)
+        {
+            if (w == null) return "null";
+            return Obj(M("endS", Num(w.EndS)), M("spacingS", Num(w.SpacingS)), M("capped", Bool(w.Capped)));
+        }
+
         internal static string StructureBlock(PartParityStructureDiff d)
         {
             if (d == null) return "null";
@@ -926,6 +1032,8 @@ namespace Parsek.TestCommands
                 M("strip", KeyedBlock(FxStripKeys, c.Strip)),
                 M("burst", KeyedBlock(BurstKeys, c.Burst)),
                 M("dust", KeyedBlock(DustKeys, c.Dust)),
+                M("motion", KeyedBlock(MotionKeys, c.Motion)),
+                M("motionAtlas", KeyedBlock(MotionAtlasKeys, c.MotionAtlas)),
             };
             return TopLevel(members);
         }

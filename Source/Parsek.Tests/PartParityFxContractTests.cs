@@ -301,7 +301,8 @@ namespace Parsek.Tests
             Assert.Contains("\"fx\": null", doc);
             Assert.Contains("\"fxAtlas\": null", doc);
             Assert.Contains("\"strip\": null", doc);
-            Assert.Equal(new[] { "fx", "fxAtlas", "strip", "burst", "dust" }, PartParityJson.CaseKeys.Skip(PartParityJson.CaseKeys.Length - 5));
+            int fx = System.Array.IndexOf(PartParityJson.CaseKeys, "fx");
+            Assert.Equal(new[] { "fx", "fxAtlas", "strip", "burst", "dust" }, PartParityJson.CaseKeys.Skip(fx).Take(5));
         }
 
         [Fact]
