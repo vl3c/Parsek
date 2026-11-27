@@ -21,6 +21,12 @@ namespace Parsek
             /// <summary>The pre-strip index was out of range (stock writes -1 when the active
             /// vessel's ProtoVessel is not in the list): left as it was.</summary>
             OutOfRange = 3,
+            /// <summary>Far-watch drone ids are set: the index names the player ship found by its
+            /// Guid in the stripped list, whatever the captured index said.</summary>
+            ShipByGuid = 4,
+            /// <summary>Far-watch drone ids are set but no surviving ProtoVessel carries the ship's
+            /// Guid: fail closed (-1), never 0.</summary>
+            ShipMissing = 5,
         }
 
         // Reason string handed to RemoveAllGhostVessels on the pre-stock far Switch-To strip.
@@ -76,6 +82,65 @@ namespace Parsek
         }
 
         /// <summary>
+        /// PURE. The far-watch extension of <see cref="ResolveActiveVesselIdxAfterGhostStrip"/>
+        /// (design-far-watch.md 9.1). With no drone ids (<paramref name="droneGuid"/> empty) it is
+        /// that resolver unchanged. With drone ids set the captured index is not trusted (it names
+        /// the drone after a hand-over and is 0 between a switch and the next FixedUpdate): the
+        /// target is the entry whose Guid is <paramref name="shipGuid"/>, and the result is its
+        /// index in the list after the ghosts AND the drone (pid and Guid) are removed;
+        /// <see cref="ActiveVesselIdxOutcome.ShipMissing"/> and -1 when no such entry survives.
+        /// <paramref name="removedBefore"/> counts the removed entries ahead of the target.
+        /// </summary>
+        internal static int ResolveActiveVesselIdxAfterGhostStrip(
+            IReadOnlyList<uint> pidsBefore,
+            IReadOnlyList<Guid> guidsBefore,
+            ICollection<uint> ghostPids,
+            int oldIdx,
+            uint dronePid,
+            Guid droneGuid,
+            Guid shipGuid,
+            out int removedBefore,
+            out ActiveVesselIdxOutcome outcome)
+        {
+            if (droneGuid == Guid.Empty)
+                return ResolveActiveVesselIdxAfterGhostStrip(pidsBefore, ghostPids, oldIdx, out removedBefore, out outcome);
+
+            removedBefore = 0;
+            if (pidsBefore == null || guidsBefore == null || guidsBefore.Count != pidsBefore.Count
+                || shipGuid == Guid.Empty)
+            {
+                outcome = ActiveVesselIdxOutcome.ShipMissing;
+                return -1;
+            }
+            int removed = 0;
+            for (int i = 0; i < pidsBefore.Count; i++)
+            {
+                bool isGhost = ghostPids != null && ghostPids.Contains(pidsBefore[i]);
+                bool isDrone = pidsBefore[i] == dronePid && guidsBefore[i] == droneGuid;
+                if (isGhost || isDrone)
+                {
+                    removed++;
+                    continue;
+                }
+                if (guidsBefore[i] == shipGuid)
+                {
+                    removedBefore = removed;
+                    outcome = ActiveVesselIdxOutcome.ShipByGuid;
+                    return i - removed;
+                }
+            }
+            removedBefore = removed;
+            outcome = ActiveVesselIdxOutcome.ShipMissing;
+            return -1;
+        }
+
+        /// <summary>The removal predicate of the far-watch strip: the drone by pid AND Guid.</summary>
+        internal static bool IsDroneProtoVessel(uint pid, Guid guid, uint dronePid, Guid droneGuid)
+        {
+            return droneGuid != Guid.Empty && pid == dronePid && guid == droneGuid;
+        }
+
+        /// <summary>
         /// Applies <see cref="ResolveActiveVesselIdxAfterGhostStrip"/> to a flight state the strip is
         /// about to run on and logs the move. Call BEFORE the removal; returns the new index the
         /// caller writes after it. <paramref name="flightScene"/> picks Warn over Verbose for an
@@ -84,15 +149,47 @@ namespace Parsek
         internal static int ComputeActiveVesselIdxForStrip(
             List<ProtoVessel> protoVessels, int oldIdx, bool flightScene)
         {
+            return ComputeActiveVesselIdxForStrip(protoVessels, oldIdx, flightScene,
+                0u, Guid.Empty, Guid.Empty, out ActiveVesselIdxOutcome _);
+        }
+
+        /// <summary>
+        /// The drone-aware form (design-far-watch.md 9.1): with drone ids set the target is the
+        /// ship by Guid; <paramref name="outcome"/> reports <see cref="ActiveVesselIdxOutcome.ShipMissing"/>
+        /// (and -1) when its ProtoVessel is not in the list, and the caller fails closed.
+        /// </summary>
+        internal static int ComputeActiveVesselIdxForStrip(
+            List<ProtoVessel> protoVessels, int oldIdx, bool flightScene,
+            uint dronePid, Guid droneGuid, Guid shipGuid, out ActiveVesselIdxOutcome outcome)
+        {
             var pids = new List<uint>(protoVessels.Count);
+            var guids = new List<Guid>(protoVessels.Count);
             for (int i = 0; i < protoVessels.Count; i++)
+            {
                 pids.Add(protoVessels[i] != null ? protoVessels[i].persistentId : 0u);
+                guids.Add(protoVessels[i] != null ? protoVessels[i].vesselID : Guid.Empty);
+            }
 
             int newIdx = ResolveActiveVesselIdxAfterGhostStrip(
-                pids, ghostMapVesselPids, oldIdx, out int ghostsBefore, out ActiveVesselIdxOutcome outcome);
+                pids, guids, ghostMapVesselPids, oldIdx, dronePid, droneGuid, shipGuid,
+                out int ghostsBefore, out outcome);
 
             switch (outcome)
             {
+                case ActiveVesselIdxOutcome.ShipByGuid:
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "Save activeVesselIdx {0}->{1} removedBefore={2} target=ship-by-guid " +
+                            "shipGuid={3} - far-watch drone ids set, captured index not trusted",
+                            oldIdx, newIdx, ghostsBefore, shipGuid.ToString("N")));
+                    break;
+                case ActiveVesselIdxOutcome.ShipMissing:
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "Save activeVesselIdx {0}: far-watch drone ids set but no ProtoVessel carries " +
+                            "the ship guid={1} (protoVessels={2})",
+                            oldIdx, shipGuid.ToString("N"), protoVessels.Count));
+                    break;
                 case ActiveVesselIdxOutcome.Shifted:
                     ParsekLog.Info(Tag,
                         string.Format(ic,
@@ -151,6 +248,35 @@ namespace Parsek
         /// would be torn down a moment later anyway. A ghost target is left alone (stripping would
         /// remove the target itself).
         /// </summary>
+        /// <summary>
+        /// Belt (design-far-watch.md 9.1): the switch-token patch refuses every switch Parsek did
+        /// not start while the drone exists, so a far switch with the drone up means something
+        /// called <c>FlightDriver.StartAndFocusVessel</c> directly. Treat the drone like a ghost
+        /// there: remove it from the live list so stock's <c>IndexOf</c> matches the stripped save.
+        /// </summary>
+        private static void RemoveCameraDroneBeforeFarSwitch(Vessel target)
+        {
+            if (!CameraDroneIdentity.Exists)
+                return;
+            ParsekLog.Error("CameraDrone",
+                string.Format(ic,
+                    "far Switch-To while the camera drone exists dronePid={0} targetPid={1} - removing the drone from the live list",
+                    CameraDroneIdentity.DronePid, target != null ? target.persistentId : 0u));
+            var live = FlightGlobals.Vessels;
+            if (live == null)
+                return;
+            for (int i = live.Count - 1; i >= 0; i--)
+            {
+                Vessel v = live[i];
+                if (v == null || !CameraDroneIdentity.IsDrone(v.persistentId, v.id))
+                    continue;
+                if (v == FlightGlobals.ActiveVessel)
+                    FlightGlobals.RemoveVessel(v);
+                else
+                    v.Die();
+            }
+        }
+
         internal static void RemoveAllGhostVesselsBeforeFarSwitch(Vessel target)
         {
             if (target == null)
@@ -160,6 +286,7 @@ namespace Parsek
             }
 
             uint targetPid = target.persistentId;
+            RemoveCameraDroneBeforeFarSwitch(target);
             int ghostCount = ghostMapVesselPids.Count;
             if (ghostCount == 0)
             {

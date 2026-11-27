@@ -19,8 +19,8 @@ namespace Parsek.Patches
     {
         static bool Prefix(Vessel __instance)
         {
-            if (GhostMapPresence.IsGhostMapVessel(__instance.persistentId))
-                return false; // skip CheckKill entirely for ghost vessels
+            if (GhostMapPresence.IsGhostOrDroneVessel(__instance.persistentId))
+                return false; // skip CheckKill entirely for ghost vessels and the far-watch drone
             return true;
         }
     }

@@ -1053,6 +1053,9 @@ namespace Parsek
             // An in-flight recovery request is consumed by the scene-exit finalize that
             // precedes this load; any leftover belongs to no live flight.
             InFlightRecoveryRequest.Clear("OnLoad");
+            // Far-watch drone ids kept for the strip after a scene exit (design-far-watch.md 7.5):
+            // a load starts from a stripped save and no far watch survives a scene change.
+            CameraDroneIdentity.ClearOnLoad("OnLoad");
             // Jumped spans belong to the timeline that made them; a load starts another.
             ConverterJumpPolicy.ClearJumpedSpans("OnLoad");
             // The subject science mirror is the committed science at the last mirror pass's
