@@ -1183,6 +1183,13 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // FarWatch, in the .FarWatch.cs partial: start answers at Following, stop at Idle.
+            if (completionVerb == TestCommandFarWatch.Verb)
+            {
+                TryCompleteFarWatch(now);
+                return;
+            }
+
             bool done = false;
             string verdict = null;
             List<KeyValuePair<string, string>> payload = null;
@@ -1577,6 +1584,9 @@ namespace Parsek.TestCommands
                 WarpPhysicsHoldOnly = warpHoldOnly,
                 WarpPhysicsHoldSeconds = warpHoldSeconds,
                 JournalPhase = phase,
+                // Far watch: the H7 refusal while a drone exists or the controller runs.
+                FarWatchActive = CameraDroneIdentity.Exists
+                    || (flight != null && flight.farWatch != null && flight.farWatch.IsRunning),
             };
         }
 
@@ -1817,6 +1827,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.PickUpFlag(ParsedCommand cmd) => PickUpFlagImpl(cmd);
         // EvaMove: body + two-phase completion in ParsekTestCommandAddon.EvaMove.cs.
         void ITestCommandExecutor.EvaMove(ParsedCommand cmd) => EvaMoveImpl(cmd);
+        // FarWatch: body + two-phase completion in ParsekTestCommandAddon.FarWatch.cs.
+        void ITestCommandExecutor.FarWatch(ParsedCommand cmd) => FarWatchImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1899,6 +1911,7 @@ namespace Parsek.TestCommands
                 case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 case "PickUpFlag": exec.PickUpFlag(cmd); break;
                 case "EvaMove": exec.EvaMove(cmd); break;
+                case "FarWatch": exec.FarWatch(cmd); break;
                 case "DumpMapGeometry": exec.DumpMapGeometry(cmd); break;
                 case "MapCamera": exec.MapCamera(cmd); break;
                 case "PartParitySweep": exec.PartParitySweep(cmd); break;
@@ -2014,6 +2027,10 @@ namespace Parsek.TestCommands
 
             List<KeyValuePair<string, string>> payload =
                 TestCommandRecordingState.BuildPayload(hasFlight, isRecording, treeId, points, sceneName);
+            // While a camera drone exists the read also names it and the player's ship (H7);
+            // absent a drone the payload is unchanged.
+            TestCommandFarWatch.AppendDroneFields(payload, CameraDroneIdentity.Exists,
+                CameraDroneIdentity.DronePid, CameraDroneIdentity.ShipPid);
             // The awaited form names its condition on the line, so a read the dispatcher
             // held until the re-fly recorder went live is distinguishable in KSP.log from
             // a plain read. Absent the arg the line is byte-identical to before.

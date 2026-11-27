@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera + PartParitySweep + ExitToMainMenu + EvaMove): 65 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera + PartParitySweep + ExitToMainMenu + EvaMove + FarWatch): 66 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -448,6 +448,11 @@ namespace Parsek.TestCommands
             // TestCommandEvaMove; TWO-PHASE, RequiresFlight (the not-eva defer PlantFlag /
             // EvaBoard use), 90 s. State-mutating (it moves the kerbal and burns propellant).
             "EvaMove",
+            // FarWatch. ADDITIVE (65 -> 66 implemented, reserved unchanged at 4): the far
+            // watch (camera drone) start / stop / status. Contract on TestCommandFarWatch;
+            // TWO-PHASE for start and stop, RequiresFlight, 120 s. State-mutating (it builds
+            // and removes a vessel and switches the active vessel).
+            "FarWatch",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.
