@@ -84,7 +84,7 @@ tier = "operator"
 description = "A far Switch-To lands on the vessel the player picked when a ghost map vessel sits ahead of it: on gloops-airshow plus the ghost-commnet-timeline preset, the clock is warped past the held relay's spawn, Jebediah EVAs onto the pad and plants a flag, then a stock alarm's Jump switches to the far held relay; the ghost map vessels must be stripped from the live list before stock's IndexOf, and the reloaded scene must focus the held relay, not Jebediah."
 instanceProfile = "stock-minimal"
 tags = ["SAVE-IDX-2", "far-switch", "alarm-jump", "ghost-map", "eva", "flag-plant",
-        "injected-recordings", "pending-flight"]
+        "injected-recordings", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"
