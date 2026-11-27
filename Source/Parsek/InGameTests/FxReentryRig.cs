@@ -931,7 +931,7 @@ namespace Parsek.InGameTests
             ReentryFxInfo r = s.reentryFxInfo;
             return $"rec={s.recordingId} fxSuppressed={s.visualFxSuppressed} lod={s.distanceLodReduced} fidelityReduced={s.fidelityReduced} " +
                 $"reentryFx={(r != null)} pendingBuild={s.reentryFxPendingBuild} intensity={(r != null ? r.lastIntensity : -1f).ToString("0.000", Ic)} " +
-                $"fireParticles={(r != null && r.fireParticles != null ? r.fireParticles.particleCount : -1).ToString(Ic)} shellMeshes={(r != null && r.fireShellMeshes != null ? r.fireShellMeshes.Count : -1).ToString(Ic)}";
+                $"sheath={(r != null && r.lastSheathDecision.HasValue ? r.lastSheathDecision.Value.ToString() : "none")} shellMeshes={(r != null && r.fireShellMeshes != null ? r.fireShellMeshes.Count : -1).ToString(Ic)}";
         }
 
         private IEnumerator Ghost()
@@ -990,24 +990,15 @@ namespace Parsek.InGameTests
                     continue;
                 }
                 SetPose(frame, s.DirLocal, s.FocusLocal, s.Dist);
-                List<ParticleSystemRenderer> offRenderers = null; List<FireShellMesh> savedShell = null; ReentryFxInfo info = st.reentryFxInfo;
-                if (s.GhostFxOff && info != null)
-                {
-                    offRenderers = new List<ParticleSystemRenderer>();
-                    if (info.fireParticles != null)
-                    {
-                        var pr = info.fireParticles.GetComponent<ParticleSystemRenderer>();
-                        if (pr != null && pr.enabled) { pr.enabled = false; offRenderers.Add(pr); }
-                    }
-                    savedShell = info.fireShellMeshes;
-                    info.fireShellMeshes = new List<FireShellMesh>();
-                }
+                // fxOff: the engine's isolation seam leaves this ghost's sheath (and its light) out
+                // of the next reentry drive, the one that renders the frame grabbed below.
+                bool isolationArmed = s.GhostFxOff && GhostPlaybackEngine.ArmReentryIsolationForOneFrame(st, ReentryIsolation.FireAndShell);
+                if (s.GhostFxOff && !isolationArmed)
+                    ParsekLog.Info(Tag, $"ghost shot {s.Label} fxOff: isolation not armed (no reentry FX built)");
                 yield return null;
                 Color32[] px = null; int w = 0, h = 0;
                 yield return Grab((p, ww, hh) => { px = p; w = ww; h = hh; });
                 double ut = Planetarium.GetUniversalTime();
-                if (offRenderers != null) foreach (var r in offRenderers) if (r != null) r.enabled = true;
-                if (savedShell != null && info != null) info.fireShellMeshes = savedShell;
                 captured++;
                 if (!loggedRenderers)
                 {
@@ -1032,7 +1023,7 @@ namespace Parsek.InGameTests
                     Png("fxr-diff-" + s.Mark + "-" + s.Kind, DiffImage(real, px), w, h);
                 }
                 Png("fxr-ghost-" + s.Mark + "-" + s.Kind, px, w, h);
-                ParsekLog.Info(Tag, $"ghost shot {s.Label} ut={ut.ToString("0.000", Ic)} dUt={(ut - s.Ut).ToString("0.000", Ic)} fxOff={s.GhostFxOff} index={idx.ToString(Ic)} " +
+                ParsekLog.Info(Tag, $"ghost shot {s.Label} ut={ut.ToString("0.000", Ic)} dUt={(ut - s.Ut).ToString("0.000", Ic)} fxOff={s.GhostFxOff} isolationArmed={isolationArmed} index={idx.ToString(Ic)} " +
                     $"watching={(f != null && f.IsWatchingGhost)} watchedIndex={(f != null ? f.WatchedRecordingIndex : -1).ToString(Ic)} " +
                     $"ghostToActive={dist.ToString("0", Ic)}m withinWatchCutoff={(dist >= 0 && dist <= DistanceThresholds.GhostFlight.GetWatchCameraCutoffMeters())} " +
                     $"withinVisualRange={(dist >= 0 && dist <= DistanceThresholds.GhostVisualRangeMeters)} rects main={R(rm)} booster={R(rb)} " +

@@ -19,13 +19,14 @@ namespace Parsek.InGameTests
     /// minus off is the fire cost of k ghosts. Parsek logging is suppressed while frames are
     /// sampled (both conditions), so per-frame log writes do not bias either side.
     /// Set PARSEK_FXR_TIMING=0 in the environment to skip it.
-    /// This branch half (main's effect): a ghost's fire is isolated with the rig's fxOff
-    /// mechanism (its fire particle renderer off and its shell mesh list emptied), held for the
-    /// whole off block; the particles keep simulating, as in the fxOff photo frames.
+    /// This branch half (Y1's effect, GhostAeroFxRenderer): a ghost's fire is isolated by arming
+    /// GhostPlaybackEngine.ArmReentryIsolationForOneFrame(state, FireAndShell) on every frame of
+    /// the off block (the renderer then counts it Isolated: no sheath draw, no velocity depth
+    /// render, no light).
     /// </summary>
     internal sealed partial class FxReentryRig
     {
-        private const string TimingVariant = "before(main: particles + shell, fxOff = renderer off + shell list emptied)";
+        private const string TimingVariant = "after(Y1: stock-like sheath, off = ArmReentryIsolationForOneFrame FireAndShell every frame)";
         private const int TimingCopies = 7;
         private const float TimingCopySpacingM = 2f;
         private const int TimingSamples = 120;
@@ -51,9 +52,6 @@ namespace Parsek.InGameTests
             public int Index;
             public float OffsetM;
             public bool FireOn = true;
-            // fxOff bookkeeping (main's effect)
-            public ParticleSystemRenderer OffRenderer;
-            public List<FireShellMesh> SavedShell;
         }
 
         private static bool TimingEnabled
@@ -150,52 +148,43 @@ namespace Parsek.InGameTests
             }
         }
 
-        // ---- branch half: main's effect (particles + shell), isolated with the fxOff mechanism ----
+        // ---- branch half: Y1's effect (GhostAeroFxRenderer), isolated with the engine seam ----
 
-        /// <summary>The per-frame half of the isolation: nothing on this branch (fxOff holds).</summary>
-        private static void IsolateFrame(TimingGhost g) { }
-
-        /// <summary>Fire on / off with the rig's fxOff mechanism, held until switched back.</summary>
-        private static void SetTimingFire(TimingGhost g, bool on)
+        /// <summary>The per-frame half of the isolation: arm the seam for the ghost's next
+        /// reentry drive (this frame's for a copy, driven right after; the next frame's for the
+        /// main ghost, which ParsekFlight.Update drives).</summary>
+        private static void IsolateFrame(TimingGhost g)
         {
-            if (g.FireOn == on) return;
-            g.FireOn = on;
-            ReentryFxInfo info = g.State != null ? g.State.reentryFxInfo : null;
-            if (!on)
-            {
-                if (info == null) return;
-                if (info.fireParticles != null)
-                {
-                    var pr = info.fireParticles.GetComponent<ParticleSystemRenderer>();
-                    if (pr != null && pr.enabled) { pr.enabled = false; g.OffRenderer = pr; }
-                }
-                g.SavedShell = info.fireShellMeshes;
-                info.fireShellMeshes = new List<FireShellMesh>();
-            }
-            else
-            {
-                if (g.OffRenderer != null) g.OffRenderer.enabled = true;
-                g.OffRenderer = null;
-                if (info != null && g.SavedShell != null) info.fireShellMeshes = g.SavedShell;
-                g.SavedShell = null;
-            }
+            if (g.State != null) GhostPlaybackEngine.ArmReentryIsolationForOneFrame(g.State, ReentryIsolation.FireAndShell);
         }
 
-        /// <summary>What the fire of the ghosts looks like at the end of an on block.</summary>
+        /// <summary>Fire on / off: only the flag; IsolateFrame arms the seam every off frame.</summary>
+        private static void SetTimingFire(TimingGhost g, bool on)
+        {
+            g.FireOn = on;
+        }
+
+        /// <summary>What the sheaths of the ghosts decided at the end of an on block.</summary>
         private static string TimingFireState(List<TimingGhost> ghosts, int k)
         {
-            int particles = 0, shells = 0, built = 0;
+            int built = 0, draw = 0, capped = 0, isolated = 0, other = 0;
             float maxIntensity = 0f;
-            for (int i = 0; i < ghosts.Count && i < k; i++)
+            var sb = new StringBuilder();
+            for (int i = 0; i < ghosts.Count; i++)
             {
                 ReentryFxInfo info = ghosts[i].State != null ? ghosts[i].State.reentryFxInfo : null;
                 if (info == null) continue;
                 built++;
-                if (info.fireParticles != null) particles += info.fireParticles.particleCount;
-                if (info.fireShellMeshes != null) shells += info.fireShellMeshes.Count;
-                maxIntensity = Math.Max(maxIntensity, info.lastIntensity);
+                if (i < k) maxIntensity = Math.Max(maxIntensity, info.lastIntensity);
+                if (!info.lastSheathDecision.HasValue) { other++; continue; }
+                GhostAeroSheathDecision d = info.lastSheathDecision.Value;
+                if (d == GhostAeroSheathDecision.Draw) draw++;
+                else if (d == GhostAeroSheathDecision.FrameCap) capped++;
+                else if (d == GhostAeroSheathDecision.Isolated) isolated++;
+                else { other++; sb.Append(d.ToString()).Append(' '); }
             }
-            return $"fxBuilt={built.ToString(Ic)} intensity={maxIntensity.ToString("0.000", Ic)} fireParticles={particles.ToString(Ic)} shellMeshes={shells.ToString(Ic)}";
+            return $"fxBuilt={built.ToString(Ic)} intensity={maxIntensity.ToString("0.000", Ic)} sheathDraw={draw.ToString(Ic)} frameCap={capped.ToString(Ic)} " +
+                $"isolated={isolated.ToString(Ic)} other={other.ToString(Ic)}{(sb.Length > 0 ? " (" + sb.ToString().Trim() + ")" : "")} maxSheathsPerFrame={GhostAeroFx.MaxSheathsPerFrame.ToString(Ic)}";
         }
 
         // ---- shared ----
