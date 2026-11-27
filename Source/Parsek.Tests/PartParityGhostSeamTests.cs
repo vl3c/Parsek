@@ -225,6 +225,9 @@ namespace Parsek.Tests
 
         #region Launch dust frame body
 
+        // DriveLaunchDustFrame and DriveLaunchDustToZero call ParticleSystem natives in their
+        // bodies, so the Windows .NET host refuses them on entry; mono (CI) carries these four.
+
         private static GhostPlaybackState DustState(bool pendingBuild)
         {
             return new GhostPlaybackState
@@ -236,7 +239,7 @@ namespace Parsek.Tests
             };
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void DriveLaunchDustFrame_OutOfReach_WritesNothing()
         {
             var state = DustState(pendingBuild: true);
@@ -249,7 +252,7 @@ namespace Parsek.Tests
             Assert.Equal(70.0, state.launchDustGroundRefAltitude);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void DriveLaunchDustFrame_NoPendingBuild_BuildsNothing()
         {
             var state = DustState(pendingBuild: false);
@@ -259,7 +262,7 @@ namespace Parsek.Tests
             Assert.Null(state.launchDustInfo);
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void DriveLaunchDustFrame_AtTheBuildCap_DefersAndKeepsThePendingFlag()
         {
             var state = DustState(pendingBuild: true);
@@ -273,7 +276,7 @@ namespace Parsek.Tests
                 && l.Contains("used " + GhostPlayback.MaxLazyReentryBuildsPerFrame + "/"));
         }
 
-        [Fact]
+        [UnityEntryFact]
         public void DriveLaunchDustFrame_ReadsTheGroundReferenceAndAltitudeItIsPassed()
         {
             // The ghost's own fields say "in reach"; the passed reference says 100 m below the
