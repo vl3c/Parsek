@@ -363,7 +363,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryClassifySnapshotSurfaceDeploy_NullNode_NoOpinion()
         {
-            Assert.False(GhostVisualBuilder.TryClassifySnapshotSurfaceDeploy(null, out bool deployed));
+            Assert.False(PartStateSeeder.TryClassifySnapshotSurfaceDeploy(null, out bool deployed));
             Assert.False(deployed);
         }
 
@@ -744,7 +744,7 @@ namespace Parsek.Tests
         [InlineData("ModuleRoboticServoPiston", "targetExtension")]
         public void SnapshotRoboticPoseKey_PosedFamilies(string moduleName, string expectedKey)
         {
-            Assert.True(GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+            Assert.True(PartStateSeeder.TryResolveSnapshotRoboticPoseKey(
                 moduleName, out string key));
             Assert.Equal(expectedKey, key);
         }
@@ -760,7 +760,7 @@ namespace Parsek.Tests
         [InlineData(null)]
         public void SnapshotRoboticPoseKey_NoKeyFamilies(string moduleName)
         {
-            Assert.False(GhostVisualBuilder.TryResolveSnapshotRoboticPoseKey(
+            Assert.False(PartStateSeeder.TryResolveSnapshotRoboticPoseKey(
                 moduleName, out string key));
             Assert.Null(key);
         }

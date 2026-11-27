@@ -711,10 +711,10 @@ namespace Parsek.Tests
                 return samples;
             }
             NozzleGlowInfo heat = GhostVisualBuilder.NewThrottleGlow(Pid,
-                new ThrottleGlowDriver { moduleIds = new[] { "heatColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, ordinal = 0 },
+                new ThrottleGlowDriver { moduleIds = new[] { "heatColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, moduleIndex = 5, changerIndices = new[] { 7 } },
                 new ThrottleGlowCurve { moduleId = "heatColor", animRate = 0.025f, useRate = true, samples = Solid(0.25f) }, 0f, kspcf);
             NozzleGlowInfo throttle = GhostVisualBuilder.NewThrottleGlow(Pid,
-                new ThrottleGlowDriver { moduleIds = new[] { "throttleColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, ordinal = 1 },
+                new ThrottleGlowDriver { moduleIds = new[] { "throttleColor" }, moduleIndices = new[] { 0 }, responseSpeed = 1f, moduleIndex = 6, changerIndices = new[] { 8 } },
                 new ThrottleGlowCurve { moduleId = "throttleColor", animRate = 1f, useRate = true, samples = Solid(0.75f) }, 0f, kspcf);
             throttle.under = new[] { heat };
             return new[] { heat, throttle };
@@ -809,7 +809,7 @@ namespace Parsek.Tests
         public void Overlap_TheRestingLevelIsTheLastSettersOne()
         {
             NozzleGlowInfo[] g = BoosterGlows(true);
-            g[0].setterOrder = 5000;
+            g[0].setterOrder = 6500;
             g[0].targetLevel = 0.7f;
             g[1].targetLevel = 0.6f;
             Assert.Same(g[0], GhostPlaybackLogic.RestingNozzleGlow(g[1], out float rest));
@@ -823,12 +823,85 @@ namespace Parsek.Tests
         [Fact]
         public void Overlap_TheSetterOrderIsTheDriversModuleOrderThenItsNames()
         {
-            var first = new ThrottleGlowDriver { moduleIds = new[] { "a", "b" }, ordinal = 0 };
-            var second = new ThrottleGlowDriver { moduleIds = new[] { "c" }, ordinal = 1 };
+            var first = new ThrottleGlowDriver { moduleIds = new[] { "a", "b" }, moduleIndex = 4 };
+            var second = new ThrottleGlowDriver { moduleIds = new[] { "c" }, moduleIndex = 5 };
             int a = GhostVisualBuilder.ThrottleGlowSetterOrder(first, "a");
             int b = GhostVisualBuilder.ThrottleGlowSetterOrder(first, "b");
             int c = GhostVisualBuilder.ThrottleGlowSetterOrder(second, "c");
             Assert.True(a < b && b < c);
+        }
+
+        // Decompiled: the setter and the colour changer both write in Update, so the later module
+        // of the part shows. restock-engine-caravel-1 is the one ReStock part that puts heatColor's
+        // changer before its setter (PP-9 2026-11-24_0735: real bell at its hot end 12 s into the
+        // burn, the ghost's ramp at 0.3).
+        private static NozzleGlowInfo Ordered(int setterModule, int changerModule, bool kspcf)
+            => GhostVisualBuilder.NewThrottleGlow(Pid,
+                new ThrottleGlowDriver
+                {
+                    moduleIds = new[] { "heatColor" },
+                    moduleIndices = new[] { 0 },
+                    responseSpeed = 1f,
+                    moduleIndex = setterModule,
+                    changerIndices = new[] { changerModule },
+                },
+                new ThrottleGlowCurve { moduleId = "heatColor", animRate = 0.025f, useRate = true }, 0f, kspcf);
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void WriteOrder_ASetterAfterItsColourChangerOverwritesTheRamp(bool kspcf)
+        {
+            NozzleGlowInfo caravel = Ordered(setterModule: 14, changerModule: 13, kspcf: kspcf);
+            NozzleGlowInfo boar = Ordered(setterModule: 13, changerModule: 14, kspcf: kspcf);
+            GhostPlaybackState state = StateWith(100.0, caravel, boar);
+            Apply(state, Evt(PartEventType.EngineIgnited, 120.0, 1f));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 132.0);
+            Assert.Equal(1f, caravel.writtenLevel);
+            Assert.Equal((double)0.3f, boar.writtenLevel, 3);
+            // Off: the setter shows 0 at once, the ramp cools.
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 170.0);
+            Apply(state, Evt(PartEventType.EngineShutdown, 170.0));
+            GhostPlaybackLogic.UpdateNozzleGlows(state, 180.0);
+            Assert.Equal(0f, caravel.writtenLevel);
+            Assert.Equal((double)0.75f, boar.writtenLevel, 3);
+        }
+
+        [Theory]
+        [InlineData(0.3f)]
+        [InlineData(1f)]
+        public void WriteOrder_AtRestTheLaterWriteStands(float power)
+        {
+            NozzleGlowInfo after = Ordered(14, 13, kspcf: false);
+            after.targetLevel = power;
+            Assert.Same(after, GhostPlaybackLogic.RestingNozzleGlow(after, out float level));
+            Assert.Equal(power, level);
+            NozzleGlowInfo before = Ordered(13, 14, kspcf: false);
+            before.targetLevel = power;
+            GhostPlaybackLogic.RestingNozzleGlow(before, out level);
+            Assert.Equal(power >= 0.5f ? 1f : 0f, level);
+        }
+
+        [Fact]
+        public void WriteOrder_AnUnknownColourChangerWritesLast()
+        {
+            var driver = new ThrottleGlowDriver { moduleIds = new[] { "a", "b" }, moduleIndex = 9 };
+            Assert.Equal(int.MaxValue, GhostVisualBuilder.ThrottleGlowRampOrder(driver, "a"));
+            driver.changerIndices = new[] { -1, 4 };
+            Assert.Equal(int.MaxValue, GhostVisualBuilder.ThrottleGlowRampOrder(driver, "a"));
+            Assert.Equal(int.MaxValue, GhostVisualBuilder.ThrottleGlowRampOrder(driver, "c"));
+            Assert.True(GhostVisualBuilder.ThrottleGlowRampOrder(driver, "b")
+                < GhostVisualBuilder.ThrottleGlowSetterOrder(driver, "b"));
+            Assert.Equal(int.MaxValue, new NozzleGlowInfo().rampOrder);
+        }
+
+        [Fact]
+        public void WriteOrder_TheBuilderReadsBothModulesPlacesFromThePart()
+        {
+            string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
+            Assert.Contains("moduleIndex = m,", nozzle);
+            Assert.Contains("driver.changerIndices[i] = FindScalarModuleIndex(prefab, driver.moduleIds[i]);", nozzle);
+            Assert.Contains("rampOrder = ThrottleGlowRampOrder(driver, curve.moduleId),", nozzle);
         }
 
         [Fact]
@@ -1086,7 +1159,7 @@ namespace Parsek.Tests
             Assert.Contains("if (!glow.isColorChanger) continue;", owned);
             Assert.Contains("owned[m] = glow.colors[i].property;", owned);
             string nozzle = Source("GhostVisualBuilder.NozzleGlow.cs");
-            Assert.Contains("throttleGlowsOnly = glow.isColorChanger,", nozzle);
+            Assert.Contains("throttleGlowsOnly = glow.isColorChanger || glow.MovesOnly,", nozzle);
             Assert.Contains("BuildReStockRcsGlow(prefab, modelRoot, ghostModelNode, cloneMap, ref heatInfo, persistentId, partName);", nozzle);
             Assert.Contains("if (RcsGlowPowerIsPerNozzle(thrusters.Length))", nozzle);
         }

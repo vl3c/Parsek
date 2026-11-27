@@ -274,8 +274,8 @@ namespace Parsek
 
         /// <summary>
         /// True when the window ends in predicted data (a fall, a chute descent): a predicted orbit
-        /// segment or predicted section covers its end. Such a copy ends at that end; a copy whose end
-        /// is recorded keeps the overlap path's old hold at it until the next launch. Pure.
+        /// segment or predicted section covers its end. Every copy ends at its own end; this says whether
+        /// the log calls it a fall. Pure.
         /// </summary>
         internal static bool EndsInPredictedTail(IPlaybackTrajectory traj, double windowEndUT)
         {

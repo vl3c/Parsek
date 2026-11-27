@@ -790,7 +790,7 @@ namespace Parsek
             if (info == null) return false;
             if (!info.heatClipMissing && !info.throttleGlowsOnly) return true;
             for (int i = 0; info.nozzleGlows != null && i < info.nozzleGlows.Count; i++)
-                if (!info.nozzleGlows[i].isColorChanger) return true;
+                if (!info.nozzleGlows[i].isColorChanger && !info.nozzleGlows[i].MovesOnly) return true;
             return false;
         }
 

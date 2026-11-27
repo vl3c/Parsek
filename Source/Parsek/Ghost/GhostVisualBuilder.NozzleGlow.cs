@@ -15,6 +15,12 @@ namespace Parsek
         public float responseSpeed;
         public float initialLevel;
         public bool vesselThrottleUnrecorded;
+        public int layer;
+        public bool weighted;
+        // A looping clip (affectTime off): its speed follows the engine, not its time.
+        public bool spins;
+        public float spinBaseSpeed;
+        public float spinSpeedMult;
     }
 
     /// <summary>What decides whether a recorded engine power tells the vessel's throttle.</summary>
@@ -41,6 +47,10 @@ namespace Parsek
         public int[] moduleIndices;
         public float responseSpeed;
         public int ordinal;
+        // Where the module stands in the part, and where the module each name resolves to does
+        // (parallel to moduleIds; -1 = none).
+        public int moduleIndex;
+        public int[] changerIndices;
         public float powerScale = 1f;
         public bool vesselThrottleUnrecorded;
     }
@@ -58,10 +68,10 @@ namespace Parsek
         /// <summary>Samples per clip, evenly spaced from 0 to 1.</summary>
         internal const int NozzleGlowSampleCount = 17;
 
-        // partKey|anim|scope -> the clip's animated colours. Prefab-derived, cleared with the
+        // partKey|anim|scope -> what the clip animates. Prefab-derived, cleared with the
         // other animation caches in ClearAnimateHeatCache.
-        private static readonly Dictionary<string, List<NozzleGlowColorSample>> nozzleGlowSampleCache =
-            new Dictionary<string, List<NozzleGlowColorSample>>();
+        private static readonly Dictionary<string, NozzleClipSamples> nozzleGlowSampleCache =
+            new Dictionary<string, NozzleClipSamples>();
 
         /// <summary>
         /// Pure: the recorder module indices (the k-th ModuleEngines of the part) stock's
@@ -225,9 +235,10 @@ namespace Parsek
         internal static bool RcsGlowPowerIsPerNozzle(int thrusterTransforms) => thrusterTransforms == 1;
 
         /// <summary>
-        /// The glow clips of the part: every FXModuleAnimateThrottle that moves its clip's time
-        /// (<c>affectTime</c>; the turbofan's fan spin does not), and an FXModuleAnimateRCS whose
-        /// animations stock accepts and whose one nozzle's power the recording holds.
+        /// The clips of the part that follow recorded power: every FXModuleAnimateThrottle, whether it
+        /// moves its clip's time (<c>affectTime</c>: a glow, a variable nozzle) or a looping clip's
+        /// speed (the turbofan's fan), and an FXModuleAnimateRCS whose animations stock accepts and
+        /// whose one nozzle's power the recording holds.
         /// </summary>
         private static List<NozzleGlowPlan> CollectNozzleGlowPlans(
             Part prefab, ConfigNode partNode, Transform modelRoot)
@@ -266,7 +277,16 @@ namespace Parsek
                 var plan = new NozzleGlowPlan { moduleName = module.moduleName };
                 if (throttle != null)
                 {
-                    if (!throttle.affectTime || string.IsNullOrEmpty(throttle.animationName)) continue;
+                    if (string.IsNullOrEmpty(throttle.animationName)) continue;
+                    if (!throttle.affectTime)
+                    {
+                        if (throttle.animWrapMode != (int)WrapMode.Loop) continue;
+                        plan.spins = true;
+                        plan.spinBaseSpeed = throttle.baseAnimSpeed;
+                        plan.spinSpeedMult = throttle.baseAnimSpeedMult;
+                    }
+                    plan.layer = throttle.layer;
+                    plan.weighted = throttle.dependOnEngineState && throttle.weightOnOperational;
                     plan.animationName = throttle.animationName;
                     plan.responseSpeed = throttle.responseSpeed;
                     plan.moduleIndices = ResolveNozzleGlowEngineIndices(
@@ -338,7 +358,11 @@ namespace Parsek
                         effects.engineIndex, engines.engineIds, engines.hasMultiMode),
                     responseSpeed = effects.responseSpeed,
                     ordinal = ordinal++,
+                    moduleIndex = m,
                 };
+                driver.changerIndices = new int[driver.moduleIds.Length];
+                for (int i = 0; i < driver.moduleIds.Length; i++)
+                    driver.changerIndices[i] = FindScalarModuleIndex(prefab, driver.moduleIds[i]);
                 if (driver.moduleIds.Length == 0 || driver.moduleIndices.Length == 0) continue;
                 ResolveVesselThrottleSource(
                     GlowFollowsVesselThrottle(effects.dependOnEngineState, effects.dependOnOutput,
@@ -349,6 +373,15 @@ namespace Parsek
                 drivers.Add(driver);
             }
             return drivers;
+        }
+
+        /// <summary>Stock <c>PartModuleList.GetScalarModule</c>: the first of that ID, or -1.</summary>
+        private static int FindScalarModuleIndex(Part prefab, string moduleId)
+        {
+            for (int m = 0; m < prefab.Modules.Count; m++)
+                if (prefab.Modules[m] is IScalarModule scalar && scalar.ScalarModuleID == moduleId)
+                    return m;
+            return -1;
         }
 
         /// <summary>Pure: stock <c>PartModuleFXSetter.OnStart</c>: split on ',', each trimmed.</summary>
@@ -408,6 +441,7 @@ namespace Parsek
                 vesselThrottleUnrecorded = driver.vesselThrottleUnrecorded,
                 samples = curve.samples,
                 setterOrder = ThrottleGlowSetterOrder(driver, curve.moduleId),
+                rampOrder = ThrottleGlowRampOrder(driver, curve.moduleId),
                 approachRate = GhostPlaybackLogic.ComputeNozzleGlowRate(driver.responseSpeed),
                 initialLevel = persistedState,
                 ramps = curve.useRate,
@@ -422,10 +456,19 @@ namespace Parsek
 
         private const int ThrottleGlowSetterNamesMax = 1000;
 
-        /// <summary>Pure: where the driver's setter call for a module stands among the part's:
-        /// FXModuleThrottleEffects in module order, each through its names in order.</summary>
+        /// <summary>Pure: where the driver's setter call for a module stands among the part's Update
+        /// writes: by module index, each FXModuleThrottleEffects through its names in order.</summary>
         internal static int ThrottleGlowSetterOrder(ThrottleGlowDriver driver, string moduleId)
-            => driver.ordinal * ThrottleGlowSetterNamesMax + System.Array.IndexOf(driver.moduleIds, moduleId);
+            => driver.moduleIndex * ThrottleGlowSetterNamesMax + System.Array.IndexOf(driver.moduleIds, moduleId);
+
+        /// <summary>Pure: where the colour changer's own write stands among them; last when unknown.</summary>
+        internal static int ThrottleGlowRampOrder(ThrottleGlowDriver driver, string moduleId)
+        {
+            int at = driver.changerIndices != null ? System.Array.IndexOf(driver.moduleIds, moduleId) : -1;
+            return at >= 0 && at < driver.changerIndices.Length && driver.changerIndices[at] >= 0
+                ? driver.changerIndices[at] * ThrottleGlowSetterNamesMax
+                : int.MaxValue;
+        }
 
         /// <summary>The first driver that names the module, or null.</summary>
         internal static ThrottleGlowDriver FindThrottleGlowDriver(List<ThrottleGlowDriver> drivers, string moduleId)
@@ -576,7 +619,7 @@ namespace Parsek
                 heatInfo = new HeatGhostInfo
                 {
                     partPersistentId = persistentId,
-                    throttleGlowsOnly = glow.isColorChanger,
+                    throttleGlowsOnly = glow.isColorChanger || glow.MovesOnly,
                 };
             if (heatInfo.nozzleGlows == null) heatInfo.nozzleGlows = new List<NozzleGlowInfo>();
             heatInfo.nozzleGlows.Add(glow);
@@ -610,12 +653,19 @@ namespace Parsek
             Renderer[] modelRenderers = modelRoot.GetComponentsInChildren<Renderer>(true);
             var owned = CollectPartOwnedMaterialProperties(heatInfo, lightInfo, colorChangerInfos);
             var perGhost = new HashSet<Material>(owned.Keys);
-            int bound = 0, colorsLeftToOwner = 0;
+            int bound = 0, colorsLeftToOwner = 0, spins = 0;
+            List<NozzlePoseClip> poses = null;
             for (int p = 0; p < plans.Count; p++)
             {
                 NozzleGlowPlan plan = plans[p];
-                List<NozzleGlowColorSample> samples = GetNozzleGlowSamples(modelRoot, plan, partKey);
-                if (samples.Count == 0) continue;
+                if (plan.spins)
+                {
+                    if (BuildEngineSpin(prefab, plan, ghostModelNode, ref heatInfo, persistentId)) spins++;
+                    continue;
+                }
+                NozzleClipSamples clip = GetNozzleGlowSamples(modelRoot, plan, partKey);
+                List<NozzleGlowColorSample> samples = clip.colors;
+                if (samples.Count == 0 && clip.poses.Count == 0) continue;
                 var glow = new NozzleGlowInfo
                 {
                     partPersistentId = persistentId,
@@ -662,13 +712,16 @@ namespace Parsek
                         samples = s.samples,
                     });
                 }
-                if (glow.colors.Count == 0) continue;
+                bool moves = BuildNozzlePoseClip(glow, plan, clip, modelRoot, cloneMap, ref poses);
+                if (glow.colors.Count == 0 && !moves) continue;
                 AddNozzleGlow(ref heatInfo, glow, persistentId);
                 bound++;
             }
+            int posedTransforms = CountNozzlePoseTransforms(poses);
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"nozzle-glow-{partName}",
                 $"Nozzle glow '{partName}' pid={persistentId}: clips={plans.Count} bound={bound} " +
+                $"poseClips={(poses != null ? poses.Count : 0)} poseTransforms={posedTransforms} spins={spins} " +
                 $"colorsLeftToOwner={colorsLeftToOwner}" + DescribeNozzleGlows(heatInfo), 60.0);
         }
 
@@ -685,6 +738,10 @@ namespace Parsek
                     .Append(g.powerScale.ToString("0.###", CultureInfo.InvariantCulture)).Append(" rate=")
                     .Append(g.approachRate.ToString("0.####", CultureInfo.InvariantCulture)).Append(" initial=")
                     .Append(g.initialLevel.ToString("0.###", CultureInfo.InvariantCulture));
+                if (g.pose != null)
+                    sb.Append(" layer=").Append(g.pose.layer.ToString(CultureInfo.InvariantCulture))
+                        .Append(g.pose.weighted ? " weighted" : string.Empty);
+                if (g.spin != null) sb.Append(" spin=").Append(g.spin.clipSeconds.ToString("0.##", CultureInfo.InvariantCulture)).Append('s');
                 if (g.vesselThrottleUnrecorded) sb.Append(" vesselThrottle=snapshot");
                 if (g.under != null) sb.Append(" writersUnder=").Append(g.under.Length.ToString(CultureInfo.InvariantCulture));
                 if (g.ramps)
@@ -728,29 +785,34 @@ namespace Parsek
                 : double.NaN;
         }
 
-        private static List<NozzleGlowColorSample> GetNozzleGlowSamples(
+        private static NozzleClipSamples GetNozzleGlowSamples(
             Transform modelRoot, NozzleGlowPlan plan, string partKey)
         {
             // Stock FXModuleAnimateThrottle drives the first Animation that holds the clip,
             // FXModuleAnimateRCS one per nozzle.
-            return GetClipColorSamples(modelRoot, plan.animationName, !plan.isRcs, partKey);
+            return GetClipSamples(modelRoot, plan.animationName, !plan.isRcs, partKey);
         }
 
         private static List<NozzleGlowColorSample> GetClipColorSamples(
             Transform modelRoot, string animationName, bool firstAnimationOnly, string partKey)
+            => GetClipSamples(modelRoot, animationName, firstAnimationOnly, partKey).colors;
+
+        private static NozzleClipSamples GetClipSamples(
+            Transform modelRoot, string animationName, bool firstAnimationOnly, string partKey)
         {
             string key = partKey + "|" + animationName + (firstAnimationOnly ? "|first" : "|all");
-            if (nozzleGlowSampleCache.TryGetValue(key, out List<NozzleGlowColorSample> cached)) return cached;
-            List<NozzleGlowColorSample> samples =
+            if (nozzleGlowSampleCache.TryGetValue(key, out NozzleClipSamples cached)) return cached;
+            NozzleClipSamples samples =
                 SampleNozzleGlowClip(modelRoot, animationName, firstAnimationOnly, partKey);
             nozzleGlowSampleCache[key] = samples;
             return samples;
         }
 
-        private static List<NozzleGlowColorSample> SampleNozzleGlowClip(
+        private static NozzleClipSamples SampleNozzleGlowClip(
             Transform modelRoot, string animName, bool firstAnimationOnly, string partKey)
         {
-            var result = new List<NozzleGlowColorSample>();
+            var clip = new NozzleClipSamples();
+            List<NozzleGlowColorSample> result = clip.colors;
             GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
             try
             {
@@ -769,7 +831,7 @@ namespace Parsek
                 {
                     ParsekLog.Verbose("GhostVisual",
                         $"  NozzleGlow '{partKey}': clip '{animName}' not found on the model");
-                    return result;
+                    return clip;
                 }
 
                 Renderer[] renderers = tempClone.GetComponentsInChildren<Renderer>(true);
@@ -811,14 +873,17 @@ namespace Parsek
                         samples = samples,
                     });
                 }
+                // Stock moves the transforms of the one Animation an FXModuleAnimateThrottle drives.
+                if (firstAnimationOnly) SampleNozzlePoses(tempClone.transform, animations, states, clip.poses);
                 ParsekLog.Verbose("GhostVisual",
-                    $"  NozzleGlow '{partKey}': clip '{animName}' on {animations.Count} animation(s) animates {result.Count} colour(s)");
+                    $"  NozzleGlow '{partKey}': clip '{animName}' on {animations.Count} animation(s) animates " +
+                    $"{result.Count} colour(s) and {clip.poses.Count} transform(s)");
             }
             finally
             {
                 Object.DestroyImmediate(tempClone);
             }
-            return result;
+            return clip;
         }
     }
 }

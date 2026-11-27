@@ -2673,6 +2673,102 @@ Not replayed: the C# log validator, the offline recording analyzer, the in-game
 `testResults` / batch tally row, the ghost-lifecycle row (`ghostlife`) and render
 composition.
 
+## Watch lanes: looping a mission for the owner to watch (`run.py --hold`)
+
+A watch lane sets up a looped mission and puts the camera on it: a liftoff, a landing
+near a base, an approach and docking, or a transfer between bodies in map view. Flown
+unattended it is an ordinary light `operator` lane (setup, one screenshot, plus a
+map-geometry dump in map view, FlushAndQuit; the TP picture lanes' expectations). Flown
+with `--hold` it is ATTENDED: the harness runs the setup steps, stops before
+`FlushAndQuit` (or before the step `[watch] holdBefore = "<label>"` names), and keeps KSP
+open until the owner closes it; then it collects logs and writes an `OBSERVED` result,
+never `PASS`. Contract: `docs/dev/design-autotest-harness-core.md` -> "Attended hold
+mode (watch lanes)"; pure decisions in `lib/watchlane.py`.
+
+```
+python run.py --id WL-2-landing-mun --hold                    # a committed lane
+python run.py --spec scenarios/local/WL-mine-duna.toml --hold  # an operator-local lane
+```
+
+What a hold does and does not do:
+
+- It takes the machine lock like any run and heartbeats it while held (and refuses
+  `--slot`: a hold needs the owner at the screen). It flies ONE scenario, once.
+- No run budget and no budget kill. A setup step that misses its `expect` or gets no
+  reply in its step wait starts the hold early (subkind `setup-incomplete`) instead of
+  killing the game. The boot-stall watchdog still applies.
+- The hold ends when KSP exits, when the stop request is dropped (`tools/tier_runner.py
+  --stop`, or create `results/stop-request`; the harness closes KSP), or after
+  `--hold-max-minutes` (default 240, 0 = none).
+- The result (`results/<runId>.json`) carries `mode = "hold"` and a `hold` block. It is
+  not archived, not appended to the run index, and every coverage / flake / duration /
+  lane-health reader drops it (`hlib.is_hold_result`). The screenshots and KSP.log land
+  in `results/<runId>_shots/` and collect-logs runs, as on any non-PASS run.
+
+**The committed lanes** (each one scene, on a committed fixture):
+
+| Lane | Scene | Host | View |
+|---|---|---|---|
+| `WL-1-liftoff-kerbin` | liftoff | `refly-a-recorded` (the Flea on the pad is the camera's vessel) | watch camera from 5 s after the launch |
+| `WL-2-landing-mun` | landing | `mun-landing-recorded` (the real landed Kerbal X is the camera's vessel) | watch camera from 60 s before touchdown |
+| `WL-4-transfer-duna` | transfer | `duna-park-recorded` | map view framed on the Sun at the re-aimed transfer's mid-coast |
+
+**Making one** (`tools/make_watch_lane.py`, pure half `lib/watchlane.py`):
+
+```
+python tools/make_watch_lane.py --save fixtures/local-saves/mycareer --list
+python tools/make_watch_lane.py --save fixtures/local-saves/mycareer --tree "name:Duna Express"     --scene transfer --id WL-mine-duna --map-focus Sun --map-distance 5e10
+```
+
+`--tree` takes a tree id or a handle resolved against the save: `first`, `latest`
+(committed order) or `name:<mission name>` (the Missions-tab name, case-insensitive);
+the spec pins the resolved id and keeps the handle in `[watch] treeHandle`. The seam
+verbs `MissionConfig`, `StartLoopPlayback` and `EnterWatchMode` accept the same handles
+live, so a hand-written spec may say `tree = "latest"`. `--scene` picks the view
+preamble: `liftoff` / `landing` / `docking` put the flight camera on the ghost in watch
+mode (the ghost must be on the active vessel's body and within 300 km of it, so pick
+the vessel with `--focus-pid`), `transfer` opens the map and frames `--map-focus` from
+`--map-distance` metres (`--map-pitch`, default 60). Without `--at` the lane rides
+from 15 s before the mission's next launch to the launch at 1x and watches from
+there; with `--at UT` it jumps there first. To find a UT, fly the lane once without `--at` and read
+the `startloopplayback` payload (`relaunchUt`) and the `missionconfig applied:` line
+(`phaseAnchorUt`, `spanStartUt`, `loiterCuts`) in its KSP.log: for a loop with no loiter
+cut, live UT = phaseAnchorUt + (recorded UT - spanStartUt). A lane on a committed
+fixture is written to `scenarios/` (regenerate it with the command its header records;
+`test_watchlane` reds a hand edit), one on a local fixture to the gitignored
+`scenarios/local/`.
+
+**How to ask for a watch lane.** Tell the agent the save, the mission and the moment:
+"make a watch lane of `Duna Express` in my career save `Vlad Career`, I want to see the
+landing at the base". The agent stages the save (`tools/stage_local_fixture.py --from
+"<KSP>/saves/Vlad Career" --as vlad-career`), lists its trees (`make_watch_lane.py
+--list`), generates the lane with `--tree "name:Duna Express" --scene landing` and the
+camera vessel (`--focus-pid`, the base), flies it once unattended to read the instant
+off the log, regenerates it with `--at`, and then asks you to sit at the screen before it
+runs `run.py --spec ... --hold`. You close KSP when you have seen enough; the result says
+`OBSERVED` and nothing counts it.
+
+**Agent checklist for a hold** (learned on the first owner-watched holds, 2026-11-26):
+
+- Fly the lane unattended once first (no `--hold`) and look at its screenshot: a hold that
+  fails in setup wastes the owner's time at the screen.
+- Hand over well before the moment: `--at` at least two to three minutes ahead of the event.
+  The game runs at 1x from the hand-over, and a 64 s lead meant the dock was over before the
+  owner looked.
+- Tell the owner the instant the harness log prints `[Hold] HOLDING` (and push a
+  notification): say what the camera is on and when the event happens.
+- Check the camera target is the vessel the owner means (the screenshot header reads
+  `Watching: <name> (<distance>)`); a watch ends when its recordings end and drops back to the
+  active vessel, which reads as "the camera lost the anchor".
+- A loop replays a mission at a later time. A ghost recorded next to a real vessel (a station,
+  a base) meets it only if that stretch was recorded relative to it; an absolute approach plays
+  far from where the vessel is by then (the withdrawn WL-3: 208 km).
+- Take the machine only through the lock and say so to the sessions that are queued; send
+  "done" when the hold ends. Never provision under another session's run.
+- File what the owner sees as a todo entry with the log lines and the run id; a hold result
+  lives only in the worktree's `results/`, so copy the run folder to
+  `<umbrella>/logs/flights/<label>/` before the worktree goes.
+
 ## Fixture saves and the shared craft library
 
 `fixtures/saves/<name>/` holds committed KSP save templates; `run.py::stage_fixture`

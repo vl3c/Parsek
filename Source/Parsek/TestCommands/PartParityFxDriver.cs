@@ -161,7 +161,7 @@ namespace Parsek.TestCommands
 
         /// <summary>Spawns the case vessel at slot <paramref name="slot"/> of a wave of
         /// <paramref name="count"/>: a lamp through P6's authoring, everything else the lone part
-        /// with the independent throttle; in orbit its exhaust along the orbit normal, in an air run
+        /// with the independent throttle (off for a main-throttle case); in orbit its exhaust along the orbit normal, in an air run
         /// held over the showcase band (<see cref="PartParityAirContext.SpawnHeld"/>).</summary>
         internal static void SpawnCase(StepContext ctx, WaveCase wc, int slot, int count)
         {
@@ -211,9 +211,10 @@ namespace Parsek.TestCommands
             {
                 if (modName != null && modName.StartsWith("ModuleEngines", StringComparison.Ordinal))
                 {
-                    mn.SetValue("independentThrottle", "True", true);
-                    mn.SetValue("independentThrottlePercentage",
-                        PartParityFxRules.IndependentThrottlePercentageFor(o).ToString(Ic), true);
+                    mn.SetValue("independentThrottle", o.MainThrottle ? "False" : "True", true);
+                    if (!o.MainThrottle)
+                        mn.SetValue("independentThrottlePercentage",
+                            PartParityFxRules.IndependentThrottlePercentageFor(o).ToString(Ic), true);
                     mn.SetValue("thrustPercentage", "100", true);
                     mn.SetValue("exhaustDamage", "False", true);
                 }
@@ -229,7 +230,7 @@ namespace Parsek.TestCommands
                 src.argumentOfPeriapsis, src.meanAnomalyAtEpoch, src.epoch, src.referenceBody);
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: authored FX vessel part={info.name} family={o.Family} state={o.State} " +
                 $"module={o.Module} midx={o.ModuleIndex.ToString(Ic)} engineId={o.EngineId ?? "-"} multiMode={(o.MultiMode ? "true" : "false")} " +
-                $"throttle%={PartParityFxRules.IndependentThrottlePercentageFor(o).ToString(Ic)} primaryId={primary ?? "-"}");
+                $"throttle%={(o.MainThrottle ? "main" : PartParityFxRules.IndependentThrottlePercentageFor(o).ToString(Ic))} primaryId={primary ?? "-"}");
             return ProtoVessel.CreateVesselNode(PartParityCaseRules.VesselName(wc.CaseId), VesselType.Probe, placeholder, 0, new[] { subject });
         }
 
@@ -406,11 +407,39 @@ namespace Parsek.TestCommands
             }
             BaseEvent act = e.Events["Activate"];
             if (act == null) { Fault(wc, TestCommandPartParitySweep.SetupActionFailed, "no KSPEvent Activate on " + e.moduleName); return; }
+            if (fx.Option.MainThrottle) ArmMainThrottle(wc, fx);
             act.Invoke();
             ParsekLog.Info(Tag, $"case {wc.CaseId}: pressed engine Activate id={e.engineID ?? "-"} mode={fx.EngineMode ?? "-"} " +
                 $"independent={(e.independentThrottle ? "true" : "false")} percentage={e.independentThrottlePercentage.ToString("0", Ic)} " +
+                $"mainThrottle={wc.Real.ctrlState.mainThrottle.ToString("0.000", Ic)} " +
                 $"throttleLocked={(e.throttleLocked ? "true" : "false")} responseTime={(e.useEngineResponseTime ? "true" : "false")} " +
                 $"cheat={(CheatOptions.InfinitePropellant ? "true" : "false")} controllable={(wc.Real.IsControllable ? "true" : "false")}");
+        }
+
+        /// <summary>
+        /// Puts the case vessel's own main throttle at the case's setting and keeps it there: through
+        /// its <c>OnPreAutopilotUpdate</c>, which stock runs on that vessel's <c>ctrlState</c> every
+        /// physics step, so no other vessel's throttle moves. The lone engine is not under control, so
+        /// stock does not hand the throttle on to it (<see cref="PartParityFxRules.RequestedThrottleFor"/>);
+        /// the callback does, with stock's own value.
+        /// </summary>
+        private static void ArmMainThrottle(WaveCase wc, PartParityFxRun fx)
+        {
+            Vessel v = wc.Real;
+            ModuleEngines e = fx.Engine;
+            float throttle = (float)fx.Option.Throttle;
+            float before = v.ctrlState.mainThrottle;
+            fx.MainThrottleInput = st =>
+            {
+                st.mainThrottle = throttle;
+                if (e != null && e.EngineIgnited && !e.part.isControllable)
+                    e.requestedThrottle = PartParityFxRules.RequestedThrottleFor(throttle, e.thrustPercentage);
+            };
+            v.OnPreAutopilotUpdate += fx.MainThrottleInput;
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: main throttle armed at {throttle.ToString("0.000", Ic)} (was {before.ToString("0.000", Ic)}) " +
+                $"independent={(e.independentThrottle ? "true" : "false")} thrustPercentage={e.thrustPercentage.ToString("0", Ic)} " +
+                $"throttleMin={e.throttleMin.ToString("0.00", Ic)} controllable={(v.IsControllable ? "true" : "false")} " +
+                $"glow={(fx.Option.MainThrottleGlow ? "true" : "false")} minBurnS={PartParityFxRules.MinBurnSeconds(fx.Option).ToString("0", Ic)}");
         }
 
         private static void PressRcs(WaveCase wc, PartParityStateRun run, PartParityFxRun fx)
@@ -493,7 +522,7 @@ namespace Parsek.TestCommands
                 float power = FlightRecorder.ComputeRecordedEnginePower(engine.currentThrottle, engine.finalThrust, engine.maxThrust);
                 fx.EventBuffer.Clear();
                 FlightRecorder.CheckEngineTransition(key, part.persistentId, moduleIndex, part.partInfo?.name ?? "unknown",
-                    ignited, power, sets.activeEngineKeys, sets.lastThrottle, ut, fx.EventBuffer);
+                    ignited, power, sets.activeEngineKeys, sets.lastThrottle, ut, fx.EventBuffer, fx.EngineStill);
                 foreach (PartEvent e in fx.EventBuffer)
                 {
                     run.Sink.Events.Add(e);
@@ -550,6 +579,7 @@ namespace Parsek.TestCommands
                     run.EndpointField = field;
                     run.EndpointValue = value;
                     if (fx.Engine != null) ReadDrive(fx);
+                    ReadThrottle(wc);
                     if (fx.Rcs != null && !OnRcsReached(wc, fx, part)) return true;
                     ParsekLog.Verbose(Tag, $"case {wc.CaseId}: FX reached {fx.Option.State} after {run.WaitSeconds.Value.ToString("0.00", Ic)}s " +
                         $"({field}={value}) events={run.Sink.Events.Count.ToString(Ic)} hold[{fx.Hold?.Describe()}]");
@@ -567,8 +597,27 @@ namespace Parsek.TestCommands
                 }
             }
             if (!run.Reached) return true;
-            if (now - run.ReachedRealtime >= PartParitySweepPlan.MinSettleSeconds) run.Done = true;
+            if (now - run.ReachedRealtime < PartParitySweepPlan.MinSettleSeconds) return true;
+            if (now - run.PressRealtime < PartParityFxRules.MinBurnSeconds(fx.Option)) return true;
+            // A spooling engine reaches the request while it still creeps: hold until the recorder
+            // has written the settled value, inside the press timeout and never past it.
+            if (fx.Engine != null)
+            {
+                if (now - run.PressRealtime <= run.TimeoutSeconds && EngineSettlePending(wc, run)) return true;
+                ReadDrive(fx);
+            }
+            run.Done = true;
             return true;
+        }
+
+        private static bool EngineSettlePending(WaveCase wc, PartParityStateRun run)
+        {
+            PartParityFxRun fx = wc.Fx;
+            if (fx.Option.Family != PartParityFxRules.FamilyPlume || run.Sets == null) return false;
+            ulong key = FlightRecorder.EncodeEngineKey(wc.Real.rootPart.persistentId, fx.Option.RecorderKeyIndex);
+            ModuleEngines engine = fx.Engine;
+            float power = FlightRecorder.ComputeRecordedEnginePower(engine.currentThrottle, engine.finalThrust, engine.maxThrust);
+            return FlightRecorder.IsEngineSettlePending(key, power, run.Sets.lastThrottle, fx.EngineStill);
         }
 
         private static bool Observe(WaveCase wc, PartParityStateRun run, Part part, out string field, out string value)
@@ -584,7 +633,10 @@ namespace Parsek.TestCommands
                     field = "currentThrottle";
                     value = (e != null ? e.currentThrottle.ToString("0.000", Ic) : "-") + " ignited=" + (ignited ? "true" : "false") +
                             " recorded=" + (recorded ? "true" : "false") + " request=" + fx.Option.Throttle.ToString("0.000", Ic) +
-                            " finalThrust=" + (e != null ? e.finalThrust.ToString("0.00", Ic) : "-");
+                            " finalThrust=" + (e != null ? e.finalThrust.ToString("0.00", Ic) : "-") +
+                            " mainThrottle=" + wc.Real.ctrlState.mainThrottle.ToString("0.000", Ic);
+                    if (fx.Option.MainThrottle && (e == null || !PartParityFxRules.MainThrottleHeld(
+                            wc.Real.ctrlState.mainThrottle, e.independentThrottle, fx.Option.Throttle))) return false;
                     return PartParityFxRules.PlumeReached(ignited, e != null ? e.currentThrottle : double.NaN, fx.Option.Throttle, recorded);
                 }
                 case PartParityFxRules.FamilyRcs:
@@ -624,6 +676,16 @@ namespace Parsek.TestCommands
             fx.DriveFinalThrust = e.finalThrust;
             fx.DriveCurrentThrottle = e.currentThrottle;
             fx.DriveRecordedPower = FlightRecorder.ComputeRecordedEnginePower(e.currentThrottle, e.finalThrust, e.maxThrust);
+        }
+
+        /// <summary>The throttle the case vessel holds and whether its engine ignores it, read at
+        /// the done signal and again for the sidecar: proof of what drove the case, and that no
+        /// main-throttle case reached another one.</summary>
+        private static void ReadThrottle(WaveCase wc)
+        {
+            if (wc.Real == null || wc.Real.ctrlState == null) return;
+            wc.Fx.DriveMainThrottle = wc.Real.ctrlState.mainThrottle;
+            if (wc.Fx.Engine != null) wc.Fx.DriveIndependentThrottle = wc.Fx.Engine.independentThrottle;
         }
 
         /// <summary>The RCS press check and the ghost nozzle hide (E.2): the nozzles stock fired
@@ -855,8 +917,8 @@ namespace Parsek.TestCommands
         // teardown and shared helpers
         // =====================================================================================
 
-        /// <summary>Releases what an FX case owns: the hold, the RCS input and group, the plate, the
-        /// broken ghost. Idempotent.</summary>
+        /// <summary>Releases what an FX case owns: the hold, the RCS input and group, the main
+        /// throttle (its vessel's back at 0), the plate, the broken ghost. Idempotent.</summary>
         internal static void Release(WaveCase wc)
         {
             PartParityFxRun fx = wc?.Fx;
@@ -878,6 +940,22 @@ namespace Parsek.TestCommands
                 catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: RCS release threw {ex.GetType().Name}: {ex.Message}"); }
             }
             fx.RcsInput = null;
+            if (fx.MainThrottleInput != null)
+            {
+                try
+                {
+                    if (v != null)
+                    {
+                        v.OnPreAutopilotUpdate -= fx.MainThrottleInput;
+                        v.ctrlState.mainThrottle = 0f;
+                        fx.MainThrottleAfter = v.ctrlState.mainThrottle;
+                    }
+                }
+                catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: main throttle release threw {ex.GetType().Name}: {ex.Message}"); }
+                fx.MainThrottleInput = null;
+                ParsekLog.Info(Tag, $"case {wc.CaseId}: main throttle released at " +
+                    (fx.MainThrottleAfter.HasValue ? fx.MainThrottleAfter.Value.ToString("0.000", Ic) : "(vessel gone)"));
+            }
             if (fx.PlateObject != null) UnityEngine.Object.Destroy(fx.PlateObject);
             if (fx.PlateMaterial != null) UnityEngine.Object.Destroy(fx.PlateMaterial);
             fx.PlateObject = null;
@@ -898,6 +976,42 @@ namespace Parsek.TestCommands
             ctx.FxCheatBefore = CheatOptions.InfinitePropellant;
             CheatOptions.InfinitePropellant = true;
             ParsekLog.Info(Tag, $"cheat InfinitePropellant {ctx.FxCheatBefore.Value} -> {CheatOptions.InfinitePropellant} (first case {wc.CaseId})");
+        }
+
+        /// <summary>Before a main-throttle case: the host's throttle and the player's input, whose
+        /// reading after the step (<see cref="DescribeMainThrottles"/>) proves neither was driven.</summary>
+        internal static void NoteMainThrottle(StepContext ctx, WaveCase wc)
+        {
+            if (wc.Fx?.Option == null || !wc.Fx.Option.MainThrottle) return;
+            ctx.FxMainThrottleRuns.Add(wc.Fx);
+            if (ctx.FxHostThrottleBefore.HasValue) return;
+            ctx.FxHostThrottleBefore = HostThrottle(ctx);
+            ctx.FxInputThrottleBefore = FlightInputHandler.state != null ? FlightInputHandler.state.mainThrottle : float.NaN;
+        }
+
+        private static float HostThrottle(StepContext ctx)
+            => ctx.Host != null && ctx.Host.ctrlState != null ? ctx.Host.ctrlState.mainThrottle : float.NaN;
+
+        /// <summary>The step's main-throttle line: its cases, the ones still armed (0), the highest
+        /// throttle a released vessel kept (0), and the host's and the player's throttle before and
+        /// after. Null when the step drove none.</summary>
+        internal static string DescribeMainThrottles(StepContext ctx)
+        {
+            if (ctx.FxMainThrottleRuns.Count == 0) return null;
+            int armed = 0;
+            float highest = 0f;
+            foreach (PartParityFxRun fx in ctx.FxMainThrottleRuns)
+            {
+                if (fx.MainThrottleInput != null) armed++;
+                if (fx.MainThrottleAfter.HasValue && fx.MainThrottleAfter.Value > highest) highest = fx.MainThrottleAfter.Value;
+            }
+            float input = FlightInputHandler.state != null ? FlightInputHandler.state.mainThrottle : float.NaN;
+            string text = $"main throttle: cases={ctx.FxMainThrottleRuns.Count.ToString(Ic)} stillArmed={armed.ToString(Ic)} " +
+                $"releasedAt={highest.ToString("0.000", Ic)} host={ctx.FxHostThrottleBefore.GetValueOrDefault(float.NaN).ToString("0.000", Ic)}" +
+                $"->{HostThrottle(ctx).ToString("0.000", Ic)} input={ctx.FxInputThrottleBefore.ToString("0.000", Ic)}->{input.ToString("0.000", Ic)}";
+            ctx.FxMainThrottleRuns.Clear();
+            ctx.FxHostThrottleBefore = null;
+            return text;
         }
 
         /// <summary>The body renderers of one side (E.3), for the body picture.</summary>

@@ -864,6 +864,7 @@ namespace Parsek
             {
                 treeRec.PartEvents.AddRange(diffEvents);
                 treeRec.MarkFilesDirty();
+                FlightRecorder.ArmEngineSettleFromEvents(diffEvents, state.engineThrottleStill);
             }
 
             ParsekLog.Info("BgRecorder",

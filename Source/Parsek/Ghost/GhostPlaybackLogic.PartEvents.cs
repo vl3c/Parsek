@@ -43,6 +43,10 @@ namespace Parsek
             if (evtIdx == 0 && rec.PartEvents[0].ut <= currentUT)
                 RestartNozzleGlows(state);
 
+            // An end-marked deploy event reads its floor (the part's previous event) from the
+            // trajectory's schedule while the walk consumes it.
+            PrepareEndMarkedDeploySchedule(state, rec);
+
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
                 var evt = rec.PartEvents[evtIdx];
@@ -65,6 +69,9 @@ namespace Parsek
             }
 
             FinishPartEventWalk(recIdx, state, evtIdx, audioPowerTouched, tally);
+            // A deploy whose event is still ahead may already be moving: stock's motion ended at
+            // the event. Armed here, posed by UpdateActiveDeployables below.
+            ArmUpcomingEndMarkedDeployMotions(recIdx, state, rec, currentUT);
             if (visibilityChanged)
                 RefreshGhostAfterPartVisibilityChange(
                     state, ghost, placedTargetPartIds, ref needsReentryMeshRebuild);

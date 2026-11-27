@@ -174,11 +174,32 @@ namespace Parsek
         /// </summary>
         internal const float EngineThrottleDeadband = 0.05f;
 
+        /// <summary>
+        /// How long (game seconds) an engine's recorded power must stay within
+        /// <see cref="EngineThrottleStillNoise"/> before it counts as settled.
+        /// </summary>
+        internal const double EngineThrottleSettleSeconds = 1.0;
+
+        /// <summary>
+        /// Largest movement of the recorded power that still counts as standing still. Stock
+        /// writes a resting throttle exactly, so this only bounds how slow a spool has to be
+        /// (0.001 per second) before its value is taken.
+        /// </summary>
+        internal const float EngineThrottleStillNoise = 0.001f;
+
+        /// <summary>
+        /// A settled power closer than this to the last recorded one writes no event.
+        /// </summary>
+        internal const float EngineThrottleSettleEpsilon = 0.01f;
+
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
         private HashSet<ulong> allEngineKeys = new HashSet<ulong>();
         private Dictionary<ulong, float> lastThrottle;
+        // Armed keys of the settled-throttle rule: see CheckEngineTransition.
+        private readonly Dictionary<ulong, EngineThrottleStill> engineThrottleStill =
+            new Dictionary<ulong, EngineThrottleStill>();
         private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
         /// <summary>Bug #298: access to active engine/RCS state for parent-to-child
@@ -1789,6 +1810,7 @@ namespace Parsek
             activeRcsKeys.Clear();
             activeRoboticKeys.Clear();
             lastThrottle.Clear();
+            engineThrottleStill.Clear();
             lastRcsThrottle.Clear();
             lastRoboticPosition.Clear();
             rcsActiveFrameCount.Clear();
