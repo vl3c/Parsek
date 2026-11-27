@@ -1,0 +1,13 @@
+runId: 2026-11-27_1854_FWP-1-far-watch-proof-mun
+verdict: PASS
+attempt: 1
+wallSeconds: 1143
+started: 2026-11-27T18:54:59Z
+ended: 2026-11-27T19:14:03Z
+deployed DLL sha256: d1beebbf25f0d0e46131301e100031a35708fa3a4cfdd7f21aff0defe8d3f15c
+seam steps: 50 allExpectedMet=True
+expectations mismatches: []
+unity exception counts: {'ArgumentException: GUILayout': 0, 'IndexOutOfRangeException': 0, 'MissingReferenceException': 0, 'NullReferenceException': 150}
+[FarWatchProof] lines=404 obs=334 obs-with-result-fail-or-error=0
+Parsek WRN/ERR lines=16; exception blocks=151 distinct=4
+screenshots: skipped (23.6 MB > 20 MB)

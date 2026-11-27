@@ -1,0 +1,13 @@
+runId: 2026-11-27_1913_FWP-2-far-watch-proof-ike-career
+verdict: PASS
+attempt: 1
+wallSeconds: 67
+started: 2026-11-27T19:13:48Z
+ended: 2026-11-27T19:14:56Z
+deployed DLL sha256: d1beebbf25f0d0e46131301e100031a35708fa3a4cfdd7f21aff0defe8d3f15c
+seam steps: 32 allExpectedMet=True
+expectations mismatches: []
+unity exception counts: {'ArgumentException: GUILayout': 0, 'IndexOutOfRangeException': 0, 'MissingReferenceException': 0, 'NullReferenceException': 0}
+[FarWatchProof] lines=129 obs=84 obs-with-result-fail-or-error=0
+Parsek WRN/ERR lines=4; exception blocks=1 distinct=1
+screenshots: copied (3.5 MB)

@@ -1,0 +1,60 @@
+total exception blocks=151 distinct=4
+
+=== count=78
+[EXC 20:55:54.858] NullReferenceException
+	VehiclePhysics.VPWheelCollider.set_steerAngle (System.Single value) (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBase.Update () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=66
+[EXC 20:55:54.854] NullReferenceException
+	VehiclePhysics.VPWheelCollider.UpdateWheelCollider (UnityEngine.WheelCollider wheelCol) (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VPWheelCollider.FixedUpdateVehicle () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBase.FixedUpdateVehicleBehaviours () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBase.FixedUpdate () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=6
+[EXC 20:55:55.285] NullReferenceException
+	VehiclePhysics.VPWheelCollider.OnDisableVehicle () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBase.RemoveVehicleBehaviour (VehiclePhysics.VehicleBehaviour vb) (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBase.UnregisterVehicleBehaviour (VehiclePhysics.VehicleBehaviour vb) (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	VehiclePhysics.VehicleBehaviour.OnDisable () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Behaviour:set_enabled(Boolean)
+	ModuleWheelBase:DisableWheelCollider(Boolean)
+	ModuleWheelBase:InopWheelCollider(Boolean, Boolean)
+	ModuleWheelBase:InopUpdate(Boolean)
+	ModuleWheelBase:OnSubsystemsModified(WheelSubsystems)
+	ModuleWheels.WheelSubsystems:AddSubsystem(WheelSubsystem)
+	ModuleWheelBase:onPartPack(Part)
+	EventData`1:Fire(Part)
+	Part:Pack()
+	Vessel:Vessel.GoOnRails_Patch1(Vessel)
+	FlightGlobals:setActiveVessel(Vessel, Boolean, Boolean)
+	FlightGlobals:FlightGlobals.ForceSetActiveVessel_Patch1(Vessel)
+	Parsek.TestCommands.<OpSwitch>d__130:MoveNext()
+	Parsek.TestCommands.FarWatchProofDriver:PumpOp()
+	Parsek.TestCommands.FarWatchProofDriver:Update()
+
+=== count=1
+[EXC 20:55:11.569] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+

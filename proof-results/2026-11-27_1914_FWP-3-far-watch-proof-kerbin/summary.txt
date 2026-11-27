@@ -1,0 +1,24 @@
+runId: 2026-11-27_1914_FWP-3-far-watch-proof-kerbin
+verdict: PARSEK-FAIL
+attempt: 1
+wallSeconds: 571
+started: 2026-11-27T19:14:44Z
+ended: 2026-11-27T19:24:16Z
+deployed DLL sha256: d1beebbf25f0d0e46131301e100031a35708fa3a4cfdd7f21aff0defe8d3f15c
+seam steps: 35 allExpectedMet=True
+expectations mismatches: ['logContracts.required not matched: \\[FarWatchProof\\] obs=switch to=ship ', 'logContracts.required not matched: \\[FarWatchProof\\] obs=kill ', 'logContracts.forbidden matched: \\[FarWatchProof\\] op threw ']
+unity exception counts: {'ArgumentException: GUILayout': 0, 'IndexOutOfRangeException': 0, 'MissingReferenceException': 0, 'NullReferenceException': 12838}
+[FarWatchProof] lines=196 obs=148 obs-with-result-fail-or-error=0
+Parsek WRN/ERR lines=14; exception blocks=12841 distinct=9
+screenshots: copied (17.9 MB)
+
+notes (from the full KSP.log):
+- The NullReferenceException storm (CrewHatchController.LateUpdate, Sun.LateUpdate_Patch1,
+  FlightGlobals.UpdateInformation get_transform, AmbienceControl.Update, UIPartActionController)
+  starts at 21:23:27.197, in the frame right after the loop ghost #2 "Kerbal X" was destroyed
+  (chain-loop unit member outside its window), about 9 s after op=park and during the
+  following op=advance (maxRateAsked=100000, maxRateSeen=3). It runs every frame to the quit.
+- op=switch (to ship) then threw NullReferenceException, destroy answered drone-active,
+  build drone-exists, switch already-active, and op=kill threw NullReferenceException after
+  onCrash / onVesselWillDestroy fired. The expectations verifier then failed on the missing
+  obs=switch to=ship / obs=kill lines and the forbidden "op threw" line.

@@ -1,0 +1,998 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 7,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-27_1854_FWP-1-far-watch-proof-mun_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 1143,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "mun-landing-recorded",
+          "scene": "FLIGHT",
+          "ut": "23259.745293629661"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "23259.785293629662"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "23259.805293629663"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "23259.825293629663",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "23259.865293629664",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "anchorUt": "23259.885293629664",
+          "autoLoopIntervalSeconds": "30",
+          "cadenceSeconds": "280142.52738016704",
+          "compressedSpanSeconds": "23123.425293627439",
+          "intervalSeconds": "10",
+          "loiterCutCount": "0",
+          "loiterCuts": "",
+          "loop": "true",
+          "mission": "Kerbal X",
+          "overlapCadenceSeconds": "280142.52738016704",
+          "phaseAnchorUt": "1249901.1806192098",
+          "spanSeconds": "23123.425293627439",
+          "spanStartUt": "34.5199999999998",
+          "tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "unit": "sec",
+          "unitBuilt": "true",
+          "ut": "23259.885293629664"
+        },
+        "cmd": "MissionConfig",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "mission": "Kerbal X",
+          "reachedUt": "1249886.2406192098",
+          "relaunchUt": "1249901.1806192098",
+          "tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "ut": "1249886.2406192098"
+        },
+        "cmd": "StartLoopPlayback",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "active": "#autoLOC_501232",
+          "hooks": "true",
+          "op": "arm",
+          "patches": "3",
+          "result": "ok",
+          "ut": "1249886.2806192099"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "active": "#autoLOC_501232",
+          "funds": "nan",
+          "op": "report",
+          "rep": "nan",
+          "result": "ok",
+          "ut": "1249886.32061921"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "on": "false",
+          "op": "fence",
+          "result": "ok",
+          "ut": "1249886.38061921"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distToShip": "50.03",
+          "op": "build",
+          "part": "strutCube",
+          "pid": "3657349654",
+          "result": "ok",
+          "ut": "1249886.50061921",
+          "variant": "surface"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "679573",
+          "label": "fwp1-built",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-built.png",
+          "superSize": "1",
+          "ut": "1249886.5806192101"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "events": "OnFlightGlobalsReady:none>onVesselGoOnRails:ship>onVesselSwitching:drone>onVesselChange:drone>OnFlightGlobalsReady:none",
+          "op": "switch",
+          "pivotDeltaM": "0.00",
+          "reload": "false",
+          "result": "ok",
+          "ut": "1249886.7406192103"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1249905.50",
+          "maxRateSeen": "1.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1249905.5206192278"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "devM": "2001.32",
+          "index": "0",
+          "member": "Kerbal_X",
+          "op": "follow",
+          "result": "ok",
+          "ut": "1249919.3206192406"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "816888",
+          "label": "fwp1-ascent",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-ascent.png",
+          "superSize": "1",
+          "ut": "1249919.5006192408"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "alreadyOpen": "false",
+          "mapOpen": "true",
+          "ut": "1249919.5406192408"
+        },
+        "cmd": "EnterMapView",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "901420",
+          "label": "fwp1-ascent-map",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-ascent-map.png",
+          "superSize": "1",
+          "ut": "1249919.6406192409"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "alreadyClosed": "false",
+          "mapOpen": "false",
+          "ut": "1249919.660619241"
+        },
+        "cmd": "ExitMapView",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "killLine": "true",
+          "op": "control",
+          "result": "ok",
+          "ut": "1249919.720619241"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1249989.50",
+          "maxRateSeen": "1.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1249989.500619306"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "attached": "false",
+          "op": "solver",
+          "result": "ok",
+          "ut": "1249989.6006193061"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1250059.50",
+          "maxRateSeen": "1.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1250059.5006193712"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "attached": "true",
+          "op": "solver",
+          "result": "ok",
+          "ut": "1250059.7806193714"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeIsShip": "true",
+          "droneInSave": "false",
+          "op": "save",
+          "result": "ok",
+          "ut": "1250059.8406193715"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeIsShip": "false",
+          "droneInSave": "true",
+          "op": "save",
+          "result": "ok",
+          "ut": "1250059.9206193716"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeIsShip": "true",
+          "droneInSave": "false",
+          "op": "autosave",
+          "result": "ok",
+          "ut": "1250080.0406193903"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "op": "lock",
+          "quicksaveChanged": "false",
+          "result": "ok",
+          "ut": "1250100.0406194089"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "op": "lock",
+          "quicksaveChanged": "false",
+          "result": "ok",
+          "ut": "1250101.10061941"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1266199.51",
+          "maxRateSeen": "1000.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1266199.5342543575"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1266399.50",
+          "maxRateSeen": "10.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1266399.5210451074"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "701467",
+          "label": "fwp1-mun-soi",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-mun-soi.png",
+          "superSize": "1",
+          "ut": "1266399.6010451075"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "exceptions": "0",
+          "op": "unlist",
+          "result": "ok",
+          "ut": "1266419.6810451262"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1270699.50",
+          "maxRateSeen": "1000.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1270699.521104326"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1272899.51",
+          "maxRateSeen": "50.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1272899.5100166756"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "903640",
+          "label": "fwp1-descent",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-descent.png",
+          "superSize": "1",
+          "ut": "1272899.7100166758"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1273009.51",
+          "maxRateSeen": "1.00",
+          "op": "advance",
+          "result": "ok",
+          "ut": "1273009.530016778"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "889479",
+          "label": "fwp1-touchdown",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-touchdown.png",
+          "superSize": "1",
+          "ut": "1273009.8500167783"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distM": "301.24",
+          "op": "park",
+          "result": "ok",
+          "ut": "1273009.9500167784"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0039",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "events": "OnFlightGlobalsReady:none>onVesselSwitching:ship>onVesselChange:ship>OnFlightGlobalsReady:none",
+          "op": "switch",
+          "pivotDeltaM": "1.26",
+          "reload": "false",
+          "result": "ok",
+          "ut": "1273010.1300167786"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0040",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "inVessels": "false",
+          "op": "destroy",
+          "result": "ok",
+          "ut": "1273010.2100167787"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0041",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "bytes": "416094",
+          "label": "fwp1-handback",
+          "overwrote": "false",
+          "path": "Screenshots/fwp1-handback.png",
+          "superSize": "1",
+          "ut": "1273010.2900167787"
+        },
+        "cmd": "CaptureScreenshot",
+        "expect": "OK",
+        "id": "0042",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "distToShip": "49.99",
+          "op": "build",
+          "part": "strutCube",
+          "pid": "3760378289",
+          "result": "ok",
+          "ut": "1273010.4100167789",
+          "variant": "surface"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0043",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "events": "OnFlightGlobalsReady:none>onVesselGoOnRails:ship>onVesselSwitching:drone>onVesselChange:drone>OnFlightGlobalsReady:none",
+          "op": "switch",
+          "pivotDeltaM": "0.00",
+          "reload": "false",
+          "result": "ok",
+          "ut": "1273010.550016779"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0044",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "1273250.47",
+          "maxRateSeen": "1.00",
+          "op": "advance",
+          "result": "timed-out",
+          "ut": "1273250.4700170024"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0045",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "body": "Mun",
+          "events": "onVesselUnloaded:ship",
+          "op": "moveto",
+          "result": "ok",
+          "ut": "1273255.5100170071"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0046",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "endUT": "24949590.24",
+          "maxRateSeen": "100000.00",
+          "op": "advance",
+          "result": "timed-out",
+          "ut": "24949590.238480143"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0047",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "dialogShown": "false",
+          "firstActiveAfter": "-",
+          "op": "kill",
+          "result": "ok",
+          "ut": "24949610.378479693"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0048",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "active": "Parsek_Camera_Drone",
+          "funds": "nan",
+          "op": "report",
+          "rep": "nan",
+          "result": "ok",
+          "ut": "24949610.638479687"
+        },
+        "cmd": "FarWatchProof",
+        "expect": "OK",
+        "id": "0049",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "24949610.678479686"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0050",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-27T19:14:03Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-27_1854_FWP-1-far-watch-proof-mun",
+  "scenarioId": "FWP-1-far-watch-proof-mun",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 3772024,
+    "files": 79,
+    "path": "2026-11-27_1854_FWP-1-far-watch-proof-mun_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-27T18:54:59Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\mun-landing-recorded\\analysis\\mun-landing-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\mun-landing-recorded\\analysis\\mun-landing-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 11
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "aliveAtQuit": [],
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1026,
+            "recordings": 11,
+            "smallest": 8,
+            "total": 1841,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 5
+            },
+            "committedTrees": 1,
+            "crewAboard": {
+              "Jebediah Kerman": 1
+            },
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Kerbal X": 4,
+              "Kerbal X Debris": 7
+            },
+            "recordings": 11,
+            "spaceObjectParts": {
+              "Ast. MII-526": 1
+            },
+            "spawnedVessels": 1,
+            "terminalStates": {
+              "Destroyed": 7,
+              "Landed": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "#autoLOC_501232": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPointFiles": 0,
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0,
+          "unlistedRewindPointFiles": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 150
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 6,
+      "parsekFrameSites": {
+        "Parsek.TestCommands.<OpSwitch>d__130.MoveNext": 6
+      },
+      "parsekFrames": 6,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 150,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 1143
+}

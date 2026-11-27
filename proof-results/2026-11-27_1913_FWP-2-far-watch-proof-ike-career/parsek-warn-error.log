@@ -1,0 +1,4 @@
+[LOG 21:14:22.823] [Parsek][WARN][TestRunner] Late vessel switch to 'DD1 Duna Direct Probe' inside the reload commit window (armedBy='TestCommandLoadGame:duna-ike-recorded-career/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 21:14:24.606] [Parsek][WARN][Diagnostics] Recording frame exceeded budget: 8.23ms for vessel "DD1 Duna Direct Probe"
+[LOG 21:14:24.718] [Parsek][WARN][RecordingStore] auto-discard dropped the restore clone: purged 11 same-id game-state event tail(s) for committed-tree restore attempt tree=ccb5e4afd7974dbe9118090468ac00ae armedReason=cold load re-armed it from the save; armed by: TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write
+[LOG 21:14:25.405] [Parsek][WARN][Recorder] RouteRunManifest voided: recording=ed426b1cf25b43699621e8f99c8b3316 reason=background-transition

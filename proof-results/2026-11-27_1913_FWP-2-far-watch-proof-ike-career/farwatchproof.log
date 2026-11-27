@@ -1,0 +1,129 @@
+[LOG 21:14:24.989] [Parsek][INFO][FarWatchProof] op start op=arm ut=9181511.98
+[LOG 21:14:24.997] [Parsek][INFO][FarWatchProof] obs=arm ut=9181512.00 active=DD1_Duna_Direct_Probe sit=ORBITING body=Ike parsekFlight=true hooks=true patches=3 funds=500000.00 sci=100.00 rep=0.00 contracts=6 warpRates=1,5,10,50,100,1000,10000,100000
+[LOG 21:14:24.997] [Parsek][INFO][FarWatchProof] op done op=arm result=ok real=0.0
+[LOG 21:14:24.998] [Parsek][INFO][FarWatchProof] obs=tick ut=9181512.00 warp=1.00 active=ship following=- ticks=0 writes=0 miss=0 writeMsAvg=nan writeMsMax=0.00 frameMsMax=17.53 devMaxM=0.00 jitterMaxM=0.00 gridM=nan speedDiffMax=0.00 floorClamps=0 minAboveTerrainM=inf holdRenewals=0 dronePackedTicks=0 shipUnpackedTicks=0 originShifts=1 solver=- body=Ike pqsActive=true ghostBody=- terrainUnderGhost=nan ghostAlt=nan droneSit=- droneGee=- dronePacked=- shipLoaded=true shipPacked=false shipSit=ORBITING resetContracts=0 fenced=0 pressureKills=0 terrainKills=0 goOffRailsRefused=0 exceptions=0
+[LOG 21:14:25.032] [Parsek][INFO][FarWatchProof] op start op=report ut=9181512.04
+[LOG 21:14:25.033] [Parsek][INFO][FarWatchProof] obs=report ut=9181512.04 label=before active=DD1_Duna_Direct_Probe role=ship activeSit=ORBITING droneExists=false funds=500000.00 sci=100.00 rep=0.00 contracts=6 resetContracts=0 fenced=0 pressureKills=0 terrainKills=0 goOffRailsRefused=0 strips=0 events=0 exceptions=0 rendezvous=Ike:reached=false:complete=false recorder=rec:true/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:ed426b1cf25b43699621e8f99c8b3316/tag:ed426b1cf25b43699621e8f99c8b3316/shipBg:-/droneBg:-
+[LOG 21:14:25.033] [Parsek][INFO][FarWatchProof] op done op=report result=ok real=0.0
+[LOG 21:14:25.083] [Parsek][INFO][FarWatchProof] op start op=recalc ut=9181512.08
+[LOG 21:14:25.095] [Parsek][INFO][FarWatchProof] obs=recalc ut=9181512.10 fundsBefore=500000.00 fundsAfter=500000.00 sciBefore=100.00 sciAfter=100.00 repBefore=0.00 repAfter=0.00 contractsBefore=6 contractsAfter=6 rendezvousBefore=Ike:reached=false:complete=false rendezvousAfter=Ike:reached=false:complete=false label=baseline
+[LOG 21:14:25.095] [Parsek][INFO][FarWatchProof] op done op=recalc result=ok real=0.0
+[LOG 21:14:25.132] [Parsek][INFO][FarWatchProof] op start op=fence ut=9181512.14
+[LOG 21:14:25.134] [Parsek][INFO][FarWatchProof] obs=fence ut=9181512.14 on=false resetContracts=0 fenced=0
+[LOG 21:14:25.134] [Parsek][INFO][FarWatchProof] op done op=fence result=ok real=0.0
+[LOG 21:14:25.184] [Parsek][INFO][FarWatchProof] op start op=build ut=9181512.18
+[LOG 21:14:25.187] [Parsek][INFO][FarWatchProof] obs=event seq=1 name=onVesselCreate role=other vessel=Parsek_Camera_Drone active=ship ut=9181512.18 frame=9850 extra=-
+[LOG 21:14:25.189] [Parsek][INFO][FarWatchProof] obs=discovery ut=9181512.18 frame=9850 from=- to=None owned=false
+[LOG 21:14:25.198] [Parsek][INFO][FarWatchProof] obs=event seq=2 name=onVesselLoaded role=drone vessel=Parsek_Camera_Drone active=ship ut=9181512.20 frame=9851 extra=-
+[LOG 21:14:25.198] [Parsek][INFO][FarWatchProof] inert vessel=Parsek Camera Drone context=onVesselLoaded colliders=1 renderers=1
+[LOG 21:14:25.200] [Parsek][INFO][FarWatchProof] obs=event seq=3 name=OnProgressReached role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181512.20 frame=9851 extra=Rendezvous
+[LOG 21:14:25.201] [Parsek][INFO][FarWatchProof] obs=event seq=4 name=OnProgressComplete role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181512.20 frame=9851 extra=Rendezvous
+[LOG 21:14:25.253] [Parsek][INFO][FarWatchProof] inert vessel=Parsek Camera Drone context=build colliders=1 renderers=1
+[LOG 21:14:25.272] [Parsek][INFO][FarWatchProof] obs=build ut=9181512.18 variant=orbit part=strutCube pid=4183609147 type=Debris connectionNull=true commNode=false controllable=false modules=ModuleCargoPart+KOSNameTag+VM:FlightIntegrator+VM:AxisGroupsModule+VM:SuspensionLoadBalancer liveColliders=0 visibleRenderers=0 rayHit=false discovery=None mapObject=true orbitRenderer=REDRAW_AND_RECALCULATE inCycle=false targetable=true loaded=true packed=true sit=ORBITING distToShip=50.00 geeForce=0.00 shipPacked=false
+[LOG 21:14:25.272] [Parsek][INFO][FarWatchProof] op done op=build result=ok real=0.1
+[LOG 21:14:25.393] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181512.40
+[LOG 21:14:25.395] [Parsek][INFO][FarWatchProof] obs=event seq=5 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181512.40 frame=9862 extra=ready=false
+[LOG 21:14:25.395] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=1 ut=9181512.40 frame=9862 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.396] [Parsek][INFO][FarWatchProof] obs=event seq=6 name=onVesselGoOnRails role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181512.40 frame=9862 extra=-
+[LOG 21:14:25.398] [Parsek][INFO][FarWatchProof] obs=event seq=7 name=onVesselSwitching role=drone vessel=Parsek_Camera_Drone active=ship ut=9181512.40 frame=9862 extra=from=ship
+[LOG 21:14:25.401] [Parsek][INFO][FarWatchProof] obs=event seq=8 name=onVesselChange role=drone vessel=Parsek_Camera_Drone active=drone ut=9181512.40 frame=9862 extra=-
+[LOG 21:14:25.403] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=2 ut=9181512.40 frame=9862 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.416] [Parsek][INFO][FarWatchProof] obs=event seq=9 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181512.42 frame=9863 extra=ready=true
+[LOG 21:14:25.416] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=3 ut=9181512.42 frame=9863 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.485] [Parsek][INFO][FarWatchProof] obs=switch to=drone ok=true ut=9181512.50 frames=5 active=drone events=OnFlightGlobalsReady:none>onVesselGoOnRails:ship>onVesselSwitching:drone>onVesselChange:drone>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=strutCube_(Parsek_Camera_Drone) pivotDeltaM=0.00 mapTarget=Parsek_Camera_Drone camDist=30.00 resetContracts=3 before=rec:true/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:ed426b1cf25b43699621e8f99c8b3316/tag:ed426b1cf25b43699621e8f99c8b3316/shipBg:-/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:25.485] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:25.522] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181512.52
+[LOG 21:14:25.522] [Parsek][INFO][FarWatchProof] obs=event seq=10 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181512.52 frame=9869 extra=ready=false
+[LOG 21:14:25.522] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=4 ut=9181512.52 frame=9869 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.522] [Parsek][INFO][FarWatchProof] obs=event seq=11 name=onVesselSwitching role=ship vessel=DD1_Duna_Direct_Probe active=drone ut=9181512.52 frame=9869 extra=from=drone
+[LOG 21:14:25.526] [Parsek][INFO][FarWatchProof] obs=event seq=12 name=onVesselChange role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181512.52 frame=9869 extra=-
+[LOG 21:14:25.527] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=5 ut=9181512.52 frame=9869 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.534] [Parsek][INFO][FarWatchProof] obs=event seq=13 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181512.54 frame=9870 extra=ready=true
+[LOG 21:14:25.534] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=6 ut=9181512.54 frame=9870 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:25.616] [Parsek][INFO][FarWatchProof] obs=switch to=ship ok=true ut=9181512.62 frames=5 active=ship events=OnFlightGlobalsReady:none>onVesselSwitching:ship>onVesselChange:ship>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=probeCoreOcto2.v2_(DD1_Duna_Direct_Probe) pivotDeltaM=2.75 mapTarget=DD1_Duna_Direct_Probe camDist=30.00 resetContracts=3 before=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:25.633] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:25.670] [Parsek][INFO][FarWatchProof] op start op=fence ut=9181512.68
+[LOG 21:14:25.670] [Parsek][INFO][FarWatchProof] obs=fence ut=9181512.68 on=true resetContracts=6 fenced=0
+[LOG 21:14:25.670] [Parsek][INFO][FarWatchProof] op done op=fence result=ok real=0.0
+[LOG 21:14:25.703] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181512.70
+[LOG 21:14:25.703] [Parsek][INFO][FarWatchProof] obs=event seq=14 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181512.70 frame=9879 extra=ready=false
+[LOG 21:14:25.703] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=7 ut=9181512.70 frame=9879 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.704] [Parsek][INFO][FarWatchProof] obs=event seq=15 name=onVesselSwitching role=drone vessel=Parsek_Camera_Drone active=ship ut=9181512.70 frame=9879 extra=from=ship
+[LOG 21:14:25.706] [Parsek][INFO][FarWatchProof] obs=event seq=16 name=onVesselChange role=drone vessel=Parsek_Camera_Drone active=drone ut=9181512.70 frame=9879 extra=-
+[LOG 21:14:25.707] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=8 ut=9181512.70 frame=9879 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.714] [Parsek][INFO][FarWatchProof] obs=event seq=17 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181512.72 frame=9880 extra=ready=true
+[LOG 21:14:25.714] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=9 ut=9181512.72 frame=9880 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.784] [Parsek][INFO][FarWatchProof] obs=switch to=drone ok=true ut=9181512.80 frames=5 active=drone events=OnFlightGlobalsReady:none>onVesselSwitching:drone>onVesselChange:drone>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=strutCube_(Parsek_Camera_Drone) pivotDeltaM=0.00 mapTarget=Parsek_Camera_Drone camDist=30.00 resetContracts=3 before=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:25.784] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:25.821] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181512.82
+[LOG 21:14:25.821] [Parsek][INFO][FarWatchProof] obs=event seq=18 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181512.82 frame=9886 extra=ready=false
+[LOG 21:14:25.821] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=10 ut=9181512.82 frame=9886 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.821] [Parsek][INFO][FarWatchProof] obs=event seq=19 name=onVesselSwitching role=ship vessel=DD1_Duna_Direct_Probe active=drone ut=9181512.82 frame=9886 extra=from=drone
+[LOG 21:14:25.825] [Parsek][INFO][FarWatchProof] obs=event seq=20 name=onVesselChange role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181512.82 frame=9886 extra=-
+[LOG 21:14:25.826] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=11 ut=9181512.82 frame=9886 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.832] [Parsek][INFO][FarWatchProof] obs=event seq=21 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181512.84 frame=9887 extra=ready=true
+[LOG 21:14:25.832] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=12 ut=9181512.84 frame=9887 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=true fenced=true
+[LOG 21:14:25.911] [Parsek][INFO][FarWatchProof] obs=switch to=ship ok=true ut=9181512.92 frames=5 active=ship events=OnFlightGlobalsReady:none>onVesselSwitching:ship>onVesselChange:ship>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=probeCoreOcto2.v2_(DD1_Duna_Direct_Probe) pivotDeltaM=2.75 mapTarget=DD1_Duna_Direct_Probe camDist=30.00 resetContracts=3 before=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:25.928] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:25.982] [Parsek][INFO][FarWatchProof] op start op=fence ut=9181512.98
+[LOG 21:14:25.982] [Parsek][INFO][FarWatchProof] obs=fence ut=9181512.98 on=false resetContracts=12 fenced=6
+[LOG 21:14:25.982] [Parsek][INFO][FarWatchProof] op done op=fence result=ok real=0.0
+[LOG 21:14:26.033] [Parsek][INFO][FarWatchProof] op start op=recalc ut=9181513.04
+[LOG 21:14:26.047] [Parsek][INFO][FarWatchProof] obs=recalc ut=9181513.06 fundsBefore=521120.00 fundsAfter=521120.00 sciBefore=100.00 sciAfter=100.00 repBefore=1.00 repAfter=1.00 contractsBefore=6 contractsAfter=6 rendezvousBefore=Ike:reached=true:complete=true rendezvousAfter=Ike:reached=true:complete=true label=after-rendezvous
+[LOG 21:14:26.047] [Parsek][INFO][FarWatchProof] op done op=recalc result=ok real=0.0
+[LOG 21:14:26.081] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181513.08
+[LOG 21:14:26.081] [Parsek][INFO][FarWatchProof] obs=event seq=22 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181513.08 frame=9901 extra=ready=false
+[LOG 21:14:26.081] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=13 ut=9181513.08 frame=9901 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:26.082] [Parsek][INFO][FarWatchProof] obs=event seq=23 name=onVesselSwitching role=drone vessel=Parsek_Camera_Drone active=ship ut=9181513.08 frame=9901 extra=from=ship
+[LOG 21:14:26.083] [Parsek][INFO][FarWatchProof] obs=event seq=24 name=onVesselChange role=drone vessel=Parsek_Camera_Drone active=drone ut=9181513.08 frame=9901 extra=-
+[LOG 21:14:26.083] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=14 ut=9181513.08 frame=9901 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:26.096] [Parsek][INFO][FarWatchProof] obs=event seq=25 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181513.10 frame=9902 extra=ready=true
+[LOG 21:14:26.096] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=15 ut=9181513.10 frame=9902 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:26.165] [Parsek][INFO][FarWatchProof] obs=switch to=drone ok=true ut=9181513.18 frames=5 active=drone events=OnFlightGlobalsReady:none>onVesselSwitching:drone>onVesselChange:drone>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=strutCube_(Parsek_Camera_Drone) pivotDeltaM=0.00 mapTarget=Parsek_Camera_Drone camDist=30.00 resetContracts=3 before=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:26.165] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:26.203] [Parsek][INFO][FarWatchProof] op start op=moveto ut=9181513.20
+[LOG 21:14:26.204] [Parsek][INFO][FarWatchProof] obs=event seq=26 name=onDominantBodyChange role=drone vessel=Parsek_Camera_Drone active=drone ut=9181513.20 frame=9908 extra=Duna->Duna
+[LOG 21:14:26.207] [Parsek][INFO][FarWatchProof] obs=event seq=27 name=onVesselUnloaded role=ship vessel=DD1_Duna_Direct_Probe active=drone ut=9181513.20 frame=9908 extra=-
+[LOG 21:14:29.999] [Parsek][INFO][FarWatchProof] obs=tick ut=9181516.68 warp=1.00 active=drone following=- ticks=0 writes=0 miss=0 writeMsAvg=nan writeMsMax=0.00 frameMsMax=364.07 devMaxM=0.00 jitterMaxM=0.00 gridM=nan speedDiffMax=0.00 floorClamps=0 minAboveTerrainM=inf holdRenewals=225 dronePackedTicks=225 shipUnpackedTicks=11 originShifts=26 solver=true body=Duna pqsActive=true ghostBody=- terrainUnderGhost=nan ghostAlt=nan droneSit=ORBITING droneGee=0.00 dronePacked=true shipLoaded=false shipPacked=true shipSit=ORBITING resetContracts=15 fenced=6 pressureKills=0 terrainKills=0 goOffRailsRefused=1 exceptions=0
+[LOG 21:14:34.999] [Parsek][INFO][FarWatchProof] obs=tick ut=9181521.68 warp=1.00 active=drone following=- ticks=0 writes=0 miss=0 writeMsAvg=nan writeMsMax=0.00 frameMsMax=18.01 devMaxM=0.00 jitterMaxM=0.00 gridM=nan speedDiffMax=0.00 floorClamps=0 minAboveTerrainM=inf holdRenewals=250 dronePackedTicks=250 shipUnpackedTicks=0 originShifts=8 solver=true body=Duna pqsActive=true ghostBody=- terrainUnderGhost=nan ghostAlt=nan droneSit=ORBITING droneGee=0.00 dronePacked=true shipLoaded=false shipPacked=true shipSit=ORBITING resetContracts=15 fenced=6 pressureKills=0 terrainKills=0 goOffRailsRefused=1 exceptions=0
+[LOG 21:14:36.206] [Parsek][INFO][FarWatchProof] obs=moveto ut=9181522.88 body=Duna alt=100000.00 events=onDominantBodyChange:drone>onVesselUnloaded:ship dominant=Duna droneBody=Duna pqsActive=true maxFrameMs=364.07 shipLoaded=false sit=ORBITING gee=0.00
+[LOG 21:14:36.206] [Parsek][INFO][FarWatchProof] op done op=moveto result=ok real=10.0
+[LOG 21:14:36.344] [Parsek][INFO][FarWatchProof] op start op=save ut=9181523.02
+[LOG 21:14:36.462] [Parsek][INFO][FarWatchProof] obs=strip ut=9181523.02 removed=1 idxBefore=2 idxAfter=1 shipFound=true
+[LOG 21:14:36.464] [Parsek][INFO][FarWatchProof] obs=event seq=28 name=onGameStateSaved role=drone vessel=Parsek_Camera_Drone active=drone ut=9181523.02 frame=10491 extra=-
+[LOG 21:14:36.474] [Parsek][INFO][FarWatchProof] obs=save ut=9181523.04 name=fwp2-duna strip=true wrote=true stripRan=true droneExists=true droneInSave=false active=DD1_Duna_Direct_Probe activeIsShip=true vessels=2 liveActive=drone clearToSave=CLEAR
+[LOG 21:14:36.474] [Parsek][INFO][FarWatchProof] op done op=save result=ok real=0.1
+[LOG 21:14:36.524] [Parsek][INFO][FarWatchProof] op start op=autosave ut=9181523.10
+[LOG 21:14:40.012] [Parsek][INFO][FarWatchProof] obs=tick ut=9181526.58 warp=1.00 active=drone following=- ticks=0 writes=0 miss=0 writeMsAvg=nan writeMsMax=0.00 frameMsMax=129.24 devMaxM=0.00 jitterMaxM=0.00 gridM=nan speedDiffMax=0.00 floorClamps=0 minAboveTerrainM=inf holdRenewals=245 dronePackedTicks=245 shipUnpackedTicks=0 originShifts=8 solver=true body=Duna pqsActive=true ghostBody=- terrainUnderGhost=nan ghostAlt=nan droneSit=ORBITING droneGee=0.00 dronePacked=true shipLoaded=false shipPacked=true shipSit=ORBITING resetContracts=15 fenced=6 pressureKills=0 terrainKills=0 goOffRailsRefused=1 exceptions=0
+[LOG 21:14:41.602] [Parsek][INFO][FarWatchProof] obs=strip ut=9181528.10 removed=1 idxBefore=2 idxAfter=1 shipFound=true
+[LOG 21:14:41.605] [Parsek][INFO][FarWatchProof] obs=event seq=29 name=onGameStateSaved role=drone vessel=Parsek_Camera_Drone active=drone ut=9181528.10 frame=10794 extra=-
+[LOG 21:14:41.640] [Parsek][INFO][FarWatchProof] obs=autosave ut=9181528.16 interval=5.00 written=true waitS=5.11 autosaveLines=1 stripRan=true clearToSave=CLEAR droneExists=true droneInSave=false active=DD1_Duna_Direct_Probe activeIsShip=true vessels=2 liveActive=drone restoredInterval=300.00 bypass=false
+[LOG 21:14:41.640] [Parsek][INFO][FarWatchProof] op done op=autosave result=ok real=5.1
+[LOG 21:14:41.810] [Parsek][INFO][FarWatchProof] op start op=park ut=9181528.32
+[LOG 21:14:41.812] [Parsek][INFO][FarWatchProof] obs=event seq=30 name=onDominantBodyChange role=drone vessel=Parsek_Camera_Drone active=drone ut=9181528.32 frame=10806 extra=Ike->Ike
+[LOG 21:14:41.835] [Parsek][INFO][FarWatchProof] obs=event seq=31 name=onVesselLoaded role=ship vessel=DD1_Duna_Direct_Probe active=drone ut=9181528.32 frame=10806 extra=-
+[LOG 21:14:42.165] [Parsek][INFO][FarWatchProof] obs=park ut=9181528.42 shipLoaded=true shipPacked=true waitS=0.35 distM=300.00 droneBody=Ike shipBody=Ike anchor=false terrainKills=0
+[LOG 21:14:42.165] [Parsek][INFO][FarWatchProof] op done op=park result=ok real=0.4
+[LOG 21:14:42.203] [Parsek][INFO][FarWatchProof] op start op=switch ut=9181528.46
+[LOG 21:14:42.203] [Parsek][INFO][FarWatchProof] obs=event seq=32 name=OnFlightGlobalsReady role=none vessel=none active=drone ut=9181528.46 frame=10812 extra=ready=false
+[LOG 21:14:42.203] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=16 ut=9181528.46 frame=10812 active=Parsek_Camera_Drone droneActive=true switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:42.203] [Parsek][INFO][FarWatchProof] obs=event seq=33 name=onVesselSwitching role=ship vessel=DD1_Duna_Direct_Probe active=drone ut=9181528.46 frame=10812 extra=from=drone
+[LOG 21:14:42.208] [Parsek][INFO][FarWatchProof] obs=event seq=34 name=onVesselChange role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181528.46 frame=10812 extra=-
+[LOG 21:14:42.208] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=17 ut=9181528.46 frame=10812 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:42.230] [Parsek][INFO][FarWatchProof] obs=event seq=35 name=OnFlightGlobalsReady role=none vessel=none active=ship ut=9181528.48 frame=10814 extra=ready=true
+[LOG 21:14:42.230] [Parsek][INFO][FarWatchProof] obs=reset-contracts n=18 ut=9181528.48 frame=10814 active=DD1_Duna_Direct_Probe droneActive=false switchWindow=true fenceOn=false fenced=false
+[LOG 21:14:42.313] [Parsek][INFO][FarWatchProof] obs=switch to=ship ok=true ut=9181528.54 frames=5 active=ship events=OnFlightGlobalsReady:none>onVesselSwitching:ship>onVesselChange:ship>OnFlightGlobalsReady:none reload=false scene=FLIGHT shipLoaded=true shipPacked=true dronePacked=true camTarget=probeCoreOcto2.v2_(DD1_Duna_Direct_Probe) pivotDeltaM=2.75 mapTarget=DD1_Duna_Direct_Probe camDist=30.00 resetContracts=3 before=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:- after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:42.332] [Parsek][INFO][FarWatchProof] op done op=switch result=ok real=0.1
+[LOG 21:14:42.385] [Parsek][INFO][FarWatchProof] op start op=destroy ut=9181528.62
+[LOG 21:14:42.386] [Parsek][INFO][FarWatchProof] obs=event seq=36 name=onVesselWillDestroy role=other vessel=Parsek_Camera_Drone active=ship ut=9181528.62 frame=10821 extra=-
+[LOG 21:14:42.432] [Parsek][INFO][FarWatchProof] obs=destroy ut=9181528.66 pid=4183609147 inVessels=false inProto=false events=onVesselWillDestroy:other active=ship shipPacked=true after=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:42.432] [Parsek][INFO][FarWatchProof] op done op=destroy result=ok real=0.0
+[LOG 21:14:42.433] [Parsek][INFO][FarWatchProof] obs=event seq=37 name=onVesselGoOffRails role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181528.66 frame=10824 extra=-
+[LOG 21:14:42.555] [Parsek][INFO][FarWatchProof] op start op=recalc ut=9181528.78
+[LOG 21:14:42.568] [Parsek][INFO][FarWatchProof] obs=recalc ut=9181528.80 fundsBefore=521120.00 fundsAfter=521120.00 sciBefore=100.00 sciAfter=100.00 repBefore=1.00 repAfter=1.00 contractsBefore=6 contractsAfter=6 rendezvousBefore=Ike:reached=true:complete=true rendezvousAfter=Ike:reached=true:complete=true label=end
+[LOG 21:14:42.568] [Parsek][INFO][FarWatchProof] op done op=recalc result=ok real=0.0
+[LOG 21:14:42.606] [Parsek][INFO][FarWatchProof] op start op=report ut=9181528.84
+[LOG 21:14:42.606] [Parsek][INFO][FarWatchProof] obs=report ut=9181528.84 label=after active=DD1_Duna_Direct_Probe role=ship activeSit=ORBITING droneExists=false funds=521120.00 sci=100.00 rep=1.00 contracts=6 resetContracts=18 fenced=6 pressureKills=0 terrainKills=0 goOffRailsRefused=1 strips=2 events=37 exceptions=0 rendezvous=Ike:reached=true:complete=true recorder=rec:false/bg:false/tree:a45af2b0b24b4fc0a64992ebf46c55e2/activeRec:-/tag:/shipBg:ed426b1cf25b43699621e8f99c8b3316/droneBg:-
+[LOG 21:14:42.606] [Parsek][INFO][FarWatchProof] op done op=report result=ok real=0.0
+[LOG 21:14:42.717] [Parsek][INFO][FarWatchProof] obs=event seq=38 name=onGameStateSaved role=ship vessel=DD1_Duna_Direct_Probe active=ship ut=9181528.86 frame=10836 extra=-
+[LOG 21:14:43.387] [Parsek][INFO][FarWatchProof] driver destroyed scene=FLIGHT drone=none

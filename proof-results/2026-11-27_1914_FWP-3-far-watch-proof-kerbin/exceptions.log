@@ -1,0 +1,75 @@
+total exception blocks=12841 distinct=9
+
+=== count=2200
+[EXC 21:23:27.197] NullReferenceException: Object reference not set to an instance of an object
+	CrewHatchController.LateUpdate () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=2200
+[EXC 21:23:27.197] NullReferenceException: Object reference not set to an instance of an object
+	(wrapper dynamic-method) Sun.Sun.LateUpdate_Patch1(Sun)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=2199
+[ERR 21:23:27.211] [FlightGlobals]: threw during UpdateInformation, fixed=False. Exception: System.NullReferenceException
+  at (wrapper managed-to-native) UnityEngine.Component.get_transform(UnityEngine.Component)
+  at (wrapper dynamic-method) FlightGlobals.FlightGlobals.UpdateInformation_Patch0(FlightGlobals,bool)
+
+=== count=2199
+[EXC 21:23:27.211] NullReferenceException
+	AmbienceControl.Update () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=2199
+[EXC 21:23:27.212] NullReferenceException: Object reference not set to an instance of an object
+	UIPartActionController.UpdateFlight () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UIPartActionController.Update () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)
+
+=== count=1841
+[ERR 21:23:27.209] [FlightGlobals]: threw during UpdateInformation, fixed=True. Exception: System.NullReferenceException
+  at (wrapper managed-to-native) UnityEngine.Component.get_transform(UnityEngine.Component)
+  at (wrapper dynamic-method) FlightGlobals.FlightGlobals.UpdateInformation_Patch0(FlightGlobals,bool)
+
+=== count=1
+[EXC 21:14:51.273] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+
+=== count=1
+[LOG 21:24:03.610] [Parsek][ERROR][FarWatchProof] op threw op=switch NullReferenceException: Object reference not set to an instance of an object
+  at Vessel.MakeInactive () [0x0006d] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at FlightGlobals.setActiveVessel (Vessel v, System.Boolean force, System.Boolean clearDeadVessels) [0x00209] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at (wrapper dynamic-method) FlightGlobals.FlightGlobals.ForceSetActiveVessel_Patch1(Vessel)
+  at Parsek.TestCommands.FarWatchProofDriver+<OpSwitch>d__130.MoveNext () [0x00199] in <4b5bdcfa443e4dce8c9dbeef97974117>:0 
+  at Parsek.TestCommands.FarWatchProofDriver.PumpOp () [0x00020] in <4b5bdcfa443e4dce8c9dbeef97974117>:0 
+
+=== count=1
+[LOG 21:24:03.888] [Parsek][ERROR][FarWatchProof] op threw op=kill NullReferenceException: Object reference not set to an instance of an object
+  at CameraManager.SetCameraFlight () [0x0008a] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at Vessel.Die () [0x001a7] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at (wrapper dynamic-method) Part.Part.Die_Patch2(Part)
+  at Part.explode (System.Single offset) [0x00224] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at Part.explode () [0x00000] in <4b449f2841f84227adfaad3149c8fdba>:0 
+  at Parsek.TestCommands.FarWatchProofDriver+<OpKill>d__139.MoveNext () [0x0017f] in <4b5bdcfa443e4dce8c9dbeef97974117>:0 
+  at Parsek.TestCommands.FarWatchProofDriver.PumpOp () [0x00020] in <4b5bdcfa443e4dce8c9dbeef97974117>:0 
+

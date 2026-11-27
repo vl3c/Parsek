@@ -1,0 +1,297 @@
+[Harness][Info][Lane] lane flight begin scenario=FWP-1-far-watch-proof-mun attempt=1
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: skipped (same instance)
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50000 stream=50001
+[Harness][Info][Preflight] port-check rpc=50000 stream=50001 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=mun-landing-recorded (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=mun-landing-recorded template=fixtures/saves/mun-landing-recorded inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=22732 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=7200s
+[Harness][Info][Launch] launch args=-logFile C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=normal desktopId=- returnForeground=-
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=40/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=44.0s kspLogBytes=1490432; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=44.5s kspLogBytes=1492520; boot-stall watchdog off for this attempt
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=50/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,discarded
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=MissionConfig expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,mission,tree,loop,intervalSeconds,anchorUt,unitBuilt,phaseAnchorUt,spanStartUt,cadenceSeconds,spanSeconds,compressedSpanSeconds,loiterCutCount,loiterCuts,unit,overlapCadenceSeconds,autoLoopIntervalSeconds
+[Harness][Info][Drive] drive step=6 id=0007 cmd=StartLoopPlayback expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,relaunchUt,reachedUt,mission,tree
+[Harness][Info][Drive] drive step=7 id=0008 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,op,result,active,hooks,patches
+[Harness][Info][Drive] drive step=8 id=0009 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,op,result,active,funds,rep
+[Harness][Info][Drive] drive step=9 id=0010 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,op,result,on
+[Harness][Info][Drive] drive step=10 id=0011 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,op,result,variant,part,pid,distToShip
+[Harness][Info][Drive] drive step=11 id=0012 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=12 id=0013 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,op,result,events,pivotDeltaM,reload
+[Harness][Info][Drive] drive step=13 id=0014 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0014 elapsed=10/600
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=14 id=0015 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0015 elapsed=10/600
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,op,result,index,member,devM
+[Harness][Info][Drive] drive step=15 id=0016 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=16 id=0017 cmd=EnterMapView expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,mapOpen,alreadyOpen
+[Harness][Info][Drive] drive step=17 id=0018 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=18 id=0019 cmd=ExitMapView expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,mapOpen,alreadyClosed
+[Harness][Info][Drive] drive step=19 id=0020 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,op,result,killLine
+[Harness][Info][Drive] drive step=20 id=0021 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=60/600
+[Harness][Info][Drive] drive resp id=0021 verdict=OK met=True
+[Harness][Info][Drive] captured id=0021 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=21 id=0022 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0022 verdict=OK met=True
+[Harness][Info][Drive] captured id=0022 label=- fields=ut,op,result,attached
+[Harness][Info][Drive] drive step=22 id=0023 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0023 elapsed=60/600
+[Harness][Info][Drive] drive resp id=0023 verdict=OK met=True
+[Harness][Info][Drive] captured id=0023 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=23 id=0024 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0024 verdict=OK met=True
+[Harness][Info][Drive] captured id=0024 label=- fields=ut,op,result,attached
+[Harness][Info][Drive] drive step=24 id=0025 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0025 verdict=OK met=True
+[Harness][Info][Drive] captured id=0025 label=- fields=ut,op,result,droneInSave,activeIsShip
+[Harness][Info][Drive] drive step=25 id=0026 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0026 verdict=OK met=True
+[Harness][Info][Drive] captured id=0026 label=- fields=ut,op,result,droneInSave,activeIsShip
+[Harness][Info][Drive] drive step=26 id=0027 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0027 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0027 elapsed=20/600
+[Harness][Info][Drive] drive resp id=0027 verdict=OK met=True
+[Harness][Info][Drive] captured id=0027 label=- fields=ut,op,result,droneInSave,activeIsShip
+[Harness][Info][Drive] drive step=27 id=0028 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0028 elapsed=10/600
+[Harness][Info][Drive] drive resp id=0028 verdict=OK met=True
+[Harness][Info][Drive] captured id=0028 label=- fields=ut,op,result,quicksaveChanged
+[Harness][Info][Drive] drive step=28 id=0029 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0029 verdict=OK met=True
+[Harness][Info][Drive] captured id=0029 label=- fields=ut,op,result,quicksaveChanged
+[Harness][Info][Drive] drive step=29 id=0030 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0030 elapsed=60/600
+[Harness][Info][Drive] drive resp id=0030 verdict=OK met=True
+[Harness][Info][Drive] captured id=0030 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=30 id=0031 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0031 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0031 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0031 elapsed=30/600
+[Harness][Info][Drive] drive resp id=0031 verdict=OK met=True
+[Harness][Info][Drive] captured id=0031 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=31 id=0032 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0032 verdict=OK met=True
+[Harness][Info][Drive] captured id=0032 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=32 id=0033 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0033 elapsed=10/600
+[Harness][Info][Drive] drive resp id=0033 verdict=OK met=True
+[Harness][Info][Drive] captured id=0033 label=- fields=ut,op,result,exceptions
+[Harness][Info][Drive] drive step=33 id=0034 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0034 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0034 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0034 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0034 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0034 elapsed=50/600
+[Harness][Info][Drive] drive resp id=0034 verdict=OK met=True
+[Harness][Info][Drive] captured id=0034 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=34 id=0035 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0035 elapsed=60/600
+[Harness][Info][Drive] drive resp id=0035 verdict=OK met=True
+[Harness][Info][Drive] captured id=0035 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=35 id=0036 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0036 verdict=OK met=True
+[Harness][Info][Drive] captured id=0036 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=36 id=0037 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=60/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=70/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=80/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=90/600
+[Harness][Verbose][Drive] poll: pendingId=0037 elapsed=100/600
+[Harness][Info][Drive] drive resp id=0037 verdict=OK met=True
+[Harness][Info][Drive] captured id=0037 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=37 id=0038 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0038 verdict=OK met=True
+[Harness][Info][Drive] captured id=0038 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=38 id=0039 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0039 verdict=OK met=True
+[Harness][Info][Drive] captured id=0039 label=- fields=ut,op,result,distM
+[Harness][Info][Drive] drive step=39 id=0040 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0040 verdict=OK met=True
+[Harness][Info][Drive] captured id=0040 label=- fields=ut,op,result,events,pivotDeltaM,reload
+[Harness][Info][Drive] drive step=40 id=0041 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0041 verdict=OK met=True
+[Harness][Info][Drive] captured id=0041 label=- fields=ut,op,result,inVessels
+[Harness][Info][Drive] drive step=41 id=0042 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0042 verdict=OK met=True
+[Harness][Info][Drive] captured id=0042 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=42 id=0043 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0043 verdict=OK met=True
+[Harness][Info][Drive] captured id=0043 label=- fields=ut,op,result,variant,part,pid,distToShip
+[Harness][Info][Drive] drive step=43 id=0044 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0044 verdict=OK met=True
+[Harness][Info][Drive] captured id=0044 label=- fields=ut,op,result,events,pivotDeltaM,reload
+[Harness][Info][Drive] drive step=44 id=0045 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=60/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=70/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=80/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=90/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=100/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=110/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=120/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=130/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=140/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=150/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=160/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=170/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=180/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=190/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=200/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=210/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=220/600
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=230/600
+[Harness][Info][Drive] drive resp id=0045 verdict=OK met=True
+[Harness][Info][Drive] captured id=0045 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=45 id=0046 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0046 verdict=OK met=True
+[Harness][Info][Drive] captured id=0046 label=- fields=ut,op,result,body,events
+[Harness][Info][Drive] drive step=46 id=0047 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=20/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=30/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=40/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=50/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=60/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=70/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=80/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=90/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=100/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=110/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=120/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=130/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=140/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=150/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=160/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=170/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=180/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=190/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=200/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=210/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=220/600
+[Harness][Verbose][Drive] poll: pendingId=0047 elapsed=230/600
+[Harness][Info][Drive] drive resp id=0047 verdict=OK met=True
+[Harness][Info][Drive] captured id=0047 label=- fields=ut,op,result,endUT,maxRateSeen
+[Harness][Info][Drive] drive step=47 id=0048 cmd=FarWatchProof expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0048 elapsed=10/600
+[Harness][Verbose][Drive] poll: pendingId=0048 elapsed=20/600
+[Harness][Info][Drive] drive resp id=0048 verdict=OK met=True
+[Harness][Info][Drive] captured id=0048 label=- fields=ut,op,result,firstActiveAfter,dialogShown
+[Harness][Info][Drive] drive step=48 id=0049 cmd=FarWatchProof expect=OK
+[Harness][Info][Drive] drive resp id=0049 verdict=OK met=True
+[Harness][Info][Drive] captured id=0049 label=- fields=ut,op,result,active,funds,rep
+[Harness][Info][Drive] drive step=49 id=0050 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0050 verdict=OK met=True
+[Harness][Info][Drive] captured id=0050 label=- fields=ut,saved
+[Harness][Info][Pipeline] post-quit copy run=2026-11-27_1854_FWP-1-far-watch-proof-mun files=88 bytes=22934107 wall=0.13s -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\.verify-private\2026-11-27_1854_FWP-1-far-watch-proof-mun
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on
+[Harness][Info][Lane] lane flight end runId=2026-11-27_1854_FWP-1-far-watch-proof-mun scenario=FWP-1-far-watch-proof-mun attempt=1
+[Harness][Info][Select] select expr='--ids-file C:/Users/vlad3/AppData/Local/Temp/claude/b1ab2922b4ad0689/32f1ff34-f2d6-44d5-bdf4-c1bd9a467334/scratchpad/fwp-ids.txt' -> 3 scenarios: ['FWP-1-far-watch-proof-mun', 'FWP-2-far-watch-proof-ike-career', 'FWP-3-far-watch-proof-kerbin']
+[Harness][Info][Lock] run-lock acquired (acquired-free) path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock pid=27312 selection=--ids-file C:/Users/vlad3/AppData/Local/Temp/claude/b1ab2922b4ad0689/32f1ff34-f2d6-44d5-bdf4-c1bd9a467334/scratchpad/fwp-ids.txt
+[Harness][Info][UnityPrefs] unity prefs snapshot -> C:\Users\vlad3\Documents\Code\Parsek\automation\.unity-prefs-snapshot.json (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=1, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=1440, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=1, +4 more)
+[Harness][Info][Build] tests prebuild: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Harness][Info][Build] tests prebuild ok wall=9.4s; verifiers run -NoBuild
+[Harness][Info][Pipeline] post-quit verification pipelined: lane N verifies on a private copy while lane N+1 stages and boots; a retry flies after the lane in flight (opt out: PARSEK_HARNESS_SERIAL_VERIFY=1 or --serial-verify)
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal (acquired-free) path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal.lock pid=27312
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=14.4s logValidate=13.9s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=150 counts={'NullReferenceException': 150, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=6 parsekThrowSite=0 parsekCaller=6 afterQuit=0 afterQuitFrameless=0
+[Harness][Warn][Verify] unityExceptions saw 150 raw Unity exception line(s) (REPORT-ONLY, not gating; arm with [expectations.unityExceptions] maxTotal = N): {'NullReferenceException': 150, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0}
+[Harness][Warn][Verify] unityExceptions saw 6 exception(s) with a Parsek frame on the stack, 0 of them at the throw site (REPORT-ONLY, not gating; arm with [expectations.unityExceptions] maxParsekFrames = 0 or maxParsekThrowSite = 0): {'Parsek.TestCommands.<OpSwitch>d__130.MoveNext': 6}
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=['recordings.structure'] armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=1841 pointsLargest=1026 pointsSmallest=8 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=0 spawnLines=0 destroyLines=0 unbalanced=0 malformed=0 reasons={} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PASS scenario=FWP-1-far-watch-proof-mun attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-27_1854_FWP-1-far-watch-proof-mun result=copied bytes=3772024 files=79 reason=every-verdict-default verdict=PASS path=C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun_save
+[Harness][Verbose][Artifacts] screenshots skipped: 1006 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-27_1854_FWP-1-far-watch-proof-mun kspLog=True truncated=False screenshots=7 renderManifest=False -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun_shots
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun_contact.html (+ index.html)
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-far-watch-proof\harness\results\2026-11-27_1854_FWP-1-far-watch-proof-mun_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=1143s terminal=PASS

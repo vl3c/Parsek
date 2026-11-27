@@ -1,0 +1,18 @@
+total exception blocks=1 distinct=1
+
+=== count=1
+[EXC 21:13:54.936] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+
