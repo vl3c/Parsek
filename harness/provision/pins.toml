@@ -168,3 +168,38 @@ version = "0.0.9"
 downloadUrl = "https://github.com/linuxgurugamer/SpaceTuxLibrary/releases/download/0.0.9/SpaceTuxLibrary-1.12.0-0.0.9.zip"
 sha256 = "e916b6907e8310e08baa49532d04f92068864cb38b93afd664bf712b190197f1"
 gamedataFolders = ["SpaceTuxLibrary"]
+
+[utilityweight]
+# Utility Weight 2.0.0 (yalov), the part mod the owner asked Parsek to support (2026-11-26):
+# one part, UtilityWeight_OsmiumTank (runtime UtilityWeight.OsmiumTank), whose B9PartSwitch
+# size subtypes scale its model transform. Pinned via the CKAN-meta record
+# KSP-CKAN/CKAN-meta/UtilityWeight/UtilityWeight-2.0.0.ckan (GPL-3.0, KSP 1.9.1 to 1.12.9,
+# depends ModuleManager, recommends B9PartSwitch; both modded profiles carry those). The one
+# approved download (2026-11-26, 217302 bytes) hashed to exactly the record's sha256. Zip
+# layout confirmed at that download: GameData/UtilityWeight/ (no DLL; part cfg, model,
+# patches) plus a bundled GameData/ModuleManager.4.2.1.dll, which gamedataFolders leaves out
+# (the profiles install MM 4.2.3 from the dev install). Its files are byte-identical to the
+# owner's play install (git blob identity against the upstream 2.0.0 tag).
+mode = "release"
+kind = "gamedata-mod"
+version = "2.0.0"
+downloadUrl = "https://github.com/yalov/UtilityWeight/releases/download/2.0.0/UtilityWeight-v2.0.0.zip"
+sha256 = "868549f7c6b2a39bfa0a965879317ce0d67dd0c840e14e1d9356269dfbe8b96a"
+gamedataFolders = ["UtilityWeight"]
+
+[picoport]
+# PicoPort 0.1.6.4 (steedcrugeon, linuxgurugamer), the four micro docking ports PicoPortBasic,
+# PicoPortPlus, PicoPortM and PicoPortF (stock ModuleDockingNode + ModuleCargoPart, no DLL).
+# Pinned via the CKAN-meta record KSP-CKAN/CKAN-meta/PicoPort/PicoPort-0.1.6.4.ckan
+# (CC-BY-NC-SA-4.0, KSP 1.8.0 to 1.12.5, depends ModuleManager, recommends IndicatorLights,
+# which no profile carries: the ports' LED patch stays dormant here). The one approved download
+# (2026-11-26, 177080 bytes) hashed to exactly the record's sha256. Zip layout confirmed at
+# that download: GameData/SHED/PicoPort/ only. CKAN's install filter drops SHED/Agencies and
+# the License file; this zip has no Agencies folder, so the one difference from a CKAN install
+# is SHED/PicoPort/License (a text file). Files byte-identical to the owner's play install.
+mode = "release"
+kind = "gamedata-mod"
+version = "0.1.6.4"
+downloadUrl = "https://github.com/linuxgurugamer/PicoPort/releases/download/0.1.6.4/PicoPort-1.12.0-0.1.6.4.zip"
+sha256 = "e3f44c6c39229a16ef6a5d0a064cc45134b036dad3c1cd68502735e5939233d9"
+gamedataFolders = ["SHED"]
