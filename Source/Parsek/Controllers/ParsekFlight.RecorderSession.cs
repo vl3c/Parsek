@@ -496,7 +496,7 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
-            if (data.host != null && GhostMapPresence.IsGhostMapVessel(data.host.persistentId)) return;
+            if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
             if (data.host != null && CameraDrone.Is(data.host))
             {
                 ParsekLog.VerboseRateLimited("FarWatch", "drone-situation-skip",
@@ -580,7 +580,7 @@ namespace Parsek
         void OnStageActivate(int stage)
         {
             Vessel av = FlightGlobals.ActiveVessel;
-            if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
+            if (av != null && GhostMapPresence.IsGhostOrDroneVessel(av.persistentId)) return;
             if (av != null && CameraDrone.Is(av))
             {
                 ParsekLog.Info("FarWatch", "OnStageActivate: skipped stage=" + stage +
@@ -761,7 +761,7 @@ namespace Parsek
                 return;
             List<uint> pids = ReadLoadedVesselPids();
             int added = SeedLoadedAnchorVessels(
-                loadedAnchorVessels, pids, GhostMapPresence.IsGhostMapVessel, out int ghostSkipped);
+                loadedAnchorVessels, pids, GhostMapPresence.IsGhostOrDroneVessel, out int ghostSkipped);
             ParsekLog.Verbose("Loop",
                 $"Loaded-anchor set seeded: reason={reason} loaded={pids.Count} added={added} " +
                 $"ghostSkipped={ghostSkipped} total={loadedAnchorVessels.Count}");
@@ -824,7 +824,7 @@ namespace Parsek
         /// </summary>
         internal bool HandleCheatTeleport(Vessel v, CelestialBody oldBody)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return true;
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return true;
             if (recorder == null)
                 return false;
             recorder.OnCheatTeleport(v, oldBody);

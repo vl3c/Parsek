@@ -98,7 +98,7 @@ namespace Parsek.Patches
         /// <summary>The live decision for <paramref name="targetPid"/>.</summary>
         internal static JumpDecision DecideLive(uint targetPid, bool log)
         {
-            bool ghost = GhostMapPresence.IsGhostMapVessel(targetPid);
+            bool ghost = GhostMapPresence.IsGhostOrDroneVessel(targetPid);
             bool refused = !ghost
                 && ReFlySwitchGate.IsRefused(targetPid, ReFlySwitchGate.PathAlarmJump, log);
             return Decide(ghost, refused);

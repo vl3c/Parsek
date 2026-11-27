@@ -2102,7 +2102,7 @@ namespace Parsek
             // The surviving parent is the vessel the active recorder records. It is not
             // always the active vessel: a split can move focus to the vessel that came off
             // before the hand-off to the background recorder (EmitPendingSplitBeforeFocusLeaves).
-            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            Vessel activeVessel = FarWatchPlayerVessel.Resolve();
             uint parentVesselPid = ParsekFlight.ResolveBreakupParentVesselPid(
                 parentRecorder != null ? parentRecorder.RecordingVesselId : 0u,
                 activeVessel != null ? activeVessel.persistentId : 0u);

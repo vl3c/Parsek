@@ -99,7 +99,8 @@ namespace Parsek
                 ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no crew replacements — skipping");
                 return 0;
             }
-            if (FlightGlobals.ActiveVessel == null)
+            Vessel playerShip = FarWatchPlayerVessel.Resolve();
+            if (playerShip == null)
             {
                 ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no active vessel — skipping");
                 return 0;
@@ -128,9 +129,9 @@ namespace Parsek
             // vessel; real spawns use a KSP-unique pid and stay pid-only (see ActiveVesselIsParsekSpawned).
             var ers = EffectiveState.ComputeERS();
             var spawnedPids = BuildSpawnedVesselPidSet(ers);
-            uint activePid = FlightGlobals.ActiveVessel.persistentId;
-            string activeGuid = FlightGlobals.ActiveVessel.id != Guid.Empty
-                ? FlightGlobals.ActiveVessel.id.ToString("N")
+            uint activePid = playerShip.persistentId;
+            string activeGuid = playerShip.id != Guid.Empty
+                ? playerShip.id.ToString("N")
                 : null;
             if (ActiveVesselIsParsekSpawned(ers, activePid, activeGuid))
             {
@@ -151,7 +152,7 @@ namespace Parsek
             var seatSwaps = new List<KeyValuePair<string, string>>();
 
             // Pass 1 — legacy path: kerbals currently seated in the active vessel.
-            foreach (Part part in FlightGlobals.ActiveVessel.parts)
+            foreach (Part part in playerShip.parts)
             {
                 // Iterate a copy because RemoveCrewmember modifies the list
                 var crewList = new List<ProtoCrewMember>(part.protoModuleCrew);
@@ -251,8 +252,8 @@ namespace Parsek
 
             if (swapCount > 0)
             {
-                FlightGlobals.ActiveVessel.SpawnCrew();
-                GameEvents.onVesselCrewWasModified.Fire(FlightGlobals.ActiveVessel);
+                playerShip.SpawnCrew();
+                GameEvents.onVesselCrewWasModified.Fire(playerShip);
                 CrewLog($"Crew swap complete: {swapCount} succeeded" +
                     (failCount > 0 ? $", {failCount} failed" : "") +
                     " — refreshed vessel crew display");
@@ -576,7 +577,7 @@ namespace Parsek
         private static HashSet<string> BuildActiveVesselCrewNameSet()
         {
             var set = new HashSet<string>();
-            var av = FlightGlobals.ActiveVessel;
+            var av = FarWatchPlayerVessel.Resolve();
             if (av == null) return set;
             for (int p = 0; p < av.parts.Count; p++)
             {
@@ -614,7 +615,7 @@ namespace Parsek
         {
             matchKind = SeatMatchKind.None;
             missDiagnostic = default(SeatMatchMissDiagnostic);
-            var av = FlightGlobals.ActiveVessel;
+            var av = FarWatchPlayerVessel.Resolve();
             if (av == null) return null;
 
             // Build a lightweight snapshot of the live vessel's parts so the
@@ -754,10 +755,11 @@ namespace Parsek
             int loadedKept = 0;
             int pidKept = 0;
             var allVessels = FlightGlobals.Vessels;
+            Vessel playerShip = FarWatchPlayerVessel.Resolve();
             for (int v = allVessels.Count - 1; v >= 0; v--)
             {
                 Vessel vessel = allVessels[v];
-                if (vessel == FlightGlobals.ActiveVessel) continue;
+                if (vessel == playerShip) continue;
                 if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
                 if (!vessel.isEVA) continue;
 
@@ -1099,7 +1101,7 @@ namespace Parsek
             if (kerbal == null) return false;
             if (marker == null) return false;
 
-            var active = FlightGlobals.ActiveVessel;
+            var active = FarWatchPlayerVessel.Resolve();
             if (active == null) return false;
             if (!ActiveVesselMatchesReFlyRecording(active, marker))
                 return false;

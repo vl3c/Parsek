@@ -1611,7 +1611,7 @@ namespace Parsek
         {
             if (host.committedSpawnedRestoreSuppressedPid != 0)
             {
-                Vessel suppressionActiveVessel = FlightGlobals.ActiveVessel;
+                Vessel suppressionActiveVessel = FarWatchPlayerVessel.Resolve();
                 ParsekFlight.TickCommittedSpawnedRestoreSuppression(
                     ref host.committedSpawnedRestoreSuppressedPid,
                     suppressionActiveVessel != null ? suppressionActiveVessel.persistentId : 0u,
@@ -1679,7 +1679,7 @@ namespace Parsek
                 return;
             }
 
-            if (GhostMapPresence.IsGhostMapVessel(activeVesselPid)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(activeVesselPid)) return;
 
             var recoveryDiagnosticContext = new ParsekFlight.MissedVesselSwitchRecoveryDiagnosticContext
             {

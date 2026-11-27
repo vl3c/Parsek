@@ -231,7 +231,7 @@ namespace Parsek.Logistics
                     bool rootMatched = TryRootPartMatchPure(
                         endpoint.RootPartUId,
                         rootSnapshots,
-                        GhostMapPresence.ghostMapVesselPids,
+                        GhostMapPresence.GhostOrDronePidSet(),
                         out Vessel byRoot,
                         out uint rootPickedPid,
                         out uint rootCollidingPid,
@@ -250,7 +250,7 @@ namespace Parsek.Logistics
                             rootMatched = TryRootPartMatchPure(
                                 endpoint.RootPartUId,
                                 rootSnapshots,
-                                GhostMapPresence.ghostMapVesselPids,
+                                GhostMapPresence.GhostOrDronePidSet(),
                                 out byRoot,
                                 out rootPickedPid,
                                 out rootCollidingPid,
@@ -350,7 +350,7 @@ namespace Parsek.Logistics
                     // DISPATCHES; it decides nothing of its own, so the refusal arm is
                     // headlessly reachable and cannot be deleted while the suite stays green.
                     Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
-                    HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
+                    HashSet<uint> ghostPids = GhostMapPresence.GhostOrDronePidSet();
                     bool candidateUsable = byPid != null
                         && (ghostPids == null || !ghostPids.Contains(byPid.persistentId));
                     string liveGuid = candidateUsable
@@ -431,7 +431,7 @@ namespace Parsek.Logistics
                     endpointWorldPos,
                     endpoint.BodyName,
                     snapshots,
-                    GhostMapPresence.ghostMapVesselPids,
+                    GhostMapPresence.GhostOrDronePidSet(),
                     transports,
                     RouteOrchestrator.SurfaceProximityRadiusMeters,
                     out vessel,

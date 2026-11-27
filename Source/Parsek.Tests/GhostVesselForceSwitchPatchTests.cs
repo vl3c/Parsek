@@ -112,12 +112,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CyclePrefix_FiltersWithTheGhostMapCheck()
+        public void CyclePrefix_FiltersWithTheGhostOrDroneCheck()
         {
             string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "Source", "Parsek", "Patches", "VesselCycleReFlySwitchPatch.cs");
             string src = System.IO.File.ReadAllText(path);
-            Assert.Contains("FilterCandidates(candidatePids, GhostMapPresence.IsGhostMapVessel, isAllowed)", src);
+            // The far-watch camera drone is never a cycle target either (DRONE-SAME).
+            Assert.Contains("FilterCandidates(candidatePids, GhostMapPresence.IsGhostOrDroneVessel, isAllowed)", src);
         }
     }
 }

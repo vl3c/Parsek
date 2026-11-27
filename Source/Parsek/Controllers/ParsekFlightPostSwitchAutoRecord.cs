@@ -1215,7 +1215,7 @@ namespace Parsek
                 }
                 return false;
             }
-            if (GhostMapPresence.IsGhostMapVessel(newPid))
+            if (GhostMapPresence.IsGhostOrDroneVessel(newPid))
             {
                 ParsekLog.Verbose("Flight",
                     $"Post-switch watch: separation not captured ({source}): newPid={newPid} is a ghost map vessel");
@@ -1527,7 +1527,7 @@ namespace Parsek
                 v != null,
                 activePid,
                 state.VesselPid,
-                v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId),
+                v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId),
                 ParsekFlight.restoringActiveTree,
                 HasPendingPostSwitchAutoRecordTransition(),
                 host.IsAnyWarpActive(),

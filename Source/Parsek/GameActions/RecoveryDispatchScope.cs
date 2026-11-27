@@ -129,7 +129,7 @@ namespace Parsek
                 pid = pv.persistentId;
                 identity = RecoveredVesselIdentity.FromRawName(
                     pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv), pid);
-                isGhost = GhostMapPresence.IsGhostMapVessel(pid);
+                isGhost = GhostMapPresence.IsGhostOrDroneVessel(pid);
             }
 
             string skip = DecideOpenSkipReason(

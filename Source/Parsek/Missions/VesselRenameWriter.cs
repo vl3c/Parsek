@@ -110,7 +110,7 @@ namespace Parsek
                     v.persistentId.ToString(CultureInfo.InvariantCulture) + " reason=" + (reason ?? "<none>"));
                 return false;
             }
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
             {
                 ParsekLog.Warn(Tag, "Write-through refused: ghost map vessel pid=" +
                     v.persistentId.ToString(CultureInfo.InvariantCulture) + " reason=" + (reason ?? "<none>"));
@@ -141,7 +141,7 @@ namespace Parsek
                     " reason=" + (reason ?? "<none>"));
                 return false;
             }
-            if (GhostMapPresence.IsGhostMapVessel(pv.persistentId))
+            if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId))
             {
                 ParsekLog.Warn(Tag, "Write-through refused (proto): ghost map vessel pid=" +
                     pv.persistentId.ToString(CultureInfo.InvariantCulture) + " reason=" + (reason ?? "<none>"));

@@ -1875,13 +1875,14 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
             // Drone lost (H8b, design 7.6): no tree-destruction dialog, the far watch owns it.
+            // Ahead of the ghost-or-drone skip below, which would swallow it.
             if (v != null && CameraDrone.Is(v))
             {
                 farWatch?.OnDroneWillDestroy(v);
                 return;
             }
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             farWatch?.OnVesselWillDestroy(v);
 
             // A flag picked up by a kerbal, recovered or destroyed here is never planted again

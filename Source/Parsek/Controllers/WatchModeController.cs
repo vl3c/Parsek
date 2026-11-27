@@ -1865,7 +1865,7 @@ namespace Parsek
         private static void ShowUnattendedFlightWarningIfNeeded()
         {
             // Flight warning: if active vessel is in an unsafe state, show a brief screen message
-            var av = FlightGlobals.ActiveVessel;
+            var av = FarWatchPlayerVessel.Resolve();
             if (av != null)
             {
                 double pe = av.orbit != null ? av.orbit.PeA : 0;

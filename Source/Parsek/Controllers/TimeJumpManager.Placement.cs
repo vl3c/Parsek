@@ -1204,7 +1204,7 @@ namespace Parsek
             if (plan == null)
                 return;
             double now = Planetarium.GetUniversalTime();
-            Vessel active = FlightGlobals.ActiveVessel;
+            Vessel active = FarWatchPlayerVessel.Resolve();
             Vector3d? drawn = plan.DrawnReference != null ? plan.DrawnReference() : null;
 
             int pendingUnpack = 0;

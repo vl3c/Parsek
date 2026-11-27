@@ -200,7 +200,7 @@ namespace Parsek.Patches
         static bool Prefix(OrbitRenderer __instance, ref bool __result)
         {
             if (__instance.vessel != null
-                && GhostMapPresence.IsGhostMapVessel(__instance.vessel.persistentId))
+                && GhostMapPresence.IsGhostOrDroneVessel(__instance.vessel.persistentId))
             {
                 __result = false;
                 return false; // skip original — ghost orbit line not clickable
@@ -502,7 +502,7 @@ namespace Parsek.Patches
         static bool Prefix(CommNetVessel __instance)
         {
             Vessel v = __instance.Vessel;
-            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId))
+            if (v != null && GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
             {
                 // Remove self from vessel modules and destroy, same as KSP does
                 // for Flag/Debris/Unknown vessels in the original OnStart
@@ -644,7 +644,7 @@ namespace Parsek.Patches
         static void Postfix(ref OrbitDriver __result)
         {
             if (__result != null && __result.vessel != null
-                && GhostMapPresence.IsGhostMapVessel(__result.vessel.persistentId))
+                && GhostMapPresence.IsGhostOrDroneVessel(__result.vessel.persistentId))
             {
                 ParsekLog.Verbose("GhostMap",
                     $"Suppressed OrbitTargeter.TargetCastNodes for ghost '{__result.vessel.vesselName}'");

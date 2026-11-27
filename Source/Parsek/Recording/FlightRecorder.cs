@@ -2228,7 +2228,7 @@ namespace Parsek
                 Vessel vessel = vessels[i];
                 if (vessel != null && vessel.persistentId == pid)
                 {
-                    if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) return null;
+                    if (GhostMapPresence.IsGhostOrDroneVessel(vessel.persistentId)) return null;
                     return vessel;
                 }
             }

@@ -62,7 +62,7 @@ namespace Parsek
                         if (!includeLoadedVessels && v.loaded) { skippedLoadedCount++; continue; }
                         if (v.mainBody != body) continue;
                         if (!(v.Landed || v.Splashed)) continue;
-                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                        if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
                         if (spawningRecording != null
                             && WithinExemptionRange(spawnLat, spawnLon, v.latitude, v.longitude,
@@ -89,7 +89,7 @@ namespace Parsek
                         if (pv.persistentId == excludePid) continue;
                         // Skip protos already represented by a loaded Vessel (counted above).
                         if (pv.vesselRef != null && pv.vesselRef.loaded) continue;
-                        if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
+                        if (GhostMapPresence.IsGhostOrDroneVessel(pv.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
                         if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
                         if (spawningRecording != null
@@ -899,7 +899,7 @@ namespace Parsek
                         blockerVessel != null && blockerVessel.loaded,
                         blockerVessel != null ? blockerVessel.persistentId : 0u,
                         blockerVessel != null ? AnchorDetector.TryReadLiveVesselGuid(blockerVessel) : null,
-                        blockerVessel != null && blockerVessel == FlightGlobals.ActiveVessel))
+                        blockerVessel != null && blockerVessel == FarWatchPlayerVessel.Resolve()))
                 {
                     ParsekLog.Warn("Spawner",
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
@@ -1651,7 +1651,7 @@ namespace Parsek
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
                 Vessel other = FlightGlobals.Vessels[v];
-                if (GhostMapPresence.IsGhostMapVessel(other.persistentId)) continue;
+                if (GhostMapPresence.IsGhostOrDroneVessel(other.persistentId)) continue;
                 if (other.mainBody != body) continue;
                 double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
                 if (dist < closestDist)

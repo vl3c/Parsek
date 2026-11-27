@@ -159,7 +159,7 @@ namespace Parsek
         {
             if (v == null) return;
             if (HighLogic.LoadedScene != GameScenes.FLIGHT) return;
-            if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) return;
+            if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) return;
             if (RewindContext.IsRewinding)
             {
                 ParsekLog.Info("Scenario",
