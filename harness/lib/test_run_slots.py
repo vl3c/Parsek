@@ -642,6 +642,19 @@ class LeaseRunTests(_SlotBox):
         self.assertEqual(("INVALID", hlib.LEASE_INVALID_SUBKIND),
                          (rows["LEASE-B"][0]["verdict"], rows["LEASE-B"][0]["subkind"]))
 
+    def test_a_lease_that_expires_mid_flight_is_renewed_by_its_slot_lock_holder(self):
+        box = self
+
+        class ExpireDuringFirst(_PrebuiltRuntime):
+            def launch(self, exe, args, env, cwd):
+                lease = box.leaseio.read_lease(box.box, SLOT)
+                box.leaseio.write_lease(box.box, dict(lease, renewedAt=1.0))
+                return super().launch(exe, args, env, cwd)
+        rt = ExpireDuringFirst("pass")
+        code, _report = self.fly_leased(self.specs("LEASE-A", "LEASE-B"), rt)
+        self.assertEqual(0, code, self.log_text())
+        self.assertEqual(2, rt.launch_count)
+
     def _real_id(self):
         for spec in run.load_all_specs():
             if spec.get("instanceProfile") == "stock-minimal" and not \

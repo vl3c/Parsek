@@ -1831,7 +1831,13 @@ python tools/ksp_lease.py release                               # when the threa
   --remove`) aborts `EC-10` naming the lease, the parallel runner exits 3,
   `tier_runner.py` skips. Each takes the machine lock first and checks the
   registry while holding it (`leaseio.acquire_machine`), so a lease and a
-  machine owner never both hold the PC.
+  machine owner never both hold the PC. Three cases fail closed: an expired
+  lease still counts as live while a live process holds its copy's slot lock
+  (an attempt longer than the lease, whose next boundary renews it); a
+  registry file that exists but cannot be read counts as live until its mtime
+  is older than the longest time to live; and a live slot lock with no lease
+  and the machine lock free refuses the machine owner too (`EC-10` naming the
+  slot), since whatever holds it is flying a KSP that owner cannot see.
 - **`provision.py --lease`** takes only the leased copy's slot lock (aborting
   `EC-10` while a run flies there), checks only a KSP running from that copy
   (`EC-1`), provisions that copy (`--copy` defaults to the lease's; another
@@ -1856,6 +1862,9 @@ python tools/ksp_lease.py release                               # when the threa
   release restores it (the machine owner's duty when no lease exists). A
   snapshot left by expired leases is restored by the next holder's start, as
   after a crash.
+- **Known limit.** Two worktrees flying the SAME lane in the same minute get
+  the same runId, and the second copy to the machine-wide results archive
+  overwrites the first's folder (each worktree's own `results/` is intact).
 - **What it does not change.** The parallel runner still owns the whole
   machine for its run; a lease does not fly through it. `--hold` watch lanes
   and exclusive lanes need the machine, so they fly with no lease live.

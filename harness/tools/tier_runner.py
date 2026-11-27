@@ -1064,7 +1064,7 @@ def preflight_machine(log: TeeLog) -> Optional[TierRunOutcome]:
         return TierRunOutcome(OUTCOME_SKIPPED, "machine lock held (%s)" % holder)
     log.info("Preflight", "machine lock free (decision=%s, lock=%s)" % (reason, lock_path))
 
-    live_lease = leaseio.first_live_lease(UMBRELLA_ROOT, time.time())
+    live_lease = leaseio.first_live_lease(UMBRELLA_ROOT, time.time(), pid_alive)
     if live_lease is not None:
         detail = leases.describe_lease(live_lease, time.time())
         log.warn("Preflight", "SKIP: a copy lease is live (%s) -- a tier run needs the "

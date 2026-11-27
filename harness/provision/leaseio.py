@@ -26,9 +26,11 @@ if _LIB_DIR not in sys.path:
 
 import leases  # noqa: E402
 import machinelock  # noqa: E402
+import provlib  # noqa: E402
 import slots  # noqa: E402
 
 REFUSED_LEASED = "refused-leased"
+REFUSED_SLOT_HELD = "refused-slot-held"
 
 
 def _read_json(path: str) -> Optional[Dict]:
@@ -53,8 +55,33 @@ def _write_json_atomic(path: str, obj: Dict) -> None:
     os.replace(tmp, path)
 
 
+def _unreadable_stand_in(path: str, slot: str) -> Optional[Dict]:
+    """A registry file that exists but cannot be read or parsed (an AV or backup
+    hold, a sharing violation mid-replace, a torn write) FAILS CLOSED, as the
+    machine lock does: it reads as a live lease until its mtime is older than the
+    longest time to live, so it can never let a machine owner in by accident."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None   # gone: released between the listing and the read
+    return {"schema": leases.LEASE_SCHEMA, "slot": slot, "token": "unreadable-lease-file",
+            "owner": "? (unreadable lease file %s)" % path, "worktree": "?",
+            "claimedIso": "?", "renewedAt": float(mtime),
+            "ttlSeconds": leases.MAX_TTL_SECONDS, "dllSha256": None, "unreadable": True}
+
+
+def _read_lease_file(path: str, slot: str) -> Optional[Dict]:
+    payload = _read_json(path)
+    if payload is None and os.path.exists(path):
+        payload = _read_json(path)   # one retry, as machinelock.heartbeat does
+        if payload is None:
+            return _unreadable_stand_in(path, slot)
+    return payload
+
+
 def read_leases(umbrella_root: str) -> Dict[str, Optional[Dict]]:
-    """slot -> parsed payload (None when unreadable) for every registry file."""
+    """slot -> payload for every registry file (an unreadable one as a fail-closed
+    stand-in, ``_unreadable_stand_in``)."""
     auto = os.path.join(umbrella_root, slots.AUTOMATION_DIR)
     try:
         names = sorted(os.listdir(auto))
@@ -65,7 +92,9 @@ def read_leases(umbrella_root: str) -> Dict[str, Optional[Dict]]:
         slot = leases.slot_from_lease_name(name)
         if slot is None:
             continue
-        out[slot] = _read_json(os.path.join(auto, name))
+        payload = _read_lease_file(os.path.join(auto, name), slot)
+        if payload is not None:
+            out[slot] = payload
     return out
 
 
@@ -105,8 +134,37 @@ def remove_worktree_ref(worktree_root: str) -> bool:
         return False
 
 
-def first_live_lease(umbrella_root: str, now: float) -> Optional[Dict]:
-    live = leases.live_leases(read_leases(umbrella_root), now)
+def effective_leases(umbrella_root: str, now: float,
+                     pid_alive_fn: Optional[Callable[[int], bool]] = None) -> Dict[str, Optional[Dict]]:
+    """The registry as every decision must read it. With ``pid_alive_fn``, a lease
+    whose time to live ran out while a live process still holds its copy's slot
+    lock (a leased attempt longer than the lease, between two renews) is treated
+    as live: the copy is in use, so it neither frees the machine nor its place
+    under the cap."""
+    registry = read_leases(umbrella_root)
+    if pid_alive_fn is None or not registry:
+        return registry
+    expired = [slot for slot, lease in registry.items()
+               if lease is not None and not leases.is_live(lease, now)]
+    if not expired:
+        return registry
+    states = [st for st in machinelock.read_slot_locks(umbrella_root) if st.slot in expired]
+    for st in provlib.live_slot_locks(states, os.getpid(), now, pid_alive_fn):
+        lease = dict(registry[st.slot] or {})
+        lease["slot"] = st.slot
+        lease["token"] = lease.get("token") or "expired-but-flying"
+        lease["renewedAt"] = float(now)
+        lease["ttlSeconds"] = max(1, int(lease.get("ttlSeconds") or 1))
+        lease["owner"] = "%s (lease expired, its copy still flying)" % (lease.get("owner") or "?")
+        lease["expiredButHeld"] = True
+        registry[st.slot] = lease
+    return registry
+
+
+def first_live_lease(umbrella_root: str, now: float,
+                     pid_alive_fn: Optional[Callable[[int], bool]] = None) -> Optional[Dict]:
+    """The first live lease (``effective_leases``), or None."""
+    live = leases.live_leases(effective_leases(umbrella_root, now, pid_alive_fn), now)
     if not live:
         return None
     return live[sorted(live)[0]]
@@ -122,19 +180,33 @@ def resolve(worktree_root: str, umbrella_root: str, now: float
 
 def renew_if_ours(umbrella_root: str, token: str, slot: str, now: float,
                   ttl_seconds: Optional[int] = None,
-                  pin: Optional[Tuple[Optional[str], str, str]] = None) -> Optional[Dict]:
+                  pin: Optional[Tuple[Optional[str], str, str]] = None,
+                  holding_slot_lock: bool = False) -> Optional[Dict]:
     """Re-read the registry entry and, when it still carries ``token`` and is live,
     renew it (and optionally re-pin: ``pin = (sha, source, iso)``). Returns the
     written payload, or None when the lease is no longer ours. The re-read and the
     replace are a TOCTOU pair, as in ``machinelock.heartbeat``; reaching the window
     needs the lease to expire under its live owner, which every renew pushes away."""
     current = read_lease(umbrella_root, slot)
-    if not current or current.get("token") != token or not leases.is_live(current, now):
+    if current is None and os.path.exists(leases.lease_path(umbrella_root, slot)):
+        current = read_lease(umbrella_root, slot)   # one retry on a transient hold
+    if not current or current.get("token") != token or current.get("unreadable"):
         return None
+    if not leases.is_live(current, now) and not holding_slot_lock:
+        return None
+    # An expired lease whose caller still holds the copy's slot lock is renewed:
+    # while that lock is held no claim could take the copy (effective_leases
+    # counts it live), so the token still names the only owner.
     updated = leases.renewed(current, now, ttl_seconds)
     if pin is not None:
         updated = leases.with_pin(updated, pin[0], pin[1], pin[2])
-    write_lease(umbrella_root, updated)
+    try:
+        write_lease(umbrella_root, updated)
+    except OSError:
+        # The lease is still ours a moment ago; a renew that could not write
+        # leaves it as it was (the next boundary retries), but a pin that could
+        # not be written is reported as not written.
+        return None if pin is not None else dict(current)
     return updated
 
 
@@ -158,9 +230,24 @@ def acquire_machine(
         log_fn=log_fn, **kwargs)
     if path is None:
         return path, reason, holder
-    live = first_live_lease(umbrella_root, now_fn())
+    live = first_live_lease(umbrella_root, now_fn(), pid_alive_fn)
     if live is None:
-        return path, reason, holder
+        # No lease. A live slot lock with the machine lock free belongs to nobody
+        # legitimate (a machine owner takes its slot locks AFTER this), so refuse
+        # on it too: whatever holds it is flying a KSP this owner cannot see.
+        states = machinelock.read_slot_locks(umbrella_root)
+        held = provlib.live_slot_locks(states, os.getpid(), now_fn(), pid_alive_fn)
+        if not held:
+            return path, reason, holder
+        machinelock.release(path, log_fn=log_fn)
+        if log_fn:
+            log_fn("Warn", "machine lock given back: a live slot lock is held with the machine "
+                           "free (%s)" % "; ".join(provlib.describe_slot_lock(st) for st in held))
+        lock = held[0].lock or {}
+        return None, REFUSED_SLOT_HELD, {
+            "pid": lock.get("pid"), "worktree": lock.get("worktree") or "?",
+            "selection": "slot %s: %s" % (held[0].slot, lock.get("selection") or "?"),
+            "startedIso": lock.get("startedIso") or "?"}
     machinelock.release(path, log_fn=log_fn)
     if log_fn:
         log_fn("Warn", "machine lock given back: a copy lease is live (%s); the machine is "

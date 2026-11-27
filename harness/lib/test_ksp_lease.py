@@ -226,6 +226,87 @@ class AcquireMachineTests(_Box):
         self.assertIsNotNone(path)
         machinelock.release(path)
 
+    def _slot_lock(self, slot, pid=4242):
+        with open(slots.slot_lock_path(self.um, slot), "w") as fh:
+            json.dump({"pid": pid, "timestamp": self.clock.t, "slot": slot,
+                       "selection": "lane"}, fh)
+
+    def test_an_expired_lease_whose_copy_still_flies_refuses(self):
+        _provision_copy(self.um, "stock-minimal-2")
+        self.run_cli("a", "claim", "--owner", "far-watch", "--copy", "2", "--ttl-hours", "1")
+        self._slot_lock("stock-minimal-2")
+        self.clock.t += 3601
+        path, reason, holder = self.acquire()
+        self.assertIsNone(path)
+        self.assertEqual(leaseio.REFUSED_LEASED, reason)
+        self.assertIn("still flying", machinelock.describe_holder(holder))
+        # ... and it keeps its place under the cap.
+        self.run_cli("b", "claim", "--owner", "b")
+        code, out = self.run_cli("c", "claim", "--owner", "c")
+        self.assertEqual(ksp_lease.EXIT_REFUSED, code)
+        self.assertIn("cap-reached", out)
+
+    def test_a_live_slot_lock_with_no_lease_refuses_a_machine_owner(self):
+        self._slot_lock("stock-minimal-3")
+        path, reason, _holder = self.acquire()
+        self.assertIsNone(path)
+        self.assertEqual(leaseio.REFUSED_SLOT_HELD, reason)
+        self.assertFalse(os.path.exists(machinelock.lock_path_for(self.um)))
+
+    def test_an_unreadable_lease_file_fails_closed_until_it_is_too_old(self):
+        path = os.path.join(self.um, "automation", leases.lease_file_name("stock-minimal"))
+        with open(path, "w") as fh:
+            fh.write("{")
+        os.utime(path, (self.clock.t, self.clock.t))
+        got, reason, holder = self.acquire()
+        self.assertIsNone(got)
+        self.assertIn("unreadable", machinelock.describe_holder(holder))
+        old = self.clock.t - leases.MAX_TTL_SECONDS - 1
+        os.utime(path, (old, old))
+        got, reason, _h = self.acquire()
+        self.assertIsNotNone(got)
+        machinelock.release(got)
+
+    def test_an_expired_lease_is_renewed_only_by_a_holder_of_its_slot_lock(self):
+        _provision_copy(self.um, "stock-minimal")
+        self.run_cli("a", "claim", "--owner", "a", "--ttl-hours", "1")
+        token = self.ref("a")["token"]
+        self.clock.t += 3601
+        self.assertIsNone(leaseio.renew_if_ours(self.um, token, "stock-minimal", self.clock.t))
+        revived = leaseio.renew_if_ours(self.um, token, "stock-minimal", self.clock.t,
+                                        holding_slot_lock=True)
+        self.assertEqual(self.clock.t, revived["renewedAt"])
+
+    def test_a_renew_that_cannot_write_keeps_the_lease(self):
+        _provision_copy(self.um, "stock-minimal")
+        self.run_cli("a", "claim", "--owner", "a")
+        token = self.ref("a")["token"]
+        from unittest import mock
+        with mock.patch.object(leaseio, "write_lease", side_effect=OSError("sharing violation")):
+            kept = leaseio.renew_if_ours(self.um, token, "stock-minimal", self.clock.t + 5)
+            self.assertEqual(token, kept["token"])
+            self.assertIsNone(leaseio.renew_if_ours(
+                self.um, token, "stock-minimal", self.clock.t + 5,
+                pin=("ab" * 32, leases.DLL_SOURCE_PROVISION, "iso")))
+
+    def test_release_never_deletes_a_lease_reclaimed_while_it_waited(self):
+        _provision_copy(self.um, "stock-minimal")
+        self.run_cli("a", "claim", "--owner", "a")
+        real_take = ksp_lease._take_machine_lock
+        um = self.um
+
+        def take_after_takeover(ctx, what, wait_seconds=0.0):
+            lease = leaseio.read_lease(um, "stock-minimal")
+            leaseio.write_lease(um, dict(lease, token="b-token", owner="b"))
+            return real_take(ctx, what, wait_seconds)
+        from unittest import mock
+        with mock.patch.object(ksp_lease, "_take_machine_lock", take_after_takeover):
+            code, out = self.run_cli("a", "release")
+        self.assertEqual(0, code)
+        self.assertIn("re-claimed", out)
+        self.assertEqual("b", leaseio.read_lease(self.um, "stock-minimal")["owner"])
+        self.assertIsNone(self.ref("a"))
+
     def test_renew_if_ours_checks_the_token(self):
         _provision_copy(self.um, "stock-minimal")
         self.run_cli("a", "claim", "--owner", "a")

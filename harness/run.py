@@ -1434,7 +1434,8 @@ def renew_lease(umbrella_root: str, runtime: Runtime, logger) -> bool:
     if not _CTX.lease:
         return False
     updated = leaseio.renew_if_ours(umbrella_root, str(_CTX.lease["token"]), _CTX.lease_slot,
-                                    runtime.now())
+                                    runtime.now(),
+                                    holding_slot_lock=_CTX.lease_slot in _CTX.slot_locks)
     if updated is None:
         logger.error("Lease", "copy lease of %s lost (released, expired or re-claimed); "
                               "stopping" % _CTX.lease_slot)

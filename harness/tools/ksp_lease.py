@@ -209,7 +209,7 @@ def cmd_claim(ctx: Context, owner: str, profile: str, copy: Optional[int], ttl: 
         return EXIT_MACHINE_BUSY
     try:
         now = ctx.now_fn()
-        registry = leaseio.read_leases(ctx.umbrella_root)
+        registry = leaseio.effective_leases(ctx.umbrella_root, now, ctx.pid_alive_fn)
         provisioned = leases.provisioned_slot_names(ctx.provisioned_dirs(), profile)
         decision = leases.decide_claim(registry, now, profile, ctx.worktree_root, cap=cap,
                                        copy=copy, provisioned_slots=provisioned)
@@ -218,7 +218,7 @@ def cmd_claim(ctx: Context, owner: str, profile: str, copy: Optional[int], ttl: 
             return EXIT_REFUSED
         slot = decision.slot
         if decision.reason == leases.CLAIM_ALREADY_HELD:
-            current = registry.get(slot) or {}
+            current = leaseio.read_lease(ctx.umbrella_root, slot) or {}
             updated = leases.renewed(current, now, ttl)
             leaseio.write_lease(ctx.umbrella_root, updated)
             leaseio.write_worktree_ref(ctx.worktree_root, updated)
@@ -296,6 +296,14 @@ def cmd_release(ctx: Context) -> int:
     try:
         now = ctx.now_fn()
         registry = leaseio.read_leases(ctx.umbrella_root)
+        current = registry.get(slot)
+        if not current or current.get("token") != ref.get("token"):
+            # Re-checked under the machine lock: our lease expired and another
+            # worktree claimed this copy while we waited. Never delete theirs.
+            leaseio.remove_worktree_ref(ctx.worktree_root)
+            ctx.say("the lease of %s was re-claimed by another worktree while releasing; "
+                    "dropped only this worktree's reference" % slot)
+            return EXIT_OK
         leaseio.remove_lease(ctx.umbrella_root, slot)
         leaseio.remove_worktree_ref(ctx.worktree_root)
         ctx.say("lease released slot=%s owner=%s" % (slot, lease.get("owner")))

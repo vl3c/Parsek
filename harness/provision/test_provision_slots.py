@@ -472,14 +472,26 @@ class RemoveCopyTests(unittest.TestCase):
             self.assertIn("EC-10", ctx.abort_reason)
             self.assertTrue(os.path.isdir(inst))
 
-    def test_another_slots_lock_does_not_block_removal(self):
+    def test_another_slots_dead_lock_does_not_block_removal(self):
+        with tempfile.TemporaryDirectory() as um:
+            dev = _umbrella_with_dev(um)
+            inst = self._copy_dir(um, dev)
+            _write_slot_lock(um, "stock-minimal-3", os.getpid() + 1)
+            ctx, code = self._remove(um, alive=False)
+            self.assertEqual(code, 0, ctx.abort_reason)
+            self.assertFalse(os.path.lexists(inst))
+
+    def test_another_slots_live_lock_blocks_removal_with_the_machine_free(self):
+        # With the machine lock free, a live slot lock is a leased run (or an
+        # orphan) flying a KSP: a machine owner refuses (leaseio.acquire_machine).
         with tempfile.TemporaryDirectory() as um:
             dev = _umbrella_with_dev(um)
             inst = self._copy_dir(um, dev)
             _write_slot_lock(um, "stock-minimal-3", os.getpid() + 1)
             ctx, code = self._remove(um)
-            self.assertEqual(code, 0, ctx.abort_reason)
-            self.assertFalse(os.path.lexists(inst))
+            self.assertEqual(code, 2)
+            self.assertIn("EC-10", ctx.abort_reason)
+            self.assertTrue(os.path.isdir(inst))
 
     def test_live_machine_lock_refuses(self):
         with tempfile.TemporaryDirectory() as um:

@@ -471,7 +471,7 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         # DECIDE ONLY: a dry-run reports whether it COULD acquire and writes
         # nothing. Refusing here keeps `--dry-run` an honest preview of the real
         # run's admission.
-        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now())
+        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now(), _pid_alive)
         if live_lease is not None:
             abort(ctx, "Preflight", "EC-10",
                   "a copy lease is live (%s); a plain provision needs the whole machine. "
@@ -508,6 +508,10 @@ def phase_preflight(ctx: ProvisionContext) -> None:
             log_fn=lambda level, msg: log(ctx, level, "Preflight", msg))
         log(ctx, "Info", "Preflight", "lock decision=%s path=%s" % (reason, lock_path))
         if acquired is None:
+            if reason == leaseio.REFUSED_SLOT_HELD:
+                _refuse_on_live_slot_locks(ctx, "Preflight")
+                if ctx.aborted:
+                    return
             abort(ctx, "Preflight", "EC-10",
                   "machine locked by live %s; a harness run or another provision is active"
                   % machinelock.describe_holder(holder))
@@ -3066,7 +3070,7 @@ def remove_copy(ctx: ProvisionContext, lister=None) -> int:
         decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive,
                                         lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
         log(ctx, "Info", "Remove", "lock decision=%s (dry-run: not written)" % decision.reason)
-        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now())
+        live_lease = leaseio.first_live_lease(ctx.umbrella_root, _now(), _pid_alive)
         if live_lease is not None:
             abort(ctx, "Remove", "EC-10", "a copy lease is live (%s)"
                   % leases.describe_lease(live_lease, _now()))
@@ -3086,6 +3090,10 @@ def remove_copy(ctx: ProvisionContext, lister=None) -> int:
             log_fn=lambda level, msg: log(ctx, level, "Remove", msg))
         log(ctx, "Info", "Remove", "lock decision=%s path=%s" % (reason, lock_path))
         if acquired is None:
+            if reason == leaseio.REFUSED_SLOT_HELD:
+                _refuse_on_live_slot_locks(ctx, "Remove")
+                if ctx.aborted:
+                    return _finish(ctx, 2)
             abort(ctx, "Remove", "EC-10", "machine locked by live %s" % machinelock.describe_holder(holder))
             return _finish(ctx, 2)
         ctx.lock_path = lock_path  # type: ignore[attr-defined]
@@ -3124,7 +3132,8 @@ def _repin_lease(ctx: ProvisionContext) -> None:
         return
     updated = leaseio.renew_if_ours(ctx.umbrella_root, str((ctx.lease or {}).get("token")),
                                     ctx.slot, _now(),
-                                    pin=(sha, leases.DLL_SOURCE_PROVISION, _utcnow_iso()))
+                                    pin=(sha, leases.DLL_SOURCE_PROVISION, _utcnow_iso()),
+                                    holding_slot_lock=bool(getattr(ctx, "lock_acquired", False)))
     if updated is None:
         log(ctx, "Warn", "Summary", "lease pin NOT written: the lease of %s is no longer this "
                                     "worktree's" % ctx.slot)
