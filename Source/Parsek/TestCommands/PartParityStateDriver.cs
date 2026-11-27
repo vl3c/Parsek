@@ -1580,6 +1580,58 @@ namespace Parsek.TestCommands
             wc.ViewRecords.Add(record);
         }
 
+        /// <summary>One view's start pair again, the real part as a load leaves its glow
+        /// (<see cref="PartParityRampHold"/>): real and start-route ghost in one frame, body
+        /// renderers only, everything else forced off; null when the capture failed.</summary>
+        internal static PartParityStartPair CaptureStartPair(StepContext ctx, WaveCase wc, string view)
+        {
+            PartParityStateRun run = wc.State;
+            var ghostRoots = new List<Transform>();
+            foreach (var g in new[] { wc.Ghost, run.StartGhost, run.StowedGhost, wc.Fx?.BrokenGhost })
+                if (g?.Build?.root != null) ghostRoots.Add(g.Build.root.transform);
+            ClassifyReal(wc, ghostRoots, out List<Renderer> realShown, out List<Renderer> realHidden);
+            var all = new List<Renderer>(realShown);
+            all.AddRange(realHidden);
+            all.AddRange(run.EventShown);
+            all.AddRange(run.StartShown);
+            all.AddRange(run.StowedShown);
+            all.AddRange(run.GhostHidden);
+            all.AddRange(PartParityFxDriver.HideSet());
+            var sides = new List<IList<Renderer>> { PartParityFxDriver.BodyOnly(realShown), PartParityFxDriver.BodyOnly(run.StartShown) };
+            PartParityViewShot shot = ctx.Capture.CaptureSides(wc.Real.rootPart.transform, wc.Shared, wc.OrthoSize, view,
+                all, sides, wc.CullingMask);
+            if (shot.Error != null)
+            {
+                ParsekLog.Warn(Tag, $"case {wc.CaseId} view {view}: start reload capture error {shot.Error}");
+                return null;
+            }
+            int tile = ctx.Capture.Tile;
+            return new PartParityStartPair
+            {
+                View = view, RealTile = shot.Real, GhostTile = shot.Ghost,
+                Record = new PartParityViewRecord
+                {
+                    Measures = PartParityMetrics.Measure(shot.Real, shot.Ghost, tile, tile, shot.ProjectedBoxAreaPx),
+                    RealMatte = shot.RealMatte, GhostMatte = shot.GhostMatte,
+                },
+            };
+        }
+
+        /// <summary>The re-photographed start pairs, one per captured view in order, replace the
+        /// views' start blocks and start-route tiles; their real tiles are atlas row 5.</summary>
+        internal static void CommitStartPairs(WaveCase wc, IList<PartParityStartPair> pairs)
+        {
+            for (int v = 0; v < pairs.Count; v++)
+            {
+                wc.RealStartTiles.Add(pairs[v].RealTile);
+                wc.GhostStartTiles[v] = pairs[v].GhostTile;
+                wc.ViewRecords[v].Start = pairs[v].Record;
+                PartParityViewMeasures m = pairs[v].Record.Measures;
+                if ((m.TouchesBorderReal || m.TouchesBorderGhost) && !wc.Flags.Contains(PartParityCaseCapture.FlagClippedAtBorder))
+                    wc.Flags.Add(PartParityCaseCapture.FlagClippedAtBorder);
+            }
+        }
+
         // =====================================================================================
         // the sidecar half (D.2)
         // =====================================================================================

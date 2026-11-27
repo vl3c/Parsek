@@ -30,7 +30,11 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Splits the two inventories into missing on the ghost (on the real side only), extra on
-        /// the ghost, and <c>real -> ghost</c> lines for pairs whose remainder differs.
+        /// the ghost, and <c>real -> ghost</c> lines for pairs whose remainder differs. Drawn real
+        /// systems pair first, and each takes a drawn ghost system before a hidden one: a part
+        /// with several variants keeps the hidden ones' systems (ReStock's <c>RCSBlock.v2</c>: 36
+        /// on the real side, 8 of them drawn, 8 on the ghost), and the hidden ones must not use up
+        /// the ghost's and leave the drawn ones reading missing.
         /// </summary>
         internal static void Diff(IList<string> real, IList<bool> realRendered, IList<string> ghost, IList<bool> ghostRendered,
             List<PartParityFxStructureEntry> missing, List<PartParityFxStructureEntry> extra, List<string> differs)
@@ -42,25 +46,39 @@ namespace Parsek.TestCommands
                 if (!available.TryGetValue(key, out List<int> list)) available[key] = list = new List<int>();
                 list.Add(i);
             }
+            var pairOf = new int[real.Count];
+            foreach (bool drawn in new[] { true, false })
+                for (int i = 0; i < real.Count; i++)
+                {
+                    if (At(realRendered, i) != drawn) continue;
+                    pairOf[i] = -1;
+                    if (!available.TryGetValue(KeyOf(real[i]), out List<int> list) || list.Count == 0) continue;
+                    pairOf[i] = Pick(list, real[i], drawn, ghost, ghostRendered);
+                    list.Remove(pairOf[i]);
+                }
             for (int i = 0; i < real.Count; i++)
             {
-                string key = KeyOf(real[i]);
-                if (!available.TryGetValue(key, out List<int> list) || list.Count == 0)
-                {
-                    missing.Add(new PartParityFxStructureEntry { Key = key, Rendered = At(realRendered, i) });
-                    continue;
-                }
-                // The first unpaired ghost line that matches exactly, else the first.
-                int pick = list[0];
-                foreach (int g in list)
-                    if (string.Equals(ghost[g], real[i], StringComparison.Ordinal)) { pick = g; break; }
-                list.Remove(pick);
-                if (!string.Equals(ghost[pick], real[i], StringComparison.Ordinal))
-                    differs.Add(real[i] + " -> " + ghost[pick]);
+                if (pairOf[i] < 0)
+                    missing.Add(new PartParityFxStructureEntry { Key = KeyOf(real[i]), Rendered = At(realRendered, i) });
+                else if (!string.Equals(ghost[pairOf[i]], real[i], StringComparison.Ordinal))
+                    differs.Add(real[i] + " -> " + ghost[pairOf[i]]);
             }
             foreach (var kv in available)
                 foreach (int g in kv.Value)
                     extra.Add(new PartParityFxStructureEntry { Key = kv.Key, Rendered = At(ghostRendered, g) });
+        }
+
+        /// <summary>The ghost system a real one pairs with: of the unpaired ones the first that is
+        /// drawn like it, an exact line before any other; else the first of the rest.</summary>
+        private static int Pick(List<int> list, string line, bool drawn, IList<string> ghost, IList<bool> ghostRendered)
+        {
+            int pick = -1, best = -1;
+            foreach (int g in list)
+            {
+                int score = (At(ghostRendered, g) == drawn ? 2 : 0) + (string.Equals(ghost[g], line, StringComparison.Ordinal) ? 1 : 0);
+                if (score > best) { best = score; pick = g; }
+            }
+            return pick;
         }
 
         private static bool At(IList<bool> v, int i) => v != null && i < v.Count && v[i];

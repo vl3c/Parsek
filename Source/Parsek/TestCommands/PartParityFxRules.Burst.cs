@@ -103,12 +103,12 @@ namespace Parsek.TestCommands
         /// <summary>The dust words: a run of them is a ground run (<c>contexts=ground</c>).</summary>
         internal static readonly string[] DustArgWords = { ArgDust };
 
-        /// <summary>Every word an <c>fx=</c> csv may name, in canonical order: the P8 words, then
-        /// the burst words, then the dust words. <c>fx=all</c> is <see cref="ArgWords"/> (P8) only,
+        /// <summary>Every word an <c>fx=</c> csv may name, in canonical order: the P8 words
+        /// (<see cref="ArgKnownWords"/>), then the burst words, then the dust words. <c>fx=all</c> is <see cref="ArgWords"/> (P8) only,
         /// so every run named before P9 plans what it planned.</summary>
         internal static readonly string[] KnownArgWords =
         {
-            ArgPlume, ArgRcs, ArgHeat, ArgPlate,
+            ArgPlume, ArgRcs, ArgHeat, ArgPlate, ArgPlumeMain,
             ArgExplode, ArgVesselExplode, ArgBurstCustom, ArgDecouple,
             ArgDust,
         };

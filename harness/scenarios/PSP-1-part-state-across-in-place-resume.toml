@@ -1,0 +1,158 @@
+schema = 1
+id = "PSP-1-part-state-across-in-place-resume"
+# =====================================================================================
+# PSP-1: A PANEL BROKEN WHILE NO RECORDER RAN IS WRITTEN WHEN THE RECORDING IS RESUMED, AND
+# THE GHOST LOSES IT (todo PART-STATES-LOST-AT-PROMOTION). AUTHORED 2026-11-24, LIVE-PROVEN 2026-11-26
+# (`2026-11-26_1811`, PASS attempt 1, 137 s).
+#
+# WHY. A recorder that takes a recording over (a promotion) skips the full seed set (bug A /
+# #263), so a part state that changed while nothing recorded it was in no event and the ghost
+# kept the old state for good. The promotion now compares what the recording's ghost would
+# show (its start snapshot plus its recorded events) with the live parts and writes the
+# differences (PartStateSeeder.EmitPromotionStateEvents). xUnit (PromotionPartStateTests)
+# drives every family; this lane drives the live readers on a real vessel, both ways: the
+# unchanged resume must write nothing and the changed one must write exactly the panel.
+#
+# THE HOST is PBR-1's `pbr-break-rover`, its rewind-and-reload shape and its two break verbs
+# verbatim (PartAction breakpanel = stock breakPanels(), breakwheel = stock DamageWheel()).
+#
+# THE TIMELINE (the fixture's clock is UT 30):
+#   ~31    StartRecording; 1x to 33; breakwheel on pid 2261801323 (RECORDED); 1x to 40.
+#   40     StopRecording, CommitTree: the seam's commit auto-resumes the recording in place on
+#          the same rover at once (EVA-15, EX-1) - the UNCHANGED resume, emitted 0.
+#   40     StopRecording, DiscardTree (the resume is dropped, the committed recording stays, and
+#          the verb keeps the rover idle); breakpanel: nothing records it; 1x to 43.
+#   43     SaveGame + LoadGame: the rover resumes its committed recording in place
+#          (ResumeCommittedActiveRecording) - the CHANGED resume: one DeployableBroken seed at
+#          the recording's last interesting moment (the wheel break, ~33), no second WheelBroken.
+#   ~44    breakwheel on pid 703936604 (the visit does something, so it is kept); 1x to 50;
+#          StopRecording, CommitTree, Rewind-to-Launch, SaveGame + LoadGame onto the watcher.
+#   ~18    5x to 26, 1x to 55: the ghost breaks the wheel and the panel (Physics zone, 120 m).
+#
+# PRE-REGISTERED READINGS:
+#   - `part state reconcile emitted 0` on the CHANGED resume: the live reader or the start
+#     snapshot reader does not see the break (product defect).
+#   - any `(promotion)` seed on the UNCHANGED resume, or a second one on the changed resume:
+#     the snapshot reader and the live reader disagree on an unchanged part (product defect).
+#   - no `ResumeCommittedActiveRecording` after the reload: the rover continued in a new
+#     segment (the lane's host assumption is wrong, not the seed).
+#   - the seed's ut= at or after the reload: the tail-trim rule is broken.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: PBR-1's host, verbs and shape. (2)
+# explicit-UT WarpToUT only. (3) 3-7 s holds. (4)/(5) no burns or coasts. (6) retry `none` since
+# the first green flight. (7) recordings window 1..3 until measured. (8) operator until
+# measured. (9) flight_efficiency.py after the first green flight. Takes no mouse or focus.
+tier = "operator"
+description = "LIVE-PROVEN 2026-11-26 (todo PART-STATES-LOST-AT-PROMOTION): on pbr-break-rover a wheel is broken while recording and committed, then the solar panel is broken while no recorder runs, and the rover is saved and reloaded so its committed recording resumes in place; the resume must write one DeployableBroken seed (none on the unchanged auto-resume before it, no second WheelBroken), and after Rewind-to-Launch the ghost must apply both breaks."
+instanceProfile = "stock-minimal"
+tags = ["PSP-1", "part-events", "promotion", "in-place-resume", "deployable-broken", "wheel-damage",
+        "ghost-render", "rewind-to-launch", "flown"]
+
+[fixture]
+saveTemplate = "fixtures/saves/pbr-break-rover"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame x 3 + 180 StartRecording + 120 x 6 warps + 120 x 2 CommitTree +
+# 300 rewind + 120 x 2 SaveGame = 2580; runtime 3000 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  # LOAD-BEARING: the seed, reconcile and apply lines are Verbose. Saved into psp1-broken.
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+
+  # ---- the recorded part: one wheel broken while recording, committed ----
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "MissionMark",      args = { label = "psp1-recording" },                            expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "PartAction",       args = { button = "breakwheel", part = "roverWheel1", partPid = "2261801323" }, expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "40", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "psp1-commit" },                               expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+
+  # ---- the unrecorded change ----
+  { cmd = "MissionMark",      args = { label = "psp1-unrecorded" },                           expect = "OK" },
+  { cmd = "PartAction",       args = { button = "breakpanel", part = "solarPanels2" },        expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "43", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "SaveGame",         args = { name = "psp1-broken" },                                expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "psp1-reload" },                               expect = "OK" },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "psp1-broken" },           expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "psp1-resumed" },                              expect = "OK" },
+  { cmd = "PartAction",       args = { button = "breakwheel", part = "roverWheel1", partPid = "703936604" }, expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "50", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "psp1-committed" },                            expect = "OK" },
+
+  # ---- the rewind, then FLIGHT on the watcher ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "psp1-rewound" },                              expect = "OK" },
+  { cmd = "SaveGame",         args = { name = "psp1-rewound" },                               expect = "OK", budget = 120 },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "psp1-rewound" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "psp1-reloaded" },                             expect = "OK" },
+
+  # ---- the replay ----
+  { cmd = "WarpToUT",         args = { ut = "26", maxRate = "5" },                            expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "55", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "psp1-replayed" },                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- the recorded wheel ----
+  "MISSIONMARK label=psp1-recording ut=[\\s\\S]*?Part event: WheelBroken 'roverWheel1' pid=2261801323 \\(wheel damage\\)[\\s\\S]*?MISSIONMARK label=psp1-commit ut=",
+  # ---- the UNCHANGED resume writes nothing (the recorded wheel, 27 unchanged parts) ----
+  "MISSIONMARK label=psp1-commit ut=(?:(?!MISSIONMARK label=psp1-unrecorded )(?!Seed event: [A-Za-z]+ pid=[0-9]+ midx=[0-9]+ )[\\s\\S])*?part state reconcile emitted 0 event\\(s\\) for chain promotion \\(activeRec='[0-9a-f-]+' parts=27 startSnapshot=recorded (?:(?!Seed event: [A-Za-z]+ pid=[0-9]+ midx=[0-9]+ )[\\s\\S])*?MISSIONMARK label=psp1-unrecorded ut=",
+  # ---- the unrecorded break: stock broke the panel and no recorder wrote it ----
+  "MISSIONMARK label=psp1-unrecorded ut=[\\s\\S]*?partaction applied button=breakpanel pid=[0-9]+ part='solarPanels2' partId=[0-9]+ event=breakPanels [^\\r\\n]*state='[^']*deployable:state=BROKEN[^']*'(?:(?!Part event: DeployableBroken )[\\s\\S])*?MISSIONMARK label=psp1-reload ut=",
+  # ---- THE SUBJECT: the in-place resume writes exactly the panel, at the recording's past ----
+  "MISSIONMARK label=psp1-reload ut=(?:(?!Part event: DeployableBroken )[\\s\\S])*?Seed event: DeployableBroken pid=[0-9]+ midx=0 part='solarPanels2' ut=3[0-9]\\.[0-9]+ \\(promotion\\)[\\s\\S]*?part state reconcile emitted 1 event\\(s\\) for chain promotion [\\s\\S]*?ResumeCommittedActiveRecording: resumed committed recording [\\s\\S]*?MISSIONMARK label=psp1-resumed ut=",
+  "committree committed=true",
+  "Rewind-to-Launch initiated to UT",
+  # ---- the replay: the ghost maps the panel's break subtree and applies both breaks ----
+  "MISSIONMARK label=psp1-rewound ut=[\\s\\S]*?Deployable 'solarPanels2' pid=[0-9]+: break subtree '[^']+' resolved from [\\s\\S]*?MISSIONMARK label=psp1-replayed ut=",
+  "MISSIONMARK label=psp1-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=DeployableBroken surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=psp1-replayed ut=",
+  "MISSIONMARK label=psp1-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=WheelBroken surface=wheel-damage rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=psp1-replayed ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Ghost hidden: vessel 'PBR1 Break Rover'",
+  # The wheel was recorded, so no promotion writes it again.
+  "Seed event: WheelBroken pid=[0-9]+ midx=[0-9]+ [^\\r\\n]*\\(promotion\\)",
+  "\\[GhostPartEvents\\] apply family=(?:DeployableBroken|WheelBroken) surface=[a-z-]+ rec=[0-9]+ pid=[0-9]+ applied=0 ",
+]
+
+[runtime]
+budgetSeconds = 3000
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

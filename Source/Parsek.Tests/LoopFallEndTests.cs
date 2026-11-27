@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Where a loop unit's predicted fall ENDS: at its own end, on every path that draws it. A launch
     /// period longer than the fall leaves a gap with no copy (mesh and map), high warp leaves no copy
-    /// behind, and a copy whose end is recorded keeps the overlap path's hold until the next launch.
+    /// behind. A copy whose end is recorded ends there the same way (LoopFallEndTests.OwnEnds.cs).
     /// </summary>
     [Collection("Sequential")]
     public partial class LoopFallEndTests : IDisposable
@@ -39,11 +39,13 @@ namespace Parsek.Tests
         private sealed class ZoneProbe : IGhostPositioner
         {
             public readonly List<double> PlaybackUTs = new List<double>();
+            public bool HideByZone; // the copy is far away: the frame goes on to the next copy
 
             public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
                 IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
             {
                 PlaybackUTs.Add(playbackUT);
+                if (HideByZone) return new ZoneRenderingResult { hiddenByZone = true };
                 throw new OperationCanceledException();
             }
 
@@ -460,7 +462,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void SelfOverlappingDebris_EndsWhenPredicted_IsHeldWhenRecorded(bool predictedEnd)
+        public void SelfOverlappingDebris_EndsAtItsEnd_PredictedOrRecorded(bool predictedEnd)
         {
             var probe = new ZoneProbe();
             GhostPlaybackEngine engine = Engine(Unit(100), probe);
@@ -469,25 +471,17 @@ namespace Parsek.Tests
             Seed(engine, 0, DebrisIndex);
             Assert.Equal(116, DebrisFrame(engine, probe, debris, Ctx(285)), 9);
             double ut = DebrisFrame(engine, probe, debris, Ctx(300));
-            if (predictedEnd)
-            {
-                Assert.True(double.IsNaN(ut));
-                Assert.False(engine.ghostStates.ContainsKey(DebrisIndex));
-                Assert.Equal(Cycle0Ending, events);
-            }
-            else
-            {
-                Assert.Equal(117, ut, 9);
-                Assert.Equal(0, engine.ghostStates[DebrisIndex].loopCycleIndex);
-                Assert.Empty(events);
-                Assert.DoesNotContain(logLines, l => l.Contains("Fall copy reached its end"));
-            }
+            Assert.True(double.IsNaN(ut));
+            Assert.False(engine.ghostStates.ContainsKey(DebrisIndex));
+            Assert.Equal(Cycle0Ending, events);
+            Assert.Equal(predictedEnd, logLines.Any(l => l.Contains("Fall copy reached its end")));
+            Assert.Equal(!predictedEnd, EndLines().Any());
         }
 
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void SelfOverlappingMember_EndsWhenPredicted_IsHeldWhenRecorded(bool predictedEnd)
+        public void SelfOverlappingMember_EndsAtItsEnd_PredictedOrRecorded(bool predictedEnd)
         {
             var unit = new GhostPlaybackLogic.LoopUnit(
                 0, new[] { 0, CoreIndex }, SpanStart, SpanEnd, SpanEnd - SpanStart, Anchor, 100,
@@ -507,9 +501,11 @@ namespace Parsek.Tests
                 SpanEnd - SpanStart, 60, 117, false, false, ref state, ref active));
             Assert.Equal(116, At(285), 9);
             double ut = At(300);
-            Assert.Equal(predictedEnd ? double.NaN : 117, ut);
-            Assert.Equal(!predictedEnd, engine.ghostStates.ContainsKey(CoreIndex));
-            Assert.Equal(predictedEnd ? Cycle0Ending : new string[0], events);
+            Assert.True(double.IsNaN(ut));
+            Assert.False(engine.ghostStates.ContainsKey(CoreIndex));
+            Assert.Equal(Cycle0Ending, events);
+            Assert.Equal(predictedEnd, logLines.Any(l => l.Contains("Fall copy reached its end")));
+            Assert.Equal(!predictedEnd, EndLines().Any());
         }
 
         [Fact]
