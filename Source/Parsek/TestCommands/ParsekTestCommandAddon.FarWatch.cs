@@ -1,3 +1,7 @@
+// [ERS-exempt] The FarWatch seam verb reads RecordingStore.CommittedRecordings to resolve the
+// watched ghost by COMMITTED-LIST index (the index the playback engine keys its ghost slots by
+// and FarWatchController.TryStart takes), the EnterWatchMode rationale; see
+// scripts/ers-els-audit-allowlist.txt.
 using System;
 using System.Collections.Generic;
 using System.Globalization;

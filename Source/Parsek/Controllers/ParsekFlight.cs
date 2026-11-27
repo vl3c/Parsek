@@ -2646,6 +2646,17 @@ namespace Parsek
         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
         internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
         internal FarWatchController FarWatch => farWatch;
+
+        /// <summary>
+        /// Watch mode exited while the camera drone exists: the far watch ends through its one
+        /// teardown (pattern A5) and the camera re-targets the active drone the same frame (7.5).
+        /// </summary>
+        internal void EndFarWatchOnWatchExit()
+        {
+            if (farWatch != null && farWatch.IsRunning)
+                farWatch.RequestEnd(FarWatchEndReason.WatchExit);
+            FarWatchController.RetargetCameraToDrone("watch-exit");
+        }
         internal void ExitWatchMode(bool skipCameraRestore = false) => watchMode.ExitWatchMode(skipCameraRestore);
 
         // Static methods forwarded to WatchModeController for test compatibility

@@ -475,6 +475,9 @@ namespace Parsek.Tests
 
         private static readonly Dictionary<Type, Action> ColdLoaderCells = new Dictionary<Type, Action>
         {
+            // ParsekScenario.OnLoad (every load, Cold included): the far-watch drone ids are
+            // dropped by CameraDroneIdentity.ClearOnLoad before anything reads them.
+            [typeof(CameraDroneIdentity)] = () => CameraDroneIdentity.ClearOnLoad("load Cold"),
             // ParsekScenario.OnLoad cold branch: VesselNameStore.Load(node).
             [typeof(VesselNameStore)] = () => VesselNameStore.Load(EmptyScenarioNode()),
             // ParsekScenario.OnLoad cold branch: MissionStore.Load(node).

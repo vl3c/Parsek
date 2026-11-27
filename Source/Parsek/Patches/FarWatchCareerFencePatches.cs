@@ -105,10 +105,6 @@ namespace Parsek.Patches
                 FormatFenced(site, pid, droneActive), 5.0);
         }
 
-        internal static bool EventVesselIsDrone(Vessel v)
-        {
-            return v != null && CameraDroneIdentity.Exists && CameraDrone.Is(v);
-        }
 
         /// <summary>How many patch points resolved at load, for the in-game FarWatch category.</summary>
         internal static int ResolvedPollCount { get; private set; }
@@ -162,6 +158,12 @@ namespace Parsek.Patches
 
     internal static class FarWatchFenceTargets
     {
+        /// <summary>The event's own vessel is the drone (kept off the pure policy type).</summary>
+        internal static bool EventVesselIsDrone(Vessel v)
+        {
+            return v != null && CameraDroneIdentity.Exists && CameraDrone.Is(v);
+        }
+
         internal static MethodBase Resolve(Type t, string method, Type[] args)
         {
             MethodBase m = t != null ? AccessTools.DeclaredMethod(t, method, args) : null;
@@ -191,7 +193,7 @@ namespace Parsek.Patches
         {
             if (ParsekGameModeGate.CheckInert("FarWatchReachDestinationFencePatch.Prefix")) return true; // S9 game-mode gate
             Vessel v = __0.host;
-            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFencePolicy.EventVesselIsDrone(v)))
+            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFenceTargets.EventVesselIsDrone(v)))
                 return true;
             FarWatchFencePolicy.LogFenced("ReachDestination.OnVesselSOIChange", v, true);
             return false;
@@ -211,7 +213,7 @@ namespace Parsek.Patches
         {
             if (ParsekGameModeGate.CheckInert("FarWatchReachSituationFencePatch.Prefix")) return true; // S9 game-mode gate
             Vessel v = __0.host;
-            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFencePolicy.EventVesselIsDrone(v)))
+            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFenceTargets.EventVesselIsDrone(v)))
                 return true;
             FarWatchFencePolicy.LogFenced("ReachSituation.OnVesselSituationChange", v, true);
             return false;
@@ -230,7 +232,7 @@ namespace Parsek.Patches
         static bool Prefix(Vessel __0)
         {
             if (ParsekGameModeGate.CheckInert("FarWatchReachFlightEnvelopeFencePatch.Prefix")) return true; // S9 game-mode gate
-            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFencePolicy.EventVesselIsDrone(__0)))
+            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFenceTargets.EventVesselIsDrone(__0)))
                 return true;
             FarWatchFencePolicy.LogFenced("ReachFlightEnvelope.OnVesselChange", __0, true);
             return false;
@@ -250,7 +252,7 @@ namespace Parsek.Patches
         static bool Prefix(Vessel __0)
         {
             if (ParsekGameModeGate.CheckInert("FarWatchVesselDestinationFencePatch.Prefix")) return true; // S9 game-mode gate
-            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFencePolicy.EventVesselIsDrone(__0)))
+            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFenceTargets.EventVesselIsDrone(__0)))
                 return true;
             FarWatchFencePolicy.LogFenced("VesselDestinationParameter.CheckFlightLog", __0, true);
             return false;
@@ -352,7 +354,7 @@ namespace Parsek.Patches
         {
             if (ParsekGameModeGate.CheckInert("FarWatchCelestialBodyReturnFencePatch.Prefix")) return true; // S9 game-mode gate
             Vessel v = __0.host;
-            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFencePolicy.EventVesselIsDrone(v)))
+            if (!FarWatchFencePolicy.ShouldFenceEvent(FarWatchFenceTargets.EventVesselIsDrone(v)))
                 return true;
             FarWatchFencePolicy.LogFenced("CelestialBodyReturn.OnVesselSituationChange", v, true);
             return false;

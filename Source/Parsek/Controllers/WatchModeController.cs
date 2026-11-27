@@ -2231,11 +2231,10 @@ namespace Parsek
 
             if (droneExists && !exitingForWatchSwitch)
             {
-                // One teardown owns every far-watch exit (pattern A5).
-                FarWatchController fw = host != null ? host.FarWatch : null;
-                if (fw != null && fw.IsRunning)
-                    fw.RequestEnd(FarWatchEndReason.WatchExit);
-                FarWatchController.RetargetCameraToDrone("watch-exit");
+                // One teardown owns every far-watch exit (pattern A5): the host, which owns
+                // the far watch, ends it and re-targets the camera.
+                if (host != null)
+                    host.EndFarWatchOnWatchExit();
             }
         }
 

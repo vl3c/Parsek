@@ -528,6 +528,12 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs
 # [ERS-exempt] header comment plus an inline note at the read.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
 
+# [ERS-exempt] The FarWatch seam verb (design-far-watch.md 17.4) resolves the watched
+# ghost by COMMITTED-LIST index, the index the playback engine keys its ghost slots and
+# FarWatchController.TryStart take: EnterWatchMode's list-alignment rationale. Documented
+# with a file-level [ERS-exempt] header comment.
+Source/Parsek/TestCommands/ParsekTestCommandAddon.FarWatch.cs
+
 # [ERS-exempt] Vessel name identities (design-vessel-and-mission-names.md 6.2):
 # physical-identity correlation. A player vessel name decision names the SHIP
 # across every leg it recorded, superseded legs included, so the resolver and

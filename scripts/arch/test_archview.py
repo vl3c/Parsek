@@ -4363,18 +4363,17 @@ class RealTreeSmokeTests(unittest.TestCase):
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
         # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
-        # Far watch step 2: CameraDrone leaves with the recorder cut, which now drops 18 like
-        # the route cut and wins the tie, so the recorder is third (392 -> 374) and the route
-        # fourth, landing where it did (374 -> 356).
-        self.assertEqual(third["sink"], "FlightRecorder")
+        # Far watch step 2: the route stays third (392 -> 374, the two far-watch types on its
+        # uncut side) and the recorder cut is fourth (374 -> 357).
+        self.assertEqual(third["sink"], "Route")
         self.assertEqual(third["sizeBefore"], 392)
         self.assertEqual(third["sizeAfter"], 374)
-        fourth = self.model["knots"][0]["cuts"][3]
-        self.assertEqual(fourth["sink"], "Route")
-        self.assertEqual(fourth["sizeBefore"], 374)
-        self.assertEqual(fourth["sizeAfter"], 356)
         self.assertEqual(
-            fourth["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
+            third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
+        fourth = self.model["knots"][0]["cuts"][3]
+        self.assertEqual(fourth["sink"], "FlightRecorder")
+        self.assertEqual(fourth["sizeBefore"], 374)
+        self.assertEqual(fourth["sizeAfter"], 357)
 
     def test_cut_sequence_halves_the_largest_knot(self):
         # It did halve it until 2026-09-25. On 2026-11-01 the greedy cuts leave
