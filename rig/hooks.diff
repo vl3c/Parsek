@@ -1,0 +1,25 @@
+diff --git a/Source/Parsek/TestCommands/ParsekTestCommandAddon.cs b/Source/Parsek/TestCommands/ParsekTestCommandAddon.cs
+index bf9bbb4ae..9898bc437 100644
+--- a/Source/Parsek/TestCommands/ParsekTestCommandAddon.cs
++++ b/Source/Parsek/TestCommands/ParsekTestCommandAddon.cs
+@@ -2836,6 +2836,7 @@ namespace Parsek.TestCommands
+         {
+             string label = ArgOrNull(cmd, "label") ?? string.Empty;
+             TestCommandMissionMark.EmitMark(label, CurrentUt());
++            Parsek.InGameTests.GhostFx9Rig.OnMark(label);
+             SetExecResult("OK", Payload(Kv("label", label)), null);
+         }
+ 
+diff --git a/Source/Parsek/TestCommands/TestCommandRewindToLaunch.cs b/Source/Parsek/TestCommands/TestCommandRewindToLaunch.cs
+index 101361dec..a00241644 100644
+--- a/Source/Parsek/TestCommands/TestCommandRewindToLaunch.cs
++++ b/Source/Parsek/TestCommands/TestCommandRewindToLaunch.cs
+@@ -250,7 +250,7 @@ namespace Parsek.TestCommands
+                     return new RewindToLaunchTarget
+                     {
+                         Outcome = RewindToLaunchTargetOutcome.Selected,
+-                        TreeId = committedTreeIds[latestCount - 1],
++                        TreeId = committedTreeIds[0],
+                         Resolution = RewindToLaunchTargetResolution.LatestKeyword,
+                     };
+                 }

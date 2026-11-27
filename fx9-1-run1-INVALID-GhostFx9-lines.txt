@@ -1,0 +1,16 @@
+19:42:39.964 mark fx9-real
+19:42:43.188 case lead committed tree=cd5d8432f75d407d85173de40f9a5fa3 rec=64a88c48643f44c5a67ed12bbcdabac1 start=15.999999999999748 event=0
+19:43:02.156 spawn Fx9 dust pid=3475581367 alt=73 east=0 descent=0
+19:43:03.688 shot fx9-dust-t1.00-real ut=37.440000000000254 alt=76 srf=18 frameVel=0.0
+19:43:04.681 shot fx9-dust-t2.00-real ut=38.44000000000041 alt=112 srf=53 frameVel=0.0
+19:43:05.690 shot fx9-dust-t3.00-real ut=39.440000000000566 alt=182 srf=88 frameVel=0.0
+19:43:07.734 case dust committed tree=00219cc826954160a71f23d38ff0e844 rec=4f5344128cd8489fa1979c83b6a48880 start=36.4400000000001 event=36.940000000000175
+19:43:22.239 spawn Fx9 lamp pid=3358473356 alt=900 east=0 descent=1
+19:43:42.242 case lamp: never loaded
+19:43:42.260 spawn Fx9 flea pid=535903041 alt=1100 east=0 descent=1
+19:44:02.272 case flea: never loaded
+19:44:02.290 spawn Fx9 decouple pid=1643651618 alt=1300 east=0 descent=40
+19:44:22.293 case decouple: never loaded
+19:44:22.311 spawn Fx9 reentry pid=3118953613 alt=12000 east=1100 descent=0
+19:44:42.315 case reentry: never loaded
+19:44:42.315 REAL DONE cases=2 ut=136.0

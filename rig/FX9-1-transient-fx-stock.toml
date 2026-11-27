@@ -1,0 +1,73 @@
+schema = 1
+id = "FX9-1-transient-fx-stock"
+tier = "operator"
+description = "THROWAWAY ghost-fx-9 rig: reentry, decouple, dust, lamp and Flea ghosts beside a flying viewer, before and after"
+instanceProfile = "stock-minimal"
+tags = ["ghost-fx-9"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[[fixture.liveState]]
+pid    = 2774188063
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "14", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "fx9-real" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "150", maxRate = "1" }, expect = "OK", budget = 400 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "fx9-rw1" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "fx9-rw1" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "fx9-ghost-before" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "150", maxRate = "1" }, expect = "OK", budget = 400 },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" }, expect = "OK", budget = 300 },
+  { cmd = "SaveGame", args = { name = "fx9-rw2" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "fx9-rw2" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "fx9-ghost-after" }, expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "150", maxRate = "1" }, expect = "OK", budget = 400 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 60 }
+
+[expectations.logContracts]
+required = []
+forbidden = []
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

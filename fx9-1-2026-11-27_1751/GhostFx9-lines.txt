@@ -1,0 +1,149 @@
+19:52:21.961 mark fx9-real
+19:52:21.979 ranges Fx9 anchor extended=True
+19:52:21.979 spawn Fx9 anchor pid=159991087 alt=66 east=0 descent=0
+19:52:22.009 anchor pid=159991087 loaded=True
+19:52:25.298 case lead committed tree=7cdc70f6d87544d993a81b8435c045e0 rec=3fa667312ce8443ebc37007415d64e09 start=16.019999999999747 event=0
+19:52:44.251 ranges Fx9 dust extended=True
+19:52:44.251 spawn Fx9 dust pid=2581498469 alt=73 east=0 descent=0
+19:52:45.804 shot fx9-dust-t1.00-real ut=37.460000000000257 alt=76 srf=18 frameVel=0.0
+19:52:46.793 shot fx9-dust-t2.00-real ut=38.460000000000413 alt=112 srf=53 frameVel=0.0
+19:52:47.801 shot fx9-dust-t3.00-real ut=39.460000000000569 alt=183 srf=88 frameVel=0.0
+19:52:49.842 case dust committed tree=d0f35e8cdfb14522b01d48076441db14 rec=02476af8334d4ea6920defdcd265a023 start=36.4600000000001 event=36.960000000000178
+19:53:04.358 ranges Fx9 lamp extended=True
+19:53:04.358 spawn Fx9 lamp pid=1999026405 alt=900 east=0 descent=1
+19:53:06.063 lamp real on +0.05s intensity=0.143 enabled=True
+19:53:06.163 lamp real on +0.15s intensity=0.337 enabled=True
+19:53:06.163 shot fx9-lamp-t1.15-real ut=57.620000000003408 alt=886 srf=17 frameVel=0.0
+19:53:06.299 lamp real on +0.30s intensity=0.537 enabled=True
+19:53:06.401 shot fx9-lamp-t1.40-real ut=57.860000000003446 alt=882 srf=19 frameVel=0.0
+19:53:06.601 lamp real on +0.60s intensity=0.785 enabled=True
+19:53:07.205 lamp real on +1.20s intensity=0.954 enabled=True
+19:53:07.791 lamp real on +1.80s intensity=0.990 enabled=True
+19:53:08.060 lamp real off +0.05s intensity=0.852 enabled=True
+19:53:08.160 lamp real off +0.15s intensity=0.659 enabled=True
+19:53:08.160 shot fx9-lamp-t3.15-real ut=59.620000000003721 alt=834 srf=35 frameVel=0.0
+19:53:08.294 lamp real off +0.30s intensity=0.461 enabled=True
+19:53:08.395 shot fx9-lamp-t3.40-real ut=59.860000000003758 alt=825 srf=37 frameVel=0.0
+19:53:08.596 lamp real off +0.60s intensity=0.213 enabled=True
+19:53:09.202 lamp real off +1.20s intensity=0.046 enabled=True
+19:53:09.792 lamp real off +1.80s intensity=0.010 enabled=True
+19:53:10.027 case lamp committed tree=933f8006bcfb49c0bce7c8b93454b08d rec=66530f157d2a4f0bb535010e2a6872af start=56.460000000003227 event=57.460000000003383
+19:53:24.543 ranges Fx9 flea extended=True
+19:53:24.543 spawn Fx9 flea pid=4145575602 alt=1100 east=0 descent=1
+19:53:27.113 shot fx9-flea-t2.00-real ut=78.480000000001525 alt=1103 srf=48 frameVel=0.0
+19:53:27.113 stats fx9-flea-t2.00-real sparksSystems=0 sparksParticles=0
+19:53:28.103 shot fx9-flea-t3.00-real ut=79.480000000001326 alt=1188 srf=121 frameVel=0.0
+19:53:28.103 stats fx9-flea-t3.00-real sparksSystems=0 sparksParticles=0
+19:53:29.156 case flea committed tree=7cdc70f6d87544d993a81b8435c045e0 rec=3fa667312ce8443ebc37007415d64e09 start=76.460000000001926 event=77.480000000001723
+19:53:44.659 ranges Fx9 decouple extended=True
+19:53:44.659 spawn Fx9 decouple pid=4078717568 alt=1300 east=0 descent=40
+19:53:47.091 shot fx9-decouple-t1.80-real ut=98.299999999997581 alt=1188 srf=50 frameVel=0.0
+19:53:47.684 shot fx9-decouple-t2.40-real ut=98.899999999997462 alt=1157 srf=53 frameVel=0.0
+19:53:48.791 shot fx9-decouple-t3.50-real ut=99.999999999997243 alt=1095 srf=59 frameVel=0.0
+19:53:50.787 shot fx9-decouple-t5.50-real ut=101.99999999999685 alt=970 srf=66 frameVel=0.0
+19:53:51.349 case decouple committed tree=1cf72f2615ec4fce8120485f399be272 rec=904ebe2009924f9a80f3d16d13a5d5d2 start=96.479999999997943 event=97.999999999997641
+19:54:04.843 ranges Fx9 reentry extended=True
+19:54:04.843 spawn Fx9 reentry pid=59757509 alt=12000 east=1100 descent=0
+19:54:07.415 shot fx9-reentry-t2.00-real ut=118.49999999999356 alt=11986 srf=967 frameVel=0.0
+19:54:08.421 shot fx9-reentry-t3.00-real ut=119.49999999999336 alt=11976 srf=911 frameVel=0.0
+19:54:09.410 shot fx9-reentry-t4.00-real ut=120.49999999999316 alt=11960 srf=862 frameVel=0.0
+19:54:10.453 case reentry committed tree=b1cc911bf3a94329aa2fa9b41e72e584 rec=992d72699009478185f266df26cc55be start=116.47999999999396 event=0
+19:54:10.453 REAL DONE cases=6 ut=121.5
+19:54:45.711 mark fx9-ghost-before
+19:55:18.388 ranges Viewer dust extended=True
+19:55:18.388 spawn Viewer dust pid=3002410309 alt=73 east=0 descent=0
+19:55:20.406 shot fx9-dust-t1.00-before ut=37.480000000000011 ghostActive=True dist=6 viewer=Viewer dust viewerSrf=17 frameVel=0.0
+19:55:21.379 shot fx9-dust-t2.00-before ut=38.460000000000164 ghostActive=True dist=7 viewer=Viewer dust viewerSrf=51 frameVel=0.0
+19:55:22.388 shot fx9-dust-t3.00-before ut=39.460000000000321 ghostActive=True dist=8 viewer=Viewer dust viewerSrf=86 frameVel=0.0
+19:55:38.398 ranges Viewer lamp extended=True
+19:55:38.398 spawn Viewer lamp pid=3028216954 alt=901 east=0 descent=1
+19:55:40.479 lamp before on +0.05s intensity=1.000 enabled=True
+19:55:40.580 lamp before on +0.15s intensity=1.000 enabled=True
+19:55:40.580 shot fx9-lamp-t1.15-before ut=57.620000000003159 ghostActive=True dist=9 viewer=Viewer lamp viewerSrf=22 frameVel=21.4
+19:55:40.730 lamp before on +0.30s intensity=1.000 enabled=True
+19:55:40.831 shot fx9-lamp-t1.40-before ut=57.8800000000032 ghostActive=True dist=11 viewer=Viewer lamp viewerSrf=24 frameVel=23.8
+19:55:41.031 lamp before on +0.60s intensity=1.000 enabled=True
+19:55:41.633 lamp before on +1.20s intensity=1.000 enabled=True
+19:55:42.218 lamp before on +1.80s intensity=1.000 enabled=True
+19:55:42.470 lamp before off +0.05s intensity=0.951 enabled=False
+19:55:42.570 lamp before off +0.15s intensity=0.951 enabled=False
+19:55:42.570 shot fx9-lamp-t3.15-before ut=59.620000000003472 ghostActive=True dist=19 viewer=Viewer lamp viewerSrf=40 frameVel=39.5
+19:55:42.737 lamp before off +0.30s intensity=0.951 enabled=False
+19:55:42.804 shot fx9-lamp-t3.40-before ut=59.86000000000351 ghostActive=True dist=20 viewer=Viewer lamp viewerSrf=42 frameVel=41.6
+19:55:43.039 lamp before off +0.60s intensity=0.951 enabled=False
+19:55:43.625 lamp before off +1.20s intensity=0.951 enabled=False
+19:55:44.211 lamp before off +1.80s intensity=0.951 enabled=False
+19:55:58.426 ranges Viewer flea extended=True
+19:55:58.426 spawn Viewer flea pid=2349808983 alt=1101 east=0 descent=1
+19:56:01.430 shot fx9-flea-t2.00-before ut=78.480000000001269 ghostActive=True dist=1019 viewer=Viewer flea viewerSrf=43 frameVel=41.5
+19:56:01.430 stats fx9-flea-t2.00-before sparksSystems=1 sparksParticles=0
+19:56:02.433 shot fx9-flea-t3.00-before ut=79.48000000000107 ghostActive=True dist=1098 viewer=Viewer flea viewerSrf=116 frameVel=114.6
+19:56:02.433 stats fx9-flea-t3.00-before sparksSystems=1 sparksParticles=0
+19:56:18.448 ranges Viewer decouple extended=True
+19:56:18.448 spawn Viewer decouple pid=786138472 alt=1340 east=0 descent=40
+19:56:20.983 before free fx spawned GhostPartPuffFx id=-479378 ut=98.02 alt=1202.1
+19:56:21.255 shot fx9-decouple-t1.80-before ut=98.299999999997326 ghostActive=True dist=8 viewer=Viewer decouple viewerSrf=66 frameVel=65.6
+19:56:21.256 stats fx9-decouple-t1.80-before puff n=79 age=0.28s centroidFromSpawnPoint=18.1m rootFromSpawnPoint=18.1m
+19:56:21.858 shot fx9-decouple-t2.40-before ut=98.8999999999972 ghostActive=True dist=9 viewer=Viewer decouple viewerSrf=71 frameVel=70.9
+19:56:21.858 stats fx9-decouple-t2.40-before puff n=26 age=0.88s centroidFromSpawnPoint=59.3m rootFromSpawnPoint=59.2m
+19:56:21.962 before free fx spawned GhostExplosionFx id=-479466 ut=99.00 alt=1166.7
+19:56:22.946 stats fx9-fallback-explosion-t1.0-before n=418 age=1.00s centroidFromSpawnPoint=76.4m rootFromSpawnPoint=76.3m
+19:56:22.946 shot fx9-decouple-t3.50-before ut=99.999999999996987 ghostActive=True dist=28 viewer=Viewer decouple viewerSrf=80 frameVel=80.3
+19:56:22.946 stats fx9-decouple-t3.50-before puff n=0
+19:56:23.951 stats fx9-fallback-explosion-t2.0-before n=292 age=2.00s centroidFromSpawnPoint=161.4m rootFromSpawnPoint=161.0m
+19:56:24.954 shot fx9-decouple-t5.50-before ut=101.99999999999659 ghostActive=True dist=80 viewer=Viewer decouple viewerSrf=97 frameVel=96.6
+19:56:38.448 ranges Viewer reentry extended=True
+19:56:38.448 spawn Viewer reentry pid=736322853 alt=12000 east=1100 descent=0
+19:56:41.469 shot fx9-reentry-t2.00-before ut=118.49999999999331 ghostActive=True dist=612 viewer=Viewer reentry viewerSrf=934 frameVel=935.5
+19:56:42.462 shot fx9-reentry-t3.00-before ut=119.49999999999311 ghostActive=True dist=637 viewer=Viewer reentry viewerSrf=884 frameVel=884.5
+19:56:43.466 shot fx9-reentry-t4.00-before ut=120.49999999999291 ghostActive=True dist=665 viewer=Viewer reentry viewerSrf=836 frameVel=837.2
+19:56:43.498 GHOST DONE before ut=120.5
+19:57:19.454 mark fx9-ghost-after
+19:57:52.287 ranges Viewer dust extended=True
+19:57:52.287 spawn Viewer dust pid=4143700191 alt=73 east=0 descent=0
+19:57:54.306 shot fx9-dust-t1.00-after ut=37.480000000000011 ghostActive=True dist=6 viewer=Viewer dust viewerSrf=17 frameVel=0.0
+19:57:55.283 shot fx9-dust-t2.00-after ut=38.460000000000164 ghostActive=True dist=7 viewer=Viewer dust viewerSrf=51 frameVel=0.0
+19:57:56.294 shot fx9-dust-t3.00-after ut=39.460000000000321 ghostActive=True dist=8 viewer=Viewer dust viewerSrf=86 frameVel=0.0
+19:58:12.308 ranges Viewer lamp extended=True
+19:58:12.309 spawn Viewer lamp pid=3756408078 alt=901 east=0 descent=1
+19:58:14.363 lamp after on +0.05s intensity=0.095 enabled=True
+19:58:14.463 lamp after on +0.15s intensity=0.295 enabled=True
+19:58:14.463 shot fx9-lamp-t1.15-after ut=57.620000000003159 ghostActive=True dist=9 viewer=Viewer lamp viewerSrf=22 frameVel=21.4
+19:58:14.630 lamp after on +0.30s intensity=0.528 enabled=True
+19:58:14.730 shot fx9-lamp-t1.40-after ut=57.8800000000032 ghostActive=True dist=11 viewer=Viewer lamp viewerSrf=24 frameVel=23.8
+19:58:14.932 lamp after on +0.60s intensity=0.777 enabled=True
+19:58:15.533 lamp after on +1.20s intensity=0.950 enabled=True
+19:58:16.101 lamp after on +1.80s intensity=0.988 enabled=True
+19:58:16.368 lamp after off +0.05s intensity=0.899 enabled=True
+19:58:16.468 lamp after off +0.15s intensity=0.700 enabled=True
+19:58:16.468 shot fx9-lamp-t3.15-after ut=59.620000000003472 ghostActive=True dist=19 viewer=Viewer lamp viewerSrf=40 frameVel=39.5
+19:58:16.618 lamp after off +0.30s intensity=0.469 enabled=True
+19:58:16.702 shot fx9-lamp-t3.40-after ut=59.86000000000351 ghostActive=True dist=20 viewer=Viewer lamp viewerSrf=42 frameVel=41.6
+19:58:16.920 lamp after off +0.60s intensity=0.222 enabled=True
+19:58:17.524 lamp after off +1.20s intensity=0.049 enabled=True
+19:58:18.107 lamp after off +1.80s intensity=0.012 enabled=True
+19:58:32.329 ranges Viewer flea extended=True
+19:58:32.329 spawn Viewer flea pid=3943680467 alt=1101 east=0 descent=1
+19:58:35.323 shot fx9-flea-t2.00-after ut=78.480000000001269 ghostActive=True dist=1019 viewer=Viewer flea viewerSrf=43 frameVel=41.5
+19:58:35.323 stats fx9-flea-t2.00-after sparksSystems=1 sparksParticles=0
+19:58:36.325 shot fx9-flea-t3.00-after ut=79.48000000000107 ghostActive=True dist=1098 viewer=Viewer flea viewerSrf=116 frameVel=114.6
+19:58:36.325 stats fx9-flea-t3.00-after sparksSystems=1 sparksParticles=0
+19:58:52.343 ranges Viewer decouple extended=True
+19:58:52.343 spawn Viewer decouple pid=3747521910 alt=1340 east=0 descent=40
+19:58:54.861 after free fx spawned GhostPartPuffFx id=-517184 ut=98.02 alt=1202.1
+19:58:55.144 shot fx9-decouple-t1.80-after ut=98.299999999997326 ghostActive=True dist=8 viewer=Viewer decouple viewerSrf=66 frameVel=65.6
+19:58:55.144 stats fx9-decouple-t1.80-after puff n=82 age=0.28s centroidFromSpawnPoint=0.1m rootFromSpawnPoint=0.0m
+19:58:55.748 shot fx9-decouple-t2.40-after ut=98.8999999999972 ghostActive=True dist=9 viewer=Viewer decouple viewerSrf=71 frameVel=70.9
+19:58:55.748 stats fx9-decouple-t2.40-after puff n=29 age=0.88s centroidFromSpawnPoint=0.2m rootFromSpawnPoint=0.0m
+19:58:55.849 after free fx spawned GhostExplosionFx id=-517268 ut=99.00 alt=1166.7
+19:58:56.839 stats fx9-fallback-explosion-t1.0-after n=398 age=1.00s centroidFromSpawnPoint=0.1m rootFromSpawnPoint=0.0m
+19:58:56.840 shot fx9-decouple-t3.50-after ut=99.999999999996987 ghostActive=True dist=28 viewer=Viewer decouple viewerSrf=80 frameVel=80.3
+19:58:56.840 stats fx9-decouple-t3.50-after puff n=0
+19:58:57.845 stats fx9-fallback-explosion-t2.0-after n=292 age=2.00s centroidFromSpawnPoint=0.4m rootFromSpawnPoint=0.0m
+19:58:58.850 shot fx9-decouple-t5.50-after ut=101.99999999999659 ghostActive=True dist=80 viewer=Viewer decouple viewerSrf=97 frameVel=96.6
+19:59:12.345 ranges Viewer reentry extended=True
+19:59:12.345 spawn Viewer reentry pid=3053438522 alt=12000 east=1100 descent=0
+19:59:15.355 shot fx9-reentry-t2.00-after ut=118.49999999999331 ghostActive=True dist=612 viewer=Viewer reentry viewerSrf=934 frameVel=935.5
+19:59:16.356 shot fx9-reentry-t3.00-after ut=119.49999999999311 ghostActive=True dist=637 viewer=Viewer reentry viewerSrf=884 frameVel=884.5
+19:59:17.356 shot fx9-reentry-t4.00-after ut=120.49999999999291 ghostActive=True dist=665 viewer=Viewer reentry viewerSrf=836 frameVel=837.2
+19:59:17.403 GHOST DONE after ut=120.5
