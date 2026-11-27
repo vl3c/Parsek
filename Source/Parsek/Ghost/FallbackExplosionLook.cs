@@ -17,9 +17,9 @@ namespace Parsek
     /// <item>1: a small grey puff and white streak sparks; no flash, no fire.</item>
     /// <item>2: a short small yellow flash with a little fire, streaks, a grey cloud.</item>
     /// <item>3: a flash, many white streaks, a grey cloud that lingers.</item>
-    /// <item>4: a big yellow flash that turns quickly into a grey cloud; no streaks.</item>
+    /// <item>4: a big yellow flash with a little fire that turns quickly into a grey cloud; no streaks.</item>
     /// <item>5: a big flash, orange flames, a grey cloud.</item>
-    /// <item>6: a big orange-white flash, fire, many white streaks, a lingering grey cloud.</item>
+    /// <item>6: an orange-white flash, fire, many white streaks, a lingering grey cloud.</item>
     /// </list>
     /// The sizes are fixed metres per tier, as stock's prefabs are: the craft's size only picks
     /// the tier through the power. Smoke is a translucent mix of dark and light grey.
@@ -112,7 +112,7 @@ namespace Parsek
                     look.SmokeCount = 32; look.SmokeSizeMin = 2.5f; look.SmokeSizeMax = 4.5f;
                     look.SmokeSpeedMax = 1.8f; look.SmokeLifetimeMin = 2.5f; look.SmokeLifetimeMax = 3.5f;
                     break;
-                case 4:   // a big yellow flash, quickly a grey cloud, no streaks
+                case 4:   // a big yellow flash, a little fire, quickly a grey cloud, no streaks
                     look.FlashSize = 11f; look.FlashLifetime = 0.3f;
                     look.FlameCount = 6; look.FlameSize = 3f; look.FlameLifetime = 0.4f;
                     look.SmokeCount = 30; look.SmokeSizeMin = 4f; look.SmokeSizeMax = 7f;
@@ -125,7 +125,7 @@ namespace Parsek
                     look.SmokeCount = 32; look.SmokeSizeMin = 5f; look.SmokeSizeMax = 8f;
                     look.SmokeSpeedMax = 2.5f; look.SmokeLifetimeMin = 1.2f; look.SmokeLifetimeMax = 2f;
                     break;
-                default:  // 6: a big flash, fire, many streaks, a lingering grey cloud
+                default:  // 6: an orange-white flash, fire, many streaks, a lingering grey cloud
                     look.FlashSize = 9f; look.FlashLifetime = 0.45f;
                     look.FlameCount = 18; look.FlameSize = 3.5f; look.FlameLifetime = 1f;
                     look.SparkCount = 90; look.SparkSpeedMin = 9f; look.SparkSpeedMax = 18f; look.SparkLifetime = 2.2f;

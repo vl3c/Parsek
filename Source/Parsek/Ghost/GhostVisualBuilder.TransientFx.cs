@@ -601,7 +601,7 @@ namespace Parsek
             var velocity = ps.limitVelocityOverLifetime;
             velocity.enabled = true;
             velocity.dampen = 0.08f;
-            velocity.limit = look.SparkSpeedMax;
+            velocity.limit = look.SparkSpeedMax * 0.35f;
             return ps;
         }
 
