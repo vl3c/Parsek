@@ -763,8 +763,8 @@ The page is ONE continuous scroll, with no click per part (owner rulings, 2026-1
   harness installs (`PartParityCaseCapture.ProfileName` takes the last segment of
   `KSPUtil.ApplicationRootPath`, which ends in `KSP_x64_Data/../`), so today every sweep is
   named after its label.
-- GIF / APNG strips (9.2) are not built: `--gif` is reserved and refuses, and a case row's
-  `strips` slot is where the page will read them from.
+- GIF / APNG strips (9.2): built by P7 M5 for motion cases (`--gif`, Appendix H.5); a case row's
+  `strips` slot carries the motion atlas and the animation, None on every other case.
 
 Images are not published as an Artifact (a sweep is hundreds of MB; 16 MB page limit).
 
@@ -4052,6 +4052,71 @@ there). Definitions, which `partparity.py` transcribes (`burst_measure_bin`, `bu
   their side blocks and the schedule diff, and reds on every tampered number, a mutated pixel,
   an alpha no sample count writes and a wrong layout.
 
+X2 as built (2026-11-27, no flight, no behaviour change; IL proofs in
+`<umbrella>/logs/refactor/p9-x2/`). Built on main after ghost-fx-9 (#2837) merged. Pinned by
+`PartParityGhostSeamTests`; the whole-assembly `il_compare.py` of the build before and after lists
+only the members below as changed or new.
+- `PartEvent` builders. `FlightRecorder.BuildDecoupledPartEvent(pid, partName, ut)` and
+  `BuildDestroyedPartEvent(pid, partName, ut, deathType)` (`FlightRecorder.PartEvents.cs`), the
+  `partName ?? "unknown"` inside them. The death builder takes `ClassifyPartDeath`'s answer
+  rather than fixing `Destroyed`, because the part-die handler writes `ParachuteDestroyed` for a
+  part dying with its canopy out; X4 runs the same two calls. Callers: `OnPartDie`,
+  `RecordJointBreakDecoupledEvent` and the deferred split check's `RecordFallbackDecoupleEvent`
+  in the active recorder, `OnBackgroundPartDie` and `OnBackgroundPartJointBreak` in the background
+  recorder (the part-die handlers live in those same two files). The source pin reds on an inline
+  `new PartEvent` of a decouple or death type anywhere in `Source/Parsek` outside `InGameTests/`
+  and the builders, and on any recorder call fed other reads than the joint child, its name and
+  the UT. The fallback's explicit `value = 0f, moduleIndex = 0` were the struct defaults.
+- Launch dust frame body. `GhostPlaybackEngine.DriveLaunchDustFrame(recIdx, state, enginePower,
+  altitude, groundRefAltitude, ref lazyBuildCount)` (`GhostPlaybackEngine.ReentryFx.cs`) is the
+  tail of `UpdateLaunchDust` from the intensity gate on (intensity, the lazy build under the
+  shared per-frame cap, the emission and size drive, the log line); `UpdateLaunchDust` keeps the
+  warp, engine power and ground-reference latch gates and passes its ghost's
+  `lastInterpolatedAltitude`, `launchDustGroundRefAltitude` and `frameLazyReentryBuildCount`. The
+  latch and intensity math the plan located in `GhostPlaybackLogic.SynthesizedMotion.cs` (1271 to
+  1318) and the build in `GhostVisualBuilder.TransientFx.cs` (509 to 592) were statics already and
+  did not move; the plan's `ReentryFx.cs` 197 to 212 is the latch, which stays in the caller (a
+  case has no trajectory to latch from). A case sets `state.launchDustPendingBuild` itself before
+  its first call, as the latch does. Proof (`fold_launch_dust.py`): the static's body folded back
+  into its call site, each parameter load replaced by the caller's argument expression (the by-ref
+  counter's `ldind.i4` / `stind.i4` reading as the field's `ldfld` / `stfld`, a value parameter's
+  `ldarga` as the expression's address, the static's `ret` as the caller's), equals the old
+  `UpdateLaunchDust` instruction for instruction (308) and local for local (19, by order of first
+  use and type), with the seam's two `nop`s dropped; swapping two substituted operands reds it.
+- Transient FX record. `GhostTransientFxRecord` (`Ghost/GhostTransientFxRecord.cs`): entries of
+  kind (`StockExplosion`, `CustomExplosion`, `PartPuff`), world position, the FXMonger power (NaN
+  for Parsek's own), the size argument (vessel length for the fireball, the part scale before the
+  clamp for the puff; NaN for a stock blast), the GameObject (null for a stock blast, whose object
+  FXMonger instantiates in its `LateUpdate`) and a sequence number. Noted at the three starts:
+  `TryTriggerStockExplosionFx` once the call returned (outside its try, so a note can never turn a
+  queued blast into the fallback), `SpawnExplosionFx` and `SpawnPartPuffFx` just before they
+  return their object (so the puff `SpawnPartPuffAtPart` drops is recorded). Decision: it records
+  only while armed (`Arm` opens a fresh record, `Disarm` drops it; readers get a read-only view),
+  because an always-on list of GameObjects grows for the whole session; unarmed a start costs one
+  null check. The X4 driver arms it for a run. Lifetimes: `entries` and `view` are `test-hook`
+  in `scripts/arch/lifetimes.toml`, written only by the record's own `Arm` / `Disarm`, so the
+  test-hook-written-by-production finding stays 0.
+- `GhostPlaybackEngine.TerminalExplosionPower(vesselLength)` (`SpawnDestroy.cs`, the line the plan
+  named held): `Clamp01(length / VesselLengthPowerDivisor)`, read by `PlayDestroyedExplosion`;
+  its IL is the four replaced instructions. `ParsekKSC` and the manual preview in
+  `ParsekFlightPlaybackHost` compute the same expression and were left alone (not X2's files).
+- Reentry isolation frame. `GhostPlaybackEngine.ArmReentryIsolationForOneFrame(state, mode)` with
+  `ReentryIsolation.FireAndShell` or `FireShellAndGlow` (the two ghost isolation frames of G.2.3):
+  the next `DriveReentryLayers` of that ghost consumes it, turns the fire particle renderer off
+  (the particles keep simulating), skips the shell's `DrawMesh` passes and, for the glow mode,
+  drives Layer A cold; the char keeps the drive's intensity (it is the body layer). The first
+  drive that does not isolate turns the renderer back on, so two isolation frames in a row keep
+  it off across both. The armed mode and the hidden flag live on the ghost's `ReentryFxInfo`
+  (false for a ghost with no reentry FX built), so every drive path, the warp drive-to-zero
+  included, restores it, and a rebuilt or destroyed info carries no stale flag.
+- Ratchet: the five seams no production code calls yet (`Arm`, `Disarm`, `Entries`, `IsArmed`,
+  `ArmReentryIsolationForOneFrame`; X4 and X8 call them) raise `uncalledInAssembly` from 374 to
+  377 (it read 372 before X2), pinned by name in `scripts/arch/facts_pins.toml` as F2 did. Only
+  that section was re-written from the build (the pin requires bound = keys), so it also takes in
+  the swaps earlier PRs left inside the old bound (7 keys in, 9 out); the other sections are as
+  they were.
+- No CHANGELOG entry (no behaviour change); no todo entry.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
@@ -4579,6 +4644,30 @@ spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
   LZW writer. Written under the site's `img/`, linked from the case; the case row's `strips` slot
   (`part_parity_view.py`, now `None`) carries the motion atlas and the animation paths.
   Round-trip decode tests in `harness/lib/test_part_parity_view.py`.
+- Built (M5, 2026-11-27), with these readings of the plan:
+  - The frame clock is per case: each case's motion box carries its own `--f` (Play / Pause, the
+    0.25x toggle and the scrubber, which pauses), and the header's Play strips button, shown
+    when the site has an FX strip or a motion case, plays or pauses every clock at once; with
+    `prefers-reduced-motion` every clock starts paused. A frame shows until the next frame's real
+    offset (at least 20 ms); the last frame is held 1 s before the loop restarts, in the page and
+    in both animations.
+  - The 1:1 dialog shows a view's motion row at the case's current frame and follows the scrubber.
+  - A slow or late control's normal route (`<controlId>--normal`) is a control row right under its
+    control, with the control's outcome and judgement (the two routes are judged together), never
+    a part case; the sweep header's motion counts are partparity's (the manifest's part cases).
+  - `--gif-format` without `--gif` refuses (exit 2); `--gif` over sweeps with no motion case writes
+    nothing and says so. The animations go to `<out>/img/<k>/<caseId>.motion.apng|.gif` (k: the
+    sweep's index), always copied under the site whatever `--images` says. The APNG keeps the
+    atlas's RGBA exactly; the GIF has no partial alpha, so its frames are the atlas composited
+    over the page's tile grey `#8f959c` (one global palette, exact when the frames hold at most
+    256 colours). A case whose atlas does not decode or does not match its sidecar's layout is
+    reported on stderr and keeps no animation; the run still writes the site.
+  - A malformed motion sidecar (an array that is not one, a number that is not one) is a problem
+    on its own case's row (`motionProblem`, shown as a note on the case), never a stop of the
+    site: every array is type-checked before it is read and every number the page formats is a
+    number or null in `data.js`. partparity's motion readers read a non-array as empty.
+  - The chart's ghost line is the scout grid (`motion.scout`), the real line the real frames; the
+    event ticks are `stateProof.events` UTs from the press.
 
 ### H.6 Motion defects visible from the code (to be measured by P7)
 
@@ -4644,7 +4733,7 @@ subsection.
 | M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs`, `FlightRecorder.PartModuleStates.cs` (the active sink's ownership guard) | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green. Done 2026-11-27: il_compare lists only `CheckRoboticState` (now the wrapper), the new `PollRobotics` and the `PartPollSink.ShouldPollCachedModule` guard with its active override; the moved body differs from the old one only by fields read as arguments and the sink indirection |
 | M3 (BUILT 2026-11-27, awaiting the dev-install run) | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file. As built also: `PartParityMotionRules.cs` (the late judge's `LateMustFailOnLag` and the `--normal` route suffix, both asked for by M4's derivation and mirrored there), `PartParityJson.cs` (two writer helpers, no key change), `PartParityStateDriver.cs` and `FlightRecorder.cs` (visibility only), xUnit `PartParityMotionPlanTests.cs` / `PartParityMotionMetricsTests.cs`; the motion acceptance step rides the existing `SweepStateAcceptanceSet` cell | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 (DONE 2026-11-27) | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before. BUILT (H.3 "Built"): a synthetic motion sidecar + atlas builder in the tests; every control's perturbation caught (and an unperturbed one bad); mutated atlas tiles and tampered arrays INVALID(parity-instrument); ten legacy stowed / state / FX / burst sweeps hash to their pre-M4 digests. For the C# side: `JudgeGhostLate` must require the lag fail only when the 1.0 s shift is past the line (its xUnit cell for a 10 s motion expects `bad`), and M3 writes the slow / late normal route as `<controlId>--normal` |
-| M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
+| M5 (DONE 2026-11-27) | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles. BUILT (H.5 "Built"): over M4's synthetic motion sweep, the rows equal partparity's `judge_motion`; the node page tests read every crop of a case from its one `--f` at the scrubbed, ticked and wrapped frame, the clock's delays (real offsets, 0.25x, the 1 s hold), reduced motion, the chart's lines, marks, lag and frame line; the APNG (each frame rebuilt and read by `gui_mirror.read_png`) and the GIF (a test-side LZW decoder) decode to the atlas tiles; three legacy sites (stowed, state, FX) keep their pre-M5 `data.js` and built-DOM digests. For M3: the viewer reads `motion` (the M4 keys), `motionAtlas {file, tile, rows, cols}` with rows `real:` / `ghost:` / `ghost-matched:<view>` and one column per frame, `stateProof.events`, and the normal routes under `<controlId>--normal` |
 | M6 | Orbit lanes PP-14 / PP-15: specs, lane catalog regen, hlib wiring cells (the lane shape cells and the operator-tier reason table in `test_hlib.py`), `autotest-status.md` rows | `harness/scenarios/PP-14-*.toml`, `PP-15-*.toml`, `docs/dev/flight-profiles.md`, `docs/dev/autotest-status.md` | M7 (C# half) | harness suites green; first flights on request (`limit=20`, then full), findings filed |
 | M7 | Air motion labels `pp5mo` / `pp6mo` in PP-5 / PP-6 | the two specs and the M6 doc rows, after M6 | M6 | a dev-install run of `parachuteSingle` and `parachuteLarge` semi and full writes its frames |
 

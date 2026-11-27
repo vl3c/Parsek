@@ -139,6 +139,8 @@ namespace Parsek
             smokePs.Play();
             Object.Destroy(obj, 3f);
 
+            GhostTransientFxRecord.Note(
+                GhostTransientFxKind.PartPuff, worldPosition, double.NaN, partScale, obj);
             return obj;
         }
 
@@ -364,15 +366,17 @@ namespace Parsek
                     // in its queued ProtoExplosion.sources list for merge bookkeeping and never
                     // dereferences it. Ghost explosions have no owning Part to supply.
                     FXMonger.Explode(null, worldPosition, power);
-
-                failureReason = null;
-                return true;
             }
             catch (System.Exception ex)
             {
                 failureReason = ex.Message;
                 return false;
             }
+
+            GhostTransientFxRecord.Note(
+                GhostTransientFxKind.StockExplosion, worldPosition, power, float.NaN, null);
+            failureReason = null;
+            return true;
         }
 
         /// <summary>
@@ -496,6 +500,8 @@ namespace Parsek
             ParsekLog.Verbose("ExplosionFx",
                 $"Spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
 
+            GhostTransientFxRecord.Note(
+                GhostTransientFxKind.CustomExplosion, worldPosition, double.NaN, vesselLength, obj);
             return obj;
         }
 
