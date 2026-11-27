@@ -54,4 +54,4 @@ a rerun needs the spike to log the exception type and stack.
   `PatchedSnapshot solver unavailable` lines for the debris, the
   `AppendPointsFromTrackSections skipped 106 non-monotonic frame(s)` (#419) line,
   three MergeTree boundary discontinuities on `FXR Probe Debris` (unrecorded gaps),
-  and two `recorded-relative-retired` lines for the debris outside its Relative coverage.
+  and one `recorded-relative-retired` line for the debris outside its Relative coverage.
