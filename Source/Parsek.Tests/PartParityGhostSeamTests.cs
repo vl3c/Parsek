@@ -307,6 +307,15 @@ namespace Parsek.Tests
             // The one ground-reference write left is the "never" latch of a failed build.
             Assert.Single(Regex.Matches(frame, @"state\.launchDustGroundRefAltitude\b").Cast<Match>());
             Assert.Contains("state.launchDustGroundRefAltitude = double.NegativeInfinity;", frame);
+            // The ground is the surface stock's ModuleSurfaceFX raycasts for (0x40008000), the
+            // terrain reference only when nothing is hit.
+            Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
+            string place = Body(text, "private static void PlaceLaunchDustOnGround(");
+            Assert.True(place.IndexOf("Physics.Raycast(", StringComparison.Ordinal)
+                < place.IndexOf("ComputeLaunchDustGroundPoint(", StringComparison.Ordinal));
+            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", place);
+            // Every emitting frame lays the disc flat on the ground under the ghost first.
+            Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(recIdx, state, altitude, groundRefAltitude\);\s*var emission", frame);
         }
 
         #endregion
@@ -422,6 +431,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StockExplosionCopy_PicksThePrefabFxMongerWould()
+        {
+            // FXMonger.LateUpdate: explosions[(int)(Clamp01(power) * (n - 1))].
+            Assert.Equal(-1, StockExplosionPrefabCache.ResolvePrefabIndex(0.5, 0));
+            Assert.Equal(-1, StockExplosionPrefabCache.ResolvePrefabIndex(double.NaN, 4));
+            Assert.Equal(0, StockExplosionPrefabCache.ResolvePrefabIndex(-1.0, 4));
+            Assert.Equal(0, StockExplosionPrefabCache.ResolvePrefabIndex(0.2, 4));
+            Assert.Equal(1, StockExplosionPrefabCache.ResolvePrefabIndex(0.5, 4));
+            Assert.Equal(3, StockExplosionPrefabCache.ResolvePrefabIndex(1.0, 4));
+            Assert.Equal(3, StockExplosionPrefabCache.ResolvePrefabIndex(7.0, 4));
+            // The same rule the part parity burst driver reads the real side with.
+            for (double p = 0.0; p <= 1.0; p += 0.05)
+                Assert.Equal(Parsek.TestCommands.PartParityFxRules.FxMongerPrefabIndex(p, 5),
+                    StockExplosionPrefabCache.ResolvePrefabIndex(p, 5));
+        }
+
+        [Fact]
+        public void FallbackExplosions_DrawTheStockCopyFirst()
+        {
+            // Every place that used to draw the hand-built explosion when FXMonger could not be
+            // used now goes through the fallback, which tries the kept stock copy first.
+            string fx = Read("Ghost", "GhostVisualBuilder.TransientFx.cs");
+            string fallback = Body(fx, "internal static GameObject SpawnFallbackExplosionFx(");
+            Assert.True(fallback.IndexOf("StockExplosionPrefabCache.TrySpawn(", StringComparison.Ordinal)
+                < fallback.IndexOf("SpawnExplosionFx(worldPosition, vesselLength)", StringComparison.Ordinal));
+            Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);",
+                Read("Ghost", "GhostPlaybackEngine.SpawnDestroy.cs"));
+            Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(worldPos, power, vesselLength);",
+                Read("Controllers", "ParsekKSC.cs"));
+            Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(pos, power, len)",
+                Read("Ghost", "GhostPlaybackLogic.Audio.cs"));
+            // The hand-built one is called only from the fallback.
+            int direct = 0;
+            string src = Path.Combine(Root(), "Source", "Parsek");
+            foreach (string file in Directory.GetFiles(src, "*.cs", SearchOption.AllDirectories))
+            {
+                direct += Regex.Matches(PartParityStateRulesTests.StripComments(File.ReadAllText(file)),
+                    @"\bSpawnExplosionFx\(").Count;
+            }
+            Assert.Equal(2, direct);   // its declaration and the fallback's last resort
+            // Flight-ready keeps the copies.
+            Assert.Contains("StockExplosionPrefabCache.CaptureFrom(GhostVisualBuilder.ResolveLiveFxMonger());",
+                Read("Controllers", "ParsekFlight.cs"));
+        }
+
+        [Fact]
         public void ParseksOwnEffects_AreNotedWithTheirObjectBeforeTheyAreReturned()
         {
             string text = Read("Ghost", "GhostVisualBuilder.TransientFx.cs");
@@ -429,13 +484,15 @@ namespace Parsek.Tests
                 Body(text, "internal static GameObject SpawnExplosionFx("));
             Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.PartPuff, worldPosition, double\.NaN, partScale, obj\);\s*return obj;\s*\}$",
                 Body(text, "internal static GameObject SpawnPartPuffFx("));
-            // Every Note in production is one of these three starts.
+            Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.StockCopyExplosion, worldPosition, power, vesselLength, blast\);\s*return blast;",
+                Body(text, "internal static GameObject SpawnFallbackExplosionFx("));
+            // Every Note in production is one of these four starts.
             int notes = 0;
             string src = Path.Combine(Root(), "Source", "Parsek");
             foreach (string file in Directory.GetFiles(src, "*.cs", SearchOption.AllDirectories))
                 notes += Regex.Matches(PartParityStateRulesTests.StripComments(File.ReadAllText(file)),
                     @"GhostTransientFxRecord\.Note\(").Count;
-            Assert.Equal(3, notes);
+            Assert.Equal(4, notes);
         }
 
         #endregion
