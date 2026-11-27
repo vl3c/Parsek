@@ -1310,18 +1310,23 @@ def motion_series(block: Optional[Dict]) -> Optional[Dict[str, Any]]:
     from ``scout``, realClock / ghostClock (a servo only, else None) and the transforms."""
     if not isinstance(block, dict):
         return None
-    frames = [f for f in (block.get("frames") or []) if isinstance(f, dict)]
+    frames = [f for f in _motion_list(block.get("frames")) if isinstance(f, dict)]
     scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
     servo = block.get("kind") == MOTION_KIND_SERVO
+    # Numbers only (a non-number reads as the null C# writes for NaN), so a malformed block
+    # measures as unmeasured instead of raising.
     return {
-        "realS": [f.get("realS") for f in frames],
-        "realProgress": [f.get("realProgress") for f in frames],
-        "ghostSameProgress": [f.get("ghostProgress") for f in frames],
-        "scoutS": list(scout.get("s") or []),
-        "scoutProgress": list(scout.get("progress") or []),
-        "realClock": [f.get("realClock") for f in frames] if servo else None,
-        "ghostClock": [f.get("ghostClock") for f in frames] if servo else None,
-        "transforms": [t for t in (block.get("transforms") or []) if isinstance(t, dict)],
+        "realS": [_num(f.get("realS")) for f in frames],
+        "realProgress": [_num(f.get("realProgress")) for f in frames],
+        "ghostSameProgress": [_num(f.get("ghostProgress")) for f in frames],
+        "scoutS": _motion_nums(scout.get("s")),
+        "scoutProgress": _motion_nums(scout.get("progress")),
+        "realClock": [_num(f.get("realClock")) for f in frames] if servo else None,
+        "ghostClock": [_num(f.get("ghostClock")) for f in frames] if servo else None,
+        "transforms": [dict(t, real=_motion_nums(t.get("real")) if isinstance(t.get("real"), list) else None,
+                            ghost=_motion_nums(t.get("ghost")) if isinstance(t.get("ghost"), list) else None,
+                            travelReal=_num(t.get("travelReal")), travelGhost=_num(t.get("travelGhost")))
+                       for t in _motion_list(block.get("transforms")) if isinstance(t, dict)],
     }
 
 
@@ -3492,6 +3497,17 @@ def run_shape_problem(manifest: Dict, sidecars: Dict[str, Optional[Dict]]) -> Op
 # progress and the border / jitter / match tags are report-only.
 # ---------------------------------------------------------------------------
 
+def _motion_list(value: Any) -> List[Any]:
+    """A sidecar array as written, or empty when the writer put anything else there: the
+    readers judge a malformed motion block (``motion_case_problems`` names it), never crash."""
+    return value if isinstance(value, list) else []
+
+
+def _motion_nums(value: Any) -> List[Optional[float]]:
+    """A sidecar number array with every non-number read as None (empty when not an array)."""
+    return [_num(v) for v in _motion_list(value)]
+
+
 def motion_frames(block: Optional[Dict]) -> List[Dict]:
     """The ``frames[]`` entries of a motion block that are objects, in order."""
     frames = block.get("frames") if isinstance(block, dict) else None
@@ -3532,15 +3548,15 @@ def motion_angle_line(sweep: Optional[float]) -> float:
 def motion_view_names(block: Optional[Dict]) -> List[str]:
     """The views of a motion case, in the order its first frame lists them."""
     frames = motion_frames(block)
-    views = frames[0].get("views") if frames else None
-    return [str(v.get("view")) for v in views or [] if isinstance(v, dict)]
+    views = _motion_list(frames[0].get("views")) if frames else []
+    return [str(v.get("view")) for v in views if isinstance(v, dict)]
 
 
 def motion_frame_views(frame: Dict, which: str) -> List[Dict]:
     """One frame's ``same`` (or ``matched``) blocks as view records named after their view;
     a null block is left out."""
     out: List[Dict] = []
-    for v in frame.get("views") or []:
+    for v in _motion_list(frame.get("views")):
         if not isinstance(v, dict) or not isinstance(v.get(which), dict):
             continue
         rec = dict(v[which])
@@ -3562,7 +3578,7 @@ def motion_last_frame_route(sidecar: Dict) -> Optional[RouteJudgement]:
 def _motion_frames_with(frames: Sequence[Dict], pred: Callable[[str], bool]) -> List[int]:
     out = []
     for i, f in enumerate(frames):
-        if any(isinstance(x, str) and pred(x) for x in f.get("flags") or []):
+        if any(isinstance(x, str) and pred(x) for x in _motion_list(f.get("flags"))):
             k = f.get("k")
             out.append(k if isinstance(k, int) and not isinstance(k, bool) else i)
     return out
@@ -3622,14 +3638,14 @@ def motion_flags(sidecar: Dict) -> Tuple[str, ...]:
         if isinstance(f, str):
             add(f)
     window = block.get("window") if isinstance(block, dict) else None
-    case_flags = [f for f in sidecar.get("flags") or [] if isinstance(f, str)]
+    case_flags = [f for f in _motion_list(sidecar.get("flags")) if isinstance(f, str)]
     if (isinstance(window, dict) and window.get("capped") is True) or FLAG_MOTION_WINDOW_CAPPED in case_flags:
         add(FLAG_MOTION_WINDOW_CAPPED)
     for f in case_flags:
         if f in _MOTION_CASE_FLAGS:
             add(f)
     frames = motion_frames(block)
-    frame_flags = [x for fr in frames for x in fr.get("flags") or [] if isinstance(x, str)]
+    frame_flags = [x for fr in frames for x in _motion_list(fr.get("flags")) if isinstance(x, str)]
     for kind in _MOTION_FRAME_FLAG_KINDS:
         if kind in frame_flags:
             add(kind)
@@ -4126,7 +4142,7 @@ def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
     if not frames:
         return False
     for frame in (frames[0], frames[-1]):
-        views = [v for v in frame.get("views") or [] if isinstance(v, dict)]
+        views = [v for v in _motion_list(frame.get("views")) if isinstance(v, dict)]
         if not views:
             return False
         for v in views:
@@ -4903,21 +4919,28 @@ def motion_block_problems(sidecar: Optional[Dict]) -> List[str]:
         else:
             n_scout = len(ss)
     frames = motion_frames(block)
-    if len(frames) != len(block.get("frames") or []):
+    if "frames" in block and not isinstance(block["frames"], list):
+        problems.append("motion.frames: not an array")
+    elif len(frames) != len(_motion_list(block.get("frames"))):
         problems.append("motion.frames: an entry is not an object")
     views0 = motion_view_names(block)
     for i, f in enumerate(frames):
         problems += _missing("motion.frames[%d]" % i, f, MOTION_FRAME_KEYS)
-        for j, v in enumerate(f.get("views") or []):
+        for key in ("views", "flags"):
+            if key in f and not isinstance(f[key], list):
+                problems.append("motion.frames[%d].%s: not an array" % (i, key))
+        for j, v in enumerate(_motion_list(f.get("views"))):
             problems += _missing("motion.frames[%d].views[%d]" % (i, j), v, MOTION_FRAME_VIEW_KEYS)
             for which in ("same", "matched"):
                 m = v.get(which) if isinstance(v, dict) else None
                 if m is not None:
                     problems += _missing("motion.frames[%d].views[%d].%s" % (i, j, which), m, START_KEYS)
-        names = [str(v.get("view")) for v in f.get("views") or [] if isinstance(v, dict)]
+        names = [str(v.get("view")) for v in _motion_list(f.get("views")) if isinstance(v, dict)]
         if names != views0:
             problems.append("motion.frames[%d]: views %s != frame 0's %s" % (i, names, views0))
-    for i, t in enumerate(block.get("transforms") or []):
+    if "transforms" in block and not isinstance(block["transforms"], list):
+        problems.append("motion.transforms: not an array")
+    for i, t in enumerate(_motion_list(block.get("transforms"))):
         problems += _missing("motion.transforms[%d]" % i, t, MOTION_TRANSFORM_KEYS)
         if not isinstance(t, dict):
             continue
@@ -4946,17 +4969,17 @@ def motion_case_problems(sidecar: Optional[Dict]) -> List[str]:
     if is_setup_fault(setup.get("status")):
         return problems
     problems += motion_timing_diffs(block.get("timing"), motion_timing(motion_series(block)))
-    scout = block.get("scout") or {}
-    ss, sp = scout.get("s") or [], scout.get("progress") or []
+    scout = block.get("scout") if isinstance(block.get("scout"), dict) else {}
+    ss, sp = _motion_nums(scout.get("s")), _motion_nums(scout.get("progress"))
     for i, f in enumerate(motion_frames(block)):
         got = _num(f.get("ghostProgress"))
         want = motion_interpolate(ss, sp, _num(f.get("realS")))
         if (got is None) != (want is None) or (
                 got is not None and abs(got - want) > MOTION_SCOUT_RENDER_TOLERANCE):
             problems.append("frame %s: ghostProgress=%s scout=%s" % (f.get("k", i), got, want))
-        if FLAG_SCOUT_RENDER_DISAGREE in (f.get("flags") or []):
+        if FLAG_SCOUT_RENDER_DISAGREE in (_motion_list(f.get("flags"))):
             problems.append("frame %s: %s" % (f.get("k", i), FLAG_SCOUT_RENDER_DISAGREE))
-    if FLAG_SCOUT_RENDER_DISAGREE in (sidecar.get("flags") or []):
+    if FLAG_SCOUT_RENDER_DISAGREE in _motion_list(sidecar.get("flags")):
         problems.append("case flag %s" % FLAG_SCOUT_RENDER_DISAGREE)
     return problems
 
@@ -5003,7 +5026,7 @@ def recompute_motion_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> 
     last = len(frames) - 1
     for c, f in enumerate(frames):
         at = "frame %s" % f.get("k")
-        by_view = {str(v.get("view")): v for v in f.get("views") or [] if isinstance(v, dict)}
+        by_view = {str(v.get("view")): v for v in _motion_list(f.get("views")) if isinstance(v, dict)}
         for view in views:
             v = by_view.get(view) or {}
             real = tile_rows(rows.index("%s:%s" % (MOTION_ROW_REAL, view)), c)
