@@ -5040,9 +5040,13 @@ class MachineLockSharedProtocolTests(unittest.TestCase):
     holder's lock; sharing the module is the structural fix."""
 
     def test_both_shells_call_the_shared_acquire(self):
+        # Both go through leaseio.acquire_machine (the shared machinelock.acquire,
+        # then the copy-lease check), never a protocol of their own.
+        import leaseio
         import provision
-        self.assertIn("acquire", _calls(run.acquire_run_lock))
-        self.assertIn("acquire", _calls(provision.phase_preflight))
+        self.assertIn("acquire_machine", _calls(run.acquire_run_lock))
+        self.assertIn("acquire_machine", _calls(provision.phase_preflight))
+        self.assertIn("acquire", _calls(leaseio.acquire_machine))
 
     def test_neither_shell_reimplements_an_unguarded_replace_of_the_lock(self):
         import provision
