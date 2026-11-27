@@ -1,0 +1,121 @@
+{
+ "scenarioId": "PPS-20c-reentry-rig-stock",
+ "runId": "2026-11-27_2122_PPS-20c-reentry-rig-stock",
+ "verdict": "PASS",
+ "reason": null,
+ "attempt": 1,
+ "attemptsWallSeconds": 568,
+ "subkind": "",
+ "verifierStatus": {
+  "analyzer": "PASS",
+  "anomalySweep": "PASS",
+  "batchComplete": "SKIPPED",
+  "driverValidity": "PASS",
+  "expectations": "PASS",
+  "ghostLifecycle": "REPORT",
+  "ledgerOracle": "SKIPPED",
+  "logValidate": "PASS",
+  "renderCompose": "REPORT",
+  "saveParse": "REPORT",
+  "subprocessRetry": [],
+  "testResults": "PASS",
+  "unityExceptions": "REPORT"
+ },
+ "steps": [
+  [
+   "LoadGame",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "MissionMark",
+   "OK",
+   true
+  ],
+  [
+   "WarpToUT",
+   "OK",
+   true
+  ],
+  [
+   "InvokeRewindToLaunch",
+   "OK",
+   true
+  ],
+  [
+   "SaveGame",
+   "OK",
+   true
+  ],
+  [
+   "LoadGame",
+   "OK",
+   true
+  ],
+  [
+   "StopRecording",
+   "OK",
+   true
+  ],
+  [
+   "DiscardTree",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "SetSetting",
+   "OK",
+   true
+  ],
+  [
+   "MissionMark",
+   "OK",
+   true
+  ],
+  [
+   "WarpToUT",
+   "OK",
+   true
+  ],
+  [
+   "FlushAndQuit",
+   "OK",
+   true
+  ]
+ ]
+}
