@@ -17,15 +17,15 @@ namespace Parsek
     /// the frame difference every 0.25 s):
     /// <list type="bullet">
     /// <item>0 (Thud): a grey puff about 7 m wide that fades by 2 s; no fire.</item>
-    /// <item>1: a dark grey puff about 10 m wide and fast debris; gone by 1.5 s; no fire.</item>
+    /// <item>1: a grey puff about 10 m wide and fast debris; gone by 1.5 s; no fire.</item>
     /// <item>2: a yellow fireball growing to 15 m over 0.5 s, turning red-brown, then a dark grey
     /// cloud about 20 m wide that fades by 2 s.</item>
     /// <item>3: the same with an 18 m fireball, many streaks and the cloud lasting to 2.5 s.</item>
     /// <item>4: a white flash growing to 21 m in 0.25 s, then a lighter grey cloud gone by 1.5 s.</item>
     /// <item>5: a white starburst about 40 m wide, a 25 m orange fireball at 0.5 s, then a dark
     /// cloud over 30 m wide gone by 1.5 s.</item>
-    /// <item>6: a yellow fireball growing to 30 m over 0.75 s, many streaks, then a dark grey cloud
-    /// about 20 m wide fading by 3 s.</item>
+    /// <item>6: a yellow fireball growing to 30 m over 0.75 s and still glowing at 1 s, many
+    /// streaks, then a dark grey cloud about 20 m wide fading by 3 s.</item>
     /// </list>
     /// Diameters are the visible size in metres, fixed per tier as stock's prefabs are: the craft's
     /// size only picks the tier through the power. Smoke is a mix of dark and lighter grey.
@@ -101,9 +101,10 @@ namespace Parsek
                     look.SmokeDiameter = 7f; look.SmokeCount = 18; look.SmokeLifetimeMin = 1.4f; look.SmokeLifetimeMax = 2f;
                     look.SmokeDarkGrey = 0.34f; look.SmokeLightGrey = 0.6f;
                     break;
-                case 1:   // a dark grey puff, fast streaks
+                case 1:   // a grey puff, fast streaks
                     look.SparkCount = 40; look.SparkSpeedMin = 8f; look.SparkSpeedMax = 18f; look.SparkLifetime = 1.3f;
                     look.SmokeDiameter = 10f; look.SmokeCount = 22; look.SmokeLifetimeMin = 1f; look.SmokeLifetimeMax = 1.5f;
+                    look.SmokeDarkGrey = 0.4f; look.SmokeLightGrey = 0.66f;
                     break;
                 case 2:   // a fireball, streaks, a dark grey cloud
                     look.FlashDiameter = 7f; look.FlashLifetime = 0.2f;
@@ -131,7 +132,7 @@ namespace Parsek
                     break;
                 default:  // 6: a big long fireball, many streaks, a lingering dark cloud
                     look.FlashDiameter = 12f; look.FlashLifetime = 0.3f;
-                    look.FireDiameter = 28f; look.FireLifetime = 1.1f; look.FireCount = 45;
+                    look.FireDiameter = 28f; look.FireLifetime = 1.5f; look.FireCount = 45;
                     look.SparkCount = 90; look.SparkSpeedMin = 10f; look.SparkSpeedMax = 20f; look.SparkLifetime = 2.2f;
                     look.SmokeDiameter = 22f; look.SmokeCount = 40; look.SmokeLifetimeMin = 2.2f; look.SmokeLifetimeMax = 2.8f;
                     break;

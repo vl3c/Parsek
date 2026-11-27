@@ -489,11 +489,14 @@ namespace Parsek
         /// The fireball: dense lumpy yellow puffs that swell to about
         /// <see cref="FallbackExplosionLook.FireDiameter"/> (centres over 0.55 of it, each puff
         /// about half of it) and burn through orange to a dark red-brown as they fade. Alpha-blended, so it stays a saturated yellow against a bright
-        /// sky (an additive one washes out to white), and sorted over the smoke.
+        /// sky (an additive one washes out to white), and sorted over the smoke. It stays
+        /// yellow for about 0.4 of its life, as stock's does, before it browns.
         /// </summary>
         private static ParticleSystem BuildFallbackExplosionFire(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
         {
-            var ps = NewExplosionPart(parent, "Fire", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
+            // A 0.6 tint brightens the colours by a fifth (the shader doubles it), so the hot core
+            // clips to the near-white yellow of stock's fireball while the alpha stays as set.
+            var ps = NewExplosionPart(parent, "Fire", alphaShader, new Color(0.6f, 0.6f, 0.6f, 0.5f),
                 look.FireCount, cachedExplosionPuffTexture, out ParticleSystemRenderer renderer);
             renderer.maxParticleSize = 3f;
             renderer.sortingFudge = -20f;
@@ -505,7 +508,7 @@ namespace Parsek
             main.startSize = new ParticleSystem.MinMaxCurve(d * 0.45f, d * 0.6f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(1f, 0.97f, 0.6f, 1f), new Color(1f, 0.82f, 0.35f, 1f));
+                new Color(1f, 0.95f, 0.35f, 1f), new Color(1f, 0.85f, 0.25f, 1f));
 
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
@@ -520,9 +523,10 @@ namespace Parsek
                 new GradientColorKey[]
                 {
                     new GradientColorKey(Color.white, 0f),
-                    new GradientColorKey(new Color(1f, 0.75f, 0.35f), 0.45f),
-                    new GradientColorKey(new Color(0.55f, 0.3f, 0.22f), 0.8f),
-                    new GradientColorKey(new Color(0.35f, 0.3f, 0.28f), 1f)
+                    new GradientColorKey(Color.white, 0.4f),
+                    new GradientColorKey(new Color(1f, 0.72f, 0.35f), 0.62f),
+                    new GradientColorKey(new Color(0.5f, 0.3f, 0.22f), 0.82f),
+                    new GradientColorKey(new Color(0.35f, 0.32f, 0.3f), 1f)
                 },
                 new GradientAlphaKey[]
                 {
@@ -565,7 +569,7 @@ namespace Parsek
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlashLifetime * 0.8f, look.FlashLifetime);
             main.startSpeed = 0f;
             // The soft glow shows about 0.6 of its size, so the particle is larger than the flash.
-            main.startSize = new ParticleSystem.MinMaxCurve(d * 1.2f, d * 1.5f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 1.5f, d * 1.9f);
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(1f, 1f, 0.95f, 1f), new Color(1f, 0.95f, 0.8f, 1f));
 
@@ -890,7 +894,7 @@ namespace Parsek
         /// way stock's explosion clouds do (a soft circle reads as a small smooth blob). The RGB
         /// carries a faint light-and-shade pattern so overlapping puffs keep some structure; the
         /// particle colour sets the hue. Deterministic; each particle's random rotation varies it.
-        /// The visible part is about 0.8 of the particle size.
+        /// The visible part is about 0.75 of the particle size.
         /// </summary>
         private static Texture2D CreateExplosionPuffTexture(int size)
         {
@@ -915,10 +919,10 @@ namespace Parsek
                     {
                         float du = u - lobes[i], dv = v - lobes[i + 1], r = lobes[i + 2];
                         float dist = Mathf.Sqrt(du * du + dv * dv);
-                        alpha = Mathf.Max(alpha, 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(r * 0.65f, r, dist)));
+                        alpha = Mathf.Max(alpha, 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(r * 0.45f, r, dist)));
                     }
-                    float shade = 0.84f + 0.08f * Mathf.Sin(u * 7.1f + 1.3f) * Mathf.Sin(v * 6.3f + 0.4f)
-                        + 0.08f * (0.5f - 0.5f * (u + v) * 0.5f);
+                    float shade = 0.95f + 0.04f * Mathf.Sin(u * 7.1f + 1.3f) * Mathf.Sin(v * 6.3f + 0.4f)
+                        + 0.04f * (0.5f - 0.5f * (u + v) * 0.5f);
                     shade = Mathf.Clamp01(shade);
                     tex.SetPixel(x, y, new Color(shade, shade, shade, alpha));
                 }
