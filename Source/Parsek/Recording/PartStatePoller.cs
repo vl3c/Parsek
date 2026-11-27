@@ -52,6 +52,22 @@ namespace Parsek
 
         /// <summary>Text after <c>midx=N</c> on an animate-heat event line.</summary>
         internal abstract string AnimateHeatEventSuffix(float normalizedHeat, string sourceField);
+
+        /// <summary>
+        /// The ownership guard of a cached-module poll (<see cref="PartStatePoller.PollRobotics"/>):
+        /// true when the entry is live and its part is still on <paramref name="recordedVessel"/>
+        /// (a live instance comparison, the rule of <c>FlightRecorder.DecideCachedModulePoll</c>).
+        /// The active recorder overrides it with its own guard, which logs a dropped foreign
+        /// module once per key; the default skips silently. It does not call the recorder, so
+        /// the sink stays out of the recorder's type knot.
+        /// </summary>
+        internal virtual bool ShouldPollCachedModule(
+            Part part, PartModule module, Vessel recordedVessel, ulong key, string family)
+        {
+            if (part == null || module == null) return false;
+            Vessel partVessel = part.vessel;
+            return partVessel != null && ReferenceEquals(partVessel, recordedVessel);
+        }
     }
 
     /// <summary>
@@ -862,6 +878,80 @@ namespace Parsek
 
                     if (!foundToggleableColorChanger)
                         continue;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The active recorder's robotic poll over its cached robotic modules
+        /// (<see cref="FlightRecorder.CacheRoboticModules"/>): the ownership guard
+        /// (<see cref="PartPollSink.ShouldPollCachedModule"/>), the emission gate
+        /// (<see cref="FlightRecorder.ShouldEmitRoboticEvents"/>), the moving signal and position
+        /// reads, and the shared transition machine (<see cref="FlightRecorder.EvaluateRoboticPoll"/>)
+        /// at <paramref name="sampleIntervalSeconds"/>. The containers are the caller's per-vessel
+        /// robotic state. The background recorder keeps its own loop.
+        /// </summary>
+        internal static void PollRobotics(Vessel v,
+            List<(Part part, PartModule module, int moduleIndex, string moduleName)> cachedRoboticModules,
+            HashSet<ulong> activeRoboticKeys, Dictionary<ulong, float> lastRoboticPosition,
+            Dictionary<ulong, double> lastRoboticSampleUT,
+            Dictionary<ulong, FlightRecorder.RoboticMotionWindow> roboticMotionWindows,
+            HashSet<ulong> loggedRoboticModuleKeys, double sampleIntervalSeconds, double ut,
+            PartPollSink sink)
+        {
+            if (cachedRoboticModules == null) return;
+
+            for (int i = 0; i < cachedRoboticModules.Count; i++)
+            {
+                var (part, module, moduleIndex, moduleName) = cachedRoboticModules[i];
+                if (part == null || module == null) continue;
+
+                ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
+                if (!sink.ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
+
+                // Wheel motor spin and wheel steering deflection are derived from the ghost's own
+                // ground motion at playback, and wheel suspension travel is not recorded at all. The
+                // module stays in the cached list so moduleIndex numbering matches the ghost
+                // builder's; only the emission is skipped. See IsRoboticEmissionSkippedModuleName.
+                if (!FlightRecorder.ShouldEmitRoboticEvents(sink.Tag, moduleName, key, loggedRoboticModuleKeys,
+                        part.partInfo?.name, part.persistentId, moduleIndex, null))
+                    continue;
+
+                bool hasMovingSignal = FlightRecorder.TryGetRoboticMovingState(module, out bool movingSignal);
+                bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
+                    module, moduleName, out float positionValue, out float deadband, out string sourceField);
+
+                if (!hasPosition)
+                {
+                    if (loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Verbose(sink.Tag, $"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
+                            $"midx={moduleIndex} module={moduleName}{sink.ClassificationMissDetail(module)}");
+                    }
+                    continue;
+                }
+
+                var events = FlightRecorder.EvaluateRoboticPoll(
+                    key, part.persistentId, moduleIndex,
+                    part.partInfo?.name ?? "unknown", moduleName, sourceField,
+                    hasMovingSignal, movingSignal, positionValue, deadband, ut,
+                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
+                    roboticMotionWindows, sampleIntervalSeconds,
+                    out string movingSource, out _);
+
+                if (loggedRoboticModuleKeys.Add(key))
+                {
+                    ParsekLog.Verbose(sink.Tag, FlightRecorder.FormatRoboticTrackingLine(
+                        part.partInfo?.name, part.persistentId, moduleIndex, moduleName, sourceField,
+                        deadband, movingSource, sampleIntervalSeconds, null));
+                }
+
+                for (int e = 0; e < events.Count; e++)
+                {
+                    sink.Events.Add(events[e]);
+                    ParsekLog.Verbose(sink.Tag, $"Part event: {events[e].eventType} '{events[e].partName}' " +
+                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
+                        $"val={events[e].value:F3}{sink.EventSuffix()}");
                 }
             }
         }

@@ -289,11 +289,14 @@ namespace Parsek.TestCommands
                && (Array.IndexOf(TestCommandPartParitySweep.MotionOrbitControlIds, id) >= 0
                    || Array.IndexOf(TestCommandPartParitySweep.MotionAirControlIds, id) >= 0);
 
-        /// <summary>A control only an FX run plans (every FX control but the two coverage ones).</summary>
+        /// <summary>A control only an FX run plans (every FX control but the two coverage ones,
+        /// the burst and dust controls of design G.4 included).</summary>
         internal static bool IsFxOnlyControl(string id)
             => id != TestCommandPartParitySweep.ControlEmpty && id != TestCommandPartParitySweep.ControlGhostAbsent
                && (Array.IndexOf(TestCommandPartParitySweep.FxOrbitControlIds, id) >= 0
-                   || Array.IndexOf(TestCommandPartParitySweep.FxAirControlIds, id) >= 0);
+                   || Array.IndexOf(TestCommandPartParitySweep.FxAirControlIds, id) >= 0
+                   || Array.IndexOf(TestCommandPartParitySweep.BurstControlIds, id) >= 0
+                   || Array.IndexOf(TestCommandPartParitySweep.DustControlIds, id) >= 0);
 
         /// <summary>
         /// Judges a state control (<c>ctl-state-events-dropped</c>, its air twin; design D.6):

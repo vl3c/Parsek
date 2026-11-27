@@ -109,7 +109,8 @@ namespace Parsek.Tests
             // follows the last grammar token.
             var reasons = TestCommandPartParitySweep.Reasons.ToList();
             Assert.Equal(reasons.IndexOf("contexts-arg-invalid") + 1, reasons.IndexOf("fx-arg-invalid"));
-            Assert.Equal(reasons.IndexOf("maxseconds-arg-invalid") + 1, reasons.IndexOf("no-active-vessel"));
+            // P9 put its interim burst-dust-runs-not-built between the two (PartParityBurstContractTests).
+            Assert.Equal(reasons.IndexOf("maxseconds-arg-invalid") + 2, reasons.IndexOf("no-active-vessel"));
             Assert.DoesNotContain("fx-runs-not-built", reasons);
             Assert.Contains("fx", TestCommandPartParitySweep.ArgKeys);
         }
@@ -301,7 +302,7 @@ namespace Parsek.Tests
             Assert.Contains("\"fxAtlas\": null", doc);
             Assert.Contains("\"strip\": null", doc);
             int fx = System.Array.IndexOf(PartParityJson.CaseKeys, "fx");
-            Assert.Equal(new[] { "fx", "fxAtlas", "strip" }, PartParityJson.CaseKeys.Skip(fx).Take(3));
+            Assert.Equal(new[] { "fx", "fxAtlas", "strip", "burst", "dust" }, PartParityJson.CaseKeys.Skip(fx).Take(5));
         }
 
         [Fact]

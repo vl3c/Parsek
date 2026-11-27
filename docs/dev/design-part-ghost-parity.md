@@ -3892,6 +3892,90 @@ own acceptance (every flight on the operator's go): X0 three throwaway flights o
 10 minutes; X7 the four PP-11 / PP-12 flights of G.5; X8 the two FXC flights twice (reading, then
 full); each Y fix one re-flight of the lane that found its mismatch.
 
+X1 as built (2026-11-26, no flight). The contract lives in the partial `PartParityFxRules.Burst.cs`
+(families, words, states, the `ground` context and its slots, the window, bins and trials, every
+G.3 constant and line, the enumeration, the control subjects and judges), the sweep's arg, setup,
+control and admission rules in `TestCommandPartParitySweep.cs`, and the sidecar tables in
+`PartParityJson.cs`; every literal is mirrored in `harness/lib/partparity.py` and hlib's arg
+table, pinned by `PartParitySourceSyncTests`' `test_the_burst_*` cells and
+`PartParitySweepSourceSyncTests.test_the_burst_dust_*`. Decisions it took:
+- Words and runs. `fx=` also names `explode`, `vessel-explode`, `burst-custom`, `decouple` (the
+  burst words) and `dust`; `fx=all` stays the four P8 words, so every run named before P9 plans
+  what it planned. A run's words are of one kind (`FxCombinationValid(a, fx)`): burst words with
+  exactly `contexts=air`, `dust` with exactly `contexts=ground`, P8 words as before; anything else
+  is `fx-arg-invalid`. `ground` is a new context of the FX rules, not of P6 (`KnownContexts` is
+  unchanged; the parse reads `KnownRunContexts`), stands alone, and without `fx=` is refused
+  `contexts-arg-invalid`. A ground run is admitted at the pad like an air run (`IsPadHostRun`).
+- Until X4, a well-formed burst or dust run is REJECTED `burst-dust-runs-not-built` (detail
+  `fx=..`; `BurstDustRunsBuilt`, hlib `PARTPARITY_BURST_DUST_RUNS_BUILT`), F1's pattern, after
+  the last grammar token and before the admission; the grammar alone (`TryParseGrammar`) plans.
+- Enumeration. `EnumerateBurstDust` runs over the whole install (the power buckets, the stacks
+  and the stand-ins are install-level choices) and is a separate call from P8's per-part
+  `Enumerate`, so no P8 plan, count line or fixture count moves. Its input
+  (`PartParityBurstPart`) adds two part-level config facts the module list lacks: the part's
+  `explosionPotential` (stock's default 0.5 when absent) and the FX group names of its `fx_*`
+  keys; X4 fills them from `partConfig`.
+  - `explode`: one case per potential value present, its ordinal-first part. The installs hold
+    THREE values, not G.5's four: 0, 0.1 and the 0.5 default (no part names 1.0; stock-minimal
+    16 / 46 / 416 parts, modded-restock 23 / 46 / 533), so 3 cases (`MpoProbe`,
+    `AdvancedCanard`, `CargoStorageUnit` on stock).
+  - `vessel-explode`: `fuelTank` (else `fuelTankSmallFlat`) stacks of 1, 2, 3 and 6 parts. G.2
+    names 1, 3 and 6 and G.5 four stacks; the fourth is 2, the smallest cluster FXMonger's 10 m
+    merge raises from 0.5 to 1.0 (G.8 item 5).
+  - `burst-custom`: the custom explosion at L = 1, 5, 10, 15 and 20 m (Parsek's power 0.05 to 1;
+    part name `parsek.customExplosion`), then the part puff on each explode bucket's part: 5 + 3 =
+    8 stand-ins (G.5's 9 assumed four buckets).
+  - `decouple`: every module implementing `ModuleDecouplerBase` whose part names an FX group of its
+    `fxGroupName` (`decouple` by default): 30 on stock-minimal, 50 on modded-restock; the two stock
+    heat shields `HeatShield0` / `HeatShield1` carry none (`decouple-no-fx-group`). The plain joint
+    breaks are this family's `joint-break` state on `fuelTank` and `trussPiece1x`. Every burst case
+    is in the `air` context; a decouple case's window is 2 s, every other 4 s.
+  - `dust`: every module named `ModuleSurfaceFX` whose `thrustProviderModuleIndex` is an engine
+    (else `dust-no-thrust-provider`; none on either install): 39 modules on 36 parts on
+    stock-minimal, 53 on 49 on modded-restock, each at the slots `dust-low` (0.2 of its
+    `maxDistance`, terrain), `dust-high` (0.7, terrain) and `dust-water` (0.4, water), so 117 / 159
+    cases; two modules on one part take the same-word tiebreak by module index
+    (`dust-low-m10`). The drive is the thrust provider's `burn-full` (its recorder key index, air
+    breathing and spool read off it); `ModuleSurfaceFX`'s stock defaults (`fxMax` 1,
+    `maxDistance` 50, `falloff` 2, provider -1) are the decompiled field initializers.
+- Committed part lists `Source/Parsek.Tests/Fixtures/PartParity/burst-parts-<profile>.txt`
+  (stock-minimal, modded-restock): every sweep part (478 / 602) with its potential and FX groups,
+  and the decoupler, `ModuleSurfaceFX` and engine modules at their prefab index, read from each
+  install's ConfigCache (the MODULE order is the prefab order: it matched all 2084 modules of the
+  stock fixtures and 3421 of modded-compat's). `TheFixtures_PinTheG5Counts` pins every count above.
+- Controls (G.4). A burst run's set is the seven `ctl-burst-*`, a dust run's the three
+  `ctl-dust-*` (G.4 names no coverage control for dust). Subjects: `fuelTank` (else
+  `fuelTankSmallFlat`) for the burst controls, the LV-T45 for the dust ones, which must carry a
+  `ModuleSurfaceFX` (`PartParityFxSubjectFacts.HasSurfaceFx`, refusal `no-surface-fx`).
+  `ctl-dust-above-reach` is a `KnownDifferenceControlIds` member: its judge
+  (`JudgeDustControl`) records `n/a` when stock missed and the ghost drew dust while
+  `DustAboveReachGhostJudged` is false (Y3 sets it), and `dust-no-stock-hit` is its pass
+  condition there, not a setup fault. `JudgeBurstControl` reads each required outcome of G.4 off
+  the failing measures and the schedule counts. The late / shift / power steps are constants
+  (0.5 s, 3 m, one prefab index).
+- G.3 lines (`BurstMeasureLevel`, `BurstColourLevel`). A bin delta fails over its fail line and
+  warns at or over its warn line (onset fails at 2 bins; peak time warns at 1 or 2, fails at 3);
+  duration fails over 40 % and warns over 20 %; peak area, radius and brightness are bands; the
+  centroid offset fails over 0.3 and warns over 0.15. G.3 leaves two numbers open: two schedule
+  powers inside one index differ beyond 0.0001 (`BurstSchedulePowerEpsilon`), and a schedule
+  position more than 1 m off its counterpart fails (G.3 lists it among the musts, not the warns).
+- Views and layers. G.2.1 names no burst views: `burst-side`, `burst-top`, `burst-far`, layers
+  `flame` and `smoke` (`ClassifyFxRenderer`). The dust views and the `dust` layer are G.2.2's.
+- Sidecar. Two top-level blocks, `burst` and `dust` (`BurstKeys`, `DustKeys`, null on every other
+  case), with their sub-tables (schedule, trigger, source, per-bin and summary measures, compare,
+  halves, the dust raycast); the atlases are `<caseId>.burst.png` (rows `BurstAtlasRows`, columns
+  view-major over the bins) and `<caseId>.dust.png`. The committed P8 FX fixture was rebuilt for
+  the two null keys (`WriteFxFixture`; its atlas pixels did not move).
+- No-change cells: `WithEveryP8FxValue_ThePlanControlSetAndSettingsAreUnchanged` (nine fx= values
+  with and without `contexts=air`: control set, settings keys and values, and the plan with P9
+  keys mixed in equal to the plan without them) and Python's
+  `test_with_every_p8_fx_value_the_control_set_is_unchanged`.
+- No CHANGELOG entry: tooling only, as F1 and F1b.
+- Left for X4 / X5 (clean review, 2026-11-27): `JudgeBurstControl`'s `ctl-burst-off` asks for
+  `RealBlasts == 1`, so the schedule it reads counts blasts per trial, not per case (a case fires
+  four trials); and G.2's decouple row holds the decoupler with a neighbour below, which the
+  enumerated `air` decouple cases do not carry yet, so the X4 driver adds it.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
@@ -4383,7 +4467,7 @@ subsection.
 | --- | --- | --- | --- | --- |
 | M0 | Spike (throwaway branch, never merged, the P0 / E0 pattern), two flights on stock-minimal and one in the air: U1 rendering the real part on target frames during its live clip (the frame time and the stock clip clock, at a wave of 4); U2 a ghost primed afterwards at increasing UTs gives the same pose as one advanced frame by frame in lock with the real (fraction within 1e-4); U3 the one-clip lag of H.6 item 1 on `solarPanels4` and `GearSmall` (`eventDelayS` against the clip length); U4 a lone servo in orbit driven through its target field with electric charge, and the recorder's robotic poll reading it; U5 a control surface deploy on the radial context, its sign; U6 the speed fields stock applies to each family's clip (decompiled `ModuleParachute`, `ModuleDeployablePart`, `ModuleAnimateGeneric`, `ModuleWheelDeployment`, `RetractableLadder`); U7 the framing ghost's box against the real motion's swept box | spike branch only | before everything | every unknown answered in H.2 |
 | M1 (DONE 2026-11-27) | The contract, both sides: `PartParityMotionRules` (families, predicates reused from `PartParityStateRules`, the two new ones the pollers' own (`PollControlSurfaces`, the robotic poll), exclusions, words, the `motion=` / `frames=` args and their refusals `motion-arg-invalid` / `frames-arg-invalid`, `IsMotionRun` at every state-run site, `PlanCases`, `ControlSetFor`, `PlanFrameTargets`, the progress and timing math, the control judges' thresholds, the key tables and `MotionAtlasRows`); AND every Python mirror (`partparity.py` constants, readers, `control_set`, the sync cells, hlib's arg table); committed fixture part lists `Source/Parsek.Tests/Fixtures/PartParity/motion-parts-<profile>.txt` with xUnit count pins. BUILT: the counts of H.1, the timing golden shared by both sides, `test_hlib.py`'s arg cells | `PartParityMotionRules.cs` (new), `TestCommandPartParitySweep.cs`, `PartParityJson.cs`, `PartParitySweepPlan.cs`, xUnit, `harness/lib/partparity.py` (constants, readers), `test_partparity.py` (sync class), `hlib.py` (arg table) | M2 | `dotnet test` and the lib suite green; with `motion=none` every plan, control set and `settings` equals today's for PP-1 to PP-10; synthetic curves move exactly their own measure (late, slow, eased, staged, snapped, stepped) |
-| M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs` | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green |
+| M2 | Robotic poll extraction: the active recorder's per-module robotic poll moved to `PartStatePoller.PollRobotics`, called by `FlightRecorder`; the background recorder untouched (the S2 light precedent) | `Source/Parsek/Recording/PartStatePoller.cs`, `FlightRecorder.PartEvents.cs`, `FlightRecorder.PartModuleStates.cs` (the active sink's ownership guard) | M1 | `scripts/refactor/il_compare.py --fold` shows the moved body only; recorder tests green. Done 2026-11-27: il_compare lists only `CheckRoboticState` (now the wrapper), the new `PollRobotics` and the `PartPollSink.ShouldPollCachedModule` guard with its active override; the moved body differs from the old one only by fields read as arguments and the sink indirection |
 | M3 | Live motion engine: `PartParityMotionDriver` (P6's press, step, poll and observe reused from `PartParityStateDriver`; the framing ghost; the live real frames; the scout and render ghosts; the servo drive and the radial context; the three controls' altered routes; the motion atlas through `PartParityImage`), the motion wave dispatch in `PartParitySweepRunner`, the chute motion hook in `PartParityAirContext.RunWave` (the `DecideAdmission(args, active,` call the hlib cell reads stays in `ParsekTestCommandAddon.PartParitySweep.cs`, which M3 does not edit), the in-game cell's `motion=` filter (no new `[InGameTest]`) | `PartParityMotionDriver.cs` (new), `PartParityMotionMetrics.cs` (new, pure, no constants), `PartParitySweepRunner.cs`, `PartParityAirContext.cs`, `PartParityCaseCapture.cs` (keeps `AtlasRowsFor`), `PartParityInGameTests.cs`; no mirrored file | M4 | a dev-install run over `longAntenna`, `solarPanels4`, `GearSmall`, `mk2CargoBayS`, `telescopicLadder`, `airbrake1`, `hinge.01`, `StandardCtrlSrf` (radial) and the three controls: every case writes its frames, controls ok, nothing left after teardown, sidecars parse |
 | M4 | Harness judge: `judge_motion`, the flags, the motion recompute (atlas frames and the timing arrays), the motion controls' judges, the press gate over the motion families, the verdicts JSON | `harness/lib/partparity.py` (logic), `test_partparity.py` (new cells) | M3 | lib suite green on synthetic sidecars: each control's perturbation is caught, a mutated frame reds INVALID(parity-instrument), a stowed / state / FX sweep judges byte-identically to before |
 | M5 | Viewer and `--gif` (H.5) | `harness/tools/part_parity_view.py`, `harness/lib/test_part_parity_view.py` | M3 (after M4) | viewer tests green (the node page tests read back lock step, the scrubber and the chart); the APNG and GIF decode back to the atlas tiles |
