@@ -118,12 +118,7 @@ namespace Parsek
             if (info == null) return;
 
             info.lastIntensity = 0f;
-
-            if (info.fireParticles != null)
-            {
-                info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                info.fireParticles.Clear(true);
-            }
+            info.aeroState = 0f;
 
             if (info.glowMaterials != null)
             {

@@ -28,6 +28,8 @@ Not released yet.
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
+- **Ghost reentry fire looks like stock's.** Ghosts wear stock's own flame sheath and glow,
+  as strong as stock's, instead of yellow sparks. (GHOST-REENTRY-FIRE-NOT-STOCK)
 - **Ghosts of resizable B9PartSwitch parts keep the size you picked.** A Utility Weight set to
   2.5 m or 5 m used to replay at its default 1.25 m. (todo GHOST-B9-SUBTYPE-TRANSFORMS)
 - **In an overlapping loop each ghost ends when its own recording ends.** It no longer stands frozen
