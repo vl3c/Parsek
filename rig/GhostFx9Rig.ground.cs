@@ -29,7 +29,12 @@ namespace Parsek.InGameTests
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
         private const double CaseSpacing = 24.0;
         private const double ViewerLead = 2.0;
-        private const double ViewerSpeed = 80.0;
+        private const double ViewerSpeed = 400.0;
+        // KSP's FloatingOrigin moves the origin when the active vessel is 500 m from it (logged as
+        // foThreshold), so the viewer must cover several hundred metres while an effect lives.
+        private const double ViewerNorth = 80.0, ViewerAgl = 60.0, ViewerUp = 24.0;
+        private const double CaseNorthSpacing = 150.0;
+        private const double CamSouth = 40.0, CamWest = 25.0, CamAgl = 8.0, AimAgl = 3.0;
 
         internal sealed class Case
         {
@@ -108,8 +113,8 @@ namespace Parsek.InGameTests
 
         // ---- the ground camera: south-west of the case, 12 m up, aimed 6 m above its base
 
-        private void OnEnable() { Camera.onPreCull += PreCull; }
-        private void OnDisable() { Camera.onPreCull -= PreCull; }
+        private void OnEnable() { Camera.onPreCull += PreCull; GameEvents.onFloatingOriginShift.Add(OnOriginShift); }
+        private void OnDisable() { Camera.onPreCull -= PreCull; GameEvents.onFloatingOriginShift.Remove(OnOriginShift); }
         private void PreCull(Camera c)
         {
             if (FlightCamera.fetch != null && c == FlightCamera.fetch.mainCamera) Pose();
@@ -119,12 +124,21 @@ namespace Parsek.InGameTests
         {
             if (camCase == null || FlightCamera.fetch == null || body == null) return;
             Case c = camCase;
-            Vector3d target = body.GetWorldSurfacePosition(c.Lat, c.Lon, c.GroundAlt + 6.0);
-            double camLat = c.Lat - 0.00055, camLon = c.Lon - 0.00035;
+            Vector3d target = body.GetWorldSurfacePosition(c.Lat, c.Lon, c.GroundAlt + AimAgl);
+            double camLat = c.Lat - DegLat(CamSouth), camLon = c.Lon - DegLon(CamWest, c.Lat);
             double camGround = body.TerrainAltitude(camLat, camLon);
-            Vector3d pos = body.GetWorldSurfacePosition(camLat, camLon, camGround + 12.0);
+            Vector3d pos = body.GetWorldSurfacePosition(camLat, camLon, camGround + CamAgl);
             Vector3 up = (Vector3)(pos - body.position).normalized;
             FlightCamera.fetch.GetCameraTransform().SetPositionAndRotation((Vector3)pos, Quaternion.LookRotation((Vector3)(target - pos), up));
+        }
+
+        private double DegLat(double meters) => meters / body.Radius * 180.0 / Math.PI;
+        private double DegLon(double meters, double lat) => DegLat(meters) / Math.Max(0.05, Math.Cos(lat * Math.PI / 180.0));
+
+        private void OnOriginShift(Vector3d offset, Vector3d nonKrakensbane)
+        {
+            ParsekLog.Info(Tag, (pass ?? "-") + " origin shift ut=" + Planetarium.GetUniversalTime().ToString("F2", Ic) +
+                " offset=" + offset.magnitude.ToString("F1", Ic));
         }
 
         private static IEnumerator WaitUt(double ut)
@@ -166,8 +180,9 @@ namespace Parsek.InGameTests
 
         // ---- authoring
 
-        private static ConfigNode Author(string kind, string name, Vessel anchor)
+        private static ConfigNode Author(string kind, string name, Vessel anchor, out double depth)
         {
+            depth = 1.0;
             string[] stack;
             switch (kind)
             {
@@ -194,6 +209,9 @@ namespace Parsek.InGameTests
                 if (i > 0) att["top"] = i - 1;
                 if (i < infos.Count - 1) att["bottom"] = i + 1;
                 parts.Add(GhostCoOrbitalRig.AuthorPartNode(infos[i], ids[i], i == 0 ? 0 : i - 1, pos, att, null, null));
+                AttachNode bn = infos[i].partPrefab.FindAttachNode("bottom");
+                double low = -(pos.y + (bn != null ? bn.position.y : -1.0));
+                if (low > depth) depth = low;
             }
             Orbit o = anchor.orbit;
             return ProtoVessel.CreateVesselNode(name, VesselType.Ship,
@@ -201,10 +219,15 @@ namespace Parsek.InGameTests
                 0, parts.ToArray());
         }
 
-        private static uint Spawn(string kind, string name, Vessel anchor, double lat, double lon, double alt, double eastSpeed, double upSpeed)
+        // groundClear > 0: alt is ignored and the root is put so the stack's lowest node is that
+        // high above the terrain (a root at a fixed height buried the lower parts in the ground).
+        private static uint Spawn(string kind, string name, Vessel anchor, double lat, double lon, double alt, double eastSpeed, double upSpeed,
+            double groundClear = 0.0)
         {
-            ConfigNode node = Author(kind, name, anchor);
+            double depth;
+            ConfigNode node = Author(kind, name, anchor, out depth);
             if (node == null) return 0u;
+            if (groundClear > 0.0) alt = anchor.mainBody.TerrainAltitude(lat, lon) + depth + groundClear;
             CelestialBody b = anchor.mainBody;
             Vector3d worldPos = b.GetWorldSurfacePosition(lat, lon, alt);
             Vector3d up = (worldPos - b.position).normalized;
@@ -225,20 +248,21 @@ namespace Parsek.InGameTests
             }
             ParsekLog.Info(Tag, "spawn " + name + " pid=" + pid.ToString(Ic) + " lat=" + lat.ToString("F5", Ic) +
                 " lon=" + lon.ToString("F5", Ic) + " alt=" + alt.ToString("F1", Ic) + " east=" + eastSpeed.ToString("F0", Ic) +
-                " up=" + upSpeed.ToString("F1", Ic) + " rangesExtended=" + (sv != null));
+                " up=" + upSpeed.ToString("F1", Ic) + " depth=" + depth.ToString("F2", Ic) + " rangesExtended=" + (sv != null) +
+                " parts=" + (sv != null ? sv.parts.Count.ToString(Ic) : "-"));
             return pid;
         }
 
-        // A viewer that passes the case abreast (170 m north of it, 40 m up) at the event.
+        // A viewer that passes the case abreast (ViewerNorth m north of it, ViewerAgl m up) at the event.
         private IEnumerator SpawnViewer(Case c, double eventUt, Vessel anchor, Action<Vessel> got)
         {
             double now = Planetarium.GetUniversalTime();
             double lead = Math.Max(0.5, eventUt - now);
-            double vLat = c.Lat + 0.0015;
-            double vLon = c.Lon - ViewerSpeed * lead / (body.Radius + c.GroundAlt) * 180.0 / Math.PI;
-            double vAlt = body.TerrainAltitude(vLat, vLon) + 40.0;
-            // Rises and falls back to 40 m over the 5 s it is watched.
-            uint pid = Spawn("viewer", "Viewer " + c.Id, anchor, vLat, vLon, vAlt, ViewerSpeed, 24.0);
+            double vLat = c.Lat + DegLat(ViewerNorth);
+            double vLon = c.Lon - DegLon(ViewerSpeed * lead, c.Lat);
+            double vAlt = Math.Max(body.TerrainAltitude(vLat, vLon), c.GroundAlt) + ViewerAgl;
+            // Rises and falls back to about its start height over the 5 s it is watched.
+            uint pid = Spawn("viewer", "Viewer " + c.Id, anchor, vLat, vLon, vAlt, ViewerSpeed, ViewerUp);
             Vessel v = null;
             yield return WaitLoaded(pid, x => v = x);
             if (v != null)
@@ -280,17 +304,17 @@ namespace Parsek.InGameTests
         {
             double lat = host.latitude, lon = host.longitude;
             var list = new List<Case>();
-            Func<string, string, double, double, Case> mk = (kind, id, dLat, dur) =>
+            Func<string, string, double, double, Case> mk = (kind, id, north, dur) =>
             {
-                var c = new Case { Kind = kind, Id = id, Lat = lat + dLat, Lon = lon, Duration = dur };
+                var c = new Case { Kind = kind, Id = id, Lat = lat + DegLat(north), Lon = lon, Duration = dur };
                 c.GroundAlt = body.TerrainAltitude(c.Lat, c.Lon);
                 return c;
             };
             Case lead = mk("lead", "lead", 0.0, 1.0); list.Add(lead);
-            Case b1 = mk("boom", "boom-stock", 0.0040, 4.0); list.Add(b1);
-            Case b2 = mk("boom", "boom-built", 0.0070, 4.0); list.Add(b2);
-            Case pf = mk("puff", "puff", 0.0100, 6.5); pf.EventAt = 2.5; list.Add(pf);
-            Case du = mk("dust", "dust", 0.0130, 6.0); du.EventAt = 2.5; list.Add(du);
+            Case b1 = mk("boom", "boom-stock", CaseNorthSpacing * 1, 4.0); list.Add(b1);
+            Case b2 = mk("boom", "boom-built", CaseNorthSpacing * 2, 4.0); list.Add(b2);
+            Case pf = mk("puff", "puff", CaseNorthSpacing * 3, 6.5); pf.EventAt = 2.5; list.Add(pf);
+            Case du = mk("dust", "dust", CaseNorthSpacing * 4, 6.0); du.EventAt = 2.5; list.Add(du);
             return list;
         }
 
@@ -306,8 +330,8 @@ namespace Parsek.InGameTests
             List<Case> plan = Plan(host);
             // Rewind-to-Launch strips the pad craft; an anchor spawned before the lead recording
             // (so it is in the rewind save) gives the ghost passes a FLIGHT scene to start from.
-            double aLat = host.latitude + 0.0008, aLon = host.longitude;
-            uint anchorPid = Spawn("anchor", "Fx9 anchor", host, aLat, aLon, body.TerrainAltitude(aLat, aLon) + 1.5, 0, 0);
+            double aLat = host.latitude + DegLat(60.0), aLon = host.longitude;
+            uint anchorPid = Spawn("anchor", "Fx9 anchor", host, aLat, aLon, 0, 0, 0, 0.5);
             Vessel anchorVessel = null;
             yield return WaitLoaded(anchorPid, x => anchorVessel = x);
             ParsekLog.Info(Tag, "anchor pid=" + anchorPid.ToString(Ic) + " loaded=" + (anchorVessel != null));
@@ -326,7 +350,7 @@ namespace Parsek.InGameTests
                 {
                     // Spawned 4 s before its slot so it has settled on the grass when recording starts.
                     yield return WaitUt(baseUt + CaseSpacing * i - 4.0);
-                    uint pid = Spawn(c.Kind, "Fx9 " + c.Id, previous, c.Lat, c.Lon, c.GroundAlt + 2.0, 0, 0);
+                    uint pid = Spawn(c.Kind, "Fx9 " + c.Id, previous ?? host, c.Lat, c.Lon, 0, 0, 0, 0.5);
                     v = null;
                     yield return WaitLoaded(pid, x => v = x);
                     if (v == null) { ParsekLog.Info(Tag, "case " + c.Id + ": never loaded"); continue; }
@@ -338,6 +362,8 @@ namespace Parsek.InGameTests
                 }
                 flight.StartRecording();
                 c.StartUt = Planetarium.GetUniversalTime();
+                ParsekLog.Info(Tag, "case " + c.Id + " recording=" + flight.HasActiveTree + " active=" +
+                    (FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName + " parts=" + FlightGlobals.ActiveVessel.parts.Count.ToString(Ic) : "-"));
                 if (c.Kind == "puff" || c.Kind == "dust")
                 {
                     camCase = c;
@@ -403,11 +429,21 @@ namespace Parsek.InGameTests
                     if (c.Kind != "lead") yield return WaitUt(c.EventUt + 3.2);
                     previous = v;
                 }
+                CommitStrayPendingTree(c.Id);
                 cases.Add(c);
                 camCase = null;
                 FlightCamera.fetch.ActivateUpdate();
             }
             ParsekLog.Info(Tag, "REAL DONE cases=" + cases.Count.ToString(Ic) + " ut=" + Planetarium.GetUniversalTime().ToString("F1", Ic));
+        }
+
+        // A destroyed recorded vessel leaves a pending tree, which refuses every later rewind.
+        private static void CommitStrayPendingTree(string caseId)
+        {
+            RecordingTree pending = PendingTreeSlot.PendingTree;
+            if (pending == null) return;
+            bool ok = TreeCommitService.CommitPendingTree();
+            ParsekLog.Info(Tag, "case " + caseId + " stray pending tree '" + pending.TreeName + "' committed=" + ok);
         }
 
         // ---- ghost passes
