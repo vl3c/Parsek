@@ -3976,6 +3976,72 @@ table, pinned by `PartParitySourceSyncTests`' `test_the_burst_*` cells and
   four trials); and G.2's decouple row holds the decoupler with a neighbour below, which the
   enumerated `air` decouple cases do not carry yet, so the X4 driver adds it.
 
+X3 as built (2026-11-26, no flight). The pure burst measures live in `PartParityBurstMetrics.cs`
+(`Source/Parsek/TestCommands/`), which holds no constant of its own (every one is
+`PartParityFxRules`'; a Python cell reds on a `const`, a `static readonly` or a threshold literal
+there). Definitions, which `partparity.py` transcribes (`burst_measure_bin`, `burst_measure_side`,
+`burst_compare`, `burst_schedule_compare`, `burst_failing_measures`, `recompute_burst_case`):
+- Accumulation. `PartParityBurstAccumulator` per side, view and layer: one E.4 accumulator per
+  bin and per trial half (trials 1 and 3 against 2 and 4); a bin's tile is E.4's 8-bit tile over
+  every frame of every trial in it (the whole set is the two halves' sum). `burst.samples` holds
+  each side's sample count per bin.
+- One bin (`MeasureBin`, every `BurstBinMeasureKeys` key): E.4's core, envelope and saturated
+  counts, core centroid, colour, luminance, chromaticity and hue histogram, plus `radiusPx`, the
+  nearest-rank 95th percentile (`PartParityMetrics.NearestRankPercentile`) of the envelope pixels'
+  distances from the side's OWN projected source point (`burst.views[].source.realPx` /
+  `ghostPx`; each side is photographed from its own pose).
+- One side over the bins (`MeasureSide`): `onsetBin` (first envelope), `peakBin` (largest
+  envelope, earliest on a tie), `lastCoreBin`, `peakCorePx` (largest core).
+- Compare (`Compare`, ghost minus real): `onsetDeltaBins`, `peakTimeDeltaBins`;
+  `durationDelta` = last core bins' delta over the real duration, which runs from the trigger to
+  the end of its last core bin (`lastCoreBin + 1` bins: G.3 does not say where the duration
+  starts); `peakAreaRatio`; at the REAL peak bin `radiusRatio`, `centroidOffset` (each centroid
+  from its own side's source, ghost minus real, over `source.diameterPx`), `chromaDistance`,
+  `hueL1`, `brightnessRatio`; and `chromaDistanceMean` / `hueL1Mean` over every bin where both
+  are defined (G.3's "averaged over the bins").
+- Presence is read over the WINDOW, not bin by bin (a G.3 wording changed): one side's largest
+  core at `PresenceMinPx` (`SmokeMinPx` on the smoke layer) and the other side drawing no core
+  in any bin is `burst-missing` / `burst-extra` (`smoke-missing` / `smoke-extra`). The per-bin
+  reading made every timing shift a presence failure (`ctl-burst-late`'s 0.5 s leaves two bins
+  with the real core only), which is onset's and duration's measure.
+- Fail lines (`FailingMeasures`, for the C# control judges; case verdicts stay X5's): a layer one
+  side lacks fails presence alone (F4's rule); E.4's weak-core rule then leaves only presence; the
+  flame layer judges onset, peak time, duration, peak area, radius, centroid offset and colour
+  (`BurstColourLevel` at the peak bin or over the mean); the smoke layer judges `smoke` (its
+  presence or its peak area); brightness is warn-only. The schedule diff (`CompareSchedule`)
+  pairs the blasts in order: count, prefab index or a position more than 1 m off fails, a power
+  over 0.0001 off inside one index warns.
+- Split halves (`SplitHalfDisagreement`): the halves of one side disagree on presence or their
+  largest cores differ by more than `SplitHalfPct` of the larger (E.4 read lengths and widths; a
+  burst has neither). Halves are written as numbers only (`BurstHalfKeys`).
+- Synthetic bursts (`PartParityBurstSynthetic.cs`): a disc about the source whose radius follows
+  a per-bin profile with one peak, brightness to half at the rim, a stochastic rim from a fixed
+  LCG. Against another draw of itself every measure passes; a burst 2 bins late fails onset only
+  (peak time warns), one at 0.6 scale fails peak area and radius only, one 3 px off its source
+  (0.375 of an 8 px box) fails centroid offset only, a hue-rotated one fails colour only with
+  every shape and time measure equal to the intact ghost's, a missing one fails presence only; one
+  cut off after bin 7 fails duration only, one peaking 3 bins late fails peak time only, one
+  hue-rotated in every bin but the real peak bin fails colour on the mean only, a weak smoke
+  (both cores under `PresenceMinPx`) is not judged on its failing peak area, and a peak tie reads
+  its earliest bin; the six G.4 burst controls are met by their own synthetic ghosts and refuse
+  another's. Hand-built measures pin the same fail lines at their boundaries (duration and peak
+  time fail against warn, the weak-core rule at `PresenceMinPx - 1` against `PresenceMinPx` on
+  both layers, a peak tie, a colour wrong off the peak bin) with the same inputs in C# and in
+  Python's `BurstFailLineTests`, which also pin the schedule's strict 1 m line and a power
+  difference read only inside one prefab index.
+- Exact recompute. The committed fixture `Source/Parsek.Tests/Fixtures/PartParity/burst/`
+  (`burstfixturepart--default--explode--air--ddae84c8`: `.burst.png`, 4 rows x 3 views x 16 bins
+  of 48 px, 8 samples a bin, and its `.part.json`, whose `burst.views[]` hold 6 entries; ghost
+  late / shifted / hue-rotated on the three views' flame, smoke another draw / missing / small,
+  a schedule whose power warns) is rebuilt by `PARSEK_WRITE_PART_PARITY_BURST_FIXTURE=1 dotnet
+  test --filter WriteBurstFixture` and pinned by pixels and numbers. Python's `BurstMeasureTests`
+  check that all 1848 bin, side and compare values recompute bit for bit (a cell asserting exact
+  equality); `recompute_burst_case`, the reader X5 runs, compares the pixel counts, the sides'
+  bin indices and the schedule's counts and flags exactly and every other number within
+  `RECOMPUTE_FLOAT_TOLERANCE` (1e-9, relative above 1), recomputes the halves' comparisons from
+  their side blocks and the schedule diff, and reds on every tampered number, a mutated pixel,
+  an alpha no sample count writes and a wrong layout.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
