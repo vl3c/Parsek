@@ -72,7 +72,7 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "PartParity", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
             BatchSkipReason = "Isolated-run only - spawns, presses and removes one-part vessels around the active vessel; needs a stable orbit.",
-            Description = "Part ghost parity, state filter: the acceptance parts at every orbit state (states=all) photographed on three ghosts into parsek-partparity/ingame-state-<n>/")]
+            Description = "Part ghost parity, state filter: the acceptance parts at every orbit state (states=all) photographed on three ghosts into parsek-partparity/ingame-state-<n>/, then the FX (ingame-fx-<n>/) and motion (ingame-motion-<n>/) filters")]
         public IEnumerator SweepStateAcceptanceSet()
         {
             Vessel active = FlightGlobals.ActiveVessel;
@@ -106,6 +106,68 @@ namespace Parsek.InGameTests
             IEnumerator fx = RunFxSteps();
             try { while (fx.MoveNext()) yield return fx.Current; }
             finally { PartParitySweepRunner.DisposeNested(fx); }
+            IEnumerator motion = RunMotionSteps();
+            try { while (motion.MoveNext()) yield return motion.Current; }
+            finally { PartParitySweepRunner.DisposeNested(motion); }
+        }
+
+        /// <summary>The motion filter's acceptance parts (design H.7 M3): one of every orbit
+        /// motion kind (clip, servo, surface on its radial filler) and the families P6 judges
+        /// only at their end state.</summary>
+        internal static readonly string[] MotionAcceptanceParts =
+        {
+            "longAntenna", "solarPanels4", "GearSmall", "mk2CargoBayS", "telescopicLadder",
+            "airbrake1", "hinge.01", "StandardCtrlSrf",
+        };
+
+        /// <summary>The label prefix of the motion steps; each part runs under its own label.</summary>
+        internal const string MotionLabelPrefix = "ingame-motion-";
+
+        /// <summary>One motion step's args: every <c>motion=</c> word on one part at the motion
+        /// views and tile, the motion controls on the first label only.</summary>
+        internal static PartParitySweepArgs MotionArgs(string label, PartParitySweepOp op, string filter = null)
+        {
+            return new PartParitySweepArgs
+            {
+                Label = label,
+                Op = op,
+                Filter = filter ?? TestCommandPartParitySweep.DefaultFilter,
+                Motion = new List<string>(PartParityMotionRules.ArgWords),
+                MotionAll = true,
+                Views = new List<string>(PartParityMotionRules.DefaultViews),
+                Tile = PartParityMotionRules.MotionTilePx,
+                Controls = label == MotionLabelPrefix + "1",
+                MaxSeconds = TestCommandPartParitySweep.MaxMaxSeconds,
+            };
+        }
+
+        /// <summary>The motion half of the state acceptance cell (the plan's <c>motion=</c>
+        /// filter, no new test): the acceptance parts through every motion family they have.</summary>
+        private static IEnumerator RunMotionSteps()
+        {
+            for (int i = 0; i < MotionAcceptanceParts.Length; i++)
+            {
+                string label = MotionLabelPrefix + (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                PartParitySweepStepResult reset = null;
+                IEnumerator r = PartParitySweepRunner.RunStep(MotionArgs(label, PartParitySweepOp.Reset), res => reset = res);
+                try { while (r.MoveNext()) yield return r.Current; }
+                finally { PartParitySweepRunner.DisposeNested(r); }
+                InGameAssert.IsTrue(reset != null && reset.Ok, "motion reset failed for " + label + ": " + Describe(reset));
+
+                PartParitySweepStepResult step = null;
+                IEnumerator run = PartParitySweepRunner.RunStep(MotionArgs(label, PartParitySweepOp.Run, MotionAcceptanceParts[i]), x => step = x);
+                try { while (run.MoveNext()) yield return run.Current; }
+                finally { PartParitySweepRunner.DisposeNested(run); }
+                InGameAssert.IsTrue(step != null && step.Ok, "motion run failed for " + label + ": " + Describe(step));
+                string payload = TestCommandPartParitySweep.FormatPayload(step.Payload);
+                ParsekLog.Info(PartParitySweepRunner.Tag, "ingame motion sweep " + MotionAcceptanceParts[i] + ": " + payload);
+                InGameAssert.IsTrue(Value(step, "done") == "true", "the motion step did not finish inside its time box: " + payload);
+                InGameAssert.IsTrue(Value(step, "setupFaults") == "0",
+                    MotionAcceptanceParts[i] + " has a motion setup fault (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+                if (label == MotionLabelPrefix + "1")
+                    InGameAssert.IsTrue(Value(step, "controls") == TestCommandPartParitySweep.ControlsOk,
+                        "motion controls did not behave (" + payload + "); read parsek-partparity/" + label + "/manifest.json");
+            }
         }
 
         /// <summary>The FX filter's acceptance parts (design E.9 F3): one of every FX family the

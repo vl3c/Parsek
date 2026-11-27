@@ -16,6 +16,8 @@ namespace Parsek
         CustomExplosion = 1,
         /// <summary>Parsek's part puff (<c>GhostVisualBuilder.SpawnPartPuffFx</c>).</summary>
         PartPuff = 2,
+        /// <summary>A silent copy of stock's own explosion (<c>GhostVisualBuilder.SpawnFallbackExplosionFx</c>).</summary>
+        StockCopyExplosion = 3,
     }
 
     /// <summary>One effect Parsek started, as it was started.</summary>

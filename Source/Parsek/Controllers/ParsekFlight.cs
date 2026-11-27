@@ -1987,6 +1987,9 @@ namespace Parsek
             // and the first host tick re-applies the name decisions to every live vessel.
             // First, before any early return below.
             VesselNameLiveSync.OnFlightReady(FlightDriver.PostInitState, Time.realtimeSinceStartup);
+            // Keep silent copies of stock's explosion effects so a ghost crash at the Space Center
+            // or under the pause menu draws stock's look (once per process).
+            StockExplosionPrefabCache.CaptureFrom(GhostVisualBuilder.ResolveLiveFxMonger());
             // From here on an onVesselSwitching in this scene is a real focus change;
             // the scene-entry initial focus fired before this point and was ignored.
             ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();

@@ -45,10 +45,13 @@ dotnet build Source/Parsek/Parsek.csproj
 Hash-compare `Source/Parsek/bin/Debug/Parsek.dll` against
 `automation/stock-minimal/GameData/Parsek/Plugins/Parsek.dll`.
 
-On a mismatch: **tell the operator which build the instance carries and ask
-before provisioning.** `provision/provision.py --profile stock-minimal` deploys
-*the invoking worktree's* DLL — which may be a WIP build — so that is a human
-call, always. Never provision silently.
+On a mismatch: **provision from the worktree whose build you mean to fly,
+and only while you hold the PC turn and no other session holds the machine
+lock.** `provision/provision.py --profile stock-minimal` deploys *the invoking
+worktree's* DLL — which may be a WIP build — so check it is the build you mean.
+Vlad's standing approval (`.claude/CLAUDE.md`, "Harness flights") means no
+fresh "go" is needed. Never provision silently: say in your status which
+build the instance now carries.
 
 ## 3. Fly it
 

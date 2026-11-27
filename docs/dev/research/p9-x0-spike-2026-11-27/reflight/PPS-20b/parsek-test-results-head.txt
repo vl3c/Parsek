@@ -1,0 +1,8 @@
+Parsek In-Game Test Results
+Exported at: 2026-11-27 23:35:17
+Export scene (current): FLIGHT
+Total discovered tests: 727
+Scenes with captured results: 1
+  FLIGHT         last run 2026-11-27 23:35:13   captured=1  Passed=1  Failed=0  Skipped=0
+--------------------------------------------------------------------------------
+

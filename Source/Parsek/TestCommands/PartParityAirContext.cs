@@ -365,25 +365,38 @@ namespace Parsek.TestCommands
         {
             ctx.Live = wave;
             bool solo = wave.Count == 1 && wave[0].Solo;
+            // A motion wave (Appendix H.2) also spawns each real-vs-real control's copy B; any
+            // other wave spawns exactly its cases.
+            List<WaveCase> spawned = PartParityMotionDriver.SpawnSet(wave);
+            bool motion = PartParityMotionDriver.IsMotionWave(wave);
             PartParitySweepRunner.WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
-            for (int i = 0; i < wave.Count; i++)
+            for (int i = 0; i < spawned.Count; i++)
             {
-                WaveCase wc = wave[i];
+                WaveCase wc = spawned[i];
                 int slot = i;
-                PartParitySweepRunner.Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc, slot, wave.Count));
+                PartParitySweepRunner.Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc, slot, spawned.Count));
             }
-            IEnumerator ready = PartParitySweepRunner.WaitReady(ctx, wave);
+            IEnumerator ready = PartParitySweepRunner.WaitReady(ctx, spawned);
             try { while (ready.MoveNext()) yield return ready.Current; }
             finally { PartParitySweepRunner.DisposeNested(ready); }
             if (ctx.HostDamage == null)
             {
-                IEnumerator settle = PartParitySweepRunner.WaitSettled(ctx, wave);
+                IEnumerator settle = PartParitySweepRunner.WaitSettled(ctx, spawned);
                 try { while (settle.MoveNext()) yield return settle.Current; }
                 finally { PartParitySweepRunner.DisposeNested(settle); }
             }
 
             var finished = new HashSet<WaveCase>();
-            if (ctx.HostDamage == null)
+            if (motion && ctx.HostDamage == null)
+            {
+                // The chute motion hook (H.2): the live frames, the ghost rows and each case's
+                // sidecar, the frame its window ends; the floor and the wave cap end a case early.
+                IEnumerator phase = PartParityMotionDriver.RunPhase(ctx, wave, true);
+                try { while (phase.MoveNext()) yield return phase.Current; }
+                finally { PartParitySweepRunner.DisposeNested(phase); }
+                foreach (var wc in wave) if (wc.Status != null || wc.Motion?.Finished == true) finished.Add(wc);
+            }
+            else if (ctx.HostDamage == null)
             {
                 foreach (var wc in wave)
                 {
@@ -435,7 +448,7 @@ namespace Parsek.TestCommands
             }
             ParsekLog.Info(Tag, $"air wave: cases={wave.Count.ToString(Ic)} finished={finished.Count.ToString(Ic)} " +
                 $"reached={reached.ToString(Ic)} faults={faults.ToString(Ic)}");
-            IEnumerator down = PartParitySweepRunner.TearDownWave(ctx, wave);
+            IEnumerator down = PartParitySweepRunner.TearDownWave(ctx, spawned);
             try { while (down.MoveNext()) yield return down.Current; }
             finally { PartParitySweepRunner.DisposeNested(down); }
             ctx.Live = null;
@@ -642,7 +655,7 @@ namespace Parsek.TestCommands
             wobble = Quaternion.Angle(canopy.rotation, Quaternion.LookRotation(aim, upwards));
         }
 
-        private static double HeightAboveTerrain(Vessel v)
+        internal static double HeightAboveTerrain(Vessel v)
         {
             if (v == null) return double.NaN;
             double h = v.radarAltitude;

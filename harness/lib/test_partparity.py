@@ -4405,9 +4405,9 @@ class FxPressGateTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 def _legacy_burst_sweep(label_dir):
-    """A burst run's sweep as today's judge reads it: the burst control set, each control and
-    two cases in the state-case shape (no burst judge exists yet, so this pins that a burst
-    run's judging does not move)."""
+    """A burst run's sweep in the state-case shape: the burst control set, each control and
+    two cases, none with a burst block. Before P9 X5 this pinned that a burst run's judging did
+    not move; since X5 it pins that such a run reads INVALID (no burst block anywhere)."""
     settings = {"fx": "explode", "states": "none", "contexts": "air"}
     cases = [_state_case("fueltank%d--default--vessel-explode-x1--air--0000bbb%d" % (i, i),
                          part="fuelTank%d" % i, family="jettison", state="vessel-explode-x1",
@@ -4486,7 +4486,10 @@ class LegacySweepByteIdentityTests(unittest.TestCase):
         ("state-air", "2a8c78631d7b87561cbcbdd32b9830d7a6fec94d7b0248e9f7de417b83fa4387"),
         ("fx-clean", "c6022d878483492a91c4cd497e378e60e92e209ed08a3a557aaa64fbf2f1f01a"),
         ("fx-air", "6e895c012481e4141a6d5e7168d9470266989bf18f1bd5ae59c4c7c5c8649cfa"),
-        ("burst", "84f5bc3a719ee25025f620350016e5a2abc337130f3dfca31b19c24a94959d33"),
+        # Re-pinned by P9 X5 on purpose: the burst judge now judges a burst run, so these
+        # legacy burst cases (state-case shape, no burst block) read INVALID(parity-controls)
+        # with "no burst block" on every control and every case.
+        ("burst", "385fe91299e8ef5f522ee2403ef381f8af03af723b6efd7f0fb2ea822008c9c6"),
     )
 
     def test_every_legacy_sweep_judges_byte_identically(self):
@@ -5647,6 +5650,876 @@ class BurstFailLineTests(unittest.TestCase):
         self.assertEqual("fail", s["level"])
         self.assertFalse(s["indexDiffers"])
         self.assertTrue(s["powerDiffers"])
+
+
+# ---------------------------------------------------------------------------
+# P9 X5: the burst and dust judge over synthetic sweeps. A burst case is built in the row
+# shape X1 / X3 fixed (the C# fixture's top level, a burst block whose every bin is measured
+# from its own atlas tile by the X3 transcription); a dust case in E.4's entry shape over the
+# dust views (design G.7 "X5 as built").
+# ---------------------------------------------------------------------------
+
+BTILE, BN, BBINS = 32, 8, 16
+BURST_SRC = {"realPx": [16.0, 16.0], "ghostPx": [16.0, 16.0], "diameterPx": 10.0}
+FLAME_R = (0, 5, 7, 9, 10, 10, 9, 8, 7, 6, 5, 0, 0, 0, 0, 0)
+SMOKE_R = (0, 0, 8, 10, 12, 13, 13, 12, 11, 10, 9, 8, 0, 0, 0, 0)
+HUE = (60, 90, 200)
+
+
+def _bspec(layer, radii=None, dx=0, rgb=None, scale=1.0, late=0, cut=None):
+    """One side's per-bin discs of a layer: radii (``late`` bins later, ``cut`` blank from
+    that bin on, each radius times ``scale``), the centre ``dx`` px right of the source."""
+    radii = list(radii or (FLAME_R if layer == "flame" else SMOKE_R))
+    radii = ([0] * late + radii)[:BBINS]
+    if cut is not None:
+        radii = radii[:cut] + [0] * (BBINS - cut)
+    return {"r": tuple(int(round(r * scale)) for r in radii), "dx": dx,
+            "rgb": rgb or (ORANGE if layer == "flame" else GREY)}
+
+
+BLANK_SPEC = {"r": (0,) * BBINS, "dx": 0, "rgb": ORANGE}
+_BURST_TILES = {}
+_BURST_BINS = {}
+
+
+def _burst_disc(radius, dx, rgb):
+    key = (radius, dx, rgb)
+    if key not in _BURST_TILES:
+        out = bytearray(BTILE * BTILE * 4)
+        cx, cy = 16 + dx, 16
+        for y in range(BTILE):
+            for x in range(BTILE):
+                if radius and (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= radius * radius:
+                    i = (y * BTILE + x) * 4
+                    out[i:i + 4] = bytes(rgb) + bytes([pp.fx_tile_alpha(BN, BN)])
+        _BURST_TILES[key] = bytes(out)
+    return _BURST_TILES[key]
+
+
+def _burst_tiles(spec):
+    return [_burst_disc(r, spec["dx"], spec["rgb"]) for r in spec["r"]]
+
+
+def _burst_side(tiles, source):
+    out = []
+    for t in tiles:
+        key = (t, tuple(source))
+        if key not in _BURST_BINS:
+            m, problems = pp.burst_measure_bin(t, BTILE, 0, 0, BTILE, BN, source)
+            assert not problems, problems
+            _BURST_BINS[key] = m
+        out.append(copy.deepcopy(_BURST_BINS[key]))
+    return pp.burst_measure_side(out)
+
+
+def _burst_half(trials, real_tiles, ghost_tiles, layer):
+    r = _burst_side(real_tiles, BURST_SRC["realPx"])
+    g = _burst_side(ghost_tiles, BURST_SRC["ghostPx"])
+    return {"trials": trials, "samples": [BN // 2] * len(real_tiles), "real": r, "ghost": g,
+            "compare": pp.burst_compare(r, g, BURST_SRC, layer)}
+
+
+def _burst_entry(view, layer, real, ghost, odd_ghost=None):
+    rt, gt = _burst_tiles(real), _burst_tiles(ghost)
+    whole = _burst_half(None, rt, gt, layer)
+    even = _burst_half([1, 3], rt, gt, layer)
+    odd = _burst_half([2, 4], rt, _burst_tiles(odd_ghost) if odd_ghost else gt, layer)
+    doc = {"view": view, "layer": layer, "width": BTILE, "height": BTILE, "source": BURST_SRC,
+           "real": whole["real"], "ghost": whole["ghost"], "compare": whole["compare"],
+           "splitHalf": {"even": even, "odd": odd}}
+    return json.loads(json.dumps(doc))
+
+
+def _blast(index=1, power=0.5, offset=(0.0, 0.0, 0.0)):
+    return {"frame": 12, "t": 0.0, "offsetM": list(offset), "power": power,
+            "prefab": "fx-explosion-%d" % index, "index": index}
+
+
+def _burst_case(case_id="fueltank--default--explode--air--0000c0de", ghost=None, real=None,
+                family="explode", state="explode", context="air", part="fuelTank",
+                schedule=None, structure=True, trigger=True, status="ok", views=None, odd=None):
+    """(sidecar, {(row, view): [tile per bin]}) of one burst case. ``real`` / ``ghost`` are
+    {layer: spec} (default: the real burst, the ghost the real one with its layers replaced);
+    ``views`` {(view, layer): ghost spec} overrides one entry; ``odd`` {(view, layer): spec}
+    the odd trial half's ghost."""
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    real = dict({layer: _bspec(layer) for layer in pp.BURST_LAYERS}, **(real or {}))
+    ghost = dict(real, **(ghost or {}))
+    views = views or {}
+    odd = odd or {}
+    doc.update({"caseId": case_id, "part": part, "title": part, "source": "Squad",
+                "state": state, "context": context, "setup": {"status": status, "detail": None}})
+    window = pp.burst_window_for(family)
+    bins = pp.burst_bin_count(window)
+    cut = lambda spec: dict(spec, r=tuple(spec["r"][:bins]))  # noqa: E731
+    real, ghost = {k: cut(v) for k, v in real.items()}, {k: cut(v) for k, v in ghost.items()}
+    views, odd = {k: cut(v) for k, v in views.items()}, {k: cut(v) for k, v in odd.items()}
+    blocks = schedule if schedule is not None else ([_blast()], [_blast()])
+    sc = pp.burst_schedule_compare(*blocks)
+    entries, tiles = [], {}
+    for view in pp.BURST_VIEWS:
+        for layer in pp.BURST_LAYERS:
+            g = views.get((view, layer), ghost[layer])
+            entries.append(_burst_entry(view, layer, real[layer], g, odd.get((view, layer))))
+            tiles[("real-" + layer, view)] = _burst_tiles(real[layer])
+            tiles[("ghost-" + layer, view)] = _burst_tiles(g)
+    doc["burst"] = {
+        "family": family, "module": None, "moduleIndex": None, "potential": 0.5, "stackSize": None,
+        "standIn": "custom" if family == "burst-custom" else None, "lengthM": None, "fxGroup": None,
+        "windowS": window, "binS": pp.BURST_BIN_S, "bins": bins, "trials": pp.BURST_TRIALS,
+        "samples": {"real": [BN] * bins, "ghost": [BN] * bins},
+        "trigger": {"frame": 12, "ut": 100.5, "realTagged": 3, "ghostTagged": 3,
+                    "ghostEvent": "Destroyed"} if trigger else None,
+        "schedule": {"real": blocks[0], "ghost": blocks[1]},
+        "scheduleCompare": {k: sc[k] for k in pp.BURST_SCHEDULE_COMPARE_KEYS},
+        "atlas": {"file": case_id + pp.BURST_ATLAS_SUFFIX, "rows": list(pp.BURST_ATLAS_ROWS),
+                  "views": list(pp.BURST_VIEWS), "bins": bins, "tile": BTILE},
+        "views": entries,
+        "structure": {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [],
+                      "lightsDiffer": []} if structure is True else structure,
+    }
+    return json.loads(json.dumps(doc)), tiles
+
+
+def _burst_atlas(doc, tiles):
+    meta = doc["burst"]["atlas"]
+    views, bins = meta["views"], meta["bins"]
+    width = len(views) * bins * BTILE
+    out = bytearray()
+    for row in meta["rows"]:
+        for y in range(BTILE):
+            for v in views:
+                for t in tiles[(row, v)]:
+                    out += t[y * BTILE * 4:(y + 1) * BTILE * 4]
+    return width, len(meta["rows"]) * BTILE, 4, bytes(out)
+
+
+BROKEN_BURSTS = {
+    # name: (ghost {layer: spec}, the measures the flame entries fail, the smoke entries fail)
+    "intact": ({}, [], []),
+    "late": ({"flame": _bspec("flame", late=2), "smoke": _bspec("smoke", late=2)}, ["onset"], []),
+    "peak-late": ({"flame": _bspec("flame", radii=(0, 5, 6, 7, 8, 9, 9, 10, 8, 6, 5, 0, 0, 0, 0, 0))},
+                  ["peak-time"], []),
+    "cut": ({"flame": _bspec("flame", cut=6)}, ["duration"], []),
+    "small": ({"flame": _bspec("flame", scale=0.7), "smoke": _bspec("smoke", scale=0.7)},
+              ["peak-area"], ["smoke"]),
+    "big": ({"flame": _bspec("flame", scale=1.3)}, ["peak-area"], []),
+    "shifted": ({"flame": _bspec("flame", dx=4)}, ["centroid-offset"], []),
+    "hue": ({"flame": _bspec("flame", rgb=HUE)}, ["colour"], []),
+    "missing": ({"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, ["presence"], ["smoke"]),
+}
+
+
+def _burst_control(cid):
+    """(sidecar, tiles) of one burst control whose evidence meets its requirement."""
+    flame = lambda **kw: {"flame": _bspec("flame", **kw)}  # noqa: E731
+    if cid == "ctl-burst-empty":
+        return _burst_case(cid, real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                           schedule=([], []))
+    if cid == "ctl-burst-off":
+        return _burst_case(cid, ghost={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                           schedule=([_blast()], []))
+    if cid == "ctl-burst-power":
+        return _burst_case(cid, ghost=flame(scale=1.4), schedule=([_blast()], [_blast(2, 1.0)]))
+    ghost = {"ctl-burst-late": flame(late=2), "ctl-burst-shift": flame(dx=4),
+             "ctl-burst-hue": flame(rgb=HUE)}.get(cid, {})
+    return _burst_case(cid, ghost=ghost)
+
+
+def _write_p9_case(label_dir, doc, tiles):
+    if doc.get("burst") is not None:
+        atlas, name = _burst_atlas(doc, tiles), doc["burst"]["atlas"]["file"]
+    else:
+        atlas, name = _dust_atlas(doc, tiles), doc["dust"]["atlas"]["file"]
+    with open(os.path.join(label_dir, name), "wb") as fh:
+        fh.write(gui_mirror.write_png(*atlas))
+    with open(os.path.join(label_dir, doc["caseId"] + pp.SIDECAR_SUFFIX), "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+
+
+def _build_p9_sweep(label_dir, cases, settings, controls=None, outcomes=None, label="pp9"):
+    """A COMPLETE burst or dust sweep: every control of the run's set (``controls`` overrides
+    one; an ``n/a`` control writes no sidecar) and ``cases``, a list of (sidecar, tiles)."""
+    os.makedirs(label_dir, exist_ok=True)
+    settings = dict(settings)
+    ids = pp.control_set(settings)
+    settings.setdefault("controlSet", ",".join(ids))
+    outcomes = dict(outcomes or {})
+    make = _dust_control if pp.is_dust_run(settings) else _burst_control
+    for cid in ids:
+        if outcomes.get(cid) != pp.CONTROLS_NOT_APPLICABLE:
+            _write_p9_case(label_dir, *((controls or {}).get(cid) or make(cid)))
+    rows = []
+    for i, (doc, tiles) in enumerate(cases):
+        _write_p9_case(label_dir, doc, tiles)
+        block = doc.get("burst") or doc.get("dust") or {}
+        rows.append({"index": i, "caseId": doc["caseId"], "part": doc["part"], "title": doc["part"],
+                     "source": "Squad", "skin": "default", "state": doc["state"],
+                     "context": doc["context"], "sidecar": doc["caseId"] + pp.SIDECAR_SUFFIX,
+                     "setupStatus": doc["setup"]["status"], "maxShapeBlobPx": 0,
+                     "maxColorBlobPx": 0, "minIou": 1, "missingRendered": 0, "extraRendered": 0,
+                     "family": block.get("family"), "actionResult": None, "reached": None})
+    manifest = {
+        "schema": pp.MANIFEST_SCHEMA, "label": label, "profile": "stock-minimal",
+        "gameDataMods": ["Parsek", "Squad"], "dllHash": "0" * 64, "tile": STILE,
+        "views": list(fx.VIEWS), "measure": {}, "settings": settings,
+        "controls": [{"id": c, "subject": "s", "required": "r", "outcome": outcomes.get(c, "ok"),
+                      "detail": ""} for c in ids],
+        "cases": rows, "exclusions": [],
+        "progress": {"complete": True, "cases": len(rows), "completeCases": len(rows),
+                     "setupFaults": 0, "controls": "ok", "crashed": []},
+    }
+    with open(os.path.join(label_dir, pp.MANIFEST_FILE), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh)
+    return manifest
+
+
+BURST_SETTINGS = {"fx": "explode", "states": "none", "contexts": "air"}
+DUST_SETTINGS = {"fx": "dust", "states": "none", "contexts": "ground"}
+
+
+def _judge_p9_dir(label_dir, gating=False, read_png=gui_mirror.read_png, label="pp9"):
+    return pp.evaluate_sweep(_read_dir(label_dir, label), RUN_ID, gating, read_png,
+                             lambda n: os.path.join(label_dir, n))
+
+
+def _burst_cases(n=3, **kw):
+    return [_burst_case("fueltank%d--default--explode--air--0000c0d%d" % (i, i), **kw) for i in range(n)]
+
+
+# ----- the synthetic dust case -----
+
+DUST_REAL = {"dust": (_plume(y0=14, width=20, rgb=GREY), _disc(14, rgb=GREY)),
+             "flame": (_plume(), _disc())}
+NO_DUST = {"dust": FX_DARK, "flame": DUST_REAL["flame"]}
+
+
+def _dust_tile_of(table, layer, view):
+    side, top = table[layer]
+    return top if view == pp.DUST_AXIS_VIEW else side
+
+
+def _dust_raycast(hits=4, surface="terrain"):
+    sample = {"hit": hits > 0, "surface": surface, "distanceM": 10.0 if hits else None,
+              "scaledFx": 0.64 if hits else 0.0}
+    return {"surface": surface, "hits": hits, "misses": 0 if hits else 4,
+            "distanceM": 10.0 if hits else None, "scaledFx": 0.64 if hits else 0.0,
+            "pointM": [0.0, -10.0, 0.0] if hits else None, "normal": [0.0, 1.0, 0.0] if hits else None,
+            "samples": [dict(sample) for _ in range(4)]}
+
+
+def _dust_case(case_id="liquidengine2.v2--default--dust-low--ground--0000d057", ghost=None, real=None,
+               raycast=None, status="ok", state="dust-low", structure=True):
+    """(sidecar, {(row, view): tile}) of one dust case: E.4's entries over the dust views (the
+    dust and the flame layer, the event route), ``ghost`` the real tables with layers replaced."""
+    with open(BURST_FIXTURE + pp.SIDECAR_SUFFIX, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    real = dict(DUST_REAL, **(real or {}))
+    ghost = dict(real, **(ghost or {}))
+    doc.update({"caseId": case_id, "part": "liquidEngine2.v2", "title": "LV-T45", "source": "Squad",
+                "state": state, "context": pp.CONTEXT_GROUND, "setup": {"status": status, "detail": None},
+                "burst": None})
+    entries = [_fx_entry(pp.P9_ROUTE, v, layer, _dust_tile_of(real, layer, v), _dust_tile_of(ghost, layer, v))
+               for _r, v, layer in pp.dust_expected_entries()]
+    tiles = {(side + "-" + layer, v): _dust_tile_of(real if side == "real" else ghost, layer, v)
+             for side in ("real", "ghost") for layer in pp.DUST_LAYERS for v in pp.DUST_VIEWS}
+    doc["dust"] = {
+        "family": "dust", "module": "ModuleSurfaceFX", "moduleIndex": 1,
+        "engineModule": "ModuleEnginesFX", "engineModuleIndex": 0, "surface": "terrain",
+        "slotFraction": 0.2, "heightM": 10.0, "maxDistanceM": 50.0, "falloff": 2.0, "fxMax": 1.0,
+        "throttle": 1.0, "drive": "throttle", "warmupS": 2.0,
+        "plateau": {"real": {"settled": True}, "ghost": {"settled": True}}, "hold": 1.0,
+        "samples": FN, "raycast": raycast or _dust_raycast(), "framing": {"clamped": False},
+        "layers": list(pp.DUST_LAYERS),
+        "atlas": {"file": case_id + pp.DUST_ATLAS_SUFFIX, "rows": list(pp.DUST_ATLAS_ROWS),
+                  "cols": list(pp.DUST_VIEWS), "tile": FTILE},
+        "views": entries,
+        "structure": {"fxMissingOnGhost": [], "fxExtraOnGhost": [], "fxDiffers": [],
+                      "lightsDiffer": []} if structure is True else structure,
+    }
+    return json.loads(json.dumps(doc)), tiles
+
+
+def _dust_atlas(doc, tiles):
+    meta = doc["dust"]["atlas"]
+    rows, cols = meta["rows"], meta["cols"]
+    out = bytearray()
+    for row in rows:
+        for y in range(FTILE):
+            for v in cols:
+                out += tiles[(row, v)][y * FTILE * 4:(y + 1) * FTILE * 4]
+    return len(cols) * FTILE, len(rows) * FTILE, 4, bytes(out)
+
+
+def _dust_control(cid):
+    if cid == "ctl-dust-off":
+        return _dust_case(cid, ghost={"dust": FX_DARK})
+    if cid == "ctl-dust-above-reach":
+        return _dust_case(cid, real={"dust": FX_DARK}, raycast=_dust_raycast(0, "none"),
+                          state="dust-high")
+    return _dust_case(cid)
+
+
+def _dust_cases(n=3, **kw):
+    return [_dust_case("engine%d--default--dust-low--ground--0000d05%d" % (i, i), **kw) for i in range(n)]
+
+
+def _burst_fails(doc):
+    """{(view, layer): failing measures} of a burst case, from the judge's own findings."""
+    return {(e["view"], e["layer"]): pp.burst_entry_failing(e) for e in doc["burst"]["views"]}
+
+
+class BurstJudgeTests(unittest.TestCase):
+    """judge_burst (design G.3, G.4): the findings' fails are exactly the C# FailingMeasures,
+    each broken ghost fails its own measure, the per-entry split-half cap, the schedule judged
+    or reported, the structural raise, the flags and the contradictions."""
+
+    def test_the_fails_are_the_c_sharp_failing_measures(self):
+        side, _ = _burst_fixture()
+        docs = [side] + [_burst_case(ghost=g)[0] for g, _f, _s in BROKEN_BURSTS.values()]
+        checked = 0
+        for doc in docs:
+            for e in doc["burst"]["views"]:
+                self.assertEqual(pp.burst_failing_measures(e["layer"], e["real"], e["ghost"], e["compare"]),
+                                 pp.burst_entry_failing(e), (doc["caseId"], e["view"], e["layer"]))
+                checked += 1
+        self.assertEqual(6 * len(docs), checked)
+
+    def test_each_broken_ghost_fails_its_own_measure(self):
+        for name, (ghost, flame, smoke) in BROKEN_BURSTS.items():
+            with self.subTest(ghost=name):
+                doc, _ = _burst_case(ghost=ghost)
+                self.assertEqual([], pp.burst_block_problems(doc))
+                for (view, layer), got in _burst_fails(doc).items():
+                    self.assertEqual(flame if layer == "flame" else smoke, got, (view, layer))
+                v = pp.judge_case(doc)
+                self.assertEqual("pass" if name == "intact" else "fail", v.verdict, v.reasons)
+                for measure in flame:
+                    for view in pp.BURST_VIEWS:
+                        self.assertTrue(any(r.startswith("event:%s:flame:%s" % (view, measure)) or
+                                            r == "event:%s:flame:burst-missing" % view for r in v.reasons),
+                                        (measure, view, v.reasons))
+
+    def test_the_c_sharp_fixture_judges_to_its_own_reasons(self):
+        side, _ = _burst_fixture()
+        v = pp.judge_case(side)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual((
+            "event:burst-side:flame:onset=+2bins", "event:burst-side:flame:peak-time=+2bins",
+            "event:burst-top:flame:centroid-offset=0.371", "event:burst-top:smoke:smoke-missing",
+            "event:burst-far:flame:colour=peak chroma 0.4680 hueL1 2.0000",
+            "event:burst-far:flame:colour=mean chroma 0.4680 hueL1 2.0000",
+            "event:burst-far:smoke:smoke=peak-area 0.359",
+            "schedule=power blast 0 0.5000/0.5500", "flag:burst-structure-not-measured"), v.reasons)
+        self.assertEqual("burst-side:flame", v.worst_view)
+        self.assertEqual("burst", v.burst.kind)
+        doc = v.to_dict()["burst"]
+        self.assertEqual({"judged": True, "level": "warn", "realCount": 1, "ghostCount": 1,
+                          "indexDiffers": False, "powerDiffers": True},
+                         {k: doc["schedule"][k] for k in ("judged", "level", "realCount", "ghostCount",
+                                                          "indexDiffers", "powerDiffers")})
+        groups = sorted({r.group for r in pp.p9_fail_reasons(v)})
+        self.assertEqual(["burst:centroid-offset", "burst:onset", "burst:smoke", "burst:colour"],
+                         sorted(groups, key=["burst:centroid-offset", "burst:onset", "burst:smoke",
+                                             "burst:colour"].index))
+
+    def test_a_split_half_disagreement_caps_that_entry_only(self):
+        late = {("burst-side", "flame"): _bspec("flame", late=2)}
+        doc, _ = _burst_case(views=late, odd={("burst-side", "flame"): BLANK_SPEC})
+        self.assertEqual([], pp.burst_block_problems(doc))
+        self.assertEqual("ghost presence burst-missing",
+                         pp.burst_split_half_disagreement(doc["burst"]["views"][0]))
+        j = pp.judge_burst(doc)
+        self.assertEqual("warn", j.verdict, j.reasons)
+        self.assertTrue(j.capped)
+        self.assertEqual(("event:burst-side:flame:ghost presence burst-missing",), j.unsettled)
+        self.assertIn(pp.CAP_BURST_UNSETTLED, j.flags)
+        self.assertEqual(pp.REASON_BURST_UNSETTLED, j.reasons[-1])
+        # The same break on a settled entry fails; a cap never reaches another entry.
+        both = {**late, ("burst-top", "flame"): _bspec("flame", late=2)}
+        doc, _ = _burst_case(views=both, odd={("burst-side", "flame"): BLANK_SPEC})
+        j = pp.judge_burst(doc)
+        self.assertEqual("fail", j.verdict)
+        self.assertEqual(["warn", "fail"], [e.verdict for e in j.entries if e.layer == "flame"][:2])
+        self.assertNotIn(pp.REASON_BURST_UNSETTLED, j.reasons)
+        # Halves within the 10 % line agree.
+        doc, _ = _burst_case(odd={("burst-side", "flame"): _bspec("flame", scale=0.98)})
+        self.assertIsNone(pp.burst_split_half_disagreement(doc["burst"]["views"][0]))
+
+    def test_the_schedule_is_judged_for_every_family_but_the_stand_ins(self):
+        cases = {
+            "count": (([_blast()], []), "fail", "schedule=count 1/0"),
+            "index": (([_blast()], [_blast(2, 1.0)]), "fail", "schedule=index blast 0 1/2"),
+            "offset": (([_blast()], [_blast(offset=(3.0, 0.0, 0.0))]), "fail", "schedule=offset blast 0 3.000m"),
+            "power": (([_blast()], [_blast(power=0.55)]), "warn", "schedule=power blast 0 0.5000/0.5500"),
+            "near": (([_blast()], [_blast(offset=(1.0, 0.0, 0.0))]), "pass", None),
+        }
+        for name, (schedule, verdict, reason) in cases.items():
+            with self.subTest(schedule=name):
+                doc, _ = _burst_case(schedule=schedule)
+                self.assertEqual([], pp.burst_block_problems(doc))
+                v = pp.judge_case(doc)
+                self.assertEqual(verdict, v.verdict, v.reasons)
+                self.assertEqual([reason] if reason else [], list(v.reasons))
+                if verdict == "fail":
+                    self.assertEqual(["burst:schedule"], [r.group for r in pp.p9_fail_reasons(v)])
+        # A stand-in's schedule is reported, never judged.
+        doc, _ = _burst_case("parsek.customexplosion--default--custom-l5--air--00000c05",
+                             family="burst-custom", state="custom-l5", part=pp.BURST_CUSTOM_PART,
+                             schedule=([_blast()], []))
+        v = pp.judge_case(doc)
+        self.assertEqual("pass", v.verdict, v.reasons)
+        sched = v.burst.schedule
+        self.assertFalse(sched["judged"])
+        self.assertEqual([{"level": "fail", "reason": "schedule=count 1/0"}], sched["findings"])
+
+    def test_a_rendered_effect_missing_or_extra_fails_and_an_unmeasured_structure_warns(self):
+        doc, _ = _burst_case(structure={"fxMissingOnGhost": ["fx_explosion_med"], "fxExtraOnGhost": [
+            {"key": "puff", "rendered": False}, "spark"], "fxDiffers": [], "lightsDiffer": []})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(("missing-burst:fx_explosion_med", "extra-burst:spark"), v.reasons)
+        self.assertEqual(["burst:structure", "burst:structure"], [r.group for r in pp.p9_fail_reasons(v)])
+        doc, _ = _burst_case(structure=None)
+        v = pp.judge_case(doc)
+        self.assertEqual(("warn", ("flag:burst-structure-not-measured",)), (v.verdict, v.reasons))
+
+    def test_a_weak_core_skips_the_measures_and_warns(self):
+        tiny = (0, 2, 3, 4, 3, 2, 0) + (0,) * 9
+        doc, _ = _burst_case(real={"flame": _bspec("flame", radii=tiny)},
+                             ghost={"flame": _bspec("flame", radii=tiny, late=3)})
+        j = pp.judge_burst(doc)
+        flame = [e for e in j.entries if e.layer == "flame"]
+        self.assertEqual(["skipped"] * 3, [e.verdict for e in flame])
+        self.assertEqual("warn", j.verdict, j.reasons)
+        weak = [f for f in j.flags if f.startswith(pp.FLAG_BURST_WEAK_CORE)]
+        self.assertEqual(3, len(weak), j.flags)
+        self.assertTrue(weak[0].startswith("burst-weak-core:event:burst-side:flame:real="), weak[0])
+
+    def test_what_a_case_says_against_itself_is_an_error(self):
+        bad = {
+            "family": dict(family="decouple", state="explode"),
+            "context": dict(context="orbit"),
+            "nothing-drawn": dict(real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, schedule=([], [])),
+            "no-blast": dict(schedule=([], [])),
+        }
+        want = {"family": "burst.family=decouple on a explode case",
+                "context": "burst case context=orbit (the burst context is air)",
+                "nothing-drawn": "the real side drew nothing on an ok explode case (envelope=false "
+                                 "realTagged=3 realBlasts=0; the writer records burst-not-triggered)",
+                "no-blast": "the real side drew nothing on an ok explode case (envelope=true "
+                            "realTagged=3 realBlasts=0; the writer records burst-not-triggered)"}
+        for name, kw in bad.items():
+            with self.subTest(case=name):
+                doc, _ = _burst_case(**kw)
+                v = pp.judge_case(doc)
+                self.assertEqual("error", v.verdict, v.reasons)
+                self.assertEqual(want[name], v.reasons[0])
+                self.assertIn(want[name], pp.burst_block_problems(doc))
+                self.assertEqual([], pp.burst_block_problems(doc, control=True)
+                                 if name in ("nothing-drawn", "no-blast", "context") else [])
+        # A plain joint break is meant to draw nothing on stock's side; a decouple puff draws.
+        doc, _ = _burst_case("fueltank--default--joint-break--air--00000b0b", family="decouple",
+                             state="joint-break", real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC},
+                             schedule=([], []))
+        self.assertEqual(8, doc["burst"]["bins"])
+        self.assertEqual([], pp.burst_contradictions(doc))
+        self.assertEqual("pass", pp.judge_case(doc).verdict)
+        doc, _ = _burst_case("fueltank--default--decouple--air--00000b0c", family="decouple", state="decouple",
+                             real={"flame": BLANK_SPEC, "smoke": BLANK_SPEC}, schedule=([], []))
+        self.assertEqual("error", pp.judge_case(doc).verdict)
+        # A setup fault is error with no contradiction on top.
+        doc, _ = _burst_case(status=pp.SETUP_BURST_NOT_TRIGGERED, real={"flame": BLANK_SPEC})
+        v = pp.judge_case(doc)
+        self.assertEqual(("error", "setup:burst-not-triggered"), (v.verdict, v.reasons[0]))
+        self.assertEqual([], pp.burst_block_problems(doc))
+
+    def test_a_lost_entry_is_an_error(self):
+        doc, _ = _burst_case()
+        del doc["burst"]["views"][3]
+        v = pp.judge_case(doc)
+        self.assertEqual("error", v.verdict)
+        self.assertEqual("burst-no-entries:1 lost, first event:burst-top:smoke", v.reasons[0])
+        self.assertIn("burst.views lacks 1 entr(ies): burst-top:smoke", pp.burst_block_problems(doc))
+
+    def test_the_block_shape_is_checked(self):
+        doc, _ = _burst_case()
+        self.assertEqual([], pp.burst_block_problems(doc))
+        cases = {
+            "window": (lambda b: b.update(windowS=2.0), "burst windowS=2.0"),
+            "samples": (lambda b: b["samples"]["real"].pop(), "burst.samples.real="),
+            "atlas": (lambda b: b["atlas"].update(views=["burst-side"]), "burst.atlas rows="),
+            "trigger": (lambda b: b["trigger"].update(realTagged=-1), "burst.trigger="),
+            "blast": (lambda b: b["schedule"]["ghost"][0].pop("index"), "burst.schedule.ghost[0]: missing key(s) index"),
+            "scheduleCompare": (lambda b: b["scheduleCompare"].update(countDiffers=True),
+                                "burst.scheduleCompare.countDiffers:True!=False"),
+            "compare": (lambda b: b["views"][2]["compare"].update(peakAreaRatio=0.5),
+                        "burst:burst-top:flame.compare.peakAreaRatio"),
+            "summary": (lambda b: b["views"][0]["real"].update(peakBin=9), "burst:burst-side:flame.real.peakBin"),
+            "half": (lambda b: b["views"][0]["splitHalf"]["odd"]["ghost"].update(onsetBin=0),
+                     "burst:burst-side:flame.splitHalf.odd.ghost.onsetBin"),
+            "bin": (lambda b: b["views"][0]["ghost"]["bins"][4].update(saturatedPx=10 ** 6),
+                    "burst:burst-side:flame.ghost.bins[4]: corePx="),
+            "twice": (lambda b: b["views"].append(copy.deepcopy(b["views"][0])), "burst.views repeats burst-side:flame"),
+            "structure": (lambda b: b["structure"].update(fxDiffers="x"), "burst.structure.fxDiffers=x"),
+            "keys": (lambda b: b.pop("lengthM"), "burst: missing key(s) lengthM"),
+        }
+        for name, (change, text) in cases.items():
+            with self.subTest(change=name):
+                bad = copy.deepcopy(doc)
+                change(bad["burst"])
+                problems = pp.burst_block_problems(bad)
+                self.assertTrue(any(text in p for p in problems), problems)
+
+
+class BurstControlJudgeTests(unittest.TestCase):
+    """judge_burst_control transcribes PartParityFxRules.JudgeBurstControl: every control is met
+    by the ghost built for it and refuses every other control's ghost, worded as the C# words it."""
+
+    def test_every_control_is_met_by_its_own_ghost(self):
+        for cid in pp.CONTROL_IDS_BURST:
+            with self.subTest(control=cid):
+                doc, _ = _burst_control(cid)
+                self.assertEqual([], pp.burst_block_problems(doc, control=True))
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_burst_control(cid, doc))
+
+    def test_every_control_refuses_every_other_controls_ghost(self):
+        docs = {cid: _burst_control(cid)[0] for cid in pp.CONTROL_IDS_BURST}
+        for cid in pp.CONTROL_IDS_BURST:
+            for other, doc in docs.items():
+                if other != cid:
+                    with self.subTest(control=cid, ghost=other):
+                        self.assertEqual(pp.CONTROLS_BAD, pp.judge_burst_control(cid, doc)[0])
+
+    def test_the_details_are_the_c_sharp_wording(self):
+        intact = _burst_case("x")[0]
+        late_hue = _burst_case("x", ghost={"flame": _bspec("flame", late=2, rgb=HUE)})[0]
+        want = {
+            ("ctl-burst-empty", "intact"): "a bin is covered",
+            ("ctl-burst-real-vs-real", "late-hue"): "fails onset,colour",
+            ("ctl-burst-off", "intact"): "presence passes",
+            ("ctl-burst-late", "intact"): "onset passes",
+            ("ctl-burst-late", "late-hue"): "colour fails",
+            ("ctl-burst-power", "intact"): "the schedule index matches",
+            ("ctl-burst-shift", "intact"): "centroid-offset passes",
+            ("ctl-burst-hue", "intact"): "colour passes",
+            ("ctl-burst-hue", "late-hue"): "fails onset,colour",
+        }
+        docs = {"intact": intact, "late-hue": late_hue}
+        for (cid, ghost), detail in want.items():
+            with self.subTest(control=cid, ghost=ghost):
+                self.assertEqual((pp.CONTROLS_BAD, detail), pp.judge_burst_control(cid, docs[ghost]))
+        off = _burst_case("x", ghost={"flame": BLANK_SPEC, "smoke": BLANK_SPEC})[0]
+        self.assertEqual((pp.CONTROLS_BAD, "the schedule reads 1 against 1"),
+                         pp.judge_burst_control("ctl-burst-off", off))
+        power = _burst_case("x", schedule=([_blast()], [_blast(2, 1.0)]))[0]
+        self.assertEqual((pp.CONTROLS_BAD, "peak area and radius pass"),
+                         pp.judge_burst_control("ctl-burst-power", power))
+        empty = _burst_control("ctl-burst-empty")[0]
+        self.assertEqual((pp.CONTROLS_BAD, "no real core"), pp.judge_burst_control("ctl-burst-late", empty))
+        fault = _burst_case("x", status=pp.SETUP_BURST_NOT_TRIGGERED)[0]
+        self.assertEqual((pp.CONTROLS_BAD, "setup burst-not-triggered"),
+                         pp.judge_burst_control("ctl-burst-late", fault))
+        self.assertEqual((pp.CONTROLS_BAD, "no burst block"),
+                         pp.judge_burst_control("ctl-burst-late", _dust_case("x")[0]))
+        self.assertEqual((pp.CONTROLS_BAD, "not a burst control: ctl-empty"),
+                         pp.judge_burst_control("ctl-empty", intact))
+
+    def test_the_detail_literals_are_the_c_sharp_ones(self):
+        import inspect
+        with open(os.path.join(CS_DIR, "PartParityFxRules.Burst.cs"), encoding="utf-8-sig") as fh:
+            text = _strip_cs_comments(fh.read())
+        burst = inspect.getsource(pp.judge_burst_control) + inspect.getsource(pp._require_measures)
+        dust = inspect.getsource(pp.judge_dust_control)
+        pairs = [(burst, lit) for lit in (
+            "a bin is covered", "fails ", "presence passes", "the schedule reads ", " against ",
+            "the schedule index matches", "peak area and radius pass", "colour passes",
+            "not a burst control: ", "setup ", " passes", " fails")] + [(dust, lit) for lit in (
+                "dust presence passes", "the flame layer fails ", "stock drew dust past its reach",
+                "the ghost draws dust past stock's reach (G.8 item 3)",
+                "the ghost draws dust past stock's reach", "not a dust control: ")]
+        for source, literal in pairs:
+            with self.subTest(literal=literal):
+                self.assertIn('"%s' % literal if not literal.startswith(" ") else literal, text)
+                self.assertIn(literal.strip() if literal.strip() else literal, source)
+        # The order each judge reads its requirements in (must-fail, then must-pass).
+        self.assertIn("new[] { MeasureOnset }, new[] { MeasurePeakArea, MeasureColour }", text)
+        self.assertIn("new[] { MeasureCentroidOffset }, new[] { MeasurePeakArea, MeasureColour }", text)
+        self.assertIn('_require_measures(f, ("onset",), ("peak-area", "colour"))', burst)
+        self.assertIn('_require_measures(f, ("centroid-offset",), ("peak-area", "colour"))', burst)
+        self.assertIn("e.RealBlasts == 1 && e.GhostBlasts == 0", text)
+        self.assertIn('ev["realBlasts"] == 1 and ev["ghostBlasts"] == 0', burst)
+
+
+class DustJudgeTests(unittest.TestCase):
+    """judge_dust: E.4's measures over the dust layer in the dust words, stock's raycast record,
+    the flame layer left to P8, the axis view and the contradictions."""
+
+    def test_an_intact_dust_case_passes_and_recomputes(self):
+        doc, tiles = _dust_case()
+        self.assertEqual([], pp.dust_block_problems(doc))
+        self.assertEqual([], pp.recompute_dust_case(doc, _dust_atlas(doc, tiles)))
+        v = pp.judge_case(doc)
+        self.assertEqual(("pass", ()), (v.verdict, v.reasons))
+        self.assertEqual("dust", v.burst.kind)
+        self.assertEqual({"surface": "terrain", "hits": 4, "misses": 0, "scaledFx": 0.64},
+                         v.to_dict()["dust"]["raycast"])
+
+    def test_the_top_view_is_the_axis_view(self):
+        # dust-top is measured as P8 measures fx-bottom: the cross-section, no exhaust axis.
+        doc, _ = _dust_case()
+        top = next(e for e in doc["dust"]["views"] if e["view"] == "dust-top" and e["layer"] == "dust")
+        side = next(e for e in doc["dust"]["views"] if e["view"] == "dust-side" and e["layer"] == "dust")
+        self.assertIsNotNone(top["compare"]["crossSectionOffset"])
+        self.assertIsNone(side["compare"]["crossSectionOffset"])
+        self.assertIn(pp.DUST_AXIS_VIEW, pp.FX_AXIS_VIEWS)
+
+    def test_a_ghost_without_dust_reads_dust_missing(self):
+        doc, _ = _dust_case(ghost={"dust": FX_DARK})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(tuple("event:%s:dust:dust-missing" % w for w in pp.DUST_VIEWS), v.reasons)
+        self.assertEqual(["dust:presence"] * 3, [r.group for r in pp.p9_fail_reasons(v)])
+
+    def test_dust_where_stock_draws_none_reads_dust_extra_with_the_surface(self):
+        doc, _ = _dust_case(real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertEqual(tuple("event:%s:dust:dust-extra:terrain" % w for w in pp.DUST_VIEWS), v.reasons)
+        # On the pad stock draws none, so dust on both sides still fails the ghost, once.
+        doc, _ = _dust_case(raycast=_dust_raycast(4, "launchpad"))
+        v = pp.judge_case(doc)
+        self.assertEqual(("fail", ("dust-extra:launchpad",)), (v.verdict, v.reasons))
+        self.assertEqual(["dust:raycast"], [r.group for r in pp.p9_fail_reasons(v)])
+        doc, _ = _dust_case(real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]},
+                            raycast=_dust_raycast(4, "launchpad"))
+        v = pp.judge_case(doc)
+        self.assertEqual(tuple("event:%s:dust:dust-extra:launchpad" % w for w in pp.DUST_VIEWS), v.reasons)
+
+    def test_the_flame_layer_is_not_judged_here(self):
+        doc, _ = _dust_case(ghost={"flame": FX_DARK})
+        v = pp.judge_case(doc)
+        self.assertEqual(("pass", ()), (v.verdict, v.reasons))
+        self.assertEqual({"dust"}, {e.layer for e in v.burst.entries})
+
+    def test_a_broken_dust_plume_fails_its_measure(self):
+        doc, _ = _dust_case(ghost={"dust": (_plume(y0=14, width=20, rgb=GREEN), _disc(14, rgb=GREEN))})
+        v = pp.judge_case(doc)
+        self.assertEqual("fail", v.verdict)
+        self.assertTrue(all(":colour=" in r or ":dust:colour" in r for r in v.reasons), v.reasons)
+        self.assertEqual(3, len([e for e in doc["dust"]["views"] if e["layer"] == "dust"
+                                 and pp.dust_failing(e) == ["colour"]]))
+
+    def test_the_raycast_record_is_checked(self):
+        doc, _ = _dust_case()
+        cases = {
+            "surface": (lambda r: r.update(surface="none"), "dust.raycast hits=4 surface=none"),
+            "count": (lambda r: r["samples"].pop(), "dust.raycast hits=4 misses=0 over 3 sample(s)"),
+            "word": (lambda r: r.update(surface="lava"), "dust.raycast.surface=lava"),
+            "keys": (lambda r: r.pop("normal"), "dust.raycast: missing key(s) normal"),
+        }
+        for name, (change, text) in cases.items():
+            with self.subTest(change=name):
+                bad = copy.deepcopy(doc)
+                change(bad["dust"]["raycast"])
+                problems = pp.dust_block_problems(bad)
+                self.assertTrue(any(text in p for p in problems), problems)
+        bad = copy.deepcopy(doc)
+        bad["dust"]["atlas"]["cols"] = list(pp.FX_VIEWS)
+        self.assertTrue(any("dust.atlas rows=" in p for p in pp.dust_block_problems(bad)))
+
+    def test_what_a_dust_case_says_against_itself_is_an_error(self):
+        doc, _ = _dust_case(raycast=_dust_raycast(0, "none"))
+        v = pp.judge_case(doc)
+        self.assertEqual("error", v.verdict)
+        self.assertEqual("stock's raycast hits=0 on an ok dust-low case (the writer records dust-no-stock-hit)",
+                         v.reasons[0])
+        doc, _ = _dust_case()
+        doc["context"] = "air"
+        self.assertEqual("dust case context=air (the dust context is ground)", pp.judge_case(doc).reasons[0])
+        doc, _ = _dust_case(state="explode")
+        self.assertEqual("dust.family=dust on a explode case", pp.judge_case(doc).reasons[0])
+        doc, _ = _dust_case(status=pp.SETUP_DUST_NO_STOCK_HIT, raycast=_dust_raycast(0, "none"))
+        v = pp.judge_case(doc)
+        self.assertEqual(("error", "setup:dust-no-stock-hit"), (v.verdict, v.reasons[0]))
+        doc, _ = _dust_case()
+        doc["dust"]["views"].pop()
+        self.assertEqual("dust-no-entries:1 lost, first event:dust-far:flame", pp.judge_case(doc).reasons[0])
+
+    def test_the_dust_controls(self):
+        for cid in pp.CONTROL_IDS_DUST:
+            with self.subTest(control=cid):
+                doc, _ = _dust_control(cid)
+                self.assertEqual([], pp.dust_block_problems(doc, control=True))
+                self.assertEqual((pp.CONTROLS_OK, ""), pp.judge_dust_control(cid, doc))
+        intact, off = _dust_case("x")[0], _dust_control("ctl-dust-off")[0]
+        self.assertEqual((pp.CONTROLS_BAD, "fails presence"), pp.judge_dust_control("ctl-dust-real-vs-real", off))
+        self.assertEqual((pp.CONTROLS_BAD, "dust presence passes"), pp.judge_dust_control("ctl-dust-off", intact))
+        flame_too = _dust_case("x", ghost={"dust": FX_DARK, "flame": FX_DARK})[0]
+        self.assertEqual((pp.CONTROLS_BAD, "the flame layer fails presence"),
+                         pp.judge_dust_control("ctl-dust-off", flame_too))
+        self.assertEqual((pp.CONTROLS_BAD, "stock drew dust past its reach"),
+                         pp.judge_dust_control("ctl-dust-above-reach", intact))
+        above = _dust_case("x", real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]},
+                           raycast=_dust_raycast(0, "none"))[0]
+        above["setup"]["status"] = pp.SETUP_DUST_NO_STOCK_HIT
+        self.assertEqual((pp.CONTROLS_NOT_APPLICABLE, "the ghost draws dust past stock's reach (G.8 item 3)"),
+                         pp.judge_dust_control("ctl-dust-above-reach", above))
+        self.assertEqual((pp.CONTROLS_BAD, "setup dust-no-stock-hit"),
+                         pp.judge_dust_control("ctl-dust-off", above))
+        above["setup"]["status"] = pp.SETUP_OK
+        self.assertEqual((pp.CONTROLS_BAD, "no real dust core"),
+                         pp.judge_dust_control("ctl-dust-real-vs-real", above))
+        self.assertEqual((pp.CONTROLS_BAD, "not a dust control: ctl-burst-off"),
+                         pp.judge_dust_control("ctl-burst-off", intact))
+
+
+class P9SweepTests(unittest.TestCase):
+    """evaluate_sweep over synthetic burst and dust sweeps: the clean run, the instrument
+    check over the burst and the dust atlas, completeness, the controls re-judged, the
+    known-difference n/a and the press gate."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="pp-p9-")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _dir(self, name):
+        return os.path.join(self.root, name)
+
+    def test_a_clean_burst_sweep_reports(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases() + [_burst_case("fueltank9--default--explode--air--0000c0d9",
+                                                         ghost=BROKEN_BURSTS["late"][0])], BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertEqual({"cases": 4, "pass": 3, "warn": 0, "fail": 1, "error": 0}, res.counts)
+        self.assertEqual(len(pp.CONTROL_IDS_BURST) + 1, len(res.recompute_ids))
+        self.assertTrue(all(i.endswith(pp.BURST_RECOMPUTE_ID_SUFFIX) for i in res.recompute_ids))
+        doc = pp.verdicts_document(res, RUN_ID)
+        self.assertEqual({"burst": 4, "dust": 0}, doc["burst"]["kinds"])
+        self.assertEqual(1, doc["burst"]["families"]["explode"]["fail"])
+        self.assertIn(" burst=4 dust=0", pp.format_summary(pp.combine([res], False)))
+        armed = _judge_p9_dir(d, gating=True)
+        self.assertEqual(pp.STATUS_FAIL, armed.status)
+
+    def test_a_clean_dust_sweep_reports(self):
+        d = self._dir("d")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        self.assertTrue(all(i.endswith(pp.DUST_RECOMPUTE_ID_SUFFIX) for i in res.recompute_ids))
+        self.assertEqual({"burst": 0, "dust": 3}, pp.verdicts_document(res, RUN_ID)["burst"]["kinds"])
+
+    def _flip(self, d, name, x, y):
+        path = os.path.join(d, name)
+        w, h, bpp, px = gui_mirror.read_png(path)
+        px = bytearray(px)
+        i = (y * w + x) * 4
+        px[i:i + 4] = b"\0\0\0\0" if px[i + 3] else bytes(ORANGE) + b"\xff"
+        with open(path, "wb") as fh:
+            fh.write(gui_mirror.write_png(w, h, bpp, bytes(px)))
+
+    def test_a_mutated_burst_atlas_is_invalid_instrument(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS)
+        # The real flame of burst-side, bin 4, its centre pixel.
+        self._flip(d, "ctl-burst-real-vs-real" + pp.BURST_ATLAS_SUFFIX, 4 * BTILE + 16, 16)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("ctl-burst-real-vs-real burst-side:flame.real.bins[4].corePx" in p
+                            for p in res.problems), res.problems)
+
+    def test_a_mutated_dust_atlas_is_invalid_instrument(self):
+        d = self._dir("d")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS)
+        # The real dust of dust-top (the disc), its centre pixel.
+        self._flip(d, "ctl-dust-real-vs-real" + pp.DUST_ATLAS_SUFFIX, FTILE + 24, 24)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any(p.startswith("recompute:") and "ctl-dust-real-vs-real event:dust-top:dust:real."
+                            in p for p in res.problems), res.problems)
+
+    def test_a_tampered_part_case_is_invalid_instrument_sampled_or_not(self):
+        d = self._dir("b")
+        cases = _burst_cases(6)
+        cases[5][0]["burst"]["views"][4]["compare"]["radiusRatio"] = 9.0
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INSTRUMENT_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("burst:burst-far:flame.compare.radiusRatio" in p for p in res.problems), res.problems)
+        # No reader: the block shapes are still checked, and the missing recompute is named.
+        res = _judge_p9_dir(d, read_png=None)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+
+    def test_a_missing_atlas_is_incomplete(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS)
+        os.remove(os.path.join(d, "fueltank1--default--explode--air--0000c0d1" + pp.BURST_ATLAS_SUFFIX))
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("p9-atlas-missing:fueltank1" in p for p in res.problems), res.problems)
+
+    def test_a_control_recorded_ok_is_rejudged(self):
+        d = self._dir("b")
+        _build_p9_sweep(d, _burst_cases(), BURST_SETTINGS,
+                        controls={"ctl-burst-late": _burst_case("ctl-burst-late")})
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertIn("controls: ctl-burst-late:recorded-ok-judged-bad(onset passes)", res.problems)
+
+    def test_the_known_difference_reads_n_a_only_on_its_evidence(self):
+        above = _dust_case("ctl-dust-above-reach", real={"dust": FX_DARK},
+                           ghost={"dust": DUST_REAL["dust"]}, raycast=_dust_raycast(0, "none"))
+        d = self._dir("na")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above},
+                        outcomes={"ctl-dust-above-reach": "n/a"})
+        _write_p9_case(d, *above)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
+        # n/a recorded, but the ghost drew no dust: the control is met, so n/a is a lie.
+        d = self._dir("na-ok")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-above-reach": "n/a"})
+        _write_p9_case(d, *_dust_control("ctl-dust-above-reach"))
+        res = _judge_p9_dir(d)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        self.assertIn("controls: ctl-dust-above-reach:recorded-n/a-judged-ok()", res.problems)
+        # ok recorded while the evidence reads n/a.
+        d = self._dir("ok-na")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above})
+        res = _judge_p9_dir(d)
+        self.assertTrue(any("ctl-dust-above-reach:recorded-ok-judged-n/a" in p for p in res.problems), res.problems)
+        # Any other control recorded n/a is not met.
+        d = self._dir("other")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-off": "n/a"})
+        self.assertIn("controls: ctl-dust-off:n/a", _judge_p9_dir(d).problems)
+
+    def test_dead_presses_red_the_press_gate(self):
+        d = self._dir("b")
+        cases = _burst_cases(3)
+        for doc, _ in cases[:2]:
+            doc["setup"]["status"] = pp.SETUP_BURST_NOT_TRIGGERED
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_STATE_PRESS_SUBKIND), (res.status, res.invalid_subkind))
+        self.assertTrue(any("family=explode 2/3" in p for p in res.problems), res.problems)
+        d = self._dir("d")
+        cases = _dust_cases(3)
+        cases[0][0]["setup"]["status"] = pp.SETUP_DUST_NO_STOCK_HIT
+        _build_p9_sweep(d, cases, DUST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertNotEqual(pp.INVALID_STATE_PRESS_SUBKIND, res.invalid_subkind)
+
+    def test_a_block_outside_its_run_is_an_instrument_problem(self):
+        d = self._dir("b")
+        cases = _burst_cases(2) + [_dust_case("engine9--default--dust-low--ground--0000d059")]
+        _build_p9_sweep(d, cases, BURST_SETTINGS)
+        res = _judge_p9_dir(d)
+        self.assertEqual(pp.STATUS_INVALID, res.status)
+        self.assertTrue(any("engine9--default--dust-low--ground--0000d059 carries a dust block" in p
+                            for p in res.problems), res.problems)
 
 
 if __name__ == "__main__":
