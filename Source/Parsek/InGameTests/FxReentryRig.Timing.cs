@@ -26,7 +26,7 @@ namespace Parsek.InGameTests
     /// </summary>
     internal sealed partial class FxReentryRig
     {
-        private const string TimingVariant = "after(Y1: stock-like sheath, off = ArmReentryIsolationForOneFrame FireAndShell every frame)";
+        private const string TimingVariant = "after(Y1: every ghost draws its own sheath + depth map, ghosts masked from stock FX cameras, off = ArmReentryIsolationForOneFrame FireAndShell every frame)";
         private const int TimingCopies = 7;
         private const float TimingCopySpacingM = 2f;
         private const int TimingSamples = 120;
@@ -170,24 +170,42 @@ namespace Parsek.InGameTests
         /// <summary>What the sheaths of the ghosts decided at the end of an on block.</summary>
         private static string TimingFireState(List<TimingGhost> ghosts, int k)
         {
-            int built = 0, draw = 0, capped = 0, isolated = 0, other = 0;
+            int built = 0, draw = 0, isolated = 0, other = 0;
             float maxIntensity = 0f;
-            var sb = new StringBuilder();
+            var per = new StringBuilder();
             for (int i = 0; i < ghosts.Count; i++)
             {
                 ReentryFxInfo info = ghosts[i].State != null ? ghosts[i].State.reentryFxInfo : null;
-                if (info == null) continue;
+                string label = ghosts[i].IsMain ? "M" : i.ToString(Ic);
+                if (per.Length > 0) per.Append(',');
+                if (info == null) { per.Append(label).Append(":noFx"); continue; }
                 built++;
                 if (i < k) maxIntensity = Math.Max(maxIntensity, info.lastIntensity);
-                if (!info.lastSheathDecision.HasValue) { other++; continue; }
-                GhostAeroSheathDecision d = info.lastSheathDecision.Value;
-                if (d == GhostAeroSheathDecision.Draw) draw++;
-                else if (d == GhostAeroSheathDecision.FrameCap) capped++;
-                else if (d == GhostAeroSheathDecision.Isolated) isolated++;
-                else { other++; sb.Append(d.ToString()).Append(' '); }
+                string d = info.lastSheathDecision.HasValue ? info.lastSheathDecision.Value.ToString() : "none";
+                per.Append(label).Append(':').Append(d);
+                if (!info.lastSheathDecision.HasValue) other++;
+                else if (info.lastSheathDecision.Value == GhostAeroSheathDecision.Draw) draw++;
+                else if (info.lastSheathDecision.Value == GhostAeroSheathDecision.Isolated) isolated++;
+                else other++;
             }
-            return $"fxBuilt={built.ToString(Ic)} intensity={maxIntensity.ToString("0.000", Ic)} sheathDraw={draw.ToString(Ic)} frameCap={capped.ToString(Ic)} " +
-                $"isolated={isolated.ToString(Ic)} other={other.ToString(Ic)}{(sb.Length > 0 ? " (" + sb.ToString().Trim() + ")" : "")} maxSheathsPerFrame={GhostAeroFx.MaxSheathsPerFrame.ToString(Ic)}";
+            return $"fxBuilt={built.ToString(Ic)} intensity={maxIntensity.ToString("0.000", Ic)} sheathDraw={draw.ToString(Ic)} " +
+                $"isolated={isolated.ToString(Ic)} other={other.ToString(Ic)} depthMaps={ReadDepthMapCount()} sheaths=[{per}]";
+        }
+
+        // The renderer keeps its depth-map pool private; the rig reads the count by reflection.
+        private static string ReadDepthMapCount()
+        {
+            try
+            {
+                const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static;
+                object r = typeof(GhostAeroFxRenderer).GetField("instance", F)?.GetValue(null);
+                if (r == null) return "noRenderer";
+                var pool = typeof(GhostAeroFxRenderer).GetField("depthPool", F)?.GetValue(r) as System.Collections.ICollection;
+                object res = typeof(GhostAeroFxRenderer).GetField("depthPoolResolution", F)?.GetValue(r);
+                if (pool == null) return "unknown";
+                return pool.Count.ToString(Ic) + (res is int px ? "@" + px.ToString(Ic) : "");
+            }
+            catch (Exception ex) { return "err:" + ex.GetType().Name; }
         }
 
         // ---- shared ----
