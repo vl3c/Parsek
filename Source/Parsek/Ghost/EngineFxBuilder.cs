@@ -428,16 +428,23 @@ namespace Parsek
                 string childName = child.name.ToLowerInvariant();
                 if (!childName.StartsWith("fx_")) continue;
 
-                if (childName.Contains("flameout") || childName.Contains("sparks") || childName.Contains("debris"))
-                    continue;
                 if (!childName.Contains("flame") && !childName.Contains("exhaust") && !childName.Contains("smoke"))
                     continue;
 
                 var ps = child.GetComponentInChildren<ParticleSystem>(true);
                 if (ps == null) continue;
 
-                GhostEngineFxRuleKind legacyKind = ResolveLegacyFxRuleKind(
-                    IsInFxGroup(prefab, "running", ps), IsInFxGroup(prefab, "power", ps));
+                bool inRunning = IsInFxGroup(prefab, "running", ps);
+                bool inPower = IsInFxGroup(prefab, "power", ps);
+                if (PristinePartFxResolver.IsTransientLegacyFx(childName, inRunning || inPower))
+                {
+                    LogHotPathVerbose($"legacy-transient-{partName}-{moduleIndex}-{childName}",
+                        $"'{partName}' midx={moduleIndex}: legacy fx='{child.name}' left out " +
+                        $"(transient; running={inRunning} power={inPower})");
+                    continue;
+                }
+
+                GhostEngineFxRuleKind legacyKind = ResolveLegacyFxRuleKind(inRunning, inPower);
                 // Stock groups the child's own system, or every system under it when it has none.
                 bool ownSystemOnly = ps.transform == child;
                 int clonesAdded = 0;

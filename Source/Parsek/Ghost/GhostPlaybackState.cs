@@ -8,6 +8,10 @@ namespace Parsek
         public bool isOn;
         public bool blinkEnabled;
         public float blinkRateHz = 1f;
+        // The UT of the recorded on / off change the lamp is fading from; NaN: settled.
+        public double fadeStartUT = double.NaN;
+        // The fade level (0 off, 1 on) the module's lights stood at when that change came.
+        public float fadeStartLevel;
     }
 
     internal class GhostPlaybackState
