@@ -4193,5 +4193,85 @@ class BurstMeasureTests(unittest.TestCase):
         self.assertEqual("smoke-missing", pp.burst_presence_reason("smoke", side(256), side(0)))
 
 
+def _hand_side(cores, chroma=None):
+    """Per-bin cores (envelope = core) and chromaticities (None: undefined), as
+    PartParityBurstMetricsTests.HandSide builds them."""
+    return pp.burst_measure_side([{"corePx": c, "envelopePx": c,
+                                   "chromaticity": None if chroma is None else chroma[b]}
+                                  for b, c in enumerate(cores)])
+
+
+def _hand_failing(layer, real, ghost, real_chroma=None, ghost_chroma=None):
+    r, g = _hand_side(real, real_chroma), _hand_side(ghost, ghost_chroma)
+    return pp.burst_failing_measures(layer, r, g, pp.burst_compare(r, g, None, layer))
+
+
+class BurstFailLineTests(unittest.TestCase):
+    """The fail lines no fixture entry reaches, on the hand-built measures of
+    PartParityBurstMetricsTests.TheFailLines_OnHandBuiltMeasures_AreTheOnesThePythonTwinPins
+    (same inputs, same failing lists), and the schedule's boundary cases of
+    TheSchedule_PositionLineIsStrict_AndPowerIsReadInsideOneIndexOnly."""
+
+    def test_duration_fails_past_its_line_and_warns_inside_it(self):
+        real = [0, 100, 200, 300, 200, 150, 100, 50]
+        self.assertEqual(["duration"], _hand_failing("flame", real, [0, 100, 200, 300, 0, 0, 0, 0]))
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 200, 300, 200, 0, 0, 0]))
+
+    def test_peak_time_fails_past_its_line_and_warns_on_it(self):
+        real = [0, 100, 300, 200, 200, 200, 100, 50]
+        self.assertEqual(["peak-time"], _hand_failing("flame", real, [0, 100, 200, 200, 200, 300, 100, 50]))
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 200, 200, 300, 200, 100, 50]))
+
+    def test_a_peak_tie_is_the_earliest_bin(self):
+        real = [0, 100, 300, 200, 200, 300, 100, 50]
+        self.assertEqual(2, _hand_side(real)["peakBin"])
+        self.assertEqual([], _hand_failing("flame", real, [0, 100, 300, 200, 200, 200, 100, 50]))
+
+    def test_the_weak_core_boundary(self):
+        low = pp.FX_PRESENCE_MIN_PX
+        self.assertEqual([], _hand_failing("flame", [0, 0, low - 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, low - 1, 0, 0, 0]))
+        self.assertEqual(["onset", "duration"],
+                         _hand_failing("flame", [0, 0, low, 0, 0, 0, 0, 0], [0, 0, 0, 0, low - 1, 0, 0, 0]))
+        self.assertEqual(["onset", "duration"],
+                         _hand_failing("flame", [0, 0, low - 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, low, 0, 0, 0]))
+
+    def test_the_smoke_peak_area_under_the_weak_core_rule(self):
+        low = pp.FX_PRESENCE_MIN_PX
+        ghost = [0, 0, 15, 18, 15, 0, 0, 0]
+        self.assertEqual([], _hand_failing("smoke", [0, 0, 50, low - 1, 50, 0, 0, 0], ghost))
+        self.assertEqual(["smoke"], _hand_failing("smoke", [0, 0, 50, low, 50, 0, 0, 0], ghost))
+
+    def test_a_colour_wrong_off_the_peak_bin_fails_on_the_mean(self):
+        same, other = [0.5, 0.3], [0.3, 0.5]
+        real_chroma = [None, same, same, same, same, same, None, None]
+        ghost_chroma = [None, other, other, same, other, other, None, None]
+        cores = [0, 100, 200, 300, 200, 100, 0, 0]
+        self.assertEqual(["colour"], _hand_failing("flame", cores, cores, real_chroma, ghost_chroma))
+        r, g = _hand_side(cores, real_chroma), _hand_side(cores, ghost_chroma)
+        c = pp.burst_compare(r, g, None, "flame")
+        self.assertEqual(0.0, c["chromaDistance"])
+        self.assertGreater(c["chromaDistanceMean"], pp.FX_THRESHOLDS["chromaFail"])
+
+    def test_the_schedule_position_line_is_strict(self):
+        tol = pp.BURST_THRESHOLDS["burstSchedulePositionToleranceM"]
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        s = pp.burst_schedule_compare([blast], [dict(blast, offsetM=[tol, 0.0, 0.0])])
+        self.assertEqual(tol, s["maxOffsetDeltaM"])
+        self.assertEqual("ok", s["level"])
+        self.assertEqual("fail", pp.burst_schedule_compare(
+            [blast], [dict(blast, offsetM=[tol + 0.001, 0.0, 0.0])])["level"])
+
+    def test_power_is_read_inside_one_index_only(self):
+        blast = {"index": 1, "power": 0.5, "offsetM": [0.0, 0.0, 0.0]}
+        s = pp.burst_schedule_compare([blast], [dict(blast, index=2, power=0.6)])
+        self.assertEqual("fail", s["level"])
+        self.assertTrue(s["indexDiffers"])
+        self.assertFalse(s["powerDiffers"])
+        s = pp.burst_schedule_compare([blast], [dict(blast, power=0.6, offsetM=[3.0, 0.0, 0.0])])
+        self.assertEqual("fail", s["level"])
+        self.assertFalse(s["indexDiffers"])
+        self.assertTrue(s["powerDiffers"])
+
+
 if __name__ == "__main__":
     unittest.main()

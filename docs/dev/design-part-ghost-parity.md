@@ -4017,17 +4017,28 @@ there). Definitions, which `partparity.py` transcribes (`burst_measure_bin`, `bu
   LCG. Against another draw of itself every measure passes; a burst 2 bins late fails onset only
   (peak time warns), one at 0.6 scale fails peak area and radius only, one 3 px off its source
   (0.375 of an 8 px box) fails centroid offset only, a hue-rotated one fails colour only with
-  every shape and time measure equal to the intact ghost's, a missing one fails presence only; the
-  six G.4 burst controls are met by their own synthetic ghosts and refuse another's.
+  every shape and time measure equal to the intact ghost's, a missing one fails presence only; one
+  cut off after bin 7 fails duration only, one peaking 3 bins late fails peak time only, one
+  hue-rotated in every bin but the real peak bin fails colour on the mean only, a weak smoke
+  (both cores under `PresenceMinPx`) is not judged on its failing peak area, and a peak tie reads
+  its earliest bin; the six G.4 burst controls are met by their own synthetic ghosts and refuse
+  another's. Hand-built measures pin the same fail lines at their boundaries (duration and peak
+  time fail against warn, the weak-core rule at `PresenceMinPx - 1` against `PresenceMinPx` on
+  both layers, a peak tie, a colour wrong off the peak bin) with the same inputs in C# and in
+  Python's `BurstFailLineTests`, which also pin the schedule's strict 1 m line and a power
+  difference read only inside one prefab index.
 - Exact recompute. The committed fixture `Source/Parsek.Tests/Fixtures/PartParity/burst/`
   (`burstfixturepart--default--explode--air--ddae84c8`: `.burst.png`, 4 rows x 3 views x 16 bins
   of 48 px, 8 samples a bin, and its `.part.json`, whose `burst.views[]` hold 6 entries; ghost
   late / shifted / hue-rotated on the three views' flame, smoke another draw / missing / small,
   a schedule whose power warns) is rebuilt by `PARSEK_WRITE_PART_PARITY_BURST_FIXTURE=1 dotnet
   test --filter WriteBurstFixture` and pinned by pixels and numbers. Python's `BurstMeasureTests`
-  recompute all 1848 bin, side and compare values bit for bit, recompute the halves'
-  comparisons from their side blocks and the schedule diff, and red on every tampered number, a
-  mutated pixel, an alpha no sample count writes and a wrong layout.
+  check that all 1848 bin, side and compare values recompute bit for bit (a cell asserting exact
+  equality); `recompute_burst_case`, the reader X5 runs, compares the pixel counts, the sides'
+  bin indices and the schedule's counts and flags exactly and every other number within
+  `RECOMPUTE_FLOAT_TOLERANCE` (1e-9, relative above 1), recomputes the halves' comparisons from
+  their side blocks and the schedule diff, and reds on every tampered number, a mutated pixel,
+  an alpha no sample count writes and a wrong layout.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 

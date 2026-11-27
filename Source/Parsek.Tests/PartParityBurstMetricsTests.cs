@@ -12,8 +12,10 @@ namespace Parsek.Tests
     /// Appendix G.3, piece X3): the time-binned accumulator over frames and trials, the bin
     /// measures radial about the source point, onset / peak / duration / peak area / radius /
     /// centroid offset / colour / brightness, the schedule diff, the split halves by trial, the
-    /// fail lines; on synthetic bursts a late, small, shifted, hue-rotated and a missing burst
-    /// each fail exactly their own measures; and the committed fixture the Python recompute reads.
+    /// fail lines; on synthetic bursts a late, small, shifted, hue-rotated, missing, cut-off,
+    /// late-peaking and off-peak-coloured burst each fail exactly their own measures, a weak
+    /// smoke is not judged and a peak tie reads its earliest bin; the same fail lines on
+    /// hand-built measures the Python twin pins; and the committed fixture the Python recompute reads.
     /// </summary>
     public class PartParityBurstMetricsTests
     {
@@ -246,6 +248,133 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ACutOffBurst_FailsDurationOnly()
+        {
+            var real = new FxBurst();
+            // The ghost draws nothing after bin 7: its last core bin is 7 against the real 14.
+            PartParityBurstViewResult r = Measure(real, Ghost(real, g =>
+            {
+                for (int b = 8; b < g.Radius.Length; b++) g.Radius[b] = 0.0;
+            }));
+            Assert.Equal(new[] { "duration" }, r.FailingMeasures());
+            Assert.Equal(14, r.Real.LastCoreBin);
+            Assert.Equal(7, r.Ghost.LastCoreBin);
+            Assert.Equal(-7.0 / 15.0, r.Compare.DurationDelta.Value, 12);
+            Assert.True(Math.Abs(r.Compare.DurationDelta.Value) > PartParityFxRules.BurstDurationFailFraction);
+            Assert.Equal(0.0, r.Compare.OnsetDeltaBins);
+            Assert.Equal(0.0, r.Compare.PeakTimeDeltaBins);
+        }
+
+        [Fact]
+        public void ABurstPeakingLate_FailsPeakTimeOnly()
+        {
+            var real = new FxBurst();
+            // The same onset and fade; the one 16 px bin moves from the real peak (bin 4) one bin
+            // past the peak-time fail line.
+            int late = PartParityFxRules.BurstPeakTimeFailBins + 1;
+            PartParityBurstViewResult r = Measure(real, Ghost(real, g =>
+            {
+                g.Radius[4] = g.Radius[4 + late];
+                g.Radius[4 + late] = real.Radius[4];
+            }));
+            Assert.Equal(new[] { "peak-time" }, r.FailingMeasures());
+            Assert.Equal(4, r.Real.PeakBin);
+            Assert.Equal((double)late, r.Compare.PeakTimeDeltaBins);
+            Assert.Equal(0.0, r.Compare.OnsetDeltaBins);
+            Assert.Equal(0.0, r.Compare.DurationDelta);
+            Assert.Equal("ok", Level("peak-area", r.Compare.PeakAreaRatio));
+        }
+
+        [Fact]
+        public void AColourWrongOffThePeakBin_FailsColourOnTheMeanOnly()
+        {
+            var real = new FxBurst();
+            // Hue-rotated in every bin but the real peak bin: the peak-bin colour reads ok, the
+            // mean over the bins fails.
+            PartParityBurstViewResult r = Measure(real, Ghost(real, g => { g.RotateHue = true; g.KeepHueBin = 4; }));
+            Assert.Equal(4, r.Real.PeakBin);
+            Assert.Equal(new[] { "colour" }, r.FailingMeasures());
+            Assert.NotEqual("fail", PartParityFxRules.BurstColourLevel(r.Compare.ChromaDistance.Value, r.Compare.HueL1.Value));
+            Assert.Equal("fail", PartParityFxRules.BurstColourLevel(r.Compare.ChromaDistanceMean.Value, r.Compare.HueL1Mean.Value));
+        }
+
+        [Fact]
+        public void AWeakSmoke_IsNotJudgedOnItsPeakArea()
+        {
+            // Both smoke cores under PresenceMinPx and both drawn: the small ghost's peak area
+            // reads fail, and the weak-core rule leaves the smoke measure unjudged.
+            var real = new FxBurst { R = 120, G = 120, B = 120, Alpha = 200, Radius = new double[] { 0, 0, 3, 4, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
+            PartParityBurstViewResult r = Measure(real, Ghost(real, g => g.Scale = 0.6), PartParityFxRules.LayerSmoke);
+            Assert.InRange(r.Real.PeakCorePx, 1, PartParityFxRules.PresenceMinPx - 1);
+            Assert.InRange(r.Ghost.PeakCorePx, 1, PartParityFxRules.PresenceMinPx - 1);
+            Assert.Null(r.Compare.Presence);
+            Assert.Equal("fail", Level("peak-area", r.Compare.PeakAreaRatio));
+            Assert.Empty(r.FailingMeasures());
+        }
+
+        [Fact]
+        public void APeakTie_IsTheEarliestBin()
+        {
+            // No rim dropout: equal radii draw equal envelopes, so bins 3 and 5 tie.
+            var tie = new FxBurst { RimDropout = 0, Radius = new double[] { 0, 0, 14, 16, 15, 16, 15, 14, 13, 12, 10, 7, 4, 0, 0, 0 } };
+            PartParityBurstViewResult r = Measure(tie, Ghost(tie));
+            Assert.Equal(r.Real.Bins[3].EnvelopePx, r.Real.Bins[5].EnvelopePx);
+            Assert.Equal(3, r.Real.PeakBin);
+            Assert.Equal(3, r.Ghost.PeakBin);
+        }
+
+        // ----- the fail lines on hand-built measures (twin: test_partparity.BurstFailLineTests) -----
+
+        /// <summary>Per-bin cores (envelope = core) and chromaticities (null: undefined).</summary>
+        private static PartParityBurstSideMeasures HandSide(int[] cores, double[][] chroma = null)
+        {
+            var bins = new List<PartParityBurstBinMeasures>();
+            for (int b = 0; b < cores.Length; b++)
+                bins.Add(new PartParityBurstBinMeasures { CorePx = cores[b], EnvelopePx = cores[b], Chromaticity = chroma?[b] });
+            return PartParityBurstMetrics.MeasureSide(bins);
+        }
+
+        private static List<string> HandFailing(string layer, int[] real, int[] ghost, double[][] realChroma = null,
+            double[][] ghostChroma = null)
+        {
+            PartParityBurstSideMeasures r = HandSide(real, realChroma), g = HandSide(ghost, ghostChroma);
+            return PartParityBurstMetrics.FailingMeasures(layer, r, g, PartParityBurstMetrics.Compare(r, g, null, layer));
+        }
+
+        [Fact]
+        public void TheFailLines_OnHandBuiltMeasures_AreTheOnesThePythonTwinPins()
+        {
+            const string flame = PartParityFxRules.LayerFlame, smoke = PartParityFxRules.LayerSmoke;
+            int min = PartParityFxRules.PresenceMinPx;
+            // Duration: last core bin 3 against 7 is (3 - 7) / 8 early (fail), 4 is 3 / 8 (warn).
+            Assert.Equal(new[] { "duration" }, HandFailing(flame, new[] { 0, 100, 200, 300, 200, 150, 100, 50 }, new[] { 0, 100, 200, 300, 0, 0, 0, 0 }));
+            Assert.Empty(HandFailing(flame, new[] { 0, 100, 200, 300, 200, 150, 100, 50 }, new[] { 0, 100, 200, 300, 200, 0, 0, 0 }));
+            // Peak time: 3 bins late fails, 2 warns.
+            Assert.Equal(new[] { "peak-time" }, HandFailing(flame, new[] { 0, 100, 300, 200, 200, 200, 100, 50 }, new[] { 0, 100, 200, 200, 200, 300, 100, 50 }));
+            Assert.Empty(HandFailing(flame, new[] { 0, 100, 300, 200, 200, 200, 100, 50 }, new[] { 0, 100, 200, 200, 300, 200, 100, 50 }));
+            // A peak tie on the real side (bins 2 and 5) is its earliest bin: no peak-time delta.
+            Assert.Equal(2, HandSide(new[] { 0, 100, 300, 200, 200, 300, 100, 50 }).PeakBin);
+            Assert.Empty(HandFailing(flame, new[] { 0, 100, 300, 200, 200, 300, 100, 50 }, new[] { 0, 100, 300, 200, 200, 200, 100, 50 }));
+            // The weak-core boundary: both largest cores under PresenceMinPx judge nothing; one at it judges.
+            Assert.Empty(HandFailing(flame, new[] { 0, 0, min - 1, 0, 0, 0, 0, 0 }, new[] { 0, 0, 0, 0, min - 1, 0, 0, 0 }));
+            Assert.Equal(new[] { "onset", "duration" }, HandFailing(flame, new[] { 0, 0, min, 0, 0, 0, 0, 0 }, new[] { 0, 0, 0, 0, min - 1, 0, 0, 0 }));
+            Assert.Equal(new[] { "onset", "duration" }, HandFailing(flame, new[] { 0, 0, min - 1, 0, 0, 0, 0, 0 }, new[] { 0, 0, 0, 0, min, 0, 0, 0 }));
+            // The smoke layer's peak area under the same rule.
+            Assert.Empty(HandFailing(smoke, new[] { 0, 0, 50, min - 1, 50, 0, 0, 0 }, new[] { 0, 0, 15, 18, 15, 0, 0, 0 }));
+            Assert.Equal(new[] { "smoke" }, HandFailing(smoke, new[] { 0, 0, 50, min, 50, 0, 0, 0 }, new[] { 0, 0, 15, 18, 15, 0, 0, 0 }));
+            // Colour wrong in every bin but the real peak bin (3): the mean fails.
+            double[] same = { 0.5, 0.3 }, other = { 0.3, 0.5 };
+            var realChroma = new[] { null, same, same, same, same, same, null, null };
+            var ghostChroma = new[] { null, other, other, same, other, other, null, null };
+            int[] cores = { 0, 100, 200, 300, 200, 100, 0, 0 };
+            Assert.Equal(new[] { "colour" }, HandFailing(flame, cores, cores, realChroma, ghostChroma));
+            PartParityBurstSideMeasures rs = HandSide(cores, realChroma), gs = HandSide(cores, ghostChroma);
+            PartParityBurstCompare c = PartParityBurstMetrics.Compare(rs, gs, null, flame);
+            Assert.Equal(0.0, c.ChromaDistance);
+            Assert.True(c.ChromaDistanceMean > PartParityFxRules.ChromaFail);
+        }
+
+        [Fact]
         public void TheSplitHalves_AreTrialsOneAndThreeAgainstTwoAndFour()
         {
             var real = new FxBurst();
@@ -288,6 +417,29 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "schedule" }, PartParityBurstMetrics.FailingScheduleMeasures(
                 PartParityBurstMetrics.CompareSchedule(one, null)));
             Assert.Empty(PartParityBurstMetrics.FailingScheduleMeasures(PartParityBurstMetrics.CompareSchedule(null, null)));
+        }
+
+        [Fact]
+        public void TheSchedule_PositionLineIsStrict_AndPowerIsReadInsideOneIndexOnly()
+        {
+            double tol = PartParityFxRules.BurstSchedulePositionToleranceM;
+            var one = new List<PartParityBurstBlast> { Blast(0.5, 1) };
+            // Exactly the tolerance apart is ok; just over it fails.
+            var s = PartParityBurstMetrics.CompareSchedule(one, new List<PartParityBurstBlast> { Blast(0.5, 1, tol) });
+            Assert.Equal(tol, s.MaxOffsetDeltaM);
+            Assert.Equal("ok", s.Level);
+            Assert.Equal("fail", PartParityBurstMetrics.CompareSchedule(one,
+                new List<PartParityBurstBlast> { Blast(0.5, 1, tol + 0.001) }).Level);
+            // Another prefab index at another power: the index fails, the power is not compared.
+            s = PartParityBurstMetrics.CompareSchedule(one, new List<PartParityBurstBlast> { Blast(0.6, 2) });
+            Assert.Equal("fail", s.Level);
+            Assert.True(s.IndexDiffers);
+            Assert.False(s.PowerDiffers);
+            // The same index moved and at another power: both are read, the position fails.
+            s = PartParityBurstMetrics.CompareSchedule(one, new List<PartParityBurstBlast> { Blast(0.6, 1, 3.0) });
+            Assert.Equal("fail", s.Level);
+            Assert.False(s.IndexDiffers);
+            Assert.True(s.PowerDiffers);
         }
 
         // ----- the control judges read these measures -----

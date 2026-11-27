@@ -42,6 +42,10 @@ namespace Parsek.Tests
 
         internal bool RotateHue;
 
+        /// <summary>With <see cref="RotateHue"/>, the one bin left unrotated (-1: none), so a
+        /// ghost's colour can differ over the bins and not at the real peak bin.</summary>
+        internal int KeepHueBin = -1;
+
         /// <summary>Draws nothing (a missing burst).</summary>
         internal bool Off;
 
@@ -85,7 +89,7 @@ namespace Parsek.Tests
                     if (d > radius - 1.5 && RimDropout > 0 && roll % (uint)RimDropout == 0) continue;
                     double f = 1.0 - 0.5 * d / radius;
                     byte r = Clip(R * f), g = Clip(G * f), b = Clip(B * f);
-                    if (RotateHue) PartParityFxRules.RotateHueControl(ref r, ref g, ref b);
+                    if (RotateHue && bin != KeepHueBin) PartParityFxRules.RotateHueControl(ref r, ref g, ref b);
                     int o = (y * Tile + x) * 4;
                     px[o] = r;
                     px[o + 1] = g;
