@@ -1,0 +1,20 @@
+[LOG 00:26:24.690] [Parsek][INFO][ExplosionFx] Kept 7/7 stock explosion copies for the Space Center and pause-menu ghost crashes (audio sources muted=7; names=Thud 0,Explosion 0,Explosion 1,Explosion 2,Explosion 4,Explosion 5,Explosion 6)
+[LOG 00:30:14.003] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #1 "Fx9 boom-stock" at (-161.6,-79.9,-377.2) vesselLength=4.0m power=0.20
+[LOG 00:30:38.031] [Parsek][VERBOSE][ExplosionFx] Stock FXMonger.Explode for ghost #2 "Fx9 boom-built" at (-155.6,-79.6,-376.8) vesselLength=2.0m power=0.10
+[LOG 00:30:38.031] [Parsek][WARN][ExplosionFx] FXMonger.Explode did not queue stock FX for ghost #2 "Fx9 boom-built"; falling back to custom FX: no live FXMonger instance
+[LOG 00:30:38.032] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy unavailable (no stock explosion copies kept (not in flight yet this session)); drawing Parsek's hand-built explosion
+[LOG 00:30:38.036] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-155.6,-79.6,-376.8) vesselLength=2.0m power=0.10 tier=0 flash=none fire=0 sparks=12 smoke=14 size=0.8-1.6m systems=2
+[LOG 00:32:41.344] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Thud 0' (index 0/7) played silently at (7.1,95.0,14.6) power=0.08
+[LOG 00:32:41.344] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=1.7m power=0.08 tier=0 flash=none fire=0 sparks=12 smoke=14 size=0.8-1.6m systems=2
+[LOG 00:32:46.945] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 0' (index 1/7) played silently at (7.1,95.0,14.6) power=0.25
+[LOG 00:32:46.946] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=5.0m power=0.25 tier=1 flash=none fire=0 sparks=40 smoke=16 size=1.0-2.0m systems=2
+[LOG 00:32:52.542] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 1' (index 2/7) played silently at (7.1,95.0,14.6) power=0.42
+[LOG 00:32:52.542] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=8.3m power=0.42 tier=2 flash=3.5m fire=8 sparks=25 smoke=26 size=2.0-4.0m systems=4
+[LOG 00:32:58.147] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 2' (index 3/7) played silently at (7.1,95.0,14.6) power=0.58
+[LOG 00:32:58.147] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=11.7m power=0.58 tier=3 flash=4.5m fire=10 sparks=60 smoke=32 size=2.5-4.5m systems=4
+[LOG 00:33:03.749] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 4' (index 4/7) played silently at (7.1,95.0,14.6) power=0.75
+[LOG 00:33:03.749] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=15.0m power=0.75 tier=4 flash=11.0m fire=6 sparks=0 smoke=30 size=4.0-7.0m systems=3
+[LOG 00:33:09.354] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 5' (index 5/7) played silently at (7.1,95.0,14.6) power=0.92
+[LOG 00:33:09.354] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=18.3m power=0.92 tier=5 flash=14.0m fire=22 sparks=12 smoke=32 size=5.0-8.0m systems=4
+[LOG 00:33:14.941] [Parsek][VERBOSE][ExplosionFx] Stock explosion copy 'Explosion 6' (index 6/7) played silently at (7.1,95.0,14.6) power=1.00
+[LOG 00:33:14.941] [Parsek][VERBOSE][ExplosionFx] Spawned hand-built explosion at (-10.0,95.0,-12.5) vesselLength=20.0m power=1.00 tier=6 flash=9.0m fire=18 sparks=90 smoke=40 size=4.0-7.0m systems=4
