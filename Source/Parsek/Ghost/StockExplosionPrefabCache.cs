@@ -157,7 +157,7 @@ namespace Parsek
         // Stock sets transform.up from FlightGlobals.upAxis (the active vessel's); a ghost's blast
         // takes the up of the body under it, which is the same thing beside the active vessel.
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static Vector3 ResolveUp(Vector3 worldPosition)
+        internal static Vector3 ResolveUp(Vector3 worldPosition)
         {
             try
             {

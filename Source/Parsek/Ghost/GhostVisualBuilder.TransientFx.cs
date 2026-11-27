@@ -335,6 +335,9 @@ namespace Parsek
 
             var obj = new GameObject("GhostExplosionFx");
             obj.transform.position = worldPosition;
+            // Local up is the body's up, so the flattened cloud lies along the ground.
+            obj.transform.rotation = Quaternion.FromToRotation(Vector3.up,
+                StockExplosionPrefabCache.ResolveUp(worldPosition));
 
             // The smoke and the fireball are alpha-blended (the fire sorted over the smoke); the
             // flash and the sparks are additive on top.
@@ -433,7 +436,8 @@ namespace Parsek
             main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.1f, d * 0.25f);
             main.startSize = new ParticleSystem.MinMaxCurve(d * 0.4f, d * 0.55f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.gravityModifier = -0.15f;
+            // A fireball's cloud billows up; a small blast's puff hugs the ground, as stock's does.
+            main.gravityModifier = look.HasFire ? -0.15f : -0.04f;
             float dark = look.SmokeDarkGrey, light = look.SmokeLightGrey;
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(dark, dark, dark, 0.9f),
@@ -442,6 +446,8 @@ namespace Parsek
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
             shape.radius = d * 0.3f;
+            // Wider than tall: stock's clouds spread along the ground.
+            shape.scale = new Vector3(1f, look.HasFire ? 0.6f : 0.4f, 1f);
 
             SetSingleBurst(ps, 0.05f, look.SmokeCount);
 
@@ -513,6 +519,7 @@ namespace Parsek
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
             shape.radius = d * 0.28f;
+            shape.scale = new Vector3(1f, 0.8f, 1f);
 
             SetSingleBurst(ps, 0f, look.FireCount);
 
