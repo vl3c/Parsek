@@ -10,7 +10,7 @@ own Parsek.dll builds. Contract: ``harness/lib/leases.py``; how-to:
     python tools/ksp_lease.py claim --owner "far-watch"          # lowest free copy
     python tools/ksp_lease.py claim --owner "mod-parts" --copy 2  # a given copy
     python provision/provision.py --profile stock-minimal --lease # this copy only
-    python run.py --lease --ids LANE-A,LANE-B                      # flies the leased copy
+    python run.py --lease --id LANE-A                                 # flies the leased copy
     python tools/ksp_lease.py status
     python tools/ksp_lease.py renew --ttl-hours 4
     python tools/ksp_lease.py release
@@ -197,7 +197,7 @@ def _print_next_steps(ctx: Context, lease: Dict) -> None:
     profile, copy = slots.parse_slot_name(lease["slot"])
     ctx.say("next: python provision/provision.py --profile %s --lease   (deploys this "
             "worktree's Parsek.dll to %s only, and pins it)" % (profile, lease["slot"]))
-    ctx.say("      python run.py --lease --ids <LANE>[,<LANE>...]   (flies in %s)"
+    ctx.say("      python run.py --lease --id <LANE>   (or --ids-file; flies in %s)"
             % lease["slot"])
     ctx.say("      python tools/ksp_lease.py release   (when this thread's flights are done)")
 

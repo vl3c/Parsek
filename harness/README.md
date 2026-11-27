@@ -1800,7 +1800,7 @@ cd harness
 python tools/ksp_lease.py claim --owner "<thread name>"        # lowest free copy, provisioned first
 python tools/ksp_lease.py claim --owner "<thread name>" --copy 2
 python provision/provision.py --profile stock-minimal --lease  # this worktree's DLL to THIS copy only
-python run.py --lease --ids LANE-A,LANE-B                       # flies in the leased copy
+python run.py --lease --id LANE-A                                  # flies in the leased copy (or --tag, --ids-file)
 python tools/ksp_lease.py status                                # every lease + the machine lock
 python tools/ksp_lease.py renew --ttl-hours 4
 python tools/ksp_lease.py release                               # when the thread's flights are done
