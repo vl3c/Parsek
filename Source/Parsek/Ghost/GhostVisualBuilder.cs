@@ -1269,6 +1269,24 @@ namespace Parsek
                 damagedFilterNames = stockHiddenNames;
             }
 
+            // B9PartSwitch: the prefab carries no subtype, so the shown subtype of each module
+            // decides which transforms the ghost hides (same filter) and, after cloning, which
+            // cloned transforms it moves, turns and scales.
+            List<B9ModuleSelection> b9Selections = ResolveB9Subtypes(
+                partConfig, partNode, modelRoot, partName, persistentId, out HashSet<string> b9HiddenNames);
+            if (b9HiddenNames != null)
+            {
+                if (damagedFilterNames != null)
+                    b9HiddenNames.UnionWith(damagedFilterNames);
+                damagedFilterNames = b9HiddenNames;
+            }
+            if (b9Selections.Count > 0)
+            {
+                if (appliedSkin == null)
+                    appliedSkin = new GhostAppliedSkin();
+                appliedSkin.b9Subtypes = ToAppliedB9Subtypes(b9Selections);
+            }
+
             // Asteroids and comets: stock builds the rock at runtime from the persisted seed and
             // destroys the prefab's placeholder lump, so the ghost does the same (null for any
             // other part).
@@ -1332,6 +1350,8 @@ namespace Parsek
                 ref meshCount, ref damagedSkipped, ref nullMeshSkipped, ref depthMaskSkipped);
             if (skinnedCloned > 0)
                 added = true;
+
+            ApplyB9TransformModifiers(b9Selections, modelRoot, cloneMap, partName, persistentId);
 
             LogPartCloneSummary(meshCount, skinnedCloned, partName, persistentId,
                 nullMeshSkipped, damagedSkipped, depthMaskSkipped);

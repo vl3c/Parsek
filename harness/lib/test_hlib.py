@@ -11066,6 +11066,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "PP-8-part-parity-fx-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, where a Waterfall part's plume reads `reference` (never judged); parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1232`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-9-part-parity-fx-restock.toml": "tier=operator by PURPOSE, NOT debt: PP-7's orbit visual effects reading run on modded-restock (ReStock and ReStock+ without Waterfall, owner ruling R6; design-part-ghost-parity.md Appendix E.6, E.9 row F6) over five `fx=all` PartParitySweep steps, every case judged; parity verdicts are report-only. AUTHORED and LIVE-PROVEN 2026-11-23 (branch `part-parity-p8-f6`, `2026-11-23_1050`, PASS attempt 1, after its `limit=20` reading flights); nothing owed beyond its status row",
         "PP-10-part-parity-fx-air-restock.toml": "tier=operator by PURPOSE, NOT debt: the air half of PP-9 (design-part-ghost-parity.md Appendix E.2 F7 as built, E.6 / E.8, E.9 row F7): every modded-restock air-breathing engine held 1600 m over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route and start-route ghosts over two `contexts=air fx=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-23 (`2026-11-23_1712`, PASS attempt 1, first flight, authored on branch `fx-air-lanes`)",
+        "PP-11-part-parity-mod-parts.toml": "tier=operator by PURPOSE, NOT debt: PP-2's shape on modded-compat narrowed with `source=UtilityWeight,SHED` to the two pinned part mods the owner asked for (Utility Weight 2.0.0, PicoPort 0.1.6.4; design-part-ghost-parity.md section 10): their parts in every skin beside their Parsek ghosts, the live proof of the B9 subtype TRANSFORM offsets on ghosts (todo GHOST-B9-SUBTYPE-TRANSFORMS), judged by the partParity verifier row; parity verdicts are report-only. AUTHORED 2026-11-26 (branch `mod-parts`), LIVE-PROVEN 2026-11-27 (`2026-11-27_1808` / `_1810`, tag `flown`), `pp11` baseline pinned from those two runs",
         "GM-1-scenario-saves-inert.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-INERT-GAME-MODES's lane on the derived fixture `gm-scenario-modes` (stock-minimal, b1-pad-craft restamped): a stock SCENARIO save carrying a Parsek node and a stock SCENARIO_NON_RESUMABLE training save loaded into FLIGHT; the inert game-mode lines, the refused StartRecording, the inert OnLoad stash / OnSave write-back round trip and no normal ParsekScenario load, save or backup pinned. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight, then a daily promotion call (no warps, three loads)",
         "MC-6-route-rewind-timeline-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of H6 on modded-compat (not in the nightly instance set): H6's RouteRewindTimeline batch on gloops-airshow, steps and contracts verbatim, the batch split interim until the first flight. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
         "MC-7-rewind-merge-modded.toml": "tier=operator by the calibration discipline, NOT debt: todo TEST-GAPS-B4-MODDED-TWINS's twin of S4.1 on modded-compat (not in the nightly instance set): the B9 Re-Fly merge cycle on gloops-airshow + rewind-b9, steps and contracts verbatim, the rewind block report-only until a green reading. AUTHORED 2026-11-23, NEVER FLOWN; owed: its first flight",
@@ -19938,6 +19939,58 @@ class PartParityLaneShapeTests(unittest.TestCase):
         # Flown green 2026-11-22 (`2026-11-22_0045`); the tag moved with its status row.
         self.assertIn("flown", spec["tags"])
         self.assertNotIn("pending-flight", spec["tags"])
+
+
+class PartParityModPartsLaneShapeTests(unittest.TestCase):
+    """PP-11 (design-part-ghost-parity.md section 10, todo GHOST-B9-SUBTYPE-TRANSFORMS): PP-2's
+    host and steps on modded-compat, narrowed by `source=` to the two pinned part mods, its own
+    label, every step inside the S8 cap, report-only verdicts, and a pin on the ghost builder's
+    B9 TRANSFORM line for the weight."""
+
+    NAME = "PP-11-part-parity-mod-parts.toml"
+
+    def test_the_lane_sweeps_the_two_mods_in_every_skin(self):
+        spec = load_spec(self.NAME)
+        self.assertEqual("modded-compat", spec["instanceProfile"])
+        self.assertEqual("operator", spec["tier"])
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB]
+        self.assertEqual({"label": "pp11", "op": "reset"}, sweeps[0]["args"])
+        self.assertEqual(2, len(sweeps[1:]))
+        for step in sweeps[1:]:
+            a = step["args"]
+            self.assertEqual(("pp11", "run", "UtilityWeight,SHED", "all", "true", "480"),
+                             (a["label"], a["op"], a.get("source"), a.get("skins"),
+                              a.get("controls"), a.get("maxSeconds")))
+            for key in ("limit", "filter", "shard"):
+                self.assertNotIn(key, a)
+            self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
+        self.assertEqual(["pp11"], partparity.sweep_labels(spec))
+        self.assertFalse(partparity.gating_armed(spec["expectations"]))
+        self.assertNotIn(self.NAME, PartParityArmedRosterTests.PARTPARITY_ARMED_SPECS)
+        total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
+        self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+        self.assertEqual("none", spec["retry"]["policy"])
+        self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+        self.assertIn("flown", spec["tags"])
+        self.assertNotIn("pending-flight", spec["tags"])
+
+    def test_the_b9_pin_matches_the_builder_line_only_when_an_offset_was_applied(self):
+        required = load_spec(self.NAME)["expectations"]["logContracts"]["required"]
+        pins = [p for p in required if "B9 TRANSFORM offsets applied=" in p]
+        self.assertEqual(1, len(pins), required)
+        line = ("[Parsek][VERBOSE][GhostVisual]   Part 'UtilityWeight.OsmiumTank' pid=1234: "
+                "B9 TRANSFORM offsets applied=1 matchedNotCloned=0 (B9PartSwitchSize=2.5m(snapshot))")
+        self.assertTrue(re.search(pins[0], line))
+        self.assertIsNone(re.search(pins[0], line.replace("applied=1", "applied=0")))
+        self.assertIsNone(re.search(pins[0], line.replace("UtilityWeight.OsmiumTank", "fuelTank")))
+
+    def test_the_b9_pin_tracks_the_csharp_literal(self):
+        src = os.path.join(REPO_ROOT, "Source", "Parsek", "Ghost", "GhostVisualBuilder.B9Subtypes.cs")
+        with open(src, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("B9 TRANSFORM offsets applied={applied} ", text)
+        self.assertIn('"GhostVisual"', text)
 
 
 class PartParityStateLaneShapeTests(unittest.TestCase):

@@ -138,10 +138,14 @@ PART's persistentId; the builder's `LogPartVariantResolution` line is rate-limit
 fires only for GAMEOBJECTS rules, so it cannot serve). `AddPartVisuals` records, for every part with
 a `ModulePartVariants` whose visuals it built, the `variantName` and `variantResolutionPath` it
 resolved (`snapshot` / `runtime` / `base` / `first-fallback` / `base-implicit`), a read-only record
-nothing in the build or playback reads (IL proof: insertions only, 12.P3 row). The builder applies
-no B9 subtype (nothing in `Source/Parsek/Ghost/` reads B9), so a B9 proof's `ghost` is null and
-the case is flagged `skin-not-modelled:b9`: a finding (the ghost of a B9 part always shows the
-prefab's own look), not a setup fault.
+nothing in the build or playback reads (IL proof: insertions only, 12.P3 row). From 2026-11-26
+(todo GHOST-B9-SUBTYPE-TRANSFORMS) the builder also applies each B9 module's shown subtype
+(`Ghost/GhostB9Subtypes.cs`: the snapshot's `currentSubtype` routed by `moduleID`, its `TRANSFORM`
+offsets and the `transform` enable lists) and records it in `GhostAppliedSkin.b9Subtypes`; a B9
+proof's `ghost` is that subtype, matched by the proof's `moduleId` (none: the part's first B9
+module). A subtype that also carries `TEXTURE`, `MATERIAL` or `MODULE` rules, which the builder
+does not apply (the Waterfall plume switches), records `ghost` null, so the case keeps
+`skin-not-modelled:b9`: a finding (the ghost shows that subtype only in part), not a setup fault.
 
 requested != real (exact) is the SETUP fault `skin-not-applied`, reported apart. real != ghost
 (case-insensitive, the way the builder matches a VARIANT node) is the ghost-defect flag
@@ -494,9 +498,9 @@ finding). Diff entries are objects keyed by part path (`#k` for the k-th further
 shared path); missing / extra entries carry `mesh` and `rendered`.
 
 The `skin` block (3.2) has the same six keys under every skin kind; a B9 case names
-`ModuleB9PartSwitch`, its `moduleID` and the subtype in `requested` / `real` / `snapshot`, with
-`ghost` null. Its flags join `flags`: `skin-mismatch` (real != ghost) and `skin-not-modelled:b9`
-(the builder applies no B9 subtype); `skin-not-applied` is the `setup.status`. A crash record
+`ModuleB9PartSwitch`, its `moduleID` and the subtype in `requested` / `real` / `snapshot` /
+`ghost` (`ghost` null for a subtype the builder models only in part, 3.2). Its flags join
+`flags`: `skin-mismatch` (real != ghost) and `skin-not-modelled:b9` (a null ghost); `skin-not-applied` is the `setup.status`. A crash record
 (5.3) of a skin case carries the option's `module`, `moduleId` and `requested`. The manifest's
 `settings.skinsNote` says what the step's `skins=` covered.
 
@@ -880,6 +884,12 @@ reference lane. The concrete P8 plan is Appendix E.
   entry names them. `fxUnmeasured` holds what the runs could not judge (a skipped or empty layer, a
   null value, an extra effect held at `warn`); anything else of that kind is `unmeasured`. A
   waiver stretches an FX limit by `FX_FAR`, it lifts none.
+- `PP-11-part-parity-mod-parts` (authored 2026-11-26, todo GHOST-B9-SUBTYPE-TRANSFORMS): PP-2's
+  shape on modded-compat narrowed with `source=UtilityWeight,SHED` to the two pinned part mods
+  the owner asked for (Utility Weight 2.0.0, PicoPort 0.1.6.4; `harness/provision/pins.toml`).
+  It is the live proof that a B9 size subtype (`TRANSFORM scaleOffset`) reaches the ghost: about
+  33 cases, report-only; its `pp11` baseline was pinned from `2026-11-27_1808` / `_1810`. The same parts also
+  enter PP-2, whose `pp2` section was re-pinned from `2026-11-27_1813` / `_1829`.
 
 ## 11. Code layout
 
