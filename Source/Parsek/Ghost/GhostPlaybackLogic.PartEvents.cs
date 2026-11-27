@@ -552,7 +552,8 @@ namespace Parsek
                 evt.partPersistentId,
                 on,
                 out GhostPartEventOutcome lightOutcome,
-                out GhostPartEventOutcome colorChangerOutcome);
+                out GhostPartEventOutcome colorChangerOutcome,
+                evt.ut);
             tally.Record(
                 evt.eventType, GhostPartEventSurface.Light, evt.partPersistentId, lightOutcome);
             tally.Record(
