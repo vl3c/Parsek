@@ -330,6 +330,8 @@ namespace Parsek
 
             if (cachedExplosionTexture == null)
                 cachedExplosionTexture = CreateSoftCircleTexture(32);
+            if (cachedExplosionPuffTexture == null)
+                cachedExplosionPuffTexture = CreateExplosionPuffTexture(64);
 
             var obj = new GameObject("GhostExplosionFx");
             obj.transform.position = worldPosition;
@@ -376,10 +378,11 @@ namespace Parsek
             return 1;
         }
 
-        // One child particle system with a soft-circle material and its cleanup; the caller sets
-        // its modules. World space, one burst, no loop.
+        // One child particle system with its material and the material's cleanup; the caller sets
+        // its modules. World space, one burst, no loop. The smoke and the fire draw the lumpy puff,
+        // the flash and the sparks the soft circle.
         private static ParticleSystem NewExplosionPart(GameObject parent, string name, Shader shader,
-            Color tint, int maxParticles, out ParticleSystemRenderer renderer)
+            Color tint, int maxParticles, Texture2D texture, out ParticleSystemRenderer renderer)
         {
             var child = new GameObject(name);
             child.transform.SetParent(parent.transform, false);
@@ -394,7 +397,7 @@ namespace Parsek
             renderer = child.GetComponent<ParticleSystemRenderer>();
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
             var mat = new Material(shader);
-            mat.mainTexture = cachedExplosionTexture;
+            mat.mainTexture = texture;
             mat.SetColor("_TintColor", tint);
             renderer.material = mat;
             var cleanup = child.AddComponent<MaterialCleanup>();
@@ -411,8 +414,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The smoke cloud: dense puffs picked between a dark and a lighter grey that swell, drift
-        /// up a little and fade, about <see cref="FallbackExplosionLook.SmokeDiameter"/> across.
+        /// The smoke cloud: dense lumpy puffs picked between a dark and a lighter grey that swell,
+        /// churn, billow upward and fade, about <see cref="FallbackExplosionLook.SmokeDiameter"/>
+        /// across (puff centres spread over 0.6 of it, each puff about half of it).
         /// The neutral 0.5 tint leaves the particle colours as they are (the KSP particle shaders
         /// double the tint), so the cloud stays grey, never brown. Its alpha rises after the
         /// fireball has had its moment, as stock's cloud takes over from its fire.
@@ -420,16 +424,16 @@ namespace Parsek
         private static ParticleSystem BuildFallbackExplosionSmoke(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
         {
             var ps = NewExplosionPart(parent, "Smoke", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
-                look.SmokeCount, out ParticleSystemRenderer renderer);
+                look.SmokeCount, cachedExplosionPuffTexture, out ParticleSystemRenderer renderer);
             renderer.maxParticleSize = 3f;
 
             float d = look.SmokeDiameter;
             var main = ps.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.SmokeLifetimeMin, look.SmokeLifetimeMax);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.08f, d * 0.2f);
-            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.35f, d * 0.5f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.1f, d * 0.25f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.4f, d * 0.55f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.gravityModifier = -0.03f;
+            main.gravityModifier = -0.15f;
             float dark = look.SmokeDarkGrey, light = look.SmokeLightGrey;
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(dark, dark, dark, 0.9f),
@@ -437,7 +441,7 @@ namespace Parsek
 
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = d * 0.15f;
+            shape.radius = d * 0.3f;
 
             SetSingleBurst(ps, 0.05f, look.SmokeCount);
 
@@ -468,36 +472,44 @@ namespace Parsek
 
             var velocity = ps.limitVelocityOverLifetime;
             velocity.enabled = true;
-            velocity.dampen = 0.15f;
-            velocity.limit = d * 0.05f;
+            velocity.dampen = 0.25f;
+            velocity.limit = d * 0.08f;
+
+            // A slow churn so the cloud's outline keeps breaking up instead of growing as a disc.
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = d * 0.04f;
+            noise.frequency = 0.6f;
+            noise.scrollSpeed = 0.4f;
+            noise.damping = true;
             return ps;
         }
 
         /// <summary>
-        /// The fireball: dense yellow puffs that swell to about
-        /// <see cref="FallbackExplosionLook.FireDiameter"/> and burn through orange to a dark
-        /// red-brown as they fade. Alpha-blended, so it stays a saturated yellow against a bright
+        /// The fireball: dense lumpy yellow puffs that swell to about
+        /// <see cref="FallbackExplosionLook.FireDiameter"/> (centres over 0.55 of it, each puff
+        /// about half of it) and burn through orange to a dark red-brown as they fade. Alpha-blended, so it stays a saturated yellow against a bright
         /// sky (an additive one washes out to white), and sorted over the smoke.
         /// </summary>
         private static ParticleSystem BuildFallbackExplosionFire(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
         {
             var ps = NewExplosionPart(parent, "Fire", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
-                look.FireCount, out ParticleSystemRenderer renderer);
+                look.FireCount, cachedExplosionPuffTexture, out ParticleSystemRenderer renderer);
             renderer.maxParticleSize = 3f;
             renderer.sortingFudge = -20f;
 
             float d = look.FireDiameter;
             var main = ps.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.FireLifetime * 0.7f, look.FireLifetime);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.15f, d * 0.4f);
-            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.4f, d * 0.55f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.15f, d * 0.35f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.45f, d * 0.6f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(1f, 0.97f, 0.6f, 1f), new Color(1f, 0.82f, 0.35f, 1f));
 
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = d * 0.12f;
+            shape.radius = d * 0.28f;
 
             SetSingleBurst(ps, 0f, look.FireCount);
 
@@ -528,8 +540,15 @@ namespace Parsek
 
             var velocity = ps.limitVelocityOverLifetime;
             velocity.enabled = true;
-            velocity.dampen = 0.2f;
+            velocity.dampen = 0.25f;
             velocity.limit = d * 0.08f;
+
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = d * 0.05f;
+            noise.frequency = 0.8f;
+            noise.scrollSpeed = 0.6f;
+            noise.damping = true;
             return ps;
         }
 
@@ -537,7 +556,7 @@ namespace Parsek
         private static ParticleSystem BuildFallbackExplosionFlash(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
         {
             var ps = NewExplosionPart(parent, "Flash", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
-                4, out ParticleSystemRenderer renderer);
+                4, cachedExplosionTexture, out ParticleSystemRenderer renderer);
             renderer.maxParticleSize = 3f;
             renderer.sortingFudge = -40f;
 
@@ -545,7 +564,8 @@ namespace Parsek
             var main = ps.main;
             main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlashLifetime * 0.8f, look.FlashLifetime);
             main.startSpeed = 0f;
-            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.9f, d * 1.2f);
+            // The soft glow shows about 0.6 of its size, so the particle is larger than the flash.
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 1.2f, d * 1.5f);
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(1f, 1f, 0.95f, 1f), new Color(1f, 0.95f, 0.8f, 1f));
 
@@ -585,7 +605,7 @@ namespace Parsek
         private static ParticleSystem BuildFallbackExplosionSparks(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
         {
             var ps = NewExplosionPart(parent, "Sparks", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
-                look.SparkCount, out ParticleSystemRenderer renderer);
+                look.SparkCount, cachedExplosionTexture, out ParticleSystemRenderer renderer);
             renderer.renderMode = ParticleSystemRenderMode.Stretch;
             renderer.velocityScale = 0.1f;
             renderer.lengthScale = 1f;
@@ -862,6 +882,49 @@ namespace Parsek
             info.generatedTexture = null;
             info.particles = null;
             info.dustObject = null;
+        }
+
+        /// <summary>
+        /// A lumpy puff for the hand-built explosion's smoke and fire: a core disc and four lobes,
+        /// each with a firm edge, so a puff reads as a cauliflower clump with a ragged outline the
+        /// way stock's explosion clouds do (a soft circle reads as a small smooth blob). The RGB
+        /// carries a faint light-and-shade pattern so overlapping puffs keep some structure; the
+        /// particle colour sets the hue. Deterministic; each particle's random rotation varies it.
+        /// The visible part is about 0.8 of the particle size.
+        /// </summary>
+        private static Texture2D CreateExplosionPuffTexture(int size)
+        {
+            // Lobe centres (x, y) and radii in units of the half-size; all stay inside the square.
+            float[] lobes =
+            {
+                0f, 0f, 0.6f,
+                0.42f, 0.12f, 0.36f,
+                -0.18f, 0.4f, 0.38f,
+                -0.38f, -0.2f, 0.36f,
+                0.12f, -0.42f, 0.34f
+            };
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float half = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half, v = (y + 0.5f - half) / half;
+                    float alpha = 0f;
+                    for (int i = 0; i < lobes.Length; i += 3)
+                    {
+                        float du = u - lobes[i], dv = v - lobes[i + 1], r = lobes[i + 2];
+                        float dist = Mathf.Sqrt(du * du + dv * dv);
+                        alpha = Mathf.Max(alpha, 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(r * 0.65f, r, dist)));
+                    }
+                    float shade = 0.84f + 0.08f * Mathf.Sin(u * 7.1f + 1.3f) * Mathf.Sin(v * 6.3f + 0.4f)
+                        + 0.08f * (0.5f - 0.5f * (u + v) * 0.5f);
+                    shade = Mathf.Clamp01(shade);
+                    tex.SetPixel(x, y, new Color(shade, shade, shade, alpha));
+                }
+            }
+            tex.Apply(false, true);
+            return tex;
         }
 
         private static Texture2D CreateSoftCircleTexture(int size)
