@@ -13,8 +13,10 @@ namespace Parsek
         #region Reentry FX
 
         /// <summary>
-        /// Update reentry visual effects for a ghost. Computes atmospheric density,
-        /// Mach number, and intensity, then drives glow/fire/shell layers.
+        /// Update reentry visual effects for a ghost. Computes atmospheric density, Mach number
+        /// and stock's <c>FxScalar</c> / thermal blend for the ghost's own conditions, then drives
+        /// the glow and char layers and offers the ghost's sheath to
+        /// <see cref="GhostAeroFxRenderer"/> (part parity P9 Y1).
         /// </summary>
         /// <remarks>
         /// Bug #450 B3: entry condition widened to allow ghosts whose reentry build
@@ -146,7 +148,11 @@ namespace Parsek
 
             double speedOfSound = body.GetSpeedOfSound(pressure, density);
             float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
-            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, machNumber);
+            // Stock's scalar on the ghost's own density, speed and Mach (G.7 "Y1 design"); the
+            // density is the standard atmosphere's, the ghost has no flight integrator.
+            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed, (float)density, machNumber, GhostAeroFxRenderer.Constants, out float aeroState);
+            info.aeroState = aeroState;
 
             float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
                 1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
@@ -443,6 +449,7 @@ namespace Parsek
         private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude,
             string vesselName, GhostPlaybackState state = null)
         {
+            info.aeroState = 0f;
             DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName, state);
             info.lastIntensity = 0f;
         }
@@ -458,7 +465,7 @@ namespace Parsek
             {
                 float speed = surfaceVel.magnitude;
                 ParsekLog.Verbose("Engine",
-                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" - intensity={intensity:F2}, state={info.aeroState:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
             }
             else if (!isActive && wasActive)
             {
@@ -470,7 +477,7 @@ namespace Parsek
             if (isActive)
             {
                 ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
-                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
+                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={info.aeroState:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
             }
 
             // Test-only isolation frame; None (and nothing hidden) unless a test armed it.
@@ -478,9 +485,38 @@ namespace Parsek
             bool isolateFire = ReentryIsolationHidesFireAndShell(isolation);
             if (isolateFire != info.fireHiddenForIsolation)
                 SetReentryFireShownForIsolation(info, !isolateFire, recIdx);
-            float glowIntensity = ReentryIsolationGlowIntensity(intensity, isolation);
+            // The glow and char read the heat share of stock's effect: dark under the
+            // condensation of a fast pass in dense air, as stock's hull stays.
+            float heat = GhostAeroFx.ThermalShare(intensity, info.aeroState);
+            float glowIntensity = ReentryIsolationGlowIntensity(heat, isolation);
 
-            // Layer A: Heat glow (material emission)
+            // Layer A: Heat glow (material emission). The material writes are Unity calls, so they
+            // sit in a helper the JIT cannot inline back into this body, called only when there is
+            // a material to write (the JIT compiles the helper, and whatever it inlines, on its
+            // first call).
+            if (info.glowMaterials != null && info.glowMaterials.Count > 0)
+                ApplyReentryGlowLayer(info, glowIntensity);
+
+            // Apply ablation char to heat shield parts
+            if (state != null)
+                GhostPlaybackLogic.ApplyColorChangerCharState(state, heat);
+
+            // The sheath: stock's FX shaders on this ghost's meshes, drawn by the renderer this
+            // frame unless stock's own effect is on, the ghost is out of its reach or an
+            // isolation frame leaves it out.
+            GhostAeroFxRenderer.OfferSheath(info, state?.ghost, intensity, info.aeroState,
+                surfaceVel, recIdx, isolateFire);
+        }
+
+        /// <summary>
+        /// Layer A: drives each glow material from cold to hot by <paramref name="glowIntensity"/>.
+        /// Not inlined: <c>Material.SetColor</c> and the material null checks reach Unity
+        /// internalcalls, and a Release JIT that inlined them into <c>DriveReentryLayers</c> would
+        /// make that method fail to compile on the Windows .NET test host (SecurityException).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ApplyReentryGlowLayer(ReentryFxInfo info, float glowIntensity)
+        {
             if (info.glowMaterials != null)
             {
                 for (int i = 0; i < info.glowMaterials.Count; i++)
@@ -509,75 +545,15 @@ namespace Parsek
                     }
                 }
             }
-
-            // Apply ablation char to heat shield parts
-            if (state != null)
-                GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);
-
-            // Fire envelope particles. Visible density is controlled primarily by the
-            // emission-rate range; maxParticles only supplies headroom for the denser stream.
-            if (info.fireParticles != null && !isolateFire)
-            {
-                if (intensity > GhostVisualBuilder.ReentryFireThreshold)
-                {
-                    float fireFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, intensity);
-
-                    var emissionMod = info.fireParticles.emission;
-                    emissionMod.rateOverTimeMultiplier = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryFireEmissionMin,
-                        GhostVisualBuilder.ReentryFireEmissionMax, fireFraction);
-
-                    var mainMod = info.fireParticles.main;
-                    mainMod.startSizeMultiplier = Mathf.Lerp(0.8f, 2.0f, fireFraction);
-
-                    if (!info.fireParticles.isPlaying)
-                        info.fireParticles.Play();
-                }
-                else
-                {
-                    if (info.fireParticles.isPlaying)
-                        info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-                }
-            }
-
-            // Fire shell overlay
-            if (info.fireShellMeshes != null && info.fireShellMaterial != null
-                && !isolateFire && intensity > GhostVisualBuilder.ReentryFireThreshold)
-            {
-                Vector3 velDir = surfaceVel.normalized;
-                float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
-                float baseTint = Mathf.Lerp(0.026f, 0.156f, intensity);
-
-                for (int pass = 0; pass < GhostVisualBuilder.ReentryFireShellPasses; pass++)
-                {
-                    float t = (pass + 1f) / GhostVisualBuilder.ReentryFireShellPasses;
-                    Vector3 offset = -velDir * (maxOffset * t);
-                    float alpha = baseTint * (1f - t * 0.7f);
-                    Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
-
-                    var mpb = state?.reentryMpb ?? new MaterialPropertyBlock();
-                    mpb.SetColor("_TintColor", tint);
-
-                    for (int m = 0; m < info.fireShellMeshes.Count; m++)
-                    {
-                        FireShellMesh fsm = info.fireShellMeshes[m];
-                        if (fsm.mesh == null || fsm.transform == null) continue;
-                        if (!fsm.transform.gameObject.activeInHierarchy) continue;
-
-                        Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
-                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, mpb);
-                    }
-                }
-            }
         }
 
         /// <summary>
-        /// Test-only: the next reentry drive of this ghost (one frame) leaves out the fire
-        /// particles and the shell, or with <see cref="ReentryIsolation.FireShellAndGlow"/> also
-        /// drives Layer A cold; the drive after it restores them. This is the ghost half of the
-        /// FXC isolation frames (design-part-ghost-parity.md G.2.3). The fire particles keep
-        /// simulating; only their renderer is off for the frame. Returns false (nothing armed)
-        /// for a ghost with no reentry FX built yet.
+        /// Test-only: the next reentry drive of this ghost (one frame) offers no sheath (so no
+        /// sheath and no ghost light that frame), or with
+        /// <see cref="ReentryIsolation.FireShellAndGlow"/> also drives Layer A cold; the drive
+        /// after it offers them again. This is the ghost half of the FXC isolation frames
+        /// (design-part-ghost-parity.md G.2.3). Returns false (nothing armed) for a ghost with no
+        /// reentry FX built yet.
         /// </summary>
         internal static bool ArmReentryIsolationForOneFrame(GhostPlaybackState state, ReentryIsolation mode)
         {
@@ -617,17 +593,11 @@ namespace Parsek
             return mode == ReentryIsolation.FireShellAndGlow ? 0f : intensity;
         }
 
-        // Not inlined: the renderer write is a Unity call the drive's pure halves stay clear of.
-        [MethodImpl(MethodImplOptions.NoInlining)]
         private static void SetReentryFireShownForIsolation(ReentryFxInfo info, bool shown, int recIdx)
         {
             info.fireHiddenForIsolation = !shown;
             ParsekLog.Verbose("ReentryFx",
-                $"Reentry fire renderer {(shown ? "restored" : "hidden")} for isolation on ghost #{recIdx}" +
-                (info.fireParticles == null ? " (no fire particles built)" : ""));
-            if (info.fireParticles == null) return;
-            var psRenderer = info.fireParticles.GetComponent<ParticleSystemRenderer>();
-            if (psRenderer != null) psRenderer.enabled = shown;
+                $"Reentry sheath {(shown ? "restored" : "hidden")} for isolation on ghost #{recIdx}");
         }
 
         #endregion

@@ -207,7 +207,8 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("GhostVisualBuilder.TransientFx.cs", "GhostWorldSpaceEmitter.AttachOwn(obj);", 2)]
         [InlineData("GhostVisualBuilder.TransientFx.cs", "GhostWorldSpaceEmitter.AttachOwn(dustObj);", 1)]
-        [InlineData("GhostVisualBuilder.HeatAndReentryFx.cs", "GhostWorldSpaceEmitter.AttachOwn(fireObj);", 1)]
+        // The reentry fire particles are gone (part parity P9 Y1: stock's sheath on the ghost).
+        [InlineData("GhostVisualBuilder.HeatAndReentryFx.cs", "GhostWorldSpaceEmitter.AttachOwn(fireObj);", 0)]
         public void Wiring_EveryParsekBuiltWorldSpaceFxFollowsTheOrigin(string file, string call, int count)
         {
             Assert.Equal(count, Count(Source(Path.Combine("Ghost", file)), call));
@@ -217,12 +218,13 @@ namespace Parsek.Tests
         public void Wiring_TheWorldSpaceSystemsParsekBuildsAreTheOnesAttached()
         {
             // Five in TransientFx (explosion fireball and smoke, puff smoke and sparks, launch
-            // dust: three AttachOwn roots) and the reentry fire; the EVA plume is local. A new
-            // world-space system reds here until it is attached.
+            // dust: three AttachOwn roots); the reentry fire is stock's sheath since part parity
+            // P9 Y1 and builds none; the EVA plume is local. A new world-space system reds here
+            // until it is attached.
             string transient = Source(Path.Combine("Ghost", "GhostVisualBuilder.TransientFx.cs"));
             string reentry = Source(Path.Combine("Ghost", "GhostVisualBuilder.HeatAndReentryFx.cs"));
             Assert.Equal(5, Count(transient, "simulationSpace = ParticleSystemSimulationSpace.World;"));
-            Assert.Equal(1, Count(reentry, "simulationSpace = ParticleSystemSimulationSpace.World;"));
+            Assert.Equal(0, Count(reentry, "simulationSpace = ParticleSystemSimulationSpace.World;"));
         }
 
         private static int Count(string source, string needle)
