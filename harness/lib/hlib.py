@@ -968,6 +968,12 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     startUT= endUT= effect= deployed= refPid= refDistStart= refDistEnd= refSpeed=` once
     #     the input was released, a requested stow took and the scene settled.
     "EvaMove",
+    # ADDITIVE (65 -> 66 implemented, reserved unchanged at 4), THROWAWAY: the far-watch
+    # step 1 proof (never merged; docs/dev/design-far-watch.md section 18.1).
+    #   FarWatchProof op=<op> [args], FLIGHT, TWO-PHASE, 540 s: one proof op on the camera
+    #     drone driver. Every op answers OK `op= result=` (ok, or the reason it did nothing);
+    #     the observations are the `[FarWatchProof] obs=` log lines.
+    "FarWatchProof",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1369,6 +1375,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # DeferralBudget.EvaMoveSeconds: the held input (at most 30 game seconds at 1x) plus a
     # minute for the pack toggle, the stow presses and the settle. Unmeasured (never flown).
     "EvaMove": 90.0,
+    # DeferralBudget.FarWatchProofSeconds (throwaway): a waiting op time-boxes itself to at
+    # most 480 s, so the WarpToUT size. Not a DEFERRED_SEAM_VERB: no spec pins a budget.
+    "FarWatchProof": 540.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1650,6 +1659,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "ExitToMainMenu": TAIL_ROLE_WORLD_MUTATING,
     # EvaMove moves the kerbal and burns its jetpack propellant (stock state a save captures).
     "EvaMove": TAIL_ROLE_WORLD_MUTATING,
+    # FarWatchProof (throwaway) builds, moves and destroys a camera drone.
+    "FarWatchProof": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1896,6 +1907,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # EvaMove is `outcome` for PlantFlag's reason: "the kerbal flew or walked under its own
     # input" is a kerbal's in-world state no verifier re-derives.
     "EvaMove": POST_MISSION_ROLE_OUTCOME,
+    # FarWatchProof (throwaway) is `recording`: its OK is "the op ran", and what it saw is
+    # the obs= log lines, never a gate.
+    "FarWatchProof": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4933,6 +4947,40 @@ def validate_pick_up_flag_step(index: int, step_args: Dict) -> List[str]:
         return ["driver.steps[%d].args: %s reads no args, so %s would be silently ignored"
                 % (index, PICKUPFLAG_VERB, ", ".join(extra))]
     return []
+
+
+# FarWatchProof (throwaway, never merged): mirrored from
+# TestCommands/TestCommandFarWatchProof.cs (FarWatchProofSourceSyncTests).
+FARWATCHPROOF_VERB = "FarWatchProof"
+FARWATCHPROOF_OPS: Tuple[str, ...] = (
+    "arm", "build", "switch", "follow", "moveto", "advance", "solver", "park",
+    "destroy", "save", "autosave", "lock", "fence", "control", "unlist", "kill",
+    "recalc", "report",
+)
+FARWATCHPROOF_ARG_KEYS: Tuple[str, ...] = (
+    "op", "variant", "target", "tree", "index", "watch", "untilUT", "maxRate", "pauses",
+    "seconds", "name", "strip", "state", "alt", "body", "mode", "label", "interval",
+)
+
+
+def validate_far_watch_proof_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``FarWatchProof`` step: a known op and only the keys
+    the C# TryParseArgs reads (an unknown key is a REJECTED that costs a boot)."""
+    errors: List[str] = []
+    where = "driver.steps[%d].args" % index
+    op = step_args.get("op")
+    if str(op) not in FARWATCHPROOF_OPS:
+        errors.append("%s.op: %r is not one of %s (the seam would refuse "
+                      "farwatchproof-op-invalid)" % (where, op, "/".join(FARWATCHPROOF_OPS)))
+    extra = sorted(str(k) for k in step_args if k not in FARWATCHPROOF_ARG_KEYS)
+    if extra:
+        errors.append("%s: %s reads only %s, so %s would be refused farwatchproof-arg-unknown"
+                      % (where, FARWATCHPROOF_VERB, ", ".join(FARWATCHPROOF_ARG_KEYS), ", ".join(extra)))
+    if str(op) == "switch" and str(step_args.get("target")) not in ("drone", "ship"):
+        errors.append("%s.target: switch needs drone or ship" % where)
+    if str(op) == "advance" and "untilUT" not in step_args:
+        errors.append("%s.untilUT: advance needs it" % where)
+    return errors
 
 
 def validate_eva_move_step(index: int, step_args: Dict) -> List[str]:
@@ -8754,6 +8802,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # owns both table rows); validate_eva_move_step checks them.
             if cmd == EVAMOVE_VERB and arg_key in EVAMOVE_ARG_KEYS:
                 continue
+            # FarWatchProof (throwaway) reads its own `op=`, `mode=`, `state=`, `label=` and
+            # the rest; validate_far_watch_proof_step checks them.
+            if cmd == FARWATCHPROOF_VERB and arg_key in FARWATCHPROOF_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8827,6 +8879,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_pick_up_flag_step(i, step_args))
         elif cmd == EVAMOVE_VERB:
             errors.extend(validate_eva_move_step(i, step_args))
+        elif cmd == FARWATCHPROOF_VERB:
+            errors.extend(validate_far_watch_proof_step(i, step_args))
         elif cmd == NEWGAME_VERB:
             errors.extend(validate_new_game_step(i, step_args, run_save_name))
         elif cmd == ALARMJUMP_VERB:

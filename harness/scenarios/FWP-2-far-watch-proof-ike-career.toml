@@ -1,0 +1,97 @@
+schema = 1
+id = "FWP-2-far-watch-proof-ike-career"
+# ====================================================================================
+# THROWAWAY: the far-watch step 1 proof (docs/dev/design-far-watch.md section 18.1).
+# Never merged. Every FarWatchProof step answers OK with `result=` (ok, or why it did
+# nothing); the observations are the `[FarWatchProof] obs=<name> k=v ...` log lines,
+# read by hand from the collected KSP.log. Nothing here gates on what the proof saw.
+#
+# Unattended: python harness/run.py --id FWP-2-far-watch-proof-ike-career
+# Attended:   python harness/run.py --id FWP-2-far-watch-proof-ike-career --hold   (close KSP to end it).
+# Host: the career Relay orbiting Ike with a live recording. No ghost is followed; the
+# drone is moved to Duna by value. Career pools are read by obs=report before / after.
+# ====================================================================================
+tier = "operator"
+description = "THROWAWAY far-watch step 1 proof on duna-ike-recorded-career: an orbital camera drone beside the recording Ike Relay, four switches with the contract fence off then on, the Rendezvous award against the ledger recalculation, saves from Duna and the hand-back across the SOI. Observations are the [FarWatchProof] obs= lines."
+instanceProfile = "stock-minimal"
+tags = ["far-watch-proof", "throwaway", "screenshots", "loop-playback"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-ike-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ledgerTracing", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording", expect = "OK", budget = 180 },
+  # The career Relay orbits Ike and Ike's Rendezvous milestone is unreached, so the orbital
+  # drone loading beside it is stock's Rendezvous trigger (proof 13).
+  { cmd = "FarWatchProof", args = { op = "arm" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "report", label = "before" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "recalc", label = "baseline" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "fence", state = "off" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "build", variant = "orbit" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp2-built" }, expect = "OK" },
+  # Proof 12: contract resets per switch, fence off then on, both directions.
+  { cmd = "FarWatchProof", args = { op = "switch", target = "drone" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "ship" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "fence", state = "on" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "drone" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "ship" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "fence", state = "off" }, expect = "OK" },
+  # Proof 13: does the recalculation take back the unbooked Rendezvous award.
+  { cmd = "FarWatchProof", args = { op = "recalc", label = "after-rendezvous" }, expect = "OK" },
+  # Proofs 7, 9: another SOI (Duna, Ike's parent), saves there, then the hand-back.
+  { cmd = "FarWatchProof", args = { op = "switch", target = "drone" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "moveto", body = "Duna", alt = "100000", seconds = "10" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp2-duna" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "save", name = "fwp2-duna", strip = "true" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "autosave", interval = "5", seconds = "60" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "park" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "ship" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "destroy" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp2-handback" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "recalc", label = "end" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "report", label = "after" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings.structure]
+# Report-only (no `gating`): the save keeps the fixture's committed trees.
+committedTrees = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "\\[FarWatchProof\\] obs=arm ",
+  "\\[FarWatchProof\\] obs=build ",
+  "\\[FarWatchProof\\] obs=switch to=drone ",
+  "\\[FarWatchProof\\] obs=switch to=ship ",
+  "\\[FarWatchProof\\] obs=recalc ",
+  "\\[FarWatchProof\\] obs=moveto ",
+  "\\[FarWatchProof\\] obs=report ",
+]
+forbidden = [
+  "farwatchproof rejected reason=",
+  "\\[FarWatchProof\\] op threw ",
+]
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

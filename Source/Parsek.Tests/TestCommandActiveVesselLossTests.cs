@@ -45,6 +45,8 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy", false)]
         // Owns its own evamove-kerbal-lost terminal.
         [InlineData("EvaMove", false)]
+        // The throwaway far-watch proof switches the active vessel by design.
+        [InlineData("FarWatchProof", false)]
         // Boarding removes the EVA vessel on its own success path.
         [InlineData("EvaBoard", false)]
         // Switches focus to the new kerbal.

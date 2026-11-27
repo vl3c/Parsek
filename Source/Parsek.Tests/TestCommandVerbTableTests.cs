@@ -78,6 +78,7 @@ namespace Parsek.Tests
         [InlineData("PartParitySweep")]
         [InlineData("ExitToMainMenu")]
         [InlineData("EvaMove")]
+        [InlineData("FarWatchProof")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -238,7 +239,9 @@ namespace Parsek.Tests
             // Quit to Main Menu (stock saveAndExit(MAINMENU)).
             // EvaMove is ADDITIVE (64 -> 65; reserved unchanged at 4): the active EVA kerbal
             // driven by jetpack or on foot with the player's own movement input.
-            Assert.Equal(65, TestCommandVerbs.ImplementedVerbNames.Count);
+            // FarWatchProof is ADDITIVE (65 -> 66; reserved unchanged at 4): the throwaway
+            // far-watch step 1 proof (never merged).
+            Assert.Equal(66, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

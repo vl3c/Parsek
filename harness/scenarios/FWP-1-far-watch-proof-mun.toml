@@ -1,0 +1,125 @@
+schema = 1
+id = "FWP-1-far-watch-proof-mun"
+# ====================================================================================
+# THROWAWAY: the far-watch step 1 proof (docs/dev/design-far-watch.md section 18.1).
+# Never merged. Every FarWatchProof step answers OK with `result=` (ok, or why it did
+# nothing); the observations are the `[FarWatchProof] obs=<name> k=v ...` log lines,
+# read by hand from the collected KSP.log. Nothing here gates on what the proof saw.
+#
+# Unattended: python harness/run.py --id FWP-1-far-watch-proof-mun
+# Attended:   python harness/run.py --id FWP-1-far-watch-proof-mun --hold   (close KSP to end it).
+# Host: the real Kerbal X landed on the Mun; the ghost is the same mission's loop from
+# the Kerbin pad to the Mun touchdown. Timings off V23M's measured table.
+# ====================================================================================
+tier = "operator"
+description = "THROWAWAY far-watch step 1 proof on mun-landing-recorded: a surface-held camera drone beside the Mun-landed Kerbal X follows the loop ghost from the Kerbin pad through the Mun SOI seam to touchdown by orbit rewrite, then hands back, soaks under warp and dies while active. Observations are the [FarWatchProof] obs= lines."
+instanceProfile = "stock-minimal"
+tags = ["far-watch-proof", "throwaway", "screenshots", "loop-playback"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-landing-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
+  # StartLoopPlayback leaves now at L1 - 15 s (L1 = 1,249,901.18, V23M's measured cycle-1
+  # relaunch). Proofs 1-2: the surface-held drone 50 m above the Mun-landed Kerbal X.
+  { cmd = "FarWatchProof", args = { op = "arm" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "report", label = "before" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "fence", state = "off" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "build", variant = "auto" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-built" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "drone" }, expect = "OK" },
+  # Proofs 4-5: follow the Kerbin ascent ghost (the drone jumps 12,000 km to the pad).
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1249906", maxRate = "1" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "follow", tree = "0da22482a8a648c6835b7bcd6b0f200d", watch = "true", seconds = "15" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-ascent" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-ascent-map" }, expect = "OK" },
+  { cmd = "ExitMapView", expect = "OK" },
+  # Proof 10: the negative control, 10 deg east of the drone at 15 km on Kerbin.
+  { cmd = "FarWatchProof", args = { op = "control", alt = "15000" }, expect = "OK" },
+  # Proof 4: the burning ascent at 1x with the solver attached, then detached.
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1249990", maxRate = "1" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "solver", state = "detached" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1250060", maxRate = "1" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "solver", state = "attached" }, expect = "OK" },
+  # Proofs 7-8: saves while the drone exists.
+  { cmd = "FarWatchProof", args = { op = "save", name = "fwp1-strip", strip = "true" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "save", name = "fwp1-nostrip", strip = "false" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "autosave", interval = "5", seconds = "60" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "lock", state = "on", seconds = "20" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "lock", state = "off" }, expect = "OK" },
+  # Proofs 3, 5: the coast at up to 100000x through two Esc pauses, then the Kerbin -> Mun
+  # SOI seam (L1 + 16,390.65 = 1,266,291.8) at 10x.
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1266200", maxRate = "100000", pauses = "2" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1266400", maxRate = "10" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-mun-soi" }, expect = "OK" },
+  # Proof 11: the unlisted drone through floating-origin re-centres.
+  { cmd = "FarWatchProof", args = { op = "unlist", seconds = "20" }, expect = "OK" },
+  # Proofs 6, 15: the descent tail (from L1 + 20,931.95) at 50x, touchdown at 1x
+  # (L1 + 23,091.405 = 1,272,992.59).
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1270700", maxRate = "100000" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1272900", maxRate = "50" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-descent" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1273010", maxRate = "1" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-touchdown" }, expect = "OK" },
+  # Proof 9: the hand-back on the Mun (same SOI) and the landed ship's unpack.
+  { cmd = "FarWatchProof", args = { op = "park" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "ship" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "destroy" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fwp1-handback" }, expect = "OK" },
+  # Proofs 3, 15: a second drone beside the landed ship under a warp request (stock
+  # limits the rate near the surface), then the 100000x soak in a high Mun orbit.
+  { cmd = "FarWatchProof", args = { op = "build", variant = "surface" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "switch", target = "drone" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "1274000", maxRate = "100000", pauses = "1", seconds = "240" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "moveto", body = "Mun", alt = "700000", seconds = "5" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "advance", untilUT = "40000000", maxRate = "100000", pauses = "2", seconds = "240" }, expect = "OK" },
+  # Proof 14: the drone dies while active with the ship unloaded.
+  { cmd = "FarWatchProof", args = { op = "kill", mode = "crash", seconds = "20" }, expect = "OK" },
+  { cmd = "FarWatchProof", args = { op = "report", label = "after" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings.structure]
+# Report-only (no `gating`): the save keeps the fixture's committed trees.
+committedTrees = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "\\[FarWatchProof\\] obs=arm ",
+  "\\[FarWatchProof\\] obs=build ",
+  "\\[FarWatchProof\\] obs=switch to=drone ",
+  "\\[FarWatchProof\\] obs=follow ",
+  "\\[FarWatchProof\\] obs=switch to=ship ",
+  "\\[FarWatchProof\\] obs=kill ",
+  "\\[FarWatchProof\\] obs=report ",
+]
+forbidden = [
+  "farwatchproof rejected reason=",
+  "\\[FarWatchProof\\] op threw ",
+]
+
+[runtime]
+budgetSeconds = 7200
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

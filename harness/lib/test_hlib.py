@@ -1269,7 +1269,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Menu (QTM-1).
         # 65 / 4 after EvaMove, an ADDITION by one: the active EVA kerbal driven by jetpack
         # or on foot with the player's own movement input (EVA-17).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 65)
+        # 66 / 4 after FarWatchProof, an ADDITION by one: the throwaway far-watch step 1
+        # proof (never merged).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 66)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -11002,6 +11004,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
         "WL-1-liftoff-kerbin.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
+        "FWP-1-far-watch-proof-mun.toml": "tier=operator by mechanism, NOT debt: the THROWAWAY far-watch step 1 proof (docs/dev/design-far-watch.md section 18.1, never merged); flown once on request and read by hand, nothing it observes gates",
+        "FWP-2-far-watch-proof-ike-career.toml": "tier=operator by mechanism, NOT debt: the THROWAWAY far-watch step 1 proof (docs/dev/design-far-watch.md section 18.1, never merged); flown once on request and read by hand, nothing it observes gates",
+        "FWP-3-far-watch-proof-kerbin.toml": "tier=operator by mechanism, NOT debt: the THROWAWAY far-watch step 1 proof (docs/dev/design-far-watch.md section 18.1, never merged); flown once on request and read by hand, nothing it observes gates",
         "WL-2-landing-mun.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
         "WL-4-transfer-duna.toml": "tier=operator by mechanism, NOT debt: a watch lane (harness/README.md -> Watch lanes); unattended it is a light picture lane, and its attended run.py --hold view is on request by design",
         "WR-1-world-record-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WF-1's twin for the repeatable world-record nodes (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 pay once per career, earliest crossing wins) on `cs-career-new`: a committed Jumping Flea hop crosses the altitude and speed thresholds, a Rewind-to-Launch, a relaunch held on the pad past the committed crossings under a live recorder, the same hop again (both hops inside the one mission `record_climb_rewind`), then LedgerGroundTruth. AUTHORED 2026-10-27; LIVE-PROVEN on its second flight `2026-10-27_1723` (the first stalled on a mission bug, fixed); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
@@ -19110,6 +19115,41 @@ class PickUpFlagSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[4]", errs[0])
         self.assertIn("silently ignored", errs[0])
+
+
+class FarWatchProofSourceSyncTests(unittest.TestCase):
+    """`FarWatchProof` (throwaway, never merged). Reads OUTSIDE harness/: the verb, op tokens
+    and arg keys of the comment-stripped TestCommands/TestCommandFarWatchProof.cs, so the
+    pre-launch validator cannot drift from the seam's parse."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# FarWatchProof tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_ops_and_keys_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandFarWatchProof.cs")
+        arr = StockScreenSourceSyncTests._cs_string_array
+        self.assertIn('internal const string Verb = "%s";' % hlib.FARWATCHPROOF_VERB, text)
+        self.assertEqual(list(hlib.FARWATCHPROOF_OPS), arr(text, "OpTokens"))
+        self.assertEqual(list(hlib.FARWATCHPROOF_ARG_KEYS), arr(text, "ArgKeys"))
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.FARWATCHPROOF_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(540.0, hlib.dispatch_deferral_budget(verb))
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_validator_refuses_an_unknown_op_or_key(self):
+        v = hlib.validate_far_watch_proof_step
+        self.assertEqual([], v(0, {"op": "follow", "tree": "abc", "watch": "true"}))
+        self.assertTrue(v(0, {"op": "teleport"}))
+        self.assertTrue(v(0, {"op": "build", "speed": "1"}))
+        self.assertTrue(v(0, {"op": "switch"}))
+        self.assertTrue(v(0, {"op": "advance"}))
 
 
 class EvaMoveSourceSyncTests(unittest.TestCase):

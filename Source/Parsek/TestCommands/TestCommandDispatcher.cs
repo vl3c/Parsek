@@ -323,6 +323,8 @@ namespace Parsek.TestCommands
         // ----- EvaMove (the active EVA kerbal driven by jetpack or on foot with the player's
         // own movement input for a set number of game seconds) -----
         void EvaMove(ParsedCommand cmd);
+        // ----- FarWatchProof (the THROWAWAY far-watch step 1 proof, never merged) -----
+        void FarWatchProof(ParsedCommand cmd);
         // ----- The map-geometry pair: DumpMapGeometry (the geometry the map drew in one
         // frame, written as <label>.map.json) and MapCamera (the map camera framed by
         // value) -----
@@ -783,6 +785,8 @@ namespace Parsek.TestCommands
                 // EvaMove: the EVA family row. RequiresFlight with the not-eva defer below;
                 // its own budget (the held input plus the stow presses and the settle).
                 ["EvaMove"] = VerbSceneRequirement.RequiresFlight,
+                // FarWatchProof: FLIGHT; every op answers OK with its own result=.
+                ["FarWatchProof"] = VerbSceneRequirement.RequiresFlight,
                 // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); the
                 // executor refuses FLIGHT with the map closed (map-view-closed). Default
                 // budget: the dump waits one frame for its end-of-frame capture, and the
@@ -1290,6 +1294,10 @@ namespace Parsek.TestCommands
         /// flown yet.</summary>
         internal const double EvaMoveSeconds = TestCommandEvaMove.BudgetSeconds;
 
+        /// <summary>FarWatchProof (throwaway, never merged): one proof op; a waiting op
+        /// time-boxes itself to at most 480 s, so the WarpToUT size, 540 s.</summary>
+        internal const double FarWatchProofSeconds = TestCommandFarWatchProof.BudgetSeconds;
+
         /// <summary>EvaGroundScience (coverage wave 10): not-eva defer + the place gate
         /// (kerbal landed and standing) + the preview build + the confirm presses and
         /// face-away re-turns + the ground vessel load, or the pick-up's retract animation +
@@ -1449,6 +1457,8 @@ namespace Parsek.TestCommands
                     return EvaChuteDeploySeconds;
                 case "EvaMove":
                     return EvaMoveSeconds;
+                case "FarWatchProof":
+                    return FarWatchProofSeconds;
                 case "EvaGroundScience":
                     return EvaGroundScienceSeconds;
                 case "ExitToSpaceCenter":

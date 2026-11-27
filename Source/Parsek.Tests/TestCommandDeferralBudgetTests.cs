@@ -84,6 +84,8 @@ namespace Parsek.Tests
             // EvaMove: the held input (at most 30 game seconds) plus a minute.
             Assert.Equal(90.0, DeferralBudget.BudgetSeconds("EvaMove"));
             Assert.Equal(TestCommandEvaMove.MaxSeconds + 60.0, DeferralBudget.EvaMoveSeconds);
+            // FarWatchProof (throwaway): the WarpToUT size, at the harness deferred-step cap.
+            Assert.Equal(540.0, DeferralBudget.BudgetSeconds("FarWatchProof"));
             Assert.Equal(DeferralBudget.EvaGroundScienceSeconds,
                 DeferralBudget.BudgetSeconds("EvaGroundScience"));
         }

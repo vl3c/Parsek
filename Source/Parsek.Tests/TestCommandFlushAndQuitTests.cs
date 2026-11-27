@@ -91,6 +91,8 @@ namespace Parsek.Tests
         [InlineData("MapCamera", true)]
         // PartParitySweep spawns and removes vessels.
         [InlineData("PartParitySweep", true)]
+        // FarWatchProof builds, moves and destroys a camera drone.
+        [InlineData("FarWatchProof", true)]
         public void IsStateMutatingVerb_ClassifiesTheSeamVerbs(string verb, bool expected)
         {
             Assert.Equal(expected, TestCommandVerbs.IsStateMutatingVerb(verb));

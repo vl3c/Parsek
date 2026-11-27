@@ -1182,6 +1182,12 @@ namespace Parsek.TestCommands
                 TryCompleteEvaMove(now);
                 return;
             }
+            // FarWatchProof (throwaway), in the .FarWatchProof.cs partial.
+            if (completionVerb == TestCommandFarWatchProof.Verb)
+            {
+                TryCompleteFarWatchProof(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1410,6 +1416,7 @@ namespace Parsek.TestCommands
             ResetPickUpFlagState();
             // And an EVA move's input drive: an armed drive would keep feeding the kerbal.
             ResetEvaMoveState();
+            ResetFarWatchProofState();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1817,6 +1824,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.PickUpFlag(ParsedCommand cmd) => PickUpFlagImpl(cmd);
         // EvaMove: body + two-phase completion in ParsekTestCommandAddon.EvaMove.cs.
         void ITestCommandExecutor.EvaMove(ParsedCommand cmd) => EvaMoveImpl(cmd);
+        // FarWatchProof (throwaway): body + completion in ParsekTestCommandAddon.FarWatchProof.cs.
+        void ITestCommandExecutor.FarWatchProof(ParsedCommand cmd) => FarWatchProofImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1899,6 +1908,7 @@ namespace Parsek.TestCommands
                 case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 case "PickUpFlag": exec.PickUpFlag(cmd); break;
                 case "EvaMove": exec.EvaMove(cmd); break;
+                case "FarWatchProof": exec.FarWatchProof(cmd); break;
                 case "DumpMapGeometry": exec.DumpMapGeometry(cmd); break;
                 case "MapCamera": exec.MapCamera(cmd); break;
                 case "PartParitySweep": exec.PartParitySweep(cmd); break;

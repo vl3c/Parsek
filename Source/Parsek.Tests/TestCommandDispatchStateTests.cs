@@ -80,6 +80,7 @@ namespace Parsek.Tests
             public void LaunchSiteProbe(ParsedCommand cmd) => Calls.Add("LaunchSiteProbe");
             public void PickUpFlag(ParsedCommand cmd) => Calls.Add("PickUpFlag");
             public void EvaMove(ParsedCommand cmd) => Calls.Add("EvaMove");
+            public void FarWatchProof(ParsedCommand cmd) => Calls.Add("FarWatchProof");
             public void DumpMapGeometry(ParsedCommand cmd) => Calls.Add("DumpMapGeometry");
             public void MapCamera(ParsedCommand cmd) => Calls.Add("MapCamera");
             public void PartParitySweep(ParsedCommand cmd) => Calls.Add("PartParitySweep");
@@ -232,6 +233,7 @@ namespace Parsek.Tests
         // PickUpFlag: a live kerbal and a live flag vessel (the EVA family row).
         [InlineData("PickUpFlag", "RequiresFlight")]
         [InlineData("EvaMove", "RequiresFlight")]
+        [InlineData("FarWatchProof", "RequiresFlight")]
         // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); FLIGHT with
         // the map closed is the executor's typed REJECTED (map-view-closed).
         [InlineData("DumpMapGeometry", "RequiresMapScene")]
@@ -313,6 +315,7 @@ namespace Parsek.Tests
             fake.MapCamera(cmd);
             fake.PartParitySweep(cmd);
             fake.EvaMove(cmd);
+            fake.FarWatchProof(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
