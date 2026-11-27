@@ -3559,7 +3559,8 @@ PARTPARITY-STOWED-CANOPY-RENDERED, new), 5 small state residuals
 (PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn today), 1
 RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
 (PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). One entry since, 73 in all (42 `noisy`): the truss edge row
-(PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE), from PP-2's armed flight `2026-11-23_1846`. Some matched nothing in any clean current-build run:
+(PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE), from PP-2's armed flight `2026-11-23_1846`. Five since for PP-7
+(78 in all, 46 `noisy`; "PP-7 armed" below). Some matched nothing in any clean current-build run:
 owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
@@ -3576,8 +3577,9 @@ committed files, the gate's reds, notes and unmeasured list are identical before
 mutation run `2026-11-23_0607` 27 reds, every clean run 0); a rendered missing, extra or hidden mesh
 injected into each of 5472 cases of their newest runs is never shown as anything but a fail.
 
-**Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
-PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to
+**Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`) and, of the
+effects lanes, PP-7 alone ("PP-7 armed" below). **Report-only:** PP-5 and PP-6, and the effects
+lanes PP-8 to PP-10. A canopy follows the airflow, so every picture measure of a chute case moves run to
 run (PP-5: colour blob moves up to 5012 px, IoU 0.26; PP-6: 6768 px, 0.21) and no band holds; the
 canopy cap of D.4 keeps them at warn, which only the viewer can judge. Their baselines are
 committed for `--pinned` reading.
@@ -3589,6 +3591,63 @@ of every `radialDecoupler*` ghost (DLL prefix 3f6af586, both installs). Armed PP
 the `rotor.01--gray` row above. Re-judged with the final rules and list: 27 reds, those three cases
 only. The line was reverted (empty diff against HEAD) and the DLL rebuilt; the mutated DLL stayed on
 both installs until the next session re-provisioned them.
+
+### PP-7 armed (2026-11-24, flown 2026-11-27)
+
+Owner ruling 2026-11-24: fix the three blockers above, then arm PP-7 (stock orbit FX) alone of the
+effects lanes, after two clean runs. Built on branch `pp7-arm`, flown on its successor
+`claude/project-thread-0fwpkz` over main with #2836, #2837, #2839, #2845 and #2849.
+
+What changed in the gate (section 10, "FX cases"; E.4, "Split halves in every case"):
+- A plate case owes its one view, `plate`, and its `colorBlobPx` drifts like any other.
+- A layer drawn on neither side reads `empty`; a baselined case whose baseline drew it is
+  `unmeasured`. PP-7 holds 648 empty smoke entries (vacuum), the same in every run.
+- FX bands: the baseline keeps, per judged entry (`<route>:<view>:<layer>`) and compare key, the
+  band of the raw values over its runs when some run read half the fail line or more. A standing
+  numeric FX fail is a `near-line-fail` note inside its band and a `drift` red past it.
+- The split-half rule holds in every case, matched by compare value, and a missing effect is never
+  held by an unsettled entry.
+- A clean-context review found six ways the gate passed what it should not (a missing effect held
+  at `warn`, a compare value gone null, a far fail the cap hid, a new smoke layer, among them); each
+  reds or is `unmeasured` now, with a cell.
+
+Accepted for PP-7 (five entries): the RCS blocks' mean-power puffs (RCS-PER-NOZZLE-RECORDING,
+owner ruling R4; `color-blob` on `rcsBlock.v2`, `fx:colour` noisy, and `fx:cross-section` /
+`fx:direction` noisy on `RCSblock.01.small`; kind `defect`, so the page keeps them red) and the
+Spark's stray particle (`fx:origin`, noisy, PARTPARITY-SPARK-FLAME-ORIGIN, kind `accepted`). The
+four noisy ones matched nothing in either pinning run; they are kept because each failed in one
+run of two before.
+
+**Baseline** `pp7` (stock-minimal): `2026-11-27_2025` and `_2042`, both PASS attempt 1 (999 s and
+987 s wall) on one build (automation DLL sha256 prefix d25ecb80), each `gate=ok` against the
+provisional section it replaced (pinned from `2026-11-24_0735` alone). 128 cases, 23 with FX
+bands; each run: 8 accepted fails, 1 FX entry the runs could not judge
+(`size1p5.tank.05` burn-full smoke). The writer warned of 7 bands that sit past their fail line,
+the worst `rcsblock.01.small` start cross-section (1.34 lines) and `microengine.v2` burn-low far
+length (1.23).
+
+Run to run (`spread`): no real-only or ghost-only blob pixel; `colorBlobPx` max 100
+(`rcsBlock.v2` side-b), p99 14; IoU max change 0.0007. Of 3950 FX measures, 52 moved more than
+half a fail line and 8 more than one, the most `memlander--default--rcs-fire--7a095970` direction (1.63
+lines) and the Spark's origin (1.39).
+
+Re-judged with this build: the nine PP-1 / PP-3 / PP-4 runs the baseline lists and PP-2's
+`2026-11-27_1813` / `_1829` read `gate=ok`; the mutation run `2026-11-23_0607` reds (3 unaccepted
+`missing-rendered` and 24 drifts on the three radial decouplers). The two earlier PP-7 sweeps red
+one case each against the provisional section and none against this one: `2026-11-24_2120`
+(`liquidEngine2-2.v2` doublebell burn-low, side-a direction 10.87 deg) and `2026-11-27_1725` (the
+#2837 build, `omsEngine` burn-low far length 1.467).
+
+**Mutation proof.** A local, uncommitted block at the end of `EngineFxBuilder.TryBuildEngineFX`
+moved every top-level ghost emitter of `toroidalAerospike` 0.5 m sideways (2 per build, logged
+six times; DLL prefix 39691154). Armed PP-7 `2026-11-27_2100`: PARSEK-FAIL(part-parity), 981 s,
+12 drifts, all on `toroidalaerospike--default--burn-full--9ff6c660` and `--burn-low--f6013965`:
+on each, lateral offset on side-a (-80 px) and far (-27 px full, -67 px low) and cross-section
+offset about 0.84 (8.4 lines) on bottom, on both routes. Nothing else red. The block was reverted,
+the DLL rebuilt and re-provisioned (no mutation marker in the automation DLL, prefix 72c76c79).
+
+Known soft spot: a plume cut to 0.6 to 0.7 of its length passes silently on 1 or 2 of the 74
+plume cases, whose length band is wide.
 
 ## Appendix G. P9 plan: effects Parsek builds itself (rev 1, 2026-11-26)
 

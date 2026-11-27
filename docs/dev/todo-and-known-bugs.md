@@ -988,7 +988,7 @@ Fix: `GhostVisualBuilder.ResolveReStockLightCookie` reads the module's `cookiePa
 
 Flown: PPS-12b `2026-11-23_1656`, plate `color-blob-px` before -> now, both routes: `GrapplingDevice` 82804 -> 0, `smallClaw` 55775 -> 0, `restock-claw-625-1` 66661 -> 0, `spotLight1` 0 -> 0; all pass, and all 17 plates of PP-9 `_1749` pass.
 
-## PARTPARITY-FX-INSTRUMENT-2026-11-23: what the FX sweeps found about their own instrument [FILED 2026-11-23 from PP-7, PP-8 and PP-9; FIXED 2026-11-23 on branch `fx-instrument` except the two open lines, the C# half flown 2026-11-23 on PP-5 to PP-10; three gate blockers FIXED 2026-11-24 on branch `pp7-arm` (PP-7 armed); low (tooling)]
+## PARTPARITY-FX-INSTRUMENT-2026-11-23: what the FX sweeps found about their own instrument [FILED 2026-11-23 from PP-7, PP-8 and PP-9; FIXED 2026-11-23 on branch `fx-instrument` except the two open lines, the C# half flown 2026-11-23 on PP-5 to PP-10; three gate blockers FIXED 2026-11-24 on branch `pp7-arm`, PP-7 armed and flown 2026-11-27 (`2026-11-27_2025` / `_2042`); low (tooling)]
 
 The numbers behind each fix are in design E.4, "FX instrument fixes". The C# half flew on PP-7 `2026-11-23_1732`, PP-9 `_1749` and PP-8 `_1811`: no setup fault on any of them (`stripLight1` plate error -> pass on all three; `telescopicLadderBay` on the modded installs excluded, 165 -> 164 cases), `fx-not-plateaued` 10 -> 1 (PP-7), 10 -> 6 (PP-9) and 10 -> 7 (PP-8), `fx.layers` read after the warm-up, and every control ok. The air real-vs-real control at 16 samples a side read the Flea's far / side width 0.973 / 1.033 (PP-10) and 1.008 / 0.951 (PP-5), line 1.30: no INVALID(parity-controls) on the three air lanes. Sweep seconds, now against before: PP-7 897 / 906, PP-9 1198 / 1243, PP-8 1218 / 1254.
 
