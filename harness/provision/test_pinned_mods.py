@@ -82,12 +82,14 @@ class PinnedModArtifactTests(unittest.TestCase):
     def setUp(self):
         self.pins = _load("pins.toml")
 
-    def test_modded_compat_fetches_both_pinned_zips_and_stock_minimal_none(self):
+    def test_modded_compat_fetches_every_pinned_zip_and_stock_minimal_none(self):
         mc = provlib.pinned_mod_artifacts(self.pins, _load("profiles/modded-compat.toml"))
-        self.assertEqual(["persistentrotation", "spacetuxlibrary"], [a.comp for a in mc])
+        self.assertEqual(["persistentrotation", "spacetuxlibrary", "utilityweight", "picoport"],
+                         [a.comp for a in mc])
         for a in mc:
             self.assertIsNotNone(provlib.artifact_cache_key(a.sha256), a.comp)
-            self.assertTrue(a.url.startswith("https://github.com/linuxgurugamer/"), a.url)
+            self.assertTrue(a.url.startswith(("https://github.com/linuxgurugamer/",
+                                              "https://github.com/yalov/")), a.url)
         self.assertEqual([], provlib.pinned_mod_artifacts(
             self.pins, _load("profiles/stock-minimal.toml")))
 
@@ -100,6 +102,24 @@ class PinnedModArtifactTests(unittest.TestCase):
                          self.pins["spacetuxlibrary"]["sha256"])
         self.assertEqual(["PersistentRotation"], self.pins["persistentrotation"]["gamedataFolders"])
         self.assertEqual(["SpaceTuxLibrary"], self.pins["spacetuxlibrary"]["gamedataFolders"])
+
+    def test_the_mod_part_pins_carry_the_ckan_meta_digests(self):
+        # Pinned on 2026-11-26 from the one approved download of each zip, each hashing to
+        # the CKAN-meta record's sha256 (UtilityWeight-2.0.0.ckan, PicoPort-0.1.6.4.ckan).
+        self.assertEqual("868549f7c6b2a39bfa0a965879317ce0d67dd0c840e14e1d9356269dfbe8b96a",
+                         self.pins["utilityweight"]["sha256"])
+        self.assertEqual("e3f44c6c39229a16ef6a5d0a064cc45134b036dad3c1cd68502735e5939233d9",
+                         self.pins["picoport"]["sha256"])
+        self.assertEqual(["UtilityWeight"], self.pins["utilityweight"]["gamedataFolders"])
+        self.assertEqual(["SHED"], self.pins["picoport"]["gamedataFolders"])
+
+    def test_both_modded_profiles_pin_the_mod_parts(self):
+        for prof in ("profiles/modded-compat.toml", "profiles/modded-restock.toml"):
+            opts = {o["name"]: o for o in _load(prof)["optionalMods"]}
+            self.assertEqual("utilityweight", opts["UtilityWeight"]["pin"], prof)
+            self.assertEqual("picoport", opts["PicoPort"]["pin"], prof)
+            self.assertTrue(opts["UtilityWeight"]["required"], prof)
+            self.assertTrue(opts["PicoPort"]["required"], prof)
 
     def test_every_profile_pin_resolves_to_a_valid_table(self):
         names = sorted(f for f in os.listdir(os.path.join(HERE, "profiles")) if f.endswith(".toml"))
@@ -131,7 +151,7 @@ class PinnedModArtifactTests(unittest.TestCase):
     def test_the_action_plan_names_the_pinned_install_only_where_declared(self):
         mc = provlib.build_action_plan(self.pins, _load("profiles/modded-compat.toml"))
         pinned = [a.detail for a in mc if "pinned optional mod" in a.detail]
-        self.assertEqual(2, len(pinned))
+        self.assertEqual(4, len(pinned))
         self.assertTrue(any("GameData/PersistentRotation" in d for d in pinned))
         sm = provlib.build_action_plan(self.pins, _load("profiles/stock-minimal.toml"))
         self.assertFalse(any("pinned optional mod" in a.detail for a in sm))
