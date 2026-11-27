@@ -19469,26 +19469,86 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         body = text[text.index("internal static bool TryParseFx("):]
         body = body[:body.index("internal static bool FxCombinationValid(")]
         self.assertIn("fx = new List<string>(PartParityFxRules.ArgWords);", body)
-        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.ArgKnownWords, out fx);", body)
+        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);", body)
         self.assertEqual(hlib.PARTPARITY_FX_ALL_TOKEN, fx["ArgAllToken"])
         parse = text[text.index("internal static bool TryParseGrammar("):text.index(
             "private static bool Reject(")]
         self.assertIn("TryParseFx(raw, out List<string> fx, out bool fxAll)", parse)
-        self.assertIn("|| (fx != null && !FxCombinationValid(a)))", parse)
+        self.assertIn("|| (fx != null && !FxCombinationValid(a, fx)))", parse)
         self.assertIn("{ rejectReason = FxArgInvalidReason; return Reject(\"fx\", raw, out rejectDetail); }", parse)
         # The parse reads fx= after states= and contexts= (the combination rule needs both).
         self.assertLess(parse.index('Get(args, "contexts")'), parse.index('Get(args, "fx")'))
         combo = text[text.index("internal static bool FxCombinationValid("):]
-        combo = combo[:combo.index(";") + 1]
-        self.assertIn("a.States == null", combo)
-        self.assertIn("(a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir))",
+        combo = combo[:combo.index("private static bool OnlyContext(")]
+        self.assertIn("if (a.States != null || fx == null) return false;", combo)
+        self.assertIn("return a.Contexts == null || (a.Contexts.Count == 1 && a.Contexts[0] == PartParityStateRules.ContextAir);",
                       combo)
-        args = text[text.index("internal static bool TryParseArgs("):text.index(
-            "internal static bool TryParseGrammar(")]
-        self.assertIn("=> TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);", args)
+        # P9 (design G.7): one kind of word per run; burst words with exactly contexts=air,
+        # the dust word with exactly contexts=ground.
+        self.assertIn("if ((burst ? 1 : 0) + (dust ? 1 : 0) + (p8 ? 1 : 0) != 1) return false;", combo)
+        self.assertIn("if (burst) return OnlyContext(a, PartParityStateRules.ContextAir);", combo)
+        self.assertIn("if (dust) return OnlyContext(a, PartParityFxRules.ContextGround);", combo)
         self.assertNotIn("fx-runs-not-built", text)
         self.assertNotIn("fx-runs-not-built", hlib.PARTPARITY_REASONS)
         self.assertNotIn("fx-runs-not-built", hlib._SEAM_REFUSAL_SUBKINDS)
+
+    def test_the_burst_dust_arg_mirrors_the_c_sharp(self):
+        # P9 X1 (design-part-ghost-parity.md G.7): the burst and dust words, the ground
+        # context, and the interim refusal of a well-formed burst or dust run (the F1 pattern).
+        text, consts = self._pure()
+        burst_text = self._source("TestCommands", "PartParityFxRules.Burst.cs")
+        burst = self._string_consts(burst_text)
+        self.assertEqual(list(hlib.PARTPARITY_FX_BURST_VALUES),
+                         self._identifier_array(burst_text, "BurstArgWords", burst))
+        self.assertEqual(list(hlib.PARTPARITY_FX_DUST_VALUES),
+                         self._identifier_array(burst_text, "DustArgWords", burst))
+        self.assertEqual(hlib.PARTPARITY_GROUND_CONTEXT, burst["ContextGround"])
+        self.assertIn("return TryParseKnownCsv(raw, PartParityFxRules.KnownArgWords, out fx);", text)
+        self.assertIn("if (!TryParseKnownCsv(raw, KnownRunContexts, out List<string> list)) return false;", text)
+        self.assertIn("if (list.Contains(PartParityFxRules.ContextGround) && list.Count > 1) return false;", text)
+        parse = text[text.index("internal static bool TryParseGrammar("):text.index(
+            "private static bool Reject(")]
+        self.assertIn("if (a.Fx == null && IsGroundRun(a))", parse)
+        self.assertLess(parse.index('Get(args, "fx")'), parse.index("if (a.Fx == null && IsGroundRun(a))"))
+        self.assertEqual(hlib.PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON, consts["BurstDustRunsNotBuiltReason"])
+        m = re.search(r"internal const bool BurstDustRunsBuilt = (true|false);", text)
+        self.assertIsNotNone(m, "BurstDustRunsBuilt moved")
+        self.assertEqual(hlib.PARTPARITY_BURST_DUST_RUNS_BUILT, m.group(1) == "true")
+        args = text[text.index("internal static bool TryParseArgs("):text.index(
+            "internal static bool TryParseGrammar(")]
+        self.assertIn("if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;", args)
+        self.assertIn("if (!BurstDustRunsBuilt && IsBurstDustRun(parsed))", args)
+        self.assertIn("rejectDetail = \"fx=\" + FormatFx(parsed);", args)
+        self.assertEqual("driver-arg", hlib._SEAM_REFUSAL_SUBKINDS["burst-dust-runs-not-built"])
+
+    def test_the_burst_dust_validator_answers_what_the_seam_answers(self):
+        v = hlib.validate_part_parity_sweep_step
+        for step, reason in (
+                ({"label": "pp11", "fx": "explode"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "alone"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "dust"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "dust", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode,dust", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "plume,explode", "contexts": "air"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "plume", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "all", "contexts": "ground"}, "fx-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "air", "states": "lit"}, "fx-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground", "fx": "none"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground", "states": "all"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "contexts": "ground,air"}, "contexts-arg-invalid"),
+                ({"label": "pp11", "fx": "explode", "contexts": "air"}, "burst-dust-runs-not-built"),
+                ({"label": "pp11", "fx": "decouple,burst-custom", "contexts": "air"}, "burst-dust-runs-not-built"),
+                ({"label": "pp11", "fx": "dust", "contexts": "ground"}, "burst-dust-runs-not-built")):
+            with self.subTest(step=step):
+                errors = v(0, step)
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn(reason, errors[0])
+        # Every P8 step still validates.
+        for fx in ("plume", "all", "plume,rcs,heat,plate"):
+            self.assertEqual([], v(0, {"label": "pp7", "fx": fx}))
+            self.assertEqual([], v(0, {"label": "pp8", "fx": fx, "contexts": "air"}))
 
     def test_the_fx_validator_answers_what_the_seam_answers(self):
         v = hlib.validate_part_parity_sweep_step
