@@ -307,6 +307,8 @@ namespace Parsek.Tests
             // The one ground-reference write left is the "never" latch of a failed build.
             Assert.Single(Regex.Matches(frame, @"state\.launchDustGroundRefAltitude\b").Cast<Match>());
             Assert.Contains("state.launchDustGroundRefAltitude = double.NegativeInfinity;", frame);
+            // Every emitting frame lays the disc flat on the ground under the ghost first.
+            Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(recIdx, state, altitude, groundRefAltitude\);\s*var emission", frame);
         }
 
         #endregion

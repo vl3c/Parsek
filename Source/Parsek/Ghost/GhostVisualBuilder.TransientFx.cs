@@ -510,8 +510,10 @@ namespace Parsek
         /// White center fading to transparent edges — avoids sprite sheet issues.
         /// </summary>
         /// <summary>
-        /// S3: builds the ONE Parsek-owned launch-dust particle system a ghost gets, parented at
-        /// the ghost root and pointed downward. Parsek authors this system outright — exactly like
+        /// S3: builds the ONE Parsek-owned launch-dust particle system a ghost gets, parented under
+        /// the ghost root. The driver lays it flat on the ground below the ghost every frame
+        /// (<c>GhostPlaybackEngine.PlaceLaunchDustOnGround</c>), so the disc built here is a wide,
+        /// low sheet running outward across the ground, as stock's ground dust does. Parsek authors this system outright — exactly like
         /// the reentry <c>fireParticles</c> — which is why the driver may write
         /// <c>emission.rateOverTimeMultiplier</c> and <c>main.startSizeMultiplier</c> directly
         /// instead of going through the captured-baseline machinery S1 needs for CLONED KSP assets.
@@ -542,15 +544,16 @@ namespace Parsek
             main.playOnAwake = false;
             main.prewarm = false;
             main.loop = true;
-            main.startLifetime = 2.5f;
-            main.startSpeed = 6f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 3.5f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(6f, 13f);
             main.startSize = 2.5f;
             main.maxParticles = 400;
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             main.startColor = new Color(0.65f, 0.60f, 0.52f, 0.35f);
 
-            // A flat disc at the ghost's base spraying outward: the ground-bounce plume, not a
-            // downward jet (which the engine FX already draws).
+            // A flat disc spraying outward in its own plane: the ground-bounce plume, not a downward
+            // jet (which the engine FX already draws). A Circle emits in its local XY plane, so the
+            // driver turns local Z onto the surface normal to lay it on the ground.
             var shape = ps.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Circle;
@@ -564,7 +567,7 @@ namespace Parsek
             var sizeOverLifetime = ps.sizeOverLifetime;
             sizeOverLifetime.enabled = true;
             sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(1f, 2.2f)));
+                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(1f, 1.6f)));
 
             var colorOverLifetime = ps.colorOverLifetime;
             colorOverLifetime.enabled = true;

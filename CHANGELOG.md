@@ -19,6 +19,8 @@ Not released yet.
   loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
 - **Ghost explosions, puffs, launch dust and reentry fire stay in the air they were made in.**
   They no longer ride along with your own vessel while it flies.
+- **Ghost launch dust spreads flat across the ground** like stock's, instead of a ring standing
+  upright around the rocket.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.

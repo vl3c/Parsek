@@ -1232,6 +1232,8 @@ namespace Parsek
         internal const float LaunchDustMinIntensity = 0.02f;
         /// <summary>How far into the recording to look for a usable ground reference before giving up.</summary>
         internal const int LaunchDustGroundLatchScanCap = 2000;
+        /// <summary>How far above the ground the flat dust sheet sits, so its billboards are not half buried.</summary>
+        internal const float LaunchDustGroundLiftMeters = 0.5f;
 
         /// <summary>
         /// Sum of every engine module's commanded power on a ghost. Used as the dust driver's
@@ -1309,6 +1311,24 @@ namespace Parsek
             float proximity = (float)(1.0 - agl / LaunchDustMaxAglMeters);
             intensity = Math.Min(1f, totalEnginePower * proximity);
             return intensity > LaunchDustMinIntensity;
+        }
+
+        /// <summary>
+        /// Where the launch dust sits this frame: on the ground straight below the ghost, as stock's
+        /// <c>ModuleSurfaceFX</c> puts its dust at the ground under the engine rather than at the
+        /// vessel. <paramref name="up"/> is the unit surface normal at the ghost (away from the
+        /// body centre); the ground is <c>altitude - groundRefAltitude</c> metres down it, measured
+        /// the same way the intensity gate measures AGL, then lifted by
+        /// <see cref="LaunchDustGroundLiftMeters"/>. A negative or non-finite AGL is treated as
+        /// "on the ground", which keeps the sheet at the ghost instead of above or inside it.
+        /// </summary>
+        internal static Vector3 ComputeLaunchDustGroundPoint(
+            Vector3 ghostPosition, Vector3 up, double altitude, double groundRefAltitude)
+        {
+            double agl = altitude - groundRefAltitude;
+            if (double.IsNaN(agl) || double.IsInfinity(agl) || agl < 0.0) agl = 0.0;
+            if (agl > LaunchDustMaxAglMeters) agl = LaunchDustMaxAglMeters;
+            return ghostPosition + up * (float)(LaunchDustGroundLiftMeters - agl);
         }
 
         #endregion
