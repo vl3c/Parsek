@@ -1077,6 +1077,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
         rules = self._string_consts(self._source("PartParityStateRules.cs"))
         sweep = self._string_consts(self._source("TestCommandPartParitySweep.cs"))
         consts = self._string_consts(fx_text)
+        # The partial PartParityFxRules.Burst.cs (P9) holds the burst and dust words FamilyForArg maps.
+        consts.update(self._string_consts(self._source("PartParityFxRules.Burst.cs")))
         for name, ref in re.findall(
                 r"internal const string (\w+) = PartParityStateRules\.(\w+);", fx_text):
             consts[name] = rules[ref]
@@ -1137,7 +1139,8 @@ class PartParitySourceSyncTests(unittest.TestCase):
         body = text[text.index("internal static string FamilyForArg("):]
         body = body[:body.index("default: return null;")]
         pairs = re.findall(r"case (\w+): return (\w+);", body)
-        self.assertEqual(len(pp.FX_ARG_KNOWN_WORDS), len(pairs))
+        # Every word an fx= csv may name maps (the P8 words with plume-main, then the P9 words, design G.7).
+        self.assertEqual(len(pp.FX_KNOWN_ARG_WORDS), len(pairs))
         self.assertEqual(pp.FX_MAIN_STATES, (consts["StateMainFull"], consts["StateMainLow"]))
         self.assertEqual({"main-full": self._num_const(text, "BurnFullThrottle"),
                           "main-low": self._num_const(text, "BurnLowThrottle")}, pp.FX_MAIN_THROTTLES)
@@ -1282,6 +1285,215 @@ class PartParitySourceSyncTests(unittest.TestCase):
                     self.assertFalse(pp.is_fx_run(settings))
         self.assertEqual(8, len(pp.CONTROL_IDS))
         self.assertEqual(pp.CONTROL_IDS + ("ctl-state-events-dropped",), pp.CONTROL_IDS_ORBIT_STATE)
+
+    # ----- P9 X1: the burst and dust contract (design Appendix G) -----
+
+    def _burst_consts(self):
+        """The string consts of PartParityFxRules.Burst.cs, with the main FX rules' and the
+        state rules' (a ``= PartParityStateRules.X`` alias resolved), and the sweep's."""
+        fx_text, fx, rules, sweep = self._fx_consts()
+        text = self._source("PartParityFxRules.Burst.cs")
+        consts = dict(fx)
+        consts.update(self._string_consts(text))
+        for name, ref in re.findall(r"internal const string (\w+) = PartParityStateRules\.(\w+);", text):
+            consts[name] = rules[ref]
+        return text, consts, rules, sweep
+
+    @staticmethod
+    def _double_array(text, name):
+        m = re.search(r"\b%s\s*=\s*\{(.*?)\};" % re.escape(name), text, flags=re.S)
+        if m is None:
+            raise AssertionError("array %s not found" % name)
+        return [float(v) for v in re.findall(r"-?[0-9]+(?:\.[0-9]+)?", m.group(1))]
+
+    def test_the_burst_rules_tables(self):
+        text, consts, rules, sweep = self._burst_consts()
+        others = {"PartParityStateRules": rules, "TestCommandPartParitySweep": sweep}
+        for cs, mirror in (("BuiltFamilies", pp.BUILT_FAMILIES), ("BurstFamilies", pp.BURST_FAMILIES),
+                           ("DustFamilies", pp.DUST_FAMILIES), ("BurstArgWords", pp.FX_BURST_ARG_WORDS),
+                           ("DustArgWords", pp.FX_DUST_ARG_WORDS), ("KnownArgWords", pp.FX_KNOWN_ARG_WORDS),
+                           ("BuiltStates", pp.BUILT_STATES), ("DustSlotStates", pp.DUST_SLOT_STATES),
+                           ("DustSlotSurfaces", pp.DUST_SLOT_SURFACES), ("DustSurfaces", pp.DUST_SURFACES),
+                           ("BurstViews", pp.BURST_VIEWS), ("DustViews", pp.DUST_VIEWS),
+                           ("BurstLayers", pp.BURST_LAYERS), ("BurstMeasures", pp.BURST_MEASURES),
+                           ("DustMeasures", pp.DUST_MEASURES),
+                           ("BuiltExclusionReasons", pp.BUILT_EXCLUSION_REASONS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._qualified_array(text, cs, consts, others))
+        for cs, mirror in (("VesselExplodeStackParts", pp.VESSEL_EXPLODE_STACK_PARTS),
+                           ("JointBreakParts", pp.JOINT_BREAK_PARTS),
+                           ("BurstControlParts", pp.BURST_CONTROL_PARTS),
+                           ("DustControlParts", pp.DUST_CONTROL_PARTS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        self.assertEqual(list(pp.DUST_SLOT_FRACTIONS),
+                         [self._num_const(text, n) for n in
+                          re.findall(r"\b(\w+Fraction)\b",
+                                     re.search(r"DustSlotFractions\s*=\s*\{(.*?)\};", text, re.S).group(1))])
+        self.assertEqual([float(v) for v in pp.VESSEL_EXPLODE_STACK_SIZES],
+                         self._double_array(text, "VesselExplodeStackSizes"))
+        self.assertEqual(list(pp.CUSTOM_EXPLOSION_LENGTHS_M), self._double_array(text, "CustomExplosionLengthsM"))
+        for name, mirror in (("StateVesselExplodePrefix", pp.STATE_VESSEL_EXPLODE_PREFIX),
+                             ("StateCustomExplosionPrefix", pp.STATE_CUSTOM_EXPLOSION_PREFIX),
+                             ("ContextGround", pp.CONTEXT_GROUND), ("ContextBurst", pp.CONTEXT_BURST),
+                             ("SurfaceSlotTerrain", pp.SURFACE_SLOT_TERRAIN),
+                             ("SurfaceSlotWater", pp.SURFACE_SLOT_WATER),
+                             ("LaunchpadFxTag", pp.LAUNCHPAD_FX_TAG),
+                             ("DustSurfaceNone", pp.DUST_SURFACE_NONE),
+                             ("DefaultDecoupleFxGroup", pp.DEFAULT_DECOUPLE_FX_GROUP),
+                             ("BurstCustomPart", pp.BURST_CUSTOM_PART),
+                             ("StandInCustom", pp.STAND_IN_CUSTOM), ("StandInPuff", pp.STAND_IN_PUFF),
+                             ("ViewDustTop", pp.DUST_AXIS_VIEW), ("LayerDust", pp.LAYER_DUST),
+                             ("ReasonBurstMissing", pp.BURST_REASON_MISSING),
+                             ("ReasonBurstExtra", pp.BURST_REASON_EXTRA),
+                             ("ReasonDustMissing", pp.DUST_REASON_MISSING),
+                             ("ReasonDustExtraPrefix", pp.DUST_REASON_EXTRA_PREFIX),
+                             ("LevelOk", pp.LEVEL_OK), ("LevelWarn", pp.LEVEL_WARN),
+                             ("LevelFail", pp.LEVEL_FAIL)):
+            with self.subTest(const=name):
+                self.assertEqual(mirror, consts[name])
+        self.assertIn("internal const string DustAxisView = ViewDustTop;", text)
+        self.assertIn("internal const string ContextBurst = PartParityStateRules.ContextAir;", text)
+        # The P9 states and the ground context stay out of P6's tables.
+        state_rules = self._source("PartParityStateRules.cs")
+        for word in pp.BUILT_STATES + (pp.CONTEXT_GROUND,) + pp.BUILT_FAMILIES:
+            with self.subTest(word=word):
+                self.assertNotIn('"%s"' % word, state_rules)
+
+    def test_the_burst_constants(self):
+        text = self._source("PartParityFxRules.Burst.cs")
+        for name, mirror in (("DustAboveReachFraction", pp.DUST_ABOVE_REACH_FRACTION),
+                             ("SurfaceFxDefaultFxMax", pp.SURFACE_FX_DEFAULT_FX_MAX),
+                             ("SurfaceFxDefaultMaxDistanceM", pp.SURFACE_FX_DEFAULT_MAX_DISTANCE_M),
+                             ("SurfaceFxDefaultFalloff", pp.SURFACE_FX_DEFAULT_FALLOFF),
+                             ("DefaultExplosionPotential", pp.DEFAULT_EXPLOSION_POTENTIAL),
+                             ("TerminalExplosionLengthDivisorM", pp.TERMINAL_EXPLOSION_LENGTH_DIVISOR_M),
+                             ("BurstWindowSeconds", pp.BURST_WINDOW_S),
+                             ("DecoupleBurstWindowSeconds", pp.DECOUPLE_BURST_WINDOW_S),
+                             ("BurstBinSeconds", pp.BURST_BIN_S), ("BurstTrials", pp.BURST_TRIALS),
+                             ("BurstTrialSpacingM", pp.BURST_TRIAL_SPACING_M),
+                             ("BurstGhostSeparationM", pp.BURST_GHOST_SEPARATION_M),
+                             ("FxMongerMergeDistanceM", pp.FXMONGER_MERGE_DISTANCE_M),
+                             ("BurstTagRadiusM", pp.BURST_TAG_RADIUS_M),
+                             ("BurstLateControlSeconds", pp.BURST_LATE_CONTROL_S),
+                             ("BurstShiftControlM", pp.BURST_SHIFT_CONTROL_M),
+                             ("BurstPowerControlIndexStep", pp.BURST_POWER_CONTROL_INDEX_STEP)):
+            with self.subTest(const=name):
+                self.assertEqual(float(mirror), self._num_const(text, name))
+        m = re.search(r"internal const int SurfaceFxDefaultThrustProviderModuleIndex = (-?[0-9]+);", text)
+        self.assertEqual(pp.SURFACE_FX_DEFAULT_THRUST_PROVIDER_MODULE_INDEX, int(m.group(1)))
+        m = re.search(r"internal const bool DustAboveReachGhostJudged = (true|false);", text)
+        self.assertEqual(pp.DUST_ABOVE_REACH_GHOST_JUDGED, m.group(1) == "true")
+        # Every G.3 line has its mirror, none added on one side only.
+        cs = re.findall(r"internal const (?:int|double) (Burst(?:Onset|PeakTime|Duration|PeakArea|Radius|"
+                        r"CentroidOffset|Schedule)\w*) =", text)
+        self.assertEqual(sorted(k[0].upper() + k[1:] for k in pp.BURST_THRESHOLDS), sorted(cs))
+        for key, value in pp.BURST_THRESHOLDS.items():
+            with self.subTest(threshold=key):
+                self.assertEqual(float(value), self._num_const(text, key[0].upper() + key[1:]))
+        # The lines' code shapes the Python transcribes.
+        self.assertIn("case MeasureOnset: return a > BurstOnsetFailBins ? LevelFail : LevelOk;", text)
+        self.assertIn("(a >= BurstPeakTimeWarnBins ? LevelWarn : LevelOk)", text)
+        self.assertIn("return (int)(p * (prefabCount - 1));", text)
+        self.assertIn("return thrustFraction * fxMax * Math.Pow(1.0 - distanceM / maxDistanceM, falloff);", text)
+        self.assertIn("int b = (int)Math.Floor(t / BurstBinSeconds);", text)
+
+    def test_the_burst_lines_agree_with_the_xunit_table(self):
+        # The xUnit TheG3Lines rows, run through the Python transcription.
+        path = os.path.join(REPO_ROOT, "Source", "Parsek.Tests", "PartParityBurstContractTests.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            tests = fh.read()
+        body = tests[tests.index("// measure, value, level (the G.3 lines)"):tests.index("public void TheG3Lines(")]
+        rows = re.findall(r'\[InlineData\("([a-z-]+)", (-?[0-9.]+), "(ok|warn|fail)"\)\]', body)
+        self.assertGreaterEqual(len(rows), 20)
+        for measure, value, level in rows:
+            with self.subTest(measure=measure, value=value):
+                self.assertEqual(level, pp.burst_measure_level(measure, float(value)))
+        self.assertIsNone(pp.burst_measure_level("radius", float("nan")))
+        self.assertIsNone(pp.burst_measure_level("schedule", 1.0))
+        self.assertEqual("warn", pp.burst_colour_level(0.02, 0.0))
+        self.assertEqual("fail", pp.burst_colour_level(None, 0.6))
+        self.assertIsNone(pp.burst_colour_level(None, None))
+        # The helpers, by the xUnit cell's values.
+        self.assertEqual((16, 8), (pp.burst_bin_count(pp.burst_window_for("explode")),
+                                   pp.burst_bin_count(pp.burst_window_for("decouple"))))
+        self.assertEqual([0, 0, 1, 15, -1, -1], [pp.burst_bin_index(t, 4.0) for t in (0.0, 0.2499, 0.25, 3.99, 4.0, -0.01)])
+        self.assertEqual([0, 1, 3, -1], [pp.fxmonger_prefab_index(0.0, 4), pp.fxmonger_prefab_index(0.5, 4),
+                                         pp.fxmonger_prefab_index(1.5, 4), pp.fxmonger_prefab_index(0.5, 0)])
+        self.assertAlmostEqual(0.5 * 0.8 ** 1.7, pp.stock_surface_fx_scale(1.0, 0.5, 6.0, 30.0, 1.7), places=12)
+        self.assertEqual(0.0, pp.stock_surface_fx_scale(1.0, 0.5, 30.0, 30.0, 1.7))
+        self.assertEqual(0.25, pp.terminal_explosion_power(5.0))
+        self.assertEqual("dust-extra:none", pp.dust_extra_reason(None))
+        self.assertEqual("vessel-explode-x6", pp.vessel_explode_state(6))
+        self.assertEqual([True, False, True, False], [pp.is_even_trial(i) for i in range(4)])
+
+    def test_the_burst_sweep_contract(self):
+        text = self._source("TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        self.assertEqual(list(pp.CONTROL_IDS_BURST), self._ident_array(text, "BurstControlIds", consts))
+        self.assertEqual(list(pp.CONTROL_IDS_DUST), self._ident_array(text, "DustControlIds", consts))
+        self.assertEqual(list(pp.KNOWN_DIFFERENCE_CONTROL_IDS),
+                         self._ident_array(text, "KnownDifferenceControlIds", consts))
+        self.assertEqual((pp.SETUP_BURST_NOT_TRIGGERED, pp.SETUP_DUST_NO_STOCK_HIT),
+                         (consts["SetupBurstNotTriggered"], consts["SetupDustNoStockHit"]))
+        self.assertEqual((pp.BURST_ATLAS_SUFFIX, pp.DUST_ATLAS_SUFFIX),
+                         (consts["BurstAtlasSuffix"], consts["DustAtlasSuffix"]))
+        fx_text, fx, rules, _ = self._fx_consts()
+        burst = self._string_consts(self._source("PartParityFxRules.Burst.cs"))
+        self.assertEqual(list(pp.KNOWN_RUN_CONTEXTS),
+                         self._qualified_array(text, "KnownRunContexts", {},
+                                               {"PartParityStateRules": rules, "PartParityFxRules": burst}))
+        # ControlSetFor reads the burst and dust runs before the FX one; control_set mirrors it.
+        body = text[text.index("internal static string[] ControlSetFor("):]
+        body = body[:body.index("private static bool IsIdChar(")]
+        self.assertLess(body.index("if (IsBurstRun(args)) return (string[])BurstControlIds.Clone();"),
+                        body.index("if (IsFxRun(args))"))
+        self.assertLess(body.index("if (IsDustRun(args)) return (string[])DustControlIds.Clone();"),
+                        body.index("if (IsFxRun(args))"))
+        self.assertEqual(pp.CONTROL_IDS_BURST, pp.control_set(
+            {"fx": "explode,vessel-explode,burst-custom,decouple", "contexts": "air"}))
+        self.assertEqual(pp.CONTROL_IDS_DUST, pp.control_set({"fx": "dust", "contexts": "ground"}))
+        self.assertTrue(pp.is_burst_run({"fx": "decouple", "contexts": "air"}))
+        self.assertTrue(pp.is_dust_run({"fx": "dust"}) and pp.is_ground_run({"contexts": "ground"}))
+        self.assertTrue(set(pp.CONTROL_IDS_BURST) | set(pp.CONTROL_IDS_DUST) <= set(pp.ALL_CONTROL_IDS))
+        self.assertEqual(len(pp.ALL_CONTROL_IDS), len(set(pp.ALL_CONTROL_IDS)))
+        for status in (pp.SETUP_BURST_NOT_TRIGGERED, pp.SETUP_DUST_NO_STOCK_HIT):
+            self.assertIn(status, pp.SETUP_STATUSES)
+            self.assertTrue(pp.is_setup_fault(status))
+
+    def test_the_burst_json_tables(self):
+        text = self._source("PartParityJson.cs")
+        for cs, mirror in (("BurstKeys", pp.BURST_KEYS), ("BurstSideKeys", pp.BURST_SIDE_KEYS),
+                           ("BurstTriggerKeys", pp.BURST_TRIGGER_KEYS),
+                           ("BurstScheduleEntryKeys", pp.BURST_SCHEDULE_ENTRY_KEYS),
+                           ("BurstScheduleCompareKeys", pp.BURST_SCHEDULE_COMPARE_KEYS),
+                           ("BurstAtlasKeys", pp.BURST_ATLAS_KEYS), ("BurstViewKeys", pp.BURST_VIEW_KEYS),
+                           ("BurstSourceKeys", pp.BURST_SOURCE_KEYS),
+                           ("BurstSideMeasureKeys", pp.BURST_SIDE_MEASURE_KEYS),
+                           ("BurstBinMeasureKeys", pp.BURST_BIN_MEASURE_KEYS),
+                           ("BurstCompareKeys", pp.BURST_COMPARE_KEYS), ("BurstHalfKeys", pp.BURST_HALF_KEYS),
+                           ("BurstAtlasRows", pp.BURST_ATLAS_ROWS), ("DustKeys", pp.DUST_KEYS),
+                           ("DustRaycastKeys", pp.DUST_RAYCAST_KEYS),
+                           ("DustRaycastSampleKeys", pp.DUST_RAYCAST_SAMPLE_KEYS),
+                           ("DustAtlasRows", pp.DUST_ATLAS_ROWS)):
+            with self.subTest(table=cs):
+                self.assertEqual(list(mirror), self._string_array(text, cs))
+        for key, table in (("burst", "BurstKeys"), ("dust", "DustKeys")):
+            self.assertRegex(text, r'M\("%s", KeyedBlock\(%s, c\.\w+\)\)' % (key, table))
+        self.assertEqual(("burst", "dust"), pp.CASE_KEYS[-2:])
+
+    def test_with_every_p8_fx_value_the_control_set_is_unchanged(self):
+        # The no-change cell of design G.7 on the Python side: the settings every P8 run could
+        # write recompute F1 / F7's control sets, never a burst or dust one.
+        for fx in ("all", "plume", "rcs", "heat", "plate", "plume,rcs,heat,plate"):
+            for contexts, want in ((None, pp.CONTROL_IDS_FX_ORBIT), ("air", pp.CONTROL_IDS_FX_AIR)):
+                settings = {"states": "none", "contexts": contexts or "none", "fx": fx}
+                with self.subTest(settings=settings):
+                    self.assertEqual(want, pp.control_set(settings))
+                    self.assertFalse(pp.is_burst_run(settings) or pp.is_dust_run(settings))
+                    self.assertIsNone(pp.control_set_disagreement(
+                        {"settings": dict(settings, controlSet=",".join(want))}))
+        self.assertEqual(pp.FX_ARG_WORDS, pp.FX_KNOWN_ARG_WORDS[:4])
 
 
 class PartParityFxReaderTests(unittest.TestCase):

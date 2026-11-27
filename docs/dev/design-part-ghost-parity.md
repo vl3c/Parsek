@@ -3892,6 +3892,90 @@ own acceptance (every flight on the operator's go): X0 three throwaway flights o
 10 minutes; X7 the four PP-11 / PP-12 flights of G.5; X8 the two FXC flights twice (reading, then
 full); each Y fix one re-flight of the lane that found its mismatch.
 
+X1 as built (2026-11-26, no flight). The contract lives in the partial `PartParityFxRules.Burst.cs`
+(families, words, states, the `ground` context and its slots, the window, bins and trials, every
+G.3 constant and line, the enumeration, the control subjects and judges), the sweep's arg, setup,
+control and admission rules in `TestCommandPartParitySweep.cs`, and the sidecar tables in
+`PartParityJson.cs`; every literal is mirrored in `harness/lib/partparity.py` and hlib's arg
+table, pinned by `PartParitySourceSyncTests`' `test_the_burst_*` cells and
+`PartParitySweepSourceSyncTests.test_the_burst_dust_*`. Decisions it took:
+- Words and runs. `fx=` also names `explode`, `vessel-explode`, `burst-custom`, `decouple` (the
+  burst words) and `dust`; `fx=all` stays the four P8 words, so every run named before P9 plans
+  what it planned. A run's words are of one kind (`FxCombinationValid(a, fx)`): burst words with
+  exactly `contexts=air`, `dust` with exactly `contexts=ground`, P8 words as before; anything else
+  is `fx-arg-invalid`. `ground` is a new context of the FX rules, not of P6 (`KnownContexts` is
+  unchanged; the parse reads `KnownRunContexts`), stands alone, and without `fx=` is refused
+  `contexts-arg-invalid`. A ground run is admitted at the pad like an air run (`IsPadHostRun`).
+- Until X4, a well-formed burst or dust run is REJECTED `burst-dust-runs-not-built` (detail
+  `fx=..`; `BurstDustRunsBuilt`, hlib `PARTPARITY_BURST_DUST_RUNS_BUILT`), F1's pattern, after
+  the last grammar token and before the admission; the grammar alone (`TryParseGrammar`) plans.
+- Enumeration. `EnumerateBurstDust` runs over the whole install (the power buckets, the stacks
+  and the stand-ins are install-level choices) and is a separate call from P8's per-part
+  `Enumerate`, so no P8 plan, count line or fixture count moves. Its input
+  (`PartParityBurstPart`) adds two part-level config facts the module list lacks: the part's
+  `explosionPotential` (stock's default 0.5 when absent) and the FX group names of its `fx_*`
+  keys; X4 fills them from `partConfig`.
+  - `explode`: one case per potential value present, its ordinal-first part. The installs hold
+    THREE values, not G.5's four: 0, 0.1 and the 0.5 default (no part names 1.0; stock-minimal
+    16 / 46 / 416 parts, modded-restock 23 / 46 / 533), so 3 cases (`MpoProbe`,
+    `AdvancedCanard`, `CargoStorageUnit` on stock).
+  - `vessel-explode`: `fuelTank` (else `fuelTankSmallFlat`) stacks of 1, 2, 3 and 6 parts. G.2
+    names 1, 3 and 6 and G.5 four stacks; the fourth is 2, the smallest cluster FXMonger's 10 m
+    merge raises from 0.5 to 1.0 (G.8 item 5).
+  - `burst-custom`: the custom explosion at L = 1, 5, 10, 15 and 20 m (Parsek's power 0.05 to 1;
+    part name `parsek.customExplosion`), then the part puff on each explode bucket's part: 5 + 3 =
+    8 stand-ins (G.5's 9 assumed four buckets).
+  - `decouple`: every module implementing `ModuleDecouplerBase` whose part names an FX group of its
+    `fxGroupName` (`decouple` by default): 30 on stock-minimal, 50 on modded-restock; the two stock
+    heat shields `HeatShield0` / `HeatShield1` carry none (`decouple-no-fx-group`). The plain joint
+    breaks are this family's `joint-break` state on `fuelTank` and `trussPiece1x`. Every burst case
+    is in the `air` context; a decouple case's window is 2 s, every other 4 s.
+  - `dust`: every module named `ModuleSurfaceFX` whose `thrustProviderModuleIndex` is an engine
+    (else `dust-no-thrust-provider`; none on either install): 39 modules on 36 parts on
+    stock-minimal, 53 on 49 on modded-restock, each at the slots `dust-low` (0.2 of its
+    `maxDistance`, terrain), `dust-high` (0.7, terrain) and `dust-water` (0.4, water), so 117 / 159
+    cases; two modules on one part take the same-word tiebreak by module index
+    (`dust-low-m10`). The drive is the thrust provider's `burn-full` (its recorder key index, air
+    breathing and spool read off it); `ModuleSurfaceFX`'s stock defaults (`fxMax` 1,
+    `maxDistance` 50, `falloff` 2, provider -1) are the decompiled field initializers.
+- Committed part lists `Source/Parsek.Tests/Fixtures/PartParity/burst-parts-<profile>.txt`
+  (stock-minimal, modded-restock): every sweep part (478 / 602) with its potential and FX groups,
+  and the decoupler, `ModuleSurfaceFX` and engine modules at their prefab index, read from each
+  install's ConfigCache (the MODULE order is the prefab order: it matched all 2084 modules of the
+  stock fixtures and 3421 of modded-compat's). `TheFixtures_PinTheG5Counts` pins every count above.
+- Controls (G.4). A burst run's set is the seven `ctl-burst-*`, a dust run's the three
+  `ctl-dust-*` (G.4 names no coverage control for dust). Subjects: `fuelTank` (else
+  `fuelTankSmallFlat`) for the burst controls, the LV-T45 for the dust ones, which must carry a
+  `ModuleSurfaceFX` (`PartParityFxSubjectFacts.HasSurfaceFx`, refusal `no-surface-fx`).
+  `ctl-dust-above-reach` is a `KnownDifferenceControlIds` member: its judge
+  (`JudgeDustControl`) records `n/a` when stock missed and the ghost drew dust while
+  `DustAboveReachGhostJudged` is false (Y3 sets it), and `dust-no-stock-hit` is its pass
+  condition there, not a setup fault. `JudgeBurstControl` reads each required outcome of G.4 off
+  the failing measures and the schedule counts. The late / shift / power steps are constants
+  (0.5 s, 3 m, one prefab index).
+- G.3 lines (`BurstMeasureLevel`, `BurstColourLevel`). A bin delta fails over its fail line and
+  warns at or over its warn line (onset fails at 2 bins; peak time warns at 1 or 2, fails at 3);
+  duration fails over 40 % and warns over 20 %; peak area, radius and brightness are bands; the
+  centroid offset fails over 0.3 and warns over 0.15. G.3 leaves two numbers open: two schedule
+  powers inside one index differ beyond 0.0001 (`BurstSchedulePowerEpsilon`), and a schedule
+  position more than 1 m off its counterpart fails (G.3 lists it among the musts, not the warns).
+- Views and layers. G.2.1 names no burst views: `burst-side`, `burst-top`, `burst-far`, layers
+  `flame` and `smoke` (`ClassifyFxRenderer`). The dust views and the `dust` layer are G.2.2's.
+- Sidecar. Two top-level blocks, `burst` and `dust` (`BurstKeys`, `DustKeys`, null on every other
+  case), with their sub-tables (schedule, trigger, source, per-bin and summary measures, compare,
+  halves, the dust raycast); the atlases are `<caseId>.burst.png` (rows `BurstAtlasRows`, columns
+  view-major over the bins) and `<caseId>.dust.png`. The committed P8 FX fixture was rebuilt for
+  the two null keys (`WriteFxFixture`; its atlas pixels did not move).
+- No-change cells: `WithEveryP8FxValue_ThePlanControlSetAndSettingsAreUnchanged` (nine fx= values
+  with and without `contexts=air`: control set, settings keys and values, and the plan with P9
+  keys mixed in equal to the plan without them) and Python's
+  `test_with_every_p8_fx_value_the_control_set_is_unchanged`.
+- No CHANGELOG entry: tooling only, as F1 and F1b.
+- Left for X4 / X5 (clean review, 2026-11-27): `JudgeBurstControl`'s `ctl-burst-off` asks for
+  `RealBlasts == 1`, so the schedule it reads counts blasts per trial, not per case (a case fires
+  four trials); and G.2's decouple row holds the decoupler with a neighbour below, which the
+  enumerated `air` decouple cases do not carry yet, so the X4 driver adds it.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is

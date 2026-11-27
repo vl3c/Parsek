@@ -5379,6 +5379,17 @@ PARTPARITY_AIR_CONTEXT = "air"
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
 PARTPARITY_FX_KNOWN_VALUES: Tuple[str, ...] = PARTPARITY_FX_VALUES + ("plume-main",)
 PARTPARITY_FX_ALL_TOKEN = "all"
+# P9 (design-part-ghost-parity.md Appendix G; PartParityFxRules.BurstArgWords / DustArgWords):
+# the fx= csv also names burst words (with exactly contexts=air) or the dust word (with
+# exactly contexts=ground, a context only a dust run names), one kind per run; fx=all stays
+# the P8 words. Until the live burst and dust driver lands (design G.7 piece X4,
+# TestCommandPartParitySweep.BurstDustRunsBuilt) a well-formed one is REJECTED
+# burst-dust-runs-not-built.
+PARTPARITY_FX_BURST_VALUES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple")
+PARTPARITY_FX_DUST_VALUES: Tuple[str, ...] = ("dust",)
+PARTPARITY_GROUND_CONTEXT = "ground"
+PARTPARITY_BURST_DUST_RUNS_BUILT = False
+PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON = "burst-dust-runs-not-built"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5395,7 +5406,7 @@ PARTPARITY_REASONS: Tuple[str, ...] = (
     "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
     "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
-    "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
+    "burst-dust-runs-not-built", "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
 # Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
 # subkind (nothing was refused; the runner may already have spawned vessels).
@@ -5564,34 +5575,57 @@ def _partparity_states_ok(text: str) -> bool:
 
 
 def _partparity_contexts_ok(text: str) -> bool:
-    """TryParseContexts: ``none`` or a csv of known contexts; ``air`` only alone."""
+    """TryParseContexts: ``none`` or a csv of known contexts (KnownRunContexts: P6's and the
+    dust run's ``ground``); ``air`` and ``ground`` only alone."""
     if text == PARTPARITY_NONE_TOKEN:
         return True
     if not text:
         return False
     items = text.split(",")
-    if not all(item in PARTPARITY_CONTEXT_VALUES for item in items):
+    if not all(item in PARTPARITY_CONTEXT_VALUES + (PARTPARITY_GROUND_CONTEXT,) for item in items):
         return False
-    return PARTPARITY_AIR_CONTEXT not in items or set(items) == {PARTPARITY_AIR_CONTEXT}
+    for alone in (PARTPARITY_AIR_CONTEXT, PARTPARITY_GROUND_CONTEXT):
+        if alone in items and set(items) != {alone}:
+            return False
+    return True
 
 
 def _partparity_fx_ok(text: str) -> bool:
-    """TryParseFx: ``none``, ``all``, or a csv of FX words."""
+    """TryParseFx: ``none``, ``all``, or a csv of FX words (KnownArgWords: P8's and P9's)."""
     if text in (PARTPARITY_NONE_TOKEN, PARTPARITY_FX_ALL_TOKEN):
         return True
     if not text:
         return False
-    return all(item in PARTPARITY_FX_KNOWN_VALUES for item in text.split(","))
+    known = PARTPARITY_FX_KNOWN_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES
+    return all(item in known for item in text.split(","))
 
 
-def _partparity_fx_combination_ok(step_args: Dict) -> bool:
-    """FxCombinationValid: an fx= run names no states= and at most contexts=air (``none``
-    reads as absent, as the C# parse leaves it null)."""
+def _partparity_fx_kind(fx_text: str) -> Optional[str]:
+    """The kind of a well-formed fx= value's words: ``p8``, ``burst``, ``dust``, or None for a
+    mix (FxCombinationValid refuses one)."""
+    words = (list(PARTPARITY_FX_VALUES) if fx_text == PARTPARITY_FX_ALL_TOKEN
+             else fx_text.split(","))
+    kinds = {"burst" if w in PARTPARITY_FX_BURST_VALUES
+             else "dust" if w in PARTPARITY_FX_DUST_VALUES else "p8" for w in words}
+    return kinds.pop() if len(kinds) == 1 else None
+
+
+def _partparity_fx_combination_ok(step_args: Dict, fx_text: Optional[str] = None) -> bool:
+    """FxCombinationValid: an fx= run names no states= and words of ONE kind; P8 words with
+    at most contexts=air, burst words with exactly contexts=air, the dust word with exactly
+    contexts=ground (``none`` reads as absent, as the C# parse leaves it null; contexts= is
+    canonicalised, so ``air,air`` is ``air``)."""
     states = str(step_args.get("states", PARTPARITY_NONE_TOKEN))
     contexts = str(step_args.get("contexts", PARTPARITY_NONE_TOKEN))
-    return (states == PARTPARITY_NONE_TOKEN
-            and (contexts == PARTPARITY_NONE_TOKEN
-                 or set(contexts.split(",")) == {PARTPARITY_AIR_CONTEXT}))
+    if states != PARTPARITY_NONE_TOKEN:
+        return False
+    kind = _partparity_fx_kind(fx_text) if fx_text is not None else "p8"
+    named = set() if contexts == PARTPARITY_NONE_TOKEN else set(contexts.split(","))
+    if kind == "burst":
+        return named == {PARTPARITY_AIR_CONTEXT}
+    if kind == "dust":
+        return named == {PARTPARITY_GROUND_CONTEXT}
+    return kind == "p8" and (not named or named == {PARTPARITY_AIR_CONTEXT})
 
 
 def _partparity_views_ok(text: str) -> bool:
@@ -5619,7 +5653,10 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
     ``skins`` default|all, ``states`` none|all|a csv of state words, ``contexts`` none|a csv
     of contexts (``air`` alone), ``fx`` none|all|a csv of FX words (no ``states`` and at most
-    ``contexts=air`` beside it), ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``contexts=air`` beside it; a burst csv with exactly ``contexts=air`` and ``fx=dust`` with
+    exactly ``contexts=ground``, the one context only a dust run names; a well-formed burst or
+    dust run is refused ``burst-dust-runs-not-built`` until the live driver lands), ``views``
+    required|all|a csv of view names, ``tile`` 256..1024,
     ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
     60..480. No other key is read. When an ``op=run`` step (the default op) declares a
     ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
@@ -5672,17 +5709,30 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
            "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_STATE_VALUES),
            "states-arg-invalid")
     shaped("contexts", _partparity_contexts_ok,
-           "'none' or a csv of %s ('air' alone)" % ", ".join(PARTPARITY_CONTEXT_VALUES),
+           "'none' or a csv of %s ('air' and 'ground' alone)"
+           % ", ".join(PARTPARITY_CONTEXT_VALUES + (PARTPARITY_GROUND_CONTEXT,)),
            "contexts-arg-invalid")
     shaped("fx", _partparity_fx_ok,
-           "'none', 'all' or a csv of %s" % ", ".join(PARTPARITY_FX_KNOWN_VALUES), "fx-arg-invalid")
+           "'none', 'all' or a csv of %s" % ", ".join(
+               PARTPARITY_FX_KNOWN_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES),
+           "fx-arg-invalid")
     fx_text = handle_shape_probe(step_args.get("fx")) if "fx" in step_args else None
     fx_run = (fx_text is not None and fx_text != PARTPARITY_NONE_TOKEN
               and _partparity_fx_ok(fx_text))
-    if fx_run and not _partparity_fx_combination_ok(step_args):
+    if fx_run and not _partparity_fx_combination_ok(step_args, fx_text):
         errors.append("driver.steps[%d].args.fx: an FX run plans FX cases only, so it names no "
-                      "states= and at most contexts=air; the seam answers REJECTED "
-                      "fx-arg-invalid" % index)
+                      "states= and words of one kind: P8 words with at most contexts=air, burst "
+                      "words with exactly contexts=air, dust with exactly contexts=ground; the "
+                      "seam answers REJECTED fx-arg-invalid" % index)
+    contexts_text = (handle_shape_probe(step_args.get("contexts"))
+                     if "contexts" in step_args else None)
+    if (contexts_text is not None and _partparity_contexts_ok(contexts_text)
+            and PARTPARITY_GROUND_CONTEXT in contexts_text.split(",")
+            and ("fx" not in step_args or fx_text == PARTPARITY_NONE_TOKEN)):
+        errors.append("driver.steps[%d].args.contexts: the ground context is the dust run's "
+                      "(fx=dust) alone; the seam answers REJECTED contexts-arg-invalid" % index)
+    burst_dust_run = (fx_run and _partparity_fx_kind(fx_text) in ("burst", "dust")
+                      and _partparity_fx_combination_ok(step_args, fx_text))
     shaped("views", _partparity_views_ok,
            "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
            "views-arg-invalid")
@@ -5695,6 +5745,11 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     closed("controls", PARTPARITY_CONTROLS_VALUES, "controls-arg-invalid")
     shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
            "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
+
+    if burst_dust_run and not PARTPARITY_BURST_DUST_RUNS_BUILT and not errors:
+        errors.append("driver.steps[%d].args.fx: a burst or dust run is not built yet (design-"
+                      "part-ghost-parity.md G.7 piece X4); the seam answers REJECTED %s"
+                      % (index, PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON))
 
     if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
             and str(step_args.get("op", "run")) == "run"):
@@ -13517,6 +13572,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "states-arg-invalid": "driver-arg",
     "contexts-arg-invalid": "driver-arg",
     "fx-arg-invalid": "driver-arg",
+    "burst-dust-runs-not-built": "driver-arg",
     "views-arg-invalid": "driver-arg",
     "tile-arg-invalid": "driver-arg",
     "shard-arg-invalid": "driver-arg",
@@ -14315,6 +14371,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
     "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid", "fx-arg-invalid",
+    "burst-dust-runs-not-built",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",
