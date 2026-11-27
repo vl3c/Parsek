@@ -3915,8 +3915,8 @@ Two run faults decide most of the "not answered" rows:
 | U9 | partly | 23 ghost frames at the real frames' UTs (`dUt` within 0.04 s). Outside the masks the main pose differs on 0.46 to 0.73 % of pixels (mean 0.5 to 0.7), all in the top half, and about 4100 px of it is constant: the watch-mode `Watching:` label drawn on the ghost frames. The rear pose differs on 1.2 to 6.7 %, mostly in the bottom half (the planet), growing from m6 to m2. The "ghost is smaller" reading was the mask: the real probe rect was the union with the side ghost parented under the root part (230 px wide); the probe alone sits where the ghost sits, at the same size (`fxr-real-m6-mainA.png` against `fxr-ghost-m6-mainA.png`). |
 | U10 | partly | Ghost-to-host distance: m6 50.2 km, m375 54.7 km, m3 56.0 km, m25 56.9 km, m2 57.7 km, all inside the 300 km cutoff. Mark `above` (72 km altitude, 75 km from the pad) has no ghost frame: an unwatched ghost 50 km or more from the active vessel is hidden by the distance LOD (`ApplyDistanceLodPolicy`, `LoopSimplifiedMeters`) and prewarmed only inside 55 km, and the rig entered watch mode only after it had found an active ghost, so the four `above` shots read MISSING and watch began near 50 km. |
 
-What the re-flight changes (spike commit on `fx-x0-spike`; the three untracked specs are
-unchanged):
+What the re-flight changes (spike commit 62f4cebd on `fx-x0-spike`; the three untracked specs
+are unchanged):
 
 - The burst cell guards every section and every sub-case (each burst index, the stand-ins, the
   lifetimes, each U3 and U4 case): an exception is logged with its type and full stack and the next
