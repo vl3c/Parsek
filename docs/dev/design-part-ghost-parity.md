@@ -4550,6 +4550,10 @@ spawns at 1900 m (still inside the 2000 m flying unpack range, D.4).
     over the page's tile grey `#8f959c` (one global palette, exact when the frames hold at most
     256 colours). A case whose atlas does not decode or does not match its sidecar's layout is
     reported on stderr and keeps no animation; the run still writes the site.
+  - A malformed motion sidecar (an array that is not one, a number that is not one) is a problem
+    on its own case's row (`motionProblem`, shown as a note on the case), never a stop of the
+    site: every array is type-checked before it is read and every number the page formats is a
+    number or null in `data.js`. partparity's motion readers read a non-array as empty.
   - The chart's ghost line is the scout grid (`motion.scout`), the real line the real frames; the
     event ticks are `stateProof.events` UTs from the press.
 

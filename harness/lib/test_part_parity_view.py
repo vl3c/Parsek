@@ -14,6 +14,7 @@ placement). Stdlib only::
 """
 
 import contextlib
+import copy
 import html.parser
 import io
 import json
@@ -1908,7 +1909,7 @@ class PageContractTests(unittest.TestCase):
     def test_the_page_reads_only_keys_the_core_writes(self):
         data = build()
         motion = motion_site_data()
-        case_keys = set(data["cases"][0]) | {k for c in motion["cases"] for k in c}
+        case_keys = set(data["cases"][0]) | {k for c in motion["cases"] for k in c} | set(malformed_motion_row())
         group_keys = set(data["groups"][0]) | {k for g in motion["groups"] for k in g}
         used_c = set(re.findall(r"\bc\.([A-Za-z]+)", ppv.INDEX_HTML))
         used_g = set(re.findall(r"\bg\.([A-Za-z]+)", ppv.INDEX_HTML))
@@ -2687,6 +2688,176 @@ class MotionAnimationTests(unittest.TestCase):
     def test_few_colours_keep_their_exact_palette(self):
         counts = {(1, 2, 3): 5, (4, 5, 6): 1}
         self.assertEqual(([(1, 2, 3), (4, 5, 6)], {(1, 2, 3): 0, (4, 5, 6): 1}), ppv.median_cut(counts))
+
+
+
+def _frames(sc):
+    return sc["motion"]["frames"]
+
+
+# Each malformed motion sidecar a writer could leave (the clean review's repros): the mutation
+# and a fragment of the problem the case's row must name.
+MALFORMED_MOTION = {
+    "transforms-int": (lambda sc: sc["motion"].__setitem__("transforms", 5), "motion.transforms: not an array"),
+    "events-int": (lambda sc: sc.setdefault("stateProof", {}).__setitem__("events", 5), "stateProof.events: not an array"),
+    "events-str": (lambda sc: sc.setdefault("stateProof", {}).__setitem__("events", "ab"), "stateProof.events: not an array"),
+    "scout-ints": (lambda sc: sc["motion"].__setitem__("scout", {"s": 5, "progress": 5}), "motion.scout"),
+    "transform-real-int": (lambda sc: sc["motion"]["transforms"][0].__setitem__("real", 5), "motion.transforms[0]"),
+    "realS-str": (lambda sc: [f.__setitem__("realS", "x") for f in _frames(sc)], "timing:real"),
+    "targetS-str": (lambda sc: _frames(sc)[0].__setitem__("targetS", "x"), "motion.frames[0]"),
+    "views-int": (lambda sc: _frames(sc)[0].__setitem__("views", 5), "motion.frames[0].views: not an array"),
+    "flags-int": (lambda sc: _frames(sc)[0].__setitem__("flags", 5), "motion.frames[0].flags: not an array"),
+    "frames-str": (lambda sc: sc["motion"].__setitem__("frames", "abc"), "motion.frames: not an array"),
+    "pressUT-str": (lambda sc: sc["motion"].__setitem__("pressUT", "abc"), "motion.pressUT: not a number"),
+    "imgProgress-list": (lambda sc: _frames(sc)[0].__setitem__("imgProgress", [1]), "motion.frames[0].imgProgress: not an object"),
+    "atlas-list": (lambda sc: sc.__setitem__("motionAtlas", [1]), "motionAtlas: not an object"),
+    "atlas-rows-int": (lambda sc: sc.__setitem__("motionAtlas", {"file": "x.png", "rows": 5, "cols": 5, "tile": "a"}),
+                       "motionAtlas.rows: not an array"),
+}
+
+
+def _number_or_null(test, value, where):
+    test.assertTrue(value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)),
+                    "%s: %r" % (where, value))
+
+
+def malformed_motion_row():
+    """MO_ANT's row over a sidecar whose transforms are not an array."""
+    tmp = tempfile.mkdtemp(prefix="ppv-malformed-row-")
+    try:
+        s = _loaded(write_motion_sweep(tmp))
+        sc = copy.deepcopy(s["sidecars"][MO_ANT])
+        sc["motion"]["transforms"] = 5
+        s["sidecars"] = dict(s["sidecars"], **{MO_ANT: sc})
+        return [c for c in ppv.build_site_data([s], None, LEGACY_STAMP)["cases"] if c["caseId"] == MO_ANT][0]
+    finally:
+        shutil.rmtree(tmp, True)
+
+
+class MalformedMotionTests(unittest.TestCase):
+    """A malformed motion sidecar is a problem on its own case's row, never a stop of the
+    site build, and partparity's judge reads it without raising."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-malformed-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.dir = write_motion_sweep(cls.tmp)
+        cls.sweep = _loaded(cls.dir)
+
+    def rows_with(self, sc):
+        s = dict(self.sweep, sidecars=dict(self.sweep["sidecars"], **{MO_ANT: sc}))
+        return {c["caseId"]: c for c in ppv.build_site_data([s], None, LEGACY_STAMP)["cases"]}
+
+    def assert_page_numbers(self, m, name):
+        for i, f in enumerate(m.get("frames") or ()):
+            for key in ("targetS", "realS", "matchedS", "ut", "realProgress", "ghostProgress", "matchedProgress"):
+                _number_or_null(self, f.get(key), "%s frames[%d].%s" % (name, i, key))
+
+    def test_the_good_sweep_names_no_problem(self):
+        rows = self.rows_with(self.sweep["sidecars"][MO_ANT])
+        self.assertEqual([], [cid for cid, c in rows.items() if "motionProblem" in c])
+
+    def test_each_malformed_sidecar_is_a_problem_on_its_row(self):
+        for name, (mutate, fragment) in MALFORMED_MOTION.items():
+            with self.subTest(name):
+                sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+                mutate(sc)
+                pp.judge_case(sc)  # reads it, never raises
+                rows = self.rows_with(sc)
+                self.assertIn(fragment, rows[MO_ANT].get("motionProblem", ""))
+                self.assertTrue(rows[MO_ANT]["motionProblem"].startswith("the motion sidecar is malformed: "))
+                self.assertNotIn("motionProblem", rows[MO_LATE])
+                self.assertIsNotNone(rows[MO_LATE].get("motion"))
+                if rows[MO_ANT].get("motion"):
+                    self.assert_page_numbers(rows[MO_ANT]["motion"], name)
+
+    def test_a_motion_build_that_raises_is_a_problem_on_its_row(self):
+        with mock.patch.object(ppv, "motion_row", side_effect=RuntimeError("boom")):
+            rows = self.rows_with(self.sweep["sidecars"][MO_ANT])
+        self.assertEqual("the motion block would not build: RuntimeError: boom", rows[MO_ANT]["motionProblem"])
+        self.assertNotIn("motion", rows[MO_ANT])
+        self.assertIn("verdict", rows[MO_ANT])
+
+    def test_partparity_reads_non_array_views_and_flags_as_empty(self):
+        for key in ("views", "flags"):
+            sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+            _frames(sc)[0][key] = 5
+            self.assertIn("motion.frames[0].%s: not an array" % key, pp.motion_block_problems(sc))
+            self.assertIsNotNone(pp.judge_case(sc).motion)
+            self.assertEqual(list(pp.motion_flags(sc)), list(pp.motion_flags(sc)))  # reads, never raises
+        sc = copy.deepcopy(self.sweep["sidecars"][MO_ANT])
+        _frames(sc)[0]["views"] = 5
+        self.assertEqual([], pp.motion_frame_views(_frames(sc)[0], "same"))
+
+    def test_the_site_builds_and_the_page_runs_over_malformed_cases(self):
+        tmp = tempfile.mkdtemp(prefix="ppv-malformed-site-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        d = write_motion_sweep(tmp)
+        bad = [cid for cid, sc in sorted(_loaded(d)["sidecars"].items())
+               if pp.motion_block(sc) and cid not in (MO_LATE, MO_FAULT)]
+        names = list(MALFORMED_MOTION)
+        self.assertTrue(len(bad) >= 4)
+        for i, cid in enumerate(bad):
+            path = os.path.join(d, cid + pp.SIDECAR_SUFFIX)
+            with open(path, encoding="utf-8") as fh:
+                sc = json.load(fh)
+            MALFORMED_MOTION[names[i % len(names)]][0](sc)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(sc, fh)
+        out = os.path.join(tmp, "site")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(0, ppv.main([d, "--out", out, "--gif"]))
+        js = os.path.join(out, ppv.DATA_JS_FILE)
+        with open(js, encoding="ascii") as fh:
+            rows = {c["caseId"]: c for c in ppv.parse_data_js(fh.read())["cases"]}
+        for cid in bad:
+            self.assertIn("motionProblem", rows[cid], cid)
+        self.assertNotIn("motionProblem", rows[MO_LATE])
+        if shutil.which("node"):
+            page = _run_runner(tmp, MOTION_RUNNER, js, False, {"target": rows[MO_LATE]["id"]})
+            texts = {b["id"]: b["text"] for b in page["boxes"]}
+            self.assertIn(rows[MO_LATE]["id"], texts)
+
+
+class UnreadableAtlasTests(unittest.TestCase):
+    """--gif over a truncated or lying atlas reports the case and carries on."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="ppv-gif-trunc-")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
+        cls.dir = write_motion_sweep(cls.tmp)
+        cls.atlas = os.path.join(cls.dir, MO_ANT + pp.MOTION_ATLAS_SUFFIX)
+        with open(cls.atlas, "rb") as fh:
+            cls.orig = fh.read()
+
+    def tearDown(self):
+        with open(self.atlas, "wb") as fh:
+            fh.write(self.orig)
+
+    def built(self, blob, name):
+        with open(self.atlas, "wb") as fh:
+            fh.write(blob)
+        out, err = os.path.join(self.tmp, "site-" + name), io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(0, ppv.main([self.dir, "--out", out, "--gif"]), name)
+        with open(os.path.join(out, ppv.DATA_JS_FILE), encoding="ascii") as fh:
+            rows = {c["caseId"]: c for c in ppv.parse_data_js(fh.read())["cases"]}
+        self.assertIn(MO_ANT, err.getvalue(), name)
+        self.assertIsNone(rows[MO_ANT]["strips"]["animation"], name)
+        self.assertIsNotNone(rows[MO_LATE]["strips"]["animation"], name)
+
+    def test_a_truncated_atlas_is_a_problem_not_a_stop(self):
+        # 20: a truncated IHDR (struct.error); 60 and len - 12: a short IDAT
+        for cut in (8, 12, 20, 33, 40, 60, 200):
+            self.built(self.orig[:cut], "cut%d" % cut)
+
+    def test_an_atlas_claiming_a_taller_image_is_a_problem_not_a_stop(self):
+        n = struct.unpack(">I", self.orig[8:12])[0]
+        body = bytearray(self.orig[16:16 + n])
+        body[4:8] = struct.pack(">I", struct.unpack(">I", bytes(body[4:8]))[0] * 3)
+        self.built(self.orig[:8] + ppv._png_chunk(b"IHDR", bytes(body)) + self.orig[20 + n:], "tall")
 
 
 if __name__ == "__main__":

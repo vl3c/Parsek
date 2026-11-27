@@ -762,7 +762,7 @@ def motion_chart(block: Dict, timing: Optional[Dict], event_s: Sequence[float]) 
     rs = [f.get("realS") for f in frames]
     rp = [f.get("realProgress") for f in frames]
     scout = _dict(block.get("scout"))
-    ss, sp = list(scout.get("s") or []), list(scout.get("progress") or [])
+    ss, sp = pp._motion_nums(scout.get("s")), pp._motion_nums(scout.get("progress"))
     ends = [pp._num(x) for x in rs + ss + [_dict(block.get("window")).get("endS")]]
     t_max = max([x for x in ends if x is not None] or [1.0])
     t_max = t_max if t_max > 0 else 1.0
@@ -795,11 +795,40 @@ def motion_chart(block: Dict, timing: Optional[Dict], event_s: Sequence[float]) 
     }
 
 
+def _n(value: Any) -> Optional[float]:
+    """A sidecar number as the page may format it: an int kept, a float finite, else None."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return pp._num(value)
+
+
+def _nums(value: Any) -> Optional[List[Optional[float]]]:
+    """A sidecar number array with every non-number as None; None when it is not an array."""
+    return [pp._num(v) for v in value] if isinstance(value, list) else None
+
+
 def _motion_measure(block: Any, view: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(block, dict):
         return None
     row = _measure_row(dict(block, view=view))
-    return {k: row.get(k) for k in ("view", "verdict", "reasons", "trigger") + MOTION_MEASURE_KEYS}
+    out = {k: row.get(k) for k in ("view", "verdict", "reasons", "trigger")}
+    out.update({k: _n(row.get(k)) for k in MOTION_MEASURE_KEYS})
+    return out
+
+
+def _motion_timing(timing: Any) -> Optional[Dict[str, Any]]:
+    """The timing block with numbers only (the page formats every value as one)."""
+    if not isinstance(timing, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for k, v in timing.items():
+        if k in ("real", "ghost"):
+            out[k] = {lv: pp._num(x) for lv, x in v.items()} if isinstance(v, dict) else None
+        elif k == "flags":
+            out[k] = [str(x) for x in pp._motion_list(v)]
+        else:
+            out[k] = pp._num(v)
+    return out
 
 
 def motion_event_offsets(sc: Dict, block: Dict) -> List[float]:
@@ -807,10 +836,46 @@ def motion_event_offsets(sc: Dict, block: Dict) -> List[float]:
     press = pp._num(block.get("pressUT"))
     proof = _dict(sc.get("stateProof"))
     out = []
-    for e in proof.get("events") or []:
+    for e in pp._motion_list(proof.get("events")):
         ut = pp._num(_dict(e).get("ut"))
         if press is not None and ut is not None:
             out.append(ut - press)
+    return out
+
+
+# The per-frame numbers the page formats (``secs`` and the chart): each is a number or null.
+MOTION_FRAME_NUMBER_KEYS = ("targetS", "realS", "ut", "realClock", "ghostClock", "realProgress",
+                            "ghostProgress", "matchedS", "matchedProgress")
+
+
+def motion_page_problems(sc: Dict) -> List[str]:
+    """What the page reads beyond partparity's block shape check (``motion_case_problems``)
+    and found malformed: read as empty or unmeasured, and named on the case."""
+    out = []
+    block = pp.motion_block(sc) or {}
+    events = _dict(sc.get("stateProof")).get("events")
+    if events is not None and not isinstance(events, list):
+        out.append("stateProof.events: not an array")
+    for key in ("pressUT", "predictedS", "ghostClipS", "eventDelayS", "ghostStartDelayS"):
+        if block.get(key) is not None and pp._num(block.get(key)) is None:
+            out.append("motion.%s: not a number" % key)
+    for i, f in enumerate(pp.motion_frames(block)):
+        for key in MOTION_FRAME_NUMBER_KEYS:
+            if f.get(key) is not None and pp._num(f.get(key)) is None:
+                out.append("motion.frames[%d].%s: not a number" % (i, key))
+        if f.get("imgProgress") is not None and not isinstance(f.get("imgProgress"), dict):
+            out.append("motion.frames[%d].imgProgress: not an object" % i)
+    meta = sc.get("motionAtlas")
+    if meta is not None and not isinstance(meta, dict):
+        out.append("motionAtlas: not an object")
+    elif isinstance(meta, dict):
+        for key in ("rows", "cols"):
+            if not isinstance(meta.get(key), list):
+                out.append("motionAtlas.%s: not an array" % key)
+        if not (isinstance(meta.get("tile"), int) and not isinstance(meta.get("tile"), bool) and meta["tile"] > 0):
+            out.append("motionAtlas.tile: not a positive integer")
+        if not _name(meta.get("file")):
+            out.append("motionAtlas.file: not a file name")
     return out
 
 
@@ -825,54 +890,61 @@ def motion_row(case_id: str, sc: Dict, mj: "pp.MotionJudgement",
     """The motion half of a case row (H.5): partparity's ``judge_motion`` verdict, reasons,
     flags and measures, the per-frame arrays and measures, the transforms with their travel
     and stagger, the motion atlas, the chart and the play delays."""
+    # Every array is type-checked and every number coerced (a non-number reads None): the
+    # page formats them as numbers, and a malformed sidecar must not stop the site build.
     block = pp.motion_block(sc) or {}
-    timing = block.get("timing") if isinstance(block.get("timing"), dict) else None
+    timing = _motion_timing(block.get("timing"))
     frames = pp.motion_frames(block)
     views = pp.motion_view_names(block)
     meta = _dict(sc.get("motionAtlas"))
     atlas_file = _name(meta.get("file"))
-    rs = [f.get("realS") for f in frames]
+    rs = [pp._num(f.get("realS")) for f in frames]
     scout = _dict(block.get("scout"))
     lag = pp._num((timing or {}).get("lagS"))
     transforms = []
-    for tr in block.get("transforms") or []:
+    for tr in pp._motion_list(block.get("transforms")):
         if not isinstance(tr, dict):
             continue
         transforms.append({
-            "path": tr.get("path"), "channel": tr.get("channel"),
+            "path": _name(tr.get("path")), "channel": _name(tr.get("channel")),
             "travelReal": pp._num(tr.get("travelReal")), "travelGhost": pp._num(tr.get("travelGhost")),
             "travelRatio": pp._motion_ratio(pp._num(tr.get("travelGhost")), pp._num(tr.get("travelReal"))),
-            "staggerDev": pp.motion_shape_deviation(rs, tr.get("real"), list(scout.get("s") or []),
-                                                     tr.get("ghost"), lag)})
+            "staggerDev": pp.motion_shape_deviation(rs, _nums(tr.get("real")), pp._motion_nums(scout.get("s")),
+                                                     _nums(tr.get("ghost")), lag)})
     rows_out = []
-    for f in frames:
+    for i, f in enumerate(frames):
         fv = []
-        for v in f.get("views") or []:
+        for v in pp._motion_list(f.get("views")):
             if isinstance(v, dict):
-                fv.append({"view": v.get("view"), "same": _motion_measure(v.get("same"), v.get("view")),
+                fv.append({"view": _name(v.get("view")), "same": _motion_measure(v.get("same"), v.get("view")),
                            "matched": _motion_measure(v.get("matched"), v.get("view"))})
         img = f.get("imgProgress")
-        rows_out.append({k: f.get(k) for k in ("k", "targetS", "realS", "ut", "realClock", "ghostClock",
-                                               "realProgress", "ghostProgress", "matchedS",
-                                               "matchedProgress")}
-                        | {"imgProgress": dict(img) if isinstance(img, dict) else None,
-                           "views": fv, "flags": [str(x) for x in f.get("flags") or []]})
+        k = f.get("k")
+        rows_out.append({key: pp._num(f.get(key)) for key in MOTION_FRAME_NUMBER_KEYS}
+                        | {"k": k if isinstance(k, int) and not isinstance(k, bool) else i,
+                           "imgProgress": {str(r): pp._num(x) for r, x in img.items()} if isinstance(img, dict) else None,
+                           "views": fv, "flags": [str(x) for x in pp._motion_list(f.get("flags"))]})
     events = motion_event_offsets(sc, block)
     atlas_rows = _names(meta.get("rows"))
+    window = _dict(block.get("window"))
+    tile = meta.get("tile")
     report = dict(mj.report)
     report.pop("frameVerdicts", None)
     return _finite({
         "family": mj.family, "kind": mj.kind, "module": block.get("module"),
-        "moduleIndex": block.get("moduleIndex"), "pressUT": block.get("pressUT"),
-        "predictedS": block.get("predictedS"), "ghostClipS": block.get("ghostClipS"),
-        "eventDelayS": block.get("eventDelayS"), "ghostStartDelayS": block.get("ghostStartDelayS"),
-        "framesPerMotion": block.get("framesPerMotion"), "window": _dict(block.get("window")),
+        "moduleIndex": _n(block.get("moduleIndex")), "pressUT": pp._num(block.get("pressUT")),
+        "predictedS": pp._num(block.get("predictedS")), "ghostClipS": pp._num(block.get("ghostClipS")),
+        "eventDelayS": pp._num(block.get("eventDelayS")), "ghostStartDelayS": pp._num(block.get("ghostStartDelayS")),
+        "framesPerMotion": _n(block.get("framesPerMotion")),
+        "window": {"endS": pp._num(window.get("endS")), "spacingS": pp._num(window.get("spacingS")),
+                   "capped": window.get("capped") is True},
         "verdict": mj.verdict, "reasons": list(mj.reasons), "trigger": trigger_line(list(mj.reasons)),
         "flags": list(mj.flags), "measures": dict(mj.measures), "report": report,
         "timing": timing, "views": views,
         "matched": any(r.startswith(pp.MOTION_ROW_GHOST_MATCHED + ":") for r in atlas_rows),
         "atlas": image_url(atlas_file) if image_url and atlas_file else None,
-        "atlasFile": atlas_file, "tile": meta.get("tile"), "atlasRows": atlas_rows,
+        "atlasFile": atlas_file, "tile": tile if isinstance(tile, int) and not isinstance(tile, bool) and tile > 0 else None,
+        "atlasRows": atlas_rows,
         "atlasCols": list(meta.get("cols") or []) if isinstance(meta.get("cols"), list) else [],
         "frames": rows_out, "transforms": transforms, "events": events,
         "delaysMs": motion_frame_delays_ms(rs, pp.motion_frame_interval(block)),
@@ -960,6 +1032,7 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     state_flags: List[str] = []
     fx = None
     motion = None
+    motion_problem = None
     if sc is not None:
         cv = pp.judge_case(sc)
         verdict, reasons = cv.verdict, list(cv.reasons)
@@ -969,7 +1042,14 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
             if verdict == pp.VERDICT_REFERENCE and trigger:
                 trigger = "reference, would be %s: %s" % (cv.fx.would_be, trigger)
         if cv.motion is not None:
-            motion = motion_row(case_id, sc, cv.motion, image_url)
+            try:
+                shape = pp.motion_case_problems(sc) + motion_page_problems(sc)
+                motion = motion_row(case_id, sc, cv.motion, image_url)
+                if shape:
+                    motion_problem = "the motion sidecar is malformed: " + "; ".join(shape[:5]) + (
+                        " (+%d more)" % (len(shape) - 5) if len(shape) > 5 else "")
+            except Exception as exc:  # a problem on this case's row, never a stop of the site
+                motion_problem = "the motion block would not build: %s: %s" % (type(exc).__name__, exc)
         worst_view, blob_px, blob_pct, color_px = (cv.worst_view, cv.max_shape_blob_px,
                                                    cv.max_shape_blob_pct, cv.max_color_blob_px)
         if cv.is_state_case:
@@ -1106,6 +1186,8 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     if motion is not None:
         row["motion"] = motion
         row["strips"] = motion_strips(motion)
+    if motion_problem is not None:
+        row["motionProblem"] = motion_problem
     return row
 
 
@@ -2402,8 +2484,8 @@ def write_motion_animations(data: Dict[str, Any], sweeps: Sequence[Dict], out_di
             if len(delays) != len(frames):
                 raise ValueError("%d atlas column(s), %d frame delay(s)" % (len(frames), len(delays)))
             blob = (encode_apng if fmt == ANIMATION_APNG else encode_gif)(w, h, bpp, frames, delays)
-        except (OSError, ValueError, KeyError, zlib.error) as exc:
-            problems.append("%s: %s" % (row.get("id"), exc))
+        except Exception as exc:  # gui_mirror.read_png raises what a damaged file makes it raise
+            problems.append("%s: %s: %s: %s" % (row.get("id"), m["atlasFile"], type(exc).__name__, exc))
             continue
         name = row["caseId"] + ANIMATION_SUFFIX[fmt]
         sub = "img/%d" % k
@@ -3360,13 +3442,14 @@ dialog .tile { cursor: default; }
     if (c.accepted) headKids.push(el("span", {cls: "chip", text: "judged " + c.partVerdict + ": " + c.accepted.todos.join(", "), title: c.accepted.reasons.join("\n")}));
     var blk = el("div", {cls: (opts.sub ? "state " : "skin ") + cls + (c.accepted ? " quiet" : ""), id: "c-" + idOf(c.id)}, [el("div", {cls: "shead"}, headKids)]);
     if (c.verdict === "control-na") blk.appendChild(el("div", {cls: "note", text: "Not applicable: no part of this install can be its subject, so it writes no sidecar" + (c.control.detail ? " (" + c.control.detail + ")" : "") + "."}));
-    else if (!c.views.length && !c.motion) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
+    else if (!c.views.length && !c.motion && !c.motionProblem) blk.appendChild(el("div", {cls: "note", text: c.sidecarProblem ? "No sidecar (" + c.sidecarProblem + ")." : "No measured view (setup " + (c.setupStatus || "-") + ")."}));
     c.views.forEach(function (v) {
       var figs = c.isState ? stateFigures(c, v) : pairFigures(c, v), meta = c.isState ? stateViewMeta(v) : viewMeta(v);
       blk.appendChild(el("div", {cls: "vrow"}, [el("div", {cls: "vname", text: v.view})].concat(figs).concat([meta])));
     });
     var fxBox = fxSection(c);
     if (fxBox) blk.appendChild(fxBox);
+    if (c.motionProblem) blk.appendChild(el("div", {cls: "note bad-text", text: "Motion: " + c.motionProblem}));
     var moBox = motionSection(c);
     if (moBox) blk.appendChild(moBox);
     if (c.verdict !== "control-na") blk.appendChild(moreDetails(c));
