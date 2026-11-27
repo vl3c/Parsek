@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 548 |
-| LIVE-PROVEN date in status row | 593 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 594 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -82,7 +82,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | LAB | 18 | - | 1 | 17 | - | 1 | 18 |
 | LABX | 1 | - | - | 1 | - | 1 | 1 |
 | LAY | 1 | - | - | 1 | - | 1 | 1 |
-| LDL | 1 | - | - | 1 | - | - | - |
+| LDL | 1 | - | - | 1 | - | - | 1 |
 | LF | 3 | - | 2 | 1 | - | - | 3 |
 | LS | 1 | - | 1 | - | - | - | 1 |
 | LT | 5 | - | 5 | - | - | - | 4 |
@@ -380,7 +380,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 12 | - | 8 | TP 6, V 4, ASR 1, WL 1 |
-| (none derived) | 167 | 6 | 141 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 7, VN 6, L 5, CN 4 +28 |
+| (none derived) | 167 | 6 | 142 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 7, VN 6, L 5, CN 4 +28 |
 
 ## Lanes per timeline operation
 
@@ -1492,7 +1492,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| LDL-1-looped-debris-no-rewind | operator | refly-a-recorded | seam | - | warp | - | AUTHORED 2026-11-27 with the fix, NEVER F... |
+| LDL-1-looped-debris-no-rewind | operator | refly-a-recorded | seam | - | warp | - | LIVE-PROVEN 2026-11-27 |
 
 ### LF (3)
 

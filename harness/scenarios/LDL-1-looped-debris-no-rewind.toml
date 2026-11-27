@@ -34,7 +34,11 @@ id = "LDL-1-looped-debris-no-rewind"
 # REPORT-ONLY until a reading run: the ghostLifecycle windows (6 debris recordings, 12
 # debris spawn and destroy lines over the two launches).
 #
-# NEVER FLOWN. Built 2026-11-27 with the fix (branch claude/project-thread-c6kuqc).
+# LIVE-PROVEN 2026-11-27 on its first flight: `2026-11-27_1708` PASS attempt 1 (automation DLL
+# 9a283490, built from 414a2d37a). Measured: 0 debris MeshSpawned before the first launch, 6
+# after each (the same six recordings), skip state historical-not-replayed -> none at the
+# loop arm, 6 loop-synced children; ghostLifecycle debris spawned 6 / spawnLines 12 /
+# destroyLines 12, all-vessel spawned 7 (the parent ghost is counted once).
 # =====================================================================================
 tier = "operator"
 description = "Looped debris with no rewind: loop refly-a-recorded's Kerbal X With Probe from a loaded save (no Rewind-to-Launch), play two loop launches at 1x with the ghost tracer on, and require the six side-booster debris ghosts to spawn on each launch (todo MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)."
@@ -84,10 +88,10 @@ forbidden = [
   "timejump refused reason=backward-jump",
 ]
 
-# REPORT-ONLY (no gating key) until the first flight's reading: 6 debris recordings, two
-# launches of 6 spawns each, every spawn destroyed by the quit.
+# REPORT-ONLY (no gating key), re-pinned to the first flight `2026-11-27_1708`: 7 ghosts (the
+# parent once, six debris), two launches of 6 debris spawns each, every one destroyed.
 [expectations.ghostLifecycle]
-spawned = { min = 10 }
+spawned = { min = 7 }
 vessels = { "Kerbal X With Probe Debris" = { spawned = { min = 6 }, spawnLines = { min = 12 }, destroyLines = { min = 12 } } }
 
 [runtime]
