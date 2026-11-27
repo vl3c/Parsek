@@ -295,8 +295,8 @@ namespace Parsek
                 if (HasLoadedGhostVisuals(state))
                 {
                     PositionLoadedGhostAtPlaybackUT(index, traj, state, playbackUT);
-                    if (state.ghost.activeSelf)
-                        state.ghost.SetActive(false);
+                    if (IsGhostMeshActive(state))
+                        DeactivateGhostMesh(state);
                     ResetGhostAppearanceTracking(state);
                     ApplyFrameVisuals(index, traj, state, playbackUT, warpRate,
                         skipPartEvents: false, suppressVisualFx: true, allowTransientEffects: false);

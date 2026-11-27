@@ -811,7 +811,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// <c>none</c> (null), <c>all</c> (every <see cref="PartParityFxRules.ArgWords"/> word),
-        /// or a csv of FX words (canonical order, duplicates dropped, no empty item).
+        /// or a csv of <see cref="PartParityFxRules.ArgKnownWords"/> (canonical order, duplicates
+        /// dropped, no empty item).
         /// </summary>
         internal static bool TryParseFx(string raw, out List<string> fx, out bool all)
         {

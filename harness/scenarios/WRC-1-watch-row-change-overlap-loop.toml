@@ -1,0 +1,205 @@
+schema = 1
+id = "WRC-1-watch-row-change-overlap-loop"
+tier = "operator"
+# =====================================================================================
+# WRC-1: THE WATCH CAMERA ACROSS A ROW CHANGE OF ONE LAUNCH IN AN OVERLAPPING MISSION LOOP.
+# AUTHORED 2026-11-26 on branch `loop-own-end` (todo OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END,
+# whose "Owed" line asks for one overlapping loop watched in flight across a row change),
+# READING FLIGHT 2026-11-26 `2026-11-26_1944` (automation DLL sha256 83d64343, this branch at
+# 3441065f5, 177 s): PARSEK-FAIL(expectations) on two spec bugs alone, the camera did what the
+# lane asks (lines quoted under THE CLOCK); the two tokens were re-cut off that log (offline:
+# every required token matches, every forbidden one is absent, and a transfer to another
+# launch's cycle, `HoldThenRestart` on the first row and `NotWatched` on the second each red).
+# LIVE-PROVEN 2026-11-26 `2026-11-26_2012`, PASS attempt 1 (DLL sha256 c00bbf32, the same source
+# rebuilt, 175 s): the same lines as the reading flight, at loopUT 393.14 and 427.36, the restart on
+# cycle 3 (tag `flown`).
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling 2026-11-24; design `docs/parsek-missions-design.md` 7.2): in a
+# mission loop whose relaunch period is shorter than its span, every copy ends at its own
+# recorded end, and the watch camera on one launch follows THAT launch across its vessel's
+# row change, never another launch's copy of the next row:
+#   1. the watched launch's first row ends at its recorded end while later launches are
+#      still flying that row: `Loop copy ended at its own end: #A ... cycle=C ...
+#      reason=recorded-end watch=HoldForNextRow` (GhostPlaybackLogic.DecideWatchedCopyEnd:
+#      the next row of the same vessel has a followable copy of launch C), then
+#      `unit watch: copy ended, holding its end for the next row: #A "Mallard" cycle=C`;
+#   2. the hand-off `unit watch retarget owner=N member #A->#B` names the next row, and the
+#      transfer lands on launch C's own copy of it (`UnitHandoffRetarget.RequiredCycleIndex`):
+#      `TransferWatch re-target: ghost #B "Mallard" ... cycle=C` and `Watch focus (transfer):
+#      watch=active rec=#B ... cycle=C`;
+#   3. the second row (34 s, shorter than the 120 s period) ends at its own end with nothing
+#      to follow: `... #B ... cycle=C ... reason=recorded-end watch=HoldThenRestart`, the 3 s
+#      end hold (`Overlap: camera holding at the end of #B cycle=C`) and the restart on the
+#      mission's running launch (`Overlap: hold ended, restarted mission watch on` /
+#      `now following cycle=`);
+#   4. no watch exit, no `unit watch: no copy of the next row to follow`, no Parsek ERROR.
+# No crash stage: the Mallard splashes down (terminal Splashed), and no committed host near
+# a watcher ends Destroyed on a row change cheaply (a crash would need a new flight).
+#
+# THE HOST. AIR-1's harvest `air-circuit-recorded` (SANDBOX, save UT 427.46, scene Space
+# Center; no lane consumed it since AIR-2 was re-shaped): tree d07b9a6f945d418fa80b4268dc1aa3fc,
+# one vessel (the stock Mallard, pid 601857151, guid bcacf5ea) in two chain rows that
+# AIR-1's commit cut at the splash (version-1 Surface split, no splitRuleVersion key):
+#   row 0  d563455e  30.74 -> 393.14 (362.40 s)  Runway roll-out, take-off, the 1 km circuit
+#                                                 within 10.8 km of KSC, the glide, the splash
+#   row 1  aacb1976 393.14 -> 427.36  (34.22 s)  afloat east of KSC, terminal Splashed (its
+#                                                 points run to 427.36, past explicitEndUT)
+# The real Mallard floats at the splash point (lat 0.0545 lon -73.697), so with it as the
+# active vessel every ghost of the circuit is within about 11 km: inside the 300 km watch
+# cutoff and the mesh range. It is the tree's own spawned leaf (spawnedPid), so its ghost is
+# not suppressed (GhostPlaybackLogic.IsVesselRecordedByTree).
+#
+# THE CLOCK (measured on the reading flight). LoadGame focusPid flies the Mallard (the
+# committed tree's spawned leaf: Parsek restores the tree and resumes row 1 in place,
+# `committedRestoreOverlap`; the StopRecording stops it, the committed rows stay as they
+# are). WarpToUT 438 at 10x, then MissionConfig sec / 120: span [30.74, 427.36] = 396.62 s,
+# so launches overlap
+# (overlaps=yes) and four launches fly at once. The PhaseLock (unconstrained, P = 5 s, LF-3's
+# reading) puts the first launch on the first 5 s step of the span start after the arm:
+# 30.74 + 82 x 5 = 440.74 for an arm in [435.74, 440.74) (read: arm 438.03, phaseAnchorUt
+# 440.74). So, for launch 0 at A = 440.74:
+#   row 0 [440.74, 803.14], row 1 [803.14, 837.36]; launch 3 starts at 800.74, so at the row
+#   change launches 1-3 are all still on row 0 (the case the next-row rule is for).
+# The steps: WarpToUT 460 (10x), EnterWatchMode on the tree (only launch 0 is drawn, on row
+# 0, so the auto-pick is row 0's copy of launch 0), WarpToUT 785 (10x), then WarpToUT 850 at
+# 1x: the row change, the second row's end, its 3 s hold and the restart are all at 1x. A
+# wrong anchor shows on the `missionconfig applied: ... phaseAnchorUt=` line first.
+# What the reading flight logged (launch 0 = cycle 0, rows #0 / #1): watch entered on #0
+# cycle 0 at 460 (`dist=10.6km`); at loopUT 393.15, in one frame, `unit watch retarget owner=0
+# member #0->#1`, `Loop copy ended at its own end: #0 ... cycle=0 ... watch=HoldForNextRow`,
+# `unit watch: copy ended, holding its end for the next row`, then 18 ms later (one deferred
+# retry while the slot copy was built) `TransferWatch re-target: ghost #1 "Mallard" ...
+# cycle=0` with `targetMatches=True`; at loopUT 427.37 `Overlap: camera holding at the end of
+# #1 cycle=0`, `... #1 ... cycle=0 ... watch=HoldThenRestart`, and 3 s later `Overlap: hold
+# ended, restarted mission watch on #0 cycle=3` (launch 3 on its first row, 9.0 km away).
+# The engine logs the retarget BEFORE the copy-end line, and the end hold before the second
+# row's copy-end line: the first spec ordered both the other way, which is all it red on.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `enterwatchmode rejected reason=no-watchable-ghost`: launch 0 not drawn at 460 (read
+#     `phaseAnchorUt=`; an anchor past 460 needs a later EnterWatchMode).
+#   - watch entered on #1 (row 1): an older launch's row 1 was drawn at 460 (impossible on the
+#     prediction above); the copy-end tokens then name row 1 alone.
+#   - `Optimization pass: merged 1` / `split 1` on the cold load: the merge pass re-glued the
+#     two version-1 rows (product: ids change on every load); the count reads 2 either way.
+#   - `watch=HoldThenRestart` on row 0: the next row read as unfollowable; the
+#     `unit watch: no copy of the next row to follow ... reason=` line names why.
+#   - a `Watch mode exited` / `Exiting watch mode` line: read the `CameraFollow` lines before it.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) reuse: no flight is
+# flown, AIR-1's harvest is the host; no existing lane watches across a row change, and the
+# watched-loop lanes (GS-12, LX-2, FAR-6, MC-5) have no second row; (2) every wait is an
+# explicit-UT WarpToUT; (3) the 1x dwell is 65 s, the least that brackets the predicted row
+# change (+-5 s, one lock step) and the second row's end plus its 3 s hold; the 10x leg is
+# the 325 s of the first row; (4) no burn; (5) no coast; (6) deterministic seam steps, a
+# refused verb fails the run, retry `once`; (7) recordings pinned 2..2 (the
+# host's two; the loop and the watch record nothing); (8) operator until flown, 177 s
+# measured (one load, ~33 s at 10x, 65 s at 1x); (9) flight_efficiency.py after the first
+# green flight: run on 2026-11-26_2012, the 1x leg is 65 of its 121 s of seam steps; the anchor
+# is now measured (440.74), so 795 -> 845 would keep both ends at 1x and save about 15 s, left
+# for the next spec edit rather than spent on another flight.
+# =====================================================================================
+description = "Watch camera across a row change in an overlapping mission loop (todo OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END): on air-circuit-recorded the Mallard's two-row circuit (362 s flight to the splash, then 34 s afloat) is looped at 120 s (span 396 s, four launches at once) and launch 0 is watched from its take-off; its first row ends at its own end with watch=HoldForNextRow, the hand-off names the second row and lands on the same launch's copy, the second row ends with watch=HoldThenRestart, holds 3 s and restarts on a running launch, all at 1x, with no watch exit."
+instanceProfile = "stock-minimal"
+tags = ["WRC", "WRC-1", "loop-playback", "mission-loop", "self-overlap", "watch-mode",
+        "chain-handoff", "kerbin", "sandbox", "recorded-fixture", "flown", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/air-circuit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 120 + 120 + 180 WarpToUT (10x) + 120 EnterWatchMode +
+# 180 WarpToUT (1x, 65 s) = 1020; runtime 1500 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", focusPid = "601857151" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },         expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },          expect = "OK" },
+
+  # ---- the loop: 120 s launches over a 396 s span ----
+  { cmd = "WarpToUT",      args = { ut = "438", maxRate = "10" },                        expect = "OK", budget = 120 },
+  { cmd = "MissionConfig", args = { tree = "d07b9a6f945d418fa80b4268dc1aa3fc", loop = "true", unit = "sec", intervalSeconds = "120" }, expect = "OK" },
+
+  # ---- launch 0 watched from its roll-out ----
+  { cmd = "WarpToUT",      args = { ut = "460", maxRate = "10" },                        expect = "OK", budget = 120 },
+  { cmd = "EnterWatchMode", args = { tree = "d07b9a6f945d418fa80b4268dc1aa3fc" },        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "MissionMark",   args = { label = "wrc1-watching" },                           expect = "OK" },
+
+  # ---- the circuit at 10x, then the row change, the second row's end and the restart at 1x ----
+  { cmd = "WarpToUT",      args = { ut = "785", maxRate = "10" },                        expect = "OK", budget = 180 },
+  { cmd = "MissionMark",   args = { label = "wrc1-row-change" },                         expect = "OK" },
+  { cmd = "WarpToUT",      args = { ut = "850", maxRate = "1" },                         expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "MissionMark",   args = { label = "wrc1-done" },                               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[dimensionsCovered]
+# Claimed off the green flight 2026-11-26_2012. D6 loop-period-modes is mode (2), overlapping copies
+# (`overlaps=yes`, cadence 120 s under the 396.62 s span); self-overlap is the same witness in D6 and D11.
+D6  = ["self-overlap", "loop-period-modes"]
+D11 = ["whole-mission-loop", "self-overlap"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # THE ARM: an overlapping mission.
+  "missionconfig applied: mission='[^'\\r\\n]*' tree=d07b9a6f945d418fa80b4268dc1aa3fc loop=True intervalSeconds=120 [^\\r\\n]*unitBuilt=True phaseAnchorUt=440\\.7[0-9]* ",
+  "MissionLoopUnit: mission='[^'\\r\\n]*' tree=d07b9a6f945d418fa80b4268dc1aa3fc members=2 [^\\r\\n]*overlaps=yes ",
+  # THE WATCH: entered on a copy of the first row.
+  "enterwatchmode complete: index=[0-9]+ recId=d563455e5c8942079f50b6caecffee70",
+  # 1 + 2. THE ROW CHANGE AND THE HAND-OFF, in the order the first flight logged them (one
+  # frame): the engine's retarget naming the next row (#A -> #B), the watched launch C's first
+  # row ending at its own end held for the next row, then the transfer landing on launch C's
+  # own copy of row B. A transfer to another launch's copy breaks the cycle backreference.
+  "(?s)MISSIONMARK label=wrc1-row-change (?:(?!MISSIONMARK label=wrc1-done ).)*unit watch retarget owner=[0-9]+ member #([0-9]+)->#([0-9]+) at loopUT=393\\.1[0-9](?:(?!MISSIONMARK label=wrc1-done ).)*?Loop copy ended at its own end: #\\1 \"Mallard\" cycle=([0-9]+) loopUT=[0-9.]+ endUT=393\\.1[0-9] reason=recorded-end watch=HoldForNextRow(?:(?!MISSIONMARK label=wrc1-done ).)*?unit watch: copy ended, holding its end for the next row: #\\1 \"Mallard\" cycle=\\3 (?:(?!MISSIONMARK label=wrc1-done ).)*?TransferWatch re-target: ghost #\\2 \"Mallard\" [^\\r\\n]* cycle=\\3 (?:(?!MISSIONMARK label=wrc1-done ).)*?Watch focus \\(transfer\\): watch=active rec=#\\2 id=aacb197643994c00882ccebce95eea07 [^\\r\\n]* cycle=\\3 [^\\r\\n]*targetMatches=True",
+  # 3. THE SECOND ROW of the same launch ends at its own end with nothing to follow: the 3 s
+  # end hold (logged first, the same frame), the copy-end line, then the restart.
+  "(?s)MISSIONMARK label=wrc1-row-change (?:(?!MISSIONMARK label=wrc1-done ).)*TransferWatch re-target: ghost #([0-9]+) \"Mallard\" [^\\r\\n]* cycle=([0-9]+) (?:(?!MISSIONMARK label=wrc1-done ).)*?Overlap: camera holding at the end of #\\1 cycle=\\2[\\r\\n](?:(?!MISSIONMARK label=wrc1-done ).)*?Loop copy ended at its own end: #\\1 \"Mallard\" cycle=\\2 loopUT=[0-9.]+ endUT=427\\.3[0-9] reason=recorded-end watch=HoldThenRestart(?:(?!MISSIONMARK label=wrc1-done ).)*?Overlap: hold ended, (?:restarted mission watch on #[0-9]+ cycle=[0-9]+|now following cycle=[0-9]+)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "missionconfig (?:rejected|error)",
+  "enterwatchmode (?:rejected|timeout|already-watching)",
+  "warptout refused",
+  "unit watch: no copy of the next row to follow",
+  # No watch exit between the watch entry and the end of the 1x window.
+  "(?s)MISSIONMARK label=wrc1-watching (?:(?!MISSIONMARK label=wrc1-done ).)*(?:Exiting watch mode for recording|Watch mode exited|no longer active . exiting watch mode|Watch hold expired for|auto-exiting watch mode|Watch mode cleared on scene change)",
+  # Neither row is a fall: a fall line here means the predicted-tail path took the copy.
+  "Fall copy reached its end",
+]
+
+# Report-only reading of the produced save: nothing writes a rewind row, and the committed
+# tree leaves as it came in.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

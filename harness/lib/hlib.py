@@ -2077,8 +2077,11 @@ HANDLE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 # ${<ref>.<field>} where <ref> is a step label OR a harness step id and <field> is
 # one payload key. `${runSave}` keeps its own meaning and is the ONLY dot-less
-# form, so it can never match here.
-HANDLE_REF_RE = re.compile(r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)\}")
+# form, so it can never match here. An optional numeric offset
+# (`${slp.relaunchUt+5}`, `${x.ut-0.5}`) adds to a numeric field at substitution
+# time: the watch lanes land a few seconds AFTER a captured UT.
+HANDLE_REF_RE = re.compile(
+    r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)([+-][0-9]+(?:\.[0-9]+)?)?\}")
 
 
 
@@ -2274,6 +2277,17 @@ def substitute_handle_refs(value, store: Optional[Dict[str, Dict[str, str]]]):
                                             ",".join(fields) or "<none>")})
             continue
         resolved = fields[field]
+        offset = HANDLE_REF_RE.fullmatch(token).group(3)
+        if offset:
+            try:
+                resolved = repr(float(resolved) + float(offset))
+            except ValueError:
+                unresolved.append({"ref": token,
+                                   "kind": UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                                   "reason": "%r field %r is %r, not a number, so the "
+                                             "offset %s cannot apply"
+                                             % (ref, field, fields[field], offset)})
+                continue
         out = out.replace(token, resolved)
         subs.append({"ref": token, "value": resolved})
     return out, subs, unresolved
@@ -5358,11 +5372,12 @@ PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
 )
 PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air", "fgv")
 PARTPARITY_AIR_CONTEXT = "air"
-# fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules.ArgWords):
-# `none` (the default), `all` or a csv of FX words, with no states= and at most contexts=air
+# fx= (design-part-ghost-parity.md Appendix E.5; TryParseFx over PartParityFxRules): `none` (the
+# default), `all` (ArgWords) or a csv of FX words (ArgKnownWords), with no states= and at most contexts=air
 # beside it (FxCombinationValid). An fx= run with contexts=air holds its jets in the air and
 # meets the pad host rule (host-not-at-pad) like every air run.
 PARTPARITY_FX_VALUES: Tuple[str, ...] = ("plume", "rcs", "heat", "plate")
+PARTPARITY_FX_KNOWN_VALUES: Tuple[str, ...] = PARTPARITY_FX_VALUES + ("plume-main",)
 PARTPARITY_FX_ALL_TOKEN = "all"
 # P9 (design-part-ghost-parity.md Appendix G; PartParityFxRules.BurstArgWords / DustArgWords):
 # the fx= csv also names burst words (with exactly contexts=air) or the dust word (with
@@ -5581,7 +5596,7 @@ def _partparity_fx_ok(text: str) -> bool:
         return True
     if not text:
         return False
-    known = PARTPARITY_FX_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES
+    known = PARTPARITY_FX_KNOWN_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES
     return all(item in known for item in text.split(","))
 
 
@@ -5699,7 +5714,7 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
            "contexts-arg-invalid")
     shaped("fx", _partparity_fx_ok,
            "'none', 'all' or a csv of %s" % ", ".join(
-               PARTPARITY_FX_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES),
+               PARTPARITY_FX_KNOWN_VALUES + PARTPARITY_FX_BURST_VALUES + PARTPARITY_FX_DUST_VALUES),
            "fx-arg-invalid")
     fx_text = handle_shape_probe(step_args.get("fx")) if "fx" in step_args else None
     fx_run = (fx_text is not None and fx_text != PARTPARITY_NONE_TOKEN
@@ -12786,6 +12801,19 @@ VERDICTS: Tuple[str, ...] = (
     VERDICT_EXPECTED_FAIL, VERDICT_XPASS,
 )
 
+# Attended hold runs (run.py --hold, harness/lib/watchlane.py). A hold run asserts
+# nothing, so its OBSERVED is deliberately NOT a member of VERDICTS: every reader
+# that counts verdicts (coverage, flake, duration ledger, run index, lane health)
+# drops a hold result through is_hold_result before it looks at the verdict.
+RESULT_MODE_KEY = "mode"
+RESULT_MODE_HOLD = "hold"
+HOLD_VERDICT_OBSERVED = "OBSERVED"
+
+
+def is_hold_result(result) -> bool:
+    """True for a result record an attended ``--hold`` run wrote."""
+    return isinstance(result, dict) and result.get(RESULT_MODE_KEY) == RESULT_MODE_HOLD
+
 # The PARSEK-FAIL subkinds classify_verdict can assign (the analyzer PARSEK-FAIL
 # path carries subkind "analyzer"). An expectedFail.subkind, when present, must
 # name one of these so the signature match is against a real failure class (S2).
@@ -13648,6 +13676,11 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # Arg half: the SPEC named or spelled something wrong (the `unknown-target` call).
     "tree-arg-missing": "driver-arg",
     "unknown-tree": "driver-arg",
+    # The watch-lane tree handle (TestCommandTreeHandle: first / latest / name:<x>)
+    # named no tree, or more than one: the spec's handle, not the game.
+    "tree-handle-no-trees": "driver-arg",
+    "tree-handle-no-match": "driver-arg",
+    "tree-handle-ambiguous": "driver-arg",
     "index-arg-invalid": "driver-arg",
     "index-out-of-range": "driver-arg",
     "loop-arg-invalid": "driver-arg",

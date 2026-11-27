@@ -46,6 +46,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stock fires <c>onVesselSwitchingToUnloaded</c> inside <c>FlightGlobals.setActiveVessel</c>
+        /// right before it saves and focuses the target by its LIVE index (map Switch-To, the alarm
+        /// Jump in FLIGHT, any other caller of that path). Strips the ghost map vessels from the live
+        /// list first so that index matches the ghost-free game the reload starts from.
+        /// </summary>
+        internal void OnVesselSwitchingToUnloaded(Vessel from, Vessel to)
+        {
+            GhostMapPresence.RemoveAllGhostVesselsBeforeFarSwitch(to);
+        }
+
+        /// <summary>
         /// Primary detection mechanism for vessel switches in tree mode.
         /// Handles the old-vessel transition to background and, when Parsek is idle,
         /// arms the post-switch watcher for the new active vessel instead of starting

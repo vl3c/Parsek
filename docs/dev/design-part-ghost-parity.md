@@ -850,7 +850,7 @@ reference lane. The concrete P8 plan is Appendix E.
   the instrument gate). `harness/partparity/accepted.toml` (`schema = 1`, `[[accepted]]` rows:
   `case`, optional `profile`, `view` (`*`, a view, or `event:` / `start:` + view), `measure`
   (`shape-blob`, `color-blob`, `iou`, `structure`, `skin`, `hidden`, `drawn`, `flag:<flag>` with an optional
-  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy`) names every known difference; a
+  trailing `*`, or `*` for every picture measure and nothing else), `reason`, `todo`, optional `noisy` and `kind`) names every known difference; a
   placeholder reason or todo is refused, and a cell checks every todo id against the todo headers.
   The gate (`partparity.gate_sweep`, run by the row on every sweep, gating only when armed) reds
   `PARSEK-FAIL(part-parity)` on: a measure that left its band past its tolerance on the WORSE side
@@ -2053,7 +2053,7 @@ nodes.
 
 | Family | Predicate (the recorder's own) | State words | What is compared | stock-minimal / modded-compat / modded-restock cases |
 | --- | --- | --- | --- | --- |
-| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
+| `plume` | every `as ModuleEngines` module, engine index = the `EncodeEngineKey` module index (`FlightRecorder.CheckEngineState`) | `burn-full`; `burn-low` (30 %) unless throttle-locked; `main-full` / `main-low` (E.2, not in the counts here) | flame and smoke particles (E.4); the body atlas carries the throttle glow (`FXModuleAnimateThrottle` on 33 / 13 parts, ReStock's `heatColor` / `throttleColor` `ModuleColorChanger`s on 52 modded parts) and the exhaust `Light`s (structural) | orbit 43 + 31 / 60 + 42 / 60 + 42; air 7 + 7 on each |
 | `rcs` | every `as ModuleRCS` module (`FlightRecorder` RCS cache) | `rcs-fire` | puffs of the nozzles stock fires (E.2); the body atlas carries `FXModuleAnimateRCS` glow | 7 / 19 / 19 |
 | `heat` | `ModuleAnimateHeat` (`PartStatePoller.PollAnimateHeat`) | `heat-medium`, `heat-hot` | the heat clip's colour and pose on the body, P6 rows and judge | 32 / 26 / 26 |
 | `light` in context `plate` | the recorder's light check (P6 S2, `PartStatePoller.PollLights`) | `lit` | the light the lamp casts on a matte plate (E.2), plus the part's `Light` components structurally | 15 / 18 / 18 |
@@ -2109,8 +2109,8 @@ name, ramping at `animRate`; the ghost plays it from the recorded power (todo
 GHOST-RESTOCK-NOZZLE-GLOW), which the sweep brings to the capture's UT with the clip glows
 (`AdvanceNozzleGlows`). The start route cannot match a bell mid-ramp: stock does not persist where
 the ramp stood and starts it at `animState`'s end when it loads the part, so the start-route ghost
-shows what a load would and the real part, which was not loaded, does not
-(PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED: the instrument's case, not the ghost's).
+shows what a load would and the real part, which was not loaded, does not. Since 2026-11-24 the start
+route is compared with the real part as a load leaves it (E.4, "Start-route reload").
 
 ### E.2 Producing each effect on the real side, and the same state on the ghost
 
@@ -2146,7 +2146,9 @@ Engines (orbit, the PP-1 host `eva2-lko-crewed`):
   burns. Global, but the host fires nothing.
 - Press: KSPEvent `Activate` (P6's `BaseEvent.Invoke`). Real done: the recorder's ignition
   predicate holds, `currentThrottle` is within 0.01 of the request (jets spool,
-  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. Timeout 10 s (45 s or more, "F7 as built",
+  `useEngineResponseTime`), and the event route has recorded `EngineIgnited`. After it, an engine
+  case holds (inside the press timeout) while the recorder still owes the settled-throttle event
+  (`IsEngineSettlePending`), so a jet is read at rest and not on the last 0.05 step. Timeout 10 s (45 s or more, "F7 as built",
   for a module with `useEngineResponseTime`: a jet's spool has a time constant of about 8 s, so
   it reaches 0.99 of the request after about 38 s, E0 U1) -> `state-timeout`.
 - Stock FX inputs, for the record: `ModuleEnginesFX.FXUpdate` drives `running` with
@@ -2466,6 +2468,61 @@ as before. Wall: `f7fx` 336 s (waves 29, 84, 77, 114 and 32 s: the slowest spool
 over E.8's 210 s estimate, inside one 480 s step. First readings: todo
 PARTPARITY-FX-AIR-FIRST-READINGS-2026-11-23.
 
+Main-throttle cases as built (2026-11-24, owner's choice of the same day, todo
+PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN). Every plume case above burns on the independent throttle
+with the vessel's at 0, so what stock drives by the vessel's throttle stays cold on the real side.
+Two new state words, `main-full` and `main-low` (30 %), burn the same engine on the vessel's main
+throttle, as ordinary play does. The independent-throttle cases and their ids do not change.
+
+- What depends on it: `FXModuleAnimateThrottle` and `FXModuleThrottleEffects` (decompiled) aim at
+  their engine's output or throttle under `dependOnEngineState` with `dependOnOutput` /
+  `dependOnThrottle`, and at `vessel.ctrlState.mainThrottle` otherwise
+  (`PartParityFxRules.GlowReadsMainThrottle`). Over the three installs that is two clips: the
+  Whiplash's `TRJ_Heat` and the wet Panther's `TurboJetHeat`. All 109 `FXModuleThrottleEffects` of
+  ReStock and ReStock+ name `dependOnThrottle`, and neither touches the two jets' clips. No plume
+  reads it: stock's engine FX read the engine's own `currentThrottle`, `requestedThrottle` and
+  thrust. (A `ModuleRCS` with `useThrottle`, a tweakable no part sets, would.)
+- Planning: every engine that plans a `burn-low` plans the two, in the same context. `fx=plume`
+  (so `fx=all`) selects them only where a glow reads the main throttle, four air cases per install;
+  `fx=plume-main`, which `all` does not stand for, selects every engine's, for the controls.
+- Drive: `independentThrottle = False`, and from the press the case vessel's own
+  `OnPreAutopilotUpdate` writes `mainThrottle` into that vessel's `ctrlState` every physics step
+  (stock zeroes the stick and the RCS axes of a non-active vessel there, not its throttle). A lone
+  engine has no command module, so stock's `UpdateThrottle` would not hand the throttle on
+  (`part.isControllable`) and would keep the engine's last `requestedThrottle`; the same callback
+  writes stock's own value there, `mainThrottle * thrustPercentage * 0.01`. Done: E.2's signal, and
+  the vessel holds the throttle and the engine does not ignore it.
+- Burn time: both clips close on the throttle by 1/80 a second (`responseSpeed` 0.0005), so a case
+  whose glow reads it burns 60 s from its press before its ghosts are built (the bell is at 0.53 of
+  the throttle); the other main-throttle cases wait for their spool only. The wave bound reads it.
+- Isolation: a main-throttle case shares no wave with an independent-throttle one
+  (`fx:<bucket>:main`), so those waves keep their cases and their burn times. The throttle written
+  is the case vessel's alone, pinned in source
+  (`TheMainThrottle_IsWrittenOnTheCaseVesselOnly_AndReleasedToZero`): the host's and the player's
+  input are only read, before the step's first such case and after its teardown, and the step's
+  `main throttle: cases=<n> stillArmed=0 releasedAt=0.000 host=<a>-><b> input=<a>-><b>` line carries
+  them. `Release` takes the callback off and puts the vessel's throttle back to 0 before the vessel
+  dies. `fx.drive` gains `mainThrottle` and `independentThrottle`, written by every plume case, and
+  the judge errors a case whose state word they contradict (`fx_throttle_problem`), so a throttle
+  that reached an independent-throttle case could not pass.
+- What the ghost should read. The snapshot's engine module says `independentThrottle = False`, so
+  the glow's source is the recorded engine power over the thrust limiter
+  (`ResolveVesselThrottleSource`), and at a limiter of 100 % that is the main throttle once the
+  engine has spooled up to it. Event route: the stowed snapshot's persisted `animState` (0), then
+  the recorded power events. Start route: the snapshot at the capture carries the clip's
+  `animState` and its UT, and the seed carries the power. `CTRLSTATE mainThrottle` is read for
+  neither: it stands in only when every engine of the glow is independent or throttle-locked
+  (#2806), the one case whose main throttle no recorded power tells.
+- What the ghost cannot know, because the recording holds the engine's power and not the vessel's
+  throttle: while a jet spools, the real bell already follows the full throttle and the ghost's the
+  engine's (the Whiplash and the Panther spool at 0.2 /s and faster, so the ghost's bell trails by
+  up to 5 s of its 80 s climb); a limiter, a throttle mode or a vessel throttle changed in flight on
+  an engine that ignores the main throttle; an idling main throttle over a running independent
+  engine. The recorder does not gain the vessel's throttle for this.
+- Flown 2026-11-24 (throwaway lanes, todo PARTPARITY-VESSEL-THROTTLE-NOT-DRIVEN): both hot bells
+  read 0 px on both routes at full throttle (1 px on the Panther's bottom view), the start route
+  exactly at the real level (0.557) and the event route 0.02 to 0.04 of the clip below it.
+
 ### E.3 Capture changes
 
 - Layers. Each side's renderers are split by kind (pure `PartParityFxRules.ClassifyFxRenderer`
@@ -2628,6 +2685,50 @@ ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-onl
 not recomputable from the files, and become judged only after a reading run shows them as tight
 as the picture measures.
 
+Start-route reload (2026-11-24, branch `parity-noise`, todo PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED;
+flown 2026-11-26 on throwaway lanes, start-route `color-blob-px` 0 on ReStock, stock unchanged). The start-route ghost is built from a snapshot of the burning part, so it shows what
+stock shows after a load; a ReStock bell on the stand is mid-ramp. 46 PP-9 and 8 PP-8 plume cases of
+`2026-11-24_0735` failed on the start route's `color-blob-px`, the event route right. The real side of
+the start route is now the part as a load leaves it.
+
+- What a load changes, from the decompile (KSP 1.12.5): `ModuleColorChanger.animState` and
+  `FXModuleThrottleEffects.state` are the persisted fields; `currentRateState`, the ramp, is a
+  protected field that `Start()` sets to `animState ? 1 : 0`, and nothing else of the two modules is
+  lost (`PartParityStartReloadTests` reads the KSPField attributes of the game's own types). What
+  shows each frame is written by the modules' own `Update` (`SetScalar` from the setter, then the
+  ramp; KSPCommunityFixes' replacement writes only while the ramp moves).
+- So (`PartParityRampHold`, `PartParityFxDriver.StartReload.cs`): after a case's body views, on an
+  engine part case with a start ghost, each colour changer whose ramp a load would move
+  (`useRate`, more than 0.001 from its end) gets `currentRateState` set to that end and shown once (KSPCF's `Start` postfix), the game runs its
+  own frame (so the module order, a KSPCF install and a bare one all show what they show), and each
+  view's start pair, real and start ghost, is photographed again. The ramp is put back where it would
+  stand by then (in a `finally`), and one whole frame runs before the light and FX reads. No ramp to
+  move: the case is captured as before.
+- The files: a FIFTH body atlas row `real-start`, the flag `start-route-reloaded:<ramps>`, and the
+  views' `start` blocks measured from that row; event route, stowed reference and FX atlas unchanged.
+  Flag and row go together or the sweep is INVALID(parity-instrument) (`start_reload_problem`, every
+  case), and the recompute reads row 2 against row 5. About 0.2 s a case. An unload and reload of the
+  vessel was the alternative: it destroys the parts the ghosts are parented to and needs the engine
+  to spool again (4 to 6 s a case, about 4 min on PP-9) and shows no more.
+- What it measures. A player who keeps flying sees the bell mid-ramp; a load (F9, a scene change, a
+  switch) jumps it to the hot end at once, which is stock's own jump. The start route judges the ghost
+  against that. A recording that starts at a split loads nothing and takes its ramp from the recorded
+  events (GHOST-NOZZLE-GLOW-SPLIT-RAMP), which this rig does not fly.
+
+Drawn systems pair first (2026-11-24, `PartParityFxStructure.Diff`, C#, not flown). The inventory
+diff paired a real system with the first unpaired ghost one of its key. A part with variants keeps
+the hidden variants' systems (ReStock `RCSBlock.v2`: 36 on the real side, 8 of them drawn, 8 on the
+ghost), so ten hidden ones used the ghost's up and the 8 drawn ones read `missing-fx`, a fail, on
+`RCSBlock.v2`, `RCSblock.01.small` and the two ReStock+ multi blocks of PP-9. Drawn real systems now
+pair first, each with a drawn ghost system before a hidden one; a drawn system the ghost really
+lacks still reads missing, and one it draws too many extra.
+
+The owner's mark (2026-11-24). A finding the owner wants kept in sight until its todo is settled
+(`OWNER_FLAGGED_REASONS`, a reason and its OPEN todo; empty since the ghost smoke fix: the
+`smoke-extra` it held was GHOST-SMOKE-RIDES-ACTIVE-VESSEL, its rest is PARTPARITY-ORBIT-SMOKE-PUFF-NOISE) puts
+`owner-flagged:<reason>` on its case, capped or not, judged cases only; it moves no verdict, no cap and
+no rule, and `test_the_todo_that_owns_the_flag_is_open` reds once that todo is closed.
+
 How the instrument proves itself:
 
 - Noise floor. `ctl-fx-real-vs-real` compares the real plume with ITSELF in alternate samples
@@ -2749,7 +2850,8 @@ the sidecar carried it. Definitions, which a Python recompute transcribes:
   not apply). `liquidengine2.v2--default--burn-full--<hash>`,
   `turbojet--default--burn-low-m1--air--<hash>` (the D.1 same-word tiebreak),
   `spotlight1--default--lit--plate--<hash>`. Stowed, P6 state and P6 context ids cannot move.
-- Args: `fx=none|all|<csv of plume, rcs, heat, plate>` (refused `fx-arg-invalid`), mirrored in
+- Args: `fx=none|all|<csv of plume, rcs, heat, plate, plume-main>` (refused `fx-arg-invalid`; `all`
+  is the first four, `plume-main` is E.2's main-throttle cases of every engine), mirrored in
   hlib's `validate_part_parity_sweep_step`. With `fx=none` (the default) every run plans exactly
   what it plans today. A run with `fx=` plans ONLY the FX keys of its families (no stowed, no P6
   state case), filtered by `contexts=` (`air` plans the air-breathing plume cases, `none` the
@@ -3046,6 +3148,21 @@ verdict, reason, flag and reported-only value on the page is `cv.fx`'s; the view
   ratio 0.222), controls 11/11 ok with each broken plume failing its own measure. The labels after
   the first ran with `controls=false`, so the sweep box is red for them. Screenshots in
   `<umbrella>/logs/flights/p8-f5/`.
+- Page states (2026-11-24, `parity-noise`). The page always reads the committed accepted list (and,
+  where the label has one, its baseline). A `fail` case shows `known` or `accepted` instead
+  (`partparity.page_state`) when every fail reason and qualitative difference of it is covered by an
+  entry whose `kind` says so: `known` when the owner ruled on each by name, else `accepted` (Appendix F).
+  Nothing else bounds how big a covered difference may be, so only a case the label's baseline
+  measured, on its own profile, and the gate judged can read so: every FX lane and every ad-hoc label
+  shows its fails.
+  It keeps the judged verdict beside it (`judged fail: <todos>`), its red chips are drawn unfilled, it
+  is counted and filtered apart, and it ranks under warn. It stays red when a reason is structural
+  (missing, extra or hidden mesh, skin, a missing or extra effect, an unexplained fail), when the gate
+  reds or could not measure it, or when it carries an `owner-flagged:*` mark, which has its own chip,
+  counter, filter and button. A reloaded start route shows one more
+  picture, "REAL as a load leaves it", and its DIFF st is against that. Verdicts, counts and
+  `partparity-verdicts.json`'s cases are unchanged; the file adds `pageStates` and `ownerFlagged`, the
+  summary line `pageKnown=` / `pageAccepted=` / `ownerFlagged=` when not 0.
 - Open (the writer's, report-only): `fx.layers` lists some ghosts' drawn flame emitters under
   `smoke` (`ionEngine`, `RAPIER`, `RCSBlock.v2`, `vernierEngine`: flame 0), while the atlas draws
   them in the flame rows and leaves the smoke rows empty. Nothing is judged from `fx.layers`.
@@ -3133,6 +3250,10 @@ One air step does the work on every install (about 313 s of the 480 s box), so t
 margin; the orbit lanes still use three. One case fewer on the modded installs (164) since
 `telescopicLadderBay` is excluded (`fx-no-light`). PP-9 read 128 fails before the ghost fixes and 65
 after; what they are: todo PARTPARITY-FX-ORBIT-FINDINGS-2026-11-23.
+
+Since 2026-11-24 an air FX label plans 18 cases, the 14 and the four main-throttle ones of the
+Whiplash and the wet Panther ("Main-throttle cases as built" in E.2), one more wave of about 100 s;
+the orbit lanes plan what they did.
 
 ### E.9 Work breakdown
 
@@ -3262,6 +3383,21 @@ drift up to twice that), so the smoke stays where it was emitted; the ghost's wa
 ghost difference, not a fade still running (U9; todo GHOST-LAMP-LIGHT-INTENSITY, fixed
 2026-11-23).
 
+### E.13 Ghost fixes after the 2026-11-24 readings (`ghost-fx-8`, flown 2026-11-26: PPS-19a / b / c, readings in the todo entries)
+
+What the sweeps of 2026-11-24 read as real ghost differences, and what the next readings mean:
+
+- RCS (GHOST-RCS-FX-STOCK-RULES). The ghost runs stock's EFFECTS rule. A one-nozzle module is judged
+  as before; a block's nozzle power is the recorded mean without the transforms of other variants, so
+  `rcsPowerRatio` (recorded mean over the fired nozzles' mean) understates what its puffs run at, and
+  the puffs' speed is the node's own curve at the mean (0.8 to 1 of full, or 1). R4 stands.
+- Variable nozzles (GHOST-JET-THROTTLE-CLIP). `AdvanceNozzleGlows` brings the petals to the capture's
+  time too (they are part of `UpdateNozzleGlows`).
+- The Goliath's fan (GHOST-GOLIATH-FAN-STATIC) turns on the ghost at stock's rate; its phase is its
+  own, so `transformDiffers` on `FanCone` / `FanBlades` and the top view stay (PARTPARITY-SPIN-PHASE).
+- The Caravel's bell (GHOST-NOZZLE-GLOW-EVENT-RAMP) is hot at once, as stock's. The Kickback's 466 px
+  was the recorded throttle's 5 % step (ENGINE-THROTTLE-EVENT-STEP).
+
 ## Appendix F. P5: baselines, the accepted list and the regression gate (2026-11-23)
 
 Built on branch `part-parity-p5-gate` (rules in section 10, viewer mode in section 8). Every
@@ -3379,6 +3515,18 @@ RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
 owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
+
+**Kinds** (2026-11-24). Every entry names what it is, in `kind`, read by the page (E.7, "Page states")
+and by nothing else: no red, note, drift or verdict moves with it. `ruled`: the owner ruled on it by
+name and its todo records the ruling (16 entries, GHOST-PARITY-RESIDUALS-2026-11-22; the parser asks
+for "owner ruling" in the reason). `accepted`: a known cause that is not the ghost's (41: sun trackers,
+lights stock does not show, spin phase, the LV-1 z-fight, the three edge rows, the four Waterfall lamps,
+which no ruling names). `defect`: a real or unexplained difference, red on the page (16: the small
+deploy and colour residuals, the open-top fairing, the KE-1 rods, the stowed canopies). An entry
+without a kind reads as a defect. Re-judged over the 54 archived PP-1 to PP-6 sweeps with the
+committed files, the gate's reds, notes and unmeasured list are identical before and after (the
+mutation run `2026-11-23_0607` 27 reds, every clean run 0); a rendered missing, extra or hidden mesh
+injected into each of 5472 cases of their newest runs is never shown as anything but a fail.
 
 **Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
 PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to

@@ -1304,6 +1304,9 @@ namespace Parsek.TestCommands
             /// and 4); empty for a stowed or a context case.</summary>
             internal List<byte[]> GhostStartTiles = new List<byte[]>();
             internal List<byte[]> GhostStowedTiles = new List<byte[]>();
+            /// <summary>The real part as a load leaves its glow, one tile per captured view (atlas
+            /// row 5); empty unless the start route was reloaded (<see cref="PartParityRampHold"/>).</summary>
+            internal List<byte[]> RealStartTiles = new List<byte[]>();
 
             internal uint Pid;
             internal float SpawnRealtime;
@@ -1384,6 +1387,12 @@ namespace Parsek.TestCommands
             /// <summary><c>CheatOptions.InfinitePropellant</c> before the step's first plume or rcs
             /// case (design E.2), restored in <see cref="Cleanup"/>; null while never changed.</summary>
             internal bool? FxCheatBefore;
+
+            /// <summary>The step's main-throttle cases, and the host's and the player's throttle
+            /// before the first of them.</summary>
+            internal readonly List<PartParityFxRun> FxMainThrottleRuns = new List<PartParityFxRun>();
+            internal float? FxHostThrottleBefore;
+            internal float FxInputThrottleBefore = float.NaN;
 
             /// <summary>The run's control set (design D.2), a function of the args.</summary>
             internal string[] ControlSet;
@@ -1477,6 +1486,8 @@ namespace Parsek.TestCommands
                         }
                     }
                 }
+                string throttles = PartParityFxDriver.DescribeMainThrottles(this);
+                if (throttles != null) ParsekLog.Info(Tag, throttles);
                 if (Capture != null)
                 {
                     PartParityCapture capture = Capture;

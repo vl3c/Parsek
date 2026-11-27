@@ -74,13 +74,16 @@ namespace Parsek
         /// <param name="partNamesByPid">Map from part persistentId to part name for event logging.</param>
         /// <param name="ut">The UT to stamp on every emitted event.</param>
         /// <param name="logTag">Log subsystem tag.</param>
+        /// <param name="label">What the two states straddle, as the log lines name it; null logs
+        /// nothing (the caller logs its own line per event).</param>
         /// <returns>The reconciling PartEvents (may be empty, never null).</returns>
         internal static List<PartEvent> EmitDiffEvents(
             PartTrackingSets before,
             PartTrackingSets after,
             Dictionary<uint, string> partNamesByPid,
             double ut,
-            string logTag)
+            string logTag,
+            string label = "Rails-span")
         {
             var events = new List<PartEvent>();
             if (before == null || after == null) return events;
@@ -225,15 +228,15 @@ namespace Parsek
             DiffEngines(before, after, Emit);
             DiffRcs(before, after, Emit);
 
-            if (events.Count > 0)
+            if (events.Count > 0 && label != null)
             {
                 ParsekLog.Info(logTag,
-                    $"Rails-span reconcile: {events.Count} event(s) at " +
+                    $"{label} reconcile: {events.Count} event(s) at " +
                     $"UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
                 for (int i = 0; i < events.Count; i++)
                 {
                     ParsekLog.Verbose(logTag,
-                        $"Rails-span event: {events[i].eventType} pid={events[i].partPersistentId} " +
+                        $"{label} event: {events[i].eventType} pid={events[i].partPersistentId} " +
                         $"midx={events[i].moduleIndex} part='{events[i].partName}' " +
                         $"val={events[i].value.ToString("F2", CultureInfo.InvariantCulture)}");
                 }
