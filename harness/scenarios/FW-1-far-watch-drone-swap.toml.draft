@@ -1,0 +1,129 @@
+schema = 1
+id = "FW-1-far-watch-drone-swap"
+# ====================================================================================
+# DRAFT, NEVER FLOWN. Stored as `.toml.draft` so no suite parses it (every scenario scan
+# reads `*.toml` only; precedent docs/dev/plans/moon-lane-drafts/). Rename to `.toml`
+# only once the step 2 seam verbs exist; the registration owed then is listed at the end
+# of this header.
+#
+# Design authority: docs/dev/design-far-watch.md section 17.4 (FW-1 drone swap), 9.2
+# (the seam SaveGame carve-out), H7 (seam refusals during a far watch).
+#
+# WHAT IT PROVES. One residual save during a far watch takes the path every residual save
+# takes (GamePersistence.SaveGame -> Game.Updated() -> OnSave strip and index repair), and
+# its file loads back into FLIGHT on the ship: the drone VESSEL is stripped, activeVessel
+# is repaired to the ship, and the active tree is written in the outsider shape
+# (ActiveRecordingId null, the ship's recording in BackgroundMap), which loads as
+# PendingTreeState.LimboVesselSwitch and arms the tracked post-switch watch for the ship.
+#
+# HOST. duna-ike-recorded-career: the DD1 probe orbiting Ike (an orbit fixture, so the
+# drone's hold point beside the ship is a conic, not surface-held) in a career, so the
+# ledger oracle has pools to compare. The watched ghost is the loop of the probe's own
+# committed tree ccb5e4afd7974dbe9118090468ac00ae (V31M's MissionConfig / StartLoopPlayback
+# pair): StartLoopPlayback leaves now just before a loop relaunch, so the ghost is on or
+# near the Kerbin pad, another SOI and far beyond the near-watch range, which is what makes
+# the watch a FAR watch. A fresh StartRecording gives the ship a live recording so the
+# outsider shape is observable.
+#
+# SEAM VERB. The design names the verb `FarWatch` with `start` and `stop` (17.4); its arg
+# grammar is the implementer's. The `op` / `tree` keys below follow the FarWatchProof
+# precedent and are PROVISIONAL: re-read TestCommandVerbs.cs when renaming.
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"), item by item:
+# - reuse a host's flight: yes, a committed harvested fixture, no flight of its own.
+# - explicit-UT WarpToUT waits: none needed; the far watch starts at the relaunch the
+#   loop playback already lands on. Add one WarpToUT with an explicit UT only if the first
+#   flight shows the ghost not yet built at `FarWatch start`.
+# - minimal dwells: no Wait steps; each FarWatch op is expected to answer when its
+#   transition completes (Following / Idle), so the budget is the only bound.
+# - b5 coast leads: not applicable (no autopilot coast).
+# - fail fast on a doomed attempt: retry none; every step expects OK, so a refused
+#   `FarWatch start` (safety verdict, far-watch-active) stops the run at that step.
+# - tight count windows: exact counts on the stash / restore lines (one load).
+# - tier by measured p50: operator until the first green flight gives a p50.
+# - flight_efficiency.py check after the first green flight: owed.
+#
+# EXPECTATIONS THE HARNESS CANNOT STATE YET (kept here as comments, owed with the lane):
+# - saveParse of the NAMED save `fw1-probe` (saveparse reads persistent.sfs only today):
+#   no VESSEL whose pid is the drone's (`dronePid` from RecordingState, H7), FLIGHTSTATE
+#   activeVessel indexes the ship (pid match), PARSEK RECORDING_TREE isActive=True with no
+#   ActiveRecordingId key and the ship's recording id in its BackgroundMap. Needs a
+#   saveParse `save =` selector and three facets (activeVessel pid, active-tree
+#   ActiveRecordingId, BackgroundMap members).
+# - ledger oracle: career pools unchanged (expected = template; no award during the
+#   watch). The oracle runs on the produced persistent save; confirm it is the one the
+#   final FlushAndQuit writes after the fw1-probe load.
+# - analyzer: the ship's recording keeps one id across the swap (no new recording for
+#   the ship); expressible today as a recordings.structure count once the template's
+#   committed-tree count is measured.
+#
+# REGISTRATION OWED WHEN THE VERB LANDS:
+# - rename to harness/scenarios/FW-1-far-watch-drone-swap.toml;
+# - hlib.IMPLEMENTED_SEAM_VERBS gains `FarWatch` (sync-tested against TestCommandVerbs.cs);
+# - RecordingState reports dronePid / playerShipPid (H7) if the lane reads them;
+# - python harness/tools/lane_catalog.py (docs/dev/flight-profiles.md), the
+#   docs/dev/autotest-status.md row, harness/coverage dimensions;
+# - re-check open PR branches for an FW-1 id clash (none on 2026-11-27).
+# ====================================================================================
+tier = "operator"
+description = "Far-watch drone swap on duna-ike-recorded-career: a far watch on the probe tree's loop ghost with the camera drone beside the Ike-orbiting DD1, the one allowed seam save fw1-probe during the watch, stop, then a load of fw1-probe back into FLIGHT: the save must carry no drone, the ship as the active vessel and the active tree in the outsider shape that restores through the vessel-switch path."
+instanceProfile = "stock-minimal"
+tags = ["far-watch", "loop-playback", "save-load"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-ike-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording", expect = "OK", budget = 180 },
+  { cmd = "MissionConfig", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae" }, expect = "OK", budget = 300 },
+  # Far watch on the loop ghost; the drone spawns beside the ship (hold point), then follows.
+  { cmd = "FarWatch", args = { op = "start", tree = "ccb5e4afd7974dbe9118090468ac00ae" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
+  # The one save H7 allows during a far watch (never persistent / quicksave).
+  { cmd = "SaveGame", args = { name = "fw1-probe" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch", args = { op = "stop" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "fw1-probe" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle ",
+  # The ship's recording backgrounded at the swap (design 7.1 step 5).
+  "\\[BgRecorder\\]",
+  # After the fw1-probe load: the outsider-shape stash, its deferral and the ship's watch.
+  "TryRestoreActiveTreeNode: stashed active tree '[^']*' \\(\\d+ recording\\(s\\), activeRecId=<null>\\) into pending-LimboVesselSwitch slot",
+  "OnLoad: pending-LimboVesselSwitch tree '[^']*' deferred to OnFlightReady for vessel-switch restore",
+  "RestoreActiveTreeFromPendingForVesselSwitch: armed tracked vessel '[^']+' \\(pid=\\d+\\) from BackgroundMap",
+  "Flight ready focus: pid=\\d+ ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+  "far-watch-active",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
