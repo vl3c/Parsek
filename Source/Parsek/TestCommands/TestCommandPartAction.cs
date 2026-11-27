@@ -655,6 +655,54 @@ namespace Parsek.TestCommands
         internal static bool IsEngineKind(PartActionKind kind)
             => kind == PartActionKind.EngineActivate;
 
+        /// <summary>The deploy families the deploy / retract buttons press, by stock module.</summary>
+        internal enum DeployButtonFamily
+        {
+            None,
+            AnimationGroup,
+            DeployablePart,
+            RetractableLadder,
+            WheelDeployment,
+            AnimateGeneric,
+        }
+
+        /// <summary>True for the deploy / retract pair.</summary>
+        internal static bool IsDeployKind(PartActionKind kind)
+            => kind == PartActionKind.Deploy || kind == PartActionKind.Retract;
+
+        /// <summary>
+        /// Pure: the stock part-menu event a deploy / retract press invokes on one module, or null
+        /// when the module is not a deploy family or already stands where the press would take it.
+        /// <c>ModuleAnimationGroup</c> DeployModule / RetractModule (the original buttons),
+        /// <c>ModuleDeployablePart</c> and <c>RetractableLadder</c> Extend / Retract (stock shows
+        /// only the event that applies), <c>ModuleWheelDeployment</c> EventToggle and
+        /// <c>ModuleAnimateGeneric</c> Toggle (one event for both directions, so it is pressed only
+        /// when the recorder's own classifier reads the module at the opposite end:
+        /// <paramref name="retractedNow"/> true for a deploy, false for a retract; null, a module
+        /// mid-travel or unreadable, is never pressed) (KSP 1.12.5 decompiled).
+        /// </summary>
+        internal static string DeployButtonEventName(PartActionKind kind, DeployButtonFamily family, bool? retractedNow)
+        {
+            if (!IsDeployKind(kind)) return null;
+            bool deploy = kind == PartActionKind.Deploy;
+            switch (family)
+            {
+                case DeployButtonFamily.AnimationGroup:
+                    return deploy ? "DeployModule" : "RetractModule";
+                case DeployButtonFamily.DeployablePart:
+                case DeployButtonFamily.RetractableLadder:
+                    return deploy ? "Extend" : "Retract";
+                case DeployButtonFamily.WheelDeployment:
+                    if (!retractedNow.HasValue || retractedNow.Value != deploy) return null;
+                    return "EventToggle";
+                case DeployButtonFamily.AnimateGeneric:
+                    if (!retractedNow.HasValue || retractedNow.Value != deploy) return null;
+                    return "Toggle";
+                default:
+                    return null;
+            }
+        }
+
         /// <summary>True for the chute button, whose candidates come from <c>ModuleParachute</c>
         /// only.</summary>
         internal static bool IsParachuteKind(PartActionKind kind)

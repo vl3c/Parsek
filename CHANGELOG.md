@@ -15,12 +15,20 @@ Not released yet.
 
 ### Fixed
 
+- **F9 loads onto the vessel you saved on.** With a ghost replaying in orbit, a quickload or far
+  Switch-To could focus a later vessel, such as your flag. (SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP)
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked
   vessel and back out when it undocks. (LOOP-WATCH-STAYS-ON-THE-DOCKED-SHIP)
 - **Part states survive a takeover mid-flight.** Panels, chutes, wheels and lights that changed
   while nothing recorded now show on the replay. (PART-STATES-LOST-AT-PROMOTION)
 - **Ghosts of resizable B9PartSwitch parts keep the size you picked.** A Utility Weight set to
   2.5 m or 5 m used to replay at its default 1.25 m. (todo GHOST-B9-SUBTYPE-TRANSFORMS)
+- **In an overlapping loop each ghost ends when its own recording ends.** It no longer stands frozen
+  until the next launch, or explodes a launch late. (OVERLAP-PRIMARY-HELD-PAST-ITS-RECORDED-END)
+- **Replayed RCS puffs, jet nozzles and fans look like the real ones.** RCS puffs keep their
+  speed, Whiplash and Panther nozzles open and close, the Goliath fan spins, Caravel bells glow.
+- **Ghost parts start moving when the real ones did.** Replayed panels, gear, bays, doors and
+  ladders opened only once the recorded part had finished. (GHOST-DEPLOY-MOTION-TIMING-2026-11-26)
 
 ### Added
 

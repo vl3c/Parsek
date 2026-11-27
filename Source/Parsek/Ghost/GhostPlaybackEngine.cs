@@ -78,8 +78,10 @@ namespace Parsek
         // this frame observes the transition and acts once. liveMemberIdx = the in-window member with
         // the highest StartUT (the camera-follow target, newest segment); -1 = nothing live (tail /
         // before span). Keyed by owner index; self-heals each frame since only members write it.
-        private readonly Dictionary<int, (long cycle, int liveMemberIdx, bool watchedRendering)> lastUnitSelection
-            = new Dictionary<int, (long, int, bool)>();
+        // handoffFrom / handoffTo: the watch retarget that is pending and already logged (-1 = none).
+        private readonly Dictionary<int, (long cycle, int liveMemberIdx, bool watchedRendering,
+                int handoffFrom, int handoffTo)> lastUnitSelection
+            = new Dictionary<int, (long, int, bool, int, int)>();
 
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
@@ -435,6 +437,7 @@ namespace Parsek
                 ParsekSettings.Current?.ghostRenderTracing == true
                 || ctx.activeReFlyMarker != null;
 
+            frameFlags = flags;
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
@@ -442,6 +445,7 @@ namespace Parsek
                     i, trajectories[i], flags[i], trajectories, ctx,
                     suppressGhosts, suppressVisualFx, ref ghostsProcessed);
             }
+            frameFlags = null;
 
             CompletePlaybackFrame(
                 trajectories, flags, ctx, engineIterTraceEnabled, ghostsProcessed, trajectoriesIterated);

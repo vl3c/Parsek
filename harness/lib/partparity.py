@@ -322,11 +322,27 @@ CONTROLS_NOT_APPLICABLE = "n/a"
 # PartParityJson.StowedAtlasRows / StateAtlasRows (AtlasRowsFor).
 ATLAS_ROWS: Tuple[str, ...] = ("real", "ghost")
 ATLAS_ROWS_STATE: Tuple[str, ...] = ("real", "ghost", "ghost-start", "ghost-stowed")
+# PartParityJson.ReloadedStateAtlasRows: the real part as a load leaves its glow ramp, which
+# the ``start`` blocks are measured against (E.4, "Start-route reload").
+ROW_REAL_START = "real-start"
+ATLAS_ROWS_STATE_RELOADED: Tuple[str, ...] = ATLAS_ROWS_STATE + (ROW_REAL_START,)
+# PartParityRampHold.FlagReloadedPrefix: written exactly when that row is.
+FLAG_START_RELOADED_PREFIX = "start-route-reloaded:"
 
 
-def atlas_rows_for(state_case: bool) -> Tuple[str, ...]:
-    """PartParityJson.AtlasRowsFor: four rows for a state case, two for a stowed one."""
-    return ATLAS_ROWS_STATE if state_case else ATLAS_ROWS
+def atlas_rows_for(state_case: bool, start_reloaded: bool = False) -> Tuple[str, ...]:
+    """PartParityJson.AtlasRowsFor: four rows for a state case (five with a reloaded start
+    route), two for a stowed one."""
+    if not state_case:
+        return ATLAS_ROWS
+    return ATLAS_ROWS_STATE_RELOADED if start_reloaded else ATLAS_ROWS_STATE
+
+
+def start_reloaded(sidecar: Optional[Dict]) -> bool:
+    """The case's flag says its start route was compared with the loaded real part."""
+    flags = sidecar.get("flags") if isinstance(sidecar, dict) else None
+    return any(isinstance(f, str) and f.startswith(FLAG_START_RELOADED_PREFIX)
+               for f in (flags if isinstance(flags, list) else []))
 
 # PartParityMetrics: coverage is alpha >= 0.5, i.e. the alpha byte >= 128.
 COVERAGE_ALPHA_BYTE = 128
@@ -682,6 +698,13 @@ FLAG_FX_STRUCTURE_NOT_MEASURED = "fx-structure-not-measured"
 FLAG_FX_NOZZLE_NOT_MEASURED = "fx-nozzle-not-measured"
 FLAG_FX_NO_REAL_EFFECT = "fx-no-real-effect"
 FLAG_FX_WEAK_CORE = "fx-weak-core"
+# Findings the owner looked at and wants kept in sight until a todo settles them, whatever the
+# case's verdict (``owner-flagged:<reason>``; it moves no verdict, no cap and no rule). Reason
+# -> the OPEN todo that owns it. Empty since 2026-11-24: ``smoke-extra`` was the ghost's smoke
+# riding the active vessel (GHOST-SMOKE-RIDES-ACTIVE-VESSEL, fixed); what is left of it is a puff
+# either side draws now and then (PARTPARITY-ORBIT-SMOKE-PUFF-NOISE), noise, not an owner's finding.
+FLAG_OWNER_FLAGGED_PREFIX = "owner-flagged:"
+OWNER_FLAGGED_REASONS: Dict[str, str] = {}
 # Flag kinds: the part of a flag before its first ``:``.
 FX_FLAGS_RAISE_TO_WARN: Tuple[str, ...] = (
     FLAG_FX_STRUCTURE_NOT_MEASURED, FLAG_FX_NOZZLE_NOT_MEASURED, FLAG_FX_NO_REAL_EFFECT,
@@ -1791,6 +1814,9 @@ def judge_fx(sidecar: Dict) -> Optional[FxJudgement]:
             reasons.insert(0, "fx-no-entries:%d lost, first %s:%s:%s" % ((len(lost),) + lost[0]))
             verdict = VERDICT_ERROR
     flags = fx_flags(sidecar, bool(unsettled))
+    if stochastic and reference is None:
+        seen = {f.reason for j in entries for f in j.findings}
+        flags += tuple(FLAG_OWNER_FLAGGED_PREFIX + r for r in OWNER_FLAGGED_REASONS if r in seen)
     for f in flags:
         if f.split(":", 1)[0] in FX_FLAGS_RAISE_TO_WARN:
             reasons.append("flag:%s" % f)
@@ -3221,14 +3247,29 @@ STOWED_REF_PCT_KEYS: Tuple[str, ...] = tuple(k for k in STOWED_REF_KEYS if k.end
 _PCT_BLOB_KEY = {"realOnlyBlobPct": "realOnlyBlobPx", "ghostOnlyBlobPct": "ghostOnlyBlobPx"}
 
 
+def start_reload_problem(sidecar: Dict) -> Optional[str]:
+    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a state
+    case only; None when they agree or no atlas was written."""
+    atlas = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
+    rows = atlas.get("rows")
+    if not isinstance(rows, list):
+        return None
+    row, flag = ROW_REAL_START in rows, start_reloaded(sidecar)
+    if row == flag and not (row and not is_state_case(sidecar.get("state"))):
+        return None
+    return "start reload: flag=%s but atlas rows=%s" % (str(flag).lower(), rows)
+
+
 def state_view_block_problems(sidecar: Dict) -> List[str]:
     """The view-block shape a state case must carry (design D.2, D.6): every view has a
     ``start`` block with every ``START_KEYS`` key and a ``stowedRef`` block with every
-    ``STOWED_REF_KEYS`` key. A stowed case, or a case with no views, has no problem. Run
-    over every state case, not only the recompute sample."""
+    ``STOWED_REF_KEYS`` key, and a reloaded start route has both its flag and its row
+    (``start_reload_problem``, any case). A stowed case, or a case with no views, has no other
+    problem. Run over every case, not only the recompute sample."""
+    reload = start_reload_problem(sidecar)
+    problems: List[str] = [] if reload is None else [reload]
     if not is_state_case(sidecar.get("state")):
-        return []
-    problems: List[str] = []
+        return problems
     for v in sidecar.get("views") or []:
         if not isinstance(v, dict):
             continue
@@ -3288,10 +3329,12 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
     """A state case's four-row atlas (design D.6): rows 1 (ghost) and 2 (ghost-start)
     against row 0 with the full recomputed key set (the view, then its ``start`` block),
     row 3 (ghost-stowed) against row 0 for exactly the keys ``stowedRef`` carries: the
-    counts exactly, the blob percentages against the view's box area. A missing block or
-    key is a difference."""
+    counts exactly, the blob percentages against the view's box area. A case whose start route
+    was reloaded (``start_reloaded``) has a fifth row, the loaded real part, and its row 2 is
+    read against that one. A missing block or key is a difference."""
     width, height, bpp, pixels = atlas
-    want_rows = list(ATLAS_ROWS_STATE)
+    reloaded = start_reloaded(sidecar)
+    want_rows = list(atlas_rows_for(True, reloaded))
     if rows != want_rows:
         return ["atlas rows=%s (expected %s)" % (rows, want_rows)]
     if width != tile * len(cols) or height != tile * len(want_rows):
@@ -3318,9 +3361,11 @@ def _recompute_state_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes], til
         start = view.get("start")
         if isinstance(start, dict):
             start_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 2 * tile, tile)
+            real_start = real_rows if not reloaded else tile_alpha_rows(
+                pixels, width, bpp, c * tile, want_rows.index(ROW_REAL_START) * tile, tile)
             rec = dict(start)
             rec["view"] = "%s/%s" % (name, ROUTE_START)
-            diffs.extend(compare_view(rec, recompute_view(real_rows, start_rows, tile)))
+            diffs.extend(compare_view(rec, recompute_view(real_start, start_rows, tile)))
         ref = view.get("stowedRef")
         if isinstance(ref, dict):
             stowed_rows = tile_alpha_rows(pixels, width, bpp, c * tile, 3 * tile, tile)
@@ -3459,7 +3504,15 @@ GATE_UNMEASURED = "unmeasured"
 
 _CASE_ID_RE = re.compile(r"^[a-z0-9._-]{1,128}$")
 _TODO_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9-]*[A-Z0-9]$")
-ACCEPTED_KEYS: Tuple[str, ...] = ("case", "profile", "view", "measure", "noisy", "reason", "todo")
+ACCEPTED_KEYS: Tuple[str, ...] = ("case", "profile", "view", "measure", "noisy", "kind", "reason", "todo")
+# What an accepted difference IS, read by the page states (``page_state``) and nothing else:
+# ``ruled``, the owner ruled on it by name (the todo says so); ``accepted``, a known cause that
+# is not the ghost's (an instrument limit, another mod's effect, a stock artifact); ``defect``, a
+# real ghost difference not fixed yet. An entry without one reads as a defect does.
+KIND_RULED = "ruled"
+KIND_ACCEPTED = "accepted"
+KIND_DEFECT = "defect"
+ACCEPTED_KINDS: Tuple[str, ...] = (KIND_RULED, KIND_ACCEPTED, KIND_DEFECT)
 ACCEPTED_REQUIRED: Tuple[str, ...] = ("case", "view", "measure", "reason", "todo")
 _PLACEHOLDER_RE = re.compile(r"^\s*(todo|tbd|fixme|xxx|\?+)?\s*$", re.IGNORECASE)
 
@@ -3614,7 +3667,7 @@ class AcceptedEntry:
     ACCEPT_GROUPS, or ``flag:<flag>`` with an optional trailing ``*`` for a prefix; ``*`` is
     every PICTURE measure and nothing else),
     ``reason`` and ``todo`` (the ruling or open todo that owns it), ``profile`` (None:
-    every profile) and ``noisy`` (the measure moves run to run, so the drift rule is
+    every profile), ``kind`` (ACCEPTED_KINDS or None, for the page alone) and ``noisy`` (the measure moves run to run, so the drift rule is
     waived for it too; otherwise only its fail verdict is waived and drift still gates)."""
     case: str
     view: str
@@ -3623,6 +3676,7 @@ class AcceptedEntry:
     todo: str
     profile: Optional[str] = None
     noisy: bool = False
+    kind: Optional[str] = None
 
     def covers(self, case_id: str, profile: Optional[str], vk: Optional[str], group: str) -> bool:
         if self.case != case_id:
@@ -3701,7 +3755,14 @@ def parse_accepted(doc: Any) -> Tuple[List[AcceptedEntry], List[str]]:
         if not isinstance(noisy, bool):
             errors.append("%s: noisy must be a bool" % where)
             noisy = False
-        entry = AcceptedEntry(case, view, measure, row["reason"], row["todo"], profile, noisy)
+        kind = row.get("kind")
+        if kind is not None and kind not in ACCEPTED_KINDS:
+            errors.append("%s: kind %r is not one of %s" % (where, kind, ", ".join(ACCEPTED_KINDS)))
+            kind = None
+        if kind == KIND_RULED and "owner ruling" not in row["reason"]:
+            errors.append("%s: kind ruled needs the owner ruling in its reason" % where)
+            kind = None
+        entry = AcceptedEntry(case, view, measure, row["reason"], row["todo"], profile, noisy, kind)
         key = (case, view, measure, profile)
         if key in seen:
             errors.append("%s: duplicate of an earlier entry (%s)" % (where, entry.label()))
@@ -4098,6 +4159,101 @@ def gate_sweep(label: str, profile: Optional[str], manifest: Dict,
     return GateResult(label, profile, runs, reds, notes, used, unmeasured)
 
 
+# The page's reading of a ``fail`` every reason of which the accepted list explains: neither
+# moves the verdict, the counts or the gate, which keep their own.
+PAGE_KNOWN = "known"
+PAGE_ACCEPTED = "accepted"
+PAGE_STATES: Tuple[str, ...] = (PAGE_ACCEPTED, PAGE_KNOWN)
+# What no accepted entry can ever put out of sight: a missing, extra or hidden mesh, a skin, an
+# effect one side lacks, a fail nothing explains.
+PAGE_NEVER_GROUPS: FrozenSet[str] = frozenset((
+    GROUP_STRUCTURE, GROUP_SKIN, GROUP_HIDDEN, GROUP_DRAWN, GROUP_FX_STRUCTURE, GROUP_ANY,
+    GROUP_FX_PREFIX + "presence", GROUP_FX_PREFIX + "smoke"))
+
+
+@dataclass(frozen=True)
+class PageState:
+    """``state``: PAGE_KNOWN (the owner ruled on every reason by name) or PAGE_ACCEPTED (each
+    has a known cause that is not the ghost's, or a ruling). ``entries``: what explains it."""
+    state: str
+    entries: Tuple[AcceptedEntry, ...]
+
+    @property
+    def todos(self) -> Tuple[str, ...]:
+        return tuple(sorted({e.todo for e in self.entries}))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"state": self.state, "todos": list(self.todos),
+                "reasons": sorted({e.reason for e in self.entries})}
+
+
+def page_state(verdict: CaseVerdict, sidecar: Optional[Dict], profile: Optional[str],
+               accepted: Sequence[AcceptedEntry], section: Optional[Dict],
+               gate: Optional["GateResult"]) -> Optional[PageState]:
+    """How the page shows a ``fail`` case, or None when it stays red: every fail reason and every
+    qualitative difference must be covered by an entry of kind ``ruled`` or ``accepted`` for the
+    sweep's own profile, none may be of PAGE_NEVER_GROUPS, and an owner-flagged case always stays
+    red. So does a case whose SIZE nothing bounds: the gate must have judged it against a measured
+    band of its label's baseline (``section``, ``gate``) and neither red nor lost it, so a
+    difference that grew past its band is not the accepted one. (What a ``noisy`` entry waives
+    there it waives here too, Appendix F.)"""
+    if verdict.verdict != VERDICT_FAIL or not isinstance(sidecar, dict):
+        return None
+    if profile is None or section is None or gate is None:
+        return None
+    base = section.get("cases") if isinstance(section.get("cases"), dict) else {}
+    band = base.get(verdict.case_id)
+    if not isinstance(band, dict) or not band.get("measured"):
+        return None
+    if verdict.fx is not None and any(f.startswith(FLAG_OWNER_FLAGGED_PREFIX)
+                                      for f in verdict.fx.flags):
+        return None
+    if any(f.case_id == verdict.case_id for f in gate.reds + gate.unmeasured):
+        return None
+    used: List[AcceptedEntry] = []
+    for fr in fail_reasons(verdict) + qualitative_differences(sidecar):
+        if fr.group in PAGE_NEVER_GROUPS:
+            return None
+        cover = [e for e in accepted if e.covers(verdict.case_id, profile, fr.view, fr.group)]
+        if not cover or any(e.kind not in (KIND_RULED, KIND_ACCEPTED) for e in cover):
+            return None
+        used.extend(cover)
+    if not used:
+        return None
+    state = PAGE_KNOWN if all(e.kind == KIND_RULED for e in used) else PAGE_ACCEPTED
+    return PageState(state, tuple(dict.fromkeys(used)))
+
+
+def sweep_page_states(verdicts: Sequence[CaseVerdict], sidecars: Dict[str, Optional[Dict]],
+                      profile: Optional[str], accepted: Sequence[AcceptedEntry],
+                      section: Optional[Dict], gate: Optional["GateResult"]
+                      ) -> Dict[str, PageState]:
+    """``page_state`` of every case that has one."""
+    out: Dict[str, PageState] = {}
+    for cv in verdicts:
+        st = page_state(cv, sidecars.get(cv.case_id), profile, accepted, section, gate)
+        if st is not None:
+            out[cv.case_id] = st
+    return out
+
+
+def page_summary(sweep: "SweepResult") -> str:
+    """`` pageKnown=<n> pageAccepted=<n> ownerFlagged=<n>`` on the summary line, each only when
+    it is not 0."""
+    states = [s.state for s in sweep.page_states.values()]
+    flagged = sum(1 for c in sweep.cases if owner_flags(c))
+    return "".join(" %s=%d" % (k, n) for k, n in (
+        ("pageKnown", states.count(PAGE_KNOWN)), ("pageAccepted", states.count(PAGE_ACCEPTED)),
+        ("ownerFlagged", flagged)) if n)
+
+
+def owner_flags(verdict: CaseVerdict) -> Tuple[str, ...]:
+    """The owner-flagged findings of a case (``OWNER_FLAGGED_REASONS`` keys), in flag order."""
+    n = len(FLAG_OWNER_FLAGGED_PREFIX)
+    return () if verdict.fx is None else tuple(
+        f[n:] for f in verdict.fx.flags if f.startswith(FLAG_OWNER_FLAGGED_PREFIX))
+
+
 def unaccepted_fails(verdicts: Sequence[CaseVerdict], profile: Optional[str],
                      accepted: Sequence[AcceptedEntry],
                      sidecars: Optional[Dict[str, Optional[Dict]]] = None
@@ -4181,6 +4337,8 @@ class SweepResult:
     # The P5 regression gate (baseline + accepted list); None when the caller passed no
     # GateInput (then an armed sweep fails on any failing case, the pre-P5 rule).
     gate: Optional[GateResult] = None
+    # The failing cases the page shows ``known`` or ``accepted`` (``page_state``), by case id.
+    page_states: Dict[str, PageState] = field(default_factory=dict)
 
     def worst(self, n: int = WORST_CASES_IN_SUMMARY) -> List[CaseVerdict]:
         ranked = [c for c in self.cases if c.verdict in (VERDICT_FAIL, VERDICT_WARN, VERDICT_ERROR)]
@@ -4300,6 +4458,9 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                           gate_input.section, gate_input.accepted)
         for err in gate_input.errors:
             gate.reds.insert(0, GateFinding(GATE_NO_BASELINE, None, err))
+    page_states = sweep_page_states(
+        cases, sweep.sidecars, gate_input.profile, gate_input.accepted, gate_input.section,
+        gate) if gate_input is not None else {}
     damaged = host_damage(manifest)
     if damaged:
         # The root cause outranks its symptoms: the controls, completeness and recompute
@@ -4343,7 +4504,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
     if not completeness.ok:
         problems.append("completeness: " + "; ".join(completeness.problems))
     return SweepResult(sweep.label, status, subkind, gating, problems, controls,
-                       completeness, cases, recompute_ids, mismatches, counts, press, gate)
+                       completeness, cases, recompute_ids, mismatches, counts, press, gate,
+                       page_states)
 
 
 # The row's INVALID ranking: the host first (its symptoms show in every other gate), then
@@ -4410,7 +4572,7 @@ def format_summary(row: RowResult) -> str:
                            s.gate.counts().get(NOTE_NEAR_LINE_FAIL, 0),
                            s.gate.counts().get(NOTE_IMPROVED, 0),
                            s.gate.counts().get(NOTE_NEW_CASE, 0))))
-        parts[-1] += fx_summary(s.cases)
+        parts[-1] += fx_summary(s.cases) + page_summary(s)
     return "status=%s gating=%s subkind=%s %s" % (
         row.status, row.gating, row.invalid_subkind or "-", " | ".join(parts) or "no sweeps")
 
@@ -4466,6 +4628,11 @@ def verdicts_document(sweep: SweepResult, run_id: str) -> Dict[str, Any]:
         doc["stateFlags"] = state_flag_counts(sweep.cases)
     if sweep.gate is not None:
         doc["gate"] = sweep.gate.to_dict()
+    if sweep.page_states:
+        doc["pageStates"] = {cid: s.to_dict() for cid, s in sorted(sweep.page_states.items())}
+    flagged = {cv.case_id: list(owner_flags(cv)) for cv in sweep.cases if owner_flags(cv)}
+    if flagged:
+        doc["ownerFlagged"] = flagged
     return doc
 
 

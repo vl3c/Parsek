@@ -510,7 +510,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows),
+                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows, wc.RealStartTiles.Count > 0),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }
@@ -529,7 +529,9 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[][][] rows = wc.State != null && wc.State.FourRows
+            byte[][][] rows = wc.State != null && wc.State.FourRows && wc.RealStartTiles.Count > 0
+                ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray(), wc.RealStartTiles.ToArray() }
+                : wc.State != null && wc.State.FourRows
                 ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray() }
                 : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
             byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);

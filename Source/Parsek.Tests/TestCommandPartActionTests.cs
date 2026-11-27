@@ -1286,5 +1286,32 @@ namespace Parsek.Tests
             Assert.Empty(TestCommandPartAction.Reasons.Intersect(TestCommandPartAction.ErrorReasons));
             Assert.All(TestCommandPartAction.Reasons, r => Assert.StartsWith("partaction-", r));
         }
+    
+        [Fact]
+        public void DeployButtons_PressEachDeployFamilysOwnEvent()
+        {
+            var deploy = PartActionKind.Deploy;
+            var retract = PartActionKind.Retract;
+            Assert.True(TestCommandPartAction.IsDeployKind(deploy));
+            Assert.True(TestCommandPartAction.IsDeployKind(retract));
+            Assert.False(TestCommandPartAction.IsDeployKind(PartActionKind.ChuteDeploy));
+
+            // The original buttons, unchanged.
+            Assert.Equal("DeployModule", TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.AnimationGroup, null));
+            Assert.Equal("RetractModule", TestCommandPartAction.DeployButtonEventName(retract, TestCommandPartAction.DeployButtonFamily.AnimationGroup, null));
+            // Extend / Retract: stock shows only the event that applies.
+            Assert.Equal("Extend", TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.DeployablePart, null));
+            Assert.Equal("Retract", TestCommandPartAction.DeployButtonEventName(retract, TestCommandPartAction.DeployButtonFamily.RetractableLadder, null));
+            // One-event toggles: only from the opposite end, never mid-travel.
+            Assert.Equal("EventToggle", TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.WheelDeployment, true));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.WheelDeployment, false));
+            Assert.Equal("EventToggle", TestCommandPartAction.DeployButtonEventName(retract, TestCommandPartAction.DeployButtonFamily.WheelDeployment, false));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(retract, TestCommandPartAction.DeployButtonFamily.WheelDeployment, null));
+            Assert.Equal("Toggle", TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.AnimateGeneric, true));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.AnimateGeneric, false));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.AnimateGeneric, null));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(deploy, TestCommandPartAction.DeployButtonFamily.None, true));
+            Assert.Null(TestCommandPartAction.DeployButtonEventName(PartActionKind.ChuteDeploy, TestCommandPartAction.DeployButtonFamily.DeployablePart, true));
+        }
     }
 }

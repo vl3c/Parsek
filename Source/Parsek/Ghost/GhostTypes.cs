@@ -321,7 +321,26 @@ namespace Parsek
         /// reads, and so a null transform still carries a truthful "this part is broken" answer.
         /// </summary>
         public bool breakSubtreeHidden;
+
+        /// <summary>
+        /// Stock's full stowed -&gt; deployed motion time in seconds, set only for a family whose
+        /// recorder poller emits its event when stock's motion ENDS (ModuleDeployablePart, gear,
+        /// RetractableLadder, cargo bay, standalone ModuleAnimateGeneric): the clip at the
+        /// module's own speed over the travel it plays. NaN for every other family, whose event
+        /// marks the START and which keeps the clip-from-the-event transition.
+        /// </summary>
+        public double extendMotionSeconds = double.NaN;
+        /// <summary>The same for deployed -&gt; stowed (gear retracts at its own factor).</summary>
+        public double retractMotionSeconds = double.NaN;
+        /// <summary>
+        /// The in-flight transition's own length when it ENDS at its event UT (an end-marked
+        /// family); NaN for a transition that starts at its event and runs the clip.
+        /// </summary>
+        public double transitionDurationSeconds = double.NaN;
+        /// <summary>The recorded event UT an end-marked transition ends at; NaN otherwise.</summary>
+        public double transitionEventUT = double.NaN;
     }
+
 
     /// <summary>
     /// The ghost side of a stock <c>ModuleWheelDamage</c> wheel: the cloned transforms stock
@@ -554,8 +573,8 @@ namespace Parsek
         public List<HeatMaterialState> materialStates;
         // Engine / RCS nozzle glow clips of the part (driven by recorded power, not by heat events).
         public List<NozzleGlowInfo> nozzleGlows;
-        // Created for glows on materials of their own (NozzleGlowInfo.isColorChanger) alone: no heat
-        // visual, so the part keeps the reentry glow (which leaves those materials' property to them).
+        // Created for glows on materials of their own (NozzleGlowInfo.isColorChanger) or clips that
+        // only move transforms: no heat visual, so the part keeps the reentry glow (which leaves those materials' property to them).
         public bool throttleGlowsOnly;
         // The part's ModuleAnimateHeat names a clip its model lacks: stock drives nothing, so a
         // heat event draws nothing here and the part counts as any other for the reentry glow.
@@ -629,6 +648,13 @@ namespace Parsek
         public float emissionScale = 1f;
         public float speedScale = 1f;
         public float currentPower;
+        /// <summary>The emitters stock's <c>ModelMultiParticleFX</c> rule sizes
+        /// (<see cref="GhostPlaybackLogic.ApplyRcsFxRules"/>).</summary>
+        public List<GhostEngineFxRule> fxRules = new List<GhostEngineFxRule>();
+        /// <summary>The thruster transforms the recorded power is the mean over.</summary>
+        public int recordedNozzles = 1;
+        /// <summary>Those of them the recorded part variant leaves active: the ones that can fire.</summary>
+        public int activeNozzles = 1;
         /// <summary>
         /// Read-only record, index-parallel to <see cref="particleSystems"/> as built: the FX
         /// transform each system was built under. Nothing in the build or playback reads it
@@ -807,6 +833,8 @@ namespace Parsek
         public Vector3 localScale;
         // A stock MODEL_MULTI_PARTICLE node, whose instances take stock's nested scale.
         public bool stockNested;
+        // The stock node's emission / energy / speed curves; null for another node type.
+        public GhostEngineFxCurves curves;
     }
 
     internal class FairingGhostInfo
