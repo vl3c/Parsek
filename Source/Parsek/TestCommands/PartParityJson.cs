@@ -178,6 +178,12 @@ namespace Parsek.TestCommands
         internal Dictionary<string, string> Fx;
         internal Dictionary<string, string> FxAtlas;
         internal Dictionary<string, string> Strip;
+
+        /// <summary>A burst case's <c>burst</c> block and a dust case's <c>dust</c> block (design
+        /// Appendix G) as JSON fragments per key of <see cref="PartParityJson.BurstKeys"/> and
+        /// <see cref="PartParityJson.DustKeys"/>; null for every other case.</summary>
+        internal Dictionary<string, string> Burst;
+        internal Dictionary<string, string> Dust;
     }
 
     /// <summary>One <c>controls[]</c> entry of the manifest.</summary>
@@ -283,6 +289,7 @@ namespace Parsek.TestCommands
             "layers", "flags", "views", "structure", "setup", "log",
             "stateProof", "structureStart", "stowedCaseId",
             "fx", "fxAtlas", "strip",
+            "burst", "dust",
         };
 
         internal static readonly string[] SkinKeys =
@@ -421,6 +428,83 @@ namespace Parsek.TestCommands
         internal static readonly string[] FxAtlasKeys = { "file", "rows", "cols", "tile" };
 
         internal static readonly string[] FxStripKeys = { "file", "frames" };
+
+        // ----- the burst and dust blocks (design Appendix G), every key always written, null when not measured -----
+
+        /// <summary>The keys of a burst case's <c>burst</c> block (design G.2.1, G.3).</summary>
+        internal static readonly string[] BurstKeys =
+        {
+            "family", "module", "moduleIndex", "potential", "stackSize", "standIn", "lengthM", "fxGroup",
+            "windowS", "binS", "bins", "trials", "samples", "trigger", "schedule", "scheduleCompare",
+            "atlas", "views", "structure",
+        };
+
+        /// <summary><c>burst.samples</c> (each side's sample count per bin) and <c>burst.schedule</c> are keyed by side.</summary>
+        internal static readonly string[] BurstSideKeys = { "real", "ghost" };
+
+        /// <summary><c>burst.trigger</c>: the trigger frame and what each side tagged.</summary>
+        internal static readonly string[] BurstTriggerKeys = { "frame", "ut", "realTagged", "ghostTagged", "ghostEvent" };
+
+        /// <summary>One blast of a side's schedule: its frame, its time after the trigger, its
+        /// position relative to the side's own source point, its power and prefab.</summary>
+        internal static readonly string[] BurstScheduleEntryKeys = { "frame", "t", "offsetM", "power", "prefab", "index" };
+
+        /// <summary><c>burst.scheduleCompare</c>: the schedule diff (G.3).</summary>
+        internal static readonly string[] BurstScheduleCompareKeys =
+            { "realCount", "ghostCount", "countDiffers", "indexDiffers", "powerDiffers", "maxOffsetDeltaM" };
+
+        /// <summary><c>burst.atlas</c>: rows <see cref="BurstAtlasRows"/>, columns view-major
+        /// (<c>views</c> x <c>bins</c>).</summary>
+        internal static readonly string[] BurstAtlasKeys = { "file", "rows", "views", "bins", "tile" };
+
+        /// <summary>One <c>burst.views[]</c> entry: a view and layer over every bin.</summary>
+        internal static readonly string[] BurstViewKeys =
+            { "view", "layer", "width", "height", "source", "real", "ghost", "compare", "splitHalf" };
+
+        /// <summary>Each side's projected source point, and the source part's box diameter in the view's pixels.</summary>
+        internal static readonly string[] BurstSourceKeys = { "realPx", "ghostPx", "diameterPx" };
+
+        /// <summary>One side's measures of a view and layer: per bin, then over the bins.</summary>
+        internal static readonly string[] BurstSideMeasureKeys = { "bins", "onsetBin", "peakBin", "lastCoreBin", "peakCorePx" };
+
+        /// <summary>One side's measures of one bin's tile (the E.4 tile rule, radial about the source).</summary>
+        internal static readonly string[] BurstBinMeasureKeys =
+        {
+            "corePx", "envelopePx", "saturatedPx", "coreCentroid", "radiusPx", "meanColor", "chromaticity",
+            "luminance", "hueHistogram",
+        };
+
+        /// <summary>The ghost-minus-real comparison of a view and layer (the G.3 measures).</summary>
+        internal static readonly string[] BurstCompareKeys =
+        {
+            "presence", "onsetDeltaBins", "peakTimeDeltaBins", "durationDelta", "peakAreaRatio", "radiusRatio",
+            "centroidOffset", "chromaDistance", "hueL1", "brightnessRatio", "chromaDistanceMean", "hueL1Mean",
+        };
+
+        /// <summary>One split half (trials 1 and 3, or 2 and 4), numbers only.</summary>
+        internal static readonly string[] BurstHalfKeys = { "trials", "samples", "real", "ghost", "compare" };
+
+        /// <summary>A burst case's atlas rows, top-down.</summary>
+        internal static readonly string[] BurstAtlasRows = { "real-flame", "ghost-flame", "real-smoke", "ghost-smoke" };
+
+        /// <summary>The keys of a dust case's <c>dust</c> block (design G.2.2, G.3).</summary>
+        internal static readonly string[] DustKeys =
+        {
+            "family", "module", "moduleIndex", "engineModule", "engineModuleIndex", "surface", "slotFraction",
+            "heightM", "maxDistanceM", "falloff", "fxMax", "throttle", "drive", "warmupS", "plateau", "hold",
+            "samples", "raycast", "framing", "layers", "atlas", "views", "structure",
+        };
+
+        /// <summary><c>dust.raycast</c>: stock's raycast over the samples (surface, hit counts,
+        /// the mean distance and <c>ScaledFX</c>, the hit point and normal), then each sample.</summary>
+        internal static readonly string[] DustRaycastKeys =
+            { "surface", "hits", "misses", "distanceM", "scaledFx", "pointM", "normal", "samples" };
+
+        internal static readonly string[] DustRaycastSampleKeys = { "hit", "surface", "distanceM", "scaledFx" };
+
+        /// <summary>A dust case's atlas rows (columns <see cref="PartParityFxRules.DustViews"/>): the
+        /// dust layer judged, the engine's flame beside it (the dust-off control's other half).</summary>
+        internal static readonly string[] DustAtlasRows = { "real-dust", "ghost-dust", "real-flame", "ghost-flame" };
 
         // ----- atlas rows (design D.2) -----
 
@@ -840,6 +924,8 @@ namespace Parsek.TestCommands
                 M("fx", KeyedBlock(FxKeys, c.Fx)),
                 M("fxAtlas", KeyedBlock(FxAtlasKeys, c.FxAtlas)),
                 M("strip", KeyedBlock(FxStripKeys, c.Strip)),
+                M("burst", KeyedBlock(BurstKeys, c.Burst)),
+                M("dust", KeyedBlock(DustKeys, c.Dust)),
             };
             return TopLevel(members);
         }

@@ -48,6 +48,10 @@ namespace Parsek
 
             internal override string AnimateHeatEventSuffix(float normalizedHeat, string sourceField) =>
                 $" heat={normalizedHeat.ToString("F2", CultureInfo.InvariantCulture)} src={sourceField ?? "<unknown>"}";
+
+            internal override bool ShouldPollCachedModule(
+                Part part, PartModule module, Vessel recordedVessel, ulong key, string family) =>
+                owner.ShouldPollCachedModule(part, module, recordedVessel, key, family);
         }
 
         private ActivePartPollSink activePollSink;

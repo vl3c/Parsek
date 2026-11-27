@@ -836,6 +836,8 @@ namespace Parsek
             Texture moduleCookie = ResolveReStockLightCookie(prefab, partName);
 
             var clonedLights = new List<Light>();
+            var drivenFlags = new List<bool>();
+            var onIntensities = new List<float>();
             for (int li = 0; li < prefabLights.Length; li++)
             {
                 Light srcLight = prefabLights[li];
@@ -882,6 +884,8 @@ namespace Parsek
                     : srcLight.renderMode;
                 ghostLight.enabled = false;
                 clonedLights.Add(ghostLight);
+                drivenFlags.Add(driven);
+                onIntensities.Add(clonedIntensity);
             }
 
             if (clonedLights.Count > 0)
@@ -889,7 +893,12 @@ namespace Parsek
                 var info = new LightGhostInfo
                 {
                     partPersistentId = persistentId,
-                    lights = clonedLights
+                    lights = clonedLights,
+                    stockDriven = drivenFlags,
+                    onIntensities = onIntensities,
+                    brightenSpeed = lightModule.lightBrightenSpeed,
+                    dimSpeed = lightModule.lightDimSpeed,
+                    animationDim = lightModule.useAnimationDim
                 };
                 AttachLightLensAndFlare(info, lightModule, partNode, modelRoot, cloneMap,
                     persistentId, partName);
@@ -897,7 +906,8 @@ namespace Parsek
                     $"  Light '{partName}' pid={persistentId}: {clonedLights.Count} light(s), " +
                     $"{stockDriven} driven as stock ('{lightModule.lightName}') at intensity " +
                     $"{ModuleLightSettledIntensity.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"color {stockColor} cookies={cookies}", 60.0);
+                    $"color {stockColor} cookies={cookies} fade brighten={info.brightenSpeed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"dim={info.dimSpeed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} animationDim={info.animationDim}", 60.0);
                 return info;
             }
 
