@@ -1,0 +1,68 @@
+schema = 1
+id = "P9-burst-dust"
+tier = "operator"
+# Throwaway (gitignored): the X4 burst wave's decouple family (every stock decoupler's `decouple`
+# case plus the `joint-break` cases on fuelTank / trussPiece1x), photographed real vs ghost at
+# 1600 m over the KSC band from the b1-pad-craft pad host. Fly once on main, once on p9-y4.
+description = "P9 Y2/Y3/Y4/Y7 before/after pictures: every burst case in air, then dust on the ground, stock-minimal, report-only."
+instanceProfile = "stock-minimal"
+tags = ["part-parity", "ghost-visual", "local"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "reset", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple" }, expect = "OK", budget = 120 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pb", op = "run", contexts = "air", fx = "explode,vessel-explode,burst-custom,decouple", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pd", op = "reset", contexts = "ground", fx = "dust" }, expect = "OK", budget = 120 },
+  { cmd = "PartParitySweep", args = { label = "pd", op = "run", contexts = "ground", fx = "dust", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pd", op = "run", contexts = "ground", fx = "dust", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pd", op = "run", contexts = "ground", fx = "dust", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pd", op = "run", contexts = "ground", fx = "dust", controls = "false", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+gating = false
+
+[expectations.logContracts]
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pb op=run ok=true label=pb done=(true|false) ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+budgetSeconds = 5400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
