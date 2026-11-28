@@ -45,7 +45,10 @@ id = "FW-2-far-follow-hand-back"
 #   8 tier: operator until measured.
 #   9 flight_efficiency.py owed after the first green flight; the WarpToUT runs at the
 #     ghost's limit (physics rates while the descent ghost is in the air), which is the
-#     behaviour under test, so that 1x stretch is expected to stay.
+#     behaviour under test, so that 1x stretch is expected to stay (owner, 2026-11-28).
+#     It is short: from the coast member's end (UT 22403.1) to the 250 km crossing at
+#     about UT 22510.8 (computed from the recording's points), about 108 s; past the
+#     hand-back the landed pod sets the warp limit again.
 # =====================================================================================
 tier = "operator"
 description = "Far watch step 3 on W1's host kerbin-splashdown-recorded: FarWatch start mode=follow on the coast member 1,069.7 km from the landed pod starts the far watch directly, WarpToUT runs during the watch under the warp limit read at the ghost, and when the descent ghost comes within 250 km the watch hands back and today's near watch resumes. NEVER FLOWN (tag pending-flight)."
