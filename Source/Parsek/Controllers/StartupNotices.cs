@@ -56,6 +56,7 @@ namespace Parsek
             (new[] { "CanAffordLaunchTest", "EditorLaunchButton", "VesselSpawnDialogLaunch", "LaunchSiteFlyout" }, "launch cost reservations"),
             (new[] { "AllowNegativeCurrencyLock" }, "career settings lock"),
             (new[] { "AutomationFocusLock", "EvaMoveInput" }, "automated testing"),
+            (new[] { "CameraDrone", "FarWatch" }, "far watch camera"),
         };
 
         /// <summary>

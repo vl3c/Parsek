@@ -968,6 +968,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     startUT= endUT= effect= deployed= refPid= refDistStart= refDistEnd= refSpeed=` once
     #     the input was released, a requested stow took and the scene settled.
     "EvaMove",
+    # ADDITIVE (65 -> 66 implemented, reserved unchanged at 4), the FW-1 host (the far
+    # watch: a camera drone beside the player's ship, design-far-watch.md 17.4).
+    #   FarWatch op=start (index=<n> | tree=<id|handle>) [mode=follow|hold], FLIGHT,
+    #     TWO-PHASE, 120 s: OK `state=Following dronePid= shipPid= ghostIndex= mode=
+    #     lastEnd=` once the drone is the active vessel; ERROR `far-watch-ended:<reason>`
+    #     when the watch ended first. `op=stop` answers OK once it is back to Idle,
+    #     `op=status` at once. While a watch runs every other state-mutating verb but a
+    #     SaveGame to a residual name is REJECTED `far-watch-active`.
+    "FarWatch",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1369,6 +1378,9 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # DeferralBudget.EvaMoveSeconds: the held input (at most 30 game seconds at 1x) plus a
     # minute for the pack toggle, the stow presses and the settle. Unmeasured (never flown).
     "EvaMove": 90.0,
+    # DeferralBudget.FarWatchSeconds: the drone build, the two hand-overs and the teardown's
+    # terrain wait. Unmeasured (never flown).
+    "FarWatch": 120.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1650,6 +1662,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "ExitToMainMenu": TAIL_ROLE_WORLD_MUTATING,
     # EvaMove moves the kerbal and burns its jetpack propellant (stock state a save captures).
     "EvaMove": TAIL_ROLE_WORLD_MUTATING,
+    # FarWatch builds and removes the camera drone and switches the active vessel twice.
+    "FarWatch": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1896,6 +1910,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # EvaMove is `outcome` for PlantFlag's reason: "the kerbal flew or walked under its own
     # input" is a kerbal's in-world state no verifier re-derives.
     "EvaMove": POST_MISSION_ROLE_OUTCOME,
+    # FarWatch is `recording`: its OK is a statement about Parsek's watch state machine and
+    # the drone it owns, never a kerbal's or the ship's in-world state.
+    "FarWatch": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4978,6 +4995,55 @@ def validate_eva_move_step(index: int, step_args: Dict) -> List[str]:
     return errors
 
 
+
+# FarWatch: mirrored from TestCommands/TestCommandFarWatch.cs (FarWatchSourceSyncTests).
+FARWATCH_VERB = "FarWatch"
+FARWATCH_OP_KEY = "op"
+FARWATCH_INDEX_KEY = "index"
+FARWATCH_TREE_KEY = "tree"
+FARWATCH_MODE_KEY = "mode"
+FARWATCH_ARG_KEYS: Tuple[str, ...] = ("op", "index", "tree", "mode")
+FARWATCH_OPS: Tuple[str, ...] = ("start", "stop", "status")
+FARWATCH_MODES: Tuple[str, ...] = ("follow", "hold")
+
+
+def validate_far_watch_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape check for one ``FarWatch`` step, the C# TryParseArgs rules: op from
+    its closed set (required), mode follow / hold, and for op=start exactly one of index
+    (a non-negative integer or a ${ref}) and tree; no other key."""
+    errors: List[str] = []
+    where = "driver.steps[%d].args" % index
+    op = step_args.get(FARWATCH_OP_KEY)
+    if op is None:
+        errors.append("%s.%s: required (the seam would refuse op-missing)" % (where, FARWATCH_OP_KEY))
+    elif str(op) not in FARWATCH_OPS:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse op-invalid)"
+                      % (where, FARWATCH_OP_KEY, op, ", ".join(FARWATCH_OPS)))
+    if FARWATCH_MODE_KEY in step_args and str(step_args.get(FARWATCH_MODE_KEY)) not in FARWATCH_MODES:
+        errors.append("%s.%s: %r is not one of %s (the seam would refuse mode-invalid)"
+                      % (where, FARWATCH_MODE_KEY, step_args.get(FARWATCH_MODE_KEY),
+                         ", ".join(FARWATCH_MODES)))
+    if str(op) == "start":
+        has_index = FARWATCH_INDEX_KEY in step_args
+        has_tree = FARWATCH_TREE_KEY in step_args
+        if has_index and has_tree:
+            errors.append("%s: start takes index or tree, not both (the seam would refuse "
+                          "target-ambiguous)" % where)
+        elif not has_index and not has_tree:
+            errors.append("%s: start needs index or tree (the seam would refuse "
+                          "target-missing)" % where)
+        elif has_index:
+            raw = step_args.get(FARWATCH_INDEX_KEY)
+            text = str(raw)
+            if isinstance(raw, bool) or not (text.isdigit() or text.startswith("${")):
+                errors.append("%s.%s: %r is not a non-negative integer (the seam would refuse "
+                              "index-invalid)" % (where, FARWATCH_INDEX_KEY, raw))
+    extra = sorted(str(k) for k in step_args if k not in FARWATCH_ARG_KEYS)
+    if extra:
+        errors.append("%s: %s reads only %s, so %s would be silently ignored"
+                      % (where, FARWATCH_VERB, ", ".join(FARWATCH_ARG_KEYS), ", ".join(extra)))
+    return errors
+
 def validate_eva_seat_step(index: int, cmd: str, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``EvaSeatBoard`` / ``EvaSeatLeave`` step: neither verb
     reads an arg, so any key would be sent and silently ignored."""
@@ -5382,13 +5448,13 @@ PARTPARITY_FX_ALL_TOKEN = "all"
 # P9 (design-part-ghost-parity.md Appendix G; PartParityFxRules.BurstArgWords / DustArgWords):
 # the fx= csv also names burst words (with exactly contexts=air) or the dust word (with
 # exactly contexts=ground, a context only a dust run names), one kind per run; fx=all stays
-# the P8 words. Until the live burst and dust driver lands (design G.7 piece X4,
-# TestCommandPartParitySweep.BurstDustRunsBuilt) a well-formed one is REJECTED
-# burst-dust-runs-not-built.
+# the P8 words. The live burst and dust driver is built (design G.7 piece X4,
+# TestCommandPartParitySweep.BurstDustRunsBuilt); a build without it would REJECT a
+# well-formed one burst-dust-runs-not-built.
 PARTPARITY_FX_BURST_VALUES: Tuple[str, ...] = ("explode", "vessel-explode", "burst-custom", "decouple")
 PARTPARITY_FX_DUST_VALUES: Tuple[str, ...] = ("dust",)
 PARTPARITY_GROUND_CONTEXT = "ground"
-PARTPARITY_BURST_DUST_RUNS_BUILT = False
+PARTPARITY_BURST_DUST_RUNS_BUILT = True
 PARTPARITY_BURST_DUST_RUNS_NOT_BUILT_REASON = "burst-dust-runs-not-built"
 
 # motion= (Appendix H.1; TryParseMotion over PartParityMotionRules): `none` (the default),
@@ -8858,6 +8924,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # owns both table rows); validate_eva_move_step checks them.
             if cmd == EVAMOVE_VERB and arg_key in EVAMOVE_ARG_KEYS:
                 continue
+            # FarWatch reads its own `op=` (start|stop|status) and `mode=` (follow|hold;
+            # UiAction owns both table rows); validate_far_watch_step checks them.
+            if cmd == FARWATCH_VERB and arg_key in FARWATCH_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8931,6 +9001,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_pick_up_flag_step(i, step_args))
         elif cmd == EVAMOVE_VERB:
             errors.extend(validate_eva_move_step(i, step_args))
+        elif cmd == FARWATCH_VERB:
+            errors.extend(validate_far_watch_step(i, step_args))
         elif cmd == NEWGAME_VERB:
             errors.extend(validate_new_game_step(i, step_args, run_save_name))
         elif cmd == ALARMJUMP_VERB:

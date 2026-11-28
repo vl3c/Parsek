@@ -409,7 +409,7 @@ namespace Parsek.TestCommands
             out double ux, out double uy)
         {
             ox = oy = ux = uy = 0.0;
-            if (string.Equals(view, PartParityFxRules.ViewFxBottom, StringComparison.Ordinal)) return false;
+            if (PartParityFxRules.IsAxisView(view)) return false;
             if (axis?.OriginPx == null || axis.OriginPx.Length < 2 || axis.DirPx == null || axis.DirPx.Length < 2)
                 return false;
             double dx = axis.DirPx[0], dy = axis.DirPx[1];
@@ -457,7 +457,7 @@ namespace Parsek.TestCommands
                 if (real.CoreAxisDeg.HasValue && ghost.CoreAxisDeg.HasValue)
                     c.DirectionDeg = WrapDeg(ghost.CoreAxisDeg.Value - real.CoreAxisDeg.Value);
             }
-            else if (string.Equals(view, PartParityFxRules.ViewFxBottom, StringComparison.Ordinal))
+            else if (PartParityFxRules.IsAxisView(view))
             {
                 if (real.CorePx > 0) c.CrossSectionAreaRatio = (double)ghost.CorePx / real.CorePx;
                 double? nozzle = axis?.NozzleDiameterPx;

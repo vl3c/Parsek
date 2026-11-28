@@ -363,7 +363,7 @@ namespace Parsek.TestCommands
                     : string.Equals(v.vesselName, selector.Name, StringComparison.Ordinal);
                 if (!match) continue;
 
-                if (GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId))
                 {
                     ghostMatches++;
                     continue;

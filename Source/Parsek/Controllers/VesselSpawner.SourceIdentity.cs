@@ -248,7 +248,7 @@ namespace Parsek
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void ReadActiveVesselIdentity(out uint pid, out string guid)
         {
-            Vessel active = FlightGlobals.ActiveVessel;
+            Vessel active = FarWatchPlayerVessel.Resolve();
             pid = active != null ? active.persistentId : 0u;
             guid = active != null && active.id != Guid.Empty
                 ? active.id.ToString("N", CultureInfo.InvariantCulture)

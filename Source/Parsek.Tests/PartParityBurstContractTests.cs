@@ -286,17 +286,17 @@ namespace Parsek.Tests
             => Assert.Equal("contexts-arg-invalid", GrammarReject(kv));
 
         [Fact]
-        public void AWellFormedBurstOrDustRun_IsRefusedUntilTheDriverLands()
+        public void AWellFormedBurstOrDustRun_ParsesNowTheDriverIsBuilt()
         {
-            Assert.False(TestCommandPartParitySweep.BurstDustRunsBuilt);
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "explode", "contexts", "air"), out var parsed,
-                out string reason, out string detail));
-            Assert.Null(parsed);
-            Assert.Equal("burst-dust-runs-not-built", reason);
-            Assert.Equal("fx=explode", detail);
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "dust", "contexts", "ground"), out _, out reason, out detail));
-            Assert.Equal("burst-dust-runs-not-built", reason);
-            Assert.Equal("fx=dust", detail);
+            Assert.True(TestCommandPartParitySweep.BurstDustRunsBuilt);
+            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "explode", "contexts", "air"), out var parsed,
+                out string reason, out _));
+            Assert.Null(reason);
+            Assert.True(TestCommandPartParitySweep.IsBurstRun(parsed));
+            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("fx", "dust", "contexts", "ground"), out parsed, out reason, out _));
+            Assert.Null(reason);
+            Assert.True(TestCommandPartParitySweep.IsDustRun(parsed));
+            Assert.True(TestCommandPartParitySweep.IsPadHostRun(parsed));
             // A malformed one keeps its own reason; every P8 run parses as before.
             Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("fx", "dust"), out _, out reason, out _));
             Assert.Equal("fx-arg-invalid", reason);
@@ -305,7 +305,7 @@ namespace Parsek.Tests
                 Assert.True(TestCommandPartParitySweep.TryParseArgs(Args(kv), out parsed, out reason, out _), string.Join(" ", kv));
                 Assert.Null(reason);
             }
-            // The refusal follows the last grammar token, before the admission.
+            // The reason token stays in its place for a build without the driver.
             var reasons = TestCommandPartParitySweep.Reasons.ToList();
             Assert.Equal(reasons.IndexOf("maxseconds-arg-invalid") + 1, reasons.IndexOf("burst-dust-runs-not-built"));
             Assert.Equal(reasons.IndexOf("burst-dust-runs-not-built") + 1, reasons.IndexOf("no-active-vessel"));

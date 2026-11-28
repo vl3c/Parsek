@@ -205,7 +205,7 @@ namespace Parsek
                 return false;
             if (focusedVessel != null && vessel.persistentId == focusedVessel.persistentId)
                 return false;
-            if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
+            if (GhostMapPresence.IsGhostOrDroneVessel(vessel.persistentId))
                 return false;
             if (vessel.vesselType == VesselType.Debris
                 || vessel.vesselType == VesselType.EVA

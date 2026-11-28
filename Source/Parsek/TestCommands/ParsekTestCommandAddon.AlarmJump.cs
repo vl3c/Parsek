@@ -75,7 +75,7 @@ namespace Parsek.TestCommands
             }
 
             uint pid = target.persistentId;
-            bool targetIsGhost = GhostMapPresence.IsGhostMapVessel(pid);
+            bool targetIsGhost = GhostMapPresence.IsGhostOrDroneVessel(pid);
             bool targetLoaded = target.loaded;
             uint before = ActiveVesselPidOrZero();
             bool pidIsLive = FlightGlobals.PersistentVesselIds != null

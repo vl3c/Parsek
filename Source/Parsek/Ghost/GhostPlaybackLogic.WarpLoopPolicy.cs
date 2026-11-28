@@ -65,16 +65,16 @@ namespace Parsek
         /// <summary>
         /// Bug #450 B3: decides whether a deferred reentry-FX build should fire on the
         /// current frame. Returns true when the ghost is inside a body's atmosphere AND
-        /// moving fast enough for reentry visuals to be imminent (speed ≥ the
-        /// <c>ReentryPotentialSpeedFloor</c> = 400 m/s ≈ Mach 1.2 at sea-level Kerbin —
-        /// the floor shared with <c>TrajectoryMath.HasReentryPotential</c>).
+        /// moving fast enough for stock's effect to be possible (speed at or above
+        /// <c>TrajectoryMath.ReentryPotentialSpeedFloor</c>, the lowest speed at which stock's
+        /// FxScalar can rise above 0 in the densest stock surface air, less a margin; the
+        /// floor shared with <c>TrajectoryMath.HasReentryPotential</c>).
         ///
-        /// The speed gate prevents launch recordings (pad → ascent) from triggering the
+        /// The speed gate prevents launch recordings (pad to ascent) from triggering the
         /// build on the very first playback frame: those ghosts are at 0 m/s at ground
-        /// level on frame 1 and only cross the 400 m/s floor several seconds later, so
-        /// the 7 ms build shifts off the spawn hitch by design. Atmospheric-start
-        /// recordings where the ghost is already above 400 m/s (mid-reentry saves) still
-        /// fire on frame 1 — that is correct because we legitimately need FX right away.
+        /// level on frame 1 and only cross the floor a few seconds later, so the build
+        /// shifts off the spawn hitch. Atmospheric-start recordings already above the floor
+        /// (mid-reentry saves) still build on frame 1, because they need the effect at once.
         ///
         /// Pure helper so the condition is unit-testable without Unity or FlightGlobals.
         /// </summary>

@@ -489,6 +489,14 @@ name = "Parsek.TestCommands.EvaMoveInputPatch"
 default = "scoped"
 reason = "the EvaMove seam verb's input drive (automation only, Prepare-gated): armed by one EvaMove step's applier, disarmed by its completion, its reset and the addon's two-phase clear"
 
+[[type]]
+name = "Parsek.TestCommands.PartParityBurstDriver"
+reason = "the part parity sweep's live burst driver (automation only)"
+[type.fields]
+currentTrial = "scoped: set around one burst trigger frame by TriggerAll and cleared in its finally (the onPartDie / onPartJointBreak handlers it subscribes are removed there too)"
+queuedField = "process: a reflection cache of FXMonger's private queue field, resolved once"
+protoFields = "process: a reflection cache of the queued-explosion type's position and power fields, filled once per type"
+
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its
 # write sites (the writes listed in the reason are every production write).
@@ -572,6 +580,14 @@ reason = "the scene-exit intercept's one-shot permit"
 [type.fields]
 s_AllowNextLoadScene = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
 s_AllowNextLoadSceneDestination = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
+
+[[type]]
+name = "Parsek.GhostAeroFxRenderer"
+reason = "the ghost reentry sheath drawn with stock's FX cameras (part parity P9 Y1)"
+[type.fields]
+instance = "scene: the flight scene's renderer object; Awake-time creation by the first sheath offer sets it and OnDestroy (scene unload) clears it"
+constantsRead = "process: whether the PhysicsGlobals aero FX constants were read; Physics.cfg is loaded once per game start"
+cachedConstants = "process: the PhysicsGlobals aero FX constants, read once; constants of the loaded game"
 
 [[type]]
 name = "Parsek.GhostMapPresence"
@@ -748,3 +764,21 @@ hingePistonTransformsFieldResolved = "process: resolve-once latch for that refle
 animationRestSampleCache = "process: prefab-derived animation rest-state sample cache, cleared with ClearAnimateHeatCache"
 nozzleGlowSampleCache = "process: prefab-derived nozzle glow clip sample cache, cleared with ClearAnimateHeatCache"
 colorChangerWritesOnlyWhileRamping = "process: resolve-once latch of whether KSPCommunityFixes patches ModuleColorChanger.Update"
+cachedExplosionPuffTexture = "process: the generated lumpy puff texture the hand-built explosion's smoke and fire share, built once"
+
+[[type]]
+name = "Parsek.CameraDroneIdentity"
+default = "load-transition"
+reason = "the far-watch camera drone's ids and the player ship it stands in for (design-far-watch.md 6.1); kept across a scene exit only for the next save / load strip (StripPending), cleared by the far-watch teardown, ClearAfterStrip, ParsekScenario.OnLoad's ClearOnLoad and the test runner's between-run reset"
+[type.fields]
+SwitchTokenHeld = "scoped: true only inside Parsek's own ForceSetActiveVessel call (BeginSwitch / EndSwitch in a try / finally)"
+
+[[type]]
+name = "Parsek.FarWatchAwardScope"
+default = "scene"
+reason = "the far-watch award stamp, read only in the frame it was taken, so a stale one is inert; the far-watch teardown and abort and the test runner's between-run reset clear it"
+
+[[type]]
+name = "Parsek.Patches.FarWatchFencePolicy"
+default = "process"
+reason = "how many career fence targets resolved when Harmony applied the patches, once per process"

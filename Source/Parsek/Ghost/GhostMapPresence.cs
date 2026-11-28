@@ -735,6 +735,30 @@ namespace Parsek
             return ghostMapVesselPids.Contains(persistentId);
         }
 
+        /// <summary>
+        /// The combined early return for every guard that must skip both a map ghost and the
+        /// camera drone (helper H1 of design-far-watch.md 11.2).
+        /// </summary>
+        internal static bool IsGhostOrDroneVessel(uint persistentId)
+        {
+            return ghostMapVesselPids.Contains(persistentId) || CameraDroneIdentity.IsDrone(persistentId);
+        }
+
+        /// <summary>
+        /// The ghost pid set plus the camera drone's pid, for the pure resolvers that take an
+        /// exclusion set (design-far-watch.md 11, DRONE-SAME): the ghost set itself while no drone
+        /// exists, otherwise a fresh copy with the drone added. Callers never mutate it.
+        /// </summary>
+        internal static HashSet<uint> GhostOrDronePidSet()
+        {
+            uint dronePid = CameraDroneIdentity.DronePid;
+            if (dronePid == 0 || ghostMapVesselPids.Contains(dronePid))
+                return ghostMapVesselPids;
+            var set = new HashSet<uint>(ghostMapVesselPids);
+            set.Add(dronePid);
+            return set;
+        }
+
         /// <summary>Test seam: marks a pid as a ghost map vessel (cleared by ResetForTesting).</summary>
         internal static void RegisterGhostMapVesselPidForTesting(uint persistentId)
         {

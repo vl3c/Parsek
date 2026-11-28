@@ -411,7 +411,7 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static Vessel ReadActiveVesselCore()
         {
-            return HighLogic.LoadedSceneIsFlight ? FlightGlobals.ActiveVessel : null;
+            return HighLogic.LoadedSceneIsFlight ? FarWatchPlayerVessel.Resolve() : null;
         }
     }
 

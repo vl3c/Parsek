@@ -10,101 +10,6 @@ namespace Parsek
     internal static partial class GhostVisualBuilder
     {
         /// <summary>
-        /// Builds the smoke child particle system for SpawnExplosionFx.
-        /// Returns the created ParticleSystem, or null if the shader was not found.
-        /// </summary>
-        private static ParticleSystem BuildExplosionSmokeChild(
-            GameObject parentObj, float vesselLength)
-        {
-            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
-            if (alphaShader == null)
-            {
-                ParsekLog.Warn("GhostVisual", "BuildExplosionSmokeChild shader 'KSP/Particles/Alpha Blended' not found — skipping smoke child");
-                return null;
-            }
-
-            var smokeObj = new GameObject("Smoke");
-            smokeObj.transform.SetParent(parentObj.transform, false);
-
-            var smokePs = smokeObj.AddComponent<ParticleSystem>();
-            var smokeMain = smokePs.main;
-            smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
-            smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(2.0f, 3.5f);
-            smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 0.25f, vesselLength * 1f);
-            smokeMain.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.3f, vesselLength * 0.8f);
-            smokeMain.maxParticles = 400;
-            smokeMain.playOnAwake = false;
-            smokeMain.loop = false;
-            smokeMain.gravityModifier = 0.03f;
-            smokeMain.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(0.3f, 0.3f, 0.3f, 0.6f),
-                new Color(0.15f, 0.12f, 0.1f, 0.5f));
-
-            var smokeShape = smokePs.shape;
-            smokeShape.shapeType = ParticleSystemShapeType.Sphere;
-            smokeShape.radius = vesselLength * 0.3f;
-
-            var smokeEmission = smokePs.emission;
-            smokeEmission.enabled = true;
-            smokeEmission.rateOverTime = 0f;
-            smokeEmission.SetBursts(new ParticleSystem.Burst[]
-            {
-                new ParticleSystem.Burst(0.1f, 160, 240)
-            });
-
-            var smokeColor = smokePs.colorOverLifetime;
-            smokeColor.enabled = true;
-            var smokeGradient = new Gradient();
-            smokeGradient.SetKeys(
-                new GradientColorKey[]
-                {
-                    new GradientColorKey(new Color(0.4f, 0.35f, 0.3f), 0f),
-                    new GradientColorKey(new Color(0.25f, 0.22f, 0.2f), 0.4f),
-                    new GradientColorKey(new Color(0.15f, 0.13f, 0.12f), 1f)
-                },
-                new GradientAlphaKey[]
-                {
-                    new GradientAlphaKey(0.0f, 0f),
-                    new GradientAlphaKey(0.5f, 0.1f),
-                    new GradientAlphaKey(0.4f, 0.5f),
-                    new GradientAlphaKey(0f, 1f)
-                }
-            );
-            smokeColor.color = smokeGradient;
-
-            var smokeSize = smokePs.sizeOverLifetime;
-            smokeSize.enabled = true;
-            smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(
-                    new Keyframe(0f, 0.5f),
-                    new Keyframe(0.3f, 1.5f),
-                    new Keyframe(1f, 3.0f)));
-
-            var smokeNoise = smokePs.noise;
-            smokeNoise.enabled = true;
-            smokeNoise.strength = vesselLength * 0.2f;
-            smokeNoise.frequency = 1.5f;
-            smokeNoise.scrollSpeed = 0.8f;
-            smokeNoise.damping = true;
-
-            var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
-            smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-            smokeRenderer.maxParticleSize = 12f;
-
-            if (cachedExplosionTexture == null)
-                cachedExplosionTexture = CreateSoftCircleTexture(32);
-            var smokeMat = new Material(alphaShader);
-            smokeMat.mainTexture = cachedExplosionTexture;
-            smokeMat.SetColor("_TintColor", new Color(0.3f, 0.25f, 0.2f, 0.5f));
-            smokeRenderer.material = smokeMat;
-
-            var smokeCleanup = smokeObj.AddComponent<MaterialCleanup>();
-            smokeCleanup.material = smokeMat;
-
-            return smokePs;
-        }
-
-        /// <summary>
         /// Spawns a small smoke puff + spark burst at a part's world position.
         /// Used when a Decoupled or Destroyed part event is applied during ghost playback.
         /// Much smaller than the vessel explosion — just visual feedback for part separation.
@@ -398,133 +303,361 @@ namespace Parsek
             }
             ParsekLog.VerboseRateLimited("ExplosionFx", "stock-copy-unavailable",
                 $"Stock explosion copy unavailable ({why}); drawing Parsek's hand-built explosion", 10.0);
-            return SpawnExplosionFx(worldPosition, vesselLength);
+            return SpawnExplosionFx(worldPosition, vesselLength, power);
         }
 
         /// <summary>
-        /// Spawns a fire-and-forget explosion particle effect at the given world position.
-        /// The returned GameObject auto-destroys after particles expire.
-        /// Used when ghost playback reaches the end of a destroyed recording.
+        /// Parsek's hand-built explosion, drawn only when no silent copy of stock's explosion is
+        /// kept (see <see cref="SpawnFallbackExplosionFx"/>). It copies the stock explosion
+        /// FXMonger would pick for <paramref name="power"/> (<see cref="FallbackExplosionLook"/>):
+        /// a fireball and a flash only for the bigger blasts, white streak sparks, and a cloud of
+        /// dark and lighter grey smoke, each at stock's measured size for that blast. A NaN power
+        /// falls back to the craft length's power.
+        /// The returned GameObject destroys itself once its particles are gone.
         /// </summary>
-        internal static GameObject SpawnExplosionFx(Vector3 worldPosition, float vesselLength)
+        internal static GameObject SpawnExplosionFx(Vector3 worldPosition, float vesselLength, double power)
         {
-            Shader particleShader = Shader.Find("KSP/Particles/Additive");
-            if (particleShader == null)
+            Shader additiveShader = Shader.Find("KSP/Particles/Additive");
+            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
+            if (additiveShader == null && alphaShader == null)
             {
-                ParsekLog.Warn("ExplosionFx", "Shader 'KSP/Particles/Additive' not found — explosion will not be created");
+                ParsekLog.Warn("ExplosionFx", "Shaders 'KSP/Particles/Additive' and 'KSP/Particles/Alpha Blended' not found - explosion will not be created");
                 return null;
             }
 
-            var obj = new GameObject("GhostExplosionFx");
-            obj.transform.position = worldPosition;
-
-            var ps = obj.AddComponent<ParticleSystem>();
-
-            // Main module
-            var main = ps.main;
-            main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 1f, vesselLength * 3f);
-            main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.08f, vesselLength * 0.35f);
-            main.maxParticles = 400;
-            main.playOnAwake = false;
-            main.prewarm = false;
-            main.loop = false;
-            main.gravityModifier = 0.15f;
-            main.startColor = new ParticleSystem.MinMaxGradient(
-                new Color(1f, 0.9f, 0.5f, 0.9f),
-                new Color(1f, 0.6f, 0.2f, 0.9f));
-
-            // Shape: sphere burst
-            var shape = ps.shape;
-            shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = vesselLength * 0.2f;
-
-            // Emission: single burst
-            var emission = ps.emission;
-            emission.enabled = true;
-            emission.rateOverTime = 0f;
-            emission.SetBursts(new ParticleSystem.Burst[]
-            {
-                new ParticleSystem.Burst(0f, 200, 300)
-            });
-
-            // Color over lifetime: bright yellow-white → orange → red-brown → fade
-            var colorOverLifetime = ps.colorOverLifetime;
-            colorOverLifetime.enabled = true;
-            var gradient = new Gradient();
-            gradient.SetKeys(
-                new GradientColorKey[]
-                {
-                    new GradientColorKey(new Color(1f, 0.95f, 0.6f), 0f),
-                    new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.25f),
-                    new GradientColorKey(new Color(0.8f, 0.25f, 0.05f), 0.6f),
-                    new GradientColorKey(new Color(0.3f, 0.1f, 0.02f), 1f)
-                },
-                new GradientAlphaKey[]
-                {
-                    new GradientAlphaKey(0.9f, 0f),
-                    new GradientAlphaKey(0.7f, 0.25f),
-                    new GradientAlphaKey(0.2f, 0.7f),
-                    new GradientAlphaKey(0f, 1f)
-                }
-            );
-            colorOverLifetime.color = gradient;
-
-            // Size over lifetime: expanding fireball
-            var sizeOverLifetime = ps.sizeOverLifetime;
-            sizeOverLifetime.enabled = true;
-            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(
-                    new Keyframe(0f, 1f),
-                    new Keyframe(0.4f, 1.5f),
-                    new Keyframe(1f, 2.0f)));
-
-            // Noise: turbulence for organic explosion look
-            var noise = ps.noise;
-            noise.enabled = true;
-            noise.strength = vesselLength * 0.15f;
-            noise.frequency = 2.5f;
-            noise.scrollSpeed = 1.5f;
-            noise.damping = true;
-
-            // Renderer: additive shader with soft-circle texture
-            var psRenderer = obj.GetComponent<ParticleSystemRenderer>();
-            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-            psRenderer.maxParticleSize = 10f;
+            double usedPower = FallbackExplosionLook.ResolvePower(power, vesselLength);
+            FallbackExplosionLook look = FallbackExplosionLook.Resolve(usedPower);
 
             if (cachedExplosionTexture == null)
                 cachedExplosionTexture = CreateSoftCircleTexture(32);
+            if (cachedExplosionPuffTexture == null)
+                cachedExplosionPuffTexture = CreateExplosionPuffTexture(64);
 
-            var mat = new Material(particleShader);
-            mat.mainTexture = cachedExplosionTexture;
-            mat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
-            psRenderer.material = mat;
+            var obj = new GameObject("GhostExplosionFx");
+            obj.transform.position = worldPosition;
+            // Local up is the body's up, so the flattened cloud lies along the ground.
+            obj.transform.rotation = Quaternion.FromToRotation(Vector3.up,
+                StockExplosionPrefabCache.ResolveUp(worldPosition));
 
-            // Attach self-cleanup so the Material is destroyed when the GO is destroyed
-            var cleanup = obj.AddComponent<MaterialCleanup>();
-            cleanup.material = mat;
-
-            // --- Smoke child particle system ---
-            var smokePs = BuildExplosionSmokeChild(obj, vesselLength);
+            // The smoke and the fireball are alpha-blended (the fire sorted over the smoke); the
+            // flash and the sparks are additive on top.
+            var systems = new List<ParticleSystem>(4);
+            int built = 0;
+            if (alphaShader != null)
+            {
+                built += AddIfBuilt(systems, BuildFallbackExplosionSmoke(obj, alphaShader, look));
+                if (look.HasFire) built += AddIfBuilt(systems, BuildFallbackExplosionFire(obj, alphaShader, look));
+            }
+            if (additiveShader != null)
+            {
+                if (look.HasFlash) built += AddIfBuilt(systems, BuildFallbackExplosionFlash(obj, additiveShader, look));
+                if (look.HasSparks) built += AddIfBuilt(systems, BuildFallbackExplosionSparks(obj, additiveShader, look));
+            }
 
             // Stock moves its own explosions (FXMonger.offsetPositions); this one is Parsek's.
             GhostWorldSpaceEmitter.AttachOwn(obj);
 
-            if (smokePs != null)
-                smokePs.Play();
+            for (int i = 0; i < systems.Count; i++)
+                systems[i].Play();
 
-            ps.Play();
-
-            // Auto-destroy after max smoke lifetime + buffer
-            Object.Destroy(obj, 5.0f);
+            Object.Destroy(obj, look.DestroyAfterSeconds);
 
             ParsekLog.Verbose("ExplosionFx",
-                $"Spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
+                $"Spawned hand-built explosion at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) " +
+                $"vesselLength={vesselLength:F1}m power={usedPower.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"{look.Describe()} systems={built.ToString(CultureInfo.InvariantCulture)}" +
+                (alphaShader == null ? " (no smoke/fire: alpha shader missing)" : "") +
+                (additiveShader == null ? " (no flash/sparks: additive shader missing)" : ""));
 
             GhostTransientFxRecord.Note(
-                GhostTransientFxKind.CustomExplosion, worldPosition, double.NaN, vesselLength, obj);
+                GhostTransientFxKind.CustomExplosion, worldPosition, usedPower, vesselLength, obj);
             return obj;
+        }
+
+        private static int AddIfBuilt(List<ParticleSystem> systems, ParticleSystem ps)
+        {
+            if (ps == null) return 0;
+            systems.Add(ps);
+            return 1;
+        }
+
+        // One child particle system with its material and the material's cleanup; the caller sets
+        // its modules. World space, one burst, no loop. The smoke and the fire draw the lumpy puff,
+        // the flash and the sparks the soft circle.
+        private static ParticleSystem NewExplosionPart(GameObject parent, string name, Shader shader,
+            Color tint, int maxParticles, Texture2D texture, out ParticleSystemRenderer renderer)
+        {
+            var child = new GameObject(name);
+            child.transform.SetParent(parent.transform, false);
+            var ps = child.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = maxParticles;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.loop = false;
+
+            renderer = child.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            var mat = new Material(shader);
+            mat.mainTexture = texture;
+            mat.SetColor("_TintColor", tint);
+            renderer.material = mat;
+            var cleanup = child.AddComponent<MaterialCleanup>();
+            cleanup.material = mat;
+            return ps;
+        }
+
+        private static void SetSingleBurst(ParticleSystem ps, float time, int count)
+        {
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0f;
+            emission.SetBursts(new ParticleSystem.Burst[] { new ParticleSystem.Burst(time, (short)count, (short)count) });
+        }
+
+        /// <summary>
+        /// The smoke cloud: dense lumpy puffs picked between a dark and a lighter grey that swell,
+        /// churn, billow upward and fade, about <see cref="FallbackExplosionLook.SmokeDiameter"/>
+        /// across (puff centres spread over 0.6 of it, each puff about half of it).
+        /// The neutral 0.5 tint leaves the particle colours as they are (the KSP particle shaders
+        /// double the tint), so the cloud stays grey, never brown. Its alpha rises after the
+        /// fireball has had its moment, as stock's cloud takes over from its fire.
+        /// </summary>
+        private static ParticleSystem BuildFallbackExplosionSmoke(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
+        {
+            var ps = NewExplosionPart(parent, "Smoke", alphaShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
+                look.SmokeCount, cachedExplosionPuffTexture, out ParticleSystemRenderer renderer);
+            renderer.maxParticleSize = 3f;
+
+            float d = look.SmokeDiameter;
+            var main = ps.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.SmokeLifetimeMin, look.SmokeLifetimeMax);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.1f, d * 0.25f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.4f, d * 0.55f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            // A fireball's cloud billows up; a small blast's puff hugs the ground, as stock's does.
+            main.gravityModifier = look.HasFire ? -0.15f : -0.04f;
+            float dark = look.SmokeDarkGrey, light = look.SmokeLightGrey;
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(dark, dark, dark, 0.9f),
+                new Color(light, light, light, 0.8f));
+
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = d * 0.3f;
+            // Wider than tall: stock's clouds spread along the ground.
+            shape.scale = new Vector3(1f, look.HasFire ? 0.6f : 0.4f, 1f);
+
+            SetSingleBurst(ps, 0.05f, look.SmokeCount);
+
+            // Under a fireball the cloud shows once the fire burns down; alone it shows at once.
+            float rise = look.HasFire ? Mathf.Clamp01(look.FireLifetime * 0.6f / look.SmokeLifetimeMin) : 0.1f;
+            var color = ps.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(Color.white, 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.95f, rise),
+                    new GradientAlphaKey(0.75f, Mathf.Lerp(rise, 1f, 0.5f)),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = gradient;
+
+            var size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.3f, 1f), new Keyframe(1f, 1.3f)));
+
+            var velocity = ps.limitVelocityOverLifetime;
+            velocity.enabled = true;
+            velocity.dampen = 0.25f;
+            velocity.limit = d * 0.08f;
+
+            // A slow churn so the cloud's outline keeps breaking up instead of growing as a disc.
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = d * 0.04f;
+            noise.frequency = 0.6f;
+            noise.scrollSpeed = 0.4f;
+            noise.damping = true;
+            return ps;
+        }
+
+        /// <summary>
+        /// The fireball: dense lumpy yellow puffs that swell to about
+        /// <see cref="FallbackExplosionLook.FireDiameter"/> (centres over 0.55 of it, each puff
+        /// about half of it) and burn through orange to a dark red-brown as they fade. Alpha-blended, so it stays a saturated yellow against a bright
+        /// sky (an additive one washes out to white), and sorted over the smoke. It stays
+        /// yellow for about 0.4 of its life, as stock's does, before it browns.
+        /// </summary>
+        private static ParticleSystem BuildFallbackExplosionFire(GameObject parent, Shader alphaShader, FallbackExplosionLook look)
+        {
+            // A 0.6 tint brightens the colours by a fifth (the shader doubles it), so the hot core
+            // clips to the near-white yellow of stock's fireball while the alpha stays as set.
+            var ps = NewExplosionPart(parent, "Fire", alphaShader, new Color(0.6f, 0.6f, 0.6f, 0.5f),
+                look.FireCount, cachedExplosionPuffTexture, out ParticleSystemRenderer renderer);
+            renderer.maxParticleSize = 3f;
+            renderer.sortingFudge = -20f;
+
+            float d = look.FireDiameter;
+            var main = ps.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FireLifetime * 0.7f, look.FireLifetime);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(d * 0.15f, d * 0.35f);
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 0.45f, d * 0.6f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.95f, 0.35f, 1f), new Color(1f, 0.85f, 0.25f, 1f));
+
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = d * 0.28f;
+            shape.scale = new Vector3(1f, 0.8f, 1f);
+
+            SetSingleBurst(ps, 0f, look.FireCount);
+
+            var color = ps.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(Color.white, 0.4f),
+                    new GradientColorKey(new Color(1f, 0.72f, 0.35f), 0.62f),
+                    new GradientColorKey(new Color(0.5f, 0.3f, 0.22f), 0.82f),
+                    new GradientColorKey(new Color(0.35f, 0.32f, 0.3f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(1f, 0.5f),
+                    new GradientAlphaKey(0.6f, 0.8f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = gradient;
+
+            var size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.45f), new Keyframe(0.4f, 1f), new Keyframe(1f, 1.1f)));
+
+            var velocity = ps.limitVelocityOverLifetime;
+            velocity.enabled = true;
+            velocity.dampen = 0.25f;
+            velocity.limit = d * 0.08f;
+
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = d * 0.05f;
+            noise.frequency = 0.8f;
+            noise.scrollSpeed = 0.6f;
+            noise.damping = true;
+            return ps;
+        }
+
+        /// <summary>The opening flash: a few large white glows that swell and fade fast.</summary>
+        private static ParticleSystem BuildFallbackExplosionFlash(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
+        {
+            var ps = NewExplosionPart(parent, "Flash", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
+                4, cachedExplosionTexture, out ParticleSystemRenderer renderer);
+            renderer.maxParticleSize = 3f;
+            renderer.sortingFudge = -40f;
+
+            float d = look.FlashDiameter;
+            var main = ps.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.FlashLifetime * 0.8f, look.FlashLifetime);
+            main.startSpeed = 0f;
+            // The soft glow shows about 0.6 of its size, so the particle is larger than the flash.
+            main.startSize = new ParticleSystem.MinMaxCurve(d * 1.5f, d * 1.9f);
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 1f, 0.95f, 1f), new Color(1f, 0.95f, 0.8f, 1f));
+
+            var shape = ps.shape;
+            shape.enabled = false;
+
+            SetSingleBurst(ps, 0f, 3);
+
+            var color = ps.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(1f, 0.9f, 0.7f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(0.8f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = gradient;
+
+            var size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(new Keyframe(0f, 0.4f), new Keyframe(0.5f, 1f), new Keyframe(1f, 1.1f)));
+            return ps;
+        }
+
+        /// <summary>
+        /// The sparks: thin white streaks (velocity-stretched billboards) flung outward, slowing
+        /// and falling a little, as stock's explosions throw them.
+        /// </summary>
+        private static ParticleSystem BuildFallbackExplosionSparks(GameObject parent, Shader additiveShader, FallbackExplosionLook look)
+        {
+            var ps = NewExplosionPart(parent, "Sparks", additiveShader, new Color(0.5f, 0.5f, 0.5f, 0.5f),
+                look.SparkCount, cachedExplosionTexture, out ParticleSystemRenderer renderer);
+            renderer.renderMode = ParticleSystemRenderMode.Stretch;
+            renderer.velocityScale = 0.1f;
+            renderer.lengthScale = 1f;
+            renderer.maxParticleSize = 0.5f;
+
+            var main = ps.main;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(look.SparkLifetime * 0.5f, look.SparkLifetime);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(look.SparkSpeedMin, look.SparkSpeedMax);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.1f, 0.2f);
+            main.gravityModifier = 0.25f;
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 1f, 1f, 1f), new Color(1f, 0.92f, 0.75f, 1f));
+
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = 0.3f;
+
+            SetSingleBurst(ps, 0f, look.SparkCount);
+
+            var color = ps.colorOverLifetime;
+            color.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(Color.white, 0f),
+                    new GradientColorKey(new Color(1f, 0.9f, 0.75f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(0.7f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = gradient;
+
+            var velocity = ps.limitVelocityOverLifetime;
+            velocity.enabled = true;
+            velocity.dampen = 0.08f;
+            velocity.limit = look.SparkSpeedMax * 0.35f;
+            return ps;
         }
 
         /// <summary>
@@ -760,6 +893,49 @@ namespace Parsek
             info.generatedTexture = null;
             info.particles = null;
             info.dustObject = null;
+        }
+
+        /// <summary>
+        /// A lumpy puff for the hand-built explosion's smoke and fire: a core disc and four lobes,
+        /// each with a firm edge, so a puff reads as a cauliflower clump with a ragged outline the
+        /// way stock's explosion clouds do (a soft circle reads as a small smooth blob). The RGB
+        /// carries a faint light-and-shade pattern so overlapping puffs keep some structure; the
+        /// particle colour sets the hue. Deterministic; each particle's random rotation varies it.
+        /// The visible part is about 0.75 of the particle size.
+        /// </summary>
+        private static Texture2D CreateExplosionPuffTexture(int size)
+        {
+            // Lobe centres (x, y) and radii in units of the half-size; all stay inside the square.
+            float[] lobes =
+            {
+                0f, 0f, 0.6f,
+                0.42f, 0.12f, 0.36f,
+                -0.18f, 0.4f, 0.38f,
+                -0.38f, -0.2f, 0.36f,
+                0.12f, -0.42f, 0.34f
+            };
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float half = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float u = (x + 0.5f - half) / half, v = (y + 0.5f - half) / half;
+                    float alpha = 0f;
+                    for (int i = 0; i < lobes.Length; i += 3)
+                    {
+                        float du = u - lobes[i], dv = v - lobes[i + 1], r = lobes[i + 2];
+                        float dist = Mathf.Sqrt(du * du + dv * dv);
+                        alpha = Mathf.Max(alpha, 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(r * 0.45f, r, dist)));
+                    }
+                    float shade = 0.95f + 0.04f * Mathf.Sin(u * 7.1f + 1.3f) * Mathf.Sin(v * 6.3f + 0.4f)
+                        + 0.04f * (0.5f - 0.5f * (u + v) * 0.5f);
+                    shade = Mathf.Clamp01(shade);
+                    tex.SetPixel(x, y, new Color(shade, shade, shade, alpha));
+                }
+            }
+            tex.Apply(false, true);
+            return tex;
         }
 
         private static Texture2D CreateSoftCircleTexture(int size)

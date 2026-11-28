@@ -52,6 +52,7 @@ namespace Parsek
     internal partial class WatchModeController
     {
         private readonly ParsekFlight host;
+        private bool exitingForWatchSwitch;
 
         internal const string WatchModeLockId = "ParsekWatch";
         // PITCH is in the mask so W (and S, the stock pitch-up key) cannot act
@@ -1650,7 +1651,15 @@ namespace Parsek
             if (switching)
             {
                 ParsekLog.Info("CameraFollow", $"Switching watch from #{watchedRecordingIndex} to #{index} \"{committed[index].VesselName}\"");
-                ExitWatchMode(skipCameraRestore: true);
+                exitingForWatchSwitch = true;
+                try
+                {
+                    ExitWatchMode(skipCameraRestore: true);
+                }
+                finally
+                {
+                    exitingForWatchSwitch = false;
+                }
             }
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
@@ -1856,7 +1865,7 @@ namespace Parsek
         private static void ShowUnattendedFlightWarningIfNeeded()
         {
             // Flight warning: if active vessel is in an unsafe state, show a brief screen message
-            var av = FlightGlobals.ActiveVessel;
+            var av = FarWatchPlayerVessel.Resolve();
             if (av != null)
             {
                 double pe = av.orbit != null ? av.orbit.PeA : 0;
@@ -2198,6 +2207,19 @@ namespace Parsek
         internal void ExitWatchMode(bool skipCameraRestore = false, bool preserveLineageProtection = false)
         {
             if (watchedRecordingIndex < 0) return;
+            // While the camera drone is the active vessel the normal restore would go to the drone
+            // or a ghost transform: skip it and re-target the drone in this same frame below; the
+            // ship's camera comes back at the far-watch hand-back (design 7.5). While the drone
+            // exists but is not active (spawning, hand-over, teardown, abort) the camera goes back
+            // to the active vessel as on any exit, never left under a ghost.
+            bool droneExists = CameraDroneIdentity.Exists;
+            bool droneActive = droneExists && IsActiveVesselCameraDrone();
+            bool skipRestore = ShouldSkipCameraRestoreOnWatchExit(skipCameraRestore, droneExists, droneActive);
+            if (skipRestore && !skipCameraRestore)
+                ParsekLog.Info("CameraFollow", "watch exit while the camera drone is the active vessel: normal camera restore skipped");
+            else if (droneExists && !droneActive && !skipCameraRestore)
+                ParsekLog.Info("CameraFollow", "watch exit while the camera drone exists but is not active: camera restored to the active vessel");
+            skipCameraRestore = skipRestore;
             RestoreCameraAfterWatchExit(skipCameraRestore);
 
             // Remove input locks
@@ -2210,6 +2232,50 @@ namespace Parsek
             // do not, so a cycle in flight survives the internal switch.
             if (!skipCameraRestore)
                 watchCycleCursorRecordingId = null;
+
+            if (droneExists && !exitingForWatchSwitch)
+            {
+                // One teardown owns every far-watch exit (pattern A5): the host, which owns
+                // the far watch, ends it and re-targets the camera.
+                if (host != null)
+                    host.EndFarWatchOnWatchExit();
+            }
+        }
+
+        /// <summary>
+        /// A watch exit skips the normal camera restore when the caller asked for it (a switch or
+        /// a transfer) or while the camera drone is the active vessel; a drone that exists but is
+        /// not active does not skip it (the camera would stay under the ghost).
+        /// </summary>
+        internal static bool ShouldSkipCameraRestoreOnWatchExit(bool requestedSkip, bool droneExists, bool droneActive)
+        {
+            return requestedSkip || (droneExists && droneActive);
+        }
+
+        private static bool IsActiveVesselCameraDrone()
+        {
+            Vessel active = GetActiveVesselSafe();
+            return active != null && CameraDroneIdentity.IsDrone(active.persistentId, active.id);
+        }
+
+        /// <summary>Far watch: the map camera follows the watched ghost again after the hand-over (12.1).</summary>
+        internal void RequestMapFocusRestoreForFarWatch()
+        {
+            if (watchedRecordingIndex < 0) return;
+            pendingMapFocusRestore = true;
+            ensureGhostOrbitRenderersAttempted = false;
+            ParsekLog.Verbose("CameraFollow", "far watch requested a map focus restore on the watched ghost");
+        }
+
+        /// <summary>The camera values watch mode saved at entry (the player ship's), for the far-watch hand-back.</summary>
+        internal bool TryGetSavedCameraForFarWatch(
+            out Vessel vessel, out float distance, out float pitchDegrees, out float headingDegrees)
+        {
+            vessel = savedCameraVessel;
+            distance = savedCameraDistance;
+            pitchDegrees = savedCameraPitch;
+            headingDegrees = savedCameraHeading;
+            return watchedRecordingIndex >= 0 && savedCameraVessel != null;
         }
 
         /// <summary>
@@ -2638,8 +2704,17 @@ namespace Parsek
             // The session keeps following the vessel it started on across the transfer.
             string preservedIdentityGuid = watchedIdentityGuid;
 
-            // Switch watch mode: exit old (preserving camera position), enter new
-            ExitWatchMode(skipCameraRestore: true);
+            // Switch watch mode: exit old (preserving camera position), enter new. A segment
+            // transfer keeps the watch, so a far watch survives it and re-keys to the new segment.
+            exitingForWatchSwitch = true;
+            try
+            {
+                ExitWatchMode(skipCameraRestore: true);
+            }
+            finally
+            {
+                exitingForWatchSwitch = false;
+            }
 
             // Set up new watch state
             watchedRecordingIndex = nextIndex;

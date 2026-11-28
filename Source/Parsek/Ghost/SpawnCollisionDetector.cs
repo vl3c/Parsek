@@ -1354,7 +1354,7 @@ namespace Parsek
 
                 LoadedVesselHitVerdict verdict = ClassifyLoadedVesselHit(
                     other.loaded,
-                    GhostMapPresence.IsGhostMapVessel(other.persistentId),
+                    GhostMapPresence.IsGhostOrDroneVessel(other.persistentId),
                     other.persistentId,
                     exemptVesselPid,
                     other.vesselType,
@@ -1417,7 +1417,7 @@ namespace Parsek
 
                 if (reportedPids.Add(other.persistentId))
                 {
-                    bool isActive = other == FlightGlobals.ActiveVessel;
+                    bool isActive = other == FarWatchPlayerVessel.Resolve();
                     ParsekLog.VerboseRateLimited(Tag,
                         "overlap-" + other.persistentId,
                         $"Spawn overlaps with {Recording.ResolveLocalizedName(other.vesselName)} " +

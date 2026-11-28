@@ -94,7 +94,14 @@ namespace Parsek.Patches
                 }
             }
 
-            if (v != null && __instance.gameObject == v.gameObject)
+            if (v != null && __instance.gameObject == v.gameObject && CameraDrone.Is(v))
+            {
+                // Never record the far-watch camera drone (H3, design-far-watch.md 7.4): the
+                // switch-complete handler already backgrounded the ship's recorder.
+                ParsekLog.VerboseRateLimited("PhysicsPatch", "active-drone-skip",
+                    "Skipping the active-vessel recording path: active vessel is the far-watch camera drone", 5.0);
+            }
+            else if (v != null && __instance.gameObject == v.gameObject)
             {
                 // Active vessel recording path
                 if (ActiveRecorder != null)

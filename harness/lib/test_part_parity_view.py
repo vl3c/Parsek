@@ -1951,8 +1951,16 @@ def legacy_sites(root):
         path = os.path.join(root, name + ".js")
         with open(path, "w", encoding="ascii") as fh:
             fh.write(text)
-        out.append((name, text.replace(json.dumps(root)[1:-1], "<ROOT>"), path))
+        out.append((name, rooted(text, root), path))
     return out
+
+
+def rooted(text, root):
+    """``text`` (JSON) with the temp ``root`` replaced by ``<ROOT>`` and the OS separator
+    under it written as ``/``: a sweep's ``dir`` is an ``os.path.join`` path, which Windows
+    spells with backslashes, so the pinned digests read the same on every platform."""
+    text = text.replace(json.dumps(root)[1:-1], "<ROOT>")
+    return re.sub(r'<ROOT>[^"]*', lambda m: m.group(0).replace("\\\\", "/"), text)
 
 
 def _site_data(root, dirs, site):
@@ -1995,7 +2003,7 @@ class LegacyPagePinTests(unittest.TestCase):
             self.assertNotIn('"motion"', text)
             if shutil.which("node"):
                 dom = _run_runner(tmp, DOM_DUMP_RUNNER, path)
-                text = json.dumps(dom, sort_keys=True).replace(json.dumps(tmp)[1:-1], "<ROOT>")
+                text = rooted(json.dumps(dom, sort_keys=True), tmp)
                 got_dom[name] = hashlib.sha256(text.encode("ascii")).hexdigest()
         self.assertEqual(self.DATA, got_data)
         if shutil.which("node"):

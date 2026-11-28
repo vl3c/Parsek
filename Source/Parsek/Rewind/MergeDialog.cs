@@ -227,7 +227,7 @@ namespace Parsek
                 mergeRefused = dominance.Applicable && !dominance.Pass;
                 ReFlyAutoSealPreviewResult preview = reFlyRec != null
                     ? ReFlyAutoSealPreviewer.Preview(
-                        reFlyRec, marker, FlightGlobals.ActiveVessel, attemptRows)
+                        reFlyRec, marker, FarWatchPlayerVessel.Resolve(), attemptRows)
                     : ReFlyAutoSealPreviewResult.NoSeal();
                 string labelSource;
                 timelineActionPermanent =
@@ -430,7 +430,7 @@ namespace Parsek
                         liveTree, "dialog-open", out attemptRows, treeAwaitsFinalize: true);
                 mergeRefused = dominance.Applicable && !dominance.Pass;
                 var preview = ReFlyAutoSealPreviewer.Preview(
-                    reFlyRec, marker, FlightGlobals.ActiveVessel, attemptRows);
+                    reFlyRec, marker, FarWatchPlayerVessel.Resolve(), attemptRows);
                 string labelSource;
                 timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(

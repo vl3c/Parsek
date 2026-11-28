@@ -1227,14 +1227,52 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Speed floor for reentry FX build. A trajectory whose peak recorded velocity
-        /// magnitude is below this threshold and that has no orbit segments cannot ever
-        /// produce reentry visuals — Mach 2.5 thermal FX requires ~675 m/s even in thin
-        /// atmosphere on Kerbin, and real reentry on Laythe/Duna/Eve is higher still.
-        /// 400 m/s is well under Mach 1.5 anywhere, giving a safe cutoff for stationary
-        /// part showcases, EVA walks, slow rovers, and low-speed suborbital hops.
+        /// Physics.cfg's <c>AerodynamicsFX</c> constants the speed floor is derived from (the
+        /// same values <c>AeroFxConstants.StockDefaults</c> and <c>GhostAeroFx.HeatFluxThreshold</c>
+        /// carry for the live effect; a unit test keeps them equal).
         /// </summary>
-        internal const float ReentryPotentialSpeedFloor = 400f;
+        internal const double AeroFxDensityScalar1 = 0.0091;
+        internal const double AeroFxDensityExponent1 = 0.5;
+        internal const double AeroFxDensityScalar2 = 0.09;
+        internal const double AeroFxDensityExponent2 = 2.0;
+        internal const double AeroFxVelocityExponent = 3.5;
+        internal const double AeroFxHeatFluxThreshold = 8000000.0;
+
+        /// <summary>
+        /// The densest air at any stock surface: Eve at sea level (506.625 kPa, about 6.2 kg/m^3).
+        /// Stock's effect starts at a lower speed in denser air, so this air sets the floor.
+        /// </summary>
+        internal const double StockDensestSurfaceAirDensity = 6.24;
+
+        /// <summary>The share the floor sits below the exact threshold speed.</summary>
+        internal const double ReentryPotentialSpeedMargin = 0.05;
+
+        /// <summary>
+        /// The lowest speed at which stock's <c>FxScalar</c> rises above 0 in air of this density:
+        /// the speed where <c>0.5 * densityFactor(rho) * v^3.5</c> equals the heat flux threshold
+        /// (<c>AerodynamicsFX.p0</c>). Stock's scalar has no Mach gate, so this is the effect's start
+        /// (condensation first, about 198 m/s at Kerbin sea level, about 80 m/s on Eve). Returns
+        /// positive infinity for air too thin or invalid to ever show it.
+        /// </summary>
+        internal static double MinimumAeroFxSpeed(double density)
+        {
+            if (double.IsNaN(density) || !(density > 0.0)) return double.PositiveInfinity;
+            double densityFactor = Math.Pow(density, AeroFxDensityExponent1) * AeroFxDensityScalar1
+                + Math.Pow(density, AeroFxDensityExponent2) * AeroFxDensityScalar2;
+            if (!(densityFactor > 0.0)) return double.PositiveInfinity;
+            return Math.Pow(2.0 * AeroFxHeatFluxThreshold / densityFactor, 1.0 / AeroFxVelocityExponent);
+        }
+
+        /// <summary>
+        /// Speed floor for the reentry FX build: the lowest speed at which stock's effect can
+        /// appear in the densest stock surface air (Eve's, so it covers every stock body), less
+        /// <see cref="ReentryPotentialSpeedMargin"/>. A trajectory that never reaches it and has
+        /// no orbit segments can never show the effect anywhere: part showcases, EVA walks, slow
+        /// rovers. Anything faster is built, because stock's scalar has no Mach gate (a 350 m/s
+        /// pass at Kerbin sea level shows a strong condensation sheath).
+        /// </summary>
+        internal static readonly float ReentryPotentialSpeedFloor =
+            (float)(MinimumAeroFxSpeed(StockDensestSurfaceAirDensity) * (1.0 - ReentryPotentialSpeedMargin));
 
         /// <summary>
         /// Returns true if the trajectory could plausibly produce reentry visuals during
@@ -1252,9 +1290,9 @@ namespace Parsek
         /// <b>Velocity frame:</b> <see cref="TrajectoryPoint.velocity"/> is the
         /// Krakensbane-corrected `rb_velocityD + Krakensbane.GetFrameVelocity()` captured
         /// at sample time. In KSP's body-co-rotating world frame this is effectively the
-        /// vessel's inertial speed, so a landed/stationary vessel reads ≈0 and the 400 m/s
-        /// floor safely excludes showcases, walks, rovers, and low-speed suborbital hops
-        /// while preserving every supersonic / orbital trajectory. NaN components in a
+        /// vessel's inertial speed, so a landed/stationary vessel reads about 0 and the
+        /// floor excludes showcases, walks and slow rovers while keeping every trajectory
+        /// fast enough for stock's effect in some stock air. NaN components in a
         /// point fail the ≥ comparison harmlessly and do not throw.
         ///
         /// Pure function — no Unity dependencies, no side effects. O(n) in trajectory

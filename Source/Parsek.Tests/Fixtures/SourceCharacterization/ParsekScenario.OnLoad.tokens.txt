@@ -14,6 +14,8 @@ S:"inert-game-mode"
 A:inertGameModePassthroughNode
 C:InFlightRecoveryRequest.Clear
 S:"OnLoad"
+C:CameraDroneIdentity.ClearOnLoad
+S:"OnLoad"
 C:ConverterJumpPolicy.ClearJumpedSpans
 S:"OnLoad"
 C:CommittedMilestoneReach.ClearSubjectScienceMirror

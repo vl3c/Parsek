@@ -44,6 +44,31 @@ namespace Parsek.Patches
         /// <summary>Raised after stock paid one parameter's completion reward.</summary>
         internal static event Action<ContractParameterRewardPaid> RewardPaid;
 
+        /// <summary>
+        /// The far-watch contract belt (design-far-watch.md 10.3): a completion of one of the 18
+        /// polled classes while the camera drone is the active vessel is drone-caused by
+        /// definition (those classes read only the active vessel), so it is not booked.
+        /// </summary>
+        private static bool IsDroneCausedPolledCompletion(ContractParameter p)
+        {
+            if (!CameraDroneIdentity.Exists)
+                return false;
+            string typeName = p.GetType().FullName;
+            if (!IsDroneCausedPolledCompletion(typeName, CameraDrone.IsActive()))
+                return false;
+            ParsekLog.Warn(FarWatchFencePolicy.Tag, "contract parameter completion not booked: " + typeName +
+                " completed while the far-watch camera drone is active (dronePid=" +
+                CameraDroneIdentity.DronePid.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                "); a career fence did not hold");
+            return true;
+        }
+
+        /// <summary>Pure half of the contract belt.</summary>
+        internal static bool IsDroneCausedPolledCompletion(string parameterTypeFullName, bool droneActive)
+        {
+            return droneActive && FarWatchFencePolicy.IsPolledParameterTypeName(parameterTypeFullName);
+        }
+
         static MethodBase TargetMethod()
         {
             var method = AccessTools.Method(typeof(ContractParameter), "AwardCompletion", Type.EmptyTypes);
@@ -59,6 +84,7 @@ namespace Parsek.Patches
             __state = default(ContractParameterRewardPaid);
             if (ParsekGameModeGate.CheckInert("ContractParameterRewardCapturePatch.Prefix")) return; // S9 game-mode gate
             if (__instance == null) return;
+            if (IsDroneCausedPolledCompletion(__instance)) return;
             try
             {
                 Contract root = __instance.Root;

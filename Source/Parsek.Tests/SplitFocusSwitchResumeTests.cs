@@ -176,11 +176,16 @@ namespace Parsek.Tests
         public void ResumeAfterFalseAlarm_KeepRecordedVessel_ResolvesByRecordingVesselId()
         {
             string body = PreparedMethodBody(RecorderPath, "public void ResumeAfterFalseAlarm(bool keepRecordedVessel)");
-            int pick = IndexOrFail(body, "keepRecordedVessel");
-            int byPid = IndexOrFail(body, "FindVesselByPid(RecordingVesselId)");
+            // The pick lives in ResolveResumeVessel since the far-watch H5 fix (it also stays on
+            // the recorded vessel while the camera drone is active).
+            int pick = IndexOrFail(body, "ResolveResumeVessel(keepRecordedVessel)");
             int assign = IndexOrFail(body, "RecordingVesselId = v.persistentId");
-            Assert.True(pick < byPid && byPid < assign,
+            Assert.True(pick < assign,
                 "ResumeAfterFalseAlarm must pick the recorded vessel before re-stamping RecordingVesselId");
+            string resolver = PreparedMethodBody(RecorderPath, "private Vessel ResolveResumeVessel(bool keepRecordedVessel)");
+            int keep = IndexOrFail(resolver, "ShouldResumeOnRecordedVessel(keepRecordedVessel");
+            int byPid = IndexOrFail(resolver, "FindVesselByPid(RecordingVesselId)");
+            Assert.True(keep < byPid, "ResolveResumeVessel must resolve the recorded vessel by RecordingVesselId");
         }
 
         private static void AssertEmitsBeforeEachFlush(string body, string name, int expectedFlushes)

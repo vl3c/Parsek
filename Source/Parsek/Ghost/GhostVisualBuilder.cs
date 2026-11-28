@@ -28,39 +28,12 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
-        // Reentry FX thresholds — matched to KSP stock Physics.cfg aeroFX parameters
-        // KSP shows thermal FX (orange flames) starting at Mach 2.5, fully orange at Mach 3.75
-        // aeroFXStrength ∝ velocity^3.5 * (0.0091 * density^0.5 + 0.09 * density^2)
-        // Density fade starts at 0.0015 kg/m³ (near edge of atmosphere)
-        internal const float AeroFxThermalStartMach = 2.5f;
-        internal const float AeroFxThermalFullMach = 3.75f;
-        internal const float AeroFxVelocityExponent = 3.5f;
-        internal const float AeroFxDensityScalar1 = 0.0091f;
-        internal const float AeroFxDensityExponent1 = 0.5f;
-        internal const float AeroFxDensityScalar2 = 0.09f;
-        internal const float AeroFxDensityExponent2 = 2f;
-        internal const float AeroFxDensityFadeStart = 0.0015f;
+        // Reentry FX: the scalar and its constants are stock's AerodynamicsFX (GhostAeroFx,
+        // AeroFxConstants); these are the ghost-side glow ramp and the drive smoothing.
         internal static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
         internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
         internal const float ReentrySmoothingRate = 18.0f;
         internal const float ReentryLayerAThreshold = 0.02f;
-        internal const float ReentryFireThreshold = 0.02f;
-
-        // Fire envelope particle configuration. Bug #538 targets roughly 2x the
-        // previous visible density; emission is the primary dial, while the cap only
-        // needs enough extra headroom to avoid clipping the denser stream.
-        internal const float ReentryFireDensityMultiplier = 2f;
-        internal const float ReentryFireLifetimeMin = 0.1f;
-        internal const float ReentryFireLifetimeMax = 0.35f;
-        internal const int ReentryFireMaxParticles = 2000;
-        internal const float ReentryFireEmissionMin = 300f * ReentryFireDensityMultiplier;
-        internal const float ReentryFireEmissionMax = 2000f * ReentryFireDensityMultiplier;
-
-        // Fire shell overlay: ghost meshes drawn at offsets along velocity
-        // Approximates KSP's FXCamera replacement shader (vertex displacement along airflow)
-        internal const int ReentryFireShellPasses = 4;
-        internal const float ReentryFireShellMaxOffset = 0.05f; // fraction of vesselLength
-        internal static readonly Color ReentryFireShellColor = new Color(1f, 0.45f, 0.12f, 1f);
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -1920,6 +1893,7 @@ namespace Parsek
 
         // Cached soft-circle texture for explosion FX (avoids per-explosion allocation in looping playback)
         private static Texture2D cachedExplosionTexture;
+        private static Texture2D cachedExplosionPuffTexture;
 
         // Cached FieldInfo for FXMonger's private static `fetch` singleton. Reading this
         // field directly mirrors FXMonger.Explode's own null-check (`if (!(fetch != null)) return;`)

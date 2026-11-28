@@ -346,8 +346,22 @@ def control_set(settings: Optional[Dict]) -> Tuple[str, ...]:
 
 
 def is_state_case(state: Optional[str]) -> bool:
-    """TestCommandPartParitySweep.IsStateCase: any state but ``stowed`` (four atlas rows)."""
+    """TestCommandPartParitySweep.IsStateCase: any state but ``stowed``. A ``motion-`` state
+    is a state case here too (the press gate, the press proof and the row cross-checks count
+    it as one), but it does not write the four-row atlas: see ``is_four_row_case``."""
     return (state or STATE_STOWED) != STATE_STOWED
+
+
+def is_four_row_case(sidecar: Optional[Dict]) -> bool:
+    """PartParityStateRun.FourRows as the capture leaves it: a state case that is not a motion
+    case (PartParityMotionDriver.Attach sets FourRows false). Only such a case writes the
+    four-row state atlas (``atlas_rows_for(True)``) and the views' ``start`` and ``stowedRef``
+    blocks; a motion case's P6 atlas, when it writes one, has the stowed case's two rows and
+    its views carry ``start`` and ``stowedRef`` null (its own evidence is the ``motion`` block
+    and ``motionAtlas``, judged by the motion recompute)."""
+    if not isinstance(sidecar, dict):
+        return False
+    return is_state_case(sidecar.get("state")) and not is_motion_case(sidecar)
 
 
 # The transformation families (PartParityStateRules.Families, design D.1 table order):
@@ -4225,8 +4239,10 @@ def judge_motion_ghost_late(normal: Optional[Dict], late: Optional[Dict],
 def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
     """Frame 0 and the last frame of a real-vs-real control within the real-vs-real allowance
     of 4.5 (``PartParitySweepPlan`` ``ctl-real-vs-real``): every view's same-time block has no
-    real-only or ghost-only pixel and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over
-    the threshold, and some view has coverage."""
+    real-only or ghost-only pixel outside the edge tolerance (``realOnlyTolPx`` /
+    ``ghostOnlyTolPx``; the two copies sit at different places, so an edge can differ by a
+    pixel) and at most REAL_VS_REAL_COLOR_NOISE_PX colour pixels over the threshold, and some
+    view has coverage."""
     frames = motion_frames(block)
     if not frames:
         return False
@@ -4236,7 +4252,7 @@ def motion_end_frames_within_allowance(block: Optional[Dict]) -> bool:
             return False
         for v in views:
             m = v.get("same")
-            if not isinstance(m, dict) or m.get("realOnlyPx") != 0 or m.get("ghostOnlyPx") != 0 \
+            if not isinstance(m, dict) or m.get("realOnlyTolPx") != 0 or m.get("ghostOnlyTolPx") != 0 \
                     or (_num(m.get("colorOverPx")) or 0) > REAL_VS_REAL_COLOR_NOISE_PX:
                 return False
         if not any((_num((v.get("same") or {}).get("realPx")) or 0) > 0 for v in views):
@@ -4260,9 +4276,14 @@ def judge_motion_control(cid: str, sidecars: Dict[str, Optional[Dict]]) -> Tuple
     block = motion_block(side)
     timing = block.get("timing") if isinstance(block, dict) else None
     if cid in MOTION_REAL_VS_REAL_CONTROL_IDS:
+        # The air control judges the canopy-scale curves only (H.3): stock aims each open
+        # canopy along its own airflow every tick, so two chutes falling side by side never
+        # draw the same last frame. PartParityMotionDriver's air judge passes true the same way.
+        ends_ok = (True if cid == CONTROL_MOTION_REAL_VS_REAL_AIR
+                   else motion_end_frames_within_allowance(block))
         return judge_motion_real_vs_real(timing, motion_frame_interval(block),
                                          _num((block or {}).get("predictedS")),
-                                         motion_end_frames_within_allowance(block), status)
+                                         ends_ok, status)
     if is_setup_fault(status):
         return CONTROLS_BAD, "setup %s" % (status or "<none>")
     normal_side = sidecars.get(motion_normal_id(cid))
@@ -4769,7 +4790,8 @@ PngReader = Callable[[str], Tuple[int, int, int, bytes]]
 def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[str]:
     """Recompute every view of one case from its decoded atlas (``(w, h, bpp,
     pixels)``, rows top-down) and return the differences with the sidecar. An atlas
-    whose layout does not match the sidecar's ``atlas`` block is itself a difference."""
+    whose layout does not match the sidecar's ``atlas`` block is itself a difference. A motion
+    case's P6 atlas is read with the stowed case's two rows (``is_four_row_case``)."""
     width, height, bpp, pixels = atlas
     meta = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
     tile = meta.get("tile")
@@ -4777,7 +4799,7 @@ def recompute_case(sidecar: Dict, atlas: Tuple[int, int, int, bytes]) -> List[st
     rows = meta.get("rows") or []
     if not isinstance(tile, int) or tile <= 0 or not cols:
         return ["atlas block unusable: tile=%s cols=%s" % (tile, cols)]
-    if is_state_case(sidecar.get("state")):
+    if is_four_row_case(sidecar):
         return _recompute_state_case(sidecar, atlas, tile, list(cols), list(rows))
     if list(rows) != list(ATLAS_ROWS):
         return ["atlas rows=%s (expected %s)" % (rows, list(ATLAS_ROWS))]
@@ -4813,14 +4835,15 @@ _PCT_BLOB_KEY = {"realOnlyBlobPct": "realOnlyBlobPx", "ghostOnlyBlobPct": "ghost
 
 
 def start_reload_problem(sidecar: Dict) -> Optional[str]:
-    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a state
-    case only; None when they agree or no atlas was written."""
+    """The reloaded start route's flag and its ``real-start`` atlas row go together, on a
+    four-row state case only (``is_four_row_case``); None when they agree or no atlas was
+    written."""
     atlas = sidecar.get("atlas") if isinstance(sidecar.get("atlas"), dict) else {}
     rows = atlas.get("rows")
     if not isinstance(rows, list):
         return None
     row, flag = ROW_REAL_START in rows, start_reloaded(sidecar)
-    if row == flag and not (row and not is_state_case(sidecar.get("state"))):
+    if row == flag and not (row and not is_four_row_case(sidecar)):
         return None
     return "start reload: flag=%s but atlas rows=%s" % (str(flag).lower(), rows)
 
@@ -4829,11 +4852,13 @@ def state_view_block_problems(sidecar: Dict) -> List[str]:
     """The view-block shape a state case must carry (design D.2, D.6): every view has a
     ``start`` block with every ``START_KEYS`` key and a ``stowedRef`` block with every
     ``STOWED_REF_KEYS`` key, and a reloaded start route has both its flag and its row
-    (``start_reload_problem``, any case). A stowed case, or a case with no views, has no other
+    (``start_reload_problem``, any case). A stowed case, a motion case (``is_four_row_case``:
+    its views carry ``start`` and ``stowedRef`` null, its blocks are ``motion_case_problems``'
+    and a missing ``motion`` block is completeness's), or a case with no views, has no other
     problem. Run over every case, not only the recompute sample."""
     reload = start_reload_problem(sidecar)
     problems: List[str] = [] if reload is None else [reload]
-    if not is_state_case(sidecar.get("state")):
+    if not is_four_row_case(sidecar):
         return problems
     for v in sidecar.get("views") or []:
         if not isinstance(v, dict):
@@ -6456,8 +6481,9 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         why = skin_flag_disagreement(sweep.sidecars.get(cid))
         if why:
             mismatches.append("%s %s" % (cid, why))
-    # The state view blocks (design D.6): every state case with views must carry its
-    # start and stowedRef blocks whole, sampled or not (the sampled ones are re-checked by
+    # The state view blocks (design D.6): every four-row state case with views (not a
+    # motion case, ``is_four_row_case``) must carry its start and stowedRef blocks whole,
+    # sampled or not (the sampled ones are re-checked by
     # the recompute itself, so they are skipped here to name each problem once).
     sampled = set(recompute_ids) if read_png is not None else set()
     for cid in part_ids + list(ctl_ids):

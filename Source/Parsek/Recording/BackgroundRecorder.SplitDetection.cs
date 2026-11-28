@@ -382,7 +382,7 @@ namespace Parsek
                 {
                     Vessel v = FlightGlobals.Vessels[i];
                     if (v == null) continue;
-                    if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                    if (GhostMapPresence.IsGhostOrDroneVessel(v.persistentId)) continue;
                     if (v.persistentId == parentPid) continue;
 
                     // Only consider vessels that didn't exist before the break

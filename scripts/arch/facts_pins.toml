@@ -9,7 +9,7 @@
 # watch band of 5, so a compiler that counts a method a decision or two higher
 # cannot red); a method not listed here reds when it reaches 50. A listed method
 # may grow without a red, and a rename or a move into another type needs a re-pin.
-# Pinned from Parsek.dll 2026-11-17
+# Pinned from Parsek.dll 2026-11-28
 
 [crossTypeStaticWrites]
 bound = 55
@@ -72,7 +72,7 @@ keys = [
 ]
 
 [uncalledInAssembly]
-bound = 377
+bound = 376
 keys = [
     "Parsek.BackgroundRecorder::GetOnRailsHasOpenSegment(uint32)",
     "Parsek.BackgroundRecorder::GetOnRailsIsLanded(uint32)",
@@ -423,7 +423,6 @@ keys = [
     "Parsek.SupersedeCommit::ValidateReFlySessionSupersedeSource(Parsek.Recording,Parsek.RecordingTree,string&,Parsek.SlotVesselWalk&)",
     "Parsek.SwitchSegmentNoOpClassifier::IsMeaningfulPartEvent(Parsek.PartEvent)",
     "Parsek.TestRunnerUI::IsMouseOverOpenWindow(UnityEngine.Vector2)",
-    "Parsek.TimeJumpManager::get_HasPendingPlacement()",
     "Parsek.TimeJumpManager::get_ReadyEndCacheCount()",
     "Parsek.TimelineWindowUI/TimelineScrollTarget::ForCareerSubject(Parsek.TimelineCareerCategory,string)",
     "Parsek.TombstoneEligibility::TryPairBundledRepPenalty(Parsek.GameAction,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>,Parsek.GameAction&)",
@@ -465,6 +464,10 @@ keys = [
     "Parsek.GameAction::SerializeInto",
     "Parsek.GameActionDisplay::GetDescription",
     "Parsek.GameStateEventDisplay::GetDisplayDescription",
+    "Parsek.GhostPlaybackEngine::LogUnitTransitionIfChanged",
+    "Parsek.GhostPlaybackEngine::TryUpdateLoopSyncedDebris",
+    "Parsek.GhostPlaybackEngine::UpdateUnitMemberPlayback",
+    "Parsek.GhostPlaybackLogic::ReapplySpawnTimeModuleBaselinesForLoopCycle",
     "Parsek.GhostPlaybackLogic::TryGetPendingWatchActivationUT",
     "Parsek.GhostVisualBuilder::AddPartVisuals",
     "Parsek.HighLogic_LoadScene_Patch::Prefix",
@@ -472,6 +475,7 @@ keys = [
     "Parsek.KerbalsModule::ApplyToRoster",
     "Parsek.KerbalsModule::CollectDockClaims",
     "Parsek.KerbalsModule::ProcessAction",
+    "Parsek.KspStatePatcher::PatchContractsCore",
     "Parsek.Logistics.RouteBuilder::BuildRoute",
     "Parsek.Logistics.RouteCodec::SerializeInto",
     "Parsek.Logistics.RouteOrchestrator::ProcessMultiStopCrossings",
@@ -481,7 +485,7 @@ keys = [
     "Parsek.MissionLoopUnitBuilder::BuildPhasingKnobInput",
     "Parsek.MissionPeriodicity::ExtractConstraints",
     "Parsek.ParsekFlight::ApplyCapturedLogisticsMetadataToRecording",
-    "Parsek.ParsekFlight::DeferredJointBreakCheck",
+    "Parsek.ParsekFlight::FinalizeIndividualRecording",
     "Parsek.ParsekFlight::OnVesselSwitchComplete",
     "Parsek.ParsekFlightGhostPositioner::InterpolateAndPosition",
     "Parsek.ParsekFlightMapMarkers::DrawMapMarkers",
@@ -494,6 +498,7 @@ keys = [
     "Parsek.PartStateSeeder::TryParseSnapshotPartBaseline",
     "Parsek.RecordThresholdBook::Credit",
     "Parsek.RecordingOptimizer::BuildTransientStateSeeds",
+    "Parsek.RecordingOptimizer::CanAutoMerge",
     "Parsek.RecordingOptimizer::TrimBoringTailInternal",
     "Parsek.RecordingsTableUI::DrawGroupTree",
     "Parsek.RecordingsTableUI::DrawRecordingBlock",

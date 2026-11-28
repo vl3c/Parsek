@@ -118,6 +118,12 @@ namespace Parsek
                 ParsekLog.Warn("Recorder", "Cannot start recording: no active vessel");
                 return;
             }
+            if (CameraDroneIdentity.IsDrone(v.persistentId, v.id))
+            {
+                // H3 (design-far-watch.md 7.4): nothing records the far-watch camera drone.
+                ParsekLog.Info("Recorder", "Cannot start recording: the active vessel is the far-watch camera drone");
+                return;
+            }
 
             Recording.Clear();
             OrbitSegments.Clear();
