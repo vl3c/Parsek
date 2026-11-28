@@ -11,8 +11,10 @@ namespace Parsek
     {
         /// <summary>
         /// Spawns a small smoke puff + spark burst at a part's world position.
-        /// Used when a Decoupled or Destroyed part event is applied during ghost playback.
-        /// Much smaller than the vessel explosion — just visual feedback for part separation.
+        /// Used when a Destroyed part event is applied where FXMonger cannot be used (the Space
+        /// Center view, the flight pause menu, a failed stock call). A Decoupled event never draws
+        /// it: a decoupler that fired plays its own stock FX group (<see cref="SpawnDecoupleBurstFx"/>)
+        /// and a joint that just broke draws nothing, as in stock.
         /// The returned GameObject auto-destroys after particles expire.
         /// </summary>
         internal static GameObject SpawnPartPuffFx(Vector3 worldPosition, float partScale)
@@ -194,6 +196,119 @@ namespace Parsek
             sparkCleanup.material = sparkMat;
 
             sparkPs.Play();
+        }
+
+        /// <summary>
+        /// The decoupler modules of a loaded part prefab (every <c>ModuleDecouplerBase</c>), with
+        /// the fields stock fires them by; empty for a plain or unknown part. Live read of the prefab, for
+        /// <see cref="GhostDecoupleBurst.ResolveFiredDecoupler"/>.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static List<GhostDecouplerModuleFacts> ReadPrefabDecouplerModules(string partName)
+        {
+            var list = new List<GhostDecouplerModuleFacts>();
+            Part prefab = ResolveAvailablePart(partName)?.partPrefab;
+            if (prefab == null || prefab.Modules == null) return list;
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                if (!(prefab.Modules[i] is ModuleDecouplerBase d)) continue;
+                list.Add(new GhostDecouplerModuleFacts
+                {
+                    ModuleIndex = i,
+                    ModuleName = d.moduleName,
+                    ExplosiveNodeId = d.explosiveNodeID,
+                    // ModuleAnchoredDecoupler.OnDecouple has no omni branch.
+                    IsOmni = d.isOmniDecoupler && !(d is ModuleAnchoredDecoupler),
+                    FxGroupName = d.fxGroupName,
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Plays a copy of a decoupler's own stock FX group (<paramref name="fxGroupName"/>, stock's
+        /// <c>decouple</c> by default: the <c>fx_gasBurst_white</c> emitter on stock decouplers) at
+        /// the ghost decoupler part, as <c>FXGroup.Burst</c> plays the real one: each emitter of the
+        /// part prefab's group is copied at its own pose on the part, its KSP controllers stripped,
+        /// its sound muted (the ghost's audio is decided elsewhere) and <c>Play</c>ed. The copies hang
+        /// in the world on their own (the ghost part is hidden or moves on), follow the floating
+        /// origin and are destroyed after their particles are gone. Null, with the reason, when the
+        /// prefab or the group is missing or holds no emitter: then nothing is drawn.
+        /// </summary>
+        internal static GameObject SpawnDecoupleBurstFx(
+            Transform ghostPart, string partName, string fxGroupName, out string failureReason)
+        {
+            Part prefab = ResolveAvailablePart(partName)?.partPrefab;
+            if (prefab == null) { failureReason = "no part prefab"; return null; }
+            FXGroup group = string.IsNullOrEmpty(fxGroupName) ? null : prefab.findFxGroup(fxGroupName);
+            if (group == null) { failureReason = "no FX group '" + (fxGroupName ?? "") + "' on the prefab"; return null; }
+            List<ParticleSystem> emitters = group.fxEmittersNewSystem;
+            if (emitters == null || emitters.Count == 0) { failureReason = "FX group '" + fxGroupName + "' has no emitter"; return null; }
+
+            Transform prefabRoot = prefab.transform;
+            var root = new GameObject("GhostDecoupleBurstFx");
+            root.transform.position = ghostPart.position;
+            int copied = 0, skipped = 0, muted = 0;
+            float lifetime = GhostDecoupleBurst.MinLifetimeSeconds;
+            for (int i = 0; i < emitters.Count; i++)
+            {
+                ParticleSystem src = emitters[i];
+                // An emitter on the part's own object would copy the whole part.
+                if (src == null || src.transform == prefabRoot) { skipped++; continue; }
+                Transform st = src.transform;
+                Vector3 localPos = prefabRoot.InverseTransformPoint(st.position);
+                Quaternion localRot = Quaternion.Inverse(prefabRoot.rotation) * st.rotation;
+                GameObject copy = Object.Instantiate(src.gameObject,
+                    ghostPart.TransformPoint(localPos), ghostPart.rotation * localRot);
+                copy.transform.localScale = st.lossyScale;
+                copy.transform.SetParent(root.transform, true);
+                copy.name = src.gameObject.name;
+                StripKspFxControllers(copy, null);
+                foreach (AudioSource a in copy.GetComponentsInChildren<AudioSource>(true))
+                {
+                    a.playOnAwake = false;
+                    a.mute = true;
+                    a.volume = 0f;
+                    muted++;
+                }
+                copy.SetActive(true);
+                foreach (ParticleSystem ps in copy.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    var main = ps.main;
+                    lifetime = Mathf.Max(lifetime,
+                        GhostDecoupleBurst.LifetimeSeconds(main.duration, main.startLifetime.constantMax));
+                }
+                ParticleSystem own = copy.GetComponent<ParticleSystem>();
+                if (own == null) own = copy.GetComponentInChildren<ParticleSystem>(true);
+                if (own != null)
+                {
+                    own.Clear(true);
+                    own.Play(true);
+                }
+                copied++;
+            }
+            if (copied == 0)
+            {
+                Object.Destroy(root);
+                failureReason = "FX group '" + fxGroupName + "' has no emitter to copy (skipped=" +
+                    skipped.ToString(CultureInfo.InvariantCulture) + ")";
+                return null;
+            }
+
+            GhostWorldSpaceEmitter.AttachOwn(root);
+            Object.Destroy(root, lifetime);
+            failureReason = null;
+            ParsekLog.Verbose("DecoupleFx",
+                $"Decouple burst played: part='{partName}' group='{fxGroupName}' " +
+                $"emitters={copied.ToString(CultureInfo.InvariantCulture)} skipped={skipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"mutedAudio={muted.ToString(CultureInfo.InvariantCulture)} " +
+                $"lifetime={lifetime.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                $"at ({root.transform.position.x.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{root.transform.position.y.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{root.transform.position.z.ToString("F1", CultureInfo.InvariantCulture)})");
+            GhostTransientFxRecord.Note(
+                GhostTransientFxKind.DecoupleBurst, root.transform.position, double.NaN, copied, root);
+            return root;
         }
 
         // Returns the live FXMonger singleton or null. Centralises the reflection

@@ -260,6 +260,7 @@ namespace Parsek.InGameTests
                 ghost = build.root,
             };
             state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
+            state.SetDecoupleSnapshot(snapshot);
             state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
             GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, build, rec);
             ghost = new LiveGhost { Snapshot = snapshot, Recording = rec, Build = build, State = state };
