@@ -100,6 +100,62 @@ namespace Parsek.Tests
             Assert.Single(FxMongerBlastMerge.Plan(new[] { V(0), V(50) }, new[] { 1.0 }));
         }
 
+        [Fact]
+        public void FrameQueue_MergesWithinAFrameOnly()
+        {
+            var q = new FxMongerFrameQueue<string>();
+            Assert.Equal(-1, q.Offer(5, V(0), 0.5, out Vector3d at, out string into));
+            Assert.Null(into);
+            Assert.Equal(V(0).x, at.x);
+            q.Add(5, V(0), 0.5, "a");
+            Assert.Equal(0, q.Offer(5, V(6), 0.25, out at, out into));
+            Assert.Equal("a", into);
+            Assert.Equal(2.0, at.x, 9);
+            // The merged blast is compared at its new position.
+            Assert.Equal(0, q.Offer(5, V(11.5), 0.5, out at, out into));
+            // Another frame: the queue starts empty.
+            Assert.Equal(-1, q.Offer(6, V(1), 0.5, out at, out into));
+            Assert.Equal(0, q.Count);
+        }
+
+        [Fact]
+        public void FrameQueue_MatchesThePlan()
+        {
+            Vector3d[] pos = { V(0), V(12), V(6), V(14), V(40) };
+            double[] pow = { 0.5, 0.1, 0.0, 0.5, 0.75 };
+            List<FxMongerPlannedBlast> plan = FxMongerBlastMerge.Plan(pos, pow);
+            var q = new FxMongerFrameQueue<string>();
+            var spawned = new List<double>();
+            for (int i = 0; i < pos.Length; i++)
+            {
+                if (q.Offer(1, pos[i], pow[i], out _, out _) < 0)
+                {
+                    q.Add(1, pos[i], pow[i], "b" + i);
+                    spawned.Add(FxMongerBlastMerge.FloorPower(pow[i]));
+                }
+            }
+            Assert.Equal(plan.Count, spawned.Count);
+            for (int i = 0; i < plan.Count; i++)
+                Assert.Equal(plan[i].Power, spawned[i]);
+        }
+
+        [Fact]
+        public void CopyPath_MergesAndRecordsOnce()
+        {
+            string root = SyntheticRecordingTests.ResolveProjectRoot();
+            string cache = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                root, "Source", "Parsek", "Ghost", "StockExplosionPrefabCache.cs")));
+            string spawn = PartParityStateRulesTests.MethodBody(cache, "internal static GameObject TrySpawn(");
+            Assert.True(spawn != null, "TrySpawn moved; this cell is vacuous");
+            Assert.True(spawn.IndexOf("frameBlasts.Offer(", StringComparison.Ordinal)
+                < spawn.IndexOf("ResolvePrefabIndex(", StringComparison.Ordinal));
+            Assert.Contains("frameBlasts.Add(frameNumber, worldPosition, power, blast);", spawn);
+            string fx = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                root, "Source", "Parsek", "Ghost", "GhostVisualBuilder.TransientFx.cs")));
+            string fallback = PartParityStateRulesTests.MethodBody(fx, "internal static GameObject SpawnFallbackExplosionFx(");
+            Assert.Contains("if (!merged)", fallback);
+        }
+
         #endregion
 
         #region Part collection

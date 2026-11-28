@@ -4931,7 +4931,8 @@ GHOST-PART-EXPLOSION-NO-SPEED-TERM).
   The Space Center fallback and the independent explosion sound take the same power. Per event:
   one prefab lookup (as before), four field reads, one log string.
 - Log: every `FXMonger.Explode queued for destroyed part`, `FXMonger.Explode failed` and
-  `Particle puff spawned for destroyed part` line now ends with
+  `Fallback explosion spawned for destroyed part` (follow-up a below; was `Particle puff spawned
+  ...`) line now ends with
   `potential= srfSpeed= speedSource= speedOffset= power= prefabIndex=`.
 - Tests: xUnit `PartExplosionSpeedTermTests` (the rule at every boundary of the IL, the index
   against stock's own arithmetic, the float sum, the speed source, the invariant format, a source
@@ -4963,7 +4964,9 @@ GHOST-CRASH-ONE-LENGTH-SIZED-BLAST). The coordinator's evidence run (`ghost-fx-9
   speed term from the ghost's own surface speed. In flight with FXMonger live and no pause menu it
   calls `FXMonger.Explode` once per part in one frame, so stock's own merge makes the clusters.
   Under the pause menu or with no live FXMonger it draws the planned blasts
-  (`FxMongerBlastMerge.Plan`, the same merge) as silent stock copies. When no part resolves it
+  as silent stock copies, one per part, which the copy path merges the same way (follow-up b below;
+  before the session's first flight the planned blasts of `FxMongerBlastMerge.Plan`, hand-built,
+  route suffix `-handbuilt`). When no part resolves it
   falls back to the old single blast of `TerminalExplosionPower(length)` (that function, its
   mirrors in `PartParityFxRules` / `partparity.py` and the `burst-custom` stand-ins at L = 1 to 20
   m are unchanged: they still describe that fallback). One summary line per crash:
@@ -5000,6 +5003,16 @@ Y2 follow-ups as built (2026-11-28, from a review of the merged ghost FX work; n
   case b; todo GHOST-PART-DESTROYED-FALLBACK-PUFF). The puff helper stays for the decouple (Y4).
   First check: a part destroyed at the Space Center logs `Fallback explosion spawned for destroyed
   part ... prefabIndex=3` for a default part and draws a full copy, not a 5 px puff.
+- (b) The copy path merges as FXMonger does (todo GHOST-STOCK-COPY-NO-MERGE). Stock queues a
+  blast in `explode` and spawns the queue in `LateUpdate`; the copy path spawns at once, so
+  `StockExplosionPrefabCache.TrySpawn` keeps this frame's copies in a pure
+  `FxMongerFrameQueue<GameObject>` (keyed by `Time.frameCount`, emptied by a spawn in a later
+  frame): a blast within 10 m of one of them (first match, strictly below 100 m squared, power
+  floored at 0.001) moves that copy to the power-weighted mean and returns it with `merged`
+  true (its prefab, the first blast's power, stays); `SpawnFallbackExplosionFx` records only a
+  new copy. A copy is moved in the frame it was made, before its particles first update, so it
+  draws from the merged position. First check: a crash at the Space Center logs `Stock explosion
+  copy merged a blast` for parts closer than 10 m and draws as many copies as FXMonger would.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 

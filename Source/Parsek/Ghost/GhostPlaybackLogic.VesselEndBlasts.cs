@@ -99,8 +99,9 @@ namespace Parsek
         /// <summary>
         /// Plays a Destroyed ending as stock's crash would: <c>Part.explode</c> for every part still
         /// on the ghost, at the part, in one frame, so FXMonger's own merge combines them. Under the
-        /// pause menu, or with no live FXMonger, the planned (merged) blasts are drawn as silent stock
-        /// copies (<see cref="GhostVisualBuilder.SpawnFallbackExplosionFx"/>). False, with nothing
+        /// pause menu, or with no live FXMonger, each part's blast is drawn as a silent stock copy
+        /// (<see cref="GhostVisualBuilder.SpawnFallbackExplosionFx"/>), which merges the same way,
+        /// or, before the session's first flight, the planned (merged) blasts hand-built. False, with nothing
         /// drawn, when no part resolves; the caller then plays its single length-sized blast.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -150,13 +151,13 @@ namespace Parsek
                     ParsekLog.Warn("ExplosionFx",
                         $"FXMonger.Explode did not queue the end explosion for {context}; drawing stock copies: {failure}");
                     route = "copy-after-failure";
-                    SpawnPlannedFallbackBlasts(plan, vesselLength);
+                    route += SpawnFallbackBlasts(positions, powers, plan, vesselLength);
                 }
             }
             else
             {
                 route = audioPaused ? "copy-paused" : "copy-no-fxmonger";
-                SpawnPlannedFallbackBlasts(plan, vesselLength);
+                route += SpawnFallbackBlasts(positions, powers, plan, vesselLength);
             }
 
             ParsekLog.VerboseRateLimited("ExplosionFx", $"vessel-end-blasts-{context}",
@@ -173,15 +174,26 @@ namespace Parsek
             return (Vector3d)t.position;
         }
 
+        // With stock copies kept, one copy per part, which the copy path merges as FXMonger does;
+        // without them (no flight yet this session) the hand-built explosion per planned blast,
+        // since it does not merge. Returns the route suffix.
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void SpawnPlannedFallbackBlasts(List<FxMongerPlannedBlast> plan, float vesselLength)
+        private static string SpawnFallbackBlasts(List<Vector3d> positions, List<double> powers,
+            List<FxMongerPlannedBlast> plan, float vesselLength)
         {
+            if (StockExplosionPrefabCache.HasCopies)
+            {
+                for (int i = 0; i < positions.Count; i++)
+                    GhostVisualBuilder.SpawnFallbackExplosionFx((Vector3)positions[i], powers[i], vesselLength);
+                return "";
+            }
             for (int i = 0; i < plan.Count; i++)
             {
                 double p = plan[i].Power;
                 GhostVisualBuilder.SpawnFallbackExplosionFx((Vector3)plan[i].Position,
                     p < 0.0 ? 0.0 : (p > 1.0 ? 1.0 : p), vesselLength);
             }
+            return "-handbuilt";
         }
     }
 }

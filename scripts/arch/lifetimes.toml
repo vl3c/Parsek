@@ -754,6 +754,7 @@ reason = "silent copies of stock's explosion prefabs kept from the flight scene"
 [type.fields]
 holder = "process: the inactive DontDestroyOnLoad holder of the kept copies, taken once from the first live FXMonger"
 copies = "process: the kept copies under that holder, one per FXMonger.explosions entry"
+frameBlasts = "process: the copies spawned in the current frame, for the FXMonger merge; a spawn in a later frame empties it, as FXMonger.LateUpdate empties its queue"
 
 [[type]]
 name = "Parsek.GhostVisualBuilder"

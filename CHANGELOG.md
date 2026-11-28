@@ -27,6 +27,8 @@ Not released yet.
   fire and a flash only for the bigger crashes.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
+- **Ghost blasts close together at the Space Center merge into one**, as KSP merges them in
+  flight. (GHOST-STOCK-COPY-NO-MERGE)
 - **A ghost part destroyed at the Space Center or with the game paused shows KSP's explosion**,
   not a tiny puff. (GHOST-PART-DESTROYED-FALLBACK-PUFF)
 - **A crashing ghost explodes like the real craft:** one stock blast per part, merged as KSP does,

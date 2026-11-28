@@ -89,4 +89,63 @@ namespace Parsek
             return blasts;
         }
     }
+
+    /// <summary>
+    /// The queue of one frame's blasts for a spawner that draws each blast at once (the silent
+    /// stock copies): FXMonger's merge applied as blasts arrive, cleared when the frame number
+    /// changes, as <c>LateUpdate</c> clears stock's queue. <see cref="Offer"/> answers whether a blast
+    /// merges (and where the merged blast now sits); the caller spawns a blast that does not and
+    /// then <see cref="Add"/>s it.
+    /// </summary>
+    internal sealed class FxMongerFrameQueue<T> where T : class
+    {
+        private int frame = int.MinValue;
+        private readonly List<Vector3d> positions = new List<Vector3d>();
+        private readonly List<double> powers = new List<double>();
+        private readonly List<T> payloads = new List<T>();
+
+        internal int Count => positions.Count;
+
+        /// <summary>
+        /// The index of the queued blast this one merges into, with its new position (its power
+        /// unchanged) and the payload the caller queued with it, or -1 when the caller spawns a new
+        /// blast. A new frame number empties the queue.
+        /// </summary>
+        internal int Offer(int frameNumber, Vector3d position, double power,
+            out Vector3d mergedPosition, out T payload)
+        {
+            StartFrame(frameNumber);
+            double howHard = FxMongerBlastMerge.FloorPower(power);
+            int target = FxMongerBlastMerge.FindMergeTarget(positions, position);
+            if (target < 0)
+            {
+                mergedPosition = position;
+                payload = null;
+                return -1;
+            }
+            payload = payloads[target];
+            mergedPosition = FxMongerBlastMerge.MergedPosition(positions[target], powers[target], position, howHard);
+            positions[target] = mergedPosition;
+            return target;
+        }
+
+        /// <summary>Queues a blast the caller spawned this frame; returns its index.</summary>
+        internal int Add(int frameNumber, Vector3d position, double power, T payload)
+        {
+            StartFrame(frameNumber);
+            positions.Add(position);
+            powers.Add(FxMongerBlastMerge.FloorPower(power));
+            payloads.Add(payload);
+            return positions.Count - 1;
+        }
+
+        private void StartFrame(int frameNumber)
+        {
+            if (frameNumber == frame) return;
+            frame = frameNumber;
+            positions.Clear();
+            powers.Clear();
+            payloads.Clear();
+        }
+    }
 }
