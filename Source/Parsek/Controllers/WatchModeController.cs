@@ -1103,7 +1103,14 @@ namespace Parsek
             // The far-watch clause (design-far-watch.md 8.4, ruled): the return time and why warp
             // is held below the requested rate, on a line of its own under the hint.
             string farClause = host.BuildFarWatchOverlayClause();
-            float boxW = 300f, boxH = string.IsNullOrEmpty(farClause) ? 50f : 68f;
+            string modeLabel = currentCameraMode == WatchCameraMode.HorizonLocked
+                ? " [Horizon]" : " [Free]";
+            const float boxW = 300f;
+            GUIStyle titleStyle = watchOverlayStyle;
+            string[] titleLines = BuildWatchOverlayTitleLines(vesselName, distText, modeLabel,
+                text => titleStyle.CalcSize(new GUIContent(text)).x, boxW - WatchOverlayTitlePadding);
+            float titleH = 22f * titleLines.Length;
+            float boxH = titleH + 28f + (string.IsNullOrEmpty(farClause) ? 0f : 18f);
             float x = (ParsekUiScale.ScaledScreenWidth * 0.5f - boxW) / 2f; // centered in the left half of the screen (scaled-root units)
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
@@ -1112,15 +1119,36 @@ namespace Parsek
             GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            string modeLabel = currentCameraMode == WatchCameraMode.HorizonLocked
-                ? " [Horizon]" : " [Free]";
-            string title = string.IsNullOrEmpty(distText)
-                ? "Watching: " + vesselName + modeLabel
-                : "Watching: " + vesselName + "  (" + distText + ")" + modeLabel;
-            GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
+            for (int i = 0; i < titleLines.Length; i++)
+                GUI.Label(new Rect(x, y + 5 + 22f * i, boxW, 22f), titleLines[i], watchOverlayStyle);
+            float hintY = y + 5 + titleH;
+            GUI.Label(new Rect(x, hintY, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
             if (!string.IsNullOrEmpty(farClause))
-                GUI.Label(new Rect(x, y + 45, boxW, 18f), farClause, watchOverlayHintStyle);
+                GUI.Label(new Rect(x, hintY + 18f, boxW, 18f), farClause, watchOverlayHintStyle);
+        }
+
+        /// <summary>Horizontal room the overlay title leaves at the box edges, in scaled-root pixels.</summary>
+        internal const float WatchOverlayTitlePadding = 12f;
+
+        /// <summary>
+        /// The overlay title as one line when it fits <paramref name="availableWidth"/>, else two:
+        /// the vessel name on the first and the distance with the camera mode on the second, so
+        /// a long name never clips the distance. <paramref name="measure"/> is the label style's
+        /// width of a string (GUIStyle.CalcSize at draw time; a fake in tests).
+        /// </summary>
+        internal static string[] BuildWatchOverlayTitleLines(string vesselName, string distText,
+            string modeLabel, Func<string, float> measure, float availableWidth)
+        {
+            string head = "Watching: " + (vesselName ?? "");
+            string tail = string.IsNullOrEmpty(distText)
+                ? (modeLabel ?? "").TrimStart()
+                : "(" + distText + ")" + (modeLabel ?? "");
+            string oneLine = string.IsNullOrEmpty(distText)
+                ? head + (modeLabel ?? "")
+                : head + "  " + tail;
+            if (measure == null || measure(oneLine) <= availableWidth || string.IsNullOrEmpty(tail))
+                return new[] { oneLine };
+            return new[] { head, tail };
         }
 
 
