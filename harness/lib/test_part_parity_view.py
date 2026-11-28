@@ -1227,7 +1227,7 @@ class FxRowTests(_FxSetMixin, unittest.TestCase):
         def line(edit, **kw):
             doc = tpp._fx_case(FX_SHORT, **kw)[0]
             for e in doc["fx"]["views"]:
-                e["compare"]["coreIou"] = 0.4  # the FX half is warn
+                e["compare"]["coreIou"] = 0.3  # the FX half is warn
             edit(doc)
             return ppv.trigger_line(ppv.trigger_reasons(pp.judge_case(doc), doc))
         self.assertTrue(line(lambda d: d.update(skin=variant_skin("A", ghost="B")))
@@ -1975,12 +1975,13 @@ class LegacyPagePinTests(unittest.TestCase):
     The plain digests were re-taken once main reworded the B9 skin-not-modelled reason
     (mod parts); with that one line restored they equal the pre-M5 digests. The fx data digest
     was re-taken when the PP-7 gate read a layer drawn on neither side as `empty` (48 entry
-    verdicts `pass` -> `empty`, nothing else; its DOM digest is unchanged)."""
+    verdicts `pass` -> `empty`, nothing else; its DOM digest is unchanged), and again when the
+    FX warn lines moved (2026-11-28; only the `fxThresholds` echo changed)."""
 
     DATA = {
         "plain": "6045cfac3b1e6a09b938060132872fc4b34c490dc9576c7f276a944ca7897e17",
         "state": "853d6b017d3e5fc37eebd85db86da1d4140b74bd91e2c33200a0430f9d036e7c",
-        "fx": "b3c438f2eedcc5040f0b0432cd70d2da8c5354b4091aac1eb537523cf69cf214",
+        "fx": "fec84ad28db6967453d1c7c7de05a8ed9bd221ca01a2417c307d034a5171422f",
     }
     DOM = {
         "plain": "d16f23614d48ad33642cda72af6b8b2b8920245b68bc3a4177333026eac3921b",
