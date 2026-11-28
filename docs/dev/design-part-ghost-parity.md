@@ -4553,6 +4553,59 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   with the active vessel hot the ghost still draws its own, and the frame line's `lastMasked=`
   reads above 0 while stock's camera is on).
 
+- After flight 1 (2026-11-28, `PPS-20c` run `2026-11-28_0018`, DLL 3fd255f44 from `p9-y1-rig-after`;
+  evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after/` on `p9-y1-flight-after`). No ghost
+  fire is visible at any mark, only the hull. The log shows the renderer ready (3 shaders,
+  detail level 3, so LOD 0 as stock's `min(3 - 3, 2)`), `Draw` decisions, `sheath drawn: fx=1.000
+  alpha=0.110 length=15.00` on 6 to 15 submeshes, two 2048 px depth maps, stock's camera off for
+  every ghost frame (so the slot-0 globals were written as well as the block), no WRN or ERR; the
+  ghost materials are `KSP/*` shaders tagged `Opaque` / `TransparentCutout` on layer 0, the same
+  tags stock's own vessel draws through the replacement. About +0.3 ms for one ghost.
+  - Found and fixed: the rig's timing copies (`#9001`-`#9007`) read `NoMeshes` because the build
+    and `RebuildReentryMeshes` kept only parts active at that moment, and a copy is built under an
+    inactive root (`sheathMeshes=0`). That is Y1's: any ghost built or rebuilt while hidden lost its
+    sheath for good. Both now collect every part; the renderer skips per frame a part that is
+    hidden, has its renderer off, or sits on a layer stock's FX camera does not draw
+    (`GhostAeroFx.SheathMeshVisible`, layers 0 and 17 from `stockFxMask=0x20001`), for the bounds,
+    the decision's mesh count and the submissions alike.
+  - Not found offline: stock's shaders and its camera prefab values (`FXCamera` / `FXDepthCamera`
+    clear flags, depth, target) are not in the reference DLLs, and both copies take them through
+    `Camera.CopyFrom`. Ranked hypotheses, each with what decides it:
+    1. The FX copy never reaches the screen: it does not render (its on state lost to the
+       per-frame `CopyFrom`, now set again after it and logged once if it was off), or it renders
+       into a target or at a depth that is not composited over the main camera. Decided by the
+       frame line's `fxCopyRenders=` / `depthCopyRenders=` against `framesCopiesOn=`, the one-time
+       `Ghost aero FX camera state:` dump (every camera: on, depth, clear flags, mask, target,
+       near / far, parent), and the `SanityUnlit` screenshot (flat magenta on screen proves the
+       copy composites).
+    2. The copy renders but stock's replacement draws nothing for a `Graphics.DrawMesh`
+       submission with a property block. Decided by the capture: `plain` covered above 0 with
+       `fx` covered 0.
+    3. Occlusion hides it: the copied scene depth pass (decided by the `NoSceneDepth`
+       screenshot, and by the capture, which renders with no scene depth at all), or the ghost's
+       own velocity depth map reading every fragment as shadowed (decided by the depth map
+       picture and its `red=` / `differFromCorner=` line; the ghost's box is its own bounds, 3 to
+       5 m, where stock boxes the camera distance, about 30 m).
+    4. A shader input only stock's pass provides. Decided by elimination: `fx` covered 0 with
+       `plain` covered above 0 and a sane depth map.
+  - Diagnostics for the next flight (rig only, play never runs them): the frame line gains
+    `fxCopyRenders= depthCopyRenders= framesCopiesOn= mode=`; `Ghost #<n> sheath materials:`
+    logs once per ghost build the shader, `RenderType` tag and layer of every submitted material;
+    `GhostAeroFxRenderer.RequestDiagnosticCaptureForTesting(label, done)` renders, on the next
+    drawing frame, the FX copy alone into a cleared transparent texture twice (stock's
+    replacement with the ghost's values, then a flat magenta material (`Unlit/Color`, else `Hidden/Internal-Colored`, else `KSP/Emissive/Diffuse`; named in the log)
+    with no replacement), reads back the ghost's depth map (blit, depth in red), and hands the
+    pixels plus a report (`Ghost aero FX capture '<label>': ...` with both pixel summaries, the
+    depth summary, the camera dump and the shader names) to the rig;
+    `SetDiagnosticModeForTesting(SanityUnlit | NoSceneDepth | Normal)` switches the on-screen
+    draw. Rig changes (`p9-y1-rig-after`): `FxReentryRig.Timing.cs` `TimingFireState` stops
+    reading `GhostAeroSheathDecision.FrameCap` and `GhostAeroFx.MaxSheathsPerFrame` (removed by
+    the masking change); at the first ghost shot of `m6` and `m375` that reads `sheath=Draw`, after
+    its grab: request a capture, wait for the callback (at most 310 frames, pose held) and write
+    `fxr-diag-<mark>-fx`, `-plain` (`Width` x `Height`) and `-depth` (`DepthSize` square) and the
+    report; then grab one frame each in `SanityUnlit` and `NoSceneDepth` (`fxr-diag-<mark>-sanity`,
+    `-nodepth`), and set `Normal` again. The copies need no rig change.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
