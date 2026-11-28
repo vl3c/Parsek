@@ -748,6 +748,7 @@ hingePistonTransformsFieldResolved = "process: resolve-once latch for that refle
 animationRestSampleCache = "process: prefab-derived animation rest-state sample cache, cleared with ClearAnimateHeatCache"
 nozzleGlowSampleCache = "process: prefab-derived nozzle glow clip sample cache, cleared with ClearAnimateHeatCache"
 colorChangerWritesOnlyWhileRamping = "process: resolve-once latch of whether KSPCommunityFixes patches ModuleColorChanger.Update"
+cachedExplosionPuffTexture = "process: the generated lumpy puff texture the hand-built explosion's smoke and fire share, built once"
 
 [[type]]
 name = "Parsek.CameraDroneIdentity"
