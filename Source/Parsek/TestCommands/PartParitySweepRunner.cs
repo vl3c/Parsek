@@ -872,6 +872,13 @@ namespace Parsek.TestCommands
                 wc.Flags.Add("exception-" + stage);
                 if (wc.Detail == null) wc.Detail = what;
                 ParsekLog.Warn(Tag, $"case {wc.CaseId}: {what}");
+                // The message alone never names the throwing frame; the first throw of a case
+                // also logs the whole exception (type, message, stack), once per case.
+                if (!wc.ExceptionStackLogged)
+                {
+                    wc.ExceptionStackLogged = true;
+                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: {stage} exception stack: {ex}");
+                }
                 // A spawn that threw never produced a vessel; a prepare that threw broke the
                 // instrument on this part (the in-process cousin of a crash). Either way the
                 // case is not captured; a throw in one view or in the write keeps the rest.
@@ -1438,6 +1445,9 @@ namespace Parsek.TestCommands
             /// <summary>A setup fault status, null while the case is healthy.</summary>
             internal string Status;
             internal string Detail;
+
+            /// <summary>The case's first guarded exception has logged its full text (stack included).</summary>
+            internal bool ExceptionStackLogged;
 
             internal GhostCoOrbitalRig.LiveGhost Ghost;
             internal List<Renderer> GhostRenderers = new List<Renderer>();

@@ -66,11 +66,11 @@ namespace Parsek.Tests
         public void AdmitWave_FirstAlways_LaterOnlyWhenTheWorstCaseFits()
         {
             Assert.True(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 1000.0, 60, firstWave: true));
-            // burst worst 60 s, dust worst 150 s
+            // burst worst 60 s, dust worst 180 s (the 120 s spool cap plus a minute)
             Assert.True(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindBurst, 400.0, 480, firstWave: false));
             Assert.False(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindBurst, 421.0, 480, firstWave: false));
-            Assert.True(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 330.0, 480, firstWave: false));
-            Assert.False(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 331.0, 480, firstWave: false));
+            Assert.True(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 300.0, 480, firstWave: false));
+            Assert.False(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 301.0, 480, firstWave: false));
         }
 
         [Fact]
@@ -337,6 +337,77 @@ namespace Parsek.Tests
         public void SurfaceName_MapsStocksSurfaceType(int type, string name)
         {
             Assert.Equal(name, PartParityBurstPlan.SurfaceName(type));
+        }
+
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(3, true)]
+        public void DustSampleHit_ReadsStocksOwnSurfaceClassification(int type, bool hit)
+        {
+            // Stock's ocean branch sets hit = Water with raycastHit false (the first live run read
+            // every water sample as a miss while stock drew dust at distance 12 m, ScaledFX 0.19).
+            Assert.Equal(hit, PartParityBurstPlan.DustSampleHit(type));
+        }
+
+        // ----- the dust ignition -----
+
+        private static PartParityFxOption DustEngine(bool spool, double accel)
+            => new PartParityFxOption
+            {
+                Family = PartParityFxRules.FamilyDust, Throttle = PartParityFxRules.BurnFullThrottle,
+                UseEngineResponseTime = spool, EngineAccelerationSpeed = accel,
+            };
+
+        [Fact]
+        public void DustIgnitionTimeout_Rocket_FiveSeconds()
+        {
+            Assert.Equal(5.0, PartParityBurstPlan.DustIgnitionTimeoutFor(DustEngine(false, double.NaN)));
+            Assert.Equal(5.0, PartParityBurstPlan.DustIgnitionTimeoutFor(null));
+        }
+
+        [Fact]
+        public void DustIgnitionTimeout_Jet_TheP8SpoolTimeoutCoveringStocksOwnSpool()
+        {
+            // The Wheesley (0.12 /s) and the Goliath (0.06 /s) spool slower than 5 s; the first live
+            // run timed out jetengine, minijetengine and turbofansize2 in all three slots.
+            foreach (double accel in new[] { 0.06, 0.12, 0.2 })
+            {
+                double timeout = PartParityBurstPlan.DustIgnitionTimeoutFor(DustEngine(true, accel));
+                Assert.Equal(PartParityFxRules.SpoolPressTimeoutSeconds(1.0, accel), timeout);
+                double spool = Math.Log(1.0 / PartParityFxRules.ThrottleDoneTolerance) / accel;
+                Assert.True(timeout >= spool, $"accel {accel}: timeout {timeout} under the spool {spool}");
+            }
+            Assert.Equal(PartParityFxRules.SpoolTimeoutSeconds,
+                PartParityBurstPlan.DustIgnitionTimeoutFor(DustEngine(true, double.NaN)));
+        }
+
+        [Fact]
+        public void DustWaveWorst_CoversTheLongestIgnitionWaitAndTheWarmUpCap()
+        {
+            double longestIgnition = PartParityBurstPlan.DustIgnitionTimeoutFor(DustEngine(true, 1e-6));
+            Assert.Equal(PartParityFxRules.SpoolTimeoutCapSeconds, longestIgnition);
+            Assert.True(PartParityBurstPlan.DustWaveWorstSeconds >= longestIgnition + PartParityFxRules.PlateauLifetimeCapSeconds);
+        }
+
+        [Fact]
+        public void DustRequestedThrottle_OptionsElseFull()
+        {
+            Assert.Equal(1.0, PartParityBurstPlan.DustRequestedThrottle(null));
+            Assert.Equal(1.0, PartParityBurstPlan.DustRequestedThrottle(new PartParityFxOption { Throttle = double.NaN }));
+            Assert.Equal(0.3, PartParityBurstPlan.DustRequestedThrottle(new PartParityFxOption { Throttle = 0.3 }));
+        }
+
+        [Theory]
+        [InlineData(true, 1.0, true)]
+        [InlineData(true, 0.995, true)]
+        [InlineData(true, 0.5001, false)]   // a jet halfway up its spool is not lit yet
+        [InlineData(false, 1.0, false)]     // the recorder would not record it ignited
+        [InlineData(true, double.NaN, false)]
+        public void DustEngineLit_RecorderIgnitedAndThrottleAtTheRequest(bool ignited, double current, bool lit)
+        {
+            Assert.Equal(lit, PartParityBurstPlan.DustEngineLit(ignited, current, 1.0));
         }
 
         // ----- the raycast summary -----
