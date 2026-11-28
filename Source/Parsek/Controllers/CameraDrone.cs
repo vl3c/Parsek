@@ -32,7 +32,6 @@ namespace Parsek
         internal const double HandbackOffsetMeters = 300.0;
         internal const double HandbackRetryOffsetMeters = 100.0;
         internal const double FloorBaseMeters = 20.0;
-        internal const double FloorCapMeters = 1000.0;
         internal const double OriginShiftMeters = 500.0;
         internal const double BelowRadiusToleranceMeters = 1000.0;
         internal const double ParabolicEccentricityBand = 1e-6;
@@ -290,24 +289,6 @@ namespace Parsek
             return FloorBaseMeters
                 + Math.Max(0.0, -verticalSpeed * gameDtSeconds)
                 + 0.5 * gravity * gameDtSeconds * gameDtSeconds;
-        }
-
-        /// <summary>
-        /// The highest warp rate (from <paramref name="rates"/>, ascending) at which the floor stays
-        /// within <see cref="FloorCapMeters"/> for this vertical speed and gravity; 1 when none does.
-        /// </summary>
-        internal static float MaxWarpRateForFloorCap(
-            IList<float> rates, double fixedDeltaTime, double verticalSpeed, double gravity)
-        {
-            float best = 1f;
-            if (rates == null) return best;
-            for (int i = 0; i < rates.Count; i++)
-            {
-                double dt = rates[i] * fixedDeltaTime;
-                if (TerrainFloorMeters(verticalSpeed, dt, gravity) <= FloorCapMeters && rates[i] > best)
-                    best = rates[i];
-            }
-            return best;
         }
 
         /// <summary>

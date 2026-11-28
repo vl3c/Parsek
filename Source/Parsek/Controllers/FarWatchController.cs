@@ -103,7 +103,6 @@ namespace Parsek
         internal FarWatchState State => state;
         internal bool IsRunning => FarWatchTransitions.IsRunning(state);
         internal FarWatchEndReason LastEndReason => endReason;
-        internal Vessel Drone => drone;
         internal Vessel Ship => ship;
         internal int GhostIndex => ghostIndex;
         internal bool IsFollowingGhost => followGhost;

@@ -98,7 +98,7 @@ UT 1,000,960.0  player presses [ : HandoverBack. Drone orbit written 300 m from 
 | Far-watch state machine | `FarWatchController` (instance owned by `WatchModeController`) | Controllers |
 | Pure decisions | `FarWatchDecisions` (admission, hysteresis, return planner, W step) | Controllers |
 | Ship safety | `FarWatchShipSafety` (pure over plain orbit inputs) | Controllers |
-| Map-ghost-or-drone check | `GhostMapPresence.IsCameraDrone` / `IsGhostOrDroneVessel` | Ghost |
+| Map-ghost-or-drone check | `GhostMapPresence.IsGhostOrDroneVessel` (the drone half reads `CameraDroneIdentity.IsDrone`) | Ghost |
 | Player ship resolver | `FarWatchPlayerVessel.Resolve()` (falls back to `ActiveVessel` with no drone) | Controllers |
 | Award attribution | `FarWatchAwardScope` (the vessel a stock award is for; section 10.3); its stamp prefixes in `Patches/FarWatchAwardScopePatch.cs` | GameActions (both belts, `GameStateRecorder` and `ProgressRewardPatch`, call it, and GameActions cannot reach Patches) |
 | Career fences | `Patches/FarWatchCareerFencePatches.cs` | Patches |
@@ -210,8 +210,7 @@ CameraDrone (Controllers, live):
   Is(Vessel v): bool                  - IsDrone(v.persistentId, v.id)
   IsActive(): bool                    - Exists && ActiveVessel is the drone (NoInlining live read)
 GhostMapPresence (Ghost):
-  IsCameraDrone(uint pid)             - forwards to Core
-  IsGhostOrDroneVessel(uint pid)      - ghostMapVesselPids.Contains(pid) || IsCameraDrone(pid)
+  IsGhostOrDroneVessel(uint pid)      - ghostMapVesselPids.Contains(pid) || CameraDroneIdentity.IsDrone(pid)
 ```
 
 `IsGhostMapVessel` is never widened: the switch, force-switch, GoOffRails, icon-drive and arc patches read it and must keep meaning "map ghost only" (audit C P1). Lifetime: `scripts/arch/lifetimes.toml`, category `load-transition` (the ids must outlive a scene exit until the strip has run, 7.5), cleared by `FarWatchController` Teardown, by the first `OnSave` or `OnLoad` after a scene exit (`ClearAfterStrip`), by the Cold load closure and by the in-game test runner's between-run reset (`ResetBetweenTestRuns`).

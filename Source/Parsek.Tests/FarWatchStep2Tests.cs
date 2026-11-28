@@ -112,10 +112,10 @@ namespace Parsek.Tests
             GhostMapPresence.RegisterGhostMapVesselPidForTesting(900u);
             Assert.True(GhostMapPresence.IsGhostOrDroneVessel(900u));
             Assert.False(GhostMapPresence.IsGhostOrDroneVessel(4242u));
-            Assert.False(GhostMapPresence.IsCameraDrone(4242u));
+            Assert.False(CameraDroneIdentity.IsDrone(4242u));
             CameraDroneIdentity.SetDrone(4242u, DroneGuid);
             Assert.True(GhostMapPresence.IsGhostOrDroneVessel(4242u));
-            Assert.True(GhostMapPresence.IsCameraDrone(4242u));
+            Assert.True(CameraDroneIdentity.IsDrone(4242u));
             // A drone is not a ghost map vessel: the map-only guards keep their meaning.
             Assert.False(GhostMapPresence.IsGhostMapVessel(4242u));
             Assert.False(GhostMapPresence.IsGhostOrDroneVessel(0u));

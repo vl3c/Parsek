@@ -127,16 +127,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MaxWarpRate_KeepsTheFloorUnderTheCap()
-        {
-            var rates = new List<float> { 1f, 2f, 3f, 4f };
-            // dt = rate * 0.02; at -1000 m/s the fall term is 20 * rate.
-            Assert.Equal(4f, CameraDrone.MaxWarpRateForFloorCap(rates, 0.02, -1000.0, 0.0));
-            Assert.Equal(1f, CameraDrone.MaxWarpRateForFloorCap(rates, 0.02, -100000.0, 0.0));
-            Assert.Equal(1f, CameraDrone.MaxWarpRateForFloorCap(null, 0.02, 0.0, 0.0));
-        }
-
-        [Fact]
         public void Clamp_RaisesToTheFloor_SeaLevelOverOcean()
         {
             Assert.Equal(120.0, CameraDrone.ClampAltitudeToFloor(50.0, 100.0, false, 20.0, out bool c1));

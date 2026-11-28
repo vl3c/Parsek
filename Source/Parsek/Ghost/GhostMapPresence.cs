@@ -736,16 +736,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the pid is the far-watch camera drone (design-far-watch.md 6.1). The drone
-        /// is never in <see cref="ghostMapVesselPids"/>, so <see cref="IsGhostMapVessel"/> keeps
-        /// meaning "map ghost only" for the switch, GoOffRails, icon and arc patches.
-        /// </summary>
-        internal static bool IsCameraDrone(uint persistentId)
-        {
-            return CameraDroneIdentity.IsDrone(persistentId);
-        }
-
-        /// <summary>
         /// The combined early return for every guard that must skip both a map ghost and the
         /// camera drone (helper H1 of design-far-watch.md 11.2).
         /// </summary>
