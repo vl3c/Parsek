@@ -4913,6 +4913,74 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   10. Every control reads ok, and after teardown no trial vessel, ghost, hold or effect is left.
 - No CHANGELOG entry (test tooling only); no todo entry.
 
+Y4 as built (2026-11-28, branch `p9-y4`, no flight; C# compiled and unit-tested, never run in KSP;
+G.8 item 4, todo GHOST-DECOUPLE-PUFF-NOT-STOCK).
+- The stock rule (decompiled 1.12.5). `ModuleDecouple.OnDecouple` calls `fx.Burst()` on its FX
+  group (`fxGroupName`, default `decouple`) and then decouples the part on its explosive node
+  (`explosiveNodeID`, default `top`; `srf` is the surface attach node): `part.decouple()` when that
+  part is its parent, `attachedPart.decouple()` when it is a child; an omni decoupler decouples
+  every child and then itself. `ModuleAnchoredDecoupler` bursts only with a part on its explosive
+  node and has no omni branch. `isDecoupled` is set after the decouple. A joint that breaks with no
+  decoupler (a structural failure, a part pulled off) draws nothing. `FXGroup.Burst` is `Play()` on
+  each `fxEmittersNewSystem` system plus a `PlayOneShot` of its sound.
+- The signal: nothing new is recorded. A recorded `Decoupled` event names the joint child
+  (`FlightRecorder.BuildDecoupledPartEvent`), and the ghost's own vessel snapshot holds the rest.
+  `GhostDecoupleTopology` (`Source/Parsek/Ghost/GhostDecoupleBurst.cs`) parses it once per ghost,
+  lazily (`GhostPlaybackState.EnsureDecoupleTopology`, set by `SetDecoupleSnapshot` at each of the
+  three ghost builds: the flight engine, the KSC scene and the co-orbital rig): per part its name,
+  parent, `attN` / `srfN` lines and each module's `isDecoupled`. The decoupler facts (module index
+  and name, explosive node, omni, FX group) are read from the part PREFAB
+  (`GhostVisualBuilder.ReadPrefabDecouplerModules`, `ModuleDecouplerBase`, omni false for an
+  anchored decoupler). `ResolveFiredDecoupler` tries the child side, then the parent side: a side
+  fired when it has a decoupler module not already decoupled in the snapshot that is omni or has
+  the other part of the joint on its explosive node. Why not a recorded field: it would need a
+  generation-neutral additive key, a fallback for every recording made before it, and it would say
+  no more than stock's own rule over the snapshot does. Reasons logged when nothing fires:
+  `plain-joint-break`, `decoupler-faces-elsewhere`, `decoupler-already-fired`, `no-snapshot`,
+  `part-not-in-snapshot`.
+- What plays. `GhostVisualBuilder.SpawnDecoupleBurstFx` copies each emitter of the prefab's group
+  (skipping one on the part root, which would copy the part) at its own pose on the ghost
+  decoupler part, at the prefab emitter's world scale, under an unparented `GhostDecoupleBurstFx`
+  root; strips KSP's controllers (`StripKspFxControllers`); mutes any AudioSource; `Clear` and
+  `Play` once; attaches `GhostWorldSpaceEmitter.AttachOwn` so the cloud stays in the air it was made
+  in; destroys the root after the longest `duration + startLifetime + 0.5 s` (1 to 10 s). On stock
+  decouplers that is `fx_gasBurst_white`. A missing prefab, group or emitter logs the reason and
+  draws nothing. The burst runs before `HidePartSubtree` (the decoupler may be the joint child) and
+  only with transient effects allowed and no high warp (`ShouldSuppressVisualFx`). One burst per
+  decoupler per (UT, frame) (`IsRepeatBurst`), so an omni separator's several joints burst once; a
+  loop replay in a later frame bursts again. Every decision is one Verbose `DecoupleFx` line:
+  `Decoupler fired: ... burst=played|none (<reason>)`, `Joint break draws nothing: ... reason=`,
+  `Decouple burst already drawn this frame`, `Decouple burst skipped` (decoupler hidden or not on
+  the ghost), and `Decouple burst played: ... emitters= lifetime=`.
+- The smoke-and-sparks part puff (`SpawnPartPuffAtPart`) is no longer called for a joint break; it
+  stays only as the destroyed-part fallback (Y2's to replace). The X4 `burst-custom` stand-in still
+  calls `SpawnPartPuffFx` directly. The X4 `decouple` cases' ghost objects are now tagged
+  `GhostTransientFxKind.DecoupleBurst` (a fifth `GhostTransientFxRecord.Note` site), and the
+  `joint-break` cases' ghosts draw nothing.
+- Tests: xUnit `GhostDecoupleBurstTests` (topology reads, every rule branch both ways: stack child,
+  parent's bottom node, radial `srf`, omni, already fired, root decoupler, plain break, missing
+  snapshot or part; the repeat rule; the lifetime clamp; the state cache);
+  `PartParityGhostSeamTests`: the own-effects cell counts five Note sites, and
+  `ADecoupledEvent_PlaysTheDecouplersStockBurst_NeverThePartPuff` pins that the Decoupled arm calls
+  the burst before the hide and never a puff; `PartEventApplyCharacterizationTests`' every-family
+  golden re-pinned (`E057C172E64D18AD`, 437 lines: one `Joint break draws nothing ... no-snapshot`
+  line on the transient Decoupled arm).
+- Left open: a decoupler torn off by a structural failure at its own explosive joint still bursts
+  (the break force is only on the BranchPoint, not the part event); a decoupler that fires with
+  nothing on its explosive node writes no event, so the ghost draws nothing where stock bursts; the
+  decouple sound is not played on the ghost.
+- What the first in-game check must look at (the X4 burst wave, `ingame-burst`, from the pad):
+  1. A `decouple` case's ghost draws `fx_gasBurst_white(Clone)` on the decoupler, white and
+     additive, about 180 to 195 particles visible in the first second and gone after, at the same
+     place and size as the real one in the same view (same scale: the copy keeps the prefab's).
+  2. The radial decoupler case bursts on the radial decoupler, not on the tank it leaves.
+  3. A `joint-break` case's ghost draws nothing (0 ghost FX px), and KSP.log shows its
+     `Joint break draws nothing: ... reason=plain-joint-break` line.
+  4. Every `decouple` case logs `Decoupler fired: ... burst=played` with `emitters=` at least 1, and
+     no `burst=none`; an omni separator, if the install has one, bursts once per firing.
+  5. No Unity warning from the copy (a disabled AudioSource, a missing material), and the root is
+     gone within its logged lifetime.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
@@ -4963,6 +5031,7 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
    child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
    and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud
    (`fx_gasBurst_white`) on the decoupler that fired, and nothing for a joint that just broke.
+   Done by Y4 (G.7 "Y4 as built").
 5. The vessel end explosion's power is `Clamp01(length / 20)`
    (`GhostPlaybackEngine.SpawnDestroy.cs:809`), so every ghost of 20 m or more takes the largest
    prefab; stock's merged part potentials (0.5 each, summed within 10 m, then clamped) also reach 1

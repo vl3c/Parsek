@@ -18,6 +18,9 @@ namespace Parsek
         PartPuff = 2,
         /// <summary>A silent copy of stock's own explosion (<c>GhostVisualBuilder.SpawnFallbackExplosionFx</c>).</summary>
         StockCopyExplosion = 3,
+        /// <summary>A copy of a decoupler's own stock FX group, burst when it fired
+        /// (<c>GhostVisualBuilder.SpawnDecoupleBurstFx</c>).</summary>
+        DecoupleBurst = 4,
     }
 
     /// <summary>One effect Parsek started, as it was started.</summary>
@@ -29,17 +32,18 @@ namespace Parsek
         /// <summary>The world position the effect was started at.</summary>
         public Vector3 Position;
         /// <summary>The explosion power (the one passed to <c>FXMonger.Explode</c>, or the one the
-        /// copy or the hand-built explosion was picked by); NaN for the part puff.</summary>
+        /// copy or the hand-built explosion was picked by); NaN for the part puff and a decouple burst.</summary>
         public double Power;
         /// <summary>The size argument of Parsek's own effects (vessel length for an explosion,
-        /// part scale before the clamp for the puff); NaN for a stock explosion.</summary>
+        /// part scale before the clamp for the puff, the emitter count of a decouple burst); NaN for a
+        /// stock explosion.</summary>
         public float Size;
         /// <summary>The effect's GameObject; null for a stock explosion.</summary>
         public GameObject Object;
     }
 
     /// <summary>
-    /// A read-only, insert-only record of every explosion and part puff Parsek starts, for tests
+    /// A read-only, insert-only record of every explosion, part puff and decouple burst Parsek starts, for tests
     /// and the part parity burst driver (G.2.1's schedule and attribution). It records only while
     /// armed (<see cref="Arm"/> opens a fresh record, <see cref="Disarm"/> drops it), because an
     /// always-on list holding GameObjects would grow for the whole session; unarmed, a start costs
