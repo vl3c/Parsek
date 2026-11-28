@@ -4424,8 +4424,8 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   velocity camera built as stock's, boxed on the ghost's bounds, into that ghost's own depth
   render texture at stock's `FXCamera.occlusionMapResolution`, 256 / 512 / 1024 / 2048 by
   `AERO_FX_QUALITY`; pooled by drawing slot, a slot idle 5 s is released, a size change releases
-  them all) and submits each visible ghost mesh with `Graphics.DrawMesh` on that layer and that
-  camera, with the ghost's own materials and a `MaterialPropertyBlock` carrying every value stock
+  them all) and, last in that drive (after the cameras are set, "After flight 2" below), submits
+  each visible ghost mesh with `Graphics.DrawMesh` on that layer and that camera, with the ghost's own materials and a `MaterialPropertyBlock` carrying every value stock
   sets as a global. The variant: the draw does not use the replacement shader as its material;
   the FX copy carries `SetReplacementShader(ReplacementShaders[lod], "RenderType")`, so Unity
   picks the subshader from each part material's own `RenderType` tag, opaque and transparent
@@ -4605,6 +4605,44 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     (`DepthSize` square) and the report; then grab one frame each in `SanityUnlit` and
     `NoSceneDepth` (`fxr-diag-<mark>-sanity`, `-nodepth`), and set `Normal` again. The copies
     need no rig change.
+- After flight 2 (2026-11-28, `PPS-20c` run `2026-11-28_0126`, PASS, rig 218497290 over
+  ab72f0e9d; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-diag/` on
+  `p9-y1-flight-after-diag`). Hypothesis 1's first half, 2 and 3 are ruled out: `fxCopyRenders=`
+  climbs with `framesCopiesOn=` (3560 against 3556), the FX copy sits at depth 3.02 after stock's
+  3, clear `Nothing`, mask `0x40`, target the screen; the offscreen `fx` capture is a stock-like
+  orange shell (covered 1.78 %, maxRGB 255,224,86), `plain` the probe's silhouette in magenta at
+  the right place, the depth map one disc. On screen neither `SanityUnlit` (magenta) nor
+  `NoSceneDepth` (flame) shows anything. So the material, the values, the meshes, their matrices
+  and the depth map are right, and the copy renders, but it renders without our meshes.
+  - What differs between the two paths is only WHEN the submission is made. The capture submits
+    the ghost and calls `fxCamera.Render()` at once. The per-frame path submitted every sheath
+    (`Graphics.DrawMesh(..., camera: fxCamera, ...)`) inside the ghost loop and only then ran
+    `DriveCameras`: a `CopyFrom` of stock's camera onto each copy and two depth writes every
+    frame (`CopyFrom` set the copy's depth back to stock's 3, then 3.02 was written again), plus
+    the replacement set or reset. A submission for one camera is held by that camera until it
+    renders; the reading is that the per-frame `CopyFrom` or depth re-sort discards what the
+    camera holds. Not provable offline: `Camera.CopyFrom`, `Camera.set_depth` and
+    `Graphics.Internal_DrawMesh` are `internalcall`s in the 2019.4 `UnityEngine.CoreModule.dll`
+    (no managed body), and the Unity manual says only that `DrawMesh` "submits" the mesh for the
+    frame. The one measured fact is Parsek's own: U5 (20a) saw a `DrawMesh` from `LateUpdate`
+    reach the end-of-frame render, with nothing written to that camera in between, so
+    the `LateUpdate` submission itself is sound and the writes after it are what changed. The
+    matrix, layer and block are the same on both paths: the ghost positions are final
+    by our `LateUpdate` (execution order 10000; the `CameraPreCull` re-apply skips every entry,
+    `ShouldProcessGhostPositionReapply`), the layer is 6 in the copy's mask, no shadows either
+    way, and the property block is the same slot (none with the sanity material).
+  - Fix: the drive prepares every sheath first (depth map render, block, globals), then sets the
+    cameras, then runs a rig capture, and submits LAST in the frame (`SubmitPrepared`, the frame
+    line's `submitted=`), so no camera write or manual render comes between a submission and the
+    copy's own render. The per-frame `CopyFrom` is gone (the copies take stock's settings once at
+    build and follow `Camera 00` as its children; per frame only field of view, far clip, the
+    replacement and the copy's mask are set), and a depth is written only when it changes
+    (`GhostAeroFx.CameraDepthNeedsWrite`). `SanityUnlit` resets the replacement before the
+    submissions with no `CopyFrom` after it, so the sanity pass is replacement-free. Not chosen:
+    a `CommandBuffer` on the copy, because a replacement shader does not apply to command buffer
+    draws (stock's look is its replacement pass), and submitting in the copy's `onPreCull`,
+    because nothing writes the copies after our `LateUpdate`. The rig needs no change: its
+    capture, sanity and nodepth shots and the normal ghost shots read the fix as they stand.
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and
