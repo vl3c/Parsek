@@ -728,7 +728,7 @@ namespace Parsek.InGameTests
             foreach (float len in new[] { 5f, 20f })
             {
                 Vector3 src = SlotPoint(body, 0, 1, PartParityStateRules.AirSpawnAltitudeM, out _, out _);
-                GameObject go = GhostVisualBuilder.SpawnExplosionFx(src, len);
+                GameObject go = GhostVisualBuilder.SpawnExplosionFx(src, len, double.NaN);
                 var gos = new List<GameObject> { go };
                 ParsekLog.Info(Tag, $"U1 standin custom L={len.ToString("0", Ic)}: renderers=[{DescribeRenderers(go)}] {DescribeSystems(go)}");
                 var rowSide = new List<Color32[]>(); var rowTop = new List<Color32[]>(); var bins = new StringBuilder();

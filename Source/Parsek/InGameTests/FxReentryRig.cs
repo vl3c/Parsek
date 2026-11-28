@@ -130,6 +130,7 @@ namespace Parsek.InGameTests
         {
             RestoreAeroQuality("rig destroyed");
             RestoreTimingProbe("rig destroyed");
+            RestoreAeroDiagnosticMode("rig destroyed");
             RestoreCameraFx();
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             if (sideGhost != null) GhostCoOrbitalRig.DestroyLiveGhost(sideGhost);
@@ -954,7 +955,11 @@ namespace Parsek.InGameTests
                 if (!s.OnGhost) continue;
                 // The timing probe of a mark runs once its last ghost shot is done, before the
                 // wait for the next mark's first shot.
-                if (prevMark != null && s.Mark != prevMark) yield return TimingProbe(prevMark, s.Ut);
+                if (prevMark != null && s.Mark != prevMark)
+                {
+                    yield return AeroDiagnostics(prevMark, s.Ut);
+                    yield return TimingProbe(prevMark, s.Ut);
+                }
                 prevMark = s.Mark;
                 GhostPlaybackState st = null; Transform frame = null; int idx = -1;
                 // Wait for the shot's UT (one frame early, so a toggle reaches the next render).
@@ -1031,7 +1036,11 @@ namespace Parsek.InGameTests
                 // Release the stored real frame once compared (memory).
                 realPx.Remove(s.Label);
             }
-            if (prevMark != null) yield return TimingProbe(prevMark, double.PositiveInfinity);
+            if (prevMark != null)
+            {
+                yield return AeroDiagnostics(prevMark, double.PositiveInfinity);
+                yield return TimingProbe(prevMark, double.PositiveInfinity);
+            }
             poseFrame = null;
             if (FlightCamera.fetch != null) FlightCamera.fetch.ActivateUpdate();
             RestoreCameraFx();
