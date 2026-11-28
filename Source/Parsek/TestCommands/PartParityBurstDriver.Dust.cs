@@ -25,6 +25,9 @@ namespace Parsek.TestCommands
         internal bool Widened;
         internal bool Ignited;
         internal float PressRealtime;
+
+        /// <summary>The press's ignition timeout (<see cref="PartParityBurstPlan.DustIgnitionTimeoutFor"/>).</summary>
+        internal double IgnitionTimeoutS = PartParityBurstPlan.DustIgnitionTimeoutSeconds;
         internal float WarmStartRealtime;
         internal float LastCoverageRealtime;
         internal bool Warm;
@@ -51,9 +54,6 @@ namespace Parsek.TestCommands
 
     internal static partial class PartParityBurstDriver
     {
-        /// <summary>The longest a dust case waits for its engine to ignite after the press.</summary>
-        internal const double DustIgnitionTimeoutSeconds = 5.0;
-
         /// <summary>The terrain capture layer (PQS scenery): never in a dust render's mask.</summary>
         internal const int TerrainLayer = 15;
 
@@ -293,7 +293,11 @@ namespace Parsek.TestCommands
             if (ev != null) ev.Invoke();
             else d.Engine.Activate();
             d.PressRealtime = Time.realtimeSinceStartup;
-            ParsekLog.Info(Tag, $"case {wc.CaseId}: dust engine {d.Engine.moduleName} pressed (independent throttle 100%)");
+            PartParityFxOption o = wc.Burst.Option;
+            d.IgnitionTimeoutS = PartParityBurstPlan.DustIgnitionTimeoutFor(o);
+            ParsekLog.Info(Tag, $"case {wc.CaseId}: dust engine {d.Engine.moduleName} pressed (independent throttle 100%) " +
+                $"responseTime={(d.Engine.useEngineResponseTime ? "true" : "false")} " +
+                $"accel={d.Engine.engineAccelerationSpeed.ToString("0.###", Ic)}/s timeout={d.IgnitionTimeoutS.ToString("0.0", Ic)}s");
         }
 
         // ----- ignition, the ghost, the warm-up -----
@@ -304,16 +308,25 @@ namespace Parsek.TestCommands
             float now = Time.realtimeSinceStartup;
             if (!d.Ignited)
             {
-                bool lit = d.Engine.EngineIgnited && d.Engine.currentThrottle > 0.5f;
-                if (!lit)
+                ModuleEngines e = d.Engine;
+                bool ignited = FlightRecorder.ShouldRecordEngineAsIgnited(e.EngineIgnited, e.isOperational, e.finalThrust);
+                double requested = PartParityBurstPlan.DustRequestedThrottle(wc.Burst.Option);
+                if (!PartParityBurstPlan.DustEngineLit(ignited, e.currentThrottle, requested))
                 {
-                    if (now - d.PressRealtime > DustIgnitionTimeoutSeconds)
+                    if (now - d.PressRealtime > d.IgnitionTimeoutS)
                     {
                         wc.Status = TestCommandPartParitySweep.SetupStateTimeout;
-                        wc.Detail = "engine not lit " + DustIgnitionTimeoutSeconds.ToString("0", Ic) + " s after the press";
+                        wc.Detail = "engine not lit " + d.IgnitionTimeoutS.ToString("0", Ic) + " s after the press: currentThrottle=" +
+                            e.currentThrottle.ToString("0.000", Ic) + " request=" + requested.ToString("0.000", Ic) +
+                            " ignited=" + (e.EngineIgnited ? "true" : "false") + " operational=" + (e.isOperational ? "true" : "false") +
+                            " flameout=" + (e.flameout ? "true" : "false") + " finalThrust=" + e.finalThrust.ToString("0.00", Ic) +
+                            " responseTime=" + (e.useEngineResponseTime ? "true" : "false") +
+                            " accel=" + e.engineAccelerationSpeed.ToString("0.###", Ic);
                     }
                     return;
                 }
+                ParsekLog.Info(Tag, $"case {wc.CaseId}: dust engine lit after {(now - d.PressRealtime).ToString("0.00", Ic)} s " +
+                    $"currentThrottle={e.currentThrottle.ToString("0.000", Ic)} finalThrust={e.finalThrust.ToString("0.00", Ic)}");
                 d.Ignited = true;
                 d.Throttle = d.Engine.currentThrottle;
                 d.WarmStartRealtime = now;
@@ -528,10 +541,9 @@ namespace Parsek.TestCommands
             var s = new PartParityDustRaycastSample();
             if (m == null) return s;
             object hit = typeof(ModuleSurfaceFX).GetField("hit", AnyInstance)?.GetValue(m);
-            object rayHit = typeof(ModuleSurfaceFX).GetField("raycastHit", AnyInstance)?.GetValue(m);
             object dist = typeof(ModuleSurfaceFX).GetField("distance", AnyInstance)?.GetValue(m);
             int surface = hit != null ? Convert.ToInt32(hit, Ic) : 0;
-            s.Hit = rayHit is bool b ? b && surface != 0 : surface != 0;
+            s.Hit = PartParityBurstPlan.DustSampleHit(surface);
             s.Surface = s.Hit ? PartParityBurstPlan.SurfaceName(surface) : PartParityFxRules.DustSurfaceNone;
             s.DistanceM = dist != null ? Convert.ToDouble(dist, Ic) : double.NaN;
             s.ScaledFx = m.ScaledFX;

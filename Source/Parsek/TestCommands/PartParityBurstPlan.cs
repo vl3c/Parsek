@@ -55,9 +55,12 @@ namespace Parsek.TestCommands
 
         internal const int MaxDustWaveCases = 4;
 
-        /// <summary>The time box's worst case of one wave (spawn, settle, window, write), seconds.</summary>
+        /// <summary>The time box's worst case of one wave (spawn, settle, window, write), seconds.
+        /// A dust wave's covers a spooling engine's longest ignition wait
+        /// (<see cref="PartParityFxRules.SpoolTimeoutCapSeconds"/>) plus a minute for the spawn,
+        /// the warm-up cap, the rounds and the write.</summary>
         internal const double BurstWaveWorstSeconds = 60.0;
-        internal const double DustWaveWorstSeconds = 150.0;
+        internal const double DustWaveWorstSeconds = PartParityFxRules.SpoolTimeoutCapSeconds + 60.0;
 
         /// <summary>The wave kind of a P9 family; null for any other family.</summary>
         internal static string WaveKind(string family)
@@ -316,6 +319,46 @@ namespace Parsek.TestCommands
                 default: return PartParityFxRules.DustSurfaceNone;
             }
         }
+
+        /// <summary>
+        /// Whether one read of stock's <c>ModuleSurfaceFX</c> is a surface hit: its own
+        /// <c>hit</c> classification is not <c>None</c>. Stock's private <c>raycastHit</c> is NOT
+        /// part of it: over an ocean the physics raycast finds nothing (or the sea floor below sea
+        /// level) and <c>Update</c> takes its ocean branch, which sets <c>hit = Water</c>, the
+        /// distance (altitude over the cosine) and the point while <c>raycastHit</c> stays false
+        /// (decompiled <c>ModuleSurfaceFX.Update</c>, 1.12.5).
+        /// </summary>
+        internal static bool DustSampleHit(int surfaceType) => surfaceType != 0;
+
+        /// <summary>The longest a dust case of a non-spooling engine waits for it to light after the press.</summary>
+        internal const double DustIgnitionTimeoutSeconds = 5.0;
+
+        /// <summary>The throttle a dust case's engine is pressed to (its option's, else full).</summary>
+        internal static double DustRequestedThrottle(PartParityFxOption o)
+            => o != null && !double.IsNaN(o.Throttle) && o.Throttle > 0.0 ? o.Throttle : PartParityFxRules.BurnFullThrottle;
+
+        /// <summary>
+        /// How long a dust case waits from its press for its engine to light: the P8 plume press
+        /// timeout of a spooling engine (<c>useEngineResponseTime</c>: a jet closes on the request
+        /// at <c>engineAccelerationSpeed</c>, <see cref="PartParityFxRules.SpoolPressTimeoutSeconds"/>),
+        /// else <see cref="DustIgnitionTimeoutSeconds"/>.
+        /// </summary>
+        internal static double DustIgnitionTimeoutFor(PartParityFxOption o)
+        {
+            if (o != null && o.UseEngineResponseTime)
+                return PartParityFxRules.SpoolPressTimeoutSeconds(DustRequestedThrottle(o), o.EngineAccelerationSpeed);
+            return DustIgnitionTimeoutSeconds;
+        }
+
+        /// <summary>
+        /// A dust case's engine is lit (the P8 plume done signal without its event half): the
+        /// recorder's ignition predicate holds and <c>currentThrottle</c> is within
+        /// <see cref="PartParityFxRules.ThrottleDoneTolerance"/> of the request, so a spooling
+        /// engine's ghost is built at the throttle its spool settles on, not halfway up it.
+        /// </summary>
+        internal static bool DustEngineLit(bool recorderIgnited, double currentThrottle, double requested)
+            => recorderIgnited && !double.IsNaN(currentThrottle) && !double.IsNaN(requested)
+               && Math.Abs(currentThrottle - requested) <= PartParityFxRules.ThrottleDoneTolerance;
 
         /// <summary>
         /// Stock's raycast over the samples: hits and misses, the most frequent hit surface (ties

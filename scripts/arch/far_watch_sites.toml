@@ -317,7 +317,7 @@ guards = [
 "Parsek.ParsekScenario::OnVesselSwitching(Vessel,Vessel)" = { events = ["onVesselSwitching"], status = "guard" }
 "Parsek.ParsekScenario::OnVesselTerminated(ProtoVessel)" = { events = ["onVesselTerminated"], status = "guard" }
 "Parsek.PostFlightDialogLogHost::OnVesselRecoveryProcessing(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessing"], status = "exempt", reason = "names the recovered vessel in the recovery dialog log only; the drone is never recovered" }
-"Parsek.TestCommands.PartParityBurstDriver::OnPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer of a PartParitySweep burst trial (records died part pids only); the seam refuses its verbs while far-watching (H7)" }
+"Parsek.TestCommands.PartParityBurstDriver/TriggerListener::OnPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer of a PartParitySweep burst trial (records died part pids only); the seam refuses its verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnDriveVesselPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnKscRecoverRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnRecoverSeamRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }

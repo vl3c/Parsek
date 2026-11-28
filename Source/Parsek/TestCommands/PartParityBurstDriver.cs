@@ -565,17 +565,27 @@ namespace Parsek.TestCommands
 
         // ----- the trigger -----
 
-        private static PartParityBurstTrial currentTrial;
-
-        private static void OnPartDie(Part p)
+        /// <summary>The trigger's GameEvents listener. Its handlers are INSTANCE methods: KSP's
+        /// <c>EventData.Add</c> builds an <c>EvtDelegate</c> whose constructor runs
+        /// <c>evt.Target.GetType().Name</c> (decompiled, 1.12.5), so a static handler (null
+        /// <c>Target</c>) throws <c>NullReferenceException</c> inside <c>Add</c>, before any trial
+        /// is triggered. <c>GameEventStaticHandlerIlGateTests</c> pins the rule over the DLL.</summary>
+        private sealed class TriggerListener
         {
-            if (currentTrial != null && p != null) currentTrial.DiedPids.Add(p.persistentId);
+            internal PartParityBurstTrial Trial;
+
+            internal void OnPartDie(Part p)
+            {
+                if (Trial != null && p != null) Trial.DiedPids.Add(p.persistentId);
+            }
+
+            internal void OnJointBreak(PartJoint joint, float force)
+            {
+                if (Trial != null && joint?.Child != null) Trial.BrokenChildPids.Add(joint.Child.persistentId);
+            }
         }
 
-        private static void OnJointBreak(PartJoint joint, float force)
-        {
-            if (currentTrial != null && joint?.Child != null) currentTrial.BrokenChildPids.Add(joint.Child.persistentId);
-        }
+        private static readonly TriggerListener triggerListener = new TriggerListener();
 
         private static void TriggerAll(WaveCase wc)
         {
@@ -586,27 +596,28 @@ namespace Parsek.TestCommands
             bool nothing = PartParityBurstPlan.TriggersNothing(run.Control);
             if (!nothing)
             {
-                GameEvents.onPartDie.Add(OnPartDie);
-                GameEvents.onPartJointBreak.Add(OnJointBreak);
+                TriggerListener listener = triggerListener;
+                GameEvents.onPartDie.Add(listener.OnPartDie);
                 try
                 {
+                    GameEvents.onPartJointBreak.Add(listener.OnJointBreak);
                     foreach (PartParityBurstTrial t in run.Trials)
                     {
-                        currentTrial = t;
+                        listener.Trial = t;
                         List<object> before = QueuedNow();
                         try { TriggerReal(wc, t); }
                         catch (Exception ex)
                         {
-                            ParsekLog.Warn(Tag, $"case {wc.CaseId}: trial {t.Index.ToString(Ic)} real trigger threw {ex.GetType().Name}: {ex.Message}");
+                            ParsekLog.Warn(Tag, $"case {wc.CaseId}: trial {t.Index.ToString(Ic)} real trigger threw {ex}");
                         }
                         ReadSchedule(wc, t, before, true, 0, 0.0);
                     }
                 }
                 finally
                 {
-                    currentTrial = null;
-                    GameEvents.onPartDie.Remove(OnPartDie);
-                    GameEvents.onPartJointBreak.Remove(OnJointBreak);
+                    listener.Trial = null;
+                    GameEvents.onPartDie.Remove(listener.OnPartDie);
+                    GameEvents.onPartJointBreak.Remove(listener.OnJointBreak);
                 }
             }
             run.GhostPending = !PartParityBurstPlan.DropsGhostEvent(run.Control);
@@ -641,7 +652,10 @@ namespace Parsek.TestCommands
             else if (o.Family == PartParityFxRules.FamilyVesselExplode)
             {
                 Part[] all = t.Real.parts.ToArray();
-                for (int i = all.Length - 1; i >= 0; i--) if (all[i] != null) all[i].explode();
+                // Root first, in the vessel's (and its snapshot's) PART order, the order the ghost
+                // explodes in: FXMonger keeps a merged blast's first power and pulls its position
+                // toward later blasts, so the two sides' merged blasts land alike only in one order.
+                for (int i = 0; i < all.Length; i++) if (all[i] != null) all[i].explode();
             }
             else if (o.State == PartParityFxRules.StateJointBreak) t.SourcePart.decouple(0f);
             else
@@ -677,7 +691,7 @@ namespace Parsek.TestCommands
                 try { TriggerGhost(wc, t); }
                 catch (Exception ex)
                 {
-                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: trial {t.Index.ToString(Ic)} ghost trigger threw {ex.GetType().Name}: {ex.Message}");
+                    ParsekLog.Warn(Tag, $"case {wc.CaseId}: trial {t.Index.ToString(Ic)} ghost trigger threw {ex}");
                 }
                 ReadSchedule(wc, t, before, false, frame, tSeconds);
             }

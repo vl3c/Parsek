@@ -4839,7 +4839,8 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   each part config) with `PartParityBurstPlan.ExclusionApplies` (family of the run's words, in its
   context). Its wave kinds are `p9:burst` (one case per wave) and `p9:dust` (up to four), a control
   getting its kind from its id even with no subject (`ControlWaveKind`); the admission is
-  `PartParityBurstPlan.AdmitWave` (worst wave 60 s burst, 150 s dust). `PartParitySweepRunner`
+  `PartParityBurstPlan.AdmitWave` (worst wave 60 s burst, 180 s dust: 150 s before the spool-aware
+  ignition of the first live run's fixes). `PartParitySweepRunner`
   dispatches a `p9:burst` wave to `RunWave` and a `p9:dust` wave to `RunDustWave`; P8's
   `PartParityFxDriver.RunWave` and the air context's flow are not used (the air admission's pad
   check is, through `DecideAdmission`). A burst or dust control is judged by
@@ -4849,7 +4850,7 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   ghost 20 m east of its real slot (`BurstGhostSeparationM`), every real vessel held still by
   `PartParityFxHold.AttachAtSlot`, settled 1.5 s, then every trial triggered in one frame
   (`TriggerAll`, after Update so FXMonger's LateUpdate reads the queue). Real side: `explode` is
-  `Part.explode()`, `vessel-explode` every stacked part's `explode()` (stack of 1, 2, 3 or 6 tanks
+  `Part.explode()`, `vessel-explode` every stacked part's `explode()`, root first (stack of 1, 2, 3 or 6 tanks
   along their stack nodes), the `burst-custom` stand-ins have no vessel (`FXMonger.Explode(null,
   slot, potential)` for the real side, Parsek's `SpawnFallbackExplosionFx` / `SpawnPartPuffFx` for
   the ghost: the fallback is production's custom route since the kept stock copy, so the case
@@ -4912,6 +4913,44 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   9. Frame time and memory with 18 renders per frame (`[PartParity] memory` lines).
   10. Every control reads ok, and after teardown no trial vessel, ghost, hold or effect is left.
 - No CHANGELOG entry (test tooling only); no todo entry.
+- First live run (2026-11-28, `2026-11-28_1119`, throwaway lane `P9-burst-dust` on main 068c715c7,
+  evidence on branch `p9-y-flights`, `docs/dev/research/p9-y-flights/before/`) and the fixes
+  (branch `p9-x4-fix`):
+  1. Every burst case (47 of 47) logged `trigger: NullReferenceException` and then
+     `burst-not-triggered` (realTagged 0, no ghost event; the trial vessels survived to the
+     release). Cause: `TriggerAll` subscribed the STATIC `OnPartDie` / `OnJointBreak` to
+     `GameEvents.onPartDie` / `onPartJointBreak`; stock's `EventData.Add` builds an
+     `EvtDelegate` whose constructor runs `evt.Target.GetType().Name` (decompiled 1.12.5), so a
+     static handler throws inside `Add`, before the first trial's trigger and outside its
+     per-trial catch. No unit test reaches `TriggerAll` (it needs live vessels). Fix: the handlers
+     are instance methods of a `TriggerListener`; the new assembly-wide IL gate
+     `GameEventStaticHandlerIlGateTests` reds on any Parsek method that builds a stock
+     `OnEvent` delegate over a static method (`ldnull; ldftn static; newobj OnEvent`), the fourth
+     time this trap shipped. `PartParitySweepRunner.Guard` now also logs a case's first exception
+     whole (`<stage> exception stack: <type, message, stack>`, once per case), and the per-trial
+     trigger catches log the exception text with its stack.
+  2. Dust: 54 cases ok, 9 `state-timeout: engine not lit 5 s after the press` (the air-breathers
+     JetEngine, miniJetEngine, turboFanSize2, all three slots) and 27 `dust-no-stock-hit` (every
+     water slot). The jets spool (`useEngineResponseTime`: stock closes `currentThrottle` on the
+     request by `Lerp(current, requested, engineAccelerationSpeed * dt)`), so they were lit but
+     under the 0.5 throttle check at 5 s (turboFanEngine scraped through at 0.500, its ghost built
+     at half throttle). Fix: the dust ignition reuses P8's plume recipe: lit when the recorder's
+     ignition predicate holds and `currentThrottle` is within 0.01 of the request
+     (`PartParityBurstPlan.DustEngineLit`), with P8's spool press timeout for a spooling engine
+     (`DustIgnitionTimeoutFor`: 45 s, longer for a slow spool, capped at 120 s; 5 s otherwise); a
+     timeout's detail names the throttle, request, ignition, flameout, thrust and spool rate, and
+     the lit line logs the time it took. The dust wave's worst case in the time box rises from 150 s
+     to 180 s (the 120 s spool cap plus a minute).
+  4. The real side of a `vessel-explode` trial exploded its parts last to first while the ghost
+     explodes root first; FXMonger keeps a merged blast's first power and pulls its position
+     toward later blasts, so for x6 the two merged blasts landed up to about 5.7 m apart. The real
+     side now explodes root first, in the vessel's (and its snapshot's) PART order.
+  3. The water no-hit was a driver read bug, not stock: over an ocean stock's physics raycast
+     finds nothing and `ModuleSurfaceFX.Update` takes its ocean branch, which sets
+     `hit = Water`, `distance` (altitude over the cosine) and `point` while its private
+     `raycastHit` stays false; the driver required `raycastHit`, so it read stock's water dust
+     (distance 12.0 m, `ScaledFX` 0.19 in the sidecars) as a miss. Fix: a sample is a hit when
+     stock's own `hit` is not `None` (`PartParityBurstPlan.DustSampleHit`).
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
