@@ -15,6 +15,8 @@ Not released yet.
 
 ### Fixed
 
+- **Upper stage ghosts lose the engine shroud at staging.** Older recordings and craft saved with
+  other variant mods included. (GHOST-SHROUD-KEPT-AFTER-STAGING)
 - **Looped missions show their dropped boosters.** A looping launch's debris now shows on every
   loop, not only after a rewind. (MISSION-LOOP-DEBRIS-DORMANT-AS-HISTORICAL)
 - **Ghost explosions, puffs, launch dust and reentry fire stay in the air they were made in.**
