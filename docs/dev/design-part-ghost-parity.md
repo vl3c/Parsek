@@ -4913,6 +4913,134 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   10. Every control reads ok, and after teardown no trial vessel, ghost, hold or effect is left.
 - No CHANGELOG entry (test tooling only); no todo entry.
 
+Y2 as built (2026-11-28, no flight; C# only, unit-tested; G.8 item 2, todo
+GHOST-PART-EXPLOSION-NO-SPEED-TERM).
+- Stock's rule, from the IL of `Part.explode(float)` (KSP 1.12.5, `ksp-refs`): `num = 0`; if
+  `ship_srfSpeed > 1000` then, if `ship_srfSpeed < 200`, `num = 0.12` and skip the next test; then
+  if `ship_srfSpeed >= 2000`, `num = 0.25`; then `FXMonger.Explode(this, pos, explosionPotential +
+  num)`, the sum in float. No speed is above 1000 and below 200, so the 0.12 step never runs:
+  stock adds 0.25 from 2000 m/s surface speed on and nothing below (G.8 item 2 and G.1 row 2 read
+  "0.12 or 0.25" from the decompiled C#, whose branch order is mangled). `ship_srfSpeed` is the
+  ACTIVE vessel's unsmoothed `srfSpeed`. `FXMonger.explode` raises a power below `minPower`
+  (0.001) to it; a merge (within 10 m, same frame) moves the queued blast's position only and keeps
+  its power (X0 U1); `LateUpdate` draws `explosions[(int)(Clamp01(power) * 6)]` of the seven.
+- The ghost (`GhostPlaybackLogic.PartExplosionPower.cs`): `StockPartExplosionSpeedOffset(speed)`
+  is that rule; `StockPartExplosionPower(potential, speed)` sums in float and clamps to [0, 1],
+  which keeps stock's prefab and sound index for every sum (a sum at or below 0 lands on index 0
+  either way); `ResolvePartExplosionPotential` (`PartEvents.cs`) returns the prefab's raw
+  potential, so the clamp now follows the sum instead of preceding it. The speed is the ghost's
+  OWN surface speed (G.8 item 2), `PartExplosionSurfaceSpeed(state)`: the speed its reentry fire
+  reads (`GhostSurfaceVelocity.SpeedForAeroFx`: the bracket's recorded speeds when they are
+  surface speeds, `speedSource=recorded`, else the position chord, `positions` / `orbit` /
+  `surfaceHold`), at this frame's UT, which the part-event walk reaches after positioning, so at
+  most one frame past the event; no known surface velocity reads 0 (`none`), so no term is
+  invented. Below 2000 m/s nothing changes; at or above it a default 0.5 part draws Explosion 4
+  (index 4) instead of Explosion 2, a 0 part Explosion 0 instead of Thud 0, a 0.1 part Explosion 1.
+  The Space Center fallback and the independent explosion sound take the same power. Per event:
+  one prefab lookup (as before), four field reads, one log string.
+- Log: every `FXMonger.Explode queued for destroyed part`, `FXMonger.Explode failed` and
+  `Fallback explosion spawned for destroyed part` (follow-up a below; was `Particle puff spawned
+  ...`) line now ends with
+  `potential= srfSpeed= speedSource= speedOffset= power= prefabIndex=`.
+- Tests: xUnit `PartExplosionSpeedTermTests` (the rule at every boundary of the IL, the index
+  against stock's own arithmetic, the float sum, the speed source, the invariant format, a source
+  cell that the destroyed-part path reads the ghost's speed and no active-vessel field) and the
+  reworked `GhostAudioTests` bucket cells. The X4 burst wave cannot witness the term: every trial
+  is held still, so both sides read 0 m/s and its plans, cases and pins are unchanged.
+- What the first in-game check must look at: a ghost whose parts are destroyed at or above 2000
+  m/s (a fast reentry breakup, e.g. a Mun return overheating) logs `speedOffset=0.25` with
+  `speedSource=recorded` and `prefabIndex=4` for a default part, and draws the larger blast; a
+  slower destroyed part logs `speedOffset=0` and its old index; a ghost whose `srfSpeed` sits
+  within a few m/s of 2000 is where the ghost's reading (lagged by stock's 10-frame smoothing,
+  about 0.1 s) and the real part's unsmoothed one can fall on different sides.
+- Y7 follows in its own commit ("Y7 as built" below).
+
+Y7 as built (2026-11-28, no flight; C# only, unit-tested; G.8 item 5, todo
+GHOST-CRASH-ONE-LENGTH-SIZED-BLAST). The coordinator's evidence run (`ghost-fx-9-evidence`, run
+`2026-11-27_2339`): a real 3-part crash shows small grey blasts, its ghost one Explosion 0
+(power 0.20 from `Clamp01(length / 20)`) with a dark cloud and chunks, bigger and darker.
+- Stock's crash (IL, as Y2 above): every dying part calls `Part.explode()` ->
+  `FXMonger.Explode(part, pos, explosionPotential + speed term)`; `FXMonger.explode` raises a power
+  below 0.001 to it, then merges the blast into the FIRST blast queued this frame whose squared
+  distance is below `minSqrBlast` (10 m squared): position to the power-weighted mean, power left
+  as the first's (never summed); `LateUpdate` spawns every queued blast and clears the queue. So a
+  crash's size shows as the number of blasts, never as a bigger prefab.
+- The ghost (`GhostPlaybackLogic.VesselEndBlasts.cs`, pure merge `FxMongerBlastMerge.cs`):
+  `PlayDestroyedExplosion` writes the explosion anchor to the root as before, then
+  `TryPlayVesselEndBlasts` explodes every part still on the ghost (`logicalPartIds`, active part
+  transform), in the snapshot's PART order (root first), each at its prefab potential plus the Y2
+  speed term from the ghost's own surface speed. In flight with FXMonger live and no pause menu it
+  calls `FXMonger.Explode` once per part in one frame, so stock's own merge makes the clusters.
+  Under the pause menu or with no live FXMonger it draws the planned blasts
+  as silent stock copies, one per part, which the copy path merges the same way (follow-up b below;
+  before the session's first flight the planned blasts of `FxMongerBlastMerge.Plan`, hand-built,
+  route suffix `-handbuilt`). When no part resolves it
+  falls back to the old single blast of `TerminalExplosionPower(length)` (that function, its
+  mirrors in `PartParityFxRules` / `partparity.py` and the `burst-custom` stand-ins at L = 1 to 20
+  m are unchanged: they still describe that fallback). One summary line per crash:
+  `End explosion for ...: parts= skipped= srfSpeed= speedSource= speedOffset= route= blasts=` then
+  `[i] power= prefabIndex= sources=` for at most 20 blasts. Cost per crash: one snapshot walk, one
+  prefab lookup per distinct part name, one transform lookup and one `FXMonger.Explode` per part,
+  as stock pays.
+- The X4 `vessel-explode` ghost side now calls `TryPlayVesselEndBlasts` on the trial ghost (the
+  length-sized blast only when no part resolves), so the case compares the production route.
+- Before and after, default (0.5) parts below 2000 m/s, every part dying in one frame:
+
+  | Craft | Stock | Ghost before Y7 | Ghost after Y7 |
+  | --- | --- | --- | --- |
+  | 1 part, 2 m probe | 1 blast, 0.5, Explosion 2 (index 3) | 1 blast, 0.1, Thud 0 (index 0) | 1 blast, 0.5, Explosion 2 |
+  | 3 parts, 6 m rocket | 1 merged blast, 0.5, Explosion 2 (3 when they die in 3 frames) | 1 blast, 0.3, Explosion 0 (index 1) | 1 merged blast, 0.5, Explosion 2 |
+  | 20 parts, 30 m rocket (1.5 m apart) | 1 blast that chases the stack (each merge moves it halfway to the new part), 0.5, Explosion 2; more when the parts die over several frames | 1 blast, 1.0, Explosion 6 (index 6) | 1 blast, 0.5, Explosion 2 |
+
+  At or above 2000 m/s every blast is 0.75, Explosion 4 (index 4); a part of potential 0 or 0.1
+  draws index 0 (1 or 2 at speed).
+- Residual: stock's parts die over the frames of the impact (a part per contact), so a long craft
+  can make several blasts where the ghost, which knows only that the vessel ended, makes them all
+  in one frame and so merges more. The recording holds no per-part death time for the parts still
+  on the vessel at its end.
+- What the first in-game check must look at: a crash ghost logs `End explosion for ghost #N ...
+  route=fxmonger blasts=K` with every blast `prefabIndex=3` for default parts, and draws the same
+  small grey blasts as the real crash beside it (the 3-part case of run `2026-11-27_2339`); the
+  pause menu logs `route=copy-paused`; a ghost whose parts were all removed earlier logs `no ghost
+  part to explode` and plays the old single blast.
+
+Y2 follow-ups as built (2026-11-28, from a review of the merged ghost FX work; no flight).
+- (a) A destroyed part whose `FXMonger.Explode` cannot run (Space Center, pause menu, a failed
+  call) draws `SpawnFallbackExplosionFx(part position, Y2 power, part size)`, the silent stock copy
+  (the hand-built explosion before the session's first flight), not the part puff (G.1 row 4
+  case b; todo GHOST-PART-DESTROYED-FALLBACK-PUFF). The puff helper stays for the decouple (Y4).
+  First check: a part destroyed at the Space Center logs `Fallback explosion spawned for destroyed
+  part ... prefabIndex=3` for a default part and draws a full copy, not a 5 px puff.
+- (b) The copy path merges as FXMonger does (todo GHOST-STOCK-COPY-NO-MERGE). Stock queues a
+  blast in `explode` and spawns the queue in `LateUpdate`; the copy path spawns at once, so
+  `StockExplosionPrefabCache.TrySpawn` keeps this frame's copies in a pure
+  `FxMongerFrameQueue<GameObject>` (keyed by `Time.frameCount`, emptied by a spawn in a later
+  frame): a blast within 10 m of one of them (first match, strictly below 100 m squared, power
+  floored at 0.001) moves that copy to the power-weighted mean and returns it with `merged`
+  true (its prefab, the first blast's power, stays); `SpawnFallbackExplosionFx` records only a
+  new copy. A copy is moved in the frame it was made, before its particles first update, so it
+  draws from the merged position. First check: a crash at the Space Center logs `Stock explosion
+  copy merged a blast` for parts closer than 10 m and draws as many copies as FXMonger would.
+- (c) `StockExplosionPrefabCache`'s two catch blocks destroy what their try made: the
+  DontDestroyOnLoad holder with its partial copies in `CaptureFrom`, the instance in `TrySpawn`
+  (todo GHOST-STOCK-COPY-CACHE-LEAKS). No player-visible change; no CHANGELOG line.
+- (d) Owner rulings on Y2 / Y7 (2026-11-28): Q1 the speed term copies stock exactly (only +0.25
+  from 2000 m/s; stock's dead 0.12 step stays dead); Q2 each ghost reads its own recorded surface
+  speed, never the player's ship (as the reentry fire); Q3 a crash's blasts stay in one frame, the
+  residual under "Y7 as built" accepted; Q4 the Space Center and manual preview end explosions take
+  the Y7 route. `ParsekKSC.TriggerExplosionIfDestroyed` and the manual preview's end in
+  `ParsekFlightPlaybackHost.UpdatePlayback` call `TryPlayVesselEndBlasts` first (same planner,
+  merge, routes and `End explosion for` line) and keep the length-sized blast only when no part
+  resolves. The Space Center passes its pause flag as flight does, and its overload returns
+  whether FXMonger took a part blast and the loudest planned power
+  (`VesselEndBlastLoudestPower`): FXMonger plays its own sound then, otherwise the Space
+  Center's one-shot plays at the loudest power. Residual: a Space Center ghost has no surface
+  speed source (`PartExplosionSurfaceSpeed` reads `none`), so its blasts and its destroyed parts
+  carry no speed term. The manual preview cannot start in the current tree (`isPlaying` is never
+  set and `previewRecording` never assigned), so its branch is wired for parity but unreachable.
+  First check: a crash replayed at the Space Center logs `End explosion for KSC ghost #N ...
+  route=copy-no-fxmonger blasts=K` (or `route=fxmonger`) with `prefabIndex=3` for default parts.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is
@@ -4935,7 +5063,8 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
      `body.GetDensity` at the standard temperature (`GhostPlaybackEngine.ReentryFx.cs:140`), stock
      the vessel's `atmDensity`. The streaks were tuned by eye against the current curve (todo
      GHOST-TRANSIENT-FX-RIDE-ACTIVE-VESSEL says so), so a fix re-tunes both together.
-2. A ghost part explosion has no speed term (`GhostPlaybackLogic.PartEvents.cs:863`); stock adds
+2. (Fixed by Y2, "Y2 as built" in G.7: stock's 0.12 step never runs, so the term is 0.25 from
+   2000 m/s on.) A ghost part explosion has no speed term (`GhostPlaybackLogic.PartEvents.cs:863`); stock adds
    0.12 or 0.25 to every part's potential by the active vessel's surface speed (`Part.explode`),
    which is the crashing vessel itself when the player flew it. With most parts at the default
    0.5, that can move the prefab index. The faithful input for a ghost is its own recorded surface
@@ -4963,7 +5092,8 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
    child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
    and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud
    (`fx_gasBurst_white`) on the decoupler that fired, and nothing for a joint that just broke.
-5. The vessel end explosion's power is `Clamp01(length / 20)`
+5. (Fixed by Y7, "Y7 as built" in G.7: one blast per part, merged as FXMonger merges; a merge
+   keeps the first blast's power, it never sums.) The vessel end explosion's power is `Clamp01(length / 20)`
    (`GhostPlaybackEngine.SpawnDestroy.cs:809`), so every ghost of 20 m or more takes the largest
    prefab; stock's merged part potentials (0.5 each, summed within 10 m, then clamped) also reach 1
    for any cluster of two or more default parts that merge (how long a queued blast can absorb

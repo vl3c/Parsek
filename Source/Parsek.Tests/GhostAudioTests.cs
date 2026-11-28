@@ -128,26 +128,27 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // partInfo.explosionPotential → FXMonger explosionSounds[] slot on a 3-element array.
+        // partInfo.explosionPotential -> FXMonger explosionSounds[] slot on a 3-element array.
         // Stock indexes with `(int)(power * (length-1))`, so on length=3:
-        //   power < 0.5  → slot 0 (sound_explosion_debris1)
-        //   0.5 ≤ p < 1  → slot 1 (sound_explosion_debris2)
-        //   power == 1   → slot 2 (sound_explosion_large)
-        // ResolvePartExplosionPower returns the prefab's explosionPotential clamped to [0,1].
+        //   power < 0.5  -> slot 0 (sound_explosion_debris1)
+        //   0.5 <= p < 1 -> slot 1 (sound_explosion_debris2)
+        //   power == 1   -> slot 2 (sound_explosion_large)
+        // Below 2000 m/s stock adds no speed term, so the power is the potential clamped to [0,1].
         [InlineData(0.1f, 0)]    // explicit small explosion (some structural panels)
         [InlineData(0.49f, 0)]   // just below the slot-1 threshold
-        [InlineData(0.5f, 1)]    // stock default (Part.explosionPotential = 0.5f) → debris2
-        [InlineData(0.75f, 1)]   // fast-moving stock default (with speed offset 0.25)
+        [InlineData(0.5f, 1)]    // stock default (Part.explosionPotential = 0.5f) -> debris2
+        [InlineData(0.75f, 1)]
         [InlineData(0.99f, 1)]   // just below the slot-2 threshold
-        [InlineData(1.0f, 2)]    // explicit large (e.g. heavy fuel tanks have higher potentials)
-        [InlineData(2.0f, 2)]    // out-of-range high — clamp01 holds
-        [InlineData(-1.0f, 0)]   // out-of-range low — clamp01 holds
-        public void ResolvePartExplosionPower_BucketsByPrefabExplosionPotential(
+        [InlineData(1.0f, 2)]    // explicit large
+        [InlineData(2.0f, 2)]    // out-of-range high: the clamp holds
+        [InlineData(-1.0f, 0)]   // out-of-range low: the clamp holds
+        public void PartExplosionPower_SlowEvent_BucketsByPrefabExplosionPotential(
             float prefabExplosionPotential, int expectedSlotOnThreeElementArray)
         {
-            double power = GhostPlaybackLogic.ResolvePartExplosionPower(
+            float potential = GhostPlaybackLogic.ResolvePartExplosionPotential(
                 "stockPart",
                 lookup: _ => prefabExplosionPotential);
+            double power = GhostPlaybackLogic.StockPartExplosionPower(potential, 150.0);
 
             Assert.InRange(power, 0.0, 1.0);
             // Replicate stock FXMonger.LateUpdate's index pick: `(int)(power * (length-1))`.
@@ -156,28 +157,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolvePartExplosionPower_UnknownPartFallsBackToStockDefault()
+        public void ResolvePartExplosionPotential_UnknownPartFallsBackToStockDefault()
         {
             // When the lookup returns null (part not loaded, modded part absent, snapshot
-            // synthetic name), use the stock Part.explosionPotential default (0.5) so audio
-            // matches stock behavior for unknown parts.
-            double power = GhostPlaybackLogic.ResolvePartExplosionPower(
+            // synthetic name), use the stock Part.explosionPotential default (0.5).
+            float potential = GhostPlaybackLogic.ResolvePartExplosionPotential(
                 "missingMod_widget",
                 lookup: _ => null);
 
-            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential, power);
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential, potential);
         }
 
         [Fact]
-        public void ResolvePartExplosionPower_NullOrEmptyPartNameUsesStockDefault()
+        public void ResolvePartExplosionPotential_NullOrEmptyPartNameUsesStockDefault()
         {
-            // Guards against a synthetic PartEvent that never populated partName — the helper
-            // should still produce a valid power (the stock default) instead of throwing or
-            // returning a sentinel that maps to the wrong slot.
             Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
-                GhostPlaybackLogic.ResolvePartExplosionPower(null, lookup: _ => null));
+                GhostPlaybackLogic.ResolvePartExplosionPotential(null, lookup: _ => null));
             Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
-                GhostPlaybackLogic.ResolvePartExplosionPower(string.Empty, lookup: _ => null));
+                GhostPlaybackLogic.ResolvePartExplosionPotential(string.Empty, lookup: _ => null));
+        }
+
+        [Fact]
+        public void ResolvePartExplosionPotential_NonFinitePotentialUsesStockDefault()
+        {
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
+                GhostPlaybackLogic.ResolvePartExplosionPotential("p", lookup: _ => float.NaN));
+            Assert.Equal(GhostAudioPresets.DefaultPartExplosionPotential,
+                GhostPlaybackLogic.ResolvePartExplosionPotential("p", lookup: _ => float.PositiveInfinity));
+        }
+
+        [Fact]
+        public void ResolvePartExplosionPotential_KeepsTheRawPotentialForTheSum()
+        {
+            // The clamp happens after stock's speed term is added, not before.
+            Assert.Equal(-1f, GhostPlaybackLogic.ResolvePartExplosionPotential("p", lookup: _ => -1f));
+            Assert.Equal(2f, GhostPlaybackLogic.ResolvePartExplosionPotential("p", lookup: _ => 2f));
         }
 
         [Theory]

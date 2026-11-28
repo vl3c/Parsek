@@ -789,10 +789,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The FXMonger power a Destroyed ending's end explosion passes: the ghost's length over
-        /// <see cref="GhostAudioPresets.VesselLengthPowerDivisor"/>, clamped to [0, 1], so every
-        /// ghost of 20 m or more takes the largest prefab. Pure, read by
-        /// <see cref="PlayDestroyedExplosion"/> and by the part parity burst cases.
+        /// The FXMonger power of a Destroyed ending's single blast when no ghost part resolves
+        /// (<see cref="GhostPlaybackLogic.TryPlayVesselEndBlasts"/> plays stock's per-part blasts
+        /// otherwise): the ghost's length over <see cref="GhostAudioPresets.VesselLengthPowerDivisor"/>,
+        /// clamped to [0, 1]. Pure, read by <see cref="PlayDestroyedExplosion"/> and by the part
+        /// parity burst cases.
         /// </summary>
         internal static double TerminalExplosionPower(float vesselLength)
         {
@@ -817,6 +818,18 @@ namespace Parsek
             float vesselLength = state.reentryFxInfo != null
                 ? state.reentryFxInfo.vesselLength
                 : GhostVisualBuilder.ComputeGhostLength(state.ghost);
+
+            // Stock's crash: one Part.explode per part still on the ghost, merged by FXMonger.
+            if (GhostPlaybackLogic.TryPlayVesselEndBlasts(state, GhostVisualBuilder.GetGhostSnapshot(traj),
+                    vesselLength, state.audioPaused, $"ghost #{recIdx} \"{traj.VesselName}\""))
+            {
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("Engine", "parts-hidden-explosion",
+                    $"Ghost #{recIdx} parts hidden after explosion");
+                return;
+            }
+
+            // No part resolved: one blast sized by the ghost's length.
             double power = TerminalExplosionPower(vesselLength);
 
             if (state.audioPaused)

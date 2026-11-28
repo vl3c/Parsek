@@ -33,6 +33,9 @@ namespace Parsek
         private static GameObject holder;
         private static GameObject[] copies;
 
+        // This frame's copies, merged as FXMonger merges its queue (FxMongerFrameQueue).
+        private static readonly FxMongerFrameQueue<GameObject> frameBlasts = new FxMongerFrameQueue<GameObject>();
+
         /// <summary>
         /// The stock explosion a blast of <paramref name="power"/> draws, the same index
         /// <c>FXMonger.LateUpdate</c> takes; -1 with no prefabs or a NaN power.
@@ -68,9 +71,10 @@ namespace Parsek
                 return;
             }
 
+            GameObject keep = null;
             try
             {
-                var keep = new GameObject("ParsekStockExplosionCopies");
+                keep = new GameObject("ParsekStockExplosionCopies");
                 keep.SetActive(false);
                 UnityEngine.Object.DontDestroyOnLoad(keep);
 
@@ -106,20 +110,44 @@ namespace Parsek
                 ParsekLog.Warn("ExplosionFx", $"Stock explosion copies not kept: {ex.Message}");
                 holder = null;
                 copies = null;
+                // The holder is DontDestroyOnLoad and parents every copy made so far.
+                DestroyQuietly(keep, "the partial stock explosion copies");
             }
         }
 
         /// <summary>
         /// Plays a silent copy of stock's explosion for <paramref name="power"/> at
-        /// <paramref name="worldPosition"/>; null when no copy is kept for that power.
+        /// <paramref name="worldPosition"/>; null when no copy is kept for that power. A blast within
+        /// 10 m of a copy spawned this frame merges into it as FXMonger merges its queue
+        /// (<see cref="FxMongerBlastMerge"/>): that copy moves to the power-weighted mean, keeps its
+        /// prefab, and is returned with <paramref name="merged"/> true.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static GameObject TrySpawn(Vector3 worldPosition, double power, out string failureReason)
+        internal static GameObject TrySpawn(Vector3 worldPosition, double power, out string failureReason,
+            out bool merged)
         {
+            merged = false;
             if (!HasCopies)
             {
                 failureReason = "no stock explosion copies kept (not in flight yet this session)";
                 return null;
+            }
+            int frameNumber = Time.frameCount;
+            if (frameBlasts.Offer(frameNumber, worldPosition, power, out Vector3d mergedAt, out GameObject into) >= 0)
+            {
+                if (into == null)
+                {
+                    failureReason = "merged into a stock explosion copy this frame that is already gone";
+                    return null;
+                }
+                into.transform.position = (Vector3)mergedAt;
+                merged = true;
+                failureReason = null;
+                ParsekLog.VerboseRateLimited("ExplosionFx", "stock-copy-merge",
+                    $"Stock explosion copy merged a blast of power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) into this frame's copy, " +
+                    $"now at ({mergedAt.x:F1},{mergedAt.y:F1},{mergedAt.z:F1})", 5.0);
+                return into;
             }
             int index = ResolvePrefabIndex(power, copies.Length);
             GameObject source = index >= 0 ? copies[index] : null;
@@ -129,16 +157,18 @@ namespace Parsek
                 return null;
             }
 
+            GameObject blast = null;
             try
             {
                 // Placed by the Instantiate itself, so nothing on the copy wakes at the holder.
                 Quaternion rotation = Quaternion.FromToRotation(Vector3.up, ResolveUp(worldPosition));
-                GameObject blast = UnityEngine.Object.Instantiate(source, worldPosition, rotation);
+                blast = UnityEngine.Object.Instantiate(source, worldPosition, rotation);
                 blast.name = "GhostStockExplosionFx";
                 blast.SetActive(true);
                 // The blast stays where it was made when the floating origin shifts.
                 GhostWorldSpaceEmitter.AttachOwn(blast);
                 UnityEngine.Object.Destroy(blast, SafetyLifetimeSeconds);
+                frameBlasts.Add(frameNumber, worldPosition, power, blast);
                 failureReason = null;
                 ParsekLog.VerboseRateLimited("ExplosionFx", "stock-copy-spawn",
                     $"Stock explosion copy '{source.name}' (index {index.ToString(CultureInfo.InvariantCulture)}/" +
@@ -150,7 +180,28 @@ namespace Parsek
             catch (Exception ex)
             {
                 failureReason = ex.Message;
+                // An instance made before the throw would otherwise never get its timed Destroy.
+                DestroyQuietly(blast, "a stock explosion copy that failed to start");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Destroys <paramref name="go"/> now when it exists (a Unity null is skipped), logging and
+        /// swallowing a failure, for the cleanup in a catch block.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void DestroyQuietly(GameObject go, string what)
+        {
+            if (go == null) return;
+            try
+            {
+                UnityEngine.Object.Destroy(go);
+                ParsekLog.Verbose("ExplosionFx", $"Destroyed {what} after a failure");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ExplosionFx", $"Could not destroy {what}: {ex.Message}");
             }
         }
 

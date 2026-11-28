@@ -294,11 +294,13 @@ namespace Parsek
         /// </summary>
         internal static GameObject SpawnFallbackExplosionFx(Vector3 worldPosition, double power, float vesselLength)
         {
-            GameObject blast = StockExplosionPrefabCache.TrySpawn(worldPosition, power, out string why);
+            GameObject blast = StockExplosionPrefabCache.TrySpawn(worldPosition, power, out string why, out bool merged);
             if (blast != null)
             {
-                GhostTransientFxRecord.Note(
-                    GhostTransientFxKind.StockCopyExplosion, worldPosition, power, vesselLength, blast);
+                // A blast merged into this frame's copy is that copy, already recorded.
+                if (!merged)
+                    GhostTransientFxRecord.Note(
+                        GhostTransientFxKind.StockCopyExplosion, worldPosition, power, vesselLength, blast);
                 return blast;
             }
             ParsekLog.VerboseRateLimited("ExplosionFx", "stock-copy-unavailable",

@@ -31,8 +31,9 @@ namespace Parsek
 
         // Stock `Part.explosionPotential` default (decompiled `Part.cs:591`). Most stock parts
         // inherit this value and stock `Part.explode()` calls
-        // `FXMonger.Explode(this, pos, explosionPotential + speedOffset)` where speedOffset is 0,
-        // 0.12, or 0.25 depending on craft surface speed. Used as the per-part fallback when the
+        // `FXMonger.Explode(this, pos, explosionPotential + speedOffset)` where speedOffset is 0.25
+        // from 2000 m/s surface speed on, else 0 (GhostPlaybackLogic.StockPartExplosionSpeedOffset).
+        // Used as the per-part fallback when the
         // part name doesn't resolve to a loaded `AvailablePart` (modded parts that aren't installed,
         // or synthetic / unknown part snapshots).
         internal const double DefaultPartExplosionPotential = 0.5;
