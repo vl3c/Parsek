@@ -4411,7 +4411,9 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   level) points along -velocity with the blended colour and light power. The shader does the
   sheath: the multi-pass extrusion along the flow is what the pictures show as bands.
 - What the ghost does. Per ghost, the pure `GhostAeroFx.ComputeFxScalar` runs stock's
-  `Update` + `LateUpdate` arithmetic on the ghost's own density, surface speed and Mach, with the
+  `Update` + `LateUpdate` arithmetic on the ghost's own density (stock's full temperature, with
+  the sun and latitude offset), surface speed (the one stock's `vessel.speed` would read, "After
+  flight 3" below) and Mach, with the
   constants from `PhysicsGlobals` (read once; Physics.cfg's values when it is not there); the
   engine smooths the clamped scalar as before. When the result is above 0 the ghost asks
   `GhostAeroFxRenderer` (Ghost module, one per flight scene on its own object; only its two
@@ -4421,7 +4423,8 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   layer 6, a Unity built-in layer KSP leaves unnamed. In its own LateUpdate (execution order
   10000, so after the ghosts' final placement and after stock's `AerodynamicsFX.LateUpdate` has
   switched stock's effect on or off) it renders each drawing ghost's own velocity depth map (one
-  velocity camera built as stock's, boxed on the ghost's bounds, into that ghost's own depth
+  velocity camera built as stock's, boxed and stood off on the camera's distance to the ghost as
+  stock does on the camera distance, "After flight 3" below, into that ghost's own depth
   render texture at stock's `FXCamera.occlusionMapResolution`, 256 / 512 / 1024 / 2048 by
   `AERO_FX_QUALITY`; pooled by drawing slot, a slot idle 5 s is released, a size change releases
   them all) and, last in that drive (after the cameras are set, "After flight 2" below), submits
@@ -4643,6 +4646,67 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     draws (stock's look is its replacement pass), and submitting in the copy's `onPreCull`,
     because nothing writes the copies after our `LateUpdate`. The rig needs no change: its
     capture, sanity and nodepth shots and the normal ghost shots read the fix as they stand.
+- After flight 3 (2026-11-28, `PPS-20c` run `2026-11-28_0203`, PASS, rig 0fd539e50 over
+  a7b89b3fb; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-fix/` on
+  `p9-y1-flight-after-fix`, sheet `contact-real-before-after-fix.png`). The order fix works: the
+  sheath reaches the screen (`submitted=` 6 / 15 / 41, magenta in `SanityUnlit`, flame in
+  `NoSceneDepth` and in the normal shots at m6, m375 and m3, no ReentryFx WRN / ERR, every timing
+  copy `Draw`). Cost uncapped: about +0.37 / +0.8 / +1.35 ms for 1 / 4 / 8 burning ghosts at m6;
+  left alone under the 01:07 ruling. Three look gaps against stock, side camera, same probe:
+  1. Mach 3.75 dimmer and narrower. The ghost read fx 0.708 state 0.93 on its m375 shot (UT
+     71.90; the values rose to 0.719 by 72.14 while stock's fell); stock read 0.836 state 0.998 at
+     UT 71.86 (srfSpeed 1110.2, rho 0.03291) and 0.723 at 72.10. Two speed errors, both proved:
+     - Stock's `airSpeed` is `vessel.speed`, which `FlightIntegrator.SmoothVelocity` makes the
+       magnitude of the mean velocity of the last `VelSmoothLen` = 10 physics frames, so 4.5
+       frames old. With stock's own logged inputs the formula gives 0.796, not 0.836 (xUnit
+       `ComputeFxScalar_StocksMach375Reading_NeedsItsSmoothedSpeed`); the 4 % heat flux is a
+       speed about 1.2 % (13 m/s) above the instantaneous `srfSpeed`, and the same holds at m375
+       end (3.5 %) and m3 (4.7 %). Stock's Mach (and so its thermal blend) is that speed too.
+     - The ghost's speed was the bracket's position chord, the mean over a recorder bracket
+       (0.51 s average there, up to 3 s): the speed at the bracket's middle. The log shows the
+       ghost 2 % slow for its altitude (1217 m/s at 21843 m, stock about 1242 there), and a
+       2 % slow speed reproduces the ghost's 0.71 with state 0.93 (xUnit
+       `ComputeFxScalar_TwoPercentSlowSpeed_ReadsTheGhostsLowValue`): thin air multiplies the
+       scalar by the blend below Mach 3.75, and the blend is Mach.
+     Fix: the reentry scalar reads `GhostSurfaceVelocity.SpeedForAeroFx`, the bracket's recorded
+     speed magnitudes (the vessel's own `rb_velocityD` plus Krakensbane's frame velocity, the
+     vector `vessel.velocityD` is, so surface speed while the world co-rotates) interpolated at
+     the bracket fraction 4.5 physics steps (`TimeWarp.fixedDeltaTime`) before the playback UT
+     (`StockSpeedFraction`), when the mean of the two magnitudes agrees with the chord within
+     1.5 % (2 m/s floor; an inertial pair differs by the body's rotation along the track and
+     keeps the chord). Only the point-interpolation path derives it; every other path and every
+     other reader keep the chord. The direction stays the chord's. Also: stock's density and
+     speed of sound use `GetFullTemperature(altitude, offset)` with the sun and latitude offset
+     `GetAtmoThermalStats` gives (`FlightIntegrator.CalculateSunBodyFlux`); the ghost used the
+     standard atmosphere's `GetTemperature`. It now takes the same offset at its own position
+     (`ReadAtmosphereTemperatureOffset`). Its size at that mark is not logged; the next flight
+     logs it.
+  2. Base shape. Stock's flame starts as a wide, even bowl around the hull's base; the ghost's
+     streaks fan out from a point just under the base, with a weak rim. Value by value against
+     the decompiled `FXCamera.OnPreRender` / `LateUpdate` and `FXDepthCamera`, every shader input
+     the block carries matches (direction, `_FXColor` alpha `intensity * (lod + 1)`, colour with
+     alpha 1, length, edge fade, `obliqueness`, texture speed / scale / texture, depth map,
+     matrices, camera position, near 0, far, bias 0.001, `_FXWorld2Velocity`, falloffs, wobble;
+     depth map 32-bit `Depth`, white clear, layer 0, forward = effect direction; the depth
+     copy's replacement and far clip), except the velocity camera's box: stock sets
+     `cameraDistance = max(FlightCamera.Distance, |vesselSize|)` and puts the camera at
+     `pivot - effectDirection * cameraDistance` with `orthographicSize = cameraDistance`
+     (the rig logged `velocityCam ortho=32.4 far=50.0`), where the ghost used its own size (3 m
+     box, 3 m stand-off). A camera 3 m ahead of the hull is the point the ghost's streaks fan
+     from, where stock's, 32 m ahead, stream back almost parallel. The shader is not in the
+     reference DLLs, so how it reads the stand-off is inferred; the box itself is stock's rule.
+     Fix: `GhostAeroFx.VelocityCamBox(size, cameraDistance)` is stock's rule on the main
+     camera's distance to the ghost (32 m in the rig's pose, as stock's).
+  3. Overall at m6 slightly dimmer: both read fx 1.000 there, so the scalar is not it; most
+     likely the same fan spreading the light thinner (item 2). Not proved; the next flight reads
+     it.
+  - Logged for the next flight, all Parsek-side, no rig change: the `Reentry isolation frame
+    applied to ghost #<n>` line (the rig arms it on every B shot, one frame after the A shot)
+    now carries `fx= state= speed= speedSource=stock|chord chordSpeed= rho= temp=K tempOffset=K
+    mach= rawFx=`; the rate-limited `ReentryFx: ghost #<n> intensity=` and `sheath drawn` lines
+    carry the same inputs, the latter also `velFar=`; the capture report adds `fx= state=` and
+    `velocityCam ortho= far=` with the inputs. Read beside the rig's real-mark line (`FxScalar=
+    state= mach= airDensity= velocityCam ... ortho= far=`).
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and

@@ -112,6 +112,92 @@ namespace Parsek
                 - rotatingFrameVelocityWorld);
         }
 
+        /// <summary>
+        /// How far the mean of the two recorded speed magnitudes may sit from the bracket's
+        /// position chord speed for the recorded magnitudes to count as surface speeds: a
+        /// fraction of the chord speed, with a floor in m/s.
+        /// </summary>
+        internal const double RecordedSpeedAgreementFraction = 0.015;
+        internal const double RecordedSpeedAgreementFloorMps = 2.0;
+
+        /// <summary>
+        /// <c>FlightIntegrator.VelSmoothLen</c>: stock's <c>vessel.speed</c> (and so its Mach) is
+        /// the magnitude of the mean velocity of the last this-many physics frames
+        /// (<c>FlightIntegrator.SmoothVelocity</c>), the value <c>AerodynamicsFX</c> reads.
+        /// </summary>
+        internal const int StockVelocitySmoothFrames = 10;
+
+        /// <summary>
+        /// Where in the bracket (0 = before sample, 1 = after) the speed stock would read at
+        /// fraction <paramref name="t"/> sits: the mean of a speed that changes linearly over the
+        /// last <see cref="StockVelocitySmoothFrames"/> physics frames is its value
+        /// <c>(frames - 1) / 2</c> frames back. Can fall below 0 (the bracket's own trend read
+        /// back, at most one bracket). An unusable input returns <paramref name="t"/>.
+        /// </summary>
+        internal static double StockSpeedFraction(double t, double bracketSeconds, double fixedDeltaTime)
+        {
+            if (!IsFinite(t) || !IsFinite(bracketSeconds) || !IsFinite(fixedDeltaTime)
+                || bracketSeconds < MinBracketSeconds || fixedDeltaTime < 0.0)
+                return t;
+            double lagSeconds = 0.5 * (StockVelocitySmoothFrames - 1) * fixedDeltaTime;
+            double f = t - lagSeconds / bracketSeconds;
+            return f < -1.0 ? -1.0 : (f > 1.0 ? 1.0 : f);
+        }
+
+        /// <summary>
+        /// The ghost's surface speed at bracket fraction <paramref name="t"/> from the bracket's
+        /// recorded speed magnitudes, when they are surface speeds. The position chord is the
+        /// mean speed over the whole bracket, the speed at its middle: under a reentry's
+        /// deceleration (about 100 m/s per s) and the recorder's 0.5 s brackets it read 2 % slow
+        /// near a bracket's start, and stock's <c>FxScalar</c> (speed to the 3.5th power, Mach
+        /// through the thermal blend) 0.1 low (flight 3 of 2026-11-28, Mach 3.75).
+        /// <para>
+        /// A recorded <c>TrajectoryPoint.velocity</c> is the vessel's own velocity at the sample
+        /// (<c>rb_velocityD</c> plus Krakensbane's frame velocity, the vector stock's
+        /// <c>vessel.velocityD</c> is), surface-relative only while the world co-rotated with
+        /// the body; its magnitude does not depend on the session's yaw. The pair is used only
+        /// when the mean of its magnitudes agrees with the chord (a co-rotating pair agrees to
+        /// well under 1 % over a reentry bracket; an inertial pair differs by the body's
+        /// rotation along the track), and the result is the magnitudes interpolated linearly at
+        /// <paramref name="t"/> (clamped to -1..1, so read back at most one bracket), never
+        /// below 0. Otherwise false, and the chord stays the speed.
+        /// </para>
+        /// </summary>
+        internal static bool TryRecordedSurfaceSpeed(double chordSpeed, double recordedSpeedBefore,
+            double recordedSpeedAfter, double t, out float speed)
+        {
+            speed = 0f;
+            if (!IsFinite(chordSpeed) || !IsFinite(recordedSpeedBefore) || !IsFinite(recordedSpeedAfter)
+                || !IsFinite(t) || chordSpeed < 0.0 || recordedSpeedBefore < 0.0 || recordedSpeedAfter < 0.0)
+                return false;
+            double mean = 0.5 * (recordedSpeedBefore + recordedSpeedAfter);
+            double tolerance = Math.Max(RecordedSpeedAgreementFloorMps, RecordedSpeedAgreementFraction * chordSpeed);
+            if (Math.Abs(mean - chordSpeed) > tolerance)
+                return false;
+            if (t < -1.0) t = -1.0;
+            else if (t > 1.0) t = 1.0;
+            double value = recordedSpeedBefore + (recordedSpeedAfter - recordedSpeedBefore) * t;
+            speed = (float)(value < 0.0 ? 0.0 : value);
+            return true;
+        }
+
+        /// <summary>
+        /// The speed the ghost's reentry scalar uses: the stock-read speed when one was derived
+        /// for exactly this stored chord (<see cref="TryRecordedSurfaceSpeed"/> at
+        /// <see cref="StockSpeedFraction"/>; NaN means none), else the chord's magnitude. A
+        /// surface velocity written by any other path (a test, the parity driver) no longer
+        /// equals the chord the stock speed came with, so it is read as is.
+        /// </summary>
+        internal static float SpeedForAeroFx(Vector3 surfaceVelocity, GhostSurfaceVelocitySource source,
+            float stockSpeed, Vector3 stockSpeedChord, out bool usedStockSpeed)
+        {
+            usedStockSpeed = source == GhostSurfaceVelocitySource.Positions
+                && !float.IsNaN(stockSpeed) && !float.IsInfinity(stockSpeed) && stockSpeed >= 0f
+                && surfaceVelocity == stockSpeedChord;
+            if (usedStockSpeed) return stockSpeed;
+            return Usable(surfaceVelocity, source).magnitude;
+        }
+
         /// <summary>Grep-stable log token for a source.</summary>
         internal static string SourceToken(GhostSurfaceVelocitySource source)
         {

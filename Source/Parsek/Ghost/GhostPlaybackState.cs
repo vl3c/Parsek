@@ -198,6 +198,10 @@ namespace Parsek
         // when lastInterpolatedSurfaceVelocitySource != None.
         public Vector3 lastInterpolatedSurfaceVelocity;
         public GhostSurfaceVelocitySource lastInterpolatedSurfaceVelocitySource;
+        // The surface speed stock's vessel.speed would read here, from the bracket's recorded
+        // speeds (NaN = none), and the chord it was derived with (GhostSurfaceVelocity.SpeedForAeroFx).
+        public float lastInterpolatedStockSurfaceSpeed = float.NaN;
+        public Vector3 lastInterpolatedStockSpeedChord;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
         // Air density cache of GhostPlaybackLogic.UpdateEngineSmokeTrailFades, keyed by body
@@ -311,6 +315,8 @@ namespace Parsek
             lastInterpolatedVelocity = r.velocity;
             lastInterpolatedSurfaceVelocity = r.surfaceVelocity;
             lastInterpolatedSurfaceVelocitySource = r.surfaceVelocitySource;
+            lastInterpolatedStockSurfaceSpeed = r.stockSurfaceSpeed;
+            lastInterpolatedStockSpeedChord = r.surfaceVelocity;
             lastInterpolatedBodyName = r.bodyName;
             lastInterpolatedAltitude = r.altitude;
         }
@@ -321,6 +327,8 @@ namespace Parsek
             lastInterpolatedVelocity = Vector3.zero;
             lastInterpolatedSurfaceVelocity = Vector3.zero;
             lastInterpolatedSurfaceVelocitySource = GhostSurfaceVelocitySource.None;
+            lastInterpolatedStockSurfaceSpeed = float.NaN;
+            lastInterpolatedStockSpeedChord = Vector3.zero;
         }
     }
 
@@ -345,12 +353,16 @@ namespace Parsek
         // See GhostPlaybackState.lastInterpolatedSurfaceVelocity.
         public Vector3 surfaceVelocity;
         public GhostSurfaceVelocitySource surfaceVelocitySource;
+        // The surface speed stock's vessel.speed would read here (GhostSurfaceVelocity.TryRecordedSurfaceSpeed
+        // at StockSpeedFraction), NaN when none was derived. Only meaningful with surfaceVelocitySource Positions.
+        public float stockSurfaceSpeed;
 
         public static readonly InterpolationResult Zero = new InterpolationResult
         {
             velocity = Vector3.zero,
             bodyName = null,
-            altitude = 0
+            altitude = 0,
+            stockSurfaceSpeed = float.NaN,
         };
 
         public InterpolationResult(Vector3 vel, string body, double alt)
@@ -360,9 +372,13 @@ namespace Parsek
             altitude = alt;
             surfaceVelocity = Vector3.zero;
             surfaceVelocitySource = GhostSurfaceVelocitySource.None;
+            stockSurfaceSpeed = float.NaN;
         }
 
-        /// <summary>Copy with the surface velocity set; None forces a zero vector.</summary>
+        /// <summary>
+        /// Copy with the surface velocity set; None forces a zero vector. Any stock speed is
+        /// dropped: it belongs to the chord it was derived with.
+        /// </summary>
         public InterpolationResult WithSurfaceVelocity(
             Vector3 surface, GhostSurfaceVelocitySource source)
         {
@@ -371,6 +387,15 @@ namespace Parsek
             copy.surfaceVelocity = source == GhostSurfaceVelocitySource.None
                 ? Vector3.zero
                 : surface;
+            copy.stockSurfaceSpeed = float.NaN;
+            return copy;
+        }
+
+        /// <summary>Copy carrying the stock-read surface speed of its current chord.</summary>
+        public InterpolationResult WithStockSurfaceSpeed(float speed)
+        {
+            InterpolationResult copy = this;
+            copy.stockSurfaceSpeed = speed;
             return copy;
         }
     }

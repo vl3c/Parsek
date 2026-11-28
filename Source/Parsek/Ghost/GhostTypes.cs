@@ -920,6 +920,8 @@ namespace Parsek
         public float lastIntensity;
         // Stock's thermal blend for the drive: 0 = condensation, 1 = reentry heat.
         public float aeroState;
+        // What the last drive computed the scalar from (logged on the rig's shot frames).
+        public AeroFxInputs lastInputs;
         public float vesselLength;
         // The last sheath decision GhostAeroFxRenderer logged for this ghost.
         public GhostAeroSheathDecision? lastSheathDecision;
