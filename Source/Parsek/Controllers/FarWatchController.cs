@@ -151,6 +151,7 @@ namespace Parsek
 
         internal FarWatchState State => state;
         internal bool IsRunning => FarWatchTransitions.IsRunning(state);
+        internal bool HoldsTheFlightExits => FarWatchTransitions.HoldsTheFlightExits(state);
         internal FarWatchEndReason LastEndReason => endReason;
         internal Vessel Ship => ship;
         internal int GhostIndex => ghostIndex;
@@ -269,21 +270,9 @@ namespace Parsek
         /// </summary>
         internal FarWatchStartCheck EvaluateFarStart(int recordingIndex, bool follow, string trigger, bool useCache)
         {
-            var c = new FarWatchStartCheck();
             string entry = FarWatchTransitions.EvaluateEntryRefusal(host.BuildFarWatchEntryInputs(recordingIndex, IsRunning, follow));
-            FarWatchRefusal reason = FarWatchRefusal.None;
-            bool allowed = true;
-            if (entry == null)
-            {
-                c.Verdict = EvaluateAdmission(trigger, useCache);
-                c.HasVerdict = true;
-                allowed = c.Verdict.IsAllowed;
-                reason = c.Verdict.Reason;
-            }
-            c.Refusal = FarWatchDecisions.CombineStartRefusal(entry, allowed, reason);
-            if (c.Refusal != null)
-                c.Hover = entry == null ? DescribeRefusalForHover(c.Verdict) : FarWatchDecisions.StartRefusalHover(entry, reason, null);
-            return c;
+            return FarWatchDecisions.ComposeStartCheck(entry, () => EvaluateAdmission(trigger, useCache),
+                DescribeRefusalForHover);
         }
 
         private void AdoptVerdict(FarWatchSafetyVerdict v)
@@ -796,6 +785,7 @@ namespace Parsek
                     {
                         ParsekLog.Error(Tag, "ship never loaded on HandoverBack; the drone stays parked");
                         Transition(FarWatchTrigger.ShipNeverLoaded, FarWatchEndReason.ShipNeverLoaded);
+                        DropPendingSwitchForAbort();
                     }
                 }
                 return;
@@ -1397,6 +1387,10 @@ namespace Parsek
             bool droneAlive = drone != null && !droneActive;
             if (!switchedOut || (droneAlive && active == ship))
             {
+                LogAbortSwitch(FarWatchDecisions.DecideAbortSwitch(true, pendingSwitchTarget != null));
+                // The ship never lost focus: a switch asked for meanwhile (a Switch To during
+                // Spawning) runs after the abort as it would after a hand-back.
+                CapturePostTeardown();
                 if (drone != null)
                     DestroyDrone("abort");
                 RemoveInputLock();
@@ -1419,9 +1413,29 @@ namespace Parsek
                     return;
                 }
             }
+            DropPendingSwitchForAbort();
             ParsekLog.Error(Tag, string.Format(ic,
                 "far watch aborted with no hand-back reason={0} shipLoaded={1} droneAlive={2}; waiting for the scene exit",
                 endReason, ship != null && ship.loaded, drone != null));
+        }
+
+        /// <summary>The watch waits in Aborted with no hand-back: a pending switch can never run.</summary>
+        private void DropPendingSwitchForAbort()
+        {
+            if (FarWatchDecisions.DecideAbortSwitch(false, pendingSwitchTarget != null) != FarWatchAbortSwitch.Dropped)
+                return;
+            LogAbortSwitch(FarWatchAbortSwitch.Dropped);
+            pendingSwitchTarget = null;
+            pendingSwitchReplay = null;
+        }
+
+        private void LogAbortSwitch(FarWatchAbortSwitch d)
+        {
+            if (d == FarWatchAbortSwitch.None)
+                return;
+            ParsekLog.Info(Tag, string.Format(ic, "switch asked for during the far watch target={0} after the abort: {1}",
+                pendingSwitchTarget != null ? pendingSwitchTarget.persistentId : 0u,
+                d == FarWatchAbortSwitch.Replayed ? "replayed once the watch is idle" : "dropped (no hand-back; the ship never gets focus)"));
         }
 
         private void DestroyDrone(string reason)

@@ -33,6 +33,9 @@ namespace Parsek
         EndWatchThenReplay,
     }
 
+    /// <summary>What an abort does with a pending switch (<see cref="FarWatchDecisions.DecideAbortSwitch"/>).</summary>
+    internal enum FarWatchAbortSwitch { None, Replayed, Dropped }
+
     /// <summary>The switch left over after the hand-back (8.5).</summary>
     internal enum FarWatchPostSwitch
     {
@@ -201,6 +204,44 @@ namespace Parsek
         internal static FarWatchSwitchRoute DecideOwnedVesselSwitch(bool farWatchRunning)
         {
             return farWatchRunning ? FarWatchSwitchRoute.EndWatchThenReplay : FarWatchSwitchRoute.RunGates;
+        }
+
+        /// <summary>
+        /// The far-start check over an entry refusal (null = entry allowed) and the safety
+        /// admission (8.1 to 8.3): an entry refusal wins and the admission is not run; otherwise
+        /// the admission's verdict decides, and a refused verdict's hover is the safety reason.
+        /// </summary>
+        internal static FarWatchStartCheck ComposeStartCheck(string entry, Func<FarWatchSafetyVerdict> admit,
+            Func<FarWatchSafetyVerdict, string> safetyHover)
+        {
+            var c = new FarWatchStartCheck();
+            FarWatchRefusal reason = FarWatchRefusal.None;
+            bool allowed = true;
+            if (entry == null && admit != null)
+            {
+                c.Verdict = admit();
+                c.HasVerdict = true;
+                allowed = c.Verdict.IsAllowed;
+                reason = c.Verdict.Reason;
+            }
+            c.Refusal = CombineStartRefusal(entry, allowed, reason);
+            if (c.Refusal != null)
+                c.Hover = entry == null
+                    ? (safetyHover != null ? safetyHover(c.Verdict) : null)
+                    : StartRefusalHover(entry, reason, null);
+            return c;
+        }
+
+        /// <summary>
+        /// What an abort does with a switch the player asked for during the watch: replayed
+        /// through the switch gates when the abort resolves at once (the ship kept or got focus
+        /// back), dropped when the watch waits in Aborted for a scene exit (no hand-back).
+        /// </summary>
+        internal static FarWatchAbortSwitch DecideAbortSwitch(bool resolvedAtOnce, bool hasPendingSwitch)
+        {
+            if (!hasPendingSwitch)
+                return FarWatchAbortSwitch.None;
+            return resolvedAtOnce ? FarWatchAbortSwitch.Replayed : FarWatchAbortSwitch.Dropped;
         }
 
         /// <summary>The switch after the hand-back (8.5): replayed through its own gates, never bare.</summary>

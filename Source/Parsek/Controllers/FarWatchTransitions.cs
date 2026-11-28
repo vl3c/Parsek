@@ -236,6 +236,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether the ways out of the flight (the pause menu's Save / Load / Revert / Space
+        /// Center / Tracking Station / Main Menu / Quit, the altimeter's Space Center and Recover)
+        /// stay greyed and blocked: only while a hand-back can still come. In Aborted with no
+        /// hand-back (7.6: the ship never loaded, or the drone died with the ship unloaded) the
+        /// watch waits for a scene exit and the stop keys do nothing, so those exits are the way
+        /// out and stay live.
+        /// </summary>
+        internal static bool HoldsTheFlightExits(FarWatchState state)
+        {
+            return IsRunning(state) && state != FarWatchState.Aborted;
+        }
+
+        /// <summary>
         /// The far-watch entry refusal: null when entry is allowed, else the first reason in a
         /// fixed order (scene and vessel first, then the pending windows of 8.3, then the ghost).
         /// </summary>

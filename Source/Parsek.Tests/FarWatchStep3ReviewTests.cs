@@ -577,7 +577,7 @@ namespace Parsek.Tests
             Assert.Contains("[HarmonyPatch(typeof(AltimeterSliderButtons), \"setUnlock\")]", code);
             Assert.Contains("[HarmonyPatch(typeof(AltimeterSliderButtons), \"returnToSpaceCenter\")]", code);
             Assert.Contains("[HarmonyPatch(typeof(AltimeterSliderButtons), \"recoverVessel\")]", code);
-            Assert.Equal(3, Regex.Matches(code, @"FarWatchAltimeterBlock\.IsFarWatchRunning\(\)").Count);
+            Assert.Equal(3, Regex.Matches(code, @"FarWatchAltimeterBlock\.HoldsTheFlightExits\(\)").Count);
         }
 
         // catches: the Missions Watch button greyed by a far-watch refusal while its hover says

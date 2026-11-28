@@ -7,7 +7,8 @@ namespace Parsek
     /// The pause menu during a far watch (design-far-watch.md 9.3): Save, Load, Revert, Space
     /// Center, Tracking Station, Quit and Main Menu are greyed through stock's own interactable
     /// condition, with stock's own <c>tooltipText</c> carrying "Stop watching first ([ or ])".
-    /// The condition reads the far watch live, so the buttons come back the moment it ends.
+    /// The condition reads the far watch live, so the buttons come back the moment it ends, and
+    /// in Aborted with no hand-back (7.6), where a scene exit is the only way out.
     /// </summary>
     [HarmonyPatch(typeof(PauseMenu), "draw")]
     internal static class FarWatchPauseMenuPatch
@@ -70,7 +71,7 @@ namespace Parsek
                 DialogGUIButton b = button;
                 button.OptionInteractableCondition = () =>
                 {
-                    bool blocked = IsFarWatchRunning();
+                    bool blocked = FarWatchHoldsTheFlightExits();
                     b.tooltipText = blocked ? FarWatchShipSafety.StopWatchingFirstHoverText : originalTip;
                     return !blocked && (original == null || original());
                 };
@@ -98,10 +99,10 @@ namespace Parsek
             return false;
         }
 
-        private static bool IsFarWatchRunning()
+        private static bool FarWatchHoldsTheFlightExits()
         {
             ParsekFlight f = ParsekFlight.Instance;
-            return f != null && f.FarWatch != null && f.FarWatch.IsRunning;
+            return f != null && f.FarWatch != null && f.FarWatch.HoldsTheFlightExits;
         }
     }
 }

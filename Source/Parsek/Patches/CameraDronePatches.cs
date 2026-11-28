@@ -40,7 +40,7 @@ namespace Parsek
             if (flight != null && flight.FarWatch != null && flight.FarWatch.IsRunning)
                 flight.FarWatch.RequestEndThenSwitch(v, force ? "ForceSetActiveVessel" : "SetActiveVessel",
                     target => Patches.MapFocusObjectOnSelectPatch.ReplayOwnedVesselSwitch(
-                        target, ReFlySwitchGate.PathMapSwitchTo, "Switch"));
+                        target, ReFlySwitchGate.PathMapSwitchTo, "Switch", stockFarSwitchRule: false));
             ParsekLog.InfoRateLimited("FarWatch",
                 "refused-switch-" + (v != null ? v.persistentId.ToString(CultureInfo.InvariantCulture) : "null"),
                 string.Format(CultureInfo.InvariantCulture,
