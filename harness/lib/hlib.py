@@ -5002,15 +5002,18 @@ FARWATCH_OP_KEY = "op"
 FARWATCH_INDEX_KEY = "index"
 FARWATCH_TREE_KEY = "tree"
 FARWATCH_MODE_KEY = "mode"
-FARWATCH_ARG_KEYS: Tuple[str, ...] = ("op", "index", "tree", "mode")
+FARWATCH_VIA_KEY = "via"
+FARWATCH_ARG_KEYS: Tuple[str, ...] = ("op", "index", "tree", "mode", "via")
 FARWATCH_OPS: Tuple[str, ...] = ("start", "stop", "status")
 FARWATCH_MODES: Tuple[str, ...] = ("follow", "hold")
+FARWATCH_VIA_VALUES: Tuple[str, ...] = ("seam", "map")
 
 
 def validate_far_watch_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``FarWatch`` step, the C# TryParseArgs rules: op from
-    its closed set (required), mode follow / hold, and for op=start exactly one of index
-    (a non-negative integer or a ${ref}) and tree; no other key."""
+    its closed set (required), mode follow / hold, via seam / map (map needs follow, which
+    is the default mode), and for op=start exactly one of index (a non-negative integer or
+    a ${ref}) and tree; no other key."""
     errors: List[str] = []
     where = "driver.steps[%d].args" % index
     op = step_args.get(FARWATCH_OP_KEY)
@@ -5023,6 +5026,15 @@ def validate_far_watch_step(index: int, step_args: Dict) -> List[str]:
         errors.append("%s.%s: %r is not one of %s (the seam would refuse mode-invalid)"
                       % (where, FARWATCH_MODE_KEY, step_args.get(FARWATCH_MODE_KEY),
                          ", ".join(FARWATCH_MODES)))
+    if FARWATCH_VIA_KEY in step_args:
+        via = str(step_args.get(FARWATCH_VIA_KEY))
+        if via not in FARWATCH_VIA_VALUES:
+            errors.append("%s.%s: %r is not one of %s (the seam would refuse via-invalid)"
+                          % (where, FARWATCH_VIA_KEY, step_args.get(FARWATCH_VIA_KEY),
+                             ", ".join(FARWATCH_VIA_VALUES)))
+        elif via == "map" and str(step_args.get(FARWATCH_MODE_KEY, "follow")) == "hold":
+            errors.append("%s.%s: the map entry is follow only (the seam would refuse "
+                          "via-map-needs-follow)" % (where, FARWATCH_VIA_KEY))
     if str(op) == "start":
         has_index = FARWATCH_INDEX_KEY in step_args
         has_tree = FARWATCH_TREE_KEY in step_args

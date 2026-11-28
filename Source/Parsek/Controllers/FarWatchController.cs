@@ -77,6 +77,8 @@ namespace Parsek
         private double prevUT = double.NaN;
         private CelestialBody prevBody;
         private Vector3d lastVDiff;
+        private Vector3d lastVObt;
+        private string lastBodyMatchKey;
         private int invalidStreak;
 
         // Camera: offset captured in onVesselSwitching, and the ship's watch-entry values.
@@ -359,9 +361,9 @@ namespace Parsek
         /// second (<see cref="FarWatchTakeoverGate"/>) and is remembered for this watch, so the
         /// 300 km snap-back names its reason once.
         /// </summary>
-        internal void CheckTakeover(int recordingIndex, string recordingId, double distanceToShip, bool ghostOnShipBody)
+        internal void CheckTakeover(int recordingIndex, string recordingId, double distanceToShip)
         {
-            if (!FarWatchDecisions.ShouldTakeOver(host.IsWatchingGhost, state, ghostOnShipBody, distanceToShip))
+            if (!FarWatchDecisions.ShouldTakeOver(host.IsWatchingGhost, state, distanceToShip))
                 return;
             double real = Time.realtimeSinceStartup;
             if (!takeoverGate.ShouldAttempt(recordingId, real))
@@ -412,8 +414,9 @@ namespace Parsek
             bool ghostOnShipBody, double distanceToShip, string trigger, bool useCache, out string hover)
         {
             hover = null;
-            bool farStart = state == FarWatchState.Idle && ghostResolvable && !isWatchedIndex && ghostOnShipBody
-                && IsFiniteD(distanceToShip) && distanceToShip >= FarWatchDecisions.NearWatchRangeMeters;
+            // Any body (step 4): a far start is any resolvable ghost not within today's near watch.
+            bool farStart = state == FarWatchState.Idle && ghostResolvable && !isWatchedIndex
+                && IsFiniteD(distanceToShip) && !FarWatchDecisions.IsWithinNearWatch(ghostOnShipBody, distanceToShip);
             FarWatchStartCheck check = farStart ? EvaluateFarStart(recordingIndex, true, trigger, useCache) : default(FarWatchStartCheck);
             FarWatchWatchRequest d = FarWatchDecisions.DecideWatchRequest(state, followGhost, ghostResolvable, isWatchedIndex,
                 ghostOnShipBody, distanceToShip, farStart && check.IsAllowed);
@@ -589,6 +592,9 @@ namespace Parsek
             recorderWaitUpdates = 0;
             prevUT = double.NaN;
             prevBody = null;
+            lastVDiff = Vector3d.zero;
+            lastVObt = Vector3d.zero;
+            lastBodyMatchKey = null;
             invalidStreak = 0;
             switchCameraCaptured = false;
             shipCameraSaved = false;
@@ -970,34 +976,49 @@ namespace Parsek
                 winSkips++;
                 return;
             }
-            if (ship != null && ship.mainBody != null && body != ship.mainBody)
-            {
-                ParsekLog.Info(Tag, string.Format(ic,
-                    "ghost left the ship's body ghostBody={0} shipBody={1} (other bodies are a later step)",
-                    body.bodyName, ship.mainBody.bodyName));
-                RequestEnd(FarWatchEndReason.GhostLeftBody);
-                return;
-            }
+            // Any body (step 4, 6.3 step 2): the drone follows the ghost across an SOI boundary.
+            string recordingBody = ResolveRecordingBodyName(rec, playbackUT);
+            LogRecordingBodyMatch(index, body.bodyName, recordingBody);
 
             Vector3d r = world - body.position;
-            Vector3d vDiff = lastVDiff;
-            if (prevBody == body && !double.IsNaN(prevUT) && ut > prevUT)
-                vDiff = (r - prevR) / (ut - prevUT);
+            Vector3d rfrm = body.getRFrmVel(world);
+            bool rotating = FlightGlobals.RefFrameIsRotating;
+            Vector3d vObt;
+            if (prevBody != null && prevBody != body)
+            {
+                // The ghost hopped SOI this tick: its two positions are relative to different
+                // bodies, so the last inertial velocity is carried across the way stock carries a
+                // vessel's at an SOI change (Orbit.cs:533), and the finite difference resumes on
+                // the next tick at the new body.
+                vObt = FarWatchDecisions.CarryObtVelocityAcrossBodies(lastVObt,
+                    prevBody.GetFrameVelAtUT(ut), body.GetFrameVelAtUT(ut));
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "ghost crossed into another SOI from={0} to={1} rec=#{2} recordingBody={3} shipBody={4}",
+                    prevBody.bodyName, body.bodyName, index, recordingBody ?? "none",
+                    ship != null && ship.mainBody != null ? ship.mainBody.bodyName : "(none)"));
+            }
+            else
+            {
+                Vector3d vDiff = lastVDiff;
+                if (prevBody == body && !double.IsNaN(prevUT) && ut > prevUT)
+                    vDiff = (r - prevR) / (ut - prevUT);
+                vObt = rotating ? vDiff + rfrm : vDiff;
+            }
+            lastVDiff = rotating ? vObt - rfrm : vObt;
+            lastVObt = vObt;
             prevR = r;
             prevUT = ut;
             prevBody = body;
-            lastVDiff = vDiff;
-            Vector3d rfrm = body.getRFrmVel(world);
-            bool rotating = FlightGlobals.RefFrameIsRotating;
-            Vector3d vObt = rotating ? vDiff + rfrm : vDiff;
-            Vector3d vSrf = rotating ? vDiff : vDiff - rfrm;
+            Vector3d vSrf = vObt - rfrm;
             UpdateGhostWarpState(body, world, r, vObt, vSrf, ut);
 
             // Hand back for distance (8.4): the ghost came within 250 km of the ship on its body.
+            // A ghost at another body never hands back for distance (its near watch needs the body).
             if (ship != null && pendingWatchEntryIndex < 0)
             {
                 double distToShip = (world - ship.GetWorldPos3D()).magnitude;
-                if (FarWatchDecisions.ShouldHandBackForDistance(state, true, distToShip))
+                bool onShipBody = ship.mainBody == body;
+                if (FarWatchDecisions.ShouldHandBackForDistance(state, onShipBody, distToShip))
                 {
                     ParsekLog.Info(Tag, string.Format(ic,
                         "ghost came near the ship distToShipKm={0} rec=#{1}; handing back to the near watch",
@@ -1024,12 +1045,38 @@ namespace Parsek
             invalidStreak = 0;
             double dev = (drone.GetWorldPos3D() - world).magnitude;
             if (dev > winMaxDev) winMaxDev = dev;
-            if (CameraDrone.WriteState(drone, body, world, vObt))
+            if (CameraDrone.WriteState(drone, body, world, vObt, recordingBody))
             {
                 winWrites++;
                 if (pendingWatchEntryIndex >= 0)
                     pendingWatchEntryReady = true;
             }
+        }
+
+        /// <summary>The watched recording's own body at <paramref name="playbackUT"/> (6.3 step 2), or null.</summary>
+        private static string ResolveRecordingBodyName(Recording rec, double playbackUT)
+        {
+            InterpolationResult interp;
+            if (rec != null && GhostPlaybackEngine.TryResolvePendingPlaybackInterpolation(rec, playbackUT, out interp)
+                && !string.IsNullOrEmpty(interp.bodyName))
+                return interp.bodyName;
+            return null;
+        }
+
+        /// <summary>
+        /// The drone's body follows getMainBody at the ghost (6.3 step 2); a mismatch with the
+        /// recording's own body (an SOI boundary the recorder placed a little elsewhere) is
+        /// logged once per change of the pair.
+        /// </summary>
+        private void LogRecordingBodyMatch(int index, string body, string recordingBody)
+        {
+            string key = FarWatchDecisions.RecordingBodyMatchKey(body, recordingBody);
+            if (key == lastBodyMatchKey)
+                return;
+            lastBodyMatchKey = key;
+            ParsekLog.Info(Tag, string.Format(ic, "follow body={0} recordingBody={1} match={2} rec=#{3}",
+                body ?? "(none)", recordingBody ?? "none",
+                recordingBody == null ? "n/a" : (recordingBody == body ? "True" : "False"), index));
         }
 
         /// <summary>

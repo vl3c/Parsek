@@ -813,6 +813,15 @@ namespace Parsek
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
+            if (data.host != null && CameraDrone.Is(data.host))
+            {
+                // The mover writes the drone at getMainBody of the ghost, so stock never moves
+                // it across an SOI on rails (design-far-watch.md 6.3 step 2); FW-5 forbids this line.
+                ParsekLog.WarnRateLimited("CameraDrone", "drone-soi-changed",
+                    "onVesselSOIChanged fired for the drone from=" + (data.from != null ? data.from.bodyName : "(none)")
+                    + " to=" + (data.to != null ? data.to.bodyName : "(none)") + "; ignored", 5.0);
+                return;
+            }
             if (data.host != null && GhostMapPresence.IsGhostOrDroneVessel(data.host.persistentId)) return;
 
             recorder?.OnVesselSOIChanged(data);

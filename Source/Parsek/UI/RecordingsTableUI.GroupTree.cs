@@ -319,7 +319,7 @@ namespace Parsek
                     var r = committed[idx];
                     if (r == null || r.IsDebris) return false;
                     if (!flight.HasActiveGhost(idx)) return false;
-                    if (!flight.IsGhostOnSameBody(idx)) return false;
+                    if (!flight.IsGhostOnWatchableBody(idx)) return false;
                     string farRefusal;
                     if (!flight.IsGhostWatchableAtRange(idx, out farRefusal)) return false;
                     return true;

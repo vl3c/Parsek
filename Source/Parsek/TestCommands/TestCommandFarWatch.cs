@@ -23,13 +23,16 @@ namespace Parsek.TestCommands
     /// <summary>
     /// The <c>FarWatch</c> seam verb (docs/dev/design-far-watch.md 17.4, H7), pure half.
     /// Grammar:
-    /// <c>FarWatch op=start (index=&lt;n&gt; | tree=&lt;id|handle&gt;) [mode=follow|hold]</c>,
+    /// <c>FarWatch op=start (index=&lt;n&gt; | tree=&lt;id|handle&gt;) [mode=follow|hold] [via=seam|map]</c>,
     /// <c>FarWatch op=stop</c>, <c>FarWatch op=status</c>. FLIGHT, TWO-PHASE for start and
     /// stop (120 s): start answers OK once the watch reaches Following, stop once it is back
     /// to Idle; status answers at once (with the return point and the warp limit). Follow moves
-    /// the drone with the ghost (ship's body only in step 3), starting the far watch directly on
-    /// a ghost past the near-watch range; hold keeps it beside the ship and needs no ghost
-    /// camera. Every start passes the ship-safety check (design 8.2): an unsafe ship refuses
+    /// the drone with the ghost at any body (step 4), starting the far watch directly on a
+    /// ghost past the near-watch range or at another body; hold keeps it beside the ship and
+    /// needs no ghost camera. <c>via=map</c> (follow only) presses the map ghost menu's Watch
+    /// entry instead of calling the controller (<c>GhostMapWatchHelper.HandleWatchRequest</c>,
+    /// the player's map path, design 12.2), and refuses when that entry is not a plain enabled
+    /// Watch or does not start a far watch. Every start passes the ship-safety check (design 8.2): an unsafe ship refuses
     /// with <c>unsafe:&lt;reason&gt;</c>.
     ///
     /// While a far watch runs, the dispatcher refuses every verb that could change a vessel,
@@ -44,6 +47,7 @@ namespace Parsek.TestCommands
         internal const string IndexKey = "index";
         internal const string TreeKey = "tree";
         internal const string ModeKey = "mode";
+        internal const string ViaKey = "via";
 
         internal const double BudgetSeconds = 120.0;
 
@@ -54,6 +58,11 @@ namespace Parsek.TestCommands
         internal const string TargetAmbiguousReason = "target-ambiguous";
         internal const string IndexInvalidReason = "index-invalid";
         internal const string ModeInvalidReason = "mode-invalid";
+        internal const string ViaInvalidReason = "via-invalid";
+        internal const string ViaMapNeedsFollowReason = "via-map-needs-follow";
+        internal const string MapVesselMissingReason = "map-vessel-missing";
+        internal const string MapEntryRefusedReasonPrefix = "map-entry-refused:";
+        internal const string MapEntryNotFarReason = "map-entry-not-far";
         internal const string NotRunningReason = "far-watch-not-running";
         internal const string AlreadyRunningReason = "far-watch-already-running";
         internal const string NoGhostReason = "no-far-watch-ghost";
@@ -62,9 +71,10 @@ namespace Parsek.TestCommands
         internal const string EndedReasonPrefix = "far-watch-ended:";
         internal const string TimeoutReason = "far-watch-timeout";
 
-        internal static readonly string[] ArgKeys = { "op", "index", "tree", "mode" };
+        internal static readonly string[] ArgKeys = { "op", "index", "tree", "mode", "via" };
         internal static readonly string[] OpValues = { "start", "stop", "status" };
         internal static readonly string[] ModeValues = { "follow", "hold" };
+        internal static readonly string[] ViaValues = { "seam", "map" };
 
         /// <summary>Save names a far watch never lets the seam write (9.2: quicksave and autosave off).</summary>
         internal static readonly string[] ForbiddenSaveNames = { "persistent", "quicksave" };
@@ -75,10 +85,18 @@ namespace Parsek.TestCommands
             internal int Index;
             internal string Tree;
             internal bool Follow;
+            /// <summary>Started through the map ghost menu's Watch entry (<c>via=map</c>).</summary>
+            internal bool ViaMap;
+        }
+
+        /// <summary>Parses the args with no <c>via</c>.</summary>
+        internal static string TryParseArgs(string op, string index, string tree, string mode, out Args args)
+        {
+            return TryParseArgs(op, index, tree, mode, null, out args);
         }
 
         /// <summary>Parses the args; returns null and fills <paramref name="args"/>, or a refusal reason.</summary>
-        internal static string TryParseArgs(string op, string index, string tree, string mode, out Args args)
+        internal static string TryParseArgs(string op, string index, string tree, string mode, string via, out Args args)
         {
             args = new Args { Index = -1, Follow = true };
             if (string.IsNullOrEmpty(op))
@@ -96,6 +114,13 @@ namespace Parsek.TestCommands
                 else if (mode == "hold") args.Follow = false;
                 else return ModeInvalidReason;
             }
+            if (!string.IsNullOrEmpty(via))
+            {
+                if (via == "map") args.ViaMap = true;
+                else if (via != "seam") return ViaInvalidReason;
+            }
+            if (args.ViaMap && !args.Follow)
+                return ViaMapNeedsFollowReason;
             if (args.Op != FarWatchOp.Start)
                 return null;
             bool hasIndex = !string.IsNullOrEmpty(index);
@@ -123,11 +148,11 @@ namespace Parsek.TestCommands
             internal int Index;
             internal bool InScope;
             internal bool HasActiveGhost;
-            internal bool OnShipBody;
         }
 
         /// <summary>
-        /// The lowest in-scope index with a live ghost (on the ship's body when following), or -1.
+        /// The lowest in-scope index with a live ghost, or -1. Any body in either mode (step 4:
+        /// a follow watch moves the drone to the ghost's body).
         /// </summary>
         internal static int ResolveTargetIndex(IList<GhostCandidate> candidates, bool follow)
         {
@@ -138,11 +163,21 @@ namespace Parsek.TestCommands
                 GhostCandidate c = candidates[i];
                 if (!c.InScope || !c.HasActiveGhost)
                     continue;
-                if (follow && !c.OnShipBody)
-                    continue;
                 return c.Index;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// The map entry's refusal for a <c>via=map</c> start, or null when the press may go
+        /// ahead: the entry must read the plain enabled "Watch" (step 4: never "Watch (Too
+        /// Far)" / "Watch (Other SOI)") and the press must start a far watch.
+        /// </summary>
+        internal static string MapEntryRefusal(string label, bool enabled, string reason)
+        {
+            if (enabled && label == "Watch")
+                return null;
+            return MapEntryRefusedReasonPrefix + (string.IsNullOrEmpty(reason) ? (label ?? "(none)") : reason);
         }
 
         /// <summary>

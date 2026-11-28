@@ -54,7 +54,6 @@ namespace Parsek.Tests
         [InlineData("time-jump-placement-armed", FarWatchShipSafety.BusyHoverText)]
         [InlineData("restoring-active-tree", FarWatchShipSafety.BusyHoverText)]
         [InlineData("ghost-not-resolvable", null)]
-        [InlineData("ghost-other-body", null)]
         public void EntryRefusal_HoverNamesItsOwnReason(string entry, string expected)
         {
             Assert.Equal(expected, FarWatchDecisions.StartRefusalHover(entry, FarWatchRefusal.None, null));
@@ -66,7 +65,7 @@ namespace Parsek.Tests
             Assert.Equal("stock text", FarWatchDecisions.StartRefusalHover(null, FarWatchRefusal.NotInAtmosphere, "stock text"));
             Assert.Equal(FarWatchShipSafety.SafetyHoverText, FarWatchDecisions.StartRefusalHover(null, FarWatchRefusal.ReturnTooClose, null));
             Assert.Equal("why", FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.RefusedUnsafe, "why"));
-            Assert.Null(FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.RefusedOtherBody, "why"));
+            Assert.Null(FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.RefusedNoReading, "why"));
             Assert.Null(FarWatchDecisions.WatchRequestHover(FarWatchWatchRequest.FarWatchDirect, "why"));
         }
 

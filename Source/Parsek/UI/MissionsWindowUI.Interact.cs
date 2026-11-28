@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek.Logistics;
 using UnityEngine;
@@ -137,7 +138,7 @@ namespace Parsek
 
             var flight = parentUI.Flight;
             // [ERS-exempt] reason: the watch path feeds ghost-engine APIs (HasActiveGhost /
-            // IsGhostOnSameBody / IsGhostWithinVisualRange / WatchedRecordingIndex /
+            // IsGhostOnWatchableBody / IsGhostWatchableAtRange / WatchedRecordingIndex /
             // EnterWatchMode) that are keyed on the RAW committed index, not the ERS index
             // (which shifts after a Re-Fly supersede). Same rationale as TimelineWindowUI.
             var committed = RecordingStore.CommittedRecordings;
@@ -177,8 +178,8 @@ namespace Parsek
                 return "Watching only works while you are flying";
             if (canWatch)
                 return string.Empty;
-            // A member is flying on the ship's body but past the near-watch range, and the far
-            // watch refuses it (design-far-watch.md 12.2): its own reason, as on the W buttons.
+            // A member is flying past the near-watch range or at another body, and the far watch
+            // refuses it (design-far-watch.md 12.2): its own reason, as on the W buttons.
             return string.IsNullOrEmpty(farRefusal) ? "Nothing from this mission is flying right now" : farRefusal;
         }
 
@@ -376,18 +377,37 @@ namespace Parsek
                 view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
                 null, out _, out _);
 
-            int watchedIdx = flight.WatchedRecordingIndex;
+            return PickMissionWatchTarget(committed.Count, windows.ContainsKey, flight.WatchedRecordingIndex,
+                flight.HasActiveGhost, flight.IsGhostOnWatchableBody, flight.IsGhostWatchableAtRange,
+                out isWatchingThisMission, out farRefusal);
+        }
+
+        /// <summary>A member's range and safety half (<c>ParsekFlight.IsGhostWatchableAtRange</c>).</summary>
+        internal delegate bool MissionMemberWatchableAtRange(int index, out string refusal);
+
+        /// <summary>
+        /// The mission's Watch target (design-far-watch.md 12.2, step 4): the first member with a
+        /// live ghost at a watchable body (the ship's, or any body while a far watch can run) that
+        /// is watchable at its range, the near watch or a far start. <paramref name="farRefusal"/>
+        /// is the first refused member's reason, the greyed button's hover. Pure for unit testing.
+        /// </summary>
+        internal static int PickMissionWatchTarget(int count, Func<int, bool> isMember, int watchedIdx,
+            Func<int, bool> hasGhost, Func<int, bool> onWatchableBody, MissionMemberWatchableAtRange atRange,
+            out bool isWatchingThisMission, out string farRefusal)
+        {
+            isWatchingThisMission = false;
+            farRefusal = null;
             int target = -1;
-            for (int i = 0; i < committed.Count; i++)
+            for (int i = 0; i < count; i++)
             {
-                if (!windows.ContainsKey(i))
+                if (!isMember(i))
                     continue;
                 if (i == watchedIdx)
                     isWatchingThisMission = true;
-                if (target < 0 && flight.HasActiveGhost(i) && flight.IsGhostOnSameBody(i))
+                if (target < 0 && hasGhost(i) && onWatchableBody(i))
                 {
                     string memberRefusal;
-                    if (flight.IsGhostWatchableAtRange(i, out memberRefusal))
+                    if (atRange(i, out memberRefusal))
                         target = i;
                     else if (farRefusal == null && !string.IsNullOrEmpty(memberRefusal))
                         farRefusal = memberRefusal;

@@ -28,6 +28,9 @@ namespace Parsek
         private FarWatchReturnCause postTeardownMessageCause;
         private string postTeardownShipName;
 
+        /// <summary>The watched ghost's body name from the last follow tick, or null (the overlay's "near" body).</summary>
+        internal string WatchedGhostBodyName => followGhost && ghostWarpValid && ghostWarpBody != null ? ghostWarpBody.bodyName : null;
+
         /// <summary>True while the drone holds focus for a running watch (the warp patches' gate).</summary>
         internal bool OwnsWarp => state == FarWatchState.Following || state == FarWatchState.HandoverOut;
 
@@ -43,6 +46,10 @@ namespace Parsek
                 terrain = 0.0;
             Vector3d up = r.normalized;
             double g = body.gravParameter / Math.Max(1.0, r.sqrMagnitude);
+            // An SOI hop restarts the gee window: the energy and angular momentum it compares
+            // are relative to one body (FarWatchWarpLimits.NonGravitationalGee).
+            if (FarWatchDecisions.ShouldRestartGeeWindow(ghostWarpBody != null ? ghostWarpBody.bodyName : null, body.bodyName))
+                prevGhostVUT = double.NaN;
             ghostWarpBody = body;
             ghostAltitude = alt;
             ghostHeight = alt - terrain;

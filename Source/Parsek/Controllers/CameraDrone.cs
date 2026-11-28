@@ -469,36 +469,139 @@ namespace Parsek
             }
         }
 
+        /// <summary>One body whose stale rotating-frame flag a cross-body jump clears (6.3 step 2).</summary>
+        internal struct CrossBodyFrameClear
+        {
+            internal string BodyName;
+            /// <summary>True: through stock's <c>OrbitPhysicsManager.SetRotatingFrame(false)</c> (the body is dominant).</summary>
+            internal bool ViaStock;
+        }
+
+        /// <summary>
+        /// The rotating-frame flags a cross-body jump of the active drone clears before its first
+        /// write at <paramref name="targetBody"/> (design-far-watch.md 6.3 step 2): every body but
+        /// the target whose <c>inverseRotation</c> is set. Stock writes only the dominant body's
+        /// flag (<c>OrbitPhysicsManager.setRotatingFrame</c>) and never clears the old body's at a
+        /// dominant-body change, and a body with the flag set keeps driving
+        /// <c>Planetarium.InverseRotAngle</c> and <c>Zup</c> (<c>CelestialBody.CBUpdate</c>). The
+        /// dominant body is cleared through stock's own setter (it also fires
+        /// <c>onRotatingFrameTransition</c> and moves unpacked vessels' velocities); any other is a
+        /// direct field write. The target's flag is left to <c>CheckReferenceFrame</c> after the
+        /// write, which sets or clears it by the drone's altitude as stock would.
+        /// </summary>
+        internal static List<CrossBodyFrameClear> PlanCrossBodyFrameClears(
+            IList<string> bodyNames, IList<bool> inverseRotation, string targetBody, string dominantBody)
+        {
+            var plan = new List<CrossBodyFrameClear>();
+            if (bodyNames == null || inverseRotation == null)
+                return plan;
+            int n = Math.Min(bodyNames.Count, inverseRotation.Count);
+            for (int i = 0; i < n; i++)
+            {
+                string name = bodyNames[i];
+                if (!inverseRotation[i] || string.IsNullOrEmpty(name)
+                    || string.Equals(name, targetBody, StringComparison.Ordinal))
+                    continue;
+                plan.Add(new CrossBodyFrameClear
+                {
+                    BodyName = name,
+                    ViaStock = string.Equals(name, dominantBody, StringComparison.Ordinal),
+                });
+            }
+            return plan;
+        }
+
+        /// <summary>The SOI line of 16.2: <c>drone body from -> to recordingBody=b match=b</c>.</summary>
+        internal static string FormatBodyChangeLine(string fromBody, string toBody, string recordingBody, uint pid)
+        {
+            string match = string.IsNullOrEmpty(recordingBody)
+                ? "n/a"
+                : (string.Equals(recordingBody, toBody, StringComparison.Ordinal) ? "True" : "False");
+            return string.Format(ic, "drone body {0} -> {1} recordingBody={2} match={3} pid={4}",
+                fromBody ?? "(none)", toBody ?? "(none)", string.IsNullOrEmpty(recordingBody) ? "none" : recordingBody,
+                match, pid);
+        }
+
         /// <summary>
         /// Writes a state onto the drone (section 6.3 step 5): orbit from Zup body-relative state
         /// vectors, orbit driver update, then the floating-origin shift and reference-frame check
-        /// when the drone is the active vessel and far from the origin.
+        /// when the drone is the active vessel and far from the origin. A cross-body write of the
+        /// active drone first clears the stale rotating-frame flags (6.3 step 2,
+        /// <see cref="PlanCrossBodyFrameClears"/>) and logs both bodies' flags and
+        /// <c>RefFrameIsRotating</c> before and after. <paramref name="recordingBody"/> is the
+        /// watched recording's own body at this UT for the SOI line (null for a hold or hand-back
+        /// write).
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static bool WriteState(Vessel drone, CelestialBody body, Vector3d worldPos, Vector3d worldObtVel)
+        internal static bool WriteState(Vessel drone, CelestialBody body, Vector3d worldPos, Vector3d worldObtVel,
+            string recordingBody = null)
         {
             if (drone == null || drone.orbitDriver == null || drone.orbit == null || body == null)
                 return false;
             double ut = Planetarium.GetUniversalTime();
             CelestialBody before = drone.orbit.referenceBody;
+            bool crossBody = before != body;
+            bool active = drone == FlightGlobals.ActiveVessel;
+            if (active && crossBody)
+                ClearStaleRotatingFrames(before, body);
             drone.orbit.UpdateFromStateVectors((worldPos - body.position).xzy, worldObtVel.xzy, body, ut);
             drone.orbitDriver.updateFromParameters();
-            bool active = drone == FlightGlobals.ActiveVessel;
-            if (active && drone.transform.position.magnitude > OriginShiftMeters)
-            {
+            bool far = active && drone.transform.position.magnitude > OriginShiftMeters;
+            if (far)
                 FloatingOrigin.SetOffset(drone.transform.position);
+            if (active && (far || crossBody))
                 OrbitPhysicsManager.CheckReferenceFrame();
-            }
-            else if (active && before != body)
+            if (crossBody)
             {
-                OrbitPhysicsManager.CheckReferenceFrame();
-            }
-            if (before != body)
-            {
-                ParsekLog.Info(Tag, string.Format(ic, "drone body {0} -> {1} pid={2}",
-                    before != null ? before.bodyName : "(none)", body.bodyName, drone.persistentId));
+                ParsekLog.Info(Tag, FormatBodyChangeLine(before != null ? before.bodyName : null, body.bodyName,
+                    recordingBody, drone.persistentId));
+                if (active)
+                    ParsekLog.Info(Tag, "cross-body frame after: " + DescribeFrame(before, body));
             }
             return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ClearStaleRotatingFrames(CelestialBody before, CelestialBody target)
+        {
+            ParsekLog.Info(Tag, "cross-body frame before: " + DescribeFrame(before, target));
+            List<CelestialBody> bodies = FlightGlobals.Bodies;
+            if (bodies == null)
+                return;
+            var names = new List<string>(bodies.Count);
+            var flags = new List<bool>(bodies.Count);
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                names.Add(bodies[i] != null ? bodies[i].bodyName : null);
+                flags.Add(bodies[i] != null && bodies[i].inverseRotation);
+            }
+            CelestialBody dominant = OrbitPhysicsManager.DominantBody;
+            List<CrossBodyFrameClear> plan = PlanCrossBodyFrameClears(names, flags, target.bodyName,
+                dominant != null ? dominant.bodyName : null);
+            var done = new List<string>(plan.Count);
+            for (int p = 0; p < plan.Count; p++)
+            {
+                CelestialBody b = FlightGlobals.GetBodyByName(plan[p].BodyName);
+                if (b == null)
+                    continue;
+                if (plan[p].ViaStock && b == OrbitPhysicsManager.DominantBody)
+                    OrbitPhysicsManager.SetRotatingFrame(false);
+                else
+                    b.inverseRotation = false;
+                done.Add(plan[p].BodyName + (plan[p].ViaStock ? "(stock)" : "(direct)"));
+            }
+            ParsekLog.Info(Tag, string.Format(ic, "cross-body frame cleared={0} target={1}",
+                done.Count == 0 ? "none" : string.Join(",", done.ToArray()), target.bodyName));
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string DescribeFrame(CelestialBody from, CelestialBody to)
+        {
+            CelestialBody dominant = OrbitPhysicsManager.DominantBody;
+            return string.Format(ic, "from={0} fromInverseRotation={1} to={2} toInverseRotation={3} dominant={4} refFrameIsRotating={5}",
+                from != null ? from.bodyName : "(none)", from != null && from.inverseRotation,
+                to != null ? to.bodyName : "(none)", to != null && to.inverseRotation,
+                dominant != null ? dominant.bodyName : "(none)", FlightGlobals.RefFrameIsRotating);
         }
 
         /// <summary>Destroys the drone. Only called once the ship is active again (section 6.5).</summary>

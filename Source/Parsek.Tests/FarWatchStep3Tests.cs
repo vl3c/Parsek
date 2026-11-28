@@ -370,14 +370,13 @@ namespace Parsek.Tests
     public class FarWatchDecisionsTests
     {
         [Fact]
-        public void Takeover_At290Km_OnTheShipsBodyWhileIdle()
+        public void Takeover_At290Km_AnyBodyWhileIdle()
         {
-            Assert.True(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, true, 290000.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, true, 289999.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, false, 400000.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Following, true, 400000.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(false, FarWatchState.Idle, true, 400000.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, true, double.NaN));
+            Assert.True(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, 290000.0));
+            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, 289999.0));
+            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Following, 400000.0));
+            Assert.False(FarWatchDecisions.ShouldTakeOver(false, FarWatchState.Idle, 400000.0));
+            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, double.NaN));
         }
 
         [Fact]
@@ -389,7 +388,7 @@ namespace Parsek.Tests
             Assert.False(FarWatchDecisions.ShouldHandBackForDistance(FarWatchState.Spawning, true, 1000.0));
             // The 40 km slack between takeover and hand-back: no flip-flop inside it.
             Assert.False(FarWatchDecisions.ShouldHandBackForDistance(FarWatchState.Following, true, 270000.0));
-            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, true, 270000.0));
+            Assert.False(FarWatchDecisions.ShouldTakeOver(true, FarWatchState.Idle, 270000.0));
         }
 
         [Fact]
@@ -412,14 +411,21 @@ namespace Parsek.Tests
             Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 100000.0, startAllowed: false));
             Assert.Equal(FarWatchWatchRequest.FarWatchDirect, W(FarWatchState.Idle, 500000.0));
             Assert.Equal(FarWatchWatchRequest.RefusedUnsafe, W(FarWatchState.Idle, 500000.0, startAllowed: false));
-            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, W(FarWatchState.Idle, 500000.0, sameBody: false));
-            // A near ghost on another body, an unresolvable ghost and no distance are today's entry.
-            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 100.0, sameBody: false));
+            // Step 4: a ghost at another body is a far start at any distance, near or far.
+            Assert.Equal(FarWatchWatchRequest.FarWatchDirect, W(FarWatchState.Idle, 500000.0, sameBody: false));
+            Assert.Equal(FarWatchWatchRequest.FarWatchDirect, W(FarWatchState.Idle, 100.0, sameBody: false));
+            Assert.Equal(FarWatchWatchRequest.RefusedUnsafe, W(FarWatchState.Idle, 12e6, sameBody: false, startAllowed: false));
+            // An unresolvable ghost and no distance are today's entry.
             Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, 500000.0, resolvable: false));
             Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, double.NaN));
+            Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Idle, double.NaN, sameBody: false));
             Assert.Equal(FarWatchWatchRequest.HandBackThenNearWatch, W(FarWatchState.Following, 100000.0, startAllowed: false));
             Assert.Equal(FarWatchWatchRequest.FollowInFarWatch, W(FarWatchState.Following, 900000.0, startAllowed: false));
-            Assert.Equal(FarWatchWatchRequest.RefusedOtherBody, W(FarWatchState.Following, 900000.0, sameBody: false));
+            // During a far watch a ghost at another body is a follow switch, never a hand-back.
+            Assert.Equal(FarWatchWatchRequest.FollowInFarWatch, W(FarWatchState.Following, 900000.0, sameBody: false));
+            Assert.Equal(FarWatchWatchRequest.FollowInFarWatch, W(FarWatchState.Following, 100000.0, sameBody: false));
+            Assert.Equal(FarWatchWatchRequest.RefusedNoReading, W(FarWatchState.Following, 900000.0, resolvable: false));
+            Assert.Equal(FarWatchWatchRequest.RefusedNoReading, W(FarWatchState.Following, double.NaN));
             // W on the watched ghost is today's toggle off, in every state.
             Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Spawning, 900000.0, watched: true));
             Assert.Equal(FarWatchWatchRequest.NearWatch, W(FarWatchState.Following, 900000.0, watched: true));
@@ -459,9 +465,9 @@ namespace Parsek.Tests
         public void WatchRequest_IdleRefusals_FallToTodaysEntry_RunningRefusalsDoNothing()
         {
             Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedUnsafe, FarWatchState.Idle));
-            Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedOtherBody, FarWatchState.Idle));
+            Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedNoReading, FarWatchState.Idle));
             Assert.True(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.NearWatch, FarWatchState.Following));
-            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedOtherBody, FarWatchState.Following));
+            Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedNoReading, FarWatchState.Following));
             Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.RefusedHoldWatch, FarWatchState.Following));
             Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.FarWatchDirect, FarWatchState.Idle));
             Assert.False(FarWatchDecisions.RoutesToTodaysEntry(FarWatchWatchRequest.FollowInFarWatch, FarWatchState.Following));

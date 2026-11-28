@@ -19230,6 +19230,10 @@ class FarWatchSourceSyncTests(unittest.TestCase):
         self.assertEqual(list(hlib.FARWATCH_ARG_KEYS), arr(text, "ArgKeys"))
         self.assertEqual(list(hlib.FARWATCH_OPS), arr(text, "OpValues"))
         self.assertEqual(list(hlib.FARWATCH_MODES), arr(text, "ModeValues"))
+        self.assertEqual(list(hlib.FARWATCH_VIA_VALUES), arr(text, "ViaValues"))
+        self.assertIn('internal const string ViaKey = "%s";' % hlib.FARWATCH_VIA_KEY, text)
+        self.assertIn('ViaInvalidReason = "via-invalid";', text)
+        self.assertIn('ViaMapNeedsFollowReason = "via-map-needs-follow";', text)
         self.assertIn('internal const string OpKey = "%s";' % hlib.FARWATCH_OP_KEY, text)
         self.assertIn('internal const string IndexKey = "%s";' % hlib.FARWATCH_INDEX_KEY, text)
         self.assertIn('internal const string TreeKey = "%s";' % hlib.FARWATCH_TREE_KEY, text)
@@ -19256,7 +19260,12 @@ class FarWatchSourceSyncTests(unittest.TestCase):
         self.assertEqual([], v(0, {"op": "start", "index": "${pick.index}", "mode": "follow"}))
         self.assertEqual([], v(0, {"op": "stop"}))
         self.assertEqual([], v(0, {"op": "status"}))
+        self.assertEqual([], v(0, {"op": "start", "tree": "abc", "via": "map"}))
+        self.assertEqual([], v(0, {"op": "start", "tree": "abc", "mode": "follow", "via": "map"}))
+        self.assertEqual([], v(0, {"op": "start", "tree": "abc", "mode": "hold", "via": "seam"}))
         bad = [
+            ({"op": "start", "tree": "a", "via": "menu"}, "via-invalid"),
+            ({"op": "start", "tree": "a", "mode": "hold", "via": "map"}, "via-map-needs-follow"),
             ({}, "op-missing"),
             ({"op": "Start", "tree": "a"}, "op-invalid"),
             ({"op": "start", "tree": "a", "mode": "chase"}, "mode-invalid"),
