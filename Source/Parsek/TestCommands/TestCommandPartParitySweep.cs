@@ -486,12 +486,13 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
-        /// <summary>REJECTED: a well-formed burst or dust run (design G.7) while the live burst
-        /// and dust driver (piece X4) is not built; the grammar alone is <see cref="TryParseGrammar"/>.</summary>
+        /// <summary>REJECTED: a well-formed burst or dust run (design G.7) on a build whose live
+        /// burst and dust driver (piece X4) is not built; the grammar alone is <see cref="TryParseGrammar"/>.
+        /// Kept as a reason token so a build without the driver still names it.</summary>
         internal const string BurstDustRunsNotBuiltReason = "burst-dust-runs-not-built";
 
-        /// <summary>False until the live burst and dust driver (design G.7 piece X4) lands.</summary>
-        internal const bool BurstDustRunsBuilt = false;
+        /// <summary>The live burst and dust driver (design G.7 piece X4, <see cref="PartParityBurstDriver"/>) is built.</summary>
+        internal const bool BurstDustRunsBuilt = true;
 
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
@@ -560,8 +561,8 @@ namespace Parsek.TestCommands
         /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
         /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
         /// admission (<c>host-not-at-pad</c>), an <c>fx=</c> one included. A burst or dust run
-        /// (design G.7) is refused <c>burst-dust-runs-not-built</c> (detail <c>fx=..</c>) while
-        /// <see cref="BurstDustRunsBuilt"/> is false. On a refusal <paramref name="rejectReason"/> is the reason token and
+        /// (design G.7) would be refused <c>burst-dust-runs-not-built</c> (detail <c>fx=..</c>) on a
+        /// build whose <see cref="BurstDustRunsBuilt"/> is false. On a refusal <paramref name="rejectReason"/> is the reason token and
         /// <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
@@ -945,7 +946,7 @@ namespace Parsek.TestCommands
         internal static bool IsDustRun(PartParitySweepArgs args)
             => args?.Fx != null && args.Fx.Count > 0 && PartParityFxRules.IsDustArg(args.Fx[0]);
 
-        /// <summary>A burst or dust run (design G.7): refused until the live driver lands.</summary>
+        /// <summary>A burst or dust run (design G.7), driven by <see cref="PartParityBurstDriver"/>.</summary>
         internal static bool IsBurstDustRun(PartParitySweepArgs args) => IsBurstRun(args) || IsDustRun(args);
 
         /// <summary>True for a ground run: <c>contexts=ground</c> (the dust cases, design G.2.2).</summary>

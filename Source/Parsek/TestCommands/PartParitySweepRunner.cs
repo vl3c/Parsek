@@ -180,7 +180,7 @@ namespace Parsek.TestCommands
             {
                 // The label's first run step: admit the host and record what it was.
                 if (!AdmitHost(ctx)) yield break;
-                ctx.HostBaseline = CaptureHostBaseline(ctx.Host, TestCommandPartParitySweep.IsAirRun(a));
+                ctx.HostBaseline = CaptureHostBaseline(ctx.Host, TestCommandPartParitySweep.IsPadHostRun(a));
                 WriteHostBaseline(ctx.LabelDir, ctx.HostBaseline);
                 PlanStep(ctx);
             }
@@ -411,6 +411,16 @@ namespace Parsek.TestCommands
         /// <summary>Every FX case the install offers with the run's exclusions (design E.1).</summary>
         private static List<PartParityCaseKey> EnumerateFx(StepContext ctx)
         {
+            if (TestCommandPartParitySweep.IsBurstDustRun(ctx.Args))
+            {
+                // A burst or dust run (design G.7): the P9 families, its own exclusions.
+                string context = TestCommandPartParitySweep.IsBurstRun(ctx.Args)
+                    ? PartParityFxRules.ContextBurst : PartParityFxRules.ContextGround;
+                PartParityFxEnumeration built = PartParityBurstDriver.Enumerate(ctx);
+                foreach (PartParityFxExclusion e in built.Exclusions)
+                    if (PartParityBurstPlan.ExclusionApplies(e, ctx.Args.Fx, context)) ctx.FxExclusions.Add(e);
+                return built.Cases;
+            }
             bool air = TestCommandPartParitySweep.IsAirRun(ctx.Args);
             PartParityFxEnumeration all = PartParityFxDriver.Enumerate(ctx);
             foreach (PartParityFxExclusion e in all.Exclusions)
@@ -553,7 +563,10 @@ namespace Parsek.TestCommands
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
                 List<int> picked = PickWave(queue, cursor, air, out string kind, out double trackerCap);
                 bool motionKind = PartParityMotionPlan.IsMotionKind(kind);
-                if (motionKind
+                bool p9Kind = PartParityBurstPlan.IsP9Kind(kind);
+                if (p9Kind
+                        ? !PartParityBurstPlan.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, ctx.WavesDone == 0)
+                        : motionKind
                         ? !PartParityMotionPlan.AdmitWave(elapsed, ctx.Args.MaxSeconds, ctx.WavesDone == 0, picked.Count)
                         : !PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, trackerCap,
                             FamiliesOf(queue, picked), ctx.WavesDone == 0, FxOptionsOf(queue, picked)))
@@ -572,6 +585,9 @@ namespace Parsek.TestCommands
                 if (PartParityStateWave.IsFxKind(kind)) w = PartParityFxDriver.RunWave(ctx, wave);
                 // A motion wave (Appendix H.2): the orbit flow here, the chute hook inside the air one.
                 if (motionKind && !air) w = PartParityMotionDriver.RunWave(ctx, wave);
+                // A burst or dust wave (design G.7) runs the P9 driver's flow.
+                if (kind == PartParityBurstPlan.KindBurst) w = PartParityBurstDriver.RunWave(ctx, wave);
+                if (kind == PartParityBurstPlan.KindDust) w = PartParityBurstDriver.RunDustWave(ctx, wave);
                 try { while (w.MoveNext()) yield return w.Current; }
                 finally { DisposeNested(w); }
                 lastWave = Time.realtimeSinceStartup - waveStart;
@@ -656,6 +672,8 @@ namespace Parsek.TestCommands
             };
             if (p.Key.MotionOption != null) { if (e != null) PartParityMotionDriver.Attach(wc, p.Key, e, controlId: null); }
             else if (p.Key.StateOption != null) wc.State = PartParityStateDriver.NewRun(p.Key, e, dropEvents: false);
+            else if (p.Key.FxOption != null && PartParityFxRules.IsBuiltFamily(p.Key.FxOption.Family))
+                PartParityBurstDriver.Attach(wc, p.Key, control: null);
             else if (p.Key.FxOption != null && e != null) PartParityFxDriver.Attach(wc, p.Key, e, control: null, dropEvents: false);
             return wc;
         }
@@ -667,7 +685,8 @@ namespace Parsek.TestCommands
         {
             var kinds = queue.ConvertAll(WaveKindOf);
             var solo = queue.ConvertAll(c => c.Solo);
-            int maxState = PartParityMotionPlan.IsMotionKind(kinds[cursor])
+            int maxState = PartParityBurstPlan.IsP9Kind(kinds[cursor]) ? PartParityBurstPlan.MaxWaveCases(kinds[cursor])
+                : PartParityMotionPlan.IsMotionKind(kinds[cursor])
                 ? (kinds[cursor].EndsWith(PartParityMotionPlan.KindPairSuffix, StringComparison.Ordinal) ? 1 : PartParityMotionPlan.MaxWaveCases(air))
                 : PartParityStateWave.IsFxKind(kinds[cursor]) ? PartParityFxRules.MaxFxWaveCases
                 : air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases;
@@ -684,6 +703,9 @@ namespace Parsek.TestCommands
         /// one) its motion kind, a real-vs-real pair a kind of its own; every other case P6's.</summary>
         private static string WaveKindOf(WaveCase c)
         {
+            if (c.Burst != null) return PartParityBurstPlan.WaveKind(c.Burst.Option.Family);
+            if (c.ControlId != null && PartParityBurstPlan.IsBuiltControl(c.ControlId))
+                return PartParityBurstPlan.ControlWaveKind(c.ControlId);
             if (c.Motion != null || (c.ControlId != null && PartParitySweepPlan.IsMotionOnlyControl(c.ControlId)))
                 return PartParityMotionPlan.WaveKind(c.Key, c.Motion?.Twin != null);
             return PartParityStateWave.WaveKind(c.Key);
@@ -707,7 +729,7 @@ namespace Parsek.TestCommands
 
         private static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor, string kind, int count, bool air)
         {
-            if (air)
+            if (air || PartParityBurstPlan.IsP9Kind(kind))
             {
                 // An air wave places its cases on the showcase band by slot (design D.4).
                 List<WaveCase> airWave = queue.GetRange(cursor, count);
@@ -965,6 +987,8 @@ namespace Parsek.TestCommands
             // debris and the start-route / stowed ghosts (design D.3 step 6).
             try { PartParityFxDriver.Release(wc); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: FX release threw {ex.GetType().Name}: {ex.Message}"); }
+            try { PartParityBurstDriver.Release(wc); }
+            catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: burst release threw {ex.GetType().Name}: {ex.Message}"); }
             try { PartParityMotionDriver.Release(wc); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: motion release threw {ex.GetType().Name}: {ex.Message}"); }
             try { PartParityStateDriver.DestroyStateParts(wc); }
@@ -1064,11 +1088,13 @@ namespace Parsek.TestCommands
             if (wc.RealTiles.Count > 0)
                 PartParityCaseCapture.WritePictures(ctx, wc, sidecar);
             if (wc.Fx != null) PartParityFxDriver.WritePictures(ctx, wc, sidecar);
+            if (wc.Burst != null) PartParityBurstDriver.WritePictures(ctx, wc, sidecar);
             if (wc.Motion != null) PartParityMotionDriver.WritePictures(ctx, wc);
             WriteSidecar(ctx, sidecar);
             if (wc.ControlId != null && PartParityMotionRules.HasNormalRoute(wc.ControlId)) PartParityMotionDriver.WriteNormalRoute(ctx, wc);
             ClearIsolated(ctx, wc.CaseId);
-            if (wc.ControlId != null) JudgeAndLogControl(sidecar, wc.State != null, wc.Fx != null);
+            if (wc.ControlId != null) JudgeAndLogControl(sidecar, wc.State != null,
+                wc.Fx != null || wc.Burst != null || PartParityBurstPlan.IsBuiltControl(wc.ControlId));
             string status = sidecar.Setup?.Status ?? TestCommandPartParitySweep.SetupOk;
             if (TestCommandPartParitySweep.IsSetupFault(status))
                 ParsekLog.Warn(Tag, $"case {wc.CaseId}: setup fault {status} detail={sidecar.Setup?.Detail ?? "<none>"}");
@@ -1123,6 +1149,8 @@ namespace Parsek.TestCommands
             };
             if (TestCommandPartParitySweep.IsMotionRun(ctx.Args) && PartParitySweepPlan.IsMotionOnlyControl(id))
                 return PartParityMotionDriver.BuildControlCase(ctx, id, wc);
+            if (TestCommandPartParitySweep.IsBurstDustRun(ctx.Args))
+                return PartParityBurstDriver.BuildControlCase(ctx, id, wc, TestCommandPartParitySweep.IsDustRun(ctx.Args));
             if (TestCommandPartParitySweep.IsFxRun(ctx.Args)) return BuildFxControlCase(ctx, id, wc);
             if (id == TestCommandPartParitySweep.ControlStateEventsDropped
                 || id == TestCommandPartParitySweep.ControlStateEventsDroppedAir)
@@ -1353,6 +1381,9 @@ namespace Parsek.TestCommands
 
             /// <summary>An FX case's live FX run (design Appendix E); null for every other case.</summary>
             internal PartParityFxRun Fx;
+
+            /// <summary>The live burst or dust run (design G.7), null for any other case.</summary>
+            internal PartParityBurstRun Burst;
             /// <summary>A motion case's live run (design Appendix H); null for every other case.</summary>
             internal PartParityMotionRun Motion;
             /// <summary>A state case's start-route and stowed-reference tiles (atlas rows 3

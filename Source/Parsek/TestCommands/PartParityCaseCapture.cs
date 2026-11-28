@@ -490,6 +490,7 @@ namespace Parsek.TestCommands
             s.Flags.AddRange(wc.Flags);
             if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Fx != null) PartParityFxDriver.FillSidecar(ctx, wc, s);
+            if (wc.Burst != null) PartParityBurstDriver.FillSidecar(ctx, wc, s);
             if (wc.Motion != null) PartParityMotionDriver.FillSidecar(ctx, wc, s);
             if (wc.Ghost != null)
             {
