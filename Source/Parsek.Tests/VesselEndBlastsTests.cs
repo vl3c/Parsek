@@ -156,6 +156,24 @@ namespace Parsek.Tests
             Assert.Contains("if (!merged)", fallback);
         }
 
+        [Fact]
+        public void CopyCache_CatchBlocksDestroyWhatTheyMade()
+        {
+            string cache = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Ghost", "StockExplosionPrefabCache.cs")));
+            string capture = PartParityStateRulesTests.MethodBody(cache, "internal static void CaptureFrom(");
+            string spawn = PartParityStateRulesTests.MethodBody(cache, "internal static GameObject TrySpawn(");
+            Assert.True(capture != null && spawn != null, "the cache moved; this cell is vacuous");
+            string captureCatch = capture.Substring(capture.LastIndexOf("catch (Exception", StringComparison.Ordinal));
+            Assert.Contains("DestroyQuietly(keep,", captureCatch);
+            Assert.True(capture.IndexOf("GameObject keep = null;", StringComparison.Ordinal)
+                < capture.IndexOf("try", StringComparison.Ordinal));
+            string spawnCatch = spawn.Substring(spawn.LastIndexOf("catch (Exception", StringComparison.Ordinal));
+            Assert.Contains("DestroyQuietly(blast,", spawnCatch);
+            Assert.True(spawn.IndexOf("GameObject blast = null;", StringComparison.Ordinal)
+                < spawn.IndexOf("blast = UnityEngine.Object.Instantiate(", StringComparison.Ordinal));
+        }
+
         #endregion
 
         #region Part collection

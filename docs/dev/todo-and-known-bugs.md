@@ -264,6 +264,10 @@ What: the recorder only records `ShroudJettisoned` for a shroud stock carried of
 
 What: stock moves an `isFairing` + `decoupleEnabled` shroud under the part on its bottom node, so the real debris carries the fairing; the fairing is part of the shield's model, not of the decoupler's snapshot, so the debris ghost is drawn without it. Fix: not decided.
 
+## ~~GHOST-STOCK-COPY-CACHE-LEAKS~~: a failure while keeping or spawning a stock explosion copy left objects behind [FILED 2026-11-28 from a review of the merged ghost FX work (coordinator); FIXED 2026-11-28, branch `p9-y2`; xUnit source cell `VesselEndBlastsTests.CopyCache_CatchBlocksDestroyWhatTheyMade`; never seen; leak, low]
+
+What: in `StockExplosionPrefabCache.CaptureFrom`, a copy that threw mid-loop nulled `holder` but left the DontDestroyOnLoad holder and the copies made so far alive for the whole process; in `TrySpawn`, a throw after the `Instantiate` (in `SetActive` or `GhostWorldSpaceEmitter.AttachOwn`) left the blast without its timed `Destroy`, so it lived until the scene unloaded. Fix: both catch blocks destroy what the try made through the `[MethodImpl(NoInlining)]` `DestroyQuietly` helper (the holder takes its partial copies with it).
+
 ## ~~GHOST-STOCK-COPY-NO-MERGE~~: the silent stock explosion copies never merged, so close blasts at the Space Center or under the pause menu stacked [FILED 2026-11-28 from a review of the merged ghost FX work (coordinator); FIXED 2026-11-28, branch `p9-y2`; xUnit `VesselEndBlastsTests` (frame queue cells); not flown; visual, low]
 
 What: stock `FXMonger.explode` (IL, KSP 1.12.5) merges a same-frame blast within 10 m into the first queued one (position power-weighted, the first power kept; a power below 0.001 raised to it) and `LateUpdate` spawns and clears the queue; `StockExplosionPrefabCache.TrySpawn` spawned every blast, so a crash of N close parts drew N overlapping copies where stock draws one.

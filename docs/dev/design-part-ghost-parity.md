@@ -5013,6 +5013,9 @@ Y2 follow-ups as built (2026-11-28, from a review of the merged ghost FX work; n
   new copy. A copy is moved in the frame it was made, before its particles first update, so it
   draws from the merged position. First check: a crash at the Space Center logs `Stock explosion
   copy merged a blast` for parts closer than 10 m and draws as many copies as FXMonger would.
+- (c) `StockExplosionPrefabCache`'s two catch blocks destroy what their try made: the
+  DontDestroyOnLoad holder with its partial copies in `CaptureFrom`, the instance in `TrySpawn`
+  (todo GHOST-STOCK-COPY-CACHE-LEAKS). No player-visible change; no CHANGELOG line.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
