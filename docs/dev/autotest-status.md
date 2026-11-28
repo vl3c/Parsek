@@ -2862,9 +2862,9 @@ the cell. Its control flies it with only the defect assertions removed and must 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 | --- | --- | --- | --- |
 
+DOWN TO ZERO ON 2026-11-28 (branch `claude/project-thread-sif2cl-p7-budget`): `PP-14-part-parity-motion-stock` (`2026-11-27_2359`) and `PP-15-part-parity-motion-modded` (`2026-11-28_0007`) flew green on main 05c456742 and moved to Live-proven (543 -> 545).
 DOWN TO TWO ON 2026-11-27 (branch `claude/project-thread-233fj9`, todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP): `SAVE-IDX-2-far-switch-focuses-target` flew green on its re-pinned shape (`2026-11-27_2139`, PASS attempt 1) and moved to Live-proven (542 -> 543).
 DOWN TO THREE ON 2026-11-27 (branch `claude/project-thread-233fj9`, todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP): `SAVE-IDX-1-quickload-keeps-eva-focus` flew green on its first flight (`2026-11-27_1708`, PASS attempt 1) and moved to Live-proven (541 -> 542). `SAVE-IDX-2-far-switch-focuses-target` (`_1710`) proved the fix but red on its count, a spec error (a designed resumed-spawn segment); re-pinned, owed a flight.
-DOWN TO ZERO ON 2026-11-28 (branch `claude/project-thread-sif2cl-p7-budget`): `PP-14-part-parity-motion-stock` (`2026-11-27_2359`) and `PP-15-part-parity-motion-modded` (`2026-11-28_0007`) flew green on main 05c456742 and moved to Live-proven (543 -> 545).
 UP TO FOUR ON 2026-11-27 (branch `claude/project-thread-sif2cl-m6`, harness and docs only): `PP-14-part-parity-motion-stock` (operator, stock-minimal) and `PP-15-part-parity-motion-modded` (operator, modded-compat), never flown. Committed scenarios 714 -> 716. `PP-5` and `PP-6` gain a third, unflown label (`pp5mo` / `pp6mo`) and stay in Live-proven on their chute and FX labels.
 
 UP TO TWO ON 2026-11-27 (branch `claude/project-thread-233fj9`, todo SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP): `SAVE-IDX-1-quickload-keeps-eva-focus` and `SAVE-IDX-2-far-switch-focuses-target` (operator, stock-minimal), never flown. Committed scenarios 710 -> 712.

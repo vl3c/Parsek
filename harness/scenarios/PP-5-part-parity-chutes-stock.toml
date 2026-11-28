@@ -54,7 +54,7 @@ tier = "operator"
 # `ctl-ghost-absent` and `ctl-motion-real-vs-real-air`, two Mk16 pressed together, the
 # canopy-scale curves only). The 10 chute motion cases (5 semi, 5 full; design H.1); its step
 # logs the exact counts on its `motion cases: motion=all contexts=air` line. It runs LAST, so
-# a label never flown cannot stop the two flown ones (an unmet step ends the drive). Its
+# the newest label cannot stop the two older ones (an unmet step ends the drive). Its
 # motion verdicts are report-only like the rest of the lane; the H.6 item 3 snap (the ghost
 # writes the canopy pose at once) is the expected finding (todo
 # GHOST-DEPLOY-MOTION-TIMING-2026-11-26). Flown 2026-11-27 as a motion-label-only local copy
@@ -129,7 +129,7 @@ steps = [
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "reset", contexts = "air", fx = "all" }, expect = "OK", budget = 120 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
   { cmd = "PartParitySweep", args = { label = "pp5fx", op = "run", contexts = "air", fx = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
-  # The third label: the chutes' motion (Appendix H.4), last so a label never flown cannot
+  # The third label: the chutes' motion (Appendix H.4), last so the newest label cannot
   # stop the two flown ones. The reset carries the run's own kind, as above.
   { cmd = "PartParitySweep", args = { label = "pp5mo", op = "reset", contexts = "air", motion = "all" }, expect = "OK", budget = 120 },
   { cmd = "PartParitySweep", args = { label = "pp5mo", op = "run", contexts = "air", motion = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
