@@ -542,6 +542,14 @@ namespace Parsek.TestCommands
                     continue;
                 }
                 if (Array.IndexOf(P6MotionFamilies, s.Family) < 0) continue;
+                if (s.Family == FamilyAnimationGroup && HasNoDeployAnimation(ModuleAt(part, s.ModuleIndex)))
+                {
+                    // Its deploy plays no clip (stock flips isDeployed at once and only starts the
+                    // running loop, which loop-phase excludes): there is no deploy motion to time.
+                    r.Exclusions.Add(Ex(name, s.Family, s.Module, s.ModuleIndex, PartParityStateRules.ExcludeNoAnimation,
+                        PartParityStateRules.ContextAlone));
+                    continue;
+                }
                 string kind = s.Family == FamilyAirbrake ? KindSurface
                     : s.Family == FamilyParachute ? KindCanopy : KindClip;
                 cases.Add(FromP6(s, kind, k.Context, false));
@@ -596,6 +604,27 @@ namespace Parsek.TestCommands
             BuildKeys(cases, baseKey, name, r);
             return r;
         }
+
+        /// <summary>The config key of a <c>ModuleAnimationGroup</c>'s deploy clip (stock
+        /// default empty: no deploy clip).</summary>
+        internal const string KeyDeployAnimationName = "deployAnimationName";
+
+        private static PartParityStateModule ModuleAt(PartParityStatePart part, int index)
+        {
+            if (part?.Modules == null) return null;
+            foreach (PartParityStateModule m in part.Modules)
+                if (m != null && m.Index == index) return m;
+            return null;
+        }
+
+        /// <summary>
+        /// Whether a <c>ModuleAnimationGroup</c> plays no deploy clip: its config node names an
+        /// empty or no <c>deployAnimationName</c> (stock's default is empty; the orbital scanner
+        /// names only its running <c>activeAnimationName</c>). A module with no config node read
+        /// (a committed fixture line that carries no key) keeps its case.
+        /// </summary>
+        internal static bool HasNoDeployAnimation(PartParityStateModule m)
+            => m?.Config != null && string.IsNullOrEmpty(m.Value(KeyDeployAnimationName));
 
         private static PartParityMotionOption FromP6(PartParityStateOption s, string kind, string context, bool readingOnly)
             => new PartParityMotionOption

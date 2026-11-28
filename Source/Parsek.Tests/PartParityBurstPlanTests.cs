@@ -54,6 +54,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WaveFlow_BurstAndDustKindsRunTheP9Flows_InEitherContext()
+        {
+            Assert.Equal(PartParitySweepRunner.FlowBurst, PartParitySweepRunner.WaveFlow(PartParityBurstPlan.KindBurst, true));
+            Assert.Equal(PartParitySweepRunner.FlowBurst, PartParitySweepRunner.WaveFlow(PartParityBurstPlan.KindBurst, false));
+            Assert.Equal(PartParitySweepRunner.FlowDust, PartParitySweepRunner.WaveFlow(PartParityBurstPlan.KindDust, false));
+            Assert.Equal(PartParitySweepRunner.FlowDust, PartParitySweepRunner.WaveFlow(PartParityBurstPlan.KindDust, true));
+        }
+
+        [Fact]
         public void AdmitWave_FirstAlways_LaterOnlyWhenTheWorstCaseFits()
         {
             Assert.True(PartParityBurstPlan.AdmitWave(PartParityBurstPlan.KindDust, 1000.0, 60, firstWave: true));

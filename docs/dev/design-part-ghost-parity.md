@@ -876,6 +876,14 @@ reference lane. The concrete P8 plan is Appendix E.
   `harness/tools/part_parity_baseline.py` (`write` refuses while a reading run holds an unaccepted
   fail, printing a TOML block per reason with the reason and todo left empty; `check`, `spread`,
   `accepted`).
+- FX cases (2026-11-24, "PP-7 armed" in Appendix F). A plate case owes its one view, `plate`. A case
+  entry may hold `fx`: per judged FX entry (`<route>:<view>:<layer>`) and compare key, the band of
+  the raw values over the runs, kept when some run read half the measure's fail line or more. A
+  standing numeric FX fail of a baselined case is a `near-line-fail` note inside that band's
+  tolerance and a `drift` red past it; presence, smoke and a missing or extra asset red unless an
+  entry names them. `fxUnmeasured` holds what the runs could not judge (a skipped or empty layer, a
+  null value, an extra effect held at `warn`); anything else of that kind is `unmeasured`. A
+  waiver stretches an FX limit by `FX_FAR`, it lifts none.
 - `PP-11-part-parity-mod-parts` (authored 2026-11-26, todo GHOST-B9-SUBTYPE-TRANSFORMS): PP-2's
   shape on modded-compat narrowed with `source=UtilityWeight,SHED` to the two pinned part mods
   the owner asked for (Utility Weight 2.0.0, PicoPort 0.1.6.4; `harness/provision/pins.toml`).
@@ -2673,7 +2681,9 @@ archived F6 sweeps; no fail line and no threshold moved.
   `fx-far` flame width against itself read 1.264 (`2026-11-23_1014`, ok) and 1.345 (`_1201`, bad,
   INVALID(parity-controls)), line 1.30, both entries unsettled. Not flown.
 - A skipped entry (weak cores, above) reads `skipped`, not `pass`. It ranks as `pass`; the
-  `fx-weak-core` flag still raises the case.
+  `fx-weak-core` flag still raises the case. An entry nothing is drawn in on either side (core and
+  envelope 0) reads `empty` since 2026-11-24 and ranks as `pass` too; what the gate makes of it:
+  Appendix F.
 - `fx.layers`, the inventories and `fxDiffers` are read when the case is captured, after the
   warm-up (`DescribeLayers`): in the frame the ghosts are primed their KSPParticleEmitters have no
   material and no power's size or speed yet. Report-only. `fxMissingOnGhost` / `fxExtraOnGhost`,
@@ -2696,6 +2706,34 @@ For an rcs case, length, width and brightness are reported only (R4, E.2). Parti
 ghost-only `[FxEmissionProbe] measured:` line) are written and shown, report-only in P8: they are
 not recomputable from the files, and become judged only after a reading run shows them as tight
 as the picture measures.
+
+Split halves in every case (2026-11-24, branch `pp7-arm`, Appendix F). The rule above (a fail
+stands only if both sample halves fail on the same side of the same line and neither side fails
+it against itself) was applied only in a case that had an unsettled entry; a settled case's fail
+stood unexamined. It now holds in every case, and three details of it changed:
+
+- Self-noise is matched by compare value, not by measure. A puff whose centre jitters against
+  itself (offset) says nothing about its area, nor a hue that does about the chromaticity. By
+  measure, an rcs ghost with 6 % of the real area passed.
+- A MISSING effect is not held by an unsettled entry: both halves show it on the real side and
+  neither on the ghost, whatever the length and width do. `Size1p5.Tank.05` draws smoke alone, and
+  its real far width (79 / 88 px between the halves) capped the loss of all of it. An extra
+  effect stays held (the orbit smoke noise); the gate asks the baseline about it (Appendix F).
+- An entry nothing is drawn in on either side reads `empty`, not `pass`.
+
+Why in every case: the only settled fails of PP-7 that came and went between two runs of one ghost
+are ones their own halves deny, all three hue L1 of a near-red flame on the bottom view. The 12
+hue bins have an edge at 0 degrees and a red flame straddles it, so a small shift moves much of
+its light between bins 11 and 0: the bare RK-7 at full 0.59 (halves 0.24 / 0.43) and 0.21 in the
+next run, at 30 % 0.33 and then 0.54 (0.56 / 0.30), the separation motor 0.38 and then 0.66
+(0.64 / 0.33, and the real side failed its own halves). Merging neighbouring bins instead was
+tried and rejected: it also lost five real hue defects of `2026-11-23_1027` (0.53 to 0.56), four of
+which both halves repeat. Re-judged on every archived FX sweep, eight verdicts move and no control
+outcome does. Six go `fail` to `warn`: four such flips (PP-7 `2026-11-23_1732` and
+`2026-11-24_0735`, PP-9 `2026-11-23_1749`'s memLander puff at 10.55 of 10 degrees) and two near-line
+readings of ghosts that did have defects (PP-7 `_1027` `radialLiquidEngine1-2` bottom hue 0.553,
+PP-9 `_1050`'s tower 10.31 degrees); the other 60 of 61 failing PP-7 cases of `_1027` still fail.
+Two go `warn` to `fail` (PP-9's Spark at 30 %, `_1749` and `2026-11-24_0735`).
 
 Start-route reload (2026-11-24, branch `parity-noise`, todo PARTPARITY-START-ROUTE-RAMP-NOT-RELOADED;
 flown 2026-11-26 on throwaway lanes, start-route `color-blob-px` 0 on ReStock, stock unchanged). The start-route ghost is built from a snapshot of the burning part, so it shows what
@@ -3484,7 +3522,7 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
 - A case that reads `reference` (a Waterfall FX case, E.6) is never gated; one whose baseline was
   judged and that now reads `reference` is `unmeasured`. FX findings over their fail line (groups
   `fx:<measure>` and `fx:structure`) red unless an entry names them, and a body fail never hides
-  them. No FX lane is armed.
+  them.
 - FX after the per-entry cap (merge of #2802, 2026-11-23). The gate reads a case's FX fails from its
   judgement (`CaseVerdict.fx`), where a fail the split-half rule caps is `warn`, never from the reason
   text, which still prints it; a body fail the old whole-case cap held at `warn` is gated like any
@@ -3492,11 +3530,9 @@ lane, 45 of 2716 cases did not red (PP-2 11, PP-3 13, PP-4 21). It now covers `s
   (`fx-structure-not-measured`, `fx-nozzle-not-measured`, `fx-no-real-effect`), is `unmeasured` on a
   baselined case (`fx_unmeasured`), unless the baseline's runs show the same token (its optional
   `fxUnmeasured` list): then, and on a new case, it is the note `fx-unmeasured`. A skip needs the real
-  core weak too, so a baselined one hides no lost plume. To settle before any FX lane is armed: an FX
-  fail has no band, so one capped in the reading runs and standing later reds; a lamp `plate` case
-  reads `unmeasured` against its own baseline (`unmeasured_reason` owes every manifest view, which a
-  plate case does not photograph: 14 on PP-7, 16 on PP-8 and PP-9); and a layer that went empty on
-  BOTH sides, core and envelope, is judged `pass` (E.4).
+  core weak too, so a baselined one hides no lost plume. Three points were left to settle before any
+  FX lane was armed (no band for an FX fail, plate cases `unmeasured` against their own baseline, a
+  layer empty on both sides judged `pass`): settled 2026-11-24, "PP-7 armed" below.
 - A missing view or route, a null measure, an unmeasured structure or a capture that threw was
   skipped. Each is `unmeasured` now.
 - A ghost renderer that exists but is disabled, a ghost that was not built and a state the ghost did
@@ -3523,7 +3559,8 @@ PARTPARITY-STOWED-CANOPY-RENDERED, new), 5 small state residuals
 (PARTPARITY-LV1-SHROUD-ZFIGHT), 1 open-top fairing (GHOST-FAIRING-OPEN-TOP-SEAM, a warn today), 1
 RoveMate seam (PARTPARITY-ROVERBODY-WHITE-TOP-SEAM, new) and 1 stock EM-16 row
 (PARTPARITY-ROTOR01-GRAY-EDGE-LINE, new). One entry since, 73 in all (42 `noisy`): the truss edge row
-(PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE), from PP-2's armed flight `2026-11-23_1846`. Some matched nothing in any clean current-build run:
+(PARTPARITY-TRUSSPIECE-BLANKETS-EDGE-LINE), from PP-2's armed flight `2026-11-23_1846`. Five since for PP-7
+(78 in all, 46 `noisy`; "PP-7 armed" below). Some matched nothing in any clean current-build run:
 owner-ruled residuals that did not recur, and cases listed because their family moves (wheels,
 three sun trackers, KE-1). Every fail of every baseline run is covered (the writer refuses
 otherwise); every warn is listed in todo PARTPARITY-P5-WARN-CENSUS.
@@ -3540,8 +3577,9 @@ committed files, the gate's reds, notes and unmeasured list are identical before
 mutation run `2026-11-23_0607` 27 reds, every clean run 0); a rendered missing, extra or hidden mesh
 injected into each of 5472 cases of their newest runs is never shown as anything but a fail.
 
-**Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`). **Report-only:**
-PP-5 and PP-6. A canopy follows the airflow, so every picture measure of a chute case moves run to
+**Armed:** PP-1, PP-2, PP-3, PP-4 (`gating = true`, roster `PARTPARITY_ARMED_SPECS`) and, of the
+effects lanes, PP-7 alone ("PP-7 armed" below). **Report-only:** PP-5 and PP-6, and the effects
+lanes PP-8 to PP-10. A canopy follows the airflow, so every picture measure of a chute case moves run to
 run (PP-5: colour blob moves up to 5012 px, IoU 0.26; PP-6: 6768 px, 0.21) and no band holds; the
 canopy cap of D.4 keeps them at warn, which only the viewer can judge. Their baselines are
 committed for `--pinned` reading.
@@ -3553,6 +3591,65 @@ of every `radialDecoupler*` ghost (DLL prefix 3f6af586, both installs). Armed PP
 the `rotor.01--gray` row above. Re-judged with the final rules and list: 27 reds, those three cases
 only. The line was reverted (empty diff against HEAD) and the DLL rebuilt; the mutated DLL stayed on
 both installs until the next session re-provisioned them.
+
+### PP-7 armed (2026-11-24, flown 2026-11-27)
+
+Owner ruling 2026-11-24: fix the three blockers above, then arm PP-7 (stock orbit FX) alone of the
+effects lanes, after two clean runs. Built on branch `pp7-arm`, flown on its successor
+`claude/project-thread-0fwpkz` over main with #2836, #2837, #2839, #2845 and #2849.
+
+What changed in the gate (section 10, "FX cases"; E.4, "Split halves in every case"):
+- A plate case owes its one view, `plate`, and its `colorBlobPx` drifts like any other.
+- A layer drawn on neither side reads `empty`; a baselined case whose baseline drew it is
+  `unmeasured`. PP-7 holds 648 empty smoke entries (vacuum), the same in every run.
+- FX bands: the baseline keeps, per judged entry (`<route>:<view>:<layer>`) and compare key, the
+  band of the raw values over its runs when some run read half the fail line or more. A standing
+  numeric FX fail is a `near-line-fail` note inside its band and a `drift` red past it.
+- The split-half rule holds in every case, matched by compare value, and a missing effect is never
+  held by an unsettled entry.
+- A clean-context review found six ways the gate passed what it should not (a missing effect held
+  at `warn`, a compare value gone null, a far fail the cap hid, a new smoke layer, among them); each
+  reds or is `unmeasured` now, with a cell.
+
+Accepted for PP-7 (five entries): the RCS blocks' mean-power puffs (RCS-PER-NOZZLE-RECORDING,
+owner ruling R4; `color-blob` on `rcsBlock.v2`, `fx:colour` noisy, and `fx:cross-section` /
+`fx:direction` noisy on `RCSblock.01.small`; kind `defect`, so the page keeps them red) and the
+Spark's stray particle (`fx:origin`, noisy, PARTPARITY-SPARK-FLAME-ORIGIN, kind `accepted`). The
+four noisy ones matched nothing in either pinning run; they are kept because each failed in one
+run of two before.
+
+**Baseline** `pp7` (stock-minimal): `2026-11-27_2025` and `_2042`, both PASS attempt 1 (999 s and
+987 s wall) on one build (automation DLL sha256 prefix d25ecb80), each `gate=ok` against the
+provisional section it replaced (pinned from `2026-11-24_0735` alone). 128 cases, 23 with FX
+bands; each run: 8 accepted fails, 1 FX entry the runs could not judge
+(`size1p5.tank.05` burn-full smoke). The writer warned of 7 bands that sit past their fail line,
+the worst `rcsblock.01.small` start cross-section (1.34 lines) and `microengine.v2` burn-low far
+length (1.23).
+
+Run to run (`spread`): no real-only or ghost-only blob pixel; `colorBlobPx` max 100
+(`rcsBlock.v2` side-b), p99 14; IoU max change 0.0007. Of 3950 FX measures, 52 moved more than
+half a fail line and 8 more than one, the most `memlander--default--rcs-fire--7a095970` direction (1.63
+lines) and the Spark's origin (1.39).
+
+Re-judged with this build: the nine PP-1 / PP-3 / PP-4 runs the baseline lists and PP-2's
+`2026-11-27_1813` / `_1829` read `gate=ok`; the mutation run `2026-11-23_0607` reds (3 unaccepted
+`missing-rendered` and 24 drifts on the three radial decouplers). The two earlier PP-7 sweeps red
+one case each against the provisional section and none against this one: `2026-11-24_2120`
+(`liquidEngine2-2.v2` doublebell burn-low, side-a direction 10.87 deg) and `2026-11-27_1725` (the
+#2837 build, `omsEngine` burn-low far length 1.467).
+
+**Mutation proof.** A local, uncommitted block at the end of `EngineFxBuilder.TryBuildEngineFX`
+moved every top-level ghost emitter of `toroidalAerospike` 0.5 m sideways (2 per build, logged
+six times; DLL prefix 39691154). Armed PP-7 `2026-11-27_2100`: PARSEK-FAIL(part-parity), 981 s,
+12 drifts, all on `toroidalaerospike--default--burn-full--9ff6c660` and `--burn-low--f6013965`:
+on each, lateral offset on side-a (-80 px) and far (-27 px full, -67 px low) and cross-section
+offset about 0.84 (8.4 lines) on bottom, on both routes. Nothing else red. The block was reverted,
+the DLL rebuilt and re-provisioned (no mutation marker in the automation DLL, prefix 72c76c79).
+
+Known soft spots: a plume cut to 0.6 to 0.7 of its length passes silently on 1 or 2 of the 74
+plume cases, whose length band is wide. And since the split-half rule reads the ghost's halves
+too, a ghost that flickers between its two halves has its fails held at `warn` and reads
+`unmeasured` only past 1.75 times its limit; a large flicker usually unsettles the entry anyway.
 
 ## Appendix G. P9 plan: effects Parsek builds itself (rev 1, 2026-11-26)
 
@@ -4493,11 +4590,11 @@ presses and done signals (D.1, `PartParityStateRules`), plus the two P6 left to 
 | `deployable` (panels, antennas, radiators) | `motion-deployed` | 19 / 22 | sun trackers: the tracking pivot is left out of the progress transforms (its slew after the done signal is P6's, D.3) |
 | `gear` (gear, legs, deploying wheels) | `motion-deployed` | 8 / 9 | free-fall droop as P6 (`context-dependent`), which moves no deploy transform |
 | `ladder` | `motion-deployed` | 2 / 2 | |
-| `animation-group` (drills, in orbit) | `motion-deployed` | 4 / 4 | the stock ISRU stays `auto-deploy` (D.1) |
+| `animation-group` (drills, in orbit) | `motion-deployed` | 4 / 4 in the committed lists, 3 / 3 live | the stock ISRU stays `auto-deploy` (D.1); a `ModuleAnimationGroup` whose config names no `deployAnimationName` (the orbital scanner: only its running loop, which is `loop-phase`) is `no-animation`, since stock flips its deployed state at once (P7 instrument fix, todo PARTPARITY-P7-READING-INSTRUMENT); a fixture line that carries no config keeps its case |
 | `cargo-bay` | `motion-open` | 8 / 9 | |
 | `animate-generic` (doors, inflatables, port shields, Klaw, science doors, the two thrust reversers) | `motion-deployed` | 12 / 17 | the reversers are the "engine nozzle" motion stock animates on a press |
-| `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform |
-| `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; pictures report-only (canopy aim, D.4) |
+| `airbrake` | `motion-deployed` | 1 / 1 | no Animation: progress from the surface transform; its deploy flag flips on the press frame while the surface still turns, so its real motion is done at P6's settle (the surface still for 0.5 s), and T reads `aeroDeployAngle / actuatorSpeed` |
+| `parachute` (air, D.4) | `motion-semi`, `motion-full` | 10 / 10 | progress from the canopy transform's scale; a rigged canopy (ReStock: the ghost's parachute info carries animated canopy bones, the canopy root never scales) from those bones in full pose, paired by path; `realClock` stays the canopy root's mean scale; pictures report-only (canopy aim, D.4) |
 | `robotics` (NEW; P6 `p7-robotics`: `BaseServo` hinges, rotation servos, pistons) | `motion-swept` | 13 / 13 (4 rotation servos, 5 hinges, 4 pistons; the 22 `BaseServo` parts less 9 rotors) | target swept (H.2); the servo modules by the robotic poll's exact names (`FlightRecorder.IsRoboticModuleName` less the rotor); rotors excluded (`rotor-spin-not-primed`, below), any other `BaseServo` `not-polled` |
 | `control-surface` (NEW; P6 `cs-deploy-sign`) | `motion-deployed`, context `radial` | 24 / 24 | every module named exactly `ModuleControlSurface` (PollControlSurfaces); the subject on a hidden filler's radial node pins the deflection sign (D.1); its end state has no P6 case, so P7 judges its last frame too |
 
@@ -4667,7 +4764,12 @@ Control surfaces: context `radial`, the subject on a `fuelTankSmallFlat` filler'
 the filler sits along the subject's `srfAttachNode.orientation`, at the filler's own radius) so the
 centre of mass, and with it stock's deflection sign, is fixed (D.1 `cs-deploy-sign`); the filler is
 hidden and left out of the records like a stacked filler. Press: the module's deploy action
-(KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3).
+(KSPAction, Activate). Done: the deflection still for 0.5 s (the airbrake rule, D.3). The deflection
+read is stock's own `deflection` field (what turns the transform), not `currentDeployAngle`, which
+is the deploy TARGET and jumps at the press. A surface whose ghost builds no deploy info (no
+`transformName` in its config, the R8 winglet) still has a real progress transform: the module's
+own `ctrlSurface`, paired by path with whatever the ghost holds there, so that ghost reads
+`motion-not-modelled` instead of a window-rule setup fault.
 
 Sidecar (`parsek-part-parity-case/1`, additive keys, every key always written, null when not
 measured; tables in `PartParityJson`, mirrored in `partparity.py`): a `motion` block (`family`,
@@ -4713,7 +4815,9 @@ subject) and the slow control on `airbrake1` (below), each judged RELATIVE to it
 | `ctl-motion-ghost-late` | the normal case plus a second event route with every polled event moved 1.0 s later | `lagS(late) - lagS(normal)` in [0.98, 1.02] s (exact by construction: the ghost is posed at the real frames' UTs), `durationRatio` unchanged within 0.02; the late route failing on lag only when the 1.0 s shift is past that motion's lag fail line, `max(0.5 s, 0.25 T_real)`, i.e. for T_real under 4 s, since a longer real motion holds a 1 s lag inside its line and the relative requirement is then the whole test |
 
 An air motion run records `ctl-empty`, `ctl-ghost-absent` and `ctl-motion-real-vs-real-air` (two
-`parachuteSingle` pressed together, the canopy-scale curves only). A control that does not behave
+`parachuteSingle` pressed together, the canopy-scale curves only: its end frames are not compared,
+since stock aims each open canopy along its own airflow every tick; the C# judge and
+`judge_motion_control` both pass the end-frame check for it). A control that does not behave
 is INVALID(parity-controls). The C# judges of the three motion controls are pure
 (`PartParityMotionRules.JudgeRealVsReal`, `JudgeGhostSlow`, `JudgeGhostLate`, M1) over two routes'
 timing blocks; the slow and late ones compare the altered route with the same subject's normal
@@ -4725,9 +4829,10 @@ copy B's live frames as its ghost rows and scout (no matched row). The slow and 
 write TWO motion sidecars over the same real frames: the ALTERED route under the control's id (its
 rows show the slowed or late ghost) and the normal route under `<controlId>--normal`, each with its
 own motion atlas; a missing or faulted normal route is `bad`. The real-vs-real end-frame allowance
-is read from frame 0 and the last frame: every view's same-time block with `realOnlyPx = 0`,
-`ghostOnlyPx = 0` and `colorOverPx <= 8` (`RealVsRealColorNoisePx`, the 4.5 rule) and some view
-covered. The slow route's last frame passes when its same-time pictures and the case's `structure`
+is read from frame 0 and the last frame: every view's same-time block with `realOnlyTolPx = 0`,
+`ghostOnlyTolPx = 0` (the edge-tolerant counts: the two copies sit at different places in one wave,
+so a silhouette edge can differ by a pixel with identical timing) and `colorOverPx <= 8`
+(`RealVsRealColorNoisePx`, the 4.5 rule) and some view covered. The slow route's last frame passes when its same-time pictures and the case's `structure`
 do not fail the P6 rules (`judge_route`). A control the manifest records `ok` that Python judges
 `bad` is INVALID(parity-controls).
 
@@ -4741,7 +4846,8 @@ inside the fail line by construction, and asking for a fail there would make the
 correct rig. "Frame 0 and the last frame within the real-vs-real allowance" and "its last frame
 passes the P6 end-state rules" are the same derivations as `partparity`'s
 `motion_end_frames_within_allowance` (every view's `same` block in frame 0 and the last frame with
-no real-only or ghost-only pixel, at most 8 colour-over pixels, and some real coverage) and
+no real-only or ghost-only pixel outside the edge tolerance, at most 8 colour-over pixels, and some
+real coverage) and
 `motion_last_frame_route` (the `judge_route` view rules over the last frame's `same` blocks plus
 the sidecar `structure`; a context-dependent tag caps a view failure at warn; a rendered,
 non-nonVisual missing or extra entry fails), in C# `PartParityMotionControls.EndFramesWithinAllowance`

@@ -1558,8 +1558,10 @@ still being written. Between the two, the retention pass touches nothing under
 ## The machine lock (one PC owner at a time)
 
 The machine has ONE owner at a time: a serial `run.py`, a
-`provision/provision.py`, or the parallel runner (`tools/parallel_runner.py`).
-They are arbitrated by ONE lockfile:
+`provision/provision.py`, or the parallel runner (`tools/parallel_runner.py`),
+OR it is shared by up to two (three when the owner is away) COPY LEASES, one
+per agent thread (see "Copy leases" below). Every machine owner refuses while a
+lease is live. The owners are arbitrated by ONE lockfile:
 
 ```
 <umbrella-root>/automation/.ksp-machine.lock
@@ -1739,10 +1741,11 @@ python run.py --slot stock-minimal-2 --ids <lane> --tests-prebuilt --no-coverage
   mini-lock; retries pass through it too), so the boot focus grabs and the
   boot contention do not pile up.
 
-**The four parallel-run INVALID subkinds** (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`)
+**The six parallel-run INVALID subkinds** (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`)
 are pre-boot refusals about the MACHINE, never the scenario: `port-busy`,
-`runner-token`, `slot-locked`, `slot-profile-mismatch`. None is retried and all
-four are flake-exempt (`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS`), like
+`runner-token`, `slot-locked`, `slot-profile-mismatch`, and the two copy-lease
+ones `lease-invalid` / `lease-exclusive`. None is retried and all
+six are flake-exempt (`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS`), like
 `instance-locked`.
 
 **Every launch, serial or slot.** KSP gets `-logFile <instance>/Player.log
@@ -1782,6 +1785,89 @@ focus-loss input lock, so an unfocused copy can still warp.
 
 **Parallel runs** use all of the above: see "Parallel runs
 (`tools/parallel_runner.py`)" under "Running a tier on request".
+
+## Copy leases (two agent threads, two copies)
+
+A COPY LEASE gives one worktree (one agent thread) one install copy for as long
+as its work takes: its own `provision.py` and any number of `run.py` calls,
+with gaps between them. Two threads holding two leases fly at the same time,
+each on its own Parsek.dll, and neither can provision over the other's copy.
+Contract: `lib/leases.py` (pure), `provision/leaseio.py` (file I/O),
+`tools/ksp_lease.py` (the CLI).
+
+```
+cd harness
+python tools/ksp_lease.py claim --owner "<thread name>"        # lowest free copy, provisioned first
+python tools/ksp_lease.py claim --owner "<thread name>" --copy 2
+python provision/provision.py --profile stock-minimal --lease  # this worktree's DLL to THIS copy only
+python run.py --lease --id LANE-A                                  # flies in the leased copy (or --tag, --ids-file)
+python tools/ksp_lease.py status                                # every lease + the machine lock
+python tools/ksp_lease.py renew --ttl-hours 4
+python tools/ksp_lease.py release                               # when the thread's flights are done
+```
+
+- **Files.** The registry entry `automation/.ksp-lease-<slot>.json` holds the
+  slot, a random token, the owner label, the worktree, claim / renew times, the
+  time to live and the DLL pin. The worktree keeps the slot and the token in
+  `harness/.ksp-lease.json` (gitignored), which `run.py --lease` and
+  `provision.py --lease` read, so no token is carried between shell calls. A
+  worktree holds at most one lease; claiming again renews it.
+- **Lifetime.** Live until `renewedAt + ttlSeconds` (default 3 h, at most 12 h).
+  No pid is involved: a lease spans processes on purpose, to cover the gaps
+  between calls that used to leave the machine lock free mid-recipe. Every
+  leased `run.py` renews it at selection start and at each attempt boundary;
+  `renew` and a repeated `claim` push it out by hand; `release` ends it. A
+  lease left behind simply expires.
+- **Claim.** Made while holding the machine lock for a moment (exit 3 when a
+  serial run, a plain provision or the parallel runner owns the PC), refused
+  `cap-reached` beyond `--cap` live leases (default 2 while the owner uses the
+  PC; `--cap 3` when the owner is away), `slot-leased` when the asked copy is
+  another thread's, `slot-locked` while a run still flies in it. Without
+  `--copy` the lowest free copy is chosen, provisioned copies first; an
+  unprovisioned one is named and must be provisioned under the lease. The
+  claim pins the copy's deployed Parsek.dll sha256 (when it has one).
+- **Machine owners refuse while a lease is live.** A serial `run.py` writes
+  `INVALID(instance-locked)` rows, a plain `provision.py` (and `--copy K
+  --remove`) aborts `EC-10` naming the lease, the parallel runner exits 3,
+  `tier_runner.py` skips. Each takes the machine lock first and checks the
+  registry while holding it (`leaseio.acquire_machine`), so a lease and a
+  machine owner never both hold the PC. Three cases fail closed: an expired
+  lease still counts as live while a live process holds its copy's slot lock
+  (an attempt longer than the lease, whose next boundary renews it); a
+  registry file that exists but cannot be read counts as live until its mtime
+  is older than the longest time to live; and a live slot lock with no lease
+  and the machine lock free refuses the machine owner too (`EC-10` naming the
+  slot), since whatever holds it is flying a KSP that owner cannot see.
+- **`provision.py --lease`** takes only the leased copy's slot lock (aborting
+  `EC-10` while a run flies there), checks only a KSP running from that copy
+  (`EC-1`), provisions that copy (`--copy` defaults to the lease's; another
+  copy or `--remove` is refused) and, on success, re-pins the lease to the DLL
+  it deployed.
+- **`run.py --lease`** takes only the leased copy's slot lock, never the
+  machine lock and never the Unity prefs duty; it admits the copy against the
+  lease's DLL pin instead of copy 1's DLL (a copy deployed over by anyone reads
+  `INVALID(drift)` before boot; an unpinned lease refuses the same way), scopes
+  the zombie probe to its own copy, spaces its launch like a slot child, and
+  defaults to `--window desktop` (the last virtual desktop that is not the
+  current one; one desktop falls back to minimise). It refuses
+  `INVALID(lease-invalid)` with no live lease (none, released, expired, or
+  re-claimed by another worktree; also mid-selection, which stops the rest),
+  `INVALID(slot-profile-mismatch)` for a lane of another profile and
+  `INVALID(lease-exclusive)` for a lane that moves the cursor or takes the
+  foreground (`parallel.exclusive_reason`), which needs the whole machine.
+  Everything else a serial run does stays: this worktree's results, coverage
+  and retention sweeps are its own, and the run-index append takes the
+  machine-wide mutex `automation/results-archive/.index-append.lock`.
+- **Unity screen prefs.** The first live claim takes the snapshot and the last
+  release restores it (the machine owner's duty when no lease exists). A
+  snapshot left by expired leases is restored by the next holder's start, as
+  after a crash.
+- **Known limit.** Two worktrees flying the SAME lane in the same minute get
+  the same runId, and the second copy to the machine-wide results archive
+  overwrites the first's folder (each worktree's own `results/` is intact).
+- **What it does not change.** The parallel runner still owns the whole
+  machine for its run; a lease does not fly through it. `--hold` watch lanes
+  and exclusive lanes need the machine, so they fly with no lease live.
 
 ## Running a tier on request (agent-driven)
 
