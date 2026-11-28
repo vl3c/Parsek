@@ -27,6 +27,8 @@ Not released yet.
   fire and a flash only for the bigger crashes.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
+- **A ghost part that blows up at 2 km/s or faster shows KSP's bigger blast,** as the real part
+  does at that speed. (GHOST-PART-EXPLOSION-NO-SPEED-TERM)
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.
 - **F9 loads onto the vessel you saved on.** With a ghost replaying in orbit, a quickload or far
   Switch-To could focus a later vessel, such as your flag. (SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP)

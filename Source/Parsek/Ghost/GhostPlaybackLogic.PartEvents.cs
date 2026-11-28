@@ -736,13 +736,18 @@ namespace Parsek
             StopRcsFxForPart(state, evt.partPersistentId);
             StopAudioForPart(state, evt.partPersistentId);
             if (allowTransientEffects)
+            {
+                double surfaceSpeed = PartExplosionSurfaceSpeed(state, out string speedSource);
                 PlayPartDestroyedFxAtPart(
                     ghost,
                     evt.partPersistentId,
                     evt.partName,
                     state.audioPaused,
                     state.atmosphereFactor,
-                    ResolveAudioPriorityDistance(state));
+                    ResolveAudioPriorityDistance(state),
+                    surfaceSpeed,
+                    speedSource);
+            }
             ApplyHeatState(state, evt, HeatLevel.Cold);
             HideGhostPart(ghost, evt.partPersistentId);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, evt.partPersistentId, null);
@@ -754,15 +759,12 @@ namespace Parsek
         /// <summary>
         /// Spawn a stock-style explosion (visual + audio) at an individual destroyed part's world
         /// position. The flight scene path delegates to <see cref="FXMonger.Explode(Part, Vector3d, double)"/>
-        /// with the part's recorded `explosionPotential` so KSP picks the size-appropriate clip
-        /// from its `explosionSounds[]` array — decompiled `Part.cs:11610` calls
-        /// `FXMonger.Explode(this, partTransform.position, explosionPotential + speedOffset)` and
-        /// most stock parts default to `explosionPotential = 0.5f` (decompiled `Part.cs:591`),
-        /// which lands on slot 1 (`sound_explosion_debris2`) for the 3-element stock array.
-        /// We omit the speedOffset (0/0.12/0.25 by surface speed) because ghost playback doesn't
-        /// know the live ship speed at destruction time; that produces audio one bucket lower
-        /// than stock for fast-moving destruction events but the alternative would require
-        /// recording the speed in every PartEvent.
+        /// with the power stock's `Part.explode()` uses, so KSP picks the size-appropriate prefab
+        /// and clip: decompiled `Part.explode` calls
+        /// `FXMonger.Explode(this, partTransform.position, explosionPotential + speedOffset)`,
+        /// most stock parts default to `explosionPotential = 0.5f` (decompiled `Part.cs:591`), and
+        /// the speed offset (0.25 from 2000 m/s surface speed on) is read from the ghost's own
+        /// surface speed <paramref name="surfaceSpeedMps"/> (<see cref="StockPartExplosionPower"/>).
         ///
         /// Replaces the old `PlayOneShotAtGhost(Destroyed)` path which always played
         /// <c>sound_explosion_large</c> through the ghost's per-vessel cameraPivot-anchored
@@ -794,7 +796,9 @@ namespace Parsek
             string partName,
             bool audioPaused,
             float atmosphereFactor,
-            double audioPriorityDistanceMeters)
+            double audioPriorityDistanceMeters,
+            double surfaceSpeedMps,
+            string speedSource)
         {
             if (ghost == null) return;
             if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
@@ -802,7 +806,9 @@ namespace Parsek
             var t = GhostVisualBuilder.FindGhostPartTransform(ghost, persistentId);
             if (t == null || !t.gameObject.activeSelf) return;
 
-            double power = ResolvePartExplosionPower(partName);
+            float potential = ResolvePartExplosionPotential(partName);
+            double power = StockPartExplosionPower(potential, surfaceSpeedMps);
+            string powerDetail = FormatPartExplosionPower(potential, surfaceSpeedMps, speedSource, power);
 
             // Flight scene: FXMonger handles audio + visual + spatial coalescing in one call.
             // We only take this branch when audio isn't paused (FXMonger.Explode would queue a
@@ -816,14 +822,14 @@ namespace Parsek
                     ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-{persistentId}",
                         $"FXMonger.Explode queued for destroyed part pid={persistentId} part='{partName ?? "?"}' " +
                         $"at ({t.position.x:F1},{t.position.y:F1},{t.position.z:F1}) " +
-                        $"power={power.ToString("F2", CultureInfo.InvariantCulture)}",
+                        $"{powerDetail}",
                         5.0);
                     return;
                 }
 
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-fxmonger-failed-{persistentId}",
                     $"FXMonger.Explode failed for destroyed part pid={persistentId}: {failure}; " +
-                    $"falling back to puff + independent audio",
+                    $"falling back to puff + independent audio ({powerDetail})",
                     10.0);
             }
             else if (audioPaused)
@@ -853,29 +859,28 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-puff-only-{persistentId}",
                     $"Particle puff spawned for destroyed part pid={persistentId} " +
-                    $"(audio suppressed: paused={audioPaused} atmosphereFactor={atmosphereFactor.ToString("F2", CultureInfo.InvariantCulture)})",
+                    $"(audio suppressed: paused={audioPaused} atmosphereFactor={atmosphereFactor.ToString("F2", CultureInfo.InvariantCulture)}) " +
+                    $"{powerDetail}",
                     5.0);
             }
         }
 
         /// <summary>
-        /// Resolves the FXMonger power bucket for a destroyed part by looking up the part prefab's
-        /// `explosionPotential` (matching stock `Part.explode()` which calls
-        /// <c>FXMonger.Explode(this, pos, explosionPotential + speedOffset)</c>). Returns
-        /// <see cref="GhostAudioPresets.DefaultPartExplosionPotential"/> (0.5 — stock default) when
-        /// the part name is missing or doesn't resolve to a loaded `AvailablePart`. Power is
-        /// clamped to [0,1] so a custom-cfg part with `explosionPotential` outside that range still
-        /// produces a valid index pick. Pure helper with optional <paramref name="lookup"/> seam
-        /// for unit tests; production callers leave it null and use PartLoader.
+        /// The part prefab's `explosionPotential`, the value stock's `Part.explode()` adds its speed
+        /// term to (<see cref="StockPartExplosionPower"/> sums and clamps). Returns
+        /// <see cref="GhostAudioPresets.DefaultPartExplosionPotential"/> (0.5, stock's default) when
+        /// the part name is missing, does not resolve to a loaded `AvailablePart`, or names a
+        /// non-finite potential. Pure helper with optional <paramref name="lookup"/> seam for unit
+        /// tests; production callers leave it null and use PartLoader.
         /// </summary>
-        internal static double ResolvePartExplosionPower(
+        internal static float ResolvePartExplosionPotential(
             string partName, ExplosionPotentialLookup lookup = null)
         {
             ExplosionPotentialLookup resolve = lookup ?? DefaultExplosionPotentialLookup;
             float? potential = resolve(partName);
-            if (!potential.HasValue)
-                return GhostAudioPresets.DefaultPartExplosionPotential;
-            return Mathf.Clamp01(potential.Value);
+            if (!potential.HasValue || float.IsNaN(potential.Value) || float.IsInfinity(potential.Value))
+                return (float)GhostAudioPresets.DefaultPartExplosionPotential;
+            return potential.Value;
         }
 
         internal delegate float? ExplosionPotentialLookup(string partName);
