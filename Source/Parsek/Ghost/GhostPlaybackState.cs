@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -67,6 +68,14 @@ namespace Parsek
         // persisted.
         public double bodyFixedShiftSeconds;
         public Dictionary<uint, List<uint>> partTree;
+        // Y4: the snapshot the ghost was built from (the one partTree is read from), and its part
+        // tree and attach nodes, read on the first recorded joint break only; the last decouple
+        // burst drawn, so an omni decoupler's several joints burst once.
+        internal ConfigNode decoupleSnapshot;
+        internal GhostDecoupleTopology decoupleTopology;
+        internal uint lastDecoupleBurstPid;
+        internal double lastDecoupleBurstUT = double.NaN;
+        internal int lastDecoupleBurstFrame = -1;
         public HashSet<uint> logicalPartIds;
         public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
         public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
@@ -230,6 +239,32 @@ namespace Parsek
         // activation-settle fall-through (the predecessor's continuous terminal pose removes
         // the fresh-spawn race the settle window exists to mask).
         public bool spawnedAtChainSeam;
+
+        /// <summary>Sets the snapshot a joint break's decoupler is read from (where partTree is
+        /// set), dropping the topology read from an earlier one.</summary>
+        internal void SetDecoupleSnapshot(ConfigNode snapshot)
+        {
+            decoupleSnapshot = snapshot;
+            decoupleTopology = null;
+            lastDecoupleBurstPid = 0;
+            lastDecoupleBurstUT = double.NaN;
+            lastDecoupleBurstFrame = -1;
+        }
+
+        /// <summary>
+        /// The snapshot's topology, read on first use; null with no snapshot. <paramref name="partNameOf"/>
+        /// is the ghost builder's part-name reader, passed in so this state names no builder type.
+        /// </summary>
+        internal GhostDecoupleTopology EnsureDecoupleTopology(Func<string, string> partNameOf)
+        {
+            if (decoupleTopology == null && decoupleSnapshot != null)
+            {
+                decoupleTopology = GhostDecoupleTopology.Parse(decoupleSnapshot, partNameOf);
+                ParsekLog.Verbose("DecoupleFx",
+                    $"Read the joint-break topology of '{vesselName}': parts={decoupleTopology.PartCount}");
+            }
+            return decoupleTopology;
+        }
 
         internal void ClearLoadedVisualReferences()
         {

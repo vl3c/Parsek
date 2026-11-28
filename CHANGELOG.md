@@ -28,6 +28,8 @@ Not released yet.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.
+- **A ghost's decoupler puffs like the real one.** It plays its own white gas burst when it fires;
+  a part that just breaks off draws nothing. (GHOST-DECOUPLE-PUFF-NOT-STOCK)
 - **F9 loads onto the vessel you saved on.** With a ghost replaying in orbit, a quickload or far
   Switch-To could focus a later vessel, such as your flag. (SAVE-ACTIVE-INDEX-AFTER-GHOST-STRIP)
 - **Watching a looped mission follows a docking.** The camera goes with your ship into the docked

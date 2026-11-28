@@ -190,6 +190,7 @@ namespace Parsek
             long dictionariesPre = buildDictionariesStopwatch.ElapsedTicks;
             buildDictionariesStopwatch.Start();
             state.partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
+            state.SetDecoupleSnapshot(snapshot);
             state.logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot);
 
             if (builtFromSnapshot)

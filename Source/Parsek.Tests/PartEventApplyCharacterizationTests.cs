@@ -341,7 +341,9 @@ namespace Parsek.Tests
                 }
             }
 
-            AssertGolden("A029E20F5F71854C", 436);
+            // The transient Decoupled arm logs one DecoupleFx decision ("Joint break draws nothing",
+            // reason=no-snapshot: the fake ghost carries no snapshot) before the native refusal.
+            AssertGolden("E057C172E64D18AD", 437);
         }
         // ------------------------------------------------------------------
         // The extracted units, driven directly

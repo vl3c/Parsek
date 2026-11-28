@@ -640,8 +640,9 @@ namespace Parsek
             // part visual no longer takes the audio with it. Walk the whole subtree.
             StopFxAndAudioForSubtree(state, evt.partPersistentId, tree);
             ApplyHeatState(state, evt, HeatLevel.Cold);
+            // Before the subtree is hidden: the decoupler that fired may be the joint child.
             if (allowTransientEffects)
-                SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+                SpawnDecoupleBurstForJoint(state, ghost, evt);
             if (tree != null)
             {
                 HidePartSubtree(ghost, evt.partPersistentId, tree);
@@ -1161,6 +1162,65 @@ namespace Parsek
             var pos = t.position;
             GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
         }
+
+        /// <summary>
+        /// Y4: the FX a recorded joint break draws on the ghost, which is what stock draws: the
+        /// decoupler that fired bursts its own stock FX group (<see cref="GhostDecoupleBurst"/>
+        /// reads which one from the ghost's snapshot), and a joint that just broke (a plain part
+        /// decoupled, a structural failure) draws nothing. One burst per decoupler per firing: an
+        /// omni decoupler's several joints, written at one UT and applied in one frame, burst once.
+        /// </summary>
+        internal static void SpawnDecoupleBurstForJoint(GhostPlaybackState state, GameObject ghost, PartEvent evt)
+        {
+            if (ghost == null) return;
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
+            uint childPid = evt.partPersistentId;
+            GhostDecoupleBurstChoice choice = GhostDecoupleBurst.ResolveFiredDecoupler(
+                state.EnsureDecoupleTopology(GhostVisualBuilder.TryExtractPartName), childPid, GhostVisualBuilder.ReadPrefabDecouplerModules);
+            string ut = evt.ut.ToString("F2", CultureInfo.InvariantCulture);
+            if (!choice.Fires)
+            {
+                ParsekLog.Verbose("DecoupleFx",
+                    $"Joint break draws nothing: '{state.vesselName}' child pid={childPid} " +
+                    $"part='{evt.partName ?? "?"}' parent pid={choice.ParentPid} " +
+                    $"reason={GhostDecoupleBurst.ReasonWord(choice.Reason)} ut={ut}");
+                return;
+            }
+            int frame = ReadDecoupleBurstFrame();
+            if (GhostDecoupleBurst.IsRepeatBurst(state.lastDecoupleBurstPid, state.lastDecoupleBurstUT,
+                    state.lastDecoupleBurstFrame, choice.DecouplerPid, evt.ut, frame))
+            {
+                ParsekLog.Verbose("DecoupleFx",
+                    $"Decouple burst already drawn this frame: '{state.vesselName}' decoupler pid={choice.DecouplerPid} " +
+                    $"child pid={childPid} ut={ut}");
+                return;
+            }
+            state.lastDecoupleBurstPid = choice.DecouplerPid;
+            state.lastDecoupleBurstUT = evt.ut;
+            state.lastDecoupleBurstFrame = frame;
+
+            Transform t = GhostVisualBuilder.FindGhostPartTransform(ghost, choice.DecouplerPid);
+            if (t == null || !t.gameObject.activeSelf)
+            {
+                ParsekLog.Verbose("DecoupleFx",
+                    $"Decouple burst skipped: '{state.vesselName}' decoupler pid={choice.DecouplerPid} " +
+                    $"part='{choice.DecouplerPartName}' is {(t == null ? "not on the ghost" : "hidden")} ut={ut}");
+                return;
+            }
+            GameObject fx = GhostVisualBuilder.SpawnDecoupleBurstFx(
+                t, choice.DecouplerPartName, choice.Module.FxGroupName, out string failure);
+            ParsekLog.Verbose("DecoupleFx",
+                $"Decoupler fired: '{state.vesselName}' decoupler pid={choice.DecouplerPid} " +
+                $"part='{choice.DecouplerPartName}' module={choice.Module.ModuleName} " +
+                $"node={choice.Module.ExplosiveNodeId} omni={(choice.Module.IsOmni ? "T" : "F")} " +
+                $"child pid={childPid} parent pid={choice.ParentPid} " +
+                $"reason={GhostDecoupleBurst.ReasonWord(choice.Reason)} ut={ut} " +
+                (fx != null ? "burst=played" : $"burst=none ({failure})"));
+        }
+
+        // Unity's frame clock, kept out of the method a headless test enters.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int ReadDecoupleBurstFrame() => Time.frameCount;
 
         internal static void HideGhostPart(GameObject ghost, uint persistentId)
         {

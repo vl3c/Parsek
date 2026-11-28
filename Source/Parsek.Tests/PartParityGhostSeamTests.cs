@@ -486,13 +486,31 @@ namespace Parsek.Tests
                 Body(text, "internal static GameObject SpawnPartPuffFx("));
             Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.StockCopyExplosion, worldPosition, power, vesselLength, blast\);\s*return blast;",
                 Body(text, "internal static GameObject SpawnFallbackExplosionFx("));
-            // Every Note in production is one of these four starts.
+            Assert.Matches(@"GhostTransientFxRecord\.Note\(\s*GhostTransientFxKind\.DecoupleBurst, root\.transform\.position, double\.NaN, copied, root\);\s*return root;\s*\}$",
+                Body(text, "internal static GameObject SpawnDecoupleBurstFx("));
+            // Every Note in production is one of these five starts.
             int notes = 0;
             string src = Path.Combine(Root(), "Source", "Parsek");
             foreach (string file in Directory.GetFiles(src, "*.cs", SearchOption.AllDirectories))
                 notes += Regex.Matches(PartParityStateRulesTests.StripComments(File.ReadAllText(file)),
                     @"GhostTransientFxRecord\.Note\(").Count;
-            Assert.Equal(4, notes);
+            Assert.Equal(5, notes);
+        }
+
+        [Fact]
+        public void ADecoupledEvent_PlaysTheDecouplersStockBurst_NeverThePartPuff()
+        {
+            // Y4: a joint break draws the decoupler's own FX group or nothing. The destroyed-part
+            // fallback owns its own drawing (Y2 territory), so this cell reads the decouple arm only.
+            string events = Read("Ghost", "GhostPlaybackLogic.PartEvents.cs");
+            string decoupled = Body(events, "private static GhostPartEventOutcome ApplyDecoupledPartEvent(");
+            Assert.Contains("SpawnDecoupleBurstForJoint(state, ghost, evt);", decoupled);
+            Assert.DoesNotContain("SpawnPartPuff", decoupled);
+            Assert.True(decoupled.IndexOf("SpawnDecoupleBurstForJoint(", StringComparison.Ordinal)
+                < decoupled.IndexOf("HidePartSubtree(", StringComparison.Ordinal));
+            string burst = Body(events, "internal static void SpawnDecoupleBurstForJoint(");
+            Assert.DoesNotContain("SpawnPartPuff", burst);
+            Assert.Contains("SpawnDecoupleBurstFx(", burst);
         }
 
         #endregion

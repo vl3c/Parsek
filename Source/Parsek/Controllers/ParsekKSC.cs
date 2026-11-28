@@ -1989,6 +1989,7 @@ namespace Parsek
                 logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(snapshot),
                 deferVisibilityUntilPlaybackSync = true
             };
+            state.SetDecoupleSnapshot(snapshot);
             if (ghost != null)
                 ghost.SetActive(false);
 
