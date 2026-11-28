@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 555 |
-| LIVE-PROVEN date in status row | 600 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 603 |
+| no LIVE-PROVEN date | 117 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -65,7 +65,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FLG | 2 | - | 2 | - | - | - | 2 |
 | FLY | 5 | - | 5 | - | - | - | 5 |
 | FORGE | 10 | - | - | 10 | - | 9 | 5 |
-| FW | 4 | - | - | 4 | - | - | 1 |
+| FW | 4 | - | - | 4 | - | - | 4 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GM | 1 | - | - | 1 | - | - | 1 |
@@ -366,7 +366,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 463 | 134 | 392 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +101 |
+| Kerbin | 463 | 134 | 395 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +101 |
 | Mun | 73 | 15 | 63 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +16 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1231,9 +1231,9 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | FW-1-far-watch-drone-swap | operator | duna-ike-recorded-career | seam | Duna, Ike | reload, save, warp | - | LIVE-PROVEN 2026-11-28 |
-| FW-2-far-follow-hand-back | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | AUTHORED 2026-11-28, NEVER FLOWN |
-| FW-3-far-watch-refused-in-air | operator | kerbin-splashdown-pod-in-air | seam | Kerbin | warp | - | AUTHORED 2026-11-28, NEVER FLOWN |
-| FW-4-far-watch-forced-return | operator | kerbin-splashdown-pod-suborbital | seam | Kerbin | warp | - | AUTHORED 2026-11-28, NEVER FLOWN |
+| FW-2-far-follow-hand-back | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-11-28 |
+| FW-3-far-watch-refused-in-air | operator | kerbin-splashdown-pod-in-air | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-28 |
+| FW-4-far-watch-forced-return | operator | kerbin-splashdown-pod-suborbital | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-28 |
 
 ### FXR (1)
 

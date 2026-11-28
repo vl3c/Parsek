@@ -5,8 +5,8 @@ id = "FW-4-far-watch-forced-return"
 # WITH A RETURN POINT, ENDS THERE UNDER WARP, AND GIVES THE SHIP BACK ALIVE.
 #
 # AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
-# 8.2 / 8.4 / 8.5 / 17.4). NEVER FLOWN (tag `pending-flight`): every token below is read
-# from the code, none from a flight.
+# 8.2 / 8.4 / 8.5 / 17.4). FLOWN GREEN 2026-11-28 (tag `flown`):
+# `2026-11-28_1036` PASS (7fff61662).
 #
 # HOST: `kerbin-splashdown-pod-suborbital`, derived from W1's `kerbin-splashdown-recorded`
 # by harness/tools/build_far_watch_pod_fixtures.py (its docstring is the authority): the
@@ -53,9 +53,9 @@ id = "FW-4-far-watch-forced-return"
 #   9 flight_efficiency.py owed after the first green flight; both legs are rails warps.
 # =====================================================================================
 tier = "operator"
-description = "Far watch step 3 on kerbin-splashdown-pod-suborbital (W1's host with the B4 capsule on a 60 x 106 km arc and the clock moved next to the loop anchor): FarWatch start mode=follow on the coast ghost 1,380 km away is admitted with a return point 300 s before the 71 km crossing, WarpToUT runs during the watch, and the return point hands the ship back alive with the forced-return message. NEVER FLOWN (tag pending-flight)."
+description = "Far watch step 3 on kerbin-splashdown-pod-suborbital (W1's host with the B4 capsule on a 60 x 106 km arc and the clock moved next to the loop anchor): FarWatch start mode=follow on the coast ghost 1,380 km away is admitted with a return point 300 s before the 71 km crossing, WarpToUT runs during the watch, and the return point hands the ship back alive with the forced-return message. Flown green 2026-11-28 (tag flown)."
 instanceProfile = "stock-minimal"
-tags = ["FW-4", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "pending-flight"]
+tags = ["FW-4", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/kerbin-splashdown-pod-suborbital"
