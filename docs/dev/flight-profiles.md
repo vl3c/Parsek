@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-restock | 2 |
 | autopilot (mission) lanes | 165 |
 | seam-only lanes | 551 |
-| LIVE-PROVEN date in status row | 597 |
-| no LIVE-PROVEN date | 119 |
+| LIVE-PROVEN date in status row | 599 |
+| no LIVE-PROVEN date | 117 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -97,7 +97,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | PADG | 1 | - | 1 | - | - | - | 1 |
 | PADX | 3 | - | - | 3 | - | - | 3 |
 | PBR | 1 | - | - | 1 | - | - | 1 |
-| PP | 13 | - | - | 13 | - | - | 11 |
+| PP | 13 | - | - | 13 | - | - | 13 |
 | PPB | 3 | - | - | 3 | - | - | 3 |
 | PSP | 1 | - | - | 1 | - | - | 1 |
 | PWR | 3 | - | 3 | - | - | 3 | 3 |
@@ -363,7 +363,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 460 | 134 | 390 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +100 |
+| Kerbin | 460 | 134 | 392 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, EVA 17 +100 |
 | Mun | 73 | 15 | 63 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +16 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1615,8 +1615,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | PP-1-part-parity-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-22 |
 | PP-10-part-parity-fx-air-restock | operator | b1-pad-craft | seam | Kerbin | - | - | LIVE-PROVEN 2026-11-23 |
 | PP-11-part-parity-mod-parts | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-27 |
-| PP-14-part-parity-motion-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | NEVER FLOWN. |
-| PP-15-part-parity-motion-modded | operator | eva2-lko-crewed | seam | Kerbin | warp | - | NEVER FLOWN. |
+| PP-14-part-parity-motion-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-27 |
+| PP-15-part-parity-motion-modded | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-28 |
 | PP-2-part-parity-modded | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-22 |
 | PP-3-part-parity-states-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-22 |
 | PP-4-part-parity-states-modded | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-22 |
