@@ -225,97 +225,108 @@ namespace Parsek.Tests
 
         #region Launch dust frame body
 
-        // DriveLaunchDustFrame and DriveLaunchDustToZero call ParticleSystem natives in their
-        // bodies, so the Windows .NET host refuses them on entry; mono (CI) carries these four.
+        // DriveLaunchDustFrame reaches the raycasts and the particle systems only through
+        // [MethodImpl(NoInlining)] helpers, which a ghost with no lit surface-FX engine (or no ghost
+        // object) never enters; the Windows .NET host still refuses the body on entry when a
+        // callee it inlines names a Unity native, so these stay mono-carried like before.
 
-        private static GhostPlaybackState DustState(bool pendingBuild)
+        private static GhostPlaybackState DustState(bool litSurfaceFx)
         {
             return new GhostPlaybackState
             {
                 vesselName = "Dust",
-                launchDustPendingBuild = pendingBuild,
-                launchDustGroundRefAltitude = 70.0,
-                lastInterpolatedAltitude = 75.0,
+                engineInfos = new Dictionary<ulong, EngineGhostInfo>
+                {
+                    [1] = new EngineGhostInfo
+                    {
+                        currentPower = litSurfaceFx ? 1f : 0f,
+                        surfaceFx = new GhostSurfaceFxSource { maxDistance = 30f, falloff = 1.7f },
+                    },
+                },
             };
         }
 
         [UnityEntryFact]
-        public void DriveLaunchDustFrame_OutOfReach_WritesNothing()
+        public void DriveLaunchDustFrame_NoLitSurfaceFxEngine_BuildsNothingAndLogsOnce()
         {
-            var state = DustState(pendingBuild: true);
+            var state = DustState(litSurfaceFx: false);
             int count = 0;
-            // 40 m or more above the reference: no dust, no build, the counter untouched.
-            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, 1f, 110.0, 70.0, ref count);
+            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, ref count);
+            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, ref count);
             Assert.Equal(0, count);
-            Assert.True(state.launchDustPendingBuild);
             Assert.Null(state.launchDustInfo);
-            Assert.Equal(70.0, state.launchDustGroundRefAltitude);
+            Assert.Single(logLines.Where(l => l.Contains("[GhostVisual]")
+                && l.Contains("Launch dust ghost #3 \"Dust\": none (no lit engine with a surface effect)")));
         }
 
         [UnityEntryFact]
-        public void DriveLaunchDustFrame_NoPendingBuild_BuildsNothing()
+        public void DriveLaunchDustFrame_LitEngineButNoGhostObject_BuildsNothing()
         {
-            var state = DustState(pendingBuild: false);
+            var state = DustState(litSurfaceFx: true);
             int count = 0;
-            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, 1f, 75.0, 70.0, ref count);
+            GhostPlaybackEngine.DriveLaunchDustFrame(4, state, ref count);
             Assert.Equal(0, count);
             Assert.Null(state.launchDustInfo);
+            Assert.Contains(logLines, l => l.Contains("Launch dust ghost #4") && l.Contains("none ("));
         }
 
         [UnityEntryFact]
-        public void DriveLaunchDustFrame_AtTheBuildCap_DefersAndKeepsThePendingFlag()
+        public void DriveLaunchDustFrame_AnEmptyDustRecord_DrivesToZeroWithoutAnEmitter()
         {
-            var state = DustState(pendingBuild: true);
-            int count = GhostPlayback.MaxLazyReentryBuildsPerFrame;
-            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, 1f, 75.0, 70.0, ref count);
-            Assert.Equal(GhostPlayback.MaxLazyReentryBuildsPerFrame, count);
-            Assert.True(state.launchDustPendingBuild);
-            Assert.Null(state.launchDustInfo);
-            Assert.Contains(logLines, l => l.Contains("[GhostVisual]")
-                && l.Contains("Launch dust build throttled for ghost #3")
-                && l.Contains("used " + GhostPlayback.MaxLazyReentryBuildsPerFrame + "/"));
-        }
-
-        [UnityEntryFact]
-        public void DriveLaunchDustFrame_ReadsTheGroundReferenceAndAltitudeItIsPassed()
-        {
-            // The ghost's own fields say "in reach"; the passed reference says 100 m below the
-            // case altitude, so the frame body (not the state) decides: nothing happens.
-            var state = DustState(pendingBuild: true);
+            var state = DustState(litSurfaceFx: false);
+            state.launchDustInfo = new LaunchDustInfo { lastIntensity = 0.7f };
             int count = 0;
-            GhostPlaybackEngine.DriveLaunchDustFrame(3, state, 1f, 200.0, 100.0, ref count);
-            Assert.Equal(0, count);
-            Assert.True(state.launchDustPendingBuild);
-            // And the reverse: the state out of reach, the passed pair in reach, at the cap.
-            state.lastInterpolatedAltitude = 500.0;
-            count = GhostPlayback.MaxLazyReentryBuildsPerFrame;
-            GhostPlaybackEngine.DriveLaunchDustFrame(4, state, 1f, 105.0, 100.0, ref count);
-            Assert.Contains(logLines, l => l.Contains("Launch dust build throttled for ghost #4"));
+            GhostPlaybackEngine.DriveLaunchDustFrame(5, state, ref count);
+            Assert.Equal(0f, state.launchDustInfo.lastIntensity);
+            Assert.Null(state.launchDustInfo.terrain);
         }
 
         [Fact]
         public void UpdateLaunchDust_EndsInTheFrameBodyWithTheGhostsOwnInputs()
         {
-            string text = Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs");
+            string text = Read("Ghost", "GhostPlaybackEngine.LaunchDust.cs");
             string body = Body(text, "private void UpdateLaunchDust(");
-            Assert.Matches(@"if \(double\.IsInfinity\(state\.launchDustGroundRefAltitude\)\)\s*return;\s*"
-                + @"DriveLaunchDustFrame\(recIdx, state, enginePower, state\.lastInterpolatedAltitude,\s*"
-                + @"state\.launchDustGroundRefAltitude, ref frameLazyReentryBuildCount\);\s*\}$", body);
+            Assert.Matches(@"DriveLaunchDustFrame\(recIdx, state, ref frameLazyReentryBuildCount\);\s*\}$", body);
             string frame = Body(text, "internal static void DriveLaunchDustFrame(");
-            Assert.DoesNotContain("lastInterpolatedAltitude", frame);
             Assert.DoesNotContain("frameLazyReentryBuildCount", frame);
-            // The one ground-reference write left is the "never" latch of a failed build.
-            Assert.Single(Regex.Matches(frame, @"state\.launchDustGroundRefAltitude\b").Cast<Match>());
-            Assert.Contains("state.launchDustGroundRefAltitude = double.NegativeInfinity;", frame);
-            // The ground is the surface stock's ModuleSurfaceFX raycasts for (0x40008000), the
-            // terrain reference only when nothing is hit.
+            // The cheapest gate first, then the raycasts, then the build: a frame that raises no
+            // terrain dust (the pad, nothing within reach, a skip) builds nothing.
+            int demand = frame.IndexOf("GhostPlaybackLogic.HasLaunchDustDemand(", StringComparison.Ordinal);
+            int trace = frame.IndexOf("TraceLaunchDustSources(", StringComparison.Ordinal);
+            int zero = frame.IndexOf("if (skip != null || (terrainScale <= 0f && waterScale <= 0f))", StringComparison.Ordinal);
+            int surface = frame.IndexOf("DriveLaunchDustSurface(", StringComparison.Ordinal);
+            Assert.True(demand >= 0 && demand < trace && trace < zero && zero < surface);
+            Assert.Equal(2, Regex.Matches(frame, @"DriveLaunchDustSurface\(").Count);
+            // A surface at zero strength stops its emitter before any build.
+            string one = Body(text, "private static void DriveLaunchDustSurface(");
+            Assert.True(one.IndexOf("if (fxScale <= 0f)", StringComparison.Ordinal)
+                < one.IndexOf("GhostVisualBuilder.TryBuildLaunchDust(", StringComparison.Ordinal));
+            Assert.Contains("lazyBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame", one);
+            // Each engine casts its own thrust axis for its own reach on stock's layers, classified
+            // by stock's rule; a pad hit is counted and raises no dust.
             Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
-            string place = Body(text, "private static void PlaceLaunchDustOnGround(");
-            Assert.True(place.IndexOf("Physics.Raycast(", StringComparison.Ordinal)
-                < place.IndexOf("ComputeLaunchDustGroundPoint(", StringComparison.Ordinal));
-            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", place);
-            // Every emitting frame lays the disc flat on the ground under the ghost first.
-            Assert.Matches(@"if \(ps == null\) return;\s*PlaceLaunchDustOnGround\(recIdx, state, altitude, groundRefAltitude\);\s*var emission", frame);
+            string probe = Body(text, "private static string TraceLaunchDustSources(");
+            Assert.Contains("Physics.Raycast(pos, fwd, out RaycastHit rh, src.maxDistance,", probe);
+            Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", probe);
+            Assert.Contains("CompareTag(GhostPlaybackLogic.LaunchpadFxTag)", probe);
+            Assert.Contains("GhostPlaybackLogic.ClassifySurfaceFxRay(", probe);
+            // A pad hit raises the pad's own smoke (stock's LaunchPadFX.AddFX) and never reaches
+            // a dust aggregate.
+            int pad = probe.IndexOf("if (kind == LaunchDustSurface.Launchpad)", StringComparison.Ordinal);
+            int padContinue = probe.IndexOf("continue;", pad, StringComparison.Ordinal);
+            Assert.True(pad >= 0 && padContinue > pad);
+            string padBranch = probe.Substring(pad, padContinue - pad);
+            Assert.Contains("padHits++;", padBranch);
+            Assert.Contains("pad.AddFX(scaled);", padBranch);
+            Assert.True(padContinue < probe.IndexOf("terrain.Add(", StringComparison.Ordinal));
+            // No log call in the frame body itself (the build throttle's is in the surface step);
+            // the dust line is built only on a change of what the dust does.
+            Assert.Empty(Regex.Matches(frame, @"ParsekLog\.").Cast<Match>());
+            Assert.Single(Regex.Matches(one, @"ParsekLog\.").Cast<Match>());
+            string log = Body(text, "private static void LogLaunchDustOnChange(");
+            Assert.True(log.IndexOf("if (signature == state.launchDustLogSignature) return;", StringComparison.Ordinal)
+                < log.IndexOf("ParsekLog.VerboseRateLimited(", StringComparison.Ordinal));
+            Assert.DoesNotContain("UpdateLaunchDust(", Read("Ghost", "GhostPlaybackEngine.ReentryFx.cs"));
         }
 
         #endregion

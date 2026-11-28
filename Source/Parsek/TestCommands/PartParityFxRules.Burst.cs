@@ -723,11 +723,12 @@ namespace Parsek.TestCommands
         internal static readonly string[] DustControlParts = { "liquidEngine2.v2" };
 
         /// <summary>
-        /// <c>ctl-dust-above-reach</c> while G.8 item 3 stands: the ghost's dust is not judged
-        /// against stock's raycast miss, so a ghost that draws dust there records <c>n/a</c>
-        /// (<see cref="TestCommandPartParitySweep.KnownDifferenceControlIds"/>). Fix Y3 sets it true.
+        /// Whether <c>ctl-dust-above-reach</c> judges the ghost's dust against stock's raycast
+        /// miss. True since fix Y3 (G.8 item 3) gave the ghost stock's per-engine reach: a ghost
+        /// that draws dust past it fails the control. While false it recorded <c>n/a</c>
+        /// (<see cref="TestCommandPartParitySweep.KnownDifferenceControlIds"/>).
         /// </summary>
-        internal const bool DustAboveReachGhostJudged = false;
+        internal const bool DustAboveReachGhostJudged = true;
 
         /// <summary><c>ctl-burst-late</c>'s delay, <c>ctl-burst-shift</c>'s offset and
         /// <c>ctl-burst-power</c>'s step (G.4).</summary>

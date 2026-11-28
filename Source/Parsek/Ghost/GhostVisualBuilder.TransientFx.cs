@@ -782,108 +782,6 @@ namespace Parsek
         /// White center fading to transparent edges — avoids sprite sheet issues.
         /// </summary>
         /// <summary>
-        /// S3: builds the ONE Parsek-owned launch-dust particle system a ghost gets, parented under
-        /// the ghost root. The driver lays it flat on the ground below the ghost every frame
-        /// (<c>GhostPlaybackEngine.PlaceLaunchDustOnGround</c>), so the disc built here is a wide,
-        /// low sheet running outward across the ground, as stock's ground dust does. Parsek authors this system outright — exactly like
-        /// the reentry <c>fireParticles</c> — which is why the driver may write
-        /// <c>emission.rateOverTimeMultiplier</c> and <c>main.startSizeMultiplier</c> directly
-        /// instead of going through the captured-baseline machinery S1 needs for CLONED KSP assets.
-        ///
-        /// Returns null when the additive particle shader is unavailable, which is the same
-        /// condition that makes reentry FX unbuildable; the caller then never re-tries.
-        /// </summary>
-        internal static LaunchDustInfo TryBuildLaunchDust(GameObject ghostRoot, string vesselName)
-        {
-            if (ghostRoot == null) return null;
-
-            Shader particleShader = Shader.Find("KSP/Particles/Additive");
-            if (particleShader == null)
-            {
-                ParsekLog.VerboseRateLimited("GhostVisual", "launch-dust-noshader",
-                    $"Launch dust unavailable for '{vesselName}': KSP/Particles/Additive not found", 60.0);
-                return null;
-            }
-
-            var dustObj = new GameObject("ParsekLaunchDust");
-            dustObj.transform.SetParent(ghostRoot.transform, false);
-            dustObj.transform.localPosition = Vector3.zero;
-            dustObj.transform.localRotation = Quaternion.identity;
-
-            ParticleSystem ps = dustObj.AddComponent<ParticleSystem>();
-
-            var main = ps.main;
-            main.playOnAwake = false;
-            main.prewarm = false;
-            main.loop = true;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(2.5f, 3.5f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(6f, 13f);
-            main.startSize = 2.5f;
-            main.maxParticles = 400;
-            main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.startColor = new Color(0.65f, 0.60f, 0.52f, 0.35f);
-
-            // A flat disc spraying outward in its own plane: the ground-bounce plume, not a downward
-            // jet (which the engine FX already draws). A Circle emits in its local XY plane, so the
-            // driver turns local Z onto the surface normal to lay it on the ground.
-            var shape = ps.shape;
-            shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.Circle;
-            shape.radius = 4f;
-            shape.radiusThickness = 1f;
-
-            var emission = ps.emission;
-            emission.enabled = true;
-            emission.rateOverTimeMultiplier = 0f;
-
-            var sizeOverLifetime = ps.sizeOverLifetime;
-            sizeOverLifetime.enabled = true;
-            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
-                new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(1f, 1.6f)));
-
-            var colorOverLifetime = ps.colorOverLifetime;
-            colorOverLifetime.enabled = true;
-            var gradient = new Gradient();
-            gradient.SetKeys(
-                new GradientColorKey[]
-                {
-                    new GradientColorKey(new Color(0.72f, 0.66f, 0.56f), 0f),
-                    new GradientColorKey(new Color(0.55f, 0.51f, 0.45f), 1f)
-                },
-                new GradientAlphaKey[]
-                {
-                    new GradientAlphaKey(0f, 0f),
-                    new GradientAlphaKey(0.5f, 0.2f),
-                    new GradientAlphaKey(0f, 1f)
-                });
-            colorOverLifetime.color = gradient;
-
-            var psRenderer = dustObj.GetComponent<ParticleSystemRenderer>();
-            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-            psRenderer.maxParticleSize = 6f;
-
-            Texture2D softCircle = CreateSoftCircleTexture(32);
-            var dustMat = new Material(particleShader) { mainTexture = softCircle };
-            dustMat.SetColor("_TintColor", new Color(0.7f, 0.65f, 0.55f, 0.4f));
-            psRenderer.material = dustMat;
-
-            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            ps.Clear(true);
-
-            // The dust it has sprayed stays on the ground when the floating origin shifts.
-            GhostWorldSpaceEmitter.AttachOwn(dustObj);
-
-            ParsekLog.Verbose("GhostVisual", $"Launch dust built for '{vesselName}'");
-            return new LaunchDustInfo
-            {
-                dustObject = dustObj,
-                particles = ps,
-                material = dustMat,
-                generatedTexture = softCircle
-            };
-        }
-
-        /// <summary>
         /// S4: the ONE Parsek-owned jetpack puff a ghost kerbal gets, parented at the ghost root
         /// and offset BACKWARD so the particles leave from behind the pack rather than out of the
         /// kerbal's chest.
@@ -997,19 +895,6 @@ namespace Parsek
             info.generatedTexture = null;
             info.particles = null;
             info.plumeObject = null;
-        }
-
-        /// <summary>Destroys a ghost's launch-dust system and the two assets it owns.</summary>
-        internal static void DestroyLaunchDust(LaunchDustInfo info)
-        {
-            if (info == null) return;
-            if (info.material != null) Object.Destroy(info.material);
-            if (info.generatedTexture != null) Object.Destroy(info.generatedTexture);
-            if (info.dustObject != null) Object.Destroy(info.dustObject);
-            info.material = null;
-            info.generatedTexture = null;
-            info.particles = null;
-            info.dustObject = null;
         }
 
         /// <summary>

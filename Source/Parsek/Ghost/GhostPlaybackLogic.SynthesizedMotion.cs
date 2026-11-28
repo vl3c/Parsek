@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Parsek
 {
-    // Synthesized motion (gimbals, control surfaces, sun tracking, converters, EVA jetpack) and launch dust.
+    // Synthesized motion (gimbals, control surfaces, sun tracking, converters, EVA jetpack).
     internal static partial class GhostPlaybackLogic
     {
         #region S3 — synthesized motion (gimbal, control surfaces, sun tracking)
@@ -1217,125 +1217,6 @@ namespace Parsek
             double altitude = state.lastInterpolatedAltitude;
             if (double.IsNaN(altitude) || double.IsInfinity(altitude)) return false;
             return altitude < body.atmosphereDepth;
-        }
-
-        #endregion
-
-        #region S3 — launch dust
-
-        /// <summary>Above this height above ground level no dust is raised at all.</summary>
-        internal const float LaunchDustMaxAglMeters = 40f;
-        internal const float LaunchDustEmissionMax = 260f;
-        internal const float LaunchDustSizeMin = 1.5f;
-        internal const float LaunchDustSizeMax = 5f;
-        /// <summary>Below this the plume is not moving enough air to be worth a particle system.</summary>
-        internal const float LaunchDustMinIntensity = 0.02f;
-        /// <summary>How far into the recording to look for a usable ground reference before giving up.</summary>
-        internal const int LaunchDustGroundLatchScanCap = 2000;
-        /// <summary>How far above the ground the flat dust sheet sits, so its billboards are not half buried.</summary>
-        internal const float LaunchDustGroundLiftMeters = 0.5f;
-        /// <summary>
-        /// The layers the dust looks for the ground on: stock <c>ModuleSurfaceFX</c>'s own raycast
-        /// mask (decompiled, <c>0x40008000</c>: layer 15 Local Scenery, which holds the terrain and
-        /// the KSC pad and runway, and layer 30), so the dust lands on the pad deck or a runway the
-        /// way stock's does instead of on the raw terrain under it.
-        /// </summary>
-        internal const int LaunchDustSurfaceLayerMask = 0x40008000;
-
-        /// <summary>
-        /// Sum of every engine module's commanded power on a ghost. Used as the dust driver's
-        /// cheapest-first gate: no lit engine, no dust, and nothing below this is evaluated.
-        /// </summary>
-        internal static float SumEnginePower(GhostPlaybackState state)
-        {
-            if (state?.engineInfos == null) return 0f;
-            float total = 0f;
-            foreach (var kvp in state.engineInfos)
-            {
-                EngineGhostInfo info = kvp.Value;
-                if (info == null || info.currentPower <= 0f) continue;
-                total += info.currentPower;
-            }
-            return total;
-        }
-
-        /// <summary>
-        /// Latches the sea-level altitude of the ground under the recording's launch site, from the
-        /// first trajectory point that carries a finite <c>recordedGroundClearance</c>.
-        ///
-        /// SCALARS ONLY, and the RECORDER GATE is what makes reading them off a flat
-        /// <c>Recording.Points</c> list safe. <c>FlightRecorder.ShouldEmitSurfaceClearance</c> only
-        /// populates <c>recordedGroundClearance</c> on an ABSOLUTE, surface-environment, PQS-backed
-        /// sample, so the finite-clearance test below is simultaneously the "this point's
-        /// <c>altitude</c> is a real altitude-above-datum" test: a RELATIVE-section point, whose
-        /// altitude field holds anchor-local METRES, carries NaN clearance and is skipped. That is
-        /// the invariant to preserve if the gate ever widens — it is not true a priori that these two
-        /// fields mean the same thing in every frame. <c>latitude</c> / <c>longitude</c> are NEVER
-        /// read here at all, for the same reason in its sharper form: treating anchor-local metres as
-        /// a body-fixed position puts the answer inside the planet.
-        ///
-        /// NaN clearance everywhere answers false, and the caller emits no dust. That is the honest
-        /// degradation: an invented ground reference would put a dust cloud around a ghost in orbit.
-        /// </summary>
-        internal static bool TryLatchLaunchDustGroundReference(
-            List<TrajectoryPoint> points, out double groundRefAltitude)
-        {
-            groundRefAltitude = double.NaN;
-            if (points == null || points.Count == 0) return false;
-
-            int scanned = Math.Min(points.Count, LaunchDustGroundLatchScanCap);
-            for (int i = 0; i < scanned; i++)
-            {
-                double clearance = points[i].recordedGroundClearance;
-                double altitude = points[i].altitude;
-                if (double.IsNaN(clearance) || double.IsInfinity(clearance)) continue;
-                if (double.IsNaN(altitude) || double.IsInfinity(altitude)) continue;
-                groundRefAltitude = altitude - clearance;
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// The dust intensity (0..1) for one frame. Gate order is cheapest-first by design: engine
-        /// power (a dictionary walk over a handful of entries), then the latched ground reference
-        /// (one NaN test), then the AGL window.
-        /// </summary>
-        internal static bool TryComputeLaunchDustIntensity(
-            float totalEnginePower, double altitude, double groundRefAltitude, out float intensity)
-        {
-            intensity = 0f;
-            if (float.IsNaN(totalEnginePower) || totalEnginePower <= 0f) return false;
-            if (double.IsNaN(groundRefAltitude) || double.IsInfinity(groundRefAltitude)) return false;
-            if (double.IsNaN(altitude) || double.IsInfinity(altitude)) return false;
-
-            double agl = altitude - groundRefAltitude;
-            // A modest negative AGL is terrain-model disagreement between record and playback, not
-            // a ghost underground; a large one means the reference belongs to somewhere else.
-            if (agl < -50.0 || agl >= LaunchDustMaxAglMeters) return false;
-            if (agl < 0.0) agl = 0.0;
-
-            float proximity = (float)(1.0 - agl / LaunchDustMaxAglMeters);
-            intensity = Math.Min(1f, totalEnginePower * proximity);
-            return intensity > LaunchDustMinIntensity;
-        }
-
-        /// <summary>
-        /// Where the launch dust sits this frame: on the ground straight below the ghost, as stock's
-        /// <c>ModuleSurfaceFX</c> puts its dust at the ground under the engine rather than at the
-        /// vessel. <paramref name="up"/> is the unit surface normal at the ghost (away from the
-        /// body centre); the ground is <c>altitude - groundRefAltitude</c> metres down it, measured
-        /// the same way the intensity gate measures AGL, then lifted by
-        /// <see cref="LaunchDustGroundLiftMeters"/>. A negative or non-finite AGL is treated as
-        /// "on the ground", which keeps the sheet at the ghost instead of above or inside it.
-        /// </summary>
-        internal static Vector3 ComputeLaunchDustGroundPoint(
-            Vector3 ghostPosition, Vector3 up, double altitude, double groundRefAltitude)
-        {
-            double agl = altitude - groundRefAltitude;
-            if (double.IsNaN(agl) || double.IsInfinity(agl) || agl < 0.0) agl = 0.0;
-            if (agl > LaunchDustMaxAglMeters) agl = LaunchDustMaxAglMeters;
-            return ghostPosition + up * (float)(LaunchDustGroundLiftMeters - agl);
         }
 
         #endregion

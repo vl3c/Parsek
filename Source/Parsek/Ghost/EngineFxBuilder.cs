@@ -1585,7 +1585,72 @@ namespace Parsek
                 MarkStockRuledFx(result[i]);
             }
 
+            AttachSurfaceFxSources(prefab, partName, result, modelRoot, ghostModelNode, cloneMap);
             return result.Count > 0 ? result : null;
+        }
+
+        /// <summary>
+        /// Part parity P9 Y3: hands each built engine the stock <c>ModuleSurfaceFX</c> that drives
+        /// its surface effect, with that module's reach, falloff and <c>fxMax</c> and the ghost's
+        /// copy of its thrust transform (stock: <c>part.FindModelTransform(thrustTransformName)</c>,
+        /// the part's own transform when the name is empty). A module whose
+        /// <c>thrustProviderModuleIndex</c> names no engine draws nothing in stock and is skipped.
+        /// </summary>
+        internal static void AttachSurfaceFxSources(
+            Part prefab, string partName, List<EngineGhostInfo> infos,
+            Transform modelRoot, Transform ghostModelNode, Dictionary<Transform, Transform> cloneMap)
+        {
+            if (prefab?.Modules == null || infos == null || infos.Count == 0) return;
+            bool[] isEngine = null;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                var surfaceFx = prefab.Modules[m] as ModuleSurfaceFX;
+                if (surfaceFx == null) continue;
+                if (isEngine == null)
+                {
+                    isEngine = new bool[prefab.Modules.Count];
+                    for (int i = 0; i < isEngine.Length; i++) isEngine[i] = prefab.Modules[i] is ModuleEngines;
+                }
+                int ordinal = GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(surfaceFx.thrustProviderModuleIndex, isEngine);
+                EngineGhostInfo info = null;
+                for (int i = 0; i < infos.Count && ordinal >= 0; i++)
+                    if (infos[i] != null && infos[i].moduleIndex == ordinal) { info = infos[i]; break; }
+                Transform thrust = info == null ? null
+                    : ResolveSurfaceFxThrustTransform(prefab, surfaceFx.thrustTransformName, modelRoot, ghostModelNode, cloneMap);
+                if (info == null || thrust == null)
+                {
+                    LogHotPathVerbose($"surface-fx-skip-{partName}-{m}",
+                        $"'{partName}' ModuleSurfaceFX[{m}]: no ghost dust source " +
+                        $"(thrustProviderModuleIndex={surfaceFx.thrustProviderModuleIndex}, engine ordinal={ordinal}, " +
+                        $"{(info == null ? "no built engine at that ordinal" : "thrust transform '" + surfaceFx.thrustTransformName + "' not found")})");
+                    continue;
+                }
+                info.surfaceFx = new GhostSurfaceFxSource
+                {
+                    thrustTransform = thrust,
+                    thrustTransformName = surfaceFx.thrustTransformName,
+                    fxMax = surfaceFx.fxMax,
+                    maxDistance = surfaceFx.maxDistance,
+                    falloff = surfaceFx.falloff,
+                };
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                LogHotPathVerbose($"surface-fx-{partName}-{m}",
+                    $"'{partName}' midx={ordinal}: ghost dust source from ModuleSurfaceFX[{m}] " +
+                    $"maxDistance={surfaceFx.maxDistance.ToString("F1", ic)} falloff={surfaceFx.falloff.ToString("F2", ic)} " +
+                    $"fxMax={surfaceFx.fxMax.ToString("F2", ic)} thrustTransform='{surfaceFx.thrustTransformName}'");
+            }
+        }
+
+        private static Transform ResolveSurfaceFxThrustTransform(
+            Part prefab, string thrustTransformName, Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            if (ghostModelNode == null) return null;
+            if (string.IsNullOrEmpty(thrustTransformName))
+                return ghostModelNode.parent != null ? ghostModelNode.parent : ghostModelNode;
+            Transform src = prefab.FindModelTransform(thrustTransformName);
+            if (src == null) return null;
+            return GhostVisualBuilder.ResolveGhostFxParent(src, prefab.transform, modelRoot, ghostModelNode, cloneMap);
         }
 
         /// <summary>

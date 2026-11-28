@@ -380,13 +380,14 @@ namespace Parsek.TestCommands
                 partName = wc.Entry?.Name, value = d.Throttle, moduleIndex = wc.Burst.Option.RecorderKeyIndex,
             });
             GhostPlaybackLogic.ApplyPartEvents(-1, g.Recording, ut, state, true);
-            if (!PartParityBurstPlan.HidesGhostDust(wc.Burst.Control))
-            {
-                state.launchDustGroundRefAltitude = d.GhostGroundM;
-                state.launchDustPendingBuild = true;
-            }
+            bool driven = !PartParityBurstPlan.HidesGhostDust(wc.Burst.Control);
+            int sources = 0;
+            if (state.engineInfos != null)
+                foreach (var info in state.engineInfos.Values)
+                    if (info?.surfaceFx != null) sources++;
             ParsekLog.Info(Tag, $"case {wc.CaseId}: dust ghost built engineKey={wc.Burst.Option.RecorderKeyIndex.ToString(Ic)} " +
-                $"throttle={d.Throttle.ToString("0.00", Ic)} dust={(state.launchDustPendingBuild ? "pending" : "hidden")}");
+                $"throttle={d.Throttle.ToString("0.00", Ic)} surfaceFxSources={sources.ToString(Ic)} " +
+                $"dust={(driven ? "driven" : "hidden")}");
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -398,8 +399,8 @@ namespace Parsek.TestCommands
             root.transform.SetPositionAndRotation((Vector3)SlotWorld(s), s.Body.bodyTransform.rotation * s.SurfaceRelativeRotation);
         }
 
-        /// <summary>The ghost's launch dust, driven the way playback drives it (the engine's power
-        /// summed from the ghost's own engine state, the latched ground reference).</summary>
+        /// <summary>The ghost's launch dust, driven the way playback drives it: stock's
+        /// <c>ModuleSurfaceFX</c> rule over the ghost's own lit engines and their raycasts.</summary>
         private static void DriveGhostDust(WaveCase wc)
         {
             PartParityDustRun d = wc.Burst.Dust;
@@ -407,8 +408,7 @@ namespace Parsek.TestCommands
             PoseDustGhost(d);
             GhostPlaybackState state = d.Ghost.State;
             if (PartParityBurstPlan.HidesGhostDust(wc.Burst.Control)) return;
-            float power = GhostPlaybackLogic.SumEnginePower(state);
-            GhostPlaybackEngine.DriveLaunchDustFrame(-1, state, power, d.GhostSlot.AltitudeM, d.GhostGroundM, ref d.LazyBuilds);
+            GhostPlaybackEngine.DriveLaunchDustFrame(-1, state, ref d.LazyBuilds);
         }
 
         private static double LongestDustLifetime(WaveCase wc)
@@ -442,8 +442,9 @@ namespace Parsek.TestCommands
         private static List<Renderer> GhostDustRenderers(WaveCase wc)
         {
             var list = new List<Renderer>();
-            GameObject dust = wc.Burst?.Dust?.Ghost?.State?.launchDustInfo?.dustObject;
-            if (dust != null) list.AddRange(dust.GetComponentsInChildren<Renderer>(true));
+            LaunchDustInfo info = wc.Burst?.Dust?.Ghost?.State?.launchDustInfo;
+            foreach (GameObject dust in new[] { info?.terrain?.root, info?.water?.root })
+                if (dust != null) list.AddRange(dust.GetComponentsInChildren<Renderer>(true));
             return list;
         }
 

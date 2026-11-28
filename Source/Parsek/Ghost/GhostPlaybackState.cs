@@ -121,13 +121,16 @@ namespace Parsek
         internal Vector3 prevGroundHeading;
         internal double prevGroundHeadingUT = double.NaN;
         internal float smoothedHeadingRateDegPerSec;
-        // S3 launch dust. Built lazily on the first frame the gate chain opens, under the same
-        // per-frame build cap the lazy reentry build uses. groundRefAltitude is the latched
-        // sea-level altitude of the ground under the launch site, derived from a surface section's
-        // recordedGroundClearance; NaN means "never latched" and no dust is ever emitted.
+        // S3 launch dust (stock's ModuleSurfaceFX rule, GhostPlaybackEngine.LaunchDust.cs). Each
+        // emitter is built lazily on the first frame a lit engine's raycast raises that surface,
+        // under the same per-frame build cap the lazy reentry build uses.
         internal LaunchDustInfo launchDustInfo;
-        internal bool launchDustPendingBuild;
-        internal double launchDustGroundRefAltitude = double.NaN;
+        // The last launch dust log signature (GhostPlaybackLogic.ComputeLaunchDustLogSignature):
+        // the dust line is written only when it changes.
+        internal int launchDustLogSignature = int.MinValue;
+        // The coarse half of that signature (the surfaces drawn, any pad hit, the skip reason):
+        // a change in it is always written, a strength-only change is rate limited.
+        internal int launchDustLogKind = int.MinValue;
         // S4 EVA: the three recorded flags plus the lazily-built jetpack puff. The flags live on
         // the state rather than being re-derived from the event stream each frame so the plume gate
         // is a pure read of three bools (GhostPlaybackLogic.ShouldEmitEvaJetpackPlume) and the
@@ -296,8 +299,8 @@ namespace Parsek
             // DestroyReentryFxResources does for reentryFxInfo - the child GameObject would go
             // with the ghost, but the Material and the generated Texture2D would not.
             launchDustInfo = null;
-            launchDustPendingBuild = false;
-            launchDustGroundRefAltitude = double.NaN;
+            launchDustLogSignature = int.MinValue;
+            launchDustLogKind = int.MinValue;
             // S4: same contract as launchDustInfo - DestroyEvaJetpackPlume has already released the
             // Material and the generated Texture2D by the time this runs.
             evaJetpackPlumeInfo = null;
