@@ -115,6 +115,7 @@ members = [
 "Parsek.Patches.VesselCycleReFlySwitchPatch::RunCycle(bool,Parsek.Patches.VesselCycleReFlySwitchPatch/CycleReport)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "B Patches/VesselCycleReFlySwitchPatch.cs:245" }
 "Parsek.RewindInvoker::ForceStageManagerRebuildAfterReFlyLoad(Parsek.PostLoadStripResult,string)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Rewind/RewindInvoker.StripActivate.cs:531" }
 "Parsek.TestCommands.EvaConstructionInputInjection::PoseAndCheck(EVAConstructionModeEditor,Parsek.TestCommands.EvaConstructionAttachPose)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.EvaConstruction.cs:370" }
+"Parsek.TestCommands.PartParityBurstDriver::KillVesselsWithParts(System.Collections.Generic.HashSet`1<uint32>)" = { count = 1, codes = ["TEST-SEAM"], audit = "TestCommands/PartParityBurstDriver.cs:1192 (main, after the audits): skips the active vessel when killing burst case vessels; reached only from the PartParitySweep seam verb, which the seam refuses while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::ActiveVesselPidOrZero()" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs:426" }
 "Parsek.TestCommands.ParsekTestCommandAddon::ArmActiveVesselWatch(string,string)" = { count = 1, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.ActiveVesselLoss.cs:24" }
 "Parsek.TestCommands.ParsekTestCommandAddon::BuildDispatchState(Parsek.TestCommands.ParsedCommand)" = { count = 2, codes = ["TEST-SEAM"], audit = "B TestCommands/ParsekTestCommandAddon.cs:1572" }
@@ -316,6 +317,7 @@ guards = [
 "Parsek.ParsekScenario::OnVesselSwitching(Vessel,Vessel)" = { events = ["onVesselSwitching"], status = "guard" }
 "Parsek.ParsekScenario::OnVesselTerminated(ProtoVessel)" = { events = ["onVesselTerminated"], status = "guard" }
 "Parsek.PostFlightDialogLogHost::OnVesselRecoveryProcessing(ProtoVessel,KSP.UI.Screens.MissionRecoveryDialog,float32)" = { events = ["onVesselRecoveryProcessing"], status = "exempt", reason = "names the recovered vessel in the recovery dialog log only; the drone is never recovered" }
+"Parsek.TestCommands.PartParityBurstDriver::OnPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer of a PartParitySweep burst trial (records died part pids only); the seam refuses its verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnDriveVesselPartDie(Part)" = { events = ["onPartDie"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnKscRecoverRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
 "Parsek.TestCommands.ParsekTestCommandAddon::OnRecoverSeamRecoveredObserved(ProtoVessel,bool)" = { events = ["onVesselRecovered"], status = "exempt", reason = "TEST-SEAM observer; the seam refuses vessel verbs while far-watching (H7)" }
