@@ -5016,6 +5016,22 @@ Y2 follow-ups as built (2026-11-28, from a review of the merged ghost FX work; n
 - (c) `StockExplosionPrefabCache`'s two catch blocks destroy what their try made: the
   DontDestroyOnLoad holder with its partial copies in `CaptureFrom`, the instance in `TrySpawn`
   (todo GHOST-STOCK-COPY-CACHE-LEAKS). No player-visible change; no CHANGELOG line.
+- (d) Owner rulings on Y2 / Y7 (2026-11-28): Q1 the speed term copies stock exactly (only +0.25
+  from 2000 m/s; stock's dead 0.12 step stays dead); Q2 each ghost reads its own recorded surface
+  speed, never the player's ship (as the reentry fire); Q3 a crash's blasts stay in one frame, the
+  residual under "Y7 as built" accepted; Q4 the Space Center and manual preview end explosions take
+  the Y7 route. `ParsekKSC.TriggerExplosionIfDestroyed` and the manual preview's end in
+  `ParsekFlightPlaybackHost.UpdatePlayback` call `TryPlayVesselEndBlasts` first (same planner,
+  merge, routes and `End explosion for` line) and keep the length-sized blast only when no part
+  resolves. The Space Center passes its pause flag as flight does, and its overload returns
+  whether FXMonger took a part blast and the loudest planned power
+  (`VesselEndBlastLoudestPower`): FXMonger plays its own sound then, otherwise the Space
+  Center's one-shot plays at the loudest power. Residual: a Space Center ghost has no surface
+  speed source (`PartExplosionSurfaceSpeed` reads `none`), so its blasts and its destroyed parts
+  carry no speed term. The manual preview cannot start in the current tree (`isPlaying` is never
+  set and `previewRecording` never assigned), so its branch is wired for parity but unreachable.
+  First check: a crash replayed at the Space Center logs `End explosion for KSC ghost #N ...
+  route=copy-no-fxmonger blasts=K` (or `route=fxmonger`) with `prefabIndex=3` for default parts.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 

@@ -66,6 +66,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The power of the strongest planned blast (0 for none, at most 1). FXMonger plays one
+        /// sound per blast at that blast's power; a caller that plays a single sound of its own
+        /// when FXMonger did not sizes it by the loudest.
+        /// </summary>
+        internal static double VesselEndBlastLoudestPower(IList<FxMongerPlannedBlast> plan)
+        {
+            double loudest = 0.0;
+            if (plan == null) return loudest;
+            for (int i = 0; i < plan.Count; i++)
+            {
+                double p = plan[i].Power;
+                if (!double.IsNaN(p) && p > loudest) loudest = p;
+            }
+            return loudest > 1.0 ? 1.0 : loudest;
+        }
+
+        /// <summary>
         /// The grep-stable summary of an end explosion: the inputs, then each planned blast (at most
         /// <see cref="VesselEndBlastLogLimit"/>) as <c>[i] power= prefabIndex= sources=</c>.
         /// </summary>
@@ -108,6 +125,24 @@ namespace Parsek
         internal static bool TryPlayVesselEndBlasts(
             GhostPlaybackState state, ConfigNode snapshot, float vesselLength, bool audioPaused, string context)
         {
+            return TryPlayVesselEndBlasts(state, snapshot, vesselLength, audioPaused, context,
+                out bool _, out double _);
+        }
+
+        /// <summary>
+        /// <see cref="TryPlayVesselEndBlasts(GhostPlaybackState, ConfigNode, float, bool, string)"/>
+        /// for a caller that plays its own explosion sound when FXMonger did not (the Space
+        /// Center): <paramref name="fxMongerQueued"/> says whether FXMonger took at least one part
+        /// blast (it then plays stock's sound), <paramref name="loudestPower"/> is the strongest
+        /// planned blast (<see cref="VesselEndBlastLoudestPower"/>), 0 when nothing was drawn.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool TryPlayVesselEndBlasts(
+            GhostPlaybackState state, ConfigNode snapshot, float vesselLength, bool audioPaused, string context,
+            out bool fxMongerQueued, out double loudestPower)
+        {
+            fxMongerQueued = false;
+            loudestPower = 0.0;
             if (state == null || state.ghost == null) return false;
             GameObject ghost = state.ghost;
             double speed = PartExplosionSurfaceSpeed(state, out string speedSource);
@@ -126,6 +161,7 @@ namespace Parsek
             }
 
             List<FxMongerPlannedBlast> plan = FxMongerBlastMerge.Plan(positions, powers);
+            loudestPower = VesselEndBlastLoudestPower(plan);
             string route;
             if (!audioPaused && GhostVisualBuilder.IsFxMongerLive())
             {
@@ -140,6 +176,7 @@ namespace Parsek
                 }
                 if (queued > 0)
                 {
+                    fxMongerQueued = true;
                     route = queued == positions.Count ? "fxmonger" : "fxmonger-partial";
                     if (queued < positions.Count)
                         ParsekLog.Warn("ExplosionFx",

@@ -765,25 +765,37 @@ namespace Parsek
                 {
                     Vector3 pos = host.ghostObject.transform.position;
                     float len = GhostVisualBuilder.ComputeGhostLength(host.ghostObject);
-                    double power = Mathf.Clamp01(len / GhostAudioPresets.VesselLengthPowerDivisor);
-                    ParsekLog.Info("ExplosionFx",
-                        $"Stock FXMonger.Explode for manual preview \"{previewRecording.VesselName}\" " +
-                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m " +
-                        $"power={power.ToString("F2", CultureInfo.InvariantCulture)}");
-                    // Hide ghost parts before explosion renders
-                    if (previewGhostState != null)
+                    string previewContext = $"manual preview \"{previewRecording.VesselName}\"";
+                    // Stock's crash, as in flight: one blast per part still on the ghost, merged
+                    // as FXMonger merges; the length-sized single blast only when none resolves.
+                    if (previewGhostState != null
+                        && GhostPlaybackLogic.TryPlayVesselEndBlasts(previewGhostState,
+                            GhostVisualBuilder.GetGhostSnapshot(previewRecording), len, false, previewContext))
+                    {
                         GhostPlaybackLogic.HideAllGhostParts(previewGhostState);
+                    }
                     else
                     {
-                        var t = host.ghostObject.transform;
-                        for (int c = 0; c < t.childCount; c++)
-                            t.GetChild(c).gameObject.SetActive(false);
+                        double power = Mathf.Clamp01(len / GhostAudioPresets.VesselLengthPowerDivisor);
+                        ParsekLog.Info("ExplosionFx",
+                            $"Stock FXMonger.Explode for manual preview \"{previewRecording.VesselName}\" " +
+                            $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m " +
+                            $"power={power.ToString("F2", CultureInfo.InvariantCulture)}");
+                        // Hide ghost parts before explosion renders
+                        if (previewGhostState != null)
+                            GhostPlaybackLogic.HideAllGhostParts(previewGhostState);
+                        else
+                        {
+                            var t = host.ghostObject.transform;
+                            for (int c = 0; c < t.childCount; c++)
+                                t.GetChild(c).gameObject.SetActive(false);
+                        }
+                        GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
+                            pos,
+                            power,
+                            len,
+                            previewContext);
                     }
-                    GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(
-                        pos,
-                        power,
-                        len,
-                        $"manual preview \"{previewRecording.VesselName}\"");
                 }
                 StopPlayback();
                 host.ScreenMessage("Preview playback complete", 2f);

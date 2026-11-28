@@ -370,5 +370,60 @@ namespace Parsek.Tests
             // The anchor is written to the root before the parts are read.
             Assert.True(body.IndexOf("state.ghost.transform.position = worldPos;", StringComparison.Ordinal) < perPart);
         }
+
+        [Fact]
+        public void LoudestPower_IsTheStrongestPlannedBlastClamped()
+        {
+            Assert.Equal(0.0, GhostPlaybackLogic.VesselEndBlastLoudestPower(null));
+            Assert.Equal(0.0, GhostPlaybackLogic.VesselEndBlastLoudestPower(new List<FxMongerPlannedBlast>()));
+            var plan = new List<FxMongerPlannedBlast>
+            {
+                new FxMongerPlannedBlast { Power = 0.5, Sources = 3 },
+                new FxMongerPlannedBlast { Power = double.NaN, Sources = 1 },
+                new FxMongerPlannedBlast { Power = 0.75, Sources = 1 },
+                new FxMongerPlannedBlast { Power = 0.1, Sources = 1 },
+            };
+            Assert.Equal(0.75, GhostPlaybackLogic.VesselEndBlastLoudestPower(plan));
+            plan.Add(new FxMongerPlannedBlast { Power = 1.4, Sources = 1 });
+            Assert.Equal(1.0, GhostPlaybackLogic.VesselEndBlastLoudestPower(plan));
+        }
+
+        [Fact]
+        public void TheSpaceCenterEnding_PlaysThePerPartBlastsFirst()
+        {
+            string text = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Controllers", "ParsekKSC.cs")));
+            string body = PartParityStateRulesTests.MethodBody(text, "void TriggerExplosionIfDestroyed(");
+            Assert.True(body != null, "TriggerExplosionIfDestroyed moved; this cell is vacuous");
+            int perPart = body.IndexOf(
+                "GhostPlaybackLogic.TryPlayVesselEndBlasts(state, GhostVisualBuilder.GetGhostSnapshot(rec),",
+                StringComparison.Ordinal);
+            int live = body.IndexOf("else if (GhostVisualBuilder.IsFxMongerLive())", StringComparison.Ordinal);
+            Assert.True(perPart >= 0 && live > perPart);
+            string perPartCall = body.Substring(perPart, live - perPart);
+            // Same pause rule as flight, and the Space Center's own one-shot follows the result.
+            Assert.Contains("vesselLength, pauseMenuOpen, context, out bool fxMongerQueued, out double loudestPower)",
+                perPartCall);
+            Assert.Contains("power = loudestPower;", perPartCall);
+            Assert.Contains("stockResult = GhostPlaybackLogic.StockExplosionFxResult.StockQueued;", perPartCall);
+            Assert.DoesNotContain("VesselLengthPowerDivisor", perPartCall);
+            Assert.True(body.IndexOf("ShouldQueueKscExplicitExplosionAudio(pauseMenuOpen, stockResult)",
+                StringComparison.Ordinal) > live);
+        }
+
+        [Fact]
+        public void TheManualPreviewEnding_PlaysThePerPartBlastsFirst()
+        {
+            string text = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Controllers",
+                "ParsekFlightPlaybackHost.cs")));
+            string body = PartParityStateRulesTests.MethodBody(text, "internal void UpdatePlayback(");
+            Assert.True(body != null, "UpdatePlayback moved; this cell is vacuous");
+            int perPart = body.IndexOf("GhostPlaybackLogic.TryPlayVesselEndBlasts(previewGhostState,",
+                StringComparison.Ordinal);
+            int single = body.IndexOf("double power = Mathf.Clamp01(len / GhostAudioPresets.VesselLengthPowerDivisor);",
+                StringComparison.Ordinal);
+            Assert.True(perPart >= 0 && single > perPart);
+        }
     }
 }

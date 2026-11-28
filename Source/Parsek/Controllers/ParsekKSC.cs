@@ -2260,12 +2260,22 @@ namespace Parsek
                 $"Explosion for ghost #{recIdx} \"{vesselName}\" " +
                 $"vesselLength={vesselLength:F1}m");
 
-            double power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
+            double power;
             GhostPlaybackLogic.StockExplosionFxResult stockResult =
                 GhostPlaybackLogic.StockExplosionFxResult.StockFailedCustomVisualSpawned;
 
-            if (GhostVisualBuilder.IsFxMongerLive())
+            // Stock's crash, as in flight: one Part.explode per part still on the ghost, merged
+            // as FXMonger merges; the length-sized single blast only when no part resolves.
+            if (GhostPlaybackLogic.TryPlayVesselEndBlasts(state, GhostVisualBuilder.GetGhostSnapshot(rec),
+                    vesselLength, pauseMenuOpen, context, out bool fxMongerQueued, out double loudestPower))
             {
+                power = loudestPower;
+                if (fxMongerQueued)
+                    stockResult = GhostPlaybackLogic.StockExplosionFxResult.StockQueued;
+            }
+            else if (GhostVisualBuilder.IsFxMongerLive())
+            {
+                power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-explode-{recIdx}",
                     $"Stock FXMonger.Explode for {context} " +
                     $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) " +
@@ -2281,6 +2291,7 @@ namespace Parsek
             }
             else
             {
+                power = Mathf.Clamp01(vesselLength / GhostAudioPresets.VesselLengthPowerDivisor);
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"ksc-stock-unavailable-{recIdx}",
                     $"Stock explosion FX unavailable for {context}; spawning a silent copy of the stock explosion and using independent explosion audio",
                     10.0);
