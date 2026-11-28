@@ -1,0 +1,124 @@
+schema = 1
+id = "FW-7-far-watch-mun-career-contracts"
+# =====================================================================================
+# FAR WATCH STEP 4: A FAR WATCH AT THE MUN IN A CAREER WITH ACTIVE CONTRACTS PAYS NOTHING
+# AND MOVES NO CONTRACT.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step4`, design `docs/dev/design-far-watch.md`
+# 10 / 17.4 row FW-7). NEVER FLOWN (tag `pending-flight`): every token below is read from
+# the code or the fixture, none from a flight. The epochs are COMPUTED, not measured.
+#
+# HOST AND GEOMETRY: CS-6b's `cs-career-mun2` (Career, SPACECENTER, UT 119603.01; six
+# Active contracts: four ExplorationContract with no deadline and two PartTest whose
+# deadline is UT 9201949, so no game time this lane spends can expire one). The ship is
+# a fresh Jumping Flea launched unrecorded the way CS-6b does it (VAB, LaunchPad,
+# PRELAUNCH: landed, so the ship-safety check allows a watch). The ghost is the looped
+# `CS Mun Flyby` tree e0e9ddeca43b4b1aad109acd37894cee (CS-5's flight): its recording
+# 9304afa793d0466f8ed29eaba8aef02a holds one Mun ORBIT_SEGMENT from recorded UT 16674.27
+# to 23682.94 (read from the fixture's .prec.txt), and the tree starts at recorded UT
+# 1396.82, so the ghost is inside the Mun SOI from relaunch + 15277 to relaunch + 22286
+# IF the loop unit starts at the tree start (COMPUTED; the first flight confirms it from
+# `follow body=Mun`). The lane starts at relaunch + 18000 and warps 400 s. The Mun flyby
+# milestone was already paid in CS-5, and the drone is unowned, so nothing at the Mun is
+# due to anyone: any milestone, any contract parameter completion, any Rendezvous tracker
+# while the drone exists is a fence leak (10.2).
+#
+# WHAT IT PROVES:
+#   1. A far watch at another body in a Career: verdict, Following, the drone at the Mun.
+#   2. Nothing is paid or moved for the drone: zero `Game state: MilestoneAchieved`,
+#      `ContractParameterCompleted`, `ContractCompleted`, `ContractFailed`, zero stock
+#      Rendezvous tracking, zero `[FarWatchFence]` Warn (a fence that had to act Warns).
+#   3. The watch stops cleanly back to the ship.
+#
+# NOT COVERED (owed, design 17.4 row FW-7): the ledger oracle and the saveParse
+# byte-equality of the contract parameters before and after the watch (no saveParse
+# facet compares two saves yet; a `RunTests category=LedgerGroundTruth` step is owed
+# with an interim tally pin after the first reading run); a contract that targets the
+# Mun (this host's six target Kerbin or test parts).
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: CS-6b's host and editor route; no new flight.
+#   2 no idle waits: one TimeJump and one WarpToUT on the captured relaunch.
+#   3 minimal dwells: one status read after the warp.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none".
+#   7 tight windows: recordings count is CS-6b's measured 21 (nothing records here).
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 4 on CS-6b's career host cs-career-mun2: a Jumping Flea launched unrecorded follows the looped CS Mun Flyby ghost inside the Mun SOI; with six Active contracts and the drone at the Mun, no milestone, contract parameter or Rendezvous is paid and no far-watch fence has to act. NEVER FLOWN (tag pending-flight); the epochs are computed from the fixture."
+instanceProfile = "stock-tree"
+tags = ["FW-7", "far-watch", "career", "contracts", "loop-playback", "watch-mode", "mun", "editor", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/cs-career-mun2"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "Jumping Flea" },    expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "MissionConfig",    args = { tree = "e0e9ddeca43b4b1aad109acd37894cee", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "e0e9ddeca43b4b1aad109acd37894cee" }, label = "slp", expect = "OK", budget = 300 },
+  # Inside the ghost's Mun SOI pass (computed: relaunch + 15277 .. + 22286).
+  { cmd = "TimeJump",         args = { ut = "${slp.relaunchUt+18000}" },              expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "FarWatch",         args = { op = "start", tree = "e0e9ddeca43b4b1aad109acd37894cee", mode = "follow" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch",         args = { op = "status" },                               expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "${slp.relaunchUt+18400}" },              expect = "OK", budget = 540 },
+  { cmd = "FarWatch",         args = { op = "status" },                               expect = "OK" },
+  { cmd = "FarWatch",         args = { op = "stop" },                                 expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["mun", "scene-flight", "career"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 21, max = 21 }
+
+[expectations.logContracts]
+required = [
+  "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "startloopplayback initiated:",
+  "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "farwatch start complete ",
+  "\\[FarWatch\\] follow body=Mun recordingBody=Mun match=True rec=#[0-9]+",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle ",
+  "farwatch stop complete ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+  "Game state: MilestoneAchieved",
+  "Game state: ContractParameterCompleted",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+  "Now tracking .*Parsek Camera Drone",
+  "far-watch-active",
+  "farwatch rejected reason=",
+  "stock SOI transition of the drone",
+  "onVesselSOIChanged fired for the drone",
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
