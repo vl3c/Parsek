@@ -4944,20 +4944,54 @@ GHOST-PART-EXPLOSION-NO-SPEED-TERM).
   slower destroyed part logs `speedOffset=0` and its old index; a ghost whose `srfSpeed` sits
   within a few m/s of 2000 is where the ghost's reading (lagged by stock's 10-frame smoothing,
   about 0.1 s) and the real part's unsmoothed one can fall on different sides.
-- Y7 is not changed here (G.8 item 5). Read from the same IL for the owner's decision: stock
-  makes one blast per dying part (merged with another only in the same frame within 10 m, keeping
-  the first's power), each at its own potential plus the speed term, so a crash's size shows as
-  the number of blasts, never as a bigger prefab. For default (0.5) parts below 2000 m/s:
+- Y7 follows in its own commit ("Y7 as built" below).
 
-  | Craft | Stock (per dying part) | Parsek end explosion today (`Clamp01(length / 20)`) |
-  | --- | --- | --- |
-  | 1 part, 2 m probe | 1 blast, power 0.5, Explosion 2 (index 3) | one blast, 0.1, Thud 0 (index 0) |
-  | 3 parts, 6 m rocket | 1 to 3 blasts, each 0.5, Explosion 2 | one blast, 0.3, Explosion 0 (index 1) |
-  | 20 parts, 30 m rocket | up to 20 blasts (fewer when they merge), each 0.5, Explosion 2 | one blast, 1.0, Explosion 6 (index 6) |
+Y7 as built (2026-11-28, no flight; C# only, unit-tested; G.8 item 5, todo
+GHOST-CRASH-ONE-LENGTH-SIZED-BLAST). The coordinator's evidence run (`ghost-fx-9-evidence`, run
+`2026-11-27_2339`): a real 3-part crash shows small grey blasts, its ghost one Explosion 0
+(power 0.20 from `Clamp01(length / 20)`) with a dark cloud and chunks, bigger and darker.
+- Stock's crash (IL, as Y2 above): every dying part calls `Part.explode()` ->
+  `FXMonger.Explode(part, pos, explosionPotential + speed term)`; `FXMonger.explode` raises a power
+  below 0.001 to it, then merges the blast into the FIRST blast queued this frame whose squared
+  distance is below `minSqrBlast` (10 m squared): position to the power-weighted mean, power left
+  as the first's (never summed); `LateUpdate` spawns every queued blast and clears the queue. So a
+  crash's size shows as the number of blasts, never as a bigger prefab.
+- The ghost (`GhostPlaybackLogic.VesselEndBlasts.cs`, pure merge `FxMongerBlastMerge.cs`):
+  `PlayDestroyedExplosion` writes the explosion anchor to the root as before, then
+  `TryPlayVesselEndBlasts` explodes every part still on the ghost (`logicalPartIds`, active part
+  transform), in the snapshot's PART order (root first), each at its prefab potential plus the Y2
+  speed term from the ghost's own surface speed. In flight with FXMonger live and no pause menu it
+  calls `FXMonger.Explode` once per part in one frame, so stock's own merge makes the clusters.
+  Under the pause menu or with no live FXMonger it draws the planned blasts
+  (`FxMongerBlastMerge.Plan`, the same merge) as silent stock copies. When no part resolves it
+  falls back to the old single blast of `TerminalExplosionPower(length)` (that function, its
+  mirrors in `PartParityFxRules` / `partparity.py` and the `burst-custom` stand-ins at L = 1 to 20
+  m are unchanged: they still describe that fallback). One summary line per crash:
+  `End explosion for ...: parts= skipped= srfSpeed= speedSource= speedOffset= route= blasts=` then
+  `[i] power= prefabIndex= sources=` for at most 20 blasts. Cost per crash: one snapshot walk, one
+  prefab lookup per distinct part name, one transform lookup and one `FXMonger.Explode` per part,
+  as stock pays.
+- The X4 `vessel-explode` ghost side now calls `TryPlayVesselEndBlasts` on the trial ghost (the
+  length-sized blast only when no part resolves), so the case compares the production route.
+- Before and after, default (0.5) parts below 2000 m/s, every part dying in one frame:
 
-  At or above 2000 m/s each stock blast is 0.75, Explosion 4 (index 4); a part of potential 0 or
-  0.1 gives index 0 (1 or 2 at speed). Parsek's ghost also plays the per-part blasts of the parts
-  its recording saw die before the vessel ended (the Y2 path), on top of the one end blast.
+  | Craft | Stock | Ghost before Y7 | Ghost after Y7 |
+  | --- | --- | --- | --- |
+  | 1 part, 2 m probe | 1 blast, 0.5, Explosion 2 (index 3) | 1 blast, 0.1, Thud 0 (index 0) | 1 blast, 0.5, Explosion 2 |
+  | 3 parts, 6 m rocket | 1 merged blast, 0.5, Explosion 2 (3 when they die in 3 frames) | 1 blast, 0.3, Explosion 0 (index 1) | 1 merged blast, 0.5, Explosion 2 |
+  | 20 parts, 30 m rocket (1.5 m apart) | 1 blast that chases the stack (each merge moves it halfway to the new part), 0.5, Explosion 2; more when the parts die over several frames | 1 blast, 1.0, Explosion 6 (index 6) | 1 blast, 0.5, Explosion 2 |
+
+  At or above 2000 m/s every blast is 0.75, Explosion 4 (index 4); a part of potential 0 or 0.1
+  draws index 0 (1 or 2 at speed).
+- Residual: stock's parts die over the frames of the impact (a part per contact), so a long craft
+  can make several blasts where the ghost, which knows only that the vessel ended, makes them all
+  in one frame and so merges more. The recording holds no per-part death time for the parts still
+  on the vessel at its end.
+- What the first in-game check must look at: a crash ghost logs `End explosion for ghost #N ...
+  route=fxmonger blasts=K` with every blast `prefabIndex=3` for default parts, and draws the same
+  small grey blasts as the real crash beside it (the 3-part case of run `2026-11-27_2339`); the
+  pause menu logs `route=copy-paused`; a ghost whose parts were all removed earlier logs `no ghost
+  part to explode` and plays the old single blast.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
@@ -5010,7 +5044,8 @@ GHOST-PART-EXPLOSION-NO-SPEED-TERM).
    child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
    and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud
    (`fx_gasBurst_white`) on the decoupler that fired, and nothing for a joint that just broke.
-5. The vessel end explosion's power is `Clamp01(length / 20)`
+5. (Fixed by Y7, "Y7 as built" in G.7: one blast per part, merged as FXMonger merges; a merge
+   keeps the first blast's power, it never sums.) The vessel end explosion's power is `Clamp01(length / 20)`
    (`GhostPlaybackEngine.SpawnDestroy.cs:809`), so every ghost of 20 m or more takes the largest
    prefab; stock's merged part potentials (0.5 each, summed within 10 m, then clamped) also reach 1
    for any cluster of two or more default parts that merge (how long a queued blast can absorb

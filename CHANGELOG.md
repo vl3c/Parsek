@@ -27,6 +27,8 @@ Not released yet.
   fire and a flash only for the bigger crashes.
 - **Solid booster ghosts draw their exhaust sparks.** The Flea, Hammer, Thumper and the other
   boosters with sparks showed only their flame and smoke.
+- **A crashing ghost explodes like the real craft:** one stock blast per part, merged as KSP does,
+  not one big dark blast sized by its length. (GHOST-CRASH-ONE-LENGTH-SIZED-BLAST)
 - **A ghost part that blows up at 2 km/s or faster shows KSP's bigger blast,** as the real part
   does at that speed. (GHOST-PART-EXPLOSION-NO-SPEED-TERM)
 - **Ghost lamps fade on and off as the real lamp does** instead of snapping.

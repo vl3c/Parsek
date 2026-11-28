@@ -736,8 +736,11 @@ namespace Parsek.TestCommands
             if (o.Family == PartParityFxRules.FamilyVesselExplode)
             {
                 float len = GhostVisualBuilder.ComputeGhostLength(g.Build.root);
-                GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(ghostSource, GhostPlaybackEngine.TerminalExplosionPower(len), len,
-                    "part parity " + wc.CaseId);
+                // Production's Destroyed ending: a blast per ghost part, merged by FXMonger; the
+                // length-sized blast only when no part resolves.
+                if (!GhostPlaybackLogic.TryPlayVesselEndBlasts(g.State, g.Snapshot, len, false, "part parity " + wc.CaseId))
+                    GhostPlaybackLogic.TryTriggerStockExplosionFxOrCustom(ghostSource, GhostPlaybackEngine.TerminalExplosionPower(len), len,
+                        "part parity " + wc.CaseId);
                 GhostPlaybackLogic.HideAllGhostParts(g.State);
                 run.GhostEvent = "terminal-explosion";
                 t.GhostTriggered = true;
