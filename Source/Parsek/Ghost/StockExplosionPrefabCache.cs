@@ -16,8 +16,9 @@ namespace Parsek
     /// <c>Instantiate(explosions[(int)(Clamp01(power) * (n - 1))])</c>, <c>SetActive(true)</c>,
     /// position, <c>transform.up = FlightGlobals.upAxis</c>, then a <c>PlayOneShot</c> of the
     /// matching <c>explosionSounds</c> clip on the instance's AudioSource. <see cref="TrySpawn"/>
-    /// does the same minus the sound: every AudioSource on the kept copies is switched off, and
-    /// the callers keep their own explosion audio decisions.
+    /// does the same minus the sound: every AudioSource on the kept copies is muted at zero volume
+    /// (left enabled, because some prefabs play their source themselves and Unity warns on a
+    /// disabled one), and the callers keep their own explosion audio decisions.
     ///
     /// The copies are instantiated under one inactive DontDestroyOnLoad holder, so no component
     /// on them wakes while they are kept, and they survive the flight scene unloading whether
@@ -83,7 +84,8 @@ namespace Parsek
                     foreach (AudioSource src in copy.GetComponentsInChildren<AudioSource>(true))
                     {
                         src.playOnAwake = false;
-                        src.enabled = false;
+                        src.mute = true;
+                        src.volume = 0f;
                         mutedSources++;
                     }
                     kept[i] = copy;
@@ -155,7 +157,7 @@ namespace Parsek
         // Stock sets transform.up from FlightGlobals.upAxis (the active vessel's); a ghost's blast
         // takes the up of the body under it, which is the same thing beside the active vessel.
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static Vector3 ResolveUp(Vector3 worldPosition)
+        internal static Vector3 ResolveUp(Vector3 worldPosition)
         {
             try
             {

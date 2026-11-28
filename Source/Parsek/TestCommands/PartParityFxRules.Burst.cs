@@ -66,8 +66,7 @@ namespace Parsek.TestCommands
     /// <c>ground</c> context and its slots, the burst window and time bins, every G.3 constant
     /// and fail / warn line, the enumeration, the control subjects and the control judges. Every
     /// literal here has its mirror in <c>harness/lib/partparity.py</c>. The live driver is piece
-    /// X4: until it lands a burst or dust run is refused
-    /// <see cref="TestCommandPartParitySweep.BurstDustRunsNotBuiltReason"/>.
+    /// X4 (<see cref="PartParityBurstDriver"/>).
     /// </summary>
     internal static partial class PartParityFxRules
     {
@@ -352,6 +351,12 @@ namespace Parsek.TestCommands
 
         /// <summary>The cross-section view of a dust case (the axis, the surface normal, projects to a point).</summary>
         internal const string DustAxisView = ViewDustTop;
+
+        /// <summary>Whether a view is a cross-section (axis) view: P8's <c>fx-bottom</c> or the
+        /// dust case's <c>dust-top</c> (the Python mirror's <c>FX_AXIS_VIEWS</c>).</summary>
+        internal static bool IsAxisView(string view)
+            => string.Equals(view, ViewFxBottom, StringComparison.Ordinal)
+               || string.Equals(view, DustAxisView, StringComparison.Ordinal);
 
         /// <summary>The layer holding the <c>SurfaceFX</c> prefab's renderers and the ghost's
         /// <c>ParsekLaunchDust</c>; the engine's plume stays in flame / smoke, unjudged here.</summary>

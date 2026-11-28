@@ -88,6 +88,8 @@ namespace Parsek.TestCommands
                 detail = "no eligible subject on this install";
                 return TestCommandPartParitySweep.ControlsNotApplicable;
             }
+            if (PartParityBurstPlan.IsBuiltControl(id))
+                return PartParityBurstPlan.JudgeControl(id, s.Flags, s.Setup?.Status, out detail);
             if (id == TestCommandPartParitySweep.ControlHeatEventsDropped)
                 return PartParityFxRules.JudgeHeatEventsDroppedControl(s.StateProof?.Reached == true,
                     s.StateProof?.Events?.Count ?? 0, s.Views, s.Setup?.Status, out detail);

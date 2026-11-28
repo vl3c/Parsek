@@ -4598,13 +4598,96 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     pixels plus a report (`Ghost aero FX capture '<label>': ...` with both pixel summaries, the
     depth summary, the camera dump and the shader names) to the rig;
     `SetDiagnosticModeForTesting(SanityUnlit | NoSceneDepth | Normal)` switches the on-screen
-    draw. Rig changes (`p9-y1-rig-after`): `FxReentryRig.Timing.cs` `TimingFireState` stops
-    reading `GhostAeroSheathDecision.FrameCap` and `GhostAeroFx.MaxSheathsPerFrame` (removed by
-    the masking change); at the first ghost shot of `m6` and `m375` that reads `sheath=Draw`, after
-    its grab: request a capture, wait for the callback (at most 310 frames, pose held) and write
-    `fxr-diag-<mark>-fx`, `-plain` (`Width` x `Height`) and `-depth` (`DepthSize` square) and the
-    report; then grab one frame each in `SanityUnlit` and `NoSceneDepth` (`fxr-diag-<mark>-sanity`,
-    `-nodepth`), and set `Normal` again. The copies need no rig change.
+    draw. Rig changes (`p9-y1-rig-after`; its 3fd255f44 already reads no removed member): at the
+    end of the ghost shots of `m6` and `m375`, before that mark's timing probe (so no shot goes
+    late), hold the `mainA` pose on the main ghost, request a capture, wait for the callback (at
+    most 310 frames) and write `fxr-diag-<mark>-fx`, `-plain` (`Width` x `Height`) and `-depth`
+    (`DepthSize` square) and the report; then grab one frame each in `SanityUnlit` and
+    `NoSceneDepth` (`fxr-diag-<mark>-sanity`, `-nodepth`), and set `Normal` again. The copies
+    need no rig change.
+
+X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
+driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and
+`PartParityBurstDriver.Dust.cs` (the dust wave); every decision it takes is in the pure
+`PartParityBurstPlan.cs`, covered by xUnit `PartParityBurstPlanTests`.
+- Dispatch. A burst or dust run (`IsBurstDustRun`) enumerates through `PartParityBurstDriver.Enumerate`
+  (X1's `EnumerateBurstDust` over the install, `explosionPotential` and the `fx_*` groups read from
+  each part config) with `PartParityBurstPlan.ExclusionApplies` (family of the run's words, in its
+  context). Its wave kinds are `p9:burst` (one case per wave) and `p9:dust` (up to four), a control
+  getting its kind from its id even with no subject (`ControlWaveKind`); the admission is
+  `PartParityBurstPlan.AdmitWave` (worst wave 60 s burst, 150 s dust). `PartParitySweepRunner`
+  dispatches a `p9:burst` wave to `RunWave` and a `p9:dust` wave to `RunDustWave`; P8's
+  `PartParityFxDriver.RunWave` and the air context's flow are not used (the air admission's pad
+  check is, through `DecideAdmission`). A burst or dust control is judged by
+  `PartParityBurstPlan.JudgeControl` (the evidence flag `burst-evidence:` / `dust-evidence:`,
+  else the setup fault) through X1's judges.
+- Burst wave. Four trials per case, real slots 40 m apart north of the band centre at 1600 m, each
+  ghost 20 m east of its real slot (`BurstGhostSeparationM`), every real vessel held still by
+  `PartParityFxHold.AttachAtSlot`, settled 1.5 s, then every trial triggered in one frame
+  (`TriggerAll`, after Update so FXMonger's LateUpdate reads the queue). Real side: `explode` is
+  `Part.explode()`, `vessel-explode` every stacked part's `explode()` (stack of 1, 2, 3 or 6 tanks
+  along their stack nodes), the `burst-custom` stand-ins have no vessel (`FXMonger.Explode(null,
+  slot, potential)` for the real side, Parsek's `SpawnFallbackExplosionFx` / `SpawnPartPuffFx` for
+  the ghost: the fallback is production's custom route since the kept stock copy, so the case
+  photographs the copy when it is cached and the hand-built fireball only when it is not, and
+  `PartParityGhostSeamTests` keeps the hand-built one callable from the fallback alone), `decouple` presses the module's `Decouple` event on a
+  tank-decoupler-tank stack (radial decouplers on one tank's side), `joint-break` breaks the joint of a two-part stack. An explode
+  family drops its hold first; a decouple keeps it. The ghost side is the production route: the
+  trial's ghost built from its live vessel, the Decoupled / Destroyed events from the pids the
+  real side lost (`onPartDie`, `onPartJointBreak`), applied through `ApplyPartEvents`; the
+  vessel explode is `TryTriggerStockExplosionFxOrCustom` at the terminal power. The shift and
+  power controls trigger `TryTriggerStockExplosionFx` directly (3 m north; one prefab index lower,
+  `LowerIndexPower`); the late control waits 0.5 s; off, empty and real-vs-real drop the ghost
+  event (real-vs-real reads trials 1 / 3 against 2 / 4 of the real side).
+- Tagging and schedule. A new FXMonger effect object, and an object the transient-FX record
+  holds, is tagged to the nearest of the eight sources (four real, four ghost; record objects to
+  the ghost sources only) within `TagRadiusM` (10 m plus half the stack); anything else counts as
+  stray. The schedule is trial 1's FXMonger queue entries read in the trigger frame (reflection on
+  `queuedExplosions`), offsets in the slot frame from that trial's own source part.
+- Capture. One trial per frame, round robin, at end of frame: per side and view the flame render
+  (hue rotated for `ctl-burst-hue`) and the smoke matte into the per-bin accumulators, side views
+  from 100 m south looking north, top from above, the near views 15 m half-height, far 45 m; the
+  burst tile is the run's tile capped at 128 px and has its own capture.
+- Dust wave. Up to four engines per wave in the `ground` context: the real engine nozzle down at
+  its slot height over the terrain north of the pad (or over the first deep water east of the pad,
+  `FindWaterEastM`), its ghost 150 m east, each held by `PartParityFxHold`, the vessel load and
+  unpack ranges widened to 15 km for the ocean slot, the propellant cheat on, the engine pressed
+  with `Activate` at 100 % independent throttle. The ghost gets an `EngineIgnited` event and its
+  dust is driven every frame by `GhostPlaybackEngine.DriveLaunchDustFrame` with the trajectory
+  stub: the ghost slot's altitude and, as the ground reference, the terrain altitude under the
+  ghost slot (0 over water), not production's latched clearance. Warm-up is P8's plateau rule over
+  the real dust coverage; then 16 rounds (32 for real-vs-real, alternate rounds of the real part)
+  render the dust and flame layers per view; the footprint and the axis origin are the ground point
+  under each slot on both sides. Stock's raycast is read each round by reflection on
+  `ModuleSurfaceFX.hit` / `distance` (point and normal in the slot frame, the point from the thrust
+  transform) and summarised by `SummarizeRaycast`; no hit sets `dust-no-stock-hit`.
+- Setup statuses: `BurstSetupStatus` (`burst-not-triggered` when stock's side drew nothing, a
+  joint break needing only its trigger, the empty control always ok), `DustSetupStatus`, and the
+  runner's spawn-timeout / died-settling.
+- The in-game cell. `SweepStateAcceptanceSet` (no new `[InGameTest]`) runs, from a pad host
+  (PRELAUNCH or LANDED within the air admission's pad distance), only the pad half: the label
+  `ingame-burst` (every burst word, `contexts=air`, controls) and then `ingame-dust` (`fx=dust`,
+  `contexts=ground`, controls), each reset once and resumed step by step until `done` (at most 40
+  steps), asserting done and controls ok and logging setup faults; from an orbit it runs as before.
+- What the first dev-install or lane run must check (each read in KSP.log, the sidecars and the atlas):
+  1. Every case reaches its trigger: `burst case <id>: captured` with `realTagged` > 0 and the
+     schedule counts; the potential-0 puff, if the install has one, is expected to read
+     `burst-not-triggered`; `burst-custom` writes a null `structure` by design.
+  2. No stray objects (`stray=` 0) and no layer-0 / layer-1 effect hidden from the capture; the
+     10 m tag radius holds at the 20 m slot pair spacing (no ghost blast tagged real).
+  3. FXMonger.Explode with a null part is accepted (the custom real side), and `Part.explode()`
+     does not move the source transform before the source is read.
+  4. Exploded parts and decoupled halves fall away inside the 4 s window without hitting a
+     neighbour trial; the held decoupler stays put.
+  5. The radial decoupler authoring (`srfN` attach on one tank) spawns and decouples.
+  6. Exploding test vessels leave no recorder side effect (no recording started, no ledger row).
+  7. The ocean slot is found and loads with the widened ranges; no building sits near a dust slot;
+     no dust from the warm-up lingers into the rounds; no dust renderer sits on layer 15
+     (`dust-on-terrain-layer`).
+  8. The ghost dust appears at `dust-high` (Parsek's 40 m ground-clearance gate).
+  9. Frame time and memory with 18 renders per frame (`[PartParity] memory` lines).
+  10. Every control reads ok, and after teardown no trial vessel, ghost, hold or effect is left.
+- No CHANGELOG entry (test tooling only); no todo entry.
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 

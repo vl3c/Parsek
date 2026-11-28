@@ -489,6 +489,14 @@ name = "Parsek.TestCommands.EvaMoveInputPatch"
 default = "scoped"
 reason = "the EvaMove seam verb's input drive (automation only, Prepare-gated): armed by one EvaMove step's applier, disarmed by its completion, its reset and the addon's two-phase clear"
 
+[[type]]
+name = "Parsek.TestCommands.PartParityBurstDriver"
+reason = "the part parity sweep's live burst driver (automation only)"
+[type.fields]
+currentTrial = "scoped: set around one burst trigger frame by TriggerAll and cleared in its finally (the onPartDie / onPartJointBreak handlers it subscribes are removed there too)"
+queuedField = "process: a reflection cache of FXMonger's private queue field, resolved once"
+protoFields = "process: a reflection cache of the queued-explosion type's position and power fields, filled once per type"
+
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its
 # write sites (the writes listed in the reason are every production write).
@@ -756,3 +764,4 @@ hingePistonTransformsFieldResolved = "process: resolve-once latch for that refle
 animationRestSampleCache = "process: prefab-derived animation rest-state sample cache, cleared with ClearAnimateHeatCache"
 nozzleGlowSampleCache = "process: prefab-derived nozzle glow clip sample cache, cleared with ClearAnimateHeatCache"
 colorChangerWritesOnlyWhileRamping = "process: resolve-once latch of whether KSPCommunityFixes patches ModuleColorChanger.Update"
+cachedExplosionPuffTexture = "process: the generated lumpy puff texture the hand-built explosion's smoke and fire share, built once"
