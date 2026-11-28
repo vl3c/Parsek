@@ -33,6 +33,11 @@ namespace Parsek
                     CameraDroneIdentity.SwitchTokenHeld, targetIsShip, droneLive))
                 return true;
             __result = false;
+            // A player's switch (map Switch To, alarm Switch To / Jump) is taken as "end the
+            // watch, then switch" (design-far-watch.md 8.5, ruled).
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight != null && flight.FarWatch != null && flight.FarWatch.IsRunning)
+                flight.FarWatch.RequestEndThenSwitch(v, force ? "ForceSetActiveVessel" : "SetActiveVessel");
             ParsekLog.InfoRateLimited("FarWatch",
                 "refused-switch-" + (v != null ? v.persistentId.ToString(CultureInfo.InvariantCulture) : "null"),
                 string.Format(CultureInfo.InvariantCulture,

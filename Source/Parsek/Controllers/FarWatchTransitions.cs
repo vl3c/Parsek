@@ -56,6 +56,18 @@ namespace Parsek
         CameraLost,
         ControllerDestroyed,
         TestRunnerReset,
+        /// <summary>[ or ], or the W* / stop control (step 3).</summary>
+        PlayerStop,
+        /// <summary>The return point came (8.5): air or ground ahead, a node, an alarm.</summary>
+        ReturnPoint,
+        /// <summary>A re-check found the ship no longer safe on rails (8.4).</summary>
+        ShipUnsafe,
+        /// <summary>The watched ghost came within 250 km of the ship (8.4 hysteresis).</summary>
+        GhostNearShip,
+        /// <summary>W / Watch on a ghost near the ship: hand back, then near watch (8.4).</summary>
+        WatchNearGhost,
+        /// <summary>A switch to another vessel was asked for: hand back, then switch (8.5).</summary>
+        SwitchRequested,
     }
 
     /// <summary>How the in-game test runner's between-run reset ends a far watch at once.</summary>
@@ -250,6 +262,19 @@ namespace Parsek
             // Step 2 moves the drone on the ship's body only; a hold watch never moves it.
             if (i.FollowGhost && !i.GhostOnShipBody) return "ghost-other-body";
             return null;
+        }
+
+        /// <summary>
+        /// An entry refusal that names a one-frame pending window of 8.3 (the safety check's
+        /// rule 2, hover "busy"), as opposed to a scene, vessel or ghost precondition.
+        /// </summary>
+        internal static bool IsPendingWindowRefusal(string refusal)
+        {
+            if (string.IsNullOrEmpty(refusal))
+                return false;
+            return refusal.StartsWith("pending-", StringComparison.Ordinal)
+                || refusal.StartsWith("time-jump-", StringComparison.Ordinal)
+                || refusal == "restoring-active-tree";
         }
 
         /// <summary>

@@ -40,7 +40,8 @@ members = [
 "Parsek.FarWatchController::ResolveAbort()" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the abort resolution reads which vessel holds focus (7.6)" }
 "Parsek.FarWatchController::RetargetCameraToActiveVessel(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2 review: the camera net re-targets to whichever vessel holds focus (drone or ship), never a ghost (7.5)" }
 "Parsek.FarWatchController::RetargetCameraToDrone(string)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the same-frame camera re-target on a watch exit while the drone exists (7.5)" }
-"Parsek.FarWatchController::TryStart(int32,bool,string&)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the entry reads the player ship before the drone exists" }
+"Parsek.FarWatchController::EvaluateAdmission(string,bool)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "step 3: the admission reads the player ship as the active vessel only while Idle (no drone); a running watch reads the parked ship" }
+"Parsek.FarWatchController::TryStart(int32,bool,bool,string&)" = { count = 1, codes = ["WATCH-INTERNAL"], audit = "step 2: the entry reads the player ship before the drone exists (step 3 adds the direct-start flag)" }
 "Parsek.FarWatchPlayerVessel::ReadActiveVesselCore()" = { count = 1, codes = ["PLAYER-SHIP"], audit = "H2 (step 2): the player ship is the active vessel while no drone exists" }
 "Parsek.FlightGlobalsProvider::GetActiveVesselPid()" = { count = 1, codes = ["SKIP-WHILE-DRONE"], audit = "B Recording/SegmentBoundaryLogic.cs:599" }
 "Parsek.FlightRecorder::OnVesselGoOffRails(Vessel)" = { count = 1, codes = ["UNREACHABLE"], audit = "B Recording/FlightRecorder.cs:1831" }

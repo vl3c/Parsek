@@ -481,7 +481,8 @@ namespace Parsek
             {
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
-                bool inRange = flight.IsGhostWithinVisualRange(ri);
+                string farRefusal;
+                bool inRange = flight.IsGhostWatchableAtRange(ri, out farRefusal);
                 bool bodyReadingCurrent = flight.IsGhostBodyReadingCurrent(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
                 bool canWatch = IsWatchButtonEnabled(hasGhost, sameBody, inRange, rec.IsDebris);
@@ -507,7 +508,7 @@ namespace Parsek
 
                 GUI.enabled = ShouldEnableWatchButton(canWatch, isWatching);
                 string watchLabel = RecordingWatchLabel(isWatching);
-                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
+                string watchTooltip = GetWatchButtonTooltip(isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent, farRefusal);
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (DrawBodyCenteredButton(watchContent, ColW_Watch))
                 {

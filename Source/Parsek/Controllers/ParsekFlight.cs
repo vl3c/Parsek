@@ -2476,9 +2476,16 @@ namespace Parsek
                 return;
             }
 
+            // [ or ] during a far watch (design-far-watch.md 12.2): the watch ends and the camera
+            // returns to the ship, in a follow watch and a hold watch alike (stock's own vessel
+            // cycling is input-locked while the drone holds focus).
+            if (farWatch != null && farWatch.IsRunning && (leftBracket || rightBracket))
+            {
+                farWatch.OnCycleKey(leftBracket);
+            }
             // [ or ] — Exit watch mode (return to vessel)
             // Avoids Backspace which is KSP's Abort action group key
-            if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
+            else if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
             {
                 watchMode.ExitWatchMode();
             }
@@ -2653,10 +2660,123 @@ namespace Parsek
         // Forwarding methods for external callers (RecordingsTableUI, GhostVesselLoadPatch, etc.)
         internal bool HasActiveGhost(int index) => watchMode.HasActiveGhost(index);
         internal bool IsGhostWithinVisualRange(int index) => watchMode.IsGhostWithinVisualRange(index);
+
+        /// <summary>
+        /// A Watch button's range term (design-far-watch.md 12.2): inside today's 300 km watch
+        /// range, or past it where a far watch can follow (same body, ship safe).
+        /// <paramref name="farRefusal"/> is the safety reason when the far watch would refuse.
+        /// </summary>
+        internal bool IsGhostWatchableAtRange(int index, out string farRefusal)
+        {
+            farRefusal = null;
+            if (watchMode.IsGhostWithinVisualRange(index))
+                return true;
+            return CanFarWatch(index, out farRefusal);
+        }
         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
-        internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
+        /// <summary>
+        /// The W / Watch entry every button calls (design-far-watch.md 12.2): a far ghost on the
+        /// ship's body starts the far watch directly, a near ghost during a far watch hands back
+        /// first; everything else is today's near watch.
+        /// </summary>
+        internal void EnterWatchMode(int index)
+        {
+            if (farWatch != null && TryRouteWatchToFarWatch(index))
+                return;
+            if (farWatch != null && farWatch.IsRunning)
+            {
+                // A follow switch during a far watch: the drone moves to the new ghost, so the
+                // distance from the drone is not the entry distance (12.2 FollowInFarWatch).
+                EnterWatchModeForFarWatch(index);
+                return;
+            }
+            watchMode.EnterWatchMode(index);
+        }
+
+        private bool TryRouteWatchToFarWatch(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count || committed[index] == null)
+                return false;
+            // W on the watched ghost toggles today's watch off (and with it the far watch).
+            if (watchMode.WatchedRecordingIndex == index)
+                return false;
+            if (engine == null || !engine.ghostStates.ContainsKey(index))
+                return false;
+            bool sameBody = watchMode.IsGhostOnSameBody(index);
+            double dist = GhostDistanceToShipForFarWatch(index);
+            return farWatch.TryRouteWatchRequest(index, committed[index].RecordingId, sameBody, dist);
+        }
+
+        /// <summary>
+        /// The ghost's distance from the player ship: the engine's distance from the active
+        /// vessel while no far watch runs (the ship is active), the packed ship's position while
+        /// one runs. NaN when the ghost has no position.
+        /// </summary>
+        internal double GhostDistanceToShipForFarWatch(int index)
+        {
+            GhostPlaybackState gs;
+            if (engine == null || !engine.ghostStates.TryGetValue(index, out gs) || gs == null)
+                return double.NaN;
+            if (farWatch == null || !farWatch.IsRunning || farWatch.Ship == null)
+                return gs.lastDistance > 0 ? gs.lastDistance : double.NaN;
+            if (gs.ghost == null)
+                return double.NaN;
+            return ReadGhostShipDistanceCore(gs.ghost.transform, farWatch.Ship);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadGhostShipDistanceCore(Transform ghost, Vessel ship)
+        {
+            return ((Vector3d)ghost.position - ship.GetWorldPos3D()).magnitude;
+        }
+
+        /// <summary>Watch entry with the 300 km entry guard skipped (the drone is moved to the ghost).</summary>
+        internal void EnterWatchModeForFarWatch(int index) => watchMode.EnterWatchModeForFarWatch(index);
+
+        /// <summary>
+        /// Today's near-watch entry with no far-watch routing: the hand-back's resume (8.4) and
+        /// the seam's EnterWatchMode verb (which has the FarWatch verb beside it).
+        /// </summary>
+        internal void EnterNearWatch(int index) => watchMode.EnterWatchMode(index);
+
+        /// <summary>
+        /// Whether W on a ghost past the 300 km watch range can start a far watch, for the Watch
+        /// buttons (12.2): the ghost is on the ship's body and the ship is safe (one-second cached
+        /// verdict). <paramref name="reason"/> is the hover reason when it cannot.
+        /// </summary>
+        internal bool CanFarWatch(int index, out string reason)
+        {
+            reason = null;
+            if (farWatch == null || HighLogic.LoadedScene != GameScenes.FLIGHT)
+                return false;
+            if (farWatch.IsRunning)
+                return watchMode.IsGhostOnSameBody(index);
+            if (!watchMode.IsGhostOnSameBody(index))
+                return false;
+            FarWatchSafetyVerdict v = farWatch.EvaluateAdmission("watch-button", useCache: true);
+            if (v.IsAllowed)
+                return true;
+            reason = FarWatchController.DescribeRefusalForHover(v);
+            return false;
+        }
+
         internal FarWatchController FarWatch => farWatch;
+
+        /// <summary>
+        /// The far-watch clause of the watch overlay (design-far-watch.md 8.4): the return time
+        /// and why warp is held, or null when no far watch runs.
+        /// </summary>
+        internal string BuildFarWatchOverlayClause()
+        {
+            if (farWatch == null || !farWatch.IsRunning)
+                return null;
+            Vessel ship = farWatch.Ship;
+            string body = ship != null && ship.mainBody != null ? ship.mainBody.bodyName : null;
+            return FarWatchDecisions.BuildOverlayClause(Planetarium.GetUniversalTime(), farWatch.ReturnUT,
+                farWatch.WarpLimitCause, body);
+        }
 
         /// <summary>
         /// Watch mode exited while the camera drone exists: the far watch ends through its one

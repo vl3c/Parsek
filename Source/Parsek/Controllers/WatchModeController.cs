@@ -1100,7 +1100,10 @@ namespace Parsek
                     distText = (dist / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " km";
             }
 
-            float boxW = 300f, boxH = 50f;
+            // The far-watch clause (design-far-watch.md 8.4, ruled): the return time and why warp
+            // is held below the requested rate, on a line of its own under the hint.
+            string farClause = host.BuildFarWatchOverlayClause();
+            float boxW = 300f, boxH = string.IsNullOrEmpty(farClause) ? 50f : 68f;
             float x = (ParsekUiScale.ScaledScreenWidth * 0.5f - boxW) / 2f; // centered in the left half of the screen (scaled-root units)
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
@@ -1116,7 +1119,10 @@ namespace Parsek
                 : "Watching: " + vesselName + "  (" + distText + ")" + modeLabel;
             GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
             GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
+            if (!string.IsNullOrEmpty(farClause))
+                GUI.Label(new Rect(x, y + 45, boxW, 18f), farClause, watchOverlayHintStyle);
         }
+
 
         /// <summary>
         /// Captures the current FlightCamera orbit and target basis so watch-mode
@@ -1576,6 +1582,29 @@ namespace Parsek
         /// If already watching the same recording, toggles off (exits watch mode).
         /// If watching a different recording, switches to the new one (preserves camera state).
         /// </summary>
+        // Set only for the duration of EnterWatchModeForFarWatch: the far watch moves the drone
+        // (the active vessel) to the ghost, so the 300 km entry guard does not apply.
+        private bool farWatchEntryBypass;
+
+        /// <summary>
+        /// Watch entry for the far watch (design-far-watch.md 12.2): today's entry with the 300 km
+        /// distance guard skipped. Every other check (same body, ghost state) still applies.
+        /// </summary>
+        internal void EnterWatchModeForFarWatch(int index)
+        {
+            ParsekLog.Info("CameraFollow", "EnterWatchMode for the far watch: distance guard skipped for ghost #"
+                + index.ToString(CultureInfo.InvariantCulture));
+            farWatchEntryBypass = true;
+            try
+            {
+                EnterWatchMode(index);
+            }
+            finally
+            {
+                farWatchEntryBypass = false;
+            }
+        }
+
         internal void EnterWatchMode(int index)
         {
             var committed = RecordingStore.CommittedRecordings;
@@ -1839,7 +1868,7 @@ namespace Parsek
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
             // Refuse new watch entry if the ghost is at or beyond the entry cutoff.
-            if (FlightGlobals.ActiveVessel != null)
+            if (!farWatchEntryBypass && FlightGlobals.ActiveVessel != null)
             {
                 double distMeters = gs.lastDistance;
                 if (distMeters <= 0 && gs.ghost != null)

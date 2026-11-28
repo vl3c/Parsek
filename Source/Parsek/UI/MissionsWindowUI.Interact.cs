@@ -379,7 +379,7 @@ namespace Parsek
                 if (i == watchedIdx)
                     isWatchingThisMission = true;
                 if (target < 0 && flight.HasActiveGhost(i) && flight.IsGhostOnSameBody(i)
-                    && flight.IsGhostWithinVisualRange(i))
+                    && flight.IsGhostWatchableAtRange(i, out _))
                     target = i;
             }
             return target;

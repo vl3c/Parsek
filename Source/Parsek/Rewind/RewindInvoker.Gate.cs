@@ -49,6 +49,12 @@ namespace Parsek
                 return false;
             }
 
+            if (CameraDroneIdentity.Exists)
+            {
+                reason = CameraDroneIdentity.NotWhileWatchingFarText;
+                return false;
+            }
+
             // §7.22: reject during scene transitions. A scene reload is already
             // in flight, so firing another LoadGame on top of it would either
             // stomp state or deadlock Unity's loader.

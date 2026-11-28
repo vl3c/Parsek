@@ -993,8 +993,23 @@ namespace Parsek
         /// one keeps the epoch-shift jump, which passes null chains to ExecuteJump. Either way
         /// the engine playback loop spawns the vessel on its recorded end.
         /// </summary>
+        /// <summary>
+        /// The hard refusal behind the greyed Warp to / Fast-forward controls while the camera
+        /// drone exists (design-far-watch.md 12.2): the same predicate the controls read.
+        /// </summary>
+        internal static bool RefuseWhileFarWatch(string entry)
+        {
+            if (!CameraDroneIdentity.Exists)
+                return false;
+            ParsekLog.Info("Flight", entry + ": refused while a far watch runs ("
+                + CameraDroneIdentity.NotWhileWatchingFarText + ")");
+            return true;
+        }
+
         internal void WarpToRecordingEnd(int recordingIndex)
         {
+            if (RefuseWhileFarWatch("WarpToRecordingEnd"))
+                return;
             var committed = RecordingStore.CommittedRecordings;
             if (recordingIndex < 0 || recordingIndex >= committed.Count)
             {
@@ -1135,6 +1150,8 @@ namespace Parsek
         /// </summary>
         internal void WarpToDeparture(int recordingIndex, double departureUT)
         {
+            if (RefuseWhileFarWatch("WarpToDeparture"))
+                return;
             var committed = RecordingStore.CommittedRecordings;
             if (recordingIndex < 0 || recordingIndex >= committed.Count)
             {
@@ -1193,6 +1210,8 @@ namespace Parsek
         /// </summary>
         internal void FastForwardToRecording(Recording rec)
         {
+            if (RefuseWhileFarWatch("FastForwardToRecording"))
+                return;
             if (rec == null)
             {
                 ParsekLog.Warn("Flight", "FastForwardToRecording: null recording — aborted");
@@ -1280,6 +1299,8 @@ namespace Parsek
         /// </summary>
         internal void FastForwardToEventUT(double eventUT, string label)
         {
+            if (RefuseWhileFarWatch("FastForwardToEventUT"))
+                return;
             double currentUT = Planetarium.GetUniversalTime();
             // Land RewindToLaunchLeadTimeSeconds before the event, matching the Forward button's lead.
             double targetUT = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
@@ -1312,6 +1333,8 @@ namespace Parsek
         /// </summary>
         internal void WarpToNextCraftSpawn()
         {
+            if (RefuseWhileFarWatch("WarpToNextCraftSpawn"))
+                return;
             double currentUT = Planetarium.GetUniversalTime();
             var next = SelectiveSpawnUI.FindNextSpawnCandidate(host.nearbySpawnCandidates, currentUT, ParsekFlight.NearbySpawnRadius, ParsekFlight.MaxRelativeSpeed);
             if (next == null)

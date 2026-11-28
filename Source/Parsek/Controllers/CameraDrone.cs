@@ -31,7 +31,7 @@ namespace Parsek
         internal const double SpawnOffsetMeters = 50.0;
         internal const double HandbackOffsetMeters = 300.0;
         internal const double HandbackRetryOffsetMeters = 100.0;
-        internal const double FloorBaseMeters = 20.0;
+        internal const double FloorBaseMeters = FarWatchWarpLimits.CameraDroneFloorBaseMeters;
         internal const double OriginShiftMeters = 500.0;
         internal const double BelowRadiusToleranceMeters = 1000.0;
         internal const double ParabolicEccentricityBand = 1e-6;
@@ -283,12 +283,7 @@ namespace Parsek
         /// </summary>
         internal static double TerrainFloorMeters(double verticalSpeed, double gameDtSeconds, double gravity)
         {
-            if (double.IsNaN(verticalSpeed) || double.IsInfinity(verticalSpeed)) verticalSpeed = 0.0;
-            if (double.IsNaN(gameDtSeconds) || double.IsInfinity(gameDtSeconds) || gameDtSeconds < 0.0) gameDtSeconds = 0.0;
-            if (double.IsNaN(gravity) || double.IsInfinity(gravity) || gravity < 0.0) gravity = 0.0;
-            return FloorBaseMeters
-                + Math.Max(0.0, -verticalSpeed * gameDtSeconds)
-                + 0.5 * gravity * gameDtSeconds * gameDtSeconds;
+            return FarWatchWarpLimits.TerrainFloorMeters(verticalSpeed, gameDtSeconds, gravity);
         }
 
         /// <summary>

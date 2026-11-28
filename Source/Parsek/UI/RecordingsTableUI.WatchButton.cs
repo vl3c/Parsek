@@ -196,7 +196,7 @@ namespace Parsek
         /// <inheritdoc cref="GetWatchButtonReason"/>
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
-            bool bodyReadingCurrent = true)
+            bool bodyReadingCurrent = true, string rangeRefusal = null)
         {
             if (isWatching)
                 return "Exit watch mode";
@@ -209,8 +209,10 @@ namespace Parsek
                     ? "Ghost is on a different body"
                     : "Ghost is too far away to be drawn right now, so Parsek cannot tell which body it is at - "
                       + "get closer and the Watch button comes back";
+            // Past the near-watch range the far watch decides (design-far-watch.md 12.2): its
+            // refusal is the ship-safety reason.
             if (!inRange)
-                return "Ghost is beyond the fixed 300 km watch range";
+                return string.IsNullOrEmpty(rangeRefusal) ? "Ghost is beyond the fixed 300 km watch range" : rangeRefusal;
             return "Follow ghost in watch mode";
         }
 
