@@ -100,7 +100,12 @@ namespace Parsek
             // instead, and an unknown one reads as 0 m/s (no FX invented).
             Vector3 surfaceVel = GhostSurfaceVelocity.Usable(
                 state.lastInterpolatedSurfaceVelocity, state.lastInterpolatedSurfaceVelocitySource);
-            float speed = surfaceVel.magnitude;
+            // Stock reads vessel.speed (its last 10 physics frames' mean velocity); the chord is
+            // the bracket's mean, so the recorded speeds give stock's reading when they are
+            // surface speeds (the direction stays the chord's).
+            float speed = GhostSurfaceVelocity.SpeedForAeroFx(state.lastInterpolatedSurfaceVelocity,
+                state.lastInterpolatedSurfaceVelocitySource, state.lastInterpolatedStockSurfaceSpeed,
+                state.lastInterpolatedStockSpeedChord, out bool stockSpeed);
 
             // Bug #450 B3: lazy-build seam. Reuses the body + atmosphere + altitude
             // + speed checks above. If the build is throttled or the gate fails,
@@ -132,7 +137,10 @@ namespace Parsek
             }
 
             double pressure = body.GetPressure(altitude);
-            double temperature = body.GetTemperature(altitude);
+            // Stock's FlightIntegrator: GetFullTemperature(altitude, the sun and latitude offset
+            // GetAtmoThermalStats gives at the vessel), not the standard atmosphere's.
+            double temperatureOffset = ReadAtmosphereTemperatureOffset(body, state.ghost, altitude);
+            double temperature = body.GetFullTemperature(altitude, temperatureOffset);
             if (double.IsNaN(pressure) || pressure < 0 || double.IsNaN(temperature) || temperature < 0)
             {
                 DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
@@ -153,6 +161,17 @@ namespace Parsek
             float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
                 speed, (float)density, machNumber, GhostAeroFxRenderer.Constants, out float aeroState);
             info.aeroState = aeroState;
+            info.lastInputs = new AeroFxInputs
+            {
+                Speed = speed,
+                ChordSpeed = surfaceVel.magnitude,
+                StockSpeed = stockSpeed,
+                Density = density,
+                Temperature = temperature,
+                TemperatureOffset = temperatureOffset,
+                Mach = machNumber,
+                RawFx = rawIntensity,
+            };
 
             float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
                 1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
@@ -477,7 +496,8 @@ namespace Parsek
             if (isActive)
             {
                 ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
-                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={info.aeroState:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
+                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={info.aeroState:F2} alt={altitude:F0} "
+                    + GhostAeroFx.FormatInputs(info.lastInputs));
             }
 
             // Test-only isolation frame; None (and nothing hidden) unless a test armed it.
@@ -548,6 +568,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stock's sun and latitude temperature offset at a ghost, as
+        /// <c>FlightIntegrator.CalculateSunBodyFlux</c> takes it for the active vessel: the
+        /// normalized scaled-space vector to the sun, the up axis at the position and
+        /// <c>CelestialBody.GetAtmoThermalStats</c> (body flux not needed). 0 when there is no
+        /// sun or the body is the sun. Not inlined: every read here is a live game call.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadAtmosphereTemperatureOffset(CelestialBody body, GameObject ghost, double altitude)
+        {
+            try
+            {
+                if (ghost == null) return 0.0;
+                Vector3d worldPosition = ghost.transform.position;
+                CelestialBody sun = Planetarium.fetch != null ? Planetarium.fetch.Sun : null;
+                if (sun == null || ReferenceEquals(sun, body) || sun.scaledBody == null) return 0.0;
+                Vector3d scaledPosition = ScaledSpace.LocalToScaledSpace(worldPosition);
+                Vector3d toSun = (Vector3d)sun.scaledBody.transform.position - scaledPosition;
+                double distance = toSun.magnitude;
+                if (distance == 0.0) distance = 1.0;
+                Vector3d sunVector = toSun / distance;
+                Vector3d up = FlightGlobals.getUpAxis(body, worldPosition);
+                double sunDot = Vector3d.Dot(sunVector, up);
+                body.GetAtmoThermalStats(false, sun, sunVector, sunDot, up, altitude,
+                    out double offset, out double _, out double _);
+                return double.IsNaN(offset) || double.IsInfinity(offset) ? 0.0 : offset;
+            }
+            catch (Exception e)
+            {
+                ParsekLog.WarnRateLimited("ReentryFx", "temp-offset-failed",
+                    $"Ghost reentry temperature offset unavailable, standard atmosphere used: {e.GetType().Name}: {e.Message}", 30.0);
+                return 0.0;
+            }
+        }
+
+        /// <summary>
         /// Test-only: the next reentry drive of this ghost (one frame) offers no sheath (so no
         /// sheath and no ghost light that frame), or with
         /// <see cref="ReentryIsolation.FireShellAndGlow"/> also drives Layer A cold; the drive
@@ -577,8 +632,11 @@ namespace Parsek
             ReentryIsolation mode = info.isolationArmed;
             if (mode == ReentryIsolation.None) return mode;
             info.isolationArmed = ReentryIsolation.None;
+            // The rig arms this on its shot frames: the ghost's scalar inputs ride along, to read
+            // beside stock's values at the same mark.
             ParsekLog.Verbose("ReentryFx",
-                $"Reentry isolation frame applied to ghost #{recIdx}: mode={mode}");
+                $"Reentry isolation frame applied to ghost #{recIdx}: mode={mode} fx={info.lastIntensity.ToString("F3", CultureInfo.InvariantCulture)} "
+                + $"state={info.aeroState.ToString("F3", CultureInfo.InvariantCulture)} " + GhostAeroFx.FormatInputs(info.lastInputs));
             return mode;
         }
 

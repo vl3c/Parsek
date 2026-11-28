@@ -120,6 +120,28 @@ namespace Parsek
     }
 
     /// <summary>
+    /// The conditions one ghost's reentry scalar was computed from on its last drive, kept so
+    /// the shot frames of the parity rig can log them beside stock's own (the rig's real marks
+    /// log stock's <c>FxScalar</c>, state, Mach and <c>airDensity</c>).
+    /// </summary>
+    internal struct AeroFxInputs
+    {
+        /// <summary>The speed the scalar used (m/s).</summary>
+        public float Speed;
+        /// <summary>The bracket's position chord speed (m/s): the bracket's mean, the fallback.</summary>
+        public float ChordSpeed;
+        /// <summary>True when <see cref="Speed"/> is the stock-read speed from the recorded speeds, false the chord's.</summary>
+        public bool StockSpeed;
+        public double Density;
+        public double Temperature;
+        /// <summary>Stock's sun and latitude temperature offset (K) folded into <see cref="Temperature"/>.</summary>
+        public double TemperatureOffset;
+        public float Mach;
+        /// <summary>The unsmoothed scalar, clamped 0..1.</summary>
+        public float RawFx;
+    }
+
+    /// <summary>
     /// Pure halves of the ghost reentry effect (part parity P9 Y1,
     /// docs/dev/design-part-ghost-parity.md G.7 "Y1 design"). Every rule here is stock's
     /// <c>AerodynamicsFX</c> / <c>FXCamera</c> arithmetic (KSP 1.12.5 decompile), applied to the
@@ -209,6 +231,15 @@ namespace Parsek
         /// every frame.
         /// </summary>
         internal static bool CameraDepthNeedsWrite(float current, float wanted) => !(current == wanted);
+
+        /// <summary>The inputs as one grep-stable, culture-invariant log fragment.</summary>
+        internal static string FormatInputs(in AeroFxInputs i)
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "speed={0:F1} speedSource={1} chordSpeed={2:F1} rho={3:F5} temp={4:F1}K tempOffset={5:F1}K mach={6:F3} rawFx={7:F3}",
+                i.Speed, i.StockSpeed ? "stock" : "chord", i.ChordSpeed, i.Density, i.Temperature,
+                i.TemperatureOffset, i.Mach, i.RawFx);
+        }
 
         /// <summary>
         /// Whether a renderer on this layer is one stock's FX or velocity camera could draw.
@@ -353,11 +384,24 @@ namespace Parsek
             return cameraDistance - Mathf.Max(0f, boundsRadius) <= reach;
         }
 
-        /// <summary>The velocity camera's box (half size) and far clip for a ghost of this size.</summary>
-        internal static void VelocityCamBox(float ghostSize, out float box, out float far)
+        /// <summary>
+        /// The velocity camera's box (orthographic half size, which is also how far ahead of the
+        /// ghost along its flow the camera stands) and far clip, as <c>FXCamera.LateUpdate</c>
+        /// sets them for the active vessel: <c>cameraDistance = max(FlightCamera.Distance,
+        /// |vesselSize|)</c>, the camera at <c>pivot - effectDirection * cameraDistance</c>,
+        /// <c>orthographicSize = cameraDistance</c>, <c>farClipPlane = max(projectionRange,
+        /// cameraDistance + |vesselSize|)</c>. For a ghost the camera distance is the main
+        /// camera's distance to the ghost. The stand-off matters to the look: a 3 m box (the
+        /// ghost's own size, flight 3 of 2026-11-28) fanned the flame out from a point just ahead
+        /// of the ghost where stock's streams back in parallel. An unknown distance falls back to
+        /// <c>FXCamera.Start</c>'s 3 m.
+        /// </summary>
+        internal static void VelocityCamBox(float ghostSize, float cameraDistance, out float box, out float far)
         {
-            if (float.IsNaN(ghostSize) || ghostSize < 0f) ghostSize = 0f;
-            box = Mathf.Max(StockVelocityCamMinBox, ghostSize);
+            if (float.IsNaN(ghostSize) || float.IsInfinity(ghostSize) || ghostSize < 0f) ghostSize = 0f;
+            if (float.IsNaN(cameraDistance) || float.IsInfinity(cameraDistance) || cameraDistance < 0f)
+                cameraDistance = StockVelocityCamMinBox;
+            box = Mathf.Max(cameraDistance, ghostSize);
             far = Mathf.Max(StockVelocityCamRange, box + ghostSize);
         }
 

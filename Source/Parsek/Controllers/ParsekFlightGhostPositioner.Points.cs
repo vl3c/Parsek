@@ -300,6 +300,13 @@ namespace Parsek
             {
                 interpResult = interpResult.WithSurfaceVelocity(
                     surfaceVelocity, GhostSurfaceVelocitySource.Positions);
+                // The speed stock's vessel.speed would read here (the reentry scalar reads it), not
+                // the bracket's mean.
+                double stockFraction = GhostSurfaceVelocity.StockSpeedFraction(
+                    t, after.ut - before.ut, TimeWarp.fixedDeltaTime);
+                if (GhostSurfaceVelocity.TryRecordedSurfaceSpeed(surfaceVelocity.magnitude,
+                        before.velocity.magnitude, after.velocity.magnitude, stockFraction, out float stockSpeed))
+                    interpResult = interpResult.WithStockSurfaceSpeed(stockSpeed);
             }
         }
 

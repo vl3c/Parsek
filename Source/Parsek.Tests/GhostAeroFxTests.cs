@@ -127,17 +127,22 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(0f, 3f, 50f)]
-        [InlineData(2f, 3f, 50f)]
-        [InlineData(10f, 10f, 50f)]
-        [InlineData(30f, 30f, 60f)]
-        [InlineData(float.NaN, 3f, 50f)]
-        [InlineData(-4f, 3f, 50f)]
-        public void VelocityCamBox_IsStocksBoxOnTheGhostSize(float size, float box, float far)
+        // The rig's pose: stock read ortho=32.4 far=50.0 for a 32.4 m camera distance.
+        [InlineData(3f, 32.4f, 32.4f, 50f)]
+        [InlineData(0f, 10f, 10f, 50f)]
+        [InlineData(2f, 0.5f, 2f, 50f)]
+        [InlineData(30f, 20f, 30f, 60f)]
+        [InlineData(5f, 300f, 300f, 305f)]
+        [InlineData(float.NaN, 40f, 40f, 50f)]
+        [InlineData(-4f, 40f, 40f, 50f)]
+        [InlineData(2f, float.NaN, 3f, 50f)]
+        [InlineData(2f, -1f, 3f, 50f)]
+        [InlineData(2f, float.PositiveInfinity, 3f, 50f)]
+        public void VelocityCamBox_IsStocksBoxOnTheCameraDistance(float size, float distance, float box, float far)
         {
-            GhostAeroFx.VelocityCamBox(size, out float gotBox, out float gotFar);
-            Assert.Equal(box, gotBox);
-            Assert.Equal(far, gotFar);
+            GhostAeroFx.VelocityCamBox(size, distance, out float gotBox, out float gotFar);
+            Assert.Equal(box, gotBox, 0.0001f);
+            Assert.Equal(far, gotFar, 0.0001f);
         }
 
         // --- DecideSheath ---
@@ -444,6 +449,59 @@ namespace Parsek.Tests
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
+        }
+
+        [Fact]
+        public void FormatInputs_StatesTheConditionsInvariantly()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                var inputs = new AeroFxInputs
+                {
+                    Speed = 1110.27f, ChordSpeed = 1088.5f, StockSpeed = true, Density = 0.032914,
+                    Temperature = 218.44, TemperatureOffset = -3.26, Mach = 3.75f, RawFx = 0.836f,
+                };
+                Assert.Equal("speed=1110.3 speedSource=stock chordSpeed=1088.5 rho=0.03291 temp=218.4K " +
+                    "tempOffset=-3.3K mach=3.750 rawFx=0.836", GhostAeroFx.FormatInputs(inputs));
+                inputs.StockSpeed = false;
+                Assert.Contains("speedSource=chord", GhostAeroFx.FormatInputs(inputs));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Fact]
+        public void ComputeFxScalar_StocksMach375Reading_NeedsItsSmoothedSpeed()
+        {
+            // Flight 3 (2026-11-28_0203), real vessel at m375: rho=0.03291 srfSpeed=1110.2
+            // mach=3.75 and AerodynamicsFX read FxScalar=0.836 state=0.998. At the logged
+            // instantaneous srfSpeed the formula gives 0.796; stock's airSpeed is vessel.speed,
+            // FlightIntegrator's ten-physics-frame mean, about 1 % above srfSpeed under this
+            // deceleration, and that 1 % is the 0.04.
+            float atSrfSpeed = GhostAeroFx.ComputeFxScalar(0.03291, 1110.2, 3.75f, AeroFxConstants.StockDefaults, out _);
+            Assert.InRange(atSrfSpeed, 0.786f, 0.806f);
+            double smoothed = 1110.2 * 1.0117;
+            float atSmoothed = GhostAeroFx.ComputeFxScalar(0.03291, smoothed, 3.7475f, AeroFxConstants.StockDefaults, out float state);
+            Assert.InRange(atSmoothed, 0.826f, 0.846f);
+            Assert.InRange(state, 0.99f, 1f);
+        }
+
+        [Fact]
+        public void ComputeFxScalar_TwoPercentSlowSpeed_ReadsTheGhostsLowValue()
+        {
+            // The same air, the speed 2 % low (the bracket chord's lag): the ghost logged 0.708
+            // with state 0.93 at that mark. Speed to the 3.5th power and Mach through the thermal
+            // blend (thin air: the scalar is multiplied by state below Mach 3.75) both pull it down.
+            double speed = 1110.2 * 0.98;
+            float mach = (float)(speed / (1110.2 / 3.75));
+            float fx = GhostAeroFx.ComputeFxScalar(0.03291, speed, mach, AeroFxConstants.StockDefaults, out float state);
+            Assert.InRange(fx, 0.68f, 0.74f);
+            Assert.InRange(state, 0.92f, 0.95f);
         }
 
         // --- ComputeFxScalar: the raw (unclamped) scalar ---

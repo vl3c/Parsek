@@ -82,6 +82,7 @@ namespace Parsek
             public AeroFxDrawValues values;
             public int lod;
             public float box;
+            public float far;
         }
         private readonly List<PreparedSheath> prepared = new List<PreparedSheath>();
         private int lastSubmitted;
@@ -656,7 +657,7 @@ namespace Parsek
                     detailLevel, ready, inReach, visibleMeshes, o.isolated);
                 if (decision == GhostAeroSheathDecision.Draw)
                 {
-                    if (DrawSheath(o, bounds, drawn, stockOn, now))
+                    if (DrawSheath(o, bounds, distance, drawn, stockOn, now))
                     {
                         if (drawn == 0) { captureOffer = o; haveCaptureOffer = true; }
                         drawn++;
@@ -869,14 +870,15 @@ namespace Parsek
             return visible;
         }
 
-        private bool DrawSheath(Offer o, Bounds bounds, int slot, bool stockOn, float now)
+        private bool DrawSheath(Offer o, Bounds bounds, float cameraDistance, int slot, bool stockOn, float now)
         {
             AeroFxDrawValues v = GhostAeroFx.Blend(condensation, heat, o.fx, o.aeroState);
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
             Vector3 effectDirection = -o.flowDirection;
 
-            // The ghost's own occlusion map: stock's velocity camera, boxed on the ghost.
-            GhostAeroFx.VelocityCamBox(bounds.size.magnitude, out float box, out float far);
+            // The ghost's own occlusion map: stock's velocity camera, boxed and stood off as stock
+            // does for the active vessel, on the camera's distance to this ghost.
+            GhostAeroFx.VelocityCamBox(bounds.size.magnitude, cameraDistance, out float box, out float far);
             // Each drawing ghost renders its own depth map at stock's occlusion size; the map must
             // live until the FX copy renders, which is why it is not shared between ghosts.
             RenderTexture depthMap = AcquireDepthMap(slot,
@@ -952,7 +954,7 @@ namespace Parsek
             }
 
             LogSheathMaterialsOnce(o);
-            prepared.Add(new PreparedSheath { offer = o, slot = slot, values = v, lod = lod, box = box });
+            prepared.Add(new PreparedSheath { offer = o, slot = slot, values = v, lod = lod, box = box, far = far });
             return true;
         }
 
@@ -976,10 +978,10 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{p.offer.recIdx}", string.Format(
                     CultureInfo.InvariantCulture,
                     "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
-                    "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m mode={11}",
+                    "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m velFar={12:F1}m mode={11} {13}",
                     p.offer.recIdx, p.offer.fx, p.offer.aeroState, submitted, p.lod,
                     GhostAeroFx.FxColorAlpha(v.Intensity, p.lod), v.Length, v.Color.r, v.Color.g, v.Color.b,
-                    p.box, diagMode), 5.0);
+                    p.box, diagMode, p.far, GhostAeroFx.FormatInputs(p.offer.info.lastInputs)), 5.0);
             }
             prepared.Clear();
             return total;
@@ -1154,7 +1156,12 @@ namespace Parsek
             MaterialPropertyBlock mpb = blocks.Count > 0 ? blocks[0] : null;
             var clear = new Color32(0, 0, 0, 0);
             report.Append("ghost=#").Append(captureOffer.recIdx.ToString(CultureInfo.InvariantCulture))
-                .Append(" mode=").Append(diagMode).Append(' ');
+                .Append(" mode=").Append(diagMode)
+                .Append(" fx=").Append(captureOffer.fx.ToString("F3", CultureInfo.InvariantCulture))
+                .Append(" state=").Append(captureOffer.aeroState.ToString("F3", CultureInfo.InvariantCulture))
+                .Append(" velocityCam ortho=").Append(velocityCamera.orthographicSize.ToString("F1", CultureInfo.InvariantCulture))
+                .Append(" far=").Append(velocityCamera.farClipPlane.ToString("F1", CultureInfo.InvariantCulture))
+                .Append(' ').Append(GhostAeroFx.FormatInputs(captureOffer.info.lastInputs)).Append(' ');
             try
             {
                 int w = Mathf.Max(16, mainCamera.pixelWidth);
