@@ -721,22 +721,50 @@ namespace Parsek
             maskGhosts.Clear();
         }
 
-        // Once per drawing frame: the message is built only when the rate limit lets it out.
-        private void LogFrame(int offerCount, int drawn, int outOfReach, int isolated, int other,
-            bool haveLight, int lightRecIdx, float reach, bool stockOn, bool ready, int maskedGhosts,
-            int failedMaskWrites, double cpuMs)
+        // Once per drawing frame. The values travel in a struct to a lambda that captures
+        // nothing, under a pre-composed key, so a suppressed line allocates nothing.
+        private static readonly string AeroFrameLogKey = ParsekLog.ComposeKey("ReentryFx", "aero-frame");
+
+        private struct AeroFrameLogState
         {
-            ParsekLog.VerboseRateLimited("ReentryFx", "aero-frame", () => string.Format(CultureInfo.InvariantCulture,
+            public int offerCount, drawn, outOfReach, isolated, other, lightRecIdx, maskedGhosts;
+            public int maskRenderers, lastMasked, failedMaskWrites, depthMaps, depthRes;
+            public int fxCopyRenders, depthCopyRenders, framesCopiesOn, submitted;
+            public bool haveLight, stockOn, ready;
+            public float reach;
+            public double cpuMs;
+            public GhostAeroFxDiagnosticMode mode;
+        }
+
+        private static readonly System.Func<AeroFrameLogState, string> FormatAeroFrame = st =>
+            string.Format(CultureInfo.InvariantCulture,
                 "Ghost aero FX frame: offers={0} drawn={1} outOfReach={2} isolated={3} other={4} " +
                 "light={5} reach={6:F0}m stockOn={7} ready={8} maskGhosts={9} maskRenderers={10} " +
                 "lastMasked={11} maskWriteFailures={12} depthMaps={13} depthRes={14} cpuMs={15:F3} " +
                 "fxCopyRenders={16} depthCopyRenders={17} framesCopiesOn={18} mode={19} submitted={20}",
-                offerCount, drawn, outOfReach, isolated, other,
-                haveLight ? "#" + lightRecIdx.ToString(CultureInfo.InvariantCulture) : "none",
-                reach, stockOn, ready, maskedGhosts, mask.CandidateCount, mask.LastMaskedCount,
-                failedMaskWrites, depthPool.Count, depthPoolResolution,
-                cpuMs, fxCopyRenders, depthCopyRenders, framesCopiesOn,
-                diagMode, lastSubmitted), 5.0);
+                st.offerCount, st.drawn, st.outOfReach, st.isolated, st.other,
+                st.haveLight ? "#" + st.lightRecIdx.ToString(CultureInfo.InvariantCulture) : "none",
+                st.reach, st.stockOn, st.ready, st.maskedGhosts, st.maskRenderers, st.lastMasked,
+                st.failedMaskWrites, st.depthMaps, st.depthRes,
+                st.cpuMs, st.fxCopyRenders, st.depthCopyRenders, st.framesCopiesOn,
+                st.mode, st.submitted);
+
+        private void LogFrame(int offerCount, int drawn, int outOfReach, int isolated, int other,
+            bool haveLight, int lightRecIdx, float reach, bool stockOn, bool ready, int maskedGhosts,
+            int failedMaskWrites, double cpuMs)
+        {
+            var st = new AeroFrameLogState
+            {
+                offerCount = offerCount, drawn = drawn, outOfReach = outOfReach, isolated = isolated,
+                other = other, haveLight = haveLight, lightRecIdx = lightRecIdx, reach = reach,
+                stockOn = stockOn, ready = ready, maskedGhosts = maskedGhosts,
+                maskRenderers = mask.CandidateCount, lastMasked = mask.LastMaskedCount,
+                failedMaskWrites = failedMaskWrites, depthMaps = depthPool.Count,
+                depthRes = depthPoolResolution, cpuMs = cpuMs, fxCopyRenders = fxCopyRenders,
+                depthCopyRenders = depthCopyRenders, framesCopiesOn = framesCopiesOn,
+                mode = diagMode, submitted = lastSubmitted,
+            };
+            ParsekLog.VerboseRateLimitedComposed("ReentryFx", AeroFrameLogKey, st, FormatAeroFrame, 5.0);
         }
 
         /// <summary>
@@ -1002,18 +1030,31 @@ namespace Parsek
             return total;
         }
 
-        // Per drawing ghost per frame: the message is built only when the rate limit lets it out.
-        private static void LogSheathDrawn(PreparedSheath p, int submitted, GhostAeroFxDiagnosticMode mode)
+        // Per drawing ghost per frame, under the ghost's cached key, with no capture: a
+        // suppressed line allocates nothing.
+        private struct SheathLogState
         {
-            AeroFxInputs inputs = p.offer.info.lastInputs;
-            ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{p.offer.recIdx}", () => string.Format(
-                CultureInfo.InvariantCulture,
+            public PreparedSheath p;
+            public int submitted;
+            public GhostAeroFxDiagnosticMode mode;
+        }
+
+        private static readonly System.Func<SheathLogState, string> FormatSheathDrawn = st =>
+            string.Format(CultureInfo.InvariantCulture,
                 "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
                 "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m velFar={12:F1}m mode={11} {13}",
-                p.offer.recIdx, p.offer.fx, p.offer.aeroState, submitted, p.lod,
-                GhostAeroFx.FxColorAlpha(p.values.Intensity, p.lod), p.values.Length,
-                p.values.Color.r, p.values.Color.g, p.values.Color.b,
-                p.box, mode, p.far, GhostAeroFx.FormatInputs(inputs)), 5.0);
+                st.p.offer.recIdx, st.p.offer.fx, st.p.offer.aeroState, st.submitted, st.p.lod,
+                GhostAeroFx.FxColorAlpha(st.p.values.Intensity, st.p.lod), st.p.values.Length,
+                st.p.values.Color.r, st.p.values.Color.g, st.p.values.Color.b,
+                st.p.box, st.mode, st.p.far, GhostAeroFx.FormatInputs(st.p.offer.info.lastInputs));
+
+        private static void LogSheathDrawn(PreparedSheath p, int submitted, GhostAeroFxDiagnosticMode mode)
+        {
+            ReentryFxInfo info = p.offer.info;
+            string key = GhostAeroFxLogKeys.CachedLogKey(ref info.sheathLogKey, ref info.sheathLogKeyIdx,
+                p.offer.recIdx, "ReentryFx", "aero-sheath-", "");
+            ParsekLog.VerboseRateLimitedComposed("ReentryFx", key,
+                new SheathLogState { p = p, submitted = submitted, mode = mode }, FormatSheathDrawn, 5.0);
         }
 
         private void DriveCameras(Camera mainCamera, float reach)

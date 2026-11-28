@@ -4758,9 +4758,48 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
   - Review follow-ups in the same change: the per-frame `sheath drawn`, frame and intensity lines
     build their text only when the rate limit lets one out; the materials-logged mark is a flag on
     the ghost's `ReentryFxInfo` (the renderer no longer holds infos); the two camera copies are
-    re-parented to stock's FX camera parent, with an Info line, if a frame finds them elsewhere;
-    a pending capture is finished as abandoned when the renderer is destroyed.
+    re-parented to stock's FX camera parent (the main camera when that parent is null), with an
+    Info line, if a frame finds them elsewhere; a pending capture is finished as abandoned when
+    the renderer is destroyed.
   - The rig needs no change: it already logs the whole capture report.
+- After flight 5 (2026-11-28, `PPS-20c` run `2026-11-28_0332`, PASS, rig e6427561b over
+  fbfb9f0d5; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-vdiag/` on
+  `p9-y1-flight-after-vdiag`). The V is the heat shield's fairing, and the cause is a ghost
+  visual parity bug in the recorder, not in Y1's renderer:
+  1. Occlusion acts on the ghost's map: `emptyMap ... pixelsChangedByOcclusion=6660` at m6.
+  2. The m6 mesh probes: `mesh[5] 'fairing'` (HeatShield1's `ModuleJettison` shroud, KSP/Diffuse,
+     480 verts, 1.4 m wide, 0.2 m deep) draws the most fire of any mesh (fxPx 18785, fxSum 1.22M)
+     and is the frontmost (dNear 31.95 m, `behindMap=-0.21`, ahead of the shield's own face at
+     32.23 m), the same at m375.
+  3. (a) The ghost shows that fairing in its ordinary render and the real vessel does not. In the
+     no-fire frames (m2 / m25 `mainA`, m3 `mainB`) the real's base rows are 21 px wide, the
+     ghost's 27 px with one more row: the 1.4 m fairing ring around the 1.25 m shield. So stock
+     draws no fire from it because it is not there.
+  4. Why it is there. Stock `ModuleJettison.SetupJettisonState` (decompiled) re-parents an
+     `isFairing` + `decoupleEnabled` shroud onto the part on its bottom node at flight start, so
+     the fairing travels with that part (here `Decoupler.1`). On the decouple at ut 50.04 stock's
+     `DecoupleAction` calls `Jettison()`, which refuses (`checkBottomNode`: the log's "Checked
+     bottom node and found an attached part. Unable to Jettison"), so `isJettisoned` stays
+     false, but the fairing has already left with the decoupler. The recorder read only
+     `isJettisoned` and the shroud transform under the shield's own model (not found once it is
+     re-parented), so it recorded no `ShroudJettisoned`; the ghost, built from the launch
+     snapshot (`starts shown ... bottomEmpty=False`), kept the fairing to the end.
+  5. (b) needs no change: the sheath already skips disabled and inactive renderers
+     (`SheathMeshVisible`), so a ghost that hides the fairing stops drawing its fire. (c) was not
+     needed.
+  - Fix (recorder, both recorders through `PartStatePoller.PollJettisons`): a jettison module
+     whose own `jettisonTransform` now sits under a part off this vessel, under no part, or was
+     destroyed (`ClassifyJettisonCarrierNotInlined`, pure `IsJettisonCarriedOff`) counts as
+     jettisoned, so the decouple records `ShroudJettisoned` for the shield and the ghost hides
+     the fairing at that UT. Logged once per transition (`Jettison shroud of '<part>' pid=
+     carried off: carrier= carrierPart=`). A shroud re-parented onto a part still on the vessel
+     stays shown. Recordings made before the fix keep the fairing on the ghost.
+  - Not fixed: the decoupler's debris ghost does not show the fairing it carried away (it is part
+     of the shield's model, not the decoupler's snapshot). Small, out of Y1's scope.
+  - Review follow-ups in the same change: the three per-frame log lines pass their values in a
+     struct to a non-capturing lambda under a cached key (`VerboseRateLimitedComposed<TState>`,
+     the per-ghost keys composed once per recording index on the ghost's `ReentryFxInfo`), so a
+     suppressed line allocates nothing.
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and

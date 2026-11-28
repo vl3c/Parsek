@@ -473,13 +473,30 @@ namespace Parsek
             info.lastIntensity = 0f;
         }
 
-        // Per burning ghost per frame: the message is built only when the rate limit lets it out.
-        private static void LogReentryIntensity(int recIdx, float intensity, float aeroState,
-            double altitude, AeroFxInputs inputs)
+        // Per burning ghost per frame, under the ghost's cached key, with no capture: a
+        // suppressed line allocates nothing.
+        private struct ReentryIntensityLogState
         {
-            ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
-                () => $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={aeroState:F2} alt={altitude:F0} "
-                    + GhostAeroFx.FormatInputs(inputs));
+            public int recIdx;
+            public float intensity, aeroState;
+            public double altitude;
+            public AeroFxInputs inputs;
+        }
+
+        private static readonly Func<ReentryIntensityLogState, string> FormatReentryIntensity = st =>
+            $"ReentryFx: ghost #{st.recIdx} intensity={st.intensity:F2} state={st.aeroState:F2} alt={st.altitude:F0} "
+                + GhostAeroFx.FormatInputs(st.inputs);
+
+        private static void LogReentryIntensity(ReentryFxInfo info, int recIdx, float intensity,
+            double altitude)
+        {
+            string key = GhostAeroFxLogKeys.CachedLogKey(ref info.intensityLogKey,
+                ref info.intensityLogKeyIdx, recIdx, "Engine", "ghost-", "-intensity");
+            ParsekLog.VerboseRateLimitedComposed("Engine", key, new ReentryIntensityLogState
+            {
+                recIdx = recIdx, intensity = intensity, aeroState = info.aeroState,
+                altitude = altitude, inputs = info.lastInputs,
+            }, FormatReentryIntensity);
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
@@ -505,7 +522,7 @@ namespace Parsek
             if (isActive)
             {
                 if (ParsekLog.IsVerboseEnabled)
-                    LogReentryIntensity(recIdx, intensity, info.aeroState, altitude, info.lastInputs);
+                    LogReentryIntensity(info, recIdx, intensity, altitude);
             }
 
             // Test-only isolation frame; None (and nothing hidden) unless a test armed it.

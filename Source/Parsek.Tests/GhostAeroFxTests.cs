@@ -619,9 +619,11 @@ namespace Parsek.Tests
             var px = new[]
             {
                 bg, new Color32(10, 20, 30, 255), bg, new Color32(1, 1, 1, 0),
+                // RGB equal to the background, alpha not: covered, adds 0 to the sum.
+                new Color32(0, 0, 0, 128),
             };
             GhostAeroFx.MeasurePixels(px, bg, out int covered, out long sum);
-            Assert.Equal(2, covered);
+            Assert.Equal(3, covered);
             Assert.Equal(63L, sum);
             GhostAeroFx.MeasurePixels(null, bg, out covered, out sum);
             Assert.Equal(0, covered);
@@ -631,13 +633,35 @@ namespace Parsek.Tests
         [Fact]
         public void CountDifferingPixels_UsesThePerChannelThreshold()
         {
-            var a = new[] { new Color32(100, 0, 0, 255), new Color32(0, 0, 0, 0), new Color32(5, 5, 5, 5) };
-            var b = new[] { new Color32(108, 0, 0, 255), new Color32(0, 9, 0, 0), new Color32(5, 5, 5, 200) };
-            // 8 is not above 8; 9 is; alpha is not compared.
-            Assert.Equal(1, GhostAeroFx.CountDifferingPixels(a, b, 8));
-            Assert.Equal(2, GhostAeroFx.CountDifferingPixels(a, b, 7));
+            var a = new[]
+            {
+                new Color32(100, 0, 0, 255), new Color32(0, 0, 0, 0), new Color32(5, 5, 5, 5),
+                new Color32(0, 0, 0, 0),
+            };
+            var b = new[]
+            {
+                new Color32(108, 0, 0, 255), new Color32(0, 9, 0, 0), new Color32(5, 5, 5, 200),
+                // Differs only in blue.
+                new Color32(0, 0, 20, 0),
+            };
+            // 8 is not above 8; 9 is; alpha is not compared; blue is.
+            Assert.Equal(2, GhostAeroFx.CountDifferingPixels(a, b, 8));
+            Assert.Equal(3, GhostAeroFx.CountDifferingPixels(a, b, 7));
             Assert.Equal(-1, GhostAeroFx.CountDifferingPixels(a, new Color32[2], 8));
             Assert.Equal(-1, GhostAeroFx.CountDifferingPixels(null, b, 8));
+        }
+
+        [Fact]
+        public void CachedLogKey_ComposesOncePerRecordingIndex()
+        {
+            string key = null;
+            int idx = -1;
+            string first = GhostAeroFxLogKeys.CachedLogKey(ref key, ref idx, 3, "Engine", "ghost-", "-intensity");
+            Assert.Equal(ParsekLog.ComposeKey("Engine", "ghost-3-intensity"), first);
+            Assert.Same(first, GhostAeroFxLogKeys.CachedLogKey(ref key, ref idx, 3, "Engine", "ghost-", "-intensity"));
+            string moved = GhostAeroFxLogKeys.CachedLogKey(ref key, ref idx, 12, "Engine", "ghost-", "-intensity");
+            Assert.Equal(ParsekLog.ComposeKey("Engine", "ghost-12-intensity"), moved);
+            Assert.Equal(12, idx);
         }
 
         [Theory]
