@@ -4707,6 +4707,60 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
     carry the same inputs, the latter also `velFar=`; the capture report adds `fx= state=` and
     `velocityCam ortho= far=` with the inputs. Read beside the rig's real-mark line (`FxScalar=
     state= mach= airDensity= velocityCam ... ortho= far=`).
+- After flight 4 (2026-11-28, `PPS-20c` run `2026-11-28_0251`, PASS, rig 903d72696 over
+  bec866fca; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-tune/` on
+  `p9-y1-flight-after-tune`, sheet `contact-real-before-after-tune.png`). The inputs track
+  stock: m6 fx 1.000 state 1.000 on both, speed 1818.2 (source `stock`) against stock's 1818.0;
+  m375 0.806 against 0.836 (0.708 before); m3 0.136 against 0.143. The look is close in colour,
+  length, width and direction at m6 and m375. One artifact is left, and two report questions:
+  1. A bright V of two converging streaks at the base of the ghost's flame (m6, m375, m3) that
+     stock's flame does not show. What the captures show:
+     - It is in the offscreen `fx` render (no scene depth) and in `NoSceneDepth`, so it comes from
+       the ghost's own submitted meshes and its own velocity map, not the scene depth copy.
+     - Laid over the `plain` silhouette (same camera, same pixels, m375): the shield is the 25 px
+       band at the base, the chute and probe stack the 12 px bump on top. The V's two streaks
+       start right above the shield's top edge, 19 px apart (about 0.75 of the shield's
+       diameter), and meet on the axis about 19 px (about 1 m) downstream. Stock's flame has no V;
+       its base is a bright rim at the shield's edge, the stack visible but unlit. So surfaces in
+       the shield's shadow (its back face, the stack) stream fire on the ghost and not on stock,
+       which hides what its occlusion test puts behind the map's surface.
+     - The ghost's map (`fxr-diag-m375-depth.png`, 2048 px, box 32.4 m) holds one 43 px disc
+       (1.36 m, the shield seen from upstream), red 91 inside and 92 on the rim of 255: on a
+       reversed-Z device 32.16 m from a camera standing 32.4 m ahead of the bounds centre, the
+       shield's front face. Nothing else is on it. The m375 capture ran with stock's FX camera
+       off, so the globals were this ghost's values as well as its block, and every block value
+       matched stock's already (flight 3, item 2).
+     Not separable from this flight: whether the occlusion test does not act on the ghost's map
+     as it does on stock's (its sampling, depth convention or texel), or whether a mesh the ghost
+     submits draws where stock's vessel draws nothing. Not proved, so nothing in the look is
+     changed. The capture report now separates them (logging only, `RunCapture`):
+     - `emptyMap (nothing occludes): covered= rgbSum= vs normal covered= rgbSum=
+       pixelsChangedByOcclusion=`: the ghost rendered again with a cleared velocity map. Near 0
+       changed pixels means occlusion does not act on the map the ghost hands the shader.
+     - one `mesh[i] '<object>'/'<mesh>' <shader>[<RenderType>] L<layer> verts= fxPx= fxSum= d=
+       dNear= mapD= texel=(x,y) raw= behindMap=` per visible mesh: what that mesh alone draws
+       through the FX shader, and where its bounds stand against slot 0's map at its centre
+       texel (`behindMap` > 0: its nearest bound is behind the map's surface, in stock's
+       shadow). The mesh with the V's pixels names the source; behind the map and still drawing
+       points at the test, in front of it at the map or its placement.
+     - the report header adds `slot0SetGlobals=` and `reversedZ=`.
+  2. The m6 capture's `velocityCam ortho=2856.5 far=2861.1` was a report bug. It read the shared
+     velocity camera after the frame's last map render (slot 1, a ghost 2.86 km out). Each drawing
+     ghost renders its own pooled map (`depthPool[slot]`) and its own block carries that map,
+     its matrices and its box; `depthMap0` at m6 is ghost #1's (1443 px off the clear, red
+     0..92, the same 43 px disc as m375, a 32.4 m box). No ghost reads another's map. The report
+     now prints `velocityCam(slot0) box= far=` from slot 0's prepared sheath, and
+     `sheathsThisFrame=`.
+  3. The ghost 2.86 km out draws under stock's reach: stock's FX camera far clip is
+     `max(300, FlightCamera.Distance + 100)`, and at m6 the rig's camera stood about 2.87 km off
+     (the copy's `far=2971.74`). Its box is stock's rule on its own camera distance (2856 m, the
+     vessel under one texel), as stock would map its own vessel from there. Kept.
+  - Review follow-ups in the same change: the per-frame `sheath drawn`, frame and intensity lines
+    build their text only when the rate limit lets one out; the materials-logged mark is a flag on
+    the ghost's `ReentryFxInfo` (the renderer no longer holds infos); the two camera copies are
+    re-parented to stock's FX camera parent, with an Info line, if a frame finds them elsewhere;
+    a pending capture is finished as abandoned when the renderer is destroyed.
+  - The rig needs no change: it already logs the whole capture report.
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and

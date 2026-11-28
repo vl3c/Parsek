@@ -83,9 +83,14 @@ namespace Parsek
             public int lod;
             public float box;
             public float far;
+            // The velocity camera's world-to-camera matrix for this slot's own depth map (the
+            // shared camera moves on to the next ghost), read by a rig capture's probe.
+            public Matrix4x4 worldToVelocity;
         }
         private readonly List<PreparedSheath> prepared = new List<PreparedSheath>();
         private int lastSubmitted;
+        // Whether this frame's slot-0 sheath also set the FX values as globals (stock's camera off).
+        private bool slot0SetGlobals;
 
         private AerodynamicsFX stockFx;
         private FXCamera stockCamera;
@@ -130,7 +135,6 @@ namespace Parsek
         private int framesCopiesOn;
         private bool cameraStateLogged;
         private bool fxCopyReenabledLogged;
-        private readonly HashSet<ReentryFxInfo> materialsLogged = new HashSet<ReentryFxInfo>();
 
         /// <summary>
         /// The <c>AerodynamicsFX</c> constants from the loaded <c>PhysicsGlobals</c>, read once a
@@ -322,6 +326,8 @@ namespace Parsek
 
         private void OnDestroy()
         {
+            // A rig waiting on a capture gets its callback, not a hang.
+            if (pendingCapture != null) FinishCapture(null, "abandoned: renderer destroyed");
             Unsubscribe();
             RestoreMask("destroy");
             DestroyCopies();
@@ -597,6 +603,7 @@ namespace Parsek
         {
             int frame = Time.frameCount;
             prepared.Clear();
+            slot0SetGlobals = false;
             if (offersFrame != frame) offers.Clear();
             if (maskGhostsFrame != frame) maskGhosts.Clear();
             mask.ClearCandidates();
@@ -707,19 +714,29 @@ namespace Parsek
 
             frameWatch.Stop();
             int failedMaskWrites = mask.TakeFailedWrites();
-            ParsekLog.VerboseRateLimited("ReentryFx", "aero-frame", string.Format(CultureInfo.InvariantCulture,
+            if (ParsekLog.IsVerboseEnabled)
+                LogFrame(offers.Count, drawn, outOfReach, isolated, other, haveLight, lightOffer.recIdx, reach,
+                    stockOn, ready, maskedGhosts, failedMaskWrites, frameWatch.Elapsed.TotalMilliseconds);
+            offers.Clear();
+            maskGhosts.Clear();
+        }
+
+        // Once per drawing frame: the message is built only when the rate limit lets it out.
+        private void LogFrame(int offerCount, int drawn, int outOfReach, int isolated, int other,
+            bool haveLight, int lightRecIdx, float reach, bool stockOn, bool ready, int maskedGhosts,
+            int failedMaskWrites, double cpuMs)
+        {
+            ParsekLog.VerboseRateLimited("ReentryFx", "aero-frame", () => string.Format(CultureInfo.InvariantCulture,
                 "Ghost aero FX frame: offers={0} drawn={1} outOfReach={2} isolated={3} other={4} " +
                 "light={5} reach={6:F0}m stockOn={7} ready={8} maskGhosts={9} maskRenderers={10} " +
                 "lastMasked={11} maskWriteFailures={12} depthMaps={13} depthRes={14} cpuMs={15:F3} " +
                 "fxCopyRenders={16} depthCopyRenders={17} framesCopiesOn={18} mode={19} submitted={20}",
-                offers.Count, drawn, outOfReach, isolated, other,
-                haveLight ? "#" + lightOffer.recIdx.ToString(CultureInfo.InvariantCulture) : "none",
+                offerCount, drawn, outOfReach, isolated, other,
+                haveLight ? "#" + lightRecIdx.ToString(CultureInfo.InvariantCulture) : "none",
                 reach, stockOn, ready, maskedGhosts, mask.CandidateCount, mask.LastMaskedCount,
                 failedMaskWrites, depthPool.Count, depthPoolResolution,
-                frameWatch.Elapsed.TotalMilliseconds, fxCopyRenders, depthCopyRenders, framesCopiesOn,
+                cpuMs, fxCopyRenders, depthCopyRenders, framesCopiesOn,
                 diagMode, lastSubmitted), 5.0);
-            offers.Clear();
-            maskGhosts.Clear();
         }
 
         /// <summary>
@@ -924,6 +941,7 @@ namespace Parsek
             mpb.SetFloat("_FXFalloff2", v.Falloff2);
             mpb.SetFloat("_FXFalloff3", v.Falloff3);
             mpb.SetFloat("_FXWobble", v.Wobble);
+            if (slot == 0) slot0SetGlobals = !stockOn;
             if (slot == 0 && !stockOn)
             {
                 // The same values as globals, as FXCamera.OnPreRender sets them, for whatever the
@@ -954,7 +972,11 @@ namespace Parsek
             }
 
             LogSheathMaterialsOnce(o);
-            prepared.Add(new PreparedSheath { offer = o, slot = slot, values = v, lod = lod, box = box, far = far });
+            prepared.Add(new PreparedSheath
+            {
+                offer = o, slot = slot, values = v, lod = lod, box = box, far = far,
+                worldToVelocity = depthCamMatrix,
+            });
             return true;
         }
 
@@ -974,23 +996,37 @@ namespace Parsek
                 PreparedSheath p = prepared[i];
                 int submitted = SubmitSheath(p.offer, blocks[p.slot], plain);
                 total += submitted;
-                AeroFxDrawValues v = p.values;
-                ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{p.offer.recIdx}", string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
-                    "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m velFar={12:F1}m mode={11} {13}",
-                    p.offer.recIdx, p.offer.fx, p.offer.aeroState, submitted, p.lod,
-                    GhostAeroFx.FxColorAlpha(v.Intensity, p.lod), v.Length, v.Color.r, v.Color.g, v.Color.b,
-                    p.box, diagMode, p.far, GhostAeroFx.FormatInputs(p.offer.info.lastInputs)), 5.0);
+                if (ParsekLog.IsVerboseEnabled) LogSheathDrawn(p, submitted, diagMode);
             }
             prepared.Clear();
             return total;
+        }
+
+        // Per drawing ghost per frame: the message is built only when the rate limit lets it out.
+        private static void LogSheathDrawn(PreparedSheath p, int submitted, GhostAeroFxDiagnosticMode mode)
+        {
+            AeroFxInputs inputs = p.offer.info.lastInputs;
+            ParsekLog.VerboseRateLimited("ReentryFx", $"aero-sheath-{p.offer.recIdx}", () => string.Format(
+                CultureInfo.InvariantCulture,
+                "Ghost #{0} sheath drawn: fx={1:F3} state={2:F2} submeshes={3} lod={4} alpha={5:F3} " +
+                "length={6:F2} color=({7:F2},{8:F2},{9:F2}) box={10:F1}m velFar={12:F1}m mode={11} {13}",
+                p.offer.recIdx, p.offer.fx, p.offer.aeroState, submitted, p.lod,
+                GhostAeroFx.FxColorAlpha(p.values.Intensity, p.lod), p.values.Length,
+                p.values.Color.r, p.values.Color.g, p.values.Color.b,
+                p.box, mode, p.far, GhostAeroFx.FormatInputs(inputs)), 5.0);
         }
 
         private void DriveCameras(Camera mainCamera, float reach)
         {
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
             float fov = mainCamera.fieldOfView;
+
+            // The copies render from their parent's pose (stock's FX camera parent, the main
+            // camera); a scene change of that parent would leave them drawing from a stale pose.
+            Transform expectedParent = stockCameraComponent.transform.parent != null
+                ? stockCameraComponent.transform.parent : mainCamera.transform;
+            KeepCopyParented(fxCamera, expectedParent);
+            KeepCopyParented(depthCamera, expectedParent);
 
             // The copies took stock's settings once (BuildCopies' CopyFrom) and follow the main
             // camera as its children; per frame only the values stock's own LateUpdate changes are
@@ -1028,6 +1064,18 @@ namespace Parsek
             }
         }
 
+        private static void KeepCopyParented(Camera copy, Transform expectedParent)
+        {
+            Transform t = copy.transform;
+            if (t.parent == expectedParent) return;
+            string was = t.parent != null ? t.parent.name : "none";
+            t.SetParent(expectedParent, false);
+            t.localPosition = Vector3.zero;
+            t.localRotation = Quaternion.identity;
+            t.localScale = Vector3.one;
+            ParsekLog.Info("ReentryFx", $"Ghost aero FX camera copy '{copy.name}' re-parented: {was} -> {expectedParent.name}");
+        }
+
         private void ApplyReplacementShader(int lod)
         {
             if (GhostAeroFx.UsesReplacementShader(diagMode))
@@ -1041,13 +1089,14 @@ namespace Parsek
         /// materials with the ghost's property block, or <paramref name="plain"/> (the diagnostic
         /// sanity material) with none. Returns the submeshes submitted.
         /// </summary>
-        private int SubmitSheath(Offer o, MaterialPropertyBlock mpb, Material plain)
+        private int SubmitSheath(Offer o, MaterialPropertyBlock mpb, Material plain, int onlyMesh = -1)
         {
             int submitted = 0;
             List<FireShellMesh> meshes = o.info.fireShellMeshes;
             if (meshes == null) return 0;
             for (int m = 0; m < meshes.Count; m++)
             {
+                if (onlyMesh >= 0 && m != onlyMesh) continue;
                 FireShellMesh fsm = meshes[m];
                 if (fsm.mesh == null || fsm.transform == null || fsm.renderer == null) continue;
                 GameObject go = fsm.renderer.gameObject;
@@ -1072,7 +1121,8 @@ namespace Parsek
         /// <summary>Once per ghost build: the shaders and RenderType tags the sheath submits.</summary>
         private void LogSheathMaterialsOnce(Offer o)
         {
-            if (!materialsLogged.Add(o.info)) return;
+            if (o.info.sheathMaterialsLogged) return;
+            o.info.sheathMaterialsLogged = true;
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             int hidden = 0;
             List<FireShellMesh> meshes = o.info.fireShellMeshes;
@@ -1155,12 +1205,23 @@ namespace Parsek
             int lod = GhostAeroFx.ShaderLod(stockCamera.ReplacementShaders.Length, stockFx.detailLevel);
             MaterialPropertyBlock mpb = blocks.Count > 0 ? blocks[0] : null;
             var clear = new Color32(0, 0, 0, 0);
+            // The capture ghost is slot 0; its own box, far and matrix (the shared velocity camera
+            // has moved on to the last ghost that rendered a map this frame).
+            bool haveSlot0 = false;
+            PreparedSheath slot0 = default;
+            for (int i = 0; i < prepared.Count; i++)
+                if (prepared[i].slot == 0) { slot0 = prepared[i]; haveSlot0 = true; break; }
             report.Append("ghost=#").Append(captureOffer.recIdx.ToString(CultureInfo.InvariantCulture))
                 .Append(" mode=").Append(diagMode)
                 .Append(" fx=").Append(captureOffer.fx.ToString("F3", CultureInfo.InvariantCulture))
-                .Append(" state=").Append(captureOffer.aeroState.ToString("F3", CultureInfo.InvariantCulture))
-                .Append(" velocityCam ortho=").Append(velocityCamera.orthographicSize.ToString("F1", CultureInfo.InvariantCulture))
-                .Append(" far=").Append(velocityCamera.farClipPlane.ToString("F1", CultureInfo.InvariantCulture))
+                .Append(" state=").Append(captureOffer.aeroState.ToString("F3", CultureInfo.InvariantCulture));
+            if (haveSlot0)
+                report.Append(" velocityCam(slot0) box=").Append(slot0.box.ToString("F1", CultureInfo.InvariantCulture))
+                    .Append(" far=").Append(slot0.far.ToString("F1", CultureInfo.InvariantCulture));
+            else report.Append(" velocityCam(slot0)=none");
+            report.Append(" sheathsThisFrame=").Append(prepared.Count.ToString(CultureInfo.InvariantCulture))
+                .Append(" slot0SetGlobals=").Append(slot0SetGlobals ? "True" : "False")
+                .Append(" reversedZ=").Append(SystemInfo.usesReversedZBuffer ? "True" : "False")
                 .Append(' ').Append(GhostAeroFx.FormatInputs(captureOffer.info.lastInputs)).Append(' ');
             try
             {
@@ -1180,8 +1241,6 @@ namespace Parsek
                         .Append(GhostAeroFx.DescribePixels(capture.PlainPixels, clear)).Append(' ');
                 }
                 else report.Append("| plain: no sanity shader ");
-                report.Append("| copyRendersDuringCapture=")
-                    .Append((fxCopyRenders - rendersBefore).ToString(CultureInfo.InvariantCulture)).Append(' ');
                 RenderTexture map = depthPool.Count > 0 ? depthPool[0] : null;
                 if (map != null)
                 {
@@ -1189,8 +1248,12 @@ namespace Parsek
                     capture.DepthSize = map.width;
                     report.Append("| depthMap0 ").Append(map.width.ToString(CultureInfo.InvariantCulture))
                         .Append(": ").Append(GhostAeroFx.DescribeDepthPixels(capture.DepthPixels)).Append(' ');
+                    AppendEmptyMapProbe(report, w, h, lod, mpb, map, capture.FxPixels, clear);
                 }
                 else report.Append("| depthMap0: none ");
+                AppendSheathMeshProbes(report, w, h, lod, mpb, haveSlot0, slot0, capture, clear);
+                report.Append("| copyRendersDuringCapture=")
+                    .Append((fxCopyRenders - rendersBefore).ToString(CultureInfo.InvariantCulture)).Append(' ');
             }
             catch (Exception e)
             {
@@ -1204,6 +1267,111 @@ namespace Parsek
             }
             report.Append("| cameras: ").Append(DescribeCameras(mainCamera));
             FinishCapture(capture, report.ToString());
+        }
+
+        /// <summary>
+        /// The capture ghost again through the FX shader with a cleared velocity map (nothing
+        /// occludes): how much of the normal render the ghost's own occlusion map changes. A
+        /// near-zero difference means the occlusion test does not act on this ghost's map.
+        /// </summary>
+        private void AppendEmptyMapProbe(StringBuilder report, int w, int h, int lod,
+            MaterialPropertyBlock mpb, RenderTexture map, Color32[] fxPixels, Color32 clear)
+        {
+            if (mpb == null) return;
+            RenderTexture empty = RenderTexture.GetTemporary(map.width, map.height, 32, RenderTextureFormat.Depth);
+            RenderTexture previousTarget = velocityCamera.targetTexture;
+            int previousMask = velocityCamera.cullingMask;
+            try
+            {
+                velocityCamera.cullingMask = 0;
+                velocityCamera.targetTexture = empty;
+                velocityCamera.Render();
+                mpb.SetTexture("_FXDepthMap", empty);
+                if (slot0SetGlobals) Shader.SetGlobalTexture("_FXDepthMap", empty);
+                Color32[] unoccluded = RenderCopyToPixels(w, h, lod, mpb, null);
+                GhostAeroFx.MeasurePixels(fxPixels, clear, out int normalCovered, out long normalSum);
+                GhostAeroFx.MeasurePixels(unoccluded, clear, out int emptyCovered, out long emptySum);
+                report.Append("| emptyMap (nothing occludes): covered=")
+                    .Append(emptyCovered.ToString(CultureInfo.InvariantCulture))
+                    .Append(" rgbSum=").Append(emptySum.ToString(CultureInfo.InvariantCulture))
+                    .Append(" vs normal covered=").Append(normalCovered.ToString(CultureInfo.InvariantCulture))
+                    .Append(" rgbSum=").Append(normalSum.ToString(CultureInfo.InvariantCulture))
+                    .Append(" pixelsChangedByOcclusion=")
+                    .Append(GhostAeroFx.CountDifferingPixels(fxPixels, unoccluded, 8).ToString(CultureInfo.InvariantCulture))
+                    .Append(' ');
+            }
+            finally
+            {
+                mpb.SetTexture("_FXDepthMap", map);
+                if (slot0SetGlobals) Shader.SetGlobalTexture("_FXDepthMap", map);
+                velocityCamera.targetTexture = previousTarget;
+                velocityCamera.cullingMask = previousMask;
+                RenderTexture.ReleaseTemporary(empty);
+            }
+        }
+
+        /// <summary>
+        /// One line per visible sheath mesh of the capture ghost: what it alone draws through the
+        /// FX shader, and where its bounds stand against slot 0's own velocity depth map.
+        /// </summary>
+        private void AppendSheathMeshProbes(StringBuilder report, int w, int h, int lod,
+            MaterialPropertyBlock mpb, bool haveSlot0, PreparedSheath slot0,
+            GhostAeroFxDiagnosticCapture capture, Color32 clear)
+        {
+            List<FireShellMesh> meshes = captureOffer.info.fireShellMeshes;
+            if (meshes == null) return;
+            bool reversedZ = SystemInfo.usesReversedZBuffer;
+            int probed = 0;
+            for (int m = 0; m < meshes.Count; m++)
+            {
+                FireShellMesh fsm = meshes[m];
+                if (fsm.mesh == null || fsm.transform == null || fsm.renderer == null) continue;
+                GameObject go = fsm.renderer.gameObject;
+                if (!GhostAeroFx.SheathMeshVisible(fsm.renderer.enabled, go.activeInHierarchy, go.layer, fxLayerMask))
+                    continue;
+                Color32[] alone = RenderCopyToPixels(w, h, lod, mpb, null, m);
+                GhostAeroFx.MeasurePixels(alone, clear, out int covered, out long rgbSum);
+
+                float centerD = float.NaN, nearD = float.NaN, mapD = float.NaN;
+                bool onMap = false;
+                int tx = -1, ty = -1;
+                byte raw = 0;
+                if (haveSlot0)
+                {
+                    Bounds b = fsm.renderer.bounds;
+                    Vector3 c = slot0.worldToVelocity.MultiplyPoint3x4(b.center);
+                    centerD = -c.z;
+                    nearD = float.MaxValue;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        Vector3 corner = b.center + Vector3.Scale(b.extents,
+                            new Vector3((k & 1) == 0 ? -1f : 1f, (k & 2) == 0 ? -1f : 1f, (k & 4) == 0 ? -1f : 1f));
+                        float d = -slot0.worldToVelocity.MultiplyPoint3x4(corner).z;
+                        if (d < nearD) nearD = d;
+                    }
+                    if (capture.DepthPixels != null && capture.DepthSize > 0
+                        && GhostAeroFx.TryVelocityMapTexel(c.x, c.y, slot0.box, capture.DepthSize, out tx, out ty))
+                    {
+                        onMap = true;
+                        raw = capture.DepthPixels[ty * capture.DepthSize + tx].r;
+                        mapD = GhostAeroFx.VelocityMapDistance(raw, slot0.far, reversedZ);
+                    }
+                }
+                Material[] mats = fsm.renderer.sharedMaterials;
+                var matText = new StringBuilder();
+                for (int s = 0; mats != null && s < mats.Length; s++)
+                {
+                    Material mat = mats[s];
+                    if (s > 0) matText.Append('+');
+                    matText.Append(mat == null ? "null"
+                        : (mat.shader != null ? mat.shader.name : "?") + "[" + mat.GetTag("RenderType", false, "none") + "]");
+                }
+                report.Append("| ").Append(GhostAeroFx.FormatSheathMeshProbe(m, go.name, fsm.mesh.name,
+                    matText.ToString(), go.layer, fsm.mesh.vertexCount, covered, rgbSum,
+                    centerD, nearD, onMap, tx, ty, raw, mapD)).Append(' ');
+                probed++;
+            }
+            report.Append("| meshesProbed=").Append(probed.ToString(CultureInfo.InvariantCulture)).Append(' ');
         }
 
         private void FinishCapture(GhostAeroFxDiagnosticCapture capture, string report)
@@ -1230,7 +1398,8 @@ namespace Parsek
         /// Renders the FX copy alone into a cleared transparent texture (no scene depth) after
         /// submitting the capture ghost again, and reads it back.
         /// </summary>
-        private Color32[] RenderCopyToPixels(int w, int h, int lod, MaterialPropertyBlock mpb, Material plain)
+        private Color32[] RenderCopyToPixels(int w, int h, int lod, MaterialPropertyBlock mpb, Material plain,
+            int onlyMesh = -1)
         {
             RenderTexture rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
             RenderTexture previousTarget = fxCamera.targetTexture;
@@ -1240,7 +1409,7 @@ namespace Parsek
             {
                 if (plain != null) fxCamera.ResetReplacementShader();
                 else fxCamera.SetReplacementShader(stockCamera.ReplacementShaders[lod], "RenderType");
-                SubmitSheath(captureOffer, mpb, plain);
+                SubmitSheath(captureOffer, mpb, plain, onlyMesh);
                 fxCamera.targetTexture = rt;
                 fxCamera.clearFlags = CameraClearFlags.SolidColor;
                 fxCamera.backgroundColor = new Color(0f, 0f, 0f, 0f);

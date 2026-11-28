@@ -609,5 +609,87 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        // --- Rig capture probes (flight 4's base V) ---
+
+        [Fact]
+        public void MeasurePixels_CountsAndSumsOnlyNonBackgroundPixels()
+        {
+            var bg = new Color32(0, 0, 0, 0);
+            var px = new[]
+            {
+                bg, new Color32(10, 20, 30, 255), bg, new Color32(1, 1, 1, 0),
+            };
+            GhostAeroFx.MeasurePixels(px, bg, out int covered, out long sum);
+            Assert.Equal(2, covered);
+            Assert.Equal(63L, sum);
+            GhostAeroFx.MeasurePixels(null, bg, out covered, out sum);
+            Assert.Equal(0, covered);
+            Assert.Equal(0L, sum);
+        }
+
+        [Fact]
+        public void CountDifferingPixels_UsesThePerChannelThreshold()
+        {
+            var a = new[] { new Color32(100, 0, 0, 255), new Color32(0, 0, 0, 0), new Color32(5, 5, 5, 5) };
+            var b = new[] { new Color32(108, 0, 0, 255), new Color32(0, 9, 0, 0), new Color32(5, 5, 5, 200) };
+            // 8 is not above 8; 9 is; alpha is not compared.
+            Assert.Equal(1, GhostAeroFx.CountDifferingPixels(a, b, 8));
+            Assert.Equal(2, GhostAeroFx.CountDifferingPixels(a, b, 7));
+            Assert.Equal(-1, GhostAeroFx.CountDifferingPixels(a, new Color32[2], 8));
+            Assert.Equal(-1, GhostAeroFx.CountDifferingPixels(null, b, 8));
+        }
+
+        [Theory]
+        // The camera axis is the map's centre texel.
+        [InlineData(0f, 0f, 32.4f, 2048, true, 1024, 1024)]
+        // A point 1 m right and 0.5 m down of the axis on a 32.4 m box: 2048 / 64.8 px per metre.
+        [InlineData(1f, -0.5f, 32.4f, 2048, true, 1055, 1008)]
+        // Right at the edge is off the map; just inside is the last texel.
+        [InlineData(32.4f, 0f, 32.4f, 2048, false, -1, -1)]
+        [InlineData(-32.39f, 0f, 32.4f, 2048, true, 0, 1024)]
+        [InlineData(0f, 0f, 0f, 2048, false, -1, -1)]
+        [InlineData(float.NaN, 0f, 10f, 512, false, -1, -1)]
+        public void TryVelocityMapTexel_MapsCameraSpaceToTheReadBackTexel(float x, float y, float box, int size,
+            bool expected, int px, int py)
+        {
+            bool on = GhostAeroFx.TryVelocityMapTexel(x, y, box, size, out int tx, out int ty);
+            Assert.Equal(expected, on);
+            Assert.Equal(px, tx);
+            Assert.Equal(py, ty);
+        }
+
+        [Fact]
+        public void VelocityMapDistance_ReadsBothDepthConventions()
+        {
+            // Flight 4's map: the shield face read 91 of 255 on a far of 50 m, 32.16 m from the
+            // camera 32.4 m ahead of the ghost on a reversed-Z device.
+            Assert.Equal(32.16f, GhostAeroFx.VelocityMapDistance(91, 50f, true), 0.01f);
+            Assert.Equal(17.84f, GhostAeroFx.VelocityMapDistance(91, 50f, false), 0.01f);
+            Assert.Equal(50f, GhostAeroFx.VelocityMapDistance(0, 50f, true), 0.001f);
+            Assert.Equal(0f, GhostAeroFx.VelocityMapDistance(0, 50f, false), 0.001f);
+        }
+
+        [Fact]
+        public void FormatSheathMeshProbe_IsInvariantAndSignsBehindMap()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                string on = GhostAeroFx.FormatSheathMeshProbe(3, "cone", "coneMesh", "KSP/Diffuse[Opaque]", 0,
+                    120, 450, 98765L, 33.25f, 32.75f, true, 1024, 1030, 91, 32.16f);
+                Assert.Equal("mesh[3] 'cone'/'coneMesh' KSP/Diffuse[Opaque] L0 verts=120 fxPx=450 fxSum=98765 " +
+                    "d=33.25m dNear=32.75m mapD=32.16m texel=(1024,1030) raw=91 behindMap=0.59m", on);
+                string off = GhostAeroFx.FormatSheathMeshProbe(0, null, null, null, 17, 0, 0, 0L,
+                    float.NaN, float.NaN, false, -1, -1, 0, float.NaN);
+                Assert.Equal("mesh[0] '?'/'?' ? L17 verts=0 fxPx=0 fxSum=0 d=NaNm dNear=NaNm mapD=off-map", off);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

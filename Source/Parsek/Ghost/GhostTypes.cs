@@ -925,6 +925,9 @@ namespace Parsek
         public float vesselLength;
         // The last sheath decision GhostAeroFxRenderer logged for this ghost.
         public GhostAeroSheathDecision? lastSheathDecision;
+        // GhostAeroFxRenderer logged this build's sheath materials (once per info, so the
+        // renderer holds no reference that would keep a destroyed ghost's info alive).
+        public bool sheathMaterialsLogged;
         // Test-only isolation frame (GhostPlaybackEngine.ArmReentryIsolationForOneFrame): the
         // mode the next DriveReentryLayers of this ghost applies, consumed by that drive; None
         // unless a test or the parity rig armed it.

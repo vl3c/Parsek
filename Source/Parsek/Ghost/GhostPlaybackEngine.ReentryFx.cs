@@ -157,7 +157,7 @@ namespace Parsek
             double speedOfSound = body.GetSpeedOfSound(pressure, density);
             float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
             // Stock's scalar on the ghost's own density, speed and Mach (G.7 "Y1 design"); the
-            // density is the standard atmosphere's, the ghost has no flight integrator.
+            // density is stock's, from the pressure and the full temperature read above.
             float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
                 speed, (float)density, machNumber, GhostAeroFxRenderer.Constants, out float aeroState);
             info.aeroState = aeroState;
@@ -473,6 +473,15 @@ namespace Parsek
             info.lastIntensity = 0f;
         }
 
+        // Per burning ghost per frame: the message is built only when the rate limit lets it out.
+        private static void LogReentryIntensity(int recIdx, float intensity, float aeroState,
+            double altitude, AeroFxInputs inputs)
+        {
+            ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
+                () => $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={aeroState:F2} alt={altitude:F0} "
+                    + GhostAeroFx.FormatInputs(inputs));
+        }
+
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
             int recIdx, string bodyName, double altitude, float machNumber, string vesselName,
             GhostPlaybackState state = null)
@@ -495,9 +504,8 @@ namespace Parsek
 
             if (isActive)
             {
-                ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
-                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} state={info.aeroState:F2} alt={altitude:F0} "
-                    + GhostAeroFx.FormatInputs(info.lastInputs));
+                if (ParsekLog.IsVerboseEnabled)
+                    LogReentryIntensity(recIdx, intensity, info.aeroState, altitude, info.lastInputs);
             }
 
             // Test-only isolation frame; None (and nothing hidden) unless a test armed it.

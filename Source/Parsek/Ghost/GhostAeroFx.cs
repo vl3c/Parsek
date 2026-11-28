@@ -522,6 +522,96 @@ namespace Parsek
                 pixels.Length, min, max, corner, differ, 100.0 * differ / pixels.Length);
         }
 
+        /// <summary>
+        /// How many pixels differ from <paramref name="background"/> and the sum of their RGB
+        /// (a coverage-weighted brightness, to compare one mesh's share of a capture).
+        /// </summary>
+        internal static void MeasurePixels(Color32[] pixels, Color32 background, out int covered, out long rgbSum)
+        {
+            covered = 0;
+            rgbSum = 0;
+            if (pixels == null) return;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color32 p = pixels[i];
+                if (p.r == background.r && p.g == background.g && p.b == background.b && p.a == background.a)
+                    continue;
+                covered++;
+                rgbSum += p.r + p.g + p.b;
+            }
+        }
+
+        /// <summary>
+        /// Pixels whose R, G or B differ by more than <paramref name="threshold"/> between two
+        /// captures of one size; -1 when the sizes differ.
+        /// </summary>
+        internal static int CountDifferingPixels(Color32[] a, Color32[] b, int threshold)
+        {
+            if (a == null || b == null || a.Length != b.Length) return -1;
+            int differ = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (System.Math.Abs(a[i].r - b[i].r) > threshold
+                    || System.Math.Abs(a[i].g - b[i].g) > threshold
+                    || System.Math.Abs(a[i].b - b[i].b) > threshold)
+                    differ++;
+            }
+            return differ;
+        }
+
+        /// <summary>
+        /// The texel of a square velocity depth map of <paramref name="size"/> pixels that a
+        /// point in the velocity camera's space (x right, y up, orthographic half size
+        /// <paramref name="box"/>) falls on, row 0 at the bottom as a read-back has it; false
+        /// outside the map.
+        /// </summary>
+        internal static bool TryVelocityMapTexel(float camX, float camY, float box, int size, out int px, out int py)
+        {
+            px = -1;
+            py = -1;
+            if (!(box > 0f) || size <= 0 || float.IsNaN(camX) || float.IsNaN(camY)) return false;
+            float u = camX / box * 0.5f + 0.5f;
+            float v = camY / box * 0.5f + 0.5f;
+            if (u < 0f || u >= 1f || v < 0f || v >= 1f) return false;
+            px = Mathf.Clamp((int)(u * size), 0, size - 1);
+            py = Mathf.Clamp((int)(v * size), 0, size - 1);
+            return true;
+        }
+
+        /// <summary>
+        /// The distance ahead of the velocity camera (orthographic, near 0) that an 8-bit
+        /// read-back of its depth map stands for: depth runs linearly from the camera to the far
+        /// clip, stored as 1 - d / far on a reversed-Z device and d / far otherwise.
+        /// </summary>
+        internal static float VelocityMapDistance(byte value, float far, bool reversedZ)
+        {
+            float d = value / 255f;
+            return (reversedZ ? 1f - d : d) * far;
+        }
+
+        /// <summary>
+        /// One sheath mesh's line in a rig capture: what it is, what it alone draws through the
+        /// FX shader (pixels covered, summed RGB), and where its bounds stand against the ghost's
+        /// own velocity depth map at its centre texel (distances from the velocity camera; a
+        /// positive behindMap means its nearest bound lies behind the surface the map holds there,
+        /// in the shadow stock's occlusion test hides).
+        /// </summary>
+        internal static string FormatSheathMeshProbe(int index, string objectName, string meshName,
+            string material, int layer, int vertices, int fxCovered, long fxRgbSum,
+            float centerDistance, float nearDistance, bool onMap, int texelX, int texelY,
+            byte mapValue, float mapDistance)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string map = onMap
+                ? string.Format(ic, "mapD={0:F2}m texel=({1},{2}) raw={3} behindMap={4:F2}m",
+                    mapDistance, texelX, texelY, mapValue, nearDistance - mapDistance)
+                : "mapD=off-map";
+            return string.Format(ic,
+                "mesh[{0}] '{1}'/'{2}' {3} L{4} verts={5} fxPx={6} fxSum={7} d={8:F2}m dNear={9:F2}m {10}",
+                index, objectName ?? "?", meshName ?? "?", material ?? "?", layer, vertices, fxCovered,
+                fxRgbSum, centerDistance, nearDistance, map);
+        }
+
         /// <summary>One camera's state for the renderer's camera dump.</summary>
         internal static string FormatCameraState(string name, bool enabled, bool activeInHierarchy,
             float depth, string clearFlags, int cullingMask, string target, float near, float far,
