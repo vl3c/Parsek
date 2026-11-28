@@ -951,12 +951,10 @@ namespace Parsek
             }
             Recording rec = committed[index];
             double ut = Planetarium.GetUniversalTime();
-            double playbackUT = ut;
-            double loopUT;
-            long cycle;
-            bool inPause;
-            if (host.TryComputeLoopPlaybackUTForWatch(rec, ut, out loopUT, out cycle, out inPause, index))
-                playbackUT = loopUT;
+            // The watch camera's own clock (mission loop-unit span clock first): a per-recording
+            // loop read alone puts a mission-unit member at the raw game UT, past its end, and
+            // the drone lands on the recording's orbit tail far from the ghost on screen.
+            double playbackUT = host.ResolveGhostPlaybackUTForFarWatch(index, rec, ut);
 
             Vector3d world;
             if (!host.Positioner.TryResolvePlaybackWorldPosition(index, rec, null, playbackUT, out world))

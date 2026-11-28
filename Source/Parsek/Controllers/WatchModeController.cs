@@ -3806,7 +3806,7 @@ namespace Parsek
             ParsekLog.Info("CameraFollow", $"{prefix}: {BuildWatchFocusSummary(state)}");
         }
 
-        private double ResolveWatchPlaybackUT(
+        internal double ResolveWatchPlaybackUT(
             Recording rec, GhostPlaybackState currentState, double fallbackUT, int recordingIndex)
         {
             // Mission loop-unit members do NOT carry a per-recording LoopPlayback flag, so the

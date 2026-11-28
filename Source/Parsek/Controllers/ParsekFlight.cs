@@ -1875,6 +1875,16 @@ namespace Parsek
         }
 
         internal void RequestWatchMapFocusForFarWatch() => watchMode.RequestMapFocusRestoreForFarWatch();
+        // The far watch reads the ghost at the same playback UT the watch camera and the engine
+        // use: a mission loop-unit member runs on the unit's span clock, an overlap loop on its
+        // cycle, a plain loop on its own schedule, anything else on the game UT.
+        internal double ResolveGhostPlaybackUTForFarWatch(int index, Recording rec, double currentUT)
+        {
+            GhostPlaybackState state = null;
+            if (engine != null && engine.ghostStates != null)
+                engine.ghostStates.TryGetValue(index, out state);
+            return watchMode.ResolveWatchPlaybackUT(rec, state, currentUT, index);
+        }
 
         internal bool TryGetWatchSavedCameraForFarWatch(
             out Vessel vessel, out float distance, out float pitchDegrees, out float headingDegrees)
