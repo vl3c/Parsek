@@ -31,9 +31,10 @@ id = "FW-1-far-watch-drone-swap"
 #
 # FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"), item by item:
 # - reuse a host's flight: yes, a committed harvested fixture, no flight of its own.
-# - explicit-UT WarpToUT waits: none needed; the far watch starts at the relaunch the
-#   loop playback already lands on. Add one WarpToUT with an explicit UT only if the first
-#   flight shows the ghost not yet built at `FarWatch start`.
+# - explicit-UT WarpToUT waits: one. The first flight (2026-11-28_0036) showed
+#   StartLoopPlayback answering at UT 24306565.13 with the loop relaunch at 24306580.07, so
+#   `FarWatch start` 1.3 s later found no loop ghost (`no-far-watch-ghost`). WarpToUT
+#   24306590 lands about 10 s after the relaunch, before the far watch starts.
 # - minimal dwells: no Wait steps; each FarWatch op is expected to answer when its
 #   transition completes (Following / Idle), so the budget is the only bound.
 # - b5 coast leads: not applicable (no autopilot coast).
@@ -84,6 +85,9 @@ steps = [
   { cmd = "StartRecording", expect = "OK", budget = 180 },
   { cmd = "MissionConfig", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae", loop = "true" }, expect = "OK" },
   { cmd = "StartLoopPlayback", args = { tree = "ccb5e4afd7974dbe9118090468ac00ae" }, expect = "OK", budget = 300 },
+  # The loop relaunch is about 15 s after StartLoopPlayback answers; wait past it so the
+  # loop ghost exists when the far watch starts.
+  { cmd = "WarpToUT", args = { ut = "24306590", maxRate = "10" }, expect = "OK", budget = 300 },
   # Far watch on the loop ghost; the drone spawns beside the ship and holds there (the
   # ghost is on another body, so `mode=hold`).
   { cmd = "FarWatch", args = { op = "start", tree = "ccb5e4afd7974dbe9118090468ac00ae", mode = "hold" }, expect = "OK", budget = 120 },
