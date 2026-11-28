@@ -103,6 +103,9 @@ required = [
   "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
   "farwatch start complete ",
+  # Clamped (rule=stock:<reason>) or unclamped (rule=stock:none): either proves the limit is
+  # read at the ghost. First flight 2026-11-28_1032 never asked above the ghost's limit and the
+  # build then logged only clamps, so the contract missed.
   "\\[FarWatchWarp\\] warp limit source=ghost rule=stock:",
   "\\[FarWatch\\] ghost came near the ship distToShipKm=[0-9.]+ rec=#[0-9]+; handing back to the near watch",
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle reason=GhostNearShip ",

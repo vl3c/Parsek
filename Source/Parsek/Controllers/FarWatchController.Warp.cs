@@ -93,7 +93,15 @@ namespace Parsek
                 return true;
             }
             result = FarWatchWarpLimits.EvaluateStock(i);
-            if (result.RateIndex < tgtRateIdx)
+            if (result.RateIndex >= tgtRateIdx)
+            {
+                // Unclamped read: proves the limit is taken at the watched ghost even when stock
+                // lets the asked rate through.
+                ParsekLog.InfoRateLimited(WarpTag, "warp-limit-read-" + source,
+                    FarWatchWarpLimits.FormatLimitLine(source, "stock:none",
+                        RateAt(tw, tgtRateIdx), RateAt(tw, result.RateIndex)), 5.0);
+            }
+            else
             {
                 stockLimitRealTime = Time.realtimeSinceStartup;
                 ParsekLog.InfoRateLimited(WarpTag, "warp-limit-stock-" + result.Reason,
@@ -292,7 +300,9 @@ namespace Parsek
             postTeardownPending = false;
             if (postTeardownMessageCause != FarWatchReturnCause.None)
             {
-                string msg = FarWatchDecisions.ForcedReturnMessage(postTeardownMessageCause, postTeardownShipName);
+                // A stock craft's vessel name is a localization tag (#autoLOC_501232 is Kerbal X).
+                string msg = FarWatchDecisions.ForcedReturnMessage(postTeardownMessageCause,
+                    LocalizeVesselName(postTeardownShipName));
                 ParsekLog.Info(Tag, "forced-return screen message: " + msg);
                 ParsekLog.ScreenMessage(msg, 5f);
             }
@@ -339,6 +349,14 @@ namespace Parsek
             postTeardownSwitchTarget = null;
             postTeardownSwitchReplay = null;
             postTeardownMessageCause = FarWatchReturnCause.None;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string LocalizeVesselName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || !name.StartsWith("#", StringComparison.Ordinal))
+                return name;
+            return KSP.Localization.Localizer.Format(name);
         }
 
         /// <summary>Captures the follow-ups at the teardown, before the per-watch refs are cleared.</summary>
