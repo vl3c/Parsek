@@ -119,6 +119,9 @@ namespace Parsek
         // The last launch dust log signature (GhostPlaybackLogic.ComputeLaunchDustLogSignature):
         // the dust line is written only when it changes.
         internal int launchDustLogSignature = int.MinValue;
+        // The coarse half of that signature (the surfaces drawn, any pad hit, the skip reason):
+        // a change in it is always written, a strength-only change is rate limited.
+        internal int launchDustLogKind = int.MinValue;
         // S4 EVA: the three recorded flags plus the lazily-built jetpack puff. The flags live on
         // the state rather than being re-derived from the event stream each frame so the plume gate
         // is a pure read of three bools (GhostPlaybackLogic.ShouldEmitEvaJetpackPlume) and the
@@ -262,6 +265,7 @@ namespace Parsek
             // with the ghost, but the Material and the generated Texture2D would not.
             launchDustInfo = null;
             launchDustLogSignature = int.MinValue;
+            launchDustLogKind = int.MinValue;
             // S4: same contract as launchDustInfo - DestroyEvaJetpackPlume has already released the
             // Material and the generated Texture2D by the time this runs.
             evaJetpackPlumeInfo = null;

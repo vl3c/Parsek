@@ -185,6 +185,13 @@ namespace Parsek
                 }
 
                 Vector3 point = kind == LaunchDustSurface.Water ? pos + fwd * distance : rh.point;
+                // Stock runs this only for loaded vessels, whose ground always has a collider. A
+                // ghost far from the active vessel can sit over land with no terrain collider
+                // built, so a missed ray would read as sea: spray only where the ground under the
+                // sea-level point is at or below the datum.
+                if (kind == LaunchDustSurface.Water
+                    && !GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(ReadLaunchDustTerrainAltitude(body, point)))
+                    continue;
                 Vector3 normal = kind == LaunchDustSurface.Water ? up : rh.normal;
                 Vector3 flow = GhostPlaybackLogic.ComputeSurfaceFxFlow(point, pos, normal, thrust);
                 if (kind == LaunchDustSurface.Water) water.Add(point, normal, flow, scaled);
@@ -192,6 +199,20 @@ namespace Parsek
                 if (colliderId == 0 && c != null) colliderId = c.GetInstanceID();
             }
             return null;
+        }
+
+        // The ground height under a world point (max with the datum, stock's TerrainAltitude), NaN
+        // when the body has no terrain or the read fails.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadLaunchDustTerrainAltitude(CelestialBody body, Vector3 point)
+        {
+            try
+            {
+                if (body.pqsController == null) return double.NaN;
+                Vector3d p = point;
+                return body.TerrainAltitude(body.GetLatitude(p), body.GetLongitude(p));
+            }
+            catch (Exception) { return double.NaN; }
         }
 
         // Stock skips every surface effect when the player turned them off (GameSettings.SURFACE_FX).
@@ -273,17 +294,22 @@ namespace Parsek
             if (skipReason != null) signature = unchecked(signature * 31 + skipReason.Length);
             if (signature == state.launchDustLogSignature) return;
             state.launchDustLogSignature = signature;
+            int kind = GhostPlaybackLogic.ComputeLaunchDustLogKind(surfaceBits, padHits, skipReason);
+            bool kindChanged = kind != state.launchDustLogKind;
+            state.launchDustLogKind = kind;
             if (!ParsekLog.IsVerboseEnabled) return;
             var ic = CultureInfo.InvariantCulture;
-            ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-{recIdx}",
-                skipReason != null
+            string line = skipReason != null
                     ? $"Launch dust ghost #{recIdx} \"{state.vesselName}\": none ({skipReason})"
                     : $"Launch dust ghost #{recIdx} \"{state.vesselName}\" (stock ModuleSurfaceFX rule): " +
                       $"terrain={terrainScale.ToString("F3", ic)} water={waterScale.ToString("F3", ic)} " +
                       $"padHits={padHits.ToString(ic)} collider={colliderId.ToString(ic)}" +
                       (surfaceBits == 0 ? " (no surface within reach)"
-                          : (surfaceBits & 3) == 0 ? " (the pad's own smoke, no dust: stock's rule)" : ""),
-                0.5);
+                          : (surfaceBits & 3) == 0 ? " (the pad's own smoke, no dust: stock's rule)" : "");
+            // A changed surface or skip reason always prints, so the last state of a fast climb is
+            // never lost to the rate limit; a strength-only change is rate limited.
+            if (kindChanged) ParsekLog.Verbose("GhostVisual", line);
+            else ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-{recIdx}", line, 0.5);
         }
 
         /// <summary>

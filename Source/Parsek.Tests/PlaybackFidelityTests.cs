@@ -772,6 +772,32 @@ namespace Parsek.Tests
             Assert.NotEqual(int.MinValue, GhostPlaybackLogic.ComputeLaunchDustLogSignature(0, 0, 0f, 0f));
         }
 
+        [Fact]
+        public void DustLogKind_IgnoresStrengthAndColliderButNotSurfacePadOrSkip()
+        {
+            int terrain = GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 0, null);
+            Assert.Equal(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 0, null));
+            Assert.NotEqual(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(2, 0, null));
+            Assert.NotEqual(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 3, null));
+            // Two pad hits read as one kind: the count is strength, not kind.
+            Assert.Equal(GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 1, null),
+                GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 2, null));
+            int none = GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, null);
+            Assert.NotEqual(none, GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "above every surface"));
+            Assert.NotEqual(GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "no lit engine"),
+                GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "above every surface"));
+        }
+
+        [Fact]
+        public void WaterSpray_OnlyWhereTheGroundUnderThePointIsSea()
+        {
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(0.0));
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(-12.0));
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(double.NaN));
+            Assert.False(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(0.5));
+            Assert.False(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(70.0));
+        }
+
         // ------------------------------------------------ S3: warp-gap decay of a smoothed rate
 
         [Fact]

@@ -223,6 +223,27 @@ namespace Parsek
         /// hit and each surface's strength in tenths. The line is written only when this changes,
         /// so a steady frame builds no message.
         /// </summary>
+        /// <summary>
+        /// The coarse part of the dust log signature: which surfaces drew, whether any pad was hit,
+        /// and the skip reason. A change in it is written at once; only a strength change inside one
+        /// kind is rate limited. Allocation free (a string's hash allocates nothing).
+        /// </summary>
+        internal static int ComputeLaunchDustLogKind(int surfaceBits, int padHits, string skipReason)
+        {
+            unchecked
+            {
+                int h = (surfaceBits & 3) | (padHits > 0 ? 4 : 0);
+                return skipReason == null ? h : h * 31 + skipReason.GetHashCode() + 8;
+            }
+        }
+
+        /// <summary>
+        /// Whether the ground under a water-branch spray point is sea: at or below the datum. An
+        /// unknown height (NaN, no terrain on the body) keeps stock's water branch.
+        /// </summary>
+        internal static bool IsSeaUnderWaterSprayPoint(double terrainAltitude)
+            => double.IsNaN(terrainAltitude) || terrainAltitude <= 0.0;
+
         internal static int ComputeLaunchDustLogSignature(
             int surfaceBits, int colliderId, float terrainScale, float waterScale)
         {

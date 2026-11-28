@@ -4931,6 +4931,14 @@ raycasts and the drive `GhostPlaybackEngine.LaunchDust.cs`, the emitters
   stock's `ScaledFX`, `thrust share * fxMax * (1 - d / maxDistance)^falloff`, the thrust share the
   ghost's throttle times its `thrustFraction` in the ghost's air (stock: current over max thrust);
   zero at or past the reach (stock's water branch can pass a slant distance past it; clamped).
+  One deliberate addition: stock runs this only for loaded vessels, whose ground always has a
+  collider, but a ghost far from the active vessel can be over land with no terrain collider
+  built, where a missed ray would read as sea. So a water result sprays only when the terrain
+  height under the sea-level point (`CelestialBody.TerrainAltitude`) is at or below the datum
+  (`IsSeaUnderWaterSprayPoint`; an unknown height keeps stock's branch).
+- Log. One `Launch dust ghost` Verbose line when the drawn surfaces, a pad hit or the skip reason
+  change, at once; a strength-only change (tenths) is rate limited to one line per 0.5 s per ghost
+  (`ComputeLaunchDustLogKind` vs `ComputeLaunchDustLogSignature`). A steady frame builds nothing.
 - Combine. Each surface's sources feed ONE emitter per ghost (`LaunchDustAggregate`): the
   strength is the clamped sum, one source stands at its own point, normal and push, several at the
   `ScaledFX`-weighted mean with the push times 5, as `SurfaceFX.LateUpdate`. Stock merges only
