@@ -1,0 +1,124 @@
+schema = 1
+id = "FW-2-far-follow-hand-back"
+# =====================================================================================
+# FAR WATCH STEP 3: A FOLLOW WATCH STARTED PAST THE NEAR-WATCH RANGE, WARPED UNDER THE
+# GHOST'S OWN WARP LIMIT, HANDED BACK TO THE NEAR WATCH WHEN THE GHOST COMES NEAR.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
+# 8.4 / 12.2 / 17.4). NEVER FLOWN (tag `pending-flight`): every token below is read from
+# the code, none from a flight.
+#
+# HOST AND GEOMETRY: W1-watch-distance-cutoff's, verbatim. `kerbin-splashdown-recorded`,
+# the B4 pod LANDED 161 deg of arc east of KSC (the ship; landed and still, so the
+# ship-safety check allows a watch with no return point and walks no path), tree
+# c05c834cd2754892b4588e7ce9220c3f looped. The load-time optimizer cuts the parent
+# recording into three chain members (W1 section 2A, MEASURED): index 1 is the coast
+# member (window loopUT [212.20, 853.72]) and index 2 the descent member ([853.72,
+# 1276.42]). loopUT = UT - 21549.425. At UT 21984 (loopUT 434.575) the coast member is
+# 1,069.7 km from the pod (MEASURED by W1); at UT 22764 (loopUT 1214.575) the descent
+# member is 0.46 km from it (MEASURED by W1). The ghost only APPROACHES the pod on this
+# fixture, so the outbound 290 km takeover is not reachable here (see "NOT COVERED").
+#
+# WHAT IT PROVES:
+#   1. `FarWatch op=start index=1 mode=follow` on a ghost past 300 km starts the far watch
+#      DIRECTLY (12.2): the ship-safety verdict line, Following, and watch mode entered
+#      after the first follow write.
+#   2. `WarpToUT` is allowed during a far watch (H7, step 3) and runs under the warp limit
+#      read at the watched ghost: the `[FarWatchWarp]` limit lines name the ghost as the
+#      source. No warp-limit patch exception.
+#   3. The hand-back at 250 km: `ghost came near the ship`, Idle with reason GhostNearShip,
+#      and today's near watch resuming on the followed recording.
+#
+# NOT COVERED (owed elsewhere): the 290 km takeover from a near watch (needs a ghost that
+# leaves the ship, for example an ascent ghost with the ship on the pad); the ship's own
+# recording across the watch (W1's prefix discards the tree; FW-1 proves the background
+# segment); the ledger oracle (sandbox, nothing earned).
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: W1's prefix and probe epochs, reused rather than re-derived; W1 itself is
+#     not extended because its probe A must stay a near-watch refusal.
+#   2 no idle waits: the game-time waits are explicit-UT WarpToUT legs.
+#   3 minimal dwells: two RecordingState reads after the warp, so the resume is logged.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none"; a refused start answers at once.
+#   7 tight windows: recordings count is W1's measured window until the first flight.
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight; the WarpToUT runs at the
+#     ghost's limit (physics rates while the descent ghost is in the air), which is the
+#     behaviour under test, so that 1x stretch is expected to stay.
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 3 on W1's host kerbin-splashdown-recorded: FarWatch start mode=follow on the coast member 1,069.7 km from the landed pod starts the far watch directly, WarpToUT runs during the watch under the warp limit read at the ghost, and when the descent ghost comes within 250 km the watch hands back and today's near watch resumes. NEVER FLOWN (tag pending-flight)."
+instanceProfile = "stock-minimal"
+tags = ["FW-2", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "c05c834cd2754892b4588e7ce9220c3f" }, expect = "OK", budget = 300 },
+  # W1's probe A epoch: the coast member live, 1,069.7 km from the pod.
+  { cmd = "TimeJump", args = { ut = "21984" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "ExitMapView",                                                     expect = "OK" },
+  { cmd = "FarWatch", args = { op = "start", index = "1", mode = "follow" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  # W1's probe B epoch: the descent member 0.46 km from the pod. The hand-back happens on
+  # the way, under 250 km; the warp itself is the player's warp under the ghost's limit.
+  # Two legs so each stays inside the 540 s deferred-WarpToUT cap (S8): the coast
+  # member's end (loopUT 853.72 = UT 22403.1), then the descent to the probe B epoch.
+  { cmd = "WarpToUT", args = { ut = "22400" },                               expect = "OK", budget = 540 },
+  { cmd = "WarpToUT", args = { ut = "22764" },                               expect = "OK", budget = 540 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required = [
+  "startloopplayback initiated:",
+  "\\[FarWatchSafety\\] verdict=Allowed reason=None ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "farwatch start complete ",
+  "\\[FarWatchWarp\\] warp limit source=ghost rule=stock:",
+  "\\[FarWatch\\] ghost came near the ship distToShipKm=[0-9.]+ rec=#[0-9]+; handing back to the near watch",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle reason=GhostNearShip ",
+  "\\[FarWatch\\] near watch resumes after the hand-back id=[0-9a-f]{32} rec=#[0-9]+",
+]
+forbidden = [
+  "far-watch-active",
+  "warp-limit patch threw",
+  "warp-mode patch threw",
+  "follow watch lost its watch-mode target",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+  "timejump refused reason=backward-jump",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""
