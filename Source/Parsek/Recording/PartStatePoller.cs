@@ -161,6 +161,8 @@ namespace Parsek
 
                 bool hasJettisonModule = false;
                 bool isJettisoned = false;
+                JettisonCarrierState carriedOffState = JettisonCarrierState.NoReference;
+                string carriedOffBy = null;
                 int jettisonModuleIndex = 0;
                 // Parts with ModulePartVariants legitimately hide non-selected transforms
                 // (e.g. Poodle DoubleBell hides Shroud2). The transform-visibility fallback
@@ -178,6 +180,23 @@ namespace Parsek
                     if (jettison.isJettisoned)
                     {
                         isJettisoned = true;
+                        break;
+                    }
+
+                    // Carried off: stock ModuleJettison.SetupJettisonState re-parents an
+                    // isFairing + decoupleEnabled shroud onto the part on its bottom node, so
+                    // the shroud leaves with that part on a decouple while isJettisoned stays
+                    // false (a checkBottomNode module refuses the decouple-driven Jettison:
+                    // "Checked bottom node and found an attached part"). The 1.25 m heat
+                    // shield's fairing is the stock case. The module's own transform reference
+                    // is read, so variant parts are covered too.
+                    JettisonCarrierState carrier = ClassifyJettisonCarrierNotInlined(
+                        p, v, jettison.jettisonTransform, out string carrierName);
+                    if (IsJettisonCarriedOff(carrier))
+                    {
+                        isJettisoned = true;
+                        carriedOffState = carrier;
+                        carriedOffBy = carrierName;
                         break;
                     }
 
@@ -214,8 +233,76 @@ namespace Parsek
                     sink.Events.Add(evt.Value);
                     ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId}{sink.EventSuffix()}");
+                    if (carriedOffBy != null || carriedOffState != JettisonCarrierState.NoReference)
+                        ParsekLog.Verbose(sink.Tag, FormatJettisonCarriedOff(
+                            evt.Value.partName, evt.Value.partPersistentId, carriedOffState, carriedOffBy));
                 }
             }
+        }
+
+        /// <summary>Where a ModuleJettison's live shroud transform sits relative to its part.</summary>
+        internal enum JettisonCarrierState
+        {
+            /// <summary>The module holds no transform (no mesh matched, never set up).</summary>
+            NoReference,
+            /// <summary>The shroud is under its own part.</summary>
+            OwnPart,
+            /// <summary>Re-parented onto another part of the same vessel (still attached).</summary>
+            OtherPartSameVessel,
+            /// <summary>Under a part that is no longer on this vessel (it left on a decouple).</summary>
+            OtherVessel,
+            /// <summary>Under no part at all.</summary>
+            NoCarrier,
+            /// <summary>The referenced transform was destroyed with its carrier.</summary>
+            Destroyed,
+        }
+
+        /// <summary>
+        /// True when the shroud is no longer drawn on this vessel: it went away with the part
+        /// stock re-parented it onto, that part was destroyed, or it hangs under no part.
+        /// </summary>
+        internal static bool IsJettisonCarriedOff(JettisonCarrierState state)
+        {
+            return state == JettisonCarrierState.OtherVessel
+                || state == JettisonCarrierState.NoCarrier
+                || state == JettisonCarrierState.Destroyed;
+        }
+
+        internal static string FormatJettisonCarriedOff(
+            string partName, uint partPid, JettisonCarrierState state, string carrierName)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Jettison shroud of '{0}' pid={1} carried off: carrier={2} carrierPart='{3}' " +
+                "(stock re-parented it onto the bottom-node part; isJettisoned stays false)",
+                partName ?? "unknown", partPid, state, carrierName ?? "(none)");
+        }
+
+        // Unity null checks, Transform.IsChildOf / GetComponent and Part.vessel reads stay out of
+        // the poll loop for the same JIT reason as the helpers above.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static JettisonCarrierState ClassifyJettisonCarrierNotInlined(
+            Part p, Vessel v, Transform jt, out string carrierName)
+        {
+            carrierName = null;
+            if (ReferenceEquals(jt, null))
+                return JettisonCarrierState.NoReference;
+            if (jt == null)
+                return JettisonCarrierState.Destroyed;
+            if (jt.IsChildOf(p.transform))
+                return JettisonCarrierState.OwnPart;
+            // Walked by hand: GetComponentInParent skips inactive objects, and a hidden
+            // shroud is inactive.
+            Part carrier = null;
+            for (Transform t = jt; t != null && carrier == null; t = t.parent)
+                carrier = t.GetComponent<Part>();
+            if (carrier == null)
+                return JettisonCarrierState.NoCarrier;
+            if (carrier == p)
+                return JettisonCarrierState.OwnPart;
+            carrierName = carrier.partInfo?.name ?? carrier.name;
+            return carrier.vessel == v
+                ? JettisonCarrierState.OtherPartSameVessel
+                : JettisonCarrierState.OtherVessel;
         }
 
         /// <summary>

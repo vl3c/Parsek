@@ -124,6 +124,25 @@ namespace Parsek
     /// the shot frames of the parity rig can log them beside stock's own (the rig's real marks
     /// log stock's <c>FxScalar</c>, state, Mach and <c>airDensity</c>).
     /// </summary>
+    /// <summary>
+    /// A per-ghost rate-limit key, composed (<see cref="ParsekLog.ComposeKey"/>) only when the
+    /// recording index differs from the one the cached key was built for.
+    /// </summary>
+    internal static class GhostAeroFxLogKeys
+    {
+        internal static string CachedLogKey(ref string key, ref int keyIdx, int recIdx,
+            string subsystem, string prefix, string suffix)
+        {
+            if (key == null || keyIdx != recIdx)
+            {
+                key = ParsekLog.ComposeKey(subsystem,
+                    prefix + recIdx.ToString(System.Globalization.CultureInfo.InvariantCulture) + suffix);
+                keyIdx = recIdx;
+            }
+            return key;
+        }
+    }
+
     internal struct AeroFxInputs
     {
         /// <summary>The speed the scalar used (m/s).</summary>

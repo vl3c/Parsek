@@ -928,6 +928,12 @@ namespace Parsek
         // GhostAeroFxRenderer logged this build's sheath materials (once per info, so the
         // renderer holds no reference that would keep a destroyed ghost's info alive).
         public bool sheathMaterialsLogged;
+        // Per-ghost rate-limit keys of the two per-frame log lines, composed once per recording
+        // index (GhostAeroFx.CachedLogKey), so a suppressed line builds no string.
+        public string sheathLogKey;
+        public int sheathLogKeyIdx = -1;
+        public string intensityLogKey;
+        public int intensityLogKeyIdx = -1;
         // Test-only isolation frame (GhostPlaybackEngine.ArmReentryIsolationForOneFrame): the
         // mode the next DriveReentryLayers of this ghost applies, consumed by that drive; None
         // unless a test or the parity rig armed it.
