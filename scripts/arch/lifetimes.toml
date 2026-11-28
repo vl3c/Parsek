@@ -582,6 +582,14 @@ s_AllowNextLoadScene = "scoped: RunPostChoice arms it for the HighLogic.LoadScen
 s_AllowNextLoadSceneDestination = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
 
 [[type]]
+name = "Parsek.GhostAeroFxRenderer"
+reason = "the ghost reentry sheath drawn with stock's FX cameras (part parity P9 Y1)"
+[type.fields]
+instance = "scene: the flight scene's renderer object; Awake-time creation by the first sheath offer sets it and OnDestroy (scene unload) clears it"
+constantsRead = "process: whether the PhysicsGlobals aero FX constants were read; Physics.cfg is loaded once per game start"
+cachedConstants = "process: the PhysicsGlobals aero FX constants, read once; constants of the loaded game"
+
+[[type]]
 name = "Parsek.GhostMapPresence"
 reason = "ghost map presence"
 [type.fields]

@@ -22454,8 +22454,8 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
-            Description = "#538: live UpdateReentryFx drives the reentry fire particle system past the old 2000-rate ceiling while keeping the tuned max-particle cap on the built Unity particle system. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
-        public IEnumerator Bug538_ReentryFireDensity_UsesDoubledEmissionRange()
+            Description = "Part parity P9 Y1: live UpdateReentryFx computes stock's FxScalar and thermal blend on live atmospheric parameters, collects the ghost meshes for the sheath, and offers the sheath to GhostAeroFxRenderer, whose LateUpdate decides it against stock's gates. Waits on elapsed realtime instead of a fixed frame count so the smoothing assertion is not framerate-dependent.")]
+        public IEnumerator Y1_ReentrySheath_StockScalarDrivesTheGhostSheath()
         {
             const int ghostIndex = 538;
             const string vesselName = "Test538";
@@ -22467,9 +22467,8 @@ namespace Parsek.InGameTests
             const float sweepStepMetersPerSecond = 500f;
             const float rawIntensitySaturationTarget = 0.999f;
             const float requiredNearMaxRawIntensity = 0.99f;
-            const float legacyEmissionRateCeiling = 2000f;
-            const float emissionSettleTimeoutSeconds = 1.5f;
-            const float expectedEmissionRateTolerance = 0.5f;
+            const float requiredSmoothedIntensity = 0.5f;
+            const float settleTimeoutSeconds = 1.5f;
             const float warpRate = 1f;
 
             Vessel activeVessel = FlightGlobals.ActiveVessel;
@@ -22506,7 +22505,8 @@ namespace Parsek.InGameTests
                 lastComputedSurfaceSpeed = targetSurfaceSpeed;
                 machNumber = (float)(targetSurfaceSpeed / speedOfSound);
                 rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(
-                    targetSurfaceSpeed, (float)density, machNumber);
+                    targetSurfaceSpeed, (float)density, machNumber,
+                    GhostAeroFxRenderer.Constants, out _);
                 if (rawIntensity >= rawIntensitySaturationTarget)
                 {
                     rawIntensitySaturated = true;
@@ -22532,17 +22532,21 @@ namespace Parsek.InGameTests
             if (!rawIntensitySaturated && rawIntensity <= requiredNearMaxRawIntensity)
             {
                 InGameAssert.Fail(
-                    "Reentry intensity speed sweep exhausted before reaching the near-max raw-intensity floor. " +
+                    "Stock FxScalar speed sweep exhausted before reaching the near-max raw-intensity floor. " +
                     rawIntensitySweepSummary);
             }
 
             InGameAssert.IsGreaterThan(rawIntensity, requiredNearMaxRawIntensity,
-                "Expected near-max raw intensity inside atmosphere before the live emission assertion. " +
+                "Expected a near-full stock FxScalar inside atmosphere before the live sheath assertion. " +
                 rawIntensitySweepSummary);
 
             var ghostRoot = new GameObject("ParsekTestGhost_538");
             runner.TrackForCleanup(ghostRoot);
             ghostRoot.transform.position = activeVessel.transform.position;
+            var hull = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Collider hullCollider = hull.GetComponent<Collider>();
+            if (hullCollider != null) UnityEngine.Object.Destroy(hullCollider);
+            hull.transform.SetParent(ghostRoot.transform, false);
 
             ReentryFxInfo info = GhostVisualBuilder.TryBuildReentryFx(
                 ghostRoot,
@@ -22550,10 +22554,12 @@ namespace Parsek.InGameTests
                 ghostIndex: ghostIndex,
                 vesselName: vesselName);
 
-            InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry density test");
-            InGameAssert.IsNotNull(info.fireParticles, "Reentry fire particle system should be created in live KSP");
-            InGameAssert.AreEqual(GhostVisualBuilder.ReentryFireMaxParticles, info.fireParticles.main.maxParticles,
-                "Built reentry fire particle system should use the tuned max-particle cap");
+            InGameAssert.IsNotNull(info, "TryBuildReentryFx should return info for the live reentry sheath test");
+            InGameAssert.IsNotNull(info.fireShellMeshes, "TryBuildReentryFx should collect the sheath meshes");
+            InGameAssert.AreEqual(1, info.fireShellMeshes.Count,
+                "The one-cube ghost root should give exactly one sheath mesh");
+            InGameAssert.IsNotNull(info.fireShellMeshes[0].renderer,
+                "A sheath mesh should carry its renderer (its materials pick the stock subshader)");
 
             Vector3 desiredSurfaceVelocity = ghostRoot.transform.right * targetSurfaceSpeed;
             var state = new GhostPlaybackState
@@ -22568,49 +22574,44 @@ namespace Parsek.InGameTests
             };
 
             var engine = new GhostPlaybackEngine(positioner: null);
-            float deadline = Time.realtimeSinceStartup + emissionSettleTimeoutSeconds;
-            float actualRate = 0f;
+            float deadline = Time.realtimeSinceStartup + settleTimeoutSeconds;
             while (Time.realtimeSinceStartup < deadline)
             {
                 engine.UpdateReentryFx(recIdx: ghostIndex, state, vesselName: vesselName, warpRate: warpRate);
-                actualRate = info.fireParticles.emission.rateOverTimeMultiplier;
-                if (actualRate > legacyEmissionRateCeiling)
+                if (info.lastIntensity > requiredSmoothedIntensity && info.lastSheathDecision.HasValue)
                     break;
                 yield return null;
             }
 
-            InGameAssert.IsGreaterThan(info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
-                "Smoothed reentry intensity should cross the fire threshold before we assert the live emission rate");
-            InGameAssert.IsTrue(info.fireParticles.isPlaying,
-                "Reentry fire particles should be playing once the live intensity crosses the fire threshold");
-
-            float expectedRate = Mathf.Lerp(
-                GhostVisualBuilder.ReentryFireEmissionMin,
-                GhostVisualBuilder.ReentryFireEmissionMax,
-                Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, info.lastIntensity));
-            InGameAssert.ApproxEqual(expectedRate, actualRate, expectedEmissionRateTolerance,
-                "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
-            InGameAssert.IsGreaterThan(actualRate, legacyEmissionRateCeiling,
-                $"Bug #538 regression: tuned live emission rate should rise past the old {legacyEmissionRateCeiling.ToString("F0", CultureInfo.InvariantCulture)} particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
+            InGameAssert.IsGreaterThan(info.lastIntensity, requiredSmoothedIntensity,
+                "The smoothed stock FxScalar should climb past half within the settle window");
+            InGameAssert.ApproxEqual(1f, info.aeroState, 0.0001f,
+                "Above Mach 3.75 stock's thermal blend is full reentry heat");
+            InGameAssert.IsTrue(info.lastSheathDecision.HasValue,
+                "GhostAeroFxRenderer's LateUpdate should have decided the offered sheath");
+            GhostAeroSheathDecision decision = info.lastSheathDecision.Value;
+            // The ghost sits at the active vessel with its scalar above 0 and one mesh, so only
+            // stock's own gates can refuse it: a detail level of 0 (the harness default
+            // AERO_FX_QUALITY) or a stock piece missing on this install. Stock's own fire being
+            // on is no reason: the ghost always draws its own (owner ruling 2026-11-28 01:06).
+            InGameAssert.IsTrue(decision == GhostAeroSheathDecision.Draw
+                    || decision == GhostAeroSheathDecision.DetailOff
+                    || decision == GhostAeroSheathDecision.NoStockAssets,
+                $"Unexpected sheath decision {decision} for an in-reach ghost with one mesh and a full scalar");
 
             // The cell's own summary line, written ONLY after every assertion above has
             // passed, so a skipped or failed run of this cell never prints it. The harness
-            // lane H52-reentry-fx pins it as the D6 `reentry-fx` claim token: the numeric
-            // it carries is the one the cell decided on (a live Unity particle system
-            // driven past the legacy 2000/s ceiling by the production UpdateReentryFx path
-            // against live atmospheric parameters). Invariant formatting because a harness
-            // regex reads the digits.
+            // lane H52-reentry-fx pins it as the D6 `reentry-fx` claim token. Invariant
+            // formatting because a harness regex reads the digits.
             ParsekLog.Info("ReentryFx", string.Format(CultureInfo.InvariantCulture,
-                "Bug538_ReentryFireDensity: live reentry fire particle system driven on {0}: " +
-                "emissionRate={1:F0}/s expectedRate={2:F0}/s legacyCeiling={3:F0}/s " +
-                "lastIntensity={4:F3} fireThreshold={5:F3} playing={6}",
-                body.name, actualRate, expectedRate, legacyEmissionRateCeiling,
-                info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
-                info.fireParticles.isPlaying ? "true" : "false"));
+                "Y1_ReentrySheath: stock scalar drove the ghost sheath on {0}: fx={1:F3} state={2:F2} " +
+                "decision={3} meshes={4} speed={5:F0}m/s",
+                body.name, info.lastIntensity, info.aeroState, decision, info.fireShellMeshes.Count,
+                targetSurfaceSpeed));
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,
-            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the documented 400 m/s floor.")]
+            Description = "Bug #450 B3: the speed gate in ShouldBuildLazyReentryFx matches the shared ReentryPotentialSpeedFloor constant, confirming the value we gate on in production is the floor derived from stock's FxScalar in Eve's sea-level air (about 76 m/s).")]
         public void Bug450B3_SpeedGate_MatchesReentryPotentialFloor()
         {
             // Pin the cross-file contract between the B3 helper's speed floor and
@@ -22619,8 +22620,8 @@ namespace Parsek.InGameTests
             // pending-forever state at spawn, or vice versa. The constant lives in
             // TrajectoryMath so the floor is a single source of truth.
             float floor = TrajectoryMath.ReentryPotentialSpeedFloor;
-            InGameAssert.IsTrue(floor >= 100f && floor <= 1000f,
-                $"ReentryPotentialSpeedFloor={floor} is outside the expected 100-1000 m/s sanity range; B3 speed gate may be miscalibrated");
+            InGameAssert.IsTrue(floor >= 50f && floor <= 198f,
+                $"ReentryPotentialSpeedFloor={floor} is outside the expected 50-198 m/s range (below stock's Kerbin sea-level start); B3 speed gate may be miscalibrated");
 
             // Just at the floor → build fires.
             InGameAssert.IsTrue(

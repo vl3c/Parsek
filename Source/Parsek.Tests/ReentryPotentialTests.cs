@@ -66,10 +66,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SlowFleaHop_UnderFloor_ReturnsFalse()
+        public void SlowRover_UnderFloor_ReturnsFalse()
         {
-            // Flea-class solid booster hop: max velocity ~200 m/s, no orbit segments.
-            // Well below Mach 1 anywhere — cannot produce reentry FX.
+            // A rover / taxiing plane: max velocity 60 m/s, no orbit segments. Slower than
+            // stock's effect starts even in Eve's sea-level air.
             var traj = new MockTrajectory();
             traj.Points.Add(new TrajectoryPoint
             {
@@ -80,33 +80,33 @@ namespace Parsek.Tests
             traj.Points.Add(new TrajectoryPoint
             {
                 ut = 15, bodyName = "Kerbin",
-                velocity = new Vector3(0f, 200f, 0f),
+                velocity = new Vector3(0f, 60f, 0f),
                 rotation = Quaternion.identity
             });
             traj.Points.Add(new TrajectoryPoint
             {
                 ut = 30, bodyName = "Kerbin",
-                velocity = new Vector3(0f, 120f, 0f),
+                velocity = new Vector3(0f, 40f, 0f),
                 rotation = Quaternion.identity
             });
             Assert.False(TrajectoryMath.HasReentryPotential(traj));
         }
 
         [Fact]
-        public void JustBelowFloor_399MetersPerSecond_ReturnsFalse()
+        public void JustBelowFloor_ReturnsFalse()
         {
             var traj = new MockTrajectory();
             traj.Points.Add(new TrajectoryPoint
             {
                 ut = 0, bodyName = "Kerbin",
-                velocity = new Vector3(399f, 0f, 0f),
+                velocity = new Vector3(TrajectoryMath.ReentryPotentialSpeedFloor - 1f, 0f, 0f),
                 rotation = Quaternion.identity
             });
             Assert.False(TrajectoryMath.HasReentryPotential(traj));
         }
 
         [Fact]
-        public void AtFloor_400MetersPerSecond_ReturnsTrue()
+        public void AtFloor_ReturnsTrue()
         {
             var traj = new MockTrajectory();
             traj.Points.Add(new TrajectoryPoint
@@ -197,12 +197,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SpeedFloor_SaneDefault()
+        public void SpeedFloor_IsStocksStartInEvesSeaLevelAirLessTheMargin()
         {
-            // Lock the constant so accidental drift is caught. 400 m/s chosen because
-            // it is well below Mach 1.5 on every stock body with an atmosphere,
-            // guaranteeing no false negatives on reentry heating.
-            Assert.Equal(400f, TrajectoryMath.ReentryPotentialSpeedFloor);
+            // Stock's FxScalar has no Mach gate: 0.5 * densityFactor(rho) * v^3.5 = p0 is
+            // the start. In Eve's sea-level air that is about 80 m/s; the floor sits 5 % under.
+            double eveStart = TrajectoryMath.MinimumAeroFxSpeed(TrajectoryMath.StockDensestSurfaceAirDensity);
+            Assert.InRange(eveStart, 78.0, 82.0);
+            Assert.InRange(TrajectoryMath.ReentryPotentialSpeedFloor, (float)(eveStart * 0.95) - 0.001f, (float)(eveStart * 0.95) + 0.001f);
+            Assert.InRange(TrajectoryMath.MinimumAeroFxSpeed(1.225), 196.0, 201.0);
+            Assert.True(double.IsPositiveInfinity(TrajectoryMath.MinimumAeroFxSpeed(0.0)));
+            Assert.True(double.IsPositiveInfinity(TrajectoryMath.MinimumAeroFxSpeed(double.NaN)));
+        }
+
+        [Fact]
+        public void SpeedFloor_ConstantsAreTheLiveEffectsOwn()
+        {
+            AeroFxConstants c = AeroFxConstants.StockDefaults;
+            Assert.Equal(c.DensityScalar1, TrajectoryMath.AeroFxDensityScalar1);
+            Assert.Equal(c.DensityExponent1, TrajectoryMath.AeroFxDensityExponent1);
+            Assert.Equal(c.DensityScalar2, TrajectoryMath.AeroFxDensityScalar2);
+            Assert.Equal(c.DensityExponent2, TrajectoryMath.AeroFxDensityExponent2);
+            Assert.Equal(c.VelocityExponent, TrajectoryMath.AeroFxVelocityExponent);
+            Assert.Equal(GhostAeroFx.HeatFluxThreshold, TrajectoryMath.AeroFxHeatFluxThreshold);
+        }
+
+        [Theory]
+        [InlineData(6.24)]   // Eve sea level
+        [InlineData(1.225)]  // Kerbin sea level
+        [InlineData(0.2)]
+        public void MinimumAeroFxSpeed_IsWhereStocksScalarCrossesZero(double density)
+        {
+            double start = TrajectoryMath.MinimumAeroFxSpeed(density);
+            AeroFxConstants c = AeroFxConstants.StockDefaults;
+            float mach = 0.5f;
+            Assert.True(GhostAeroFx.ComputeFxScalar(density, start * 0.99, mach, c, out _) < 0f);
+            Assert.True(GhostAeroFx.ComputeFxScalar(density, start * 1.01, mach, c, out _) > 0f);
+        }
+
+        [Fact]
+        public void LowLevelPass_380MetersPerSecondPeak_HasPotential()
+        {
+            // Stock shows this at FxScalar 0.6..1.0 at Kerbin sea level; the old 400 m/s floor
+            // never built its fire.
+            var traj = new MockTrajectory();
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 0, bodyName = "Kerbin",
+                velocity = new Vector3(300f, 0f, 0f),
+                rotation = Quaternion.identity
+            });
+            traj.Points.Add(new TrajectoryPoint
+            {
+                ut = 10, bodyName = "Kerbin",
+                velocity = new Vector3(380f, 0f, 0f),
+                rotation = Quaternion.identity
+            });
+            Assert.True(TrajectoryMath.HasReentryPotential(traj));
+            Assert.True(GhostAeroFx.ComputeFxScalar(1.225, 380.0, 1.12f, AeroFxConstants.StockDefaults, out _) > 0.6f);
+        }
+
+        [Fact]
+        public void LazyBuild_350MetersPerSecondInKerbinSeaLevelAir_Fires()
+        {
+            Assert.True(GhostPlaybackLogic.ShouldBuildLazyReentryFx(
+                pendingFlag: true, bodyName: "Kerbin", bodyHasAtmosphere: true,
+                altitudeMeters: 100, atmosphereDepthMeters: 70_000,
+                surfaceSpeedMetersPerSecond: 350f,
+                speedFloorMetersPerSecond: TrajectoryMath.ReentryPotentialSpeedFloor));
+            Assert.True(GhostAeroFx.ComputeFxScalar(1.225, 350.0, 1.03f, AeroFxConstants.StockDefaults, out _) > 0.5f);
         }
 
         [Fact]

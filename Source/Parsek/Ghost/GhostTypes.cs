@@ -898,35 +898,55 @@ namespace Parsek
         public bool? recordedShown;
     }
 
+    /// <summary>One ghost mesh the reentry sheath redraws through stock's FX shaders.</summary>
     internal struct FireShellMesh
     {
         public Mesh mesh;
         public Transform transform;
+        // The mesh's renderer: its materials pick the replacement subshader, as stock's do.
+        public Renderer renderer;
     }
 
     internal class ReentryFxInfo
     {
-        public ParticleSystem fireParticles;
-        public Mesh combinedEmissionMesh; // combined ghost meshes for surface emission, needs Destroy
-        public Texture2D generatedTexture; // runtime soft-circle, needs Destroy on cleanup
-        public List<FireShellMesh> fireShellMeshes; // mesh+transform pairs for DrawMesh flame overlay
-        public Material fireShellMaterial; // additive material for flame shell passes
+        // Never built since part parity P9 Y1 (stock's sheath replaced the particles); kept null
+        // until the destroy path that still names them drops them.
+        public Mesh combinedEmissionMesh;
+        public Texture2D generatedTexture;
+        public List<FireShellMesh> fireShellMeshes; // the ghost meshes GhostAeroFxRenderer redraws
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
+        // Smoothed stock FxScalar, clamped to 0..1 (0 = no effect).
         public float lastIntensity;
+        // Stock's thermal blend for the drive: 0 = condensation, 1 = reentry heat.
+        public float aeroState;
+        // What the last drive computed the scalar from (logged on the rig's shot frames).
+        public AeroFxInputs lastInputs;
         public float vesselLength;
+        // The last sheath decision GhostAeroFxRenderer logged for this ghost.
+        public GhostAeroSheathDecision? lastSheathDecision;
+        // GhostAeroFxRenderer logged this build's sheath materials (once per info, so the
+        // renderer holds no reference that would keep a destroyed ghost's info alive).
+        public bool sheathMaterialsLogged;
+        // Per-ghost rate-limit keys of the two per-frame log lines, composed once per recording
+        // index (GhostAeroFxLogKeys.CachedLogKey), so a suppressed line builds no string.
+        public string sheathLogKey;
+        public int sheathLogKeyIdx = -1;
+        public string intensityLogKey;
+        public int intensityLogKeyIdx = -1;
         // Test-only isolation frame (GhostPlaybackEngine.ArmReentryIsolationForOneFrame): the
         // mode the next DriveReentryLayers of this ghost applies, consumed by that drive; None
         // unless a test or the parity rig armed it.
         public ReentryIsolation isolationArmed;
-        // True while an isolation frame has the fire particle renderer off; the next drive that
-        // does not isolate turns it back on.
+        // True while an isolation frame keeps the sheath off; the next drive that does not
+        // isolate offers it again.
         public bool fireHiddenForIsolation;
     }
 
     /// <summary>
-    /// What a test-only reentry isolation frame leaves out of one ghost's reentry drive: the fire
-    /// particles and the shell, or those and Layer A's glow (the char stays: it is the body).
+    /// What a test-only reentry isolation frame leaves out of one ghost's reentry drive: the sheath
+    /// (and its light; the member names keep the earlier fire-and-shell wording the rig arms), or
+    /// that and Layer A's glow (the char stays: it is the body).
     /// </summary>
     internal enum ReentryIsolation
     {

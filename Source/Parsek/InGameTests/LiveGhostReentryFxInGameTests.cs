@@ -155,7 +155,8 @@ namespace Parsek.InGameTests
                 state.lastInterpolatedSurfaceVelocity, state.lastInterpolatedSurfaceVelocitySource).magnitude;
             double speedOfSound = body.GetSpeedOfSound(pressure, density);
             float mach = speedOfSound > 0 ? (float)(speed / speedOfSound) : 0f;
-            raw = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, mach);
+            raw = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, mach,
+                GhostAeroFxRenderer.Constants, out _);
             return true;
         }
     }
