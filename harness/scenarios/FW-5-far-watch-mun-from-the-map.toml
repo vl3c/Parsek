@@ -29,10 +29,13 @@ id = "FW-5-far-watch-mun-from-the-map"
 #   3. The frame is right after the active drone's hop: the stale rotating-frame flags are
 #      cleared (`cross-body frame cleared=`) and stock's reference-frame check names the
 #      Mun as the dominant body (`cross-body frame after: ... to=Mun ... dominant=Mun`).
-#   4. Stock never moves the drone between bodies by itself and Parsek's SOI handler never
-#      reads the drone as a recorded vessel: zero `stock SOI transition of the drone`
-#      (GhostOrbitDominantBodyPatch's observed drone check) and zero `onVesselSOIChanged
-#      fired for the drone`.
+#   4. Stock never moves the drone between bodies by itself (GhostOrbitDominantBodyPatch
+#      refuses its dominant-body check while the drone exists, so every hop is the mover's
+#      `drone body` line) and Parsek's SOI handler never reads the drone as a recorded
+#      vessel: zero `onVesselSOIChanged fired for the drone`.
+#   5. Once in the Mun's SOI the follow names the recording's body: `follow body=Mun
+#      recordingBody=Mun match=True` (the hop lines themselves may sample the recording's
+#      body a tick either side of its own SOI change, so they are not pinned on it).
 #
 # NOT COVERED (owed elsewhere): the ghost leaving the Mun again (the loop's cycle 1 ends
 # in Mun orbit); the hand-back at the Mun (the ghost parks far from the ship's orbit
@@ -100,16 +103,16 @@ required = [
   "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
   "farwatch start complete ",
   "\\[CameraDrone\\] drone body Mun -> Kerbin recordingBody=\\S+ match=\\S+ pid=[0-9]+",
-  "\\[FarWatch\\] ghost crossed into another SOI from=Kerbin to=Mun rec=#[0-9]+ recordingBody=Mun shipBody=Mun",
+  "\\[FarWatch\\] ghost crossed into another SOI from=Kerbin to=Mun rec=#[0-9]+ recordingBody=\\S+ shipBody=Mun",
   "\\[CameraDrone\\] cross-body frame cleared=\\S+ target=Mun",
-  "\\[CameraDrone\\] drone body Kerbin -> Mun recordingBody=Mun match=True ",
+  "\\[CameraDrone\\] drone body Kerbin -> Mun recordingBody=\\S+ match=\\S+ pid=[0-9]+",
+  "\\[FarWatch\\] follow body=Mun recordingBody=Mun match=True rec=#[0-9]+",
   "\\[CameraDrone\\] cross-body frame after: from=Kerbin fromInverseRotation=False to=Mun toInverseRotation=\\S+ dominant=Mun ",
   "farwatch stop complete ",
 ]
 forbidden = [
   "far-watch-active",
   "farwatch rejected reason=",
-  "stock SOI transition of the drone",
   "onVesselSOIChanged fired for the drone",
   "follow watch lost its watch-mode target",
   "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",

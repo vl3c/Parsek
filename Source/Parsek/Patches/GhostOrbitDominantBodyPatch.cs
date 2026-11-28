@@ -38,18 +38,21 @@ namespace Parsek.Patches
     /// <summary>What the dominant-body check does for one OrbitDriver's vessel.</summary>
     internal enum DominantBodyCheckRoute
     {
-        /// <summary>A real vessel (or a body's driver): stock runs, unobserved.</summary>
+        /// <summary>A real vessel (or a body's driver): stock runs.</summary>
         RunStock,
         /// <summary>A ghost map vessel: skipped, Parsek owns its orbit.</summary>
         Skip,
         /// <summary>
-        /// The camera drone (design-far-watch.md 6.3 step 2): stock runs, because the drone is
-        /// the active vessel and a skipped check would leave stock's frame bookkeeping on the
-        /// wrong body if the mover ever disagreed with getMainBody; the mover writes the drone
-        /// at <c>FlightGlobals.getMainBody(ghost position)</c>, so the check should find
-        /// nothing, and a stock SOI transition of the drone is logged as a Warn.
+        /// The camera drone (design-far-watch.md 6.3 step 2): skipped, because the far-watch
+        /// mover owns the drone's body for as long as the drone exists. The drone is packed in
+        /// UPDATE mode, so <c>VesselPrecalculate.FixedUpdate</c> -&gt; <c>OrbitDriver.UpdateOrbit</c>
+        /// propagates the last written orbit and runs this check every tick, before
+        /// <c>ParsekFlight.FixedUpdate</c>'s mover write; on the ghost's seam tick that orbit
+        /// can be past the SOI boundary, and stock would move the drone (RecalculateOrbit,
+        /// onVesselSOIChanged) ahead of the mover, which then sees no hop to clear the frame
+        /// for. Refused, the drone keeps its body until the mover's cross-body write.
         /// </summary>
-        RunObserved,
+        SkipDrone,
     }
 
     [HarmonyPatch(typeof(OrbitDriver), nameof(OrbitDriver.CheckDominantBody))]
@@ -68,35 +71,34 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// The route for one vessel: a ghost map vessel is skipped, the camera drone runs
-        /// stock observed (design-far-watch.md 6.3 step 2, step 4), everything else runs stock.
-        /// A ghost pid wins over a drone pid (they never coincide; the ghost rule is the older one).
+        /// The route for one vessel: a ghost map vessel is skipped, the camera drone is skipped
+        /// because the mover owns its body (design-far-watch.md 6.3 step 2, step 4), everything
+        /// else runs stock. A ghost pid wins over a drone pid (they never coincide; the ghost
+        /// rule is the older one).
         /// </summary>
         internal static DominantBodyCheckRoute DecideDominantBodyCheck(bool isGhostMapVessel, bool isCameraDrone)
         {
             if (isGhostMapVessel)
                 return DominantBodyCheckRoute.Skip;
-            return isCameraDrone ? DominantBodyCheckRoute.RunObserved : DominantBodyCheckRoute.RunStock;
+            return isCameraDrone ? DominantBodyCheckRoute.SkipDrone : DominantBodyCheckRoute.RunStock;
         }
 
         /// <summary>
-        /// The drone line after an observed check: null when stock changed nothing (the expected
-        /// case: the mover already wrote the drone at getMainBody), else the Warn text. A change
-        /// is a stock on-rails SOI transition (onVesselSOIChanged fires for the drone), which FW-5
-        /// forbids.
+        /// The drone line for a refused check: null when stock would change nothing (the mover
+        /// already wrote the drone at getMainBody), else the Info text naming the body stock
+        /// would have moved it to. The mover's next write makes the hop.
         /// </summary>
-        internal static string DescribeObservedDroneCheck(bool changed, string fromBody, string toBody, uint pid)
+        internal static string DescribeRefusedDroneCheck(string referenceBody, string mainBody, uint pid)
         {
-            if (!changed && string.Equals(fromBody, toBody, System.StringComparison.Ordinal))
+            if (string.Equals(referenceBody, mainBody, System.StringComparison.Ordinal))
                 return null;
             return string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                "stock SOI transition of the drone pid={0} from={1} to={2} (the mover writes the drone at getMainBody; the next tick rewrites it)",
-                pid, fromBody ?? "(none)", toBody ?? "(none)");
+                "drone dominant-body check refused pid={0} referenceBody={1} mainBody={2} (the far-watch mover makes the hop)",
+                pid, referenceBody ?? "(none)", mainBody ?? "(none)");
         }
 
-        static bool Prefix(OrbitDriver __instance, ref bool __result, out CelestialBody __state)
+        static bool Prefix(OrbitDriver __instance, Vector3d refPos, ref bool __result)
         {
-            __state = null;
             Vessel v = __instance != null ? __instance.vessel : null;
             if (v == null)
                 return true;
@@ -104,21 +106,28 @@ namespace Parsek.Patches
                 ShouldSkipDominantBodyCheck(v.persistentId), CameraDroneIdentity.IsDrone(v.persistentId));
             if (route == DominantBodyCheckRoute.RunStock)
                 return true;
-            if (route == DominantBodyCheckRoute.RunObserved)
+
+            // "false" tells the caller (UpdateOrbit) the dominant body did not change, so it
+            // skips RecalculateOrbit / OnRailsSOITransition.
+            __result = false;
+            uint pid = v.persistentId;
+            if (route == DominantBodyCheckRoute.SkipDrone)
             {
-                __state = __instance.referenceBody;
-                return true;
+                // One vessel, so the main-body read is cheap; logged only when stock would act.
+                CelestialBody main = FlightGlobals.getMainBody(refPos);
+                CelestialBody reference = __instance.referenceBody;
+                string line = DescribeRefusedDroneCheck(reference != null ? reference.bodyName : null,
+                    main != null ? main.bodyName : null, pid);
+                if (line != null)
+                    ParsekLog.InfoRateLimited("CameraDrone", "drone-dominant-body-refused", line, 5.0);
+                return false;
             }
 
-            // Parsek-owned ghost: never let KSP transition its SOI. "false" tells the
-            // caller (UpdateOrbit) the dominant body did not change, so it skips
-            // RecalculateOrbit / OnRailsSOITransition. Parsek re-applies the correct
-            // orbit + body every frame.
-            __result = false;
+            // Parsek-owned ghost: never let KSP transition its SOI. Parsek re-applies the
+            // correct orbit + body every frame.
             // Func<string> overload: this Prefix runs every physics tick per ghost, so
             // build the message only when the rate limiter actually emits (verbose is on
             // by default, so the eager-string overload would format every tick).
-            uint pid = v.persistentId;
             ParsekLog.VerboseRateLimited("GhostMap",
                 "dominant-body-suppressed-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -126,17 +135,6 @@ namespace Parsek.Patches
                     pid),
                 5.0);
             return false;
-        }
-
-        static void Postfix(OrbitDriver __instance, bool __result, CelestialBody __state)
-        {
-            if (__state == null || __instance == null || __instance.vessel == null)
-                return;
-            CelestialBody after = __instance.referenceBody;
-            string line = DescribeObservedDroneCheck(__result, __state.bodyName,
-                after != null ? after.bodyName : null, __instance.vessel.persistentId);
-            if (line != null)
-                ParsekLog.WarnRateLimited("CameraDrone", "drone-stock-soi-transition", line, 5.0);
         }
     }
 }

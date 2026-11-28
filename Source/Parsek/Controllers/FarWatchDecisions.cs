@@ -334,6 +334,16 @@ namespace Parsek
         }
 
         /// <summary>The once-per-change key of the follow body / recording body line.</summary>
+        /// <summary>
+        /// The watch's first follow tick only seeds the finite difference (no write): with no
+        /// previous sample its velocity would be the body's rotation alone. True until the watch
+        /// has taken one sample; a re-key keeps the carried velocity and is not re-seeded.
+        /// </summary>
+        internal static bool ShouldSeedFollowSample(bool sampledThisWatch)
+        {
+            return !sampledThisWatch;
+        }
+
         internal static string RecordingBodyMatchKey(string body, string recordingBody)
         {
             return (body ?? "(none)") + "|" + (recordingBody ?? "none");

@@ -274,7 +274,7 @@ members = [
 "Parsek.MapRenderProbe::EmitMapSceneSnapshot(int32,float64,string,string)" = { count = 2, codes = ["DRONE-DIFFERENT"], audit = "C MapRender/MapRenderProbe.cs:500, 501" }
 "Parsek.MapRenderProbe::LateUpdate()" = { count = 1, codes = ["DRONE-NA"], audit = "C MapRender/MapRenderProbe.cs:309, 311" }
 "Parsek.ParsekScenario::StripGhostMapVesselsFailClosed(FlightState,string,string,bool)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Controllers/ParsekScenario.Save.cs:33" }
-"Parsek.Patches.GhostOrbitDominantBodyPatch::ShouldSkipDominantBodyCheck(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitDominantBodyPatch.cs:50" }
+"Parsek.Patches.GhostOrbitDominantBodyPatch::ShouldSkipDominantBodyCheck(uint32)" = { count = 1, codes = ["DRONE-DIFFERENT"], audit = "C Patches/GhostOrbitDominantBodyPatch.cs:70" }
 
 [sites.wrapper]
 "Parsek.PredictedCrashReconcilerHost::ReadLiveFacts(Parsek.Recording,System.Collections.Generic.Dictionary`2<string,Vessel>,float64)" = { count = 1, codes = ["PLAYER-SHIP"], audit = "A PredictedCrashReconcilerHost.cs:363; the wrapper now answers FarWatchPlayerVessel.Resolve() (step 2 review)" }

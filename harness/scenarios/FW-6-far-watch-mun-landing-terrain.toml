@@ -29,7 +29,7 @@ id = "FW-6-far-watch-mun-landing-terrain"
 #      kills it (zero `crashed through terrain`).
 #   3. The stop hands back across bodies: the drone is placed beside the ship on Kerbin
 #      (`drone body Mun -> Kerbin`), the watch ends Idle and the ship is active again.
-#   4. No stock SOI transition of the drone, no drone `onVesselSOIChanged`.
+#   4. No drone `onVesselSOIChanged` (stock's dominant-body check is refused for the drone).
 #
 # NOT COVERED (owed elsewhere): warp above 1x near the Mun surface (the ghost's warp
 # limit decides; at the floor sizing a 1000x tick over a Mun peak needs about 350 m, 8.4);
@@ -111,7 +111,6 @@ forbidden = [
   "crashed through terrain",
   "far-watch-active",
   "farwatch rejected reason=",
-  "stock SOI transition of the drone",
   "onVesselSOIChanged fired for the drone",
   "follow watch lost its watch-mode target",
   "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",

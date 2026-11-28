@@ -109,7 +109,6 @@ forbidden = [
   "Now tracking .*Parsek Camera Drone",
   "far-watch-active",
   "farwatch rejected reason=",
-  "stock SOI transition of the drone",
   "onVesselSOIChanged fired for the drone",
   "timejump refused reason=backward-jump",
 ]

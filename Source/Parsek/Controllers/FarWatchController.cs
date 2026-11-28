@@ -78,6 +78,8 @@ namespace Parsek
         private CelestialBody prevBody;
         private Vector3d lastVDiff;
         private Vector3d lastVObt;
+        // False until the watch's first follow sample: that tick has no finite difference yet.
+        private bool followSampled;
         private string lastBodyMatchKey;
         private int invalidStreak;
 
@@ -594,6 +596,7 @@ namespace Parsek
             prevBody = null;
             lastVDiff = Vector3d.zero;
             lastVObt = Vector3d.zero;
+            followSampled = false;
             lastBodyMatchKey = null;
             invalidStreak = 0;
             switchCameraCaptured = false;
@@ -981,6 +984,20 @@ namespace Parsek
             LogRecordingBodyMatch(index, body.bodyName, recordingBody);
 
             Vector3d r = world - body.position;
+            if (FarWatchDecisions.ShouldSeedFollowSample(followSampled))
+            {
+                // The watch's first follow tick has no previous sample, so its velocity would be
+                // only the body's rotation: keep the sample and write from the next tick, which
+                // has a real finite difference (the drone coasts one tick beside the ship).
+                followSampled = true;
+                prevR = r;
+                prevUT = ut;
+                prevBody = body;
+                winSkips++;
+                ParsekLog.Verbose(Tag, string.Format(ic,
+                    "follow seeded body={0} rec=#{1}; the first write follows next tick", body.bodyName, index));
+                return;
+            }
             Vector3d rfrm = body.getRFrmVel(world);
             bool rotating = FlightGlobals.RefFrameIsRotating;
             Vector3d vObt;

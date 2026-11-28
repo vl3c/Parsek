@@ -149,25 +149,53 @@ namespace Parsek.Tests
 
     public class FarWatchStep4DominantBodyPatchTests
     {
-        // catches: the drone added to the ghost skip (a skipped check leaves stock's frame
-        // bookkeeping unread for the active vessel) or treated as a plain real vessel (a stock
-        // SOI transition of the drone would pass unlogged, and FW-5 forbids it).
+        // catches: the drone left to stock's check (VesselPrecalculate runs UpdateOrbit ->
+        // CheckDominantBody before ParsekFlight.FixedUpdate, so on the seam tick stock would move
+        // the drone across the SOI ahead of the mover and the mover would see no hop to clear
+        // the frame for), or the drone taking the ghost route's log (it must say why it refused).
         [Fact]
-        public void Route_GhostSkipped_DroneObserved_RealVesselStock()
+        public void Route_GhostSkipped_DroneRefused_RealVesselStock()
         {
             Assert.Equal(DominantBodyCheckRoute.Skip, GhostOrbitDominantBodyPatch.DecideDominantBodyCheck(true, false));
             Assert.Equal(DominantBodyCheckRoute.Skip, GhostOrbitDominantBodyPatch.DecideDominantBodyCheck(true, true));
-            Assert.Equal(DominantBodyCheckRoute.RunObserved, GhostOrbitDominantBodyPatch.DecideDominantBodyCheck(false, true));
+            Assert.Equal(DominantBodyCheckRoute.SkipDrone, GhostOrbitDominantBodyPatch.DecideDominantBodyCheck(false, true));
             Assert.Equal(DominantBodyCheckRoute.RunStock, GhostOrbitDominantBodyPatch.DecideDominantBodyCheck(false, false));
         }
 
+        // catches: a refusal line on every tick (stock would change nothing), or a refusal
+        // worded like a stock transition (FW-5 forbids none of it, but the lanes read it).
         [Fact]
-        public void ObservedCheck_SilentWhenStockChangedNothing_WarnTextOtherwise()
+        public void RefusedCheck_SilentWhenStockWouldChangeNothing_NamesTheBodyOtherwise()
         {
-            Assert.Null(GhostOrbitDominantBodyPatch.DescribeObservedDroneCheck(false, "Mun", "Mun", 5));
-            string line = GhostOrbitDominantBodyPatch.DescribeObservedDroneCheck(true, "Kerbin", "Mun", 5);
-            Assert.Contains("stock SOI transition of the drone pid=5 from=Kerbin to=Mun", line);
-            Assert.NotNull(GhostOrbitDominantBodyPatch.DescribeObservedDroneCheck(false, "Kerbin", "Mun", 5));
+            Assert.Null(GhostOrbitDominantBodyPatch.DescribeRefusedDroneCheck("Mun", "Mun", 5));
+            string line = GhostOrbitDominantBodyPatch.DescribeRefusedDroneCheck("Kerbin", "Mun", 5);
+            Assert.Equal("drone dominant-body check refused pid=5 referenceBody=Kerbin mainBody=Mun (the far-watch mover makes the hop)", line);
+            Assert.DoesNotContain("stock SOI transition", line);
+            Assert.NotNull(GhostOrbitDominantBodyPatch.DescribeRefusedDroneCheck(null, "Mun", 5));
+        }
+
+        // catches: the refusal not reporting "no change" to the caller (UpdateOrbit would then
+        // RecalculateOrbit the drone anyway) or the Prefix running stock for the drone.
+        [Fact]
+        public void Prefix_RefusesTheDroneWithNoChange()
+        {
+            string src = File.ReadAllText(Path.Combine(Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..", "Source", "Parsek")),
+                "Patches", "GhostOrbitDominantBodyPatch.cs"));
+            int prefix = src.IndexOf("static bool Prefix(", StringComparison.Ordinal);
+            int stock = src.IndexOf("if (route == DominantBodyCheckRoute.RunStock)", prefix, StringComparison.Ordinal);
+            int noChange = src.IndexOf("__result = false;", stock, StringComparison.Ordinal);
+            int drone = src.IndexOf("if (route == DominantBodyCheckRoute.SkipDrone)", noChange, StringComparison.Ordinal);
+            int refuse = src.IndexOf("return false;", drone, StringComparison.Ordinal);
+            Assert.True(prefix > 0 && stock > prefix && noChange > stock && drone > noChange && refuse > drone);
+            Assert.DoesNotContain("static void Postfix(", src);
+        }
+
+        [Fact]
+        public void FirstFollowTick_OnlySeeds()
+        {
+            Assert.True(FarWatchDecisions.ShouldSeedFollowSample(false));
+            Assert.False(FarWatchDecisions.ShouldSeedFollowSample(true));
         }
     }
 
@@ -272,6 +300,12 @@ namespace Parsek.Tests
             Assert.Contains("FarWatchDecisions.CarryObtVelocityAcrossBodies(lastVObt", src);
             Assert.Contains("ShouldHandBackForDistance(state, onShipBody, distToShip)", src);
             Assert.Contains("CameraDrone.WriteState(drone, body, world, vObt, recordingBody)", src);
+            // The first follow tick seeds the finite difference before any velocity or write.
+            int seed = src.IndexOf("FarWatchDecisions.ShouldSeedFollowSample(followSampled)", StringComparison.Ordinal);
+            int vel = src.IndexOf("Vector3d rfrm = body.getRFrmVel(world);", StringComparison.Ordinal);
+            int write = src.IndexOf("CameraDrone.WriteState(drone, body, world, vObt, recordingBody)", StringComparison.Ordinal);
+            Assert.True(seed > 0 && vel > seed && write > vel);
+            Assert.Contains("followSampled = false;", src);
         }
 
         // catches: the cross-body write losing its frame clear, or the clear moving after the
