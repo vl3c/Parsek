@@ -777,11 +777,13 @@ namespace Parsek
         /// path is skipped — `FXMonger.Explode` would queue a SHIP_VOLUME `PlayOneShot` on a fresh
         /// AudioSource that does NOT respect the engine-side pause, so a destroyed-part event
         /// applied in the same frame the player opens Esc would punch through the pause and
-        /// regress the flight pause-audio fix. The puff fallback runs instead so the destruction
-        /// still produces a visual cue without queuing audio.
+        /// regress the flight pause-audio fix. A silent copy of stock's explosion for the same
+        /// power runs instead (<see cref="GhostVisualBuilder.SpawnFallbackExplosionFx"/>), so the
+        /// destruction looks as it does in flight without queuing audio.
         ///
         /// FXMonger isn't loaded outside the flight scene; KSC playback (and any other scene
-        /// where the singleton is not live) falls back to the small Parsek particle puff PLUS
+        /// where the singleton is not live) falls back to that silent stock copy (Parsek's hand-built
+        /// explosion before the session's first flight) PLUS
         /// an independent positional explosion AudioSource via
         /// <see cref="TryPlayIndependentExplosionOneShot"/> so destroyed-part events at KSC stay
         /// audible (pre-fix the per-vessel `oneShotAudio.audioSource.PlayOneShot` covered this;
@@ -842,10 +844,12 @@ namespace Parsek
 
             // Fallback path — runs when (a) FXMonger isn't loaded (KSC scene and other non-flight
             // scenes), (b) FXMonger.Explode itself failed, or (c) the stock pause menu is open.
-            // The puff is always spawned as the visual cue. Audio is queued via the independent
+            // Stock's explosion for this power is always drawn, as a silent copy kept from the
+            // flight scene (the hand-built explosion before the first flight of the session).
+            // Audio is queued via the independent
             // explosion one-shot path UNLESS audio is paused — then we deliberately keep the
             // event silent so destroyed-part events applied during pause don't punch through.
-            SpawnPartPuffAtPart(ghost, persistentId);
+            GhostVisualBuilder.SpawnFallbackExplosionFx(t.position, power, ResolveGhostPartScale(t));
             if (!audioPaused && atmosphereFactor > 0.001f)
             {
                 TryPlayIndependentExplosionOneShot(
@@ -858,7 +862,7 @@ namespace Parsek
             else
             {
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"part-destroyed-puff-only-{persistentId}",
-                    $"Particle puff spawned for destroyed part pid={persistentId} " +
+                    $"Fallback explosion spawned for destroyed part pid={persistentId} " +
                     $"(audio suppressed: paused={audioPaused} atmosphereFactor={atmosphereFactor.ToString("F2", CultureInfo.InvariantCulture)}) " +
                     $"{powerDetail}",
                     5.0);
@@ -1143,6 +1147,17 @@ namespace Parsek
         /// Spawns a small smoke puff + spark FX at a ghost part's world position.
         /// Called before hiding the part on Decoupled/Destroyed events.
         /// </summary>
+        /// <summary>
+        /// A ghost part's size for an explosion that falls back to the part's length (half its
+        /// first renderer's bounds diagonal, as the part puff sizes itself; 1 m with no renderer).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static float ResolveGhostPartScale(Transform t)
+        {
+            var renderer = t != null ? t.GetComponentInChildren<Renderer>() : null;
+            return renderer != null ? renderer.bounds.size.magnitude * 0.5f : 1f;
+        }
+
         internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
         {
             if (ghost == null) return;

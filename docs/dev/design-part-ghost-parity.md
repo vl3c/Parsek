@@ -4993,6 +4993,14 @@ GHOST-CRASH-ONE-LENGTH-SIZED-BLAST). The coordinator's evidence run (`ghost-fx-9
   pause menu logs `route=copy-paused`; a ghost whose parts were all removed earlier logs `no ghost
   part to explode` and plays the old single blast.
 
+Y2 follow-ups as built (2026-11-28, from a review of the merged ghost FX work; no flight).
+- (a) A destroyed part whose `FXMonger.Explode` cannot run (Space Center, pause menu, a failed
+  call) draws `SpawnFallbackExplosionFx(part position, Y2 power, part size)`, the silent stock copy
+  (the hand-built explosion before the session's first flight), not the part puff (G.1 row 4
+  case b; todo GHOST-PART-DESTROYED-FALLBACK-PUFF). The puff helper stays for the decouple (Y4).
+  First check: a part destroyed at the Space Center logs `Fallback explosion spawned for destroyed
+  part ... prefabIndex=3` for a default part and draws a full copy, not a 5 px puff.
+
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
 1. The reentry intensity is not stock's curve, although its comment says it is

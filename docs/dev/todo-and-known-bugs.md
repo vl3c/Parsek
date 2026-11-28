@@ -264,6 +264,12 @@ What: the recorder only records `ShroudJettisoned` for a shroud stock carried of
 
 What: stock moves an `isFairing` + `decoupleEnabled` shroud under the part on its bottom node, so the real debris carries the fairing; the fairing is part of the shield's model, not of the decoupler's snapshot, so the debris ghost is drawn without it. Fix: not decided.
 
+## ~~GHOST-PART-DESTROYED-FALLBACK-PUFF~~: a ghost part destroyed at the Space Center or under the pause menu drew a tiny puff where stock draws an explosion [FILED 2026-11-28 from a review of the merged ghost FX work (coordinator); FIXED 2026-11-28, branch `p9-y2`; xUnit source cell in `PartExplosionSpeedTermTests`; not flown; visual, low]
+
+What a player saw: when `FXMonger.Explode` could not be used for a destroyed ghost part (the Space Center, the flight pause menu, a failed stock call), `PlayPartDestroyedFxAtPart` drew `SpawnPartPuffAtPart`, at most 5 px on the X0 captures; stock draws the full FXMonger prefab for the part's power.
+
+Fix: that fallback now draws `GhostVisualBuilder.SpawnFallbackExplosionFx(t.position, power, partScale)` with the Y2 power: the silent stock copy kept from the flight scene, Parsek's hand-built explosion only before the session's first flight. The independent explosion sound is unchanged. `SpawnPartPuffAtPart` itself is untouched (the decouple still calls it until Y4 lands). Log line renamed `Fallback explosion spawned for destroyed part`. Design note: G.7 "Y2 follow-ups as built".
+
 ## ~~GHOST-CRASH-ONE-LENGTH-SIZED-BLAST~~: a crashing ghost drew one blast sized by its length, bigger and darker than the real crash [FILED 2026-11-26 by code reading (part parity P9 plan, G.8 item 5); SEEN 2026-11-27 on the evidence run `2026-11-27_2339` (`ghost-fx-9-evidence`); FIXED 2026-11-28, part parity P9 Y7, branch `p9-y2`; xUnit `VesselEndBlastsTests`; not flown; visual, medium]
 
 What a player saw: a real 3-part craft crash shows small grey blasts; its ghost played one Explosion 0 (power 0.20 = 4 m / 20) with a dark cloud and chunks. A ghost of 20 m or more always drew the largest prefab, a 2 m probe a Thud.

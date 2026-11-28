@@ -172,5 +172,18 @@ namespace Parsek.Tests
             Assert.DoesNotContain("ActiveVessel", play);
             Assert.DoesNotContain("ship_srfSpeed", play);
         }
+
+        [Fact]
+        public void TheDestroyedPartFallback_DrawsStocksExplosionNotThePuff()
+        {
+            string text = PartParityStateRulesTests.StripComments(File.ReadAllText(Path.Combine(
+                SyntheticRecordingTests.ResolveProjectRoot(), "Source", "Parsek", "Ghost",
+                "GhostPlaybackLogic.PartEvents.cs")));
+            string play = PartParityStateRulesTests.MethodBody(text, "internal static void PlayPartDestroyedFxAtPart(");
+            Assert.True(play != null, "PlayPartDestroyedFxAtPart moved; this cell is vacuous");
+            Assert.Contains("GhostVisualBuilder.SpawnFallbackExplosionFx(t.position, power, ResolveGhostPartScale(t));", play);
+            Assert.DoesNotContain("SpawnPartPuffAtPart(", play);
+            Assert.DoesNotContain("SpawnPartPuffFx(", play);
+        }
     }
 }
