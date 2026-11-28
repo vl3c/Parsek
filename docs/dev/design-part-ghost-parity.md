@@ -3910,7 +3910,7 @@ from the engine's power.
 | `ctl-burst-hue` | an intact ghost against one whose readback channels are rotated (E.5's `ctl-fx-plume-hue` rule) | fails colour only |
 | `ctl-dust-real-vs-real` | the LV-T45 (`maxDistance` 30, `falloff` 1.7) at 0.2 of its reach, split halves | passes every dust measure |
 | `ctl-dust-off` | an intact ghost against one with its dust hidden | fails dust presence; the flame layer passes |
-| `ctl-dust-above-reach` | the LV-T45 held at 36 m (1.2 of its `maxDistance`) | stock draws no dust (raycast miss); the ghost must not either: recorded `n/a` while G.8 item 3 stands, `ok` after |
+| `ctl-dust-above-reach` | the LV-T45 held at 36 m (1.2 of its `maxDistance`) | stock draws no dust (raycast miss); the ghost must not either: recorded `n/a` while G.8 item 3 stood, judged `ok` / `bad` since Y3 |
 | `ctl-aero-cold` (FXC-1) | the 75 km mark, above the atmosphere | the real `aero` layer difference is zero (the isolation frames add nothing) |
 | `ctl-aero-hot` (FXC-1) | the Mach 3.75 mark | the real `aero` layer difference is non-zero (the isolation frames remove the stock streaks) |
 
@@ -4333,7 +4333,9 @@ measured from its own atlas tile by the X3 transcription, so the recompute passe
 - Controls. `judge_burst_control` / `judge_dust_control` transcribe `JudgeBurstControl` /
   `JudgeDustControl` with their detail wording (source-synced against
   `PartParityFxRules.Burst.cs`); in a P9 run every control recorded `ok` is re-judged, and
-  `ctl-dust-above-reach` recorded `n/a` must re-judge `n/a` (`recorded-n/a-judged-ok()` otherwise).
+  `ctl-dust-above-reach` recorded `n/a` had to re-judge `n/a` (`recorded-n/a-judged-ok()` otherwise)
+  while it was a known difference; since Y3 the known-difference list is empty and an `n/a` there
+  is an unmet control.
   Stricter than the C#: every burst control but `ctl-burst-empty` needs a real flame core
   (`no real core`), and the dust real-vs-real and off controls a real dust core (`no real dust
   core`). The C# per-trial note of X1 stands.
@@ -4900,10 +4902,78 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
   7. The ocean slot is found and loads with the widened ranges; no building sits near a dust slot;
      no dust from the warm-up lingers into the rounds; no dust renderer sits on layer 15
      (`dust-on-terrain-layer`).
-  8. The ghost dust appears at `dust-high` (Parsek's 40 m ground-clearance gate).
+  8. The ghost dust appears at `dust-high` (Parsek's 40 m ground-clearance gate). Obsolete since
+     Y3: the ghost follows stock's reach, so at `dust-high` both sides draw nearly nothing.
   9. Frame time and memory with 18 renders per frame (`[PartParity] memory` lines).
   10. Every control reads ok, and after teardown no trial vessel, ghost, hold or effect is left.
 - No CHANGELOG entry (test tooling only); no todo entry.
+
+Y3 as built (2026-11-28, branch `p9-y3`; C# compiled and unit-tested, never run in KSP; G.8
+item 3, todo GHOST-LAUNCH-DUST-NOT-STOCK). Launch dust follows stock's `ModuleSurfaceFX` /
+`SurfaceFX` rule (decompiled, KSP 1.12.5); the pure half is `GhostPlaybackLogic.LaunchDust.cs`, the
+raycasts and the drive `GhostPlaybackEngine.LaunchDust.cs`, the emitters
+`GhostVisualBuilder.LaunchDust.cs`.
+- Sources. At ghost build each engine whose part carries a `ModuleSurfaceFX` gets a
+  `GhostSurfaceFxSource` (`EngineFxBuilder.AttachSurfaceFxSources`): the ghost's copy of the
+  module's thrust transform (the part's own transform when the name is empty, as stock), its
+  `maxDistance`, `falloff` and `fxMax`. `thrustProviderModuleIndex` is mapped to the engine's
+  ordinal among the part's `ModuleEngines` (`ResolveSurfaceFxEngineOrdinal`); an index that names
+  no engine draws nothing, as stock. An engine that built no FX systems is not in the ghost's
+  engine list and so raises no dust either (a known gap, not seen on stock parts).
+- Each frame (`DriveLaunchDustFrame`): no lit source returns at once; `GameSettings.SURFACE_FX`
+  off, no body, or a ghost above 25 km plus the longest reach (`ShouldProbeLaunchDust`, a cost gate
+  over the highest stock terrain) skip; else every lit source casts `Physics.Raycast` from its
+  thrust transform along its forward for its own reach on stock's mask `0x40008000`, and
+  `ClassifySurfaceFxRay` applies stock's branches: an ocean body with the engine at or under sea
+  level draws nothing, a hit above the datum is `LaunchpadFX` (pad), `Wheel_Piston_Collider`
+  (nothing) or terrain at the hit's distance, and otherwise over an ocean body a downward axis
+  with the engine under its reach is water at `altitude / cos` along the axis. The strength is
+  stock's `ScaledFX`, `thrust share * fxMax * (1 - d / maxDistance)^falloff`, the thrust share the
+  ghost's throttle times its `thrustFraction` in the ghost's air (stock: current over max thrust);
+  zero at or past the reach (stock's water branch can pass a slant distance past it; clamped).
+- Combine. Each surface's sources feed ONE emitter per ghost (`LaunchDustAggregate`): the
+  strength is the clamped sum, one source stands at its own point, normal and push, several at the
+  `ScaledFX`-weighted mean with the push times 5, as `SurfaceFX.LateUpdate`. Stock merges only
+  hits within about 2.2 m (`mergeThreshold`, squared 5) into one `SurfaceFX`, so one nozzle or a
+  tight cluster is identical; a wide cluster draws one cloud at the mean where stock draws one per
+  spot. Chosen for cost: at most two emitters (terrain, water) and two builds per ghost.
+- Pad. A `LaunchpadFX` hit raises no dust and calls the pad's own `LaunchPadFX.AddFX(ScaledFX)`, as
+  stock, so the pad's smoke plays for a ghost lift-off (the pad sums and consumes it per frame).
+- Look. The emitter is a copy of stock's own `SurfaceFX` prefab (`WaterFX` over water) from
+  `AssetBase.GetPrefab`, instantiated under an inactive holder, its private `srfCloud` / `srfDust`
+  / `srfWake` read by reflection, every MonoBehaviour (the stock `SurfaceFX`) destroyed before it
+  wakes, audio muted, parented under the ghost root as `ParsekLaunchDust`, world-space systems
+  attached to the floating origin (`GhostWorldSpaceEmitter.AttachOwn`). It is driven by stock's
+  `LateUpdate` rule (`DriveLaunchDustEmitter`): `LookRotation(push, normal)` at the hit point (any
+  surface axis when the push is zero, `ResolveSurfaceFxForward`); dust and wake play, the cloud
+  only where the body has an atmosphere; each keeps the prefab's colour with start alpha
+  `Lerp(0, 0.5, fxScale)` and its emission untouched; each live dust and cloud particle gets
+  `push * (remaining / startLifetime)^0.5` added to its velocity per frame. At zero strength the
+  emission stops and what was emitted lives out (stock destroys its `SurfaceFX` 10 s later; the
+  ghost keeps its emitter for the next burn). Only when the prefab is missing or not that shape
+  does a Parsek-built disc stand in, alpha-blended and driven by the same alpha rule; its colour,
+  size, speed and lifetime are guesses. Taken from stock: the rule, the reach and falloff per
+  part, the alpha, the push, the pad and water branches, the prefabs. Guessed: the fallback's
+  look, and the single combined emitter for a wide cluster.
+- Removed: the latched launch-site ground reference, the 40 m linear reach, the flat additive
+  disc, `SumEnginePower`. `ctl-dust-above-reach` is judged now (`DustAboveReachGhostJudged` true,
+  the known-difference list empty, C# and `harness/lib/partparity.py` alike).
+- What the first in-game check must look at (rig lane `FX9-3-ground-look-stock` on branch
+  `ghost-fx-9-evidence`, case `dust`, the grass lift-off with the LV-T45; the rig finds the ghost's
+  dust by the `ParsekLaunchDust` root, whose systems are now its children):
+  1. KSP.log shows `Launch dust built for '<vessel>': stock SurfaceFX prefab copy (cloud=True
+     dust=True wake=True)`, not the fallback line, and no NullReferenceException from a stock
+     `SurfaceFX` (the component must never wake).
+  2. The ghost's dust is a faint grey haze like the real one beside it, thinning as the nozzle
+     climbs and gone by 30 m along the LV-T45's axis; it no longer lingers as a bright ring.
+  3. The haze's place and spread follow the nozzle's ground hit, pushed away along a slope.
+  4. From the pad: no ghost dust, the pad's own smoke plays (`padHits=` in the `Launch dust ghost`
+     line), and a real vessel on the pad at the same time is not disturbed.
+  5. Over the sea (the X4 `dust-water` slot): the `WaterFX` copy builds and the spray sits at sea
+     level.
+  6. `ctl-dust-above-reach` reads `ok`; the X4 dust wave's controls stay `ok`.
+  7. Frame time with several ghosts launching at once (the build is capped per frame; the
+     per-particle push runs only while a surface is drawn).
 
 ### G.8 Found by reading (not flown; each to be confirmed by the first capture)
 
@@ -4951,6 +5021,8 @@ driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave)
    - the reach is 40 m (`LaunchDustMaxAglMeters`) with a linear falloff for every vessel; stock's
      is `maxDistance` per part (10 to 100 m on stock-minimal, 50 m by default) along the thrust axis
      with `(1 - d / maxDistance)^falloff` (2 by default, 1.7 on the LV-T45).
+   Status 2026-11-28: fixed by Y3 ("Y3 as built" in G.7); the file and line numbers above are the
+   pre-Y3 code. Not flown yet.
 4. The decouple puff (`GhostPlaybackLogic.PartEvents.cs:636`, `1133` to `1154`) sits on the joint
    child and fires for every recorded joint break (`FlightRecorder.PartEvents.cs:475`), with sparks
    and a size from the child's renderer bounds (line 1151); stock bursts a white gas cloud

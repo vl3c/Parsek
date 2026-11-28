@@ -293,9 +293,15 @@ namespace Parsek.Tests
             // terrain dust (the pad, nothing within reach, a skip) builds nothing.
             int demand = frame.IndexOf("GhostPlaybackLogic.HasLaunchDustDemand(", StringComparison.Ordinal);
             int trace = frame.IndexOf("TraceLaunchDustSources(", StringComparison.Ordinal);
-            int zero = frame.IndexOf("if (skip != null || terrainScale <= 0f)", StringComparison.Ordinal);
-            int build = frame.IndexOf("TryBuildLaunchDust(", StringComparison.Ordinal);
-            Assert.True(demand >= 0 && demand < trace && trace < zero && zero < build);
+            int zero = frame.IndexOf("if (skip != null || (terrainScale <= 0f && waterScale <= 0f))", StringComparison.Ordinal);
+            int surface = frame.IndexOf("DriveLaunchDustSurface(", StringComparison.Ordinal);
+            Assert.True(demand >= 0 && demand < trace && trace < zero && zero < surface);
+            Assert.Equal(2, Regex.Matches(frame, @"DriveLaunchDustSurface\(").Count);
+            // A surface at zero strength stops its emitter before any build.
+            string one = Body(text, "private static void DriveLaunchDustSurface(");
+            Assert.True(one.IndexOf("if (fxScale <= 0f)", StringComparison.Ordinal)
+                < one.IndexOf("GhostVisualBuilder.TryBuildLaunchDust(", StringComparison.Ordinal));
+            Assert.Contains("lazyBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame", one);
             // Each engine casts its own thrust axis for its own reach on stock's layers, classified
             // by stock's rule; a pad hit is counted and raises no dust.
             Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
@@ -304,12 +310,19 @@ namespace Parsek.Tests
             Assert.Contains("GhostPlaybackLogic.LaunchDustSurfaceLayerMask", probe);
             Assert.Contains("CompareTag(GhostPlaybackLogic.LaunchpadFxTag)", probe);
             Assert.Contains("GhostPlaybackLogic.ClassifySurfaceFxRay(", probe);
-            Assert.Matches(@"if \(kind == LaunchDustSurface\.Launchpad\)\s*\{\s*padHits\+\+;\s*continue;\s*\}", probe);
-            Assert.True(probe.IndexOf("padHits++;", StringComparison.Ordinal)
-                < probe.IndexOf("GhostPlaybackLogic.ComputeSurfaceFxScaled(", StringComparison.Ordinal));
-            // The one log call in the frame body is the build throttle's; the dust line is built
-            // only on a change of what the dust does.
-            Assert.Single(Regex.Matches(frame, @"ParsekLog\.").Cast<Match>());
+            // A pad hit raises the pad's own smoke (stock's LaunchPadFX.AddFX) and never reaches
+            // a dust aggregate.
+            int pad = probe.IndexOf("if (kind == LaunchDustSurface.Launchpad)", StringComparison.Ordinal);
+            int padContinue = probe.IndexOf("continue;", pad, StringComparison.Ordinal);
+            Assert.True(pad >= 0 && padContinue > pad);
+            string padBranch = probe.Substring(pad, padContinue - pad);
+            Assert.Contains("padHits++;", padBranch);
+            Assert.Contains("pad.AddFX(scaled);", padBranch);
+            Assert.True(padContinue < probe.IndexOf("terrain.Add(", StringComparison.Ordinal));
+            // No log call in the frame body itself (the build throttle's is in the surface step);
+            // the dust line is built only on a change of what the dust does.
+            Assert.Empty(Regex.Matches(frame, @"ParsekLog\.").Cast<Match>());
+            Assert.Single(Regex.Matches(one, @"ParsekLog\.").Cast<Match>());
             string log = Body(text, "private static void LogLaunchDustOnChange(");
             Assert.True(log.IndexOf("if (signature == state.launchDustLogSignature) return;", StringComparison.Ordinal)
                 < log.IndexOf("ParsekLog.VerboseRateLimited(", StringComparison.Ordinal));

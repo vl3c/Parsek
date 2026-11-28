@@ -6474,7 +6474,9 @@ class DustJudgeTests(unittest.TestCase):
         above = _dust_case("x", real={"dust": FX_DARK}, ghost={"dust": DUST_REAL["dust"]},
                            raycast=_dust_raycast(0, "none"))[0]
         above["setup"]["status"] = pp.SETUP_DUST_NO_STOCK_HIT
-        self.assertEqual((pp.CONTROLS_NOT_APPLICABLE, "the ghost draws dust past stock's reach (G.8 item 3)"),
+        # Since fix Y3 the ghost's dust past stock's reach is judged, no longer n/a.
+        self.assertTrue(pp.DUST_ABOVE_REACH_GHOST_JUDGED)
+        self.assertEqual((pp.CONTROLS_BAD, "the ghost draws dust past stock's reach"),
                          pp.judge_dust_control("ctl-dust-above-reach", above))
         self.assertEqual((pp.CONTROLS_BAD, "setup dust-no-stock-hit"),
                          pp.judge_dust_control("ctl-dust-off", above))
@@ -6580,27 +6582,29 @@ class P9SweepTests(unittest.TestCase):
         self.assertEqual((pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND), (res.status, res.invalid_subkind))
         self.assertIn("controls: ctl-burst-late:recorded-ok-judged-bad(onset passes)", res.problems)
 
-    def test_the_known_difference_reads_n_a_only_on_its_evidence(self):
+    def test_the_above_reach_control_is_judged_since_y3(self):
         above = _dust_case("ctl-dust-above-reach", real={"dust": FX_DARK},
                            ghost={"dust": DUST_REAL["dust"]}, raycast=_dust_raycast(0, "none"))
+        self.assertEqual((), pp.KNOWN_DIFFERENCE_CONTROL_IDS)
+        # n/a recorded where the ghost drew dust past stock's reach: no longer a known difference.
         d = self._dir("na")
         _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above},
                         outcomes={"ctl-dust-above-reach": "n/a"})
         _write_p9_case(d, *above)
         res = _judge_p9_dir(d)
-        self.assertEqual((pp.STATUS_REPORT, []), (res.status, res.problems))
-        # n/a recorded, but the ghost drew no dust: the control is met, so n/a is a lie.
-        d = self._dir("na-ok")
-        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-above-reach": "n/a"})
-        _write_p9_case(d, *_dust_control("ctl-dust-above-reach"))
-        res = _judge_p9_dir(d)
         self.assertEqual(pp.STATUS_INVALID, res.status)
-        self.assertIn("controls: ctl-dust-above-reach:recorded-n/a-judged-ok()", res.problems)
-        # ok recorded while the evidence reads n/a.
-        d = self._dir("ok-na")
+        self.assertIn("controls: ctl-dust-above-reach:n/a", res.problems)
+        # ok recorded while the evidence reads the ghost's dust past the reach.
+        d = self._dir("ok-bad")
         _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, controls={"ctl-dust-above-reach": above})
         res = _judge_p9_dir(d)
-        self.assertTrue(any("ctl-dust-above-reach:recorded-ok-judged-n/a" in p for p in res.problems), res.problems)
+        self.assertTrue(any("ctl-dust-above-reach:recorded-ok-judged-bad" in p for p in res.problems), res.problems)
+        # ok recorded, the ghost drew nothing past the reach: met.
+        d = self._dir("ok-ok")
+        _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS)
+        _write_p9_case(d, *_dust_control("ctl-dust-above-reach"))
+        res = _judge_p9_dir(d)
+        self.assertFalse(any("ctl-dust-above-reach" in p for p in res.problems), res.problems)
         # Any other control recorded n/a is not met.
         d = self._dir("other")
         _build_p9_sweep(d, _dust_cases(), DUST_SETTINGS, outcomes={"ctl-dust-off": "n/a"})

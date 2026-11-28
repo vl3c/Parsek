@@ -350,7 +350,8 @@ namespace Parsek.Tests
                 Assert.NotNull(PartParitySweepPlan.ControlRequired(id));
                 Assert.NotNull(PartParityFxRules.BuiltControlPreference(id));
             }
-            Assert.Equal(new[] { "ctl-dust-above-reach" }, TestCommandPartParitySweep.KnownDifferenceControlIds);
+            // Fix Y3 judges ctl-dust-above-reach, so no known difference is left.
+            Assert.Empty(TestCommandPartParitySweep.KnownDifferenceControlIds);
             Assert.Equal(new[] { "ctl-plate-light-off-point" }, TestCommandPartParitySweep.OptionalControlIds);
         }
 
@@ -424,12 +425,14 @@ namespace Parsek.Tests
             Assert.Equal("ok", J("ctl-dust-off", off));
             off.FailingFlameMeasures.Add("length");
             Assert.Equal("bad", J("ctl-dust-off", off));
-            // Above the reach: stock's miss is the point; the ghost's dust is n/a while G.8 item 3 stands.
+            // Above the reach: stock's miss is the point, and since fix Y3 the ghost must miss too.
             var above = new PartParityDustControlEvidence { SetupStatus = "dust-no-stock-hit" };
             Assert.Equal("ok", J("ctl-dust-above-reach", above));
             above.GhostDustCovered = true;
-            Assert.False(PartParityFxRules.DustAboveReachGhostJudged);
-            Assert.Equal("n/a", J("ctl-dust-above-reach", above));
+            Assert.True(PartParityFxRules.DustAboveReachGhostJudged);
+            Assert.Equal("bad", J("ctl-dust-above-reach", above));
+            PartParityFxRules.JudgeDustControl("ctl-dust-above-reach", above, out string aboveDetail);
+            Assert.Equal("the ghost draws dust past stock's reach", aboveDetail);
             above.StockRaycastHit = true;
             Assert.Equal("bad", J("ctl-dust-above-reach", above));
             var fault = new PartParityDustControlEvidence { SetupStatus = "dust-no-stock-hit" };

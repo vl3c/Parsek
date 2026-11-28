@@ -21,8 +21,8 @@ Not released yet.
   They no longer ride along with your own vessel while it flies.
 - **Ghost launch dust spreads flat across the ground** like stock's, instead of a ring standing
   upright around the rocket.
-- **Ghost launch dust looks like stock's:** a faint haze that thins as the engine climbs and is
-  gone past its reach, none on the pad. (GHOST-LAUNCH-DUST-NOT-STOCK)
+- **Ghost launch dust looks like stock's:** a faint haze that thins as the engine climbs, spray
+  over water, and the pad's own smoke on the pad. (GHOST-LAUNCH-DUST-NOT-STOCK)
 - **A ghost crash at the Space Center or with the game paused uses KSP's own explosion**, the same
   grey smoke as in flight, once you have been in flight that session.
 - **Before your first flight of a session, a ghost crash looks like KSP's too:** grey smoke, with

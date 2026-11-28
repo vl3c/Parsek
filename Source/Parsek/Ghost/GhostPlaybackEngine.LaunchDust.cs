@@ -36,10 +36,11 @@ namespace Parsek
         /// One launch dust frame, stock's rule (decompiled <c>ModuleSurfaceFX.Update</c>, KSP 1.12.5):
         /// every lit engine that a <c>ModuleSurfaceFX</c> drives raycasts along its own thrust axis
         /// for that module's <c>maxDistance</c>; a terrain hit raises dust at the hit point with
-        /// <c>thrust share * fxMax * (1 - d / maxDistance)^falloff</c>, a hit on the pad's
-        /// <c>LaunchpadFX</c> collider raises none, and nothing within the reach raises none. The
-        /// engines' terrain hits feed ONE emitter per ghost at their strength-weighted mean, the way
-        /// stock's <c>SurfaceFX</c> combines the engines it merges (stock merges hits that land
+        /// <c>thrust share * fxMax * (1 - d / maxDistance)^falloff</c>, the sea (on an ocean body,
+        /// the axis's sea-level point) raises spray the same way, a hit on the pad's
+        /// <c>LaunchpadFX</c> collider raises the pad's own smoke and no dust, and nothing within
+        /// the reach raises none. Each surface's hits feed ONE emitter per ghost at their
+        /// strength-weighted mean, the way stock's <c>SurfaceFX</c> combines the engines it merges (stock merges hits that land
         /// within about 2.2 m of each other, so a single nozzle or a tight cluster draws the same;
         /// a wide cluster draws one cloud at the mean where stock draws one per spot).
         ///
@@ -66,8 +67,9 @@ namespace Parsek
                 state, maxReach, ref terrain, ref water, ref padHits, ref colliderId, ref atmosphere);
             int bits = (terrain.count > 0 ? 1 : 0) | (water.count > 0 ? 2 : 0) | (padHits > 0 ? 4 : 0);
             float terrainScale = terrain.FxScale;
-            LogLaunchDustOnChange(recIdx, state, bits, colliderId, padHits, terrainScale, water.FxScale, skip);
-            if (skip != null || terrainScale <= 0f)
+            float waterScale = water.FxScale;
+            LogLaunchDustOnChange(recIdx, state, bits, colliderId, padHits, terrainScale, waterScale, skip);
+            if (skip != null || (terrainScale <= 0f && waterScale <= 0f))
             {
                 DriveLaunchDustToZero(state);
                 return;
@@ -75,9 +77,30 @@ namespace Parsek
 
             if (state.launchDustInfo == null) state.launchDustInfo = new LaunchDustInfo();
             LaunchDustInfo info = state.launchDustInfo;
-            if (info.terrain == null)
+            DriveLaunchDustSurface(recIdx, state, info, false, ref terrain, terrainScale, atmosphere, ref lazyBuildCount);
+            DriveLaunchDustSurface(recIdx, state, info, true, ref water, waterScale, atmosphere, ref lazyBuildCount);
+            info.lastIntensity = Math.Max(terrainScale, waterScale);
+        }
+
+        /// <summary>
+        /// One surface's emitter for the frame: stopped at zero strength, else built on first use
+        /// (stock's <c>SurfaceFX</c> prefab for terrain, <c>WaterFX</c> for water) under the
+        /// per-frame build cap and driven at the surface's combined place. A build that fails
+        /// latches that surface off for the ghost.
+        /// </summary>
+        private static void DriveLaunchDustSurface(
+            int recIdx, GhostPlaybackState state, LaunchDustInfo info, bool water,
+            ref LaunchDustAggregate sources, float fxScale, bool atmosphere, ref int lazyBuildCount)
+        {
+            LaunchDustEmitter e = water ? info.water : info.terrain;
+            if (fxScale <= 0f)
             {
-                if (info.terrainUnavailable) return;
+                if (e != null) StopLaunchDustEmitter(e);
+                return;
+            }
+            if (e == null)
+            {
+                if (water ? info.waterUnavailable : info.terrainUnavailable) return;
                 if (lazyBuildCount >= GhostPlayback.MaxLazyReentryBuildsPerFrame)
                 {
                     ParsekLog.VerboseRateLimited("GhostVisual", $"launch-dust-throttle-{recIdx}",
@@ -86,17 +109,13 @@ namespace Parsek
                     return;
                 }
                 lazyBuildCount++;
-                info.terrain = GhostVisualBuilder.TryBuildLaunchDust(state.ghost, state.vesselName, water: false);
-                if (info.terrain == null)
-                {
-                    info.terrainUnavailable = true;
-                    return;
-                }
+                e = GhostVisualBuilder.TryBuildLaunchDust(state.ghost, state.vesselName, water);
+                if (water) { info.water = e; info.waterUnavailable = e == null; }
+                else { info.terrain = e; info.terrainUnavailable = e == null; }
+                if (e == null) return;
             }
-
-            terrain.TryResolve(out Vector3 position, out Vector3 normal, out Vector3 push);
-            DriveLaunchDustEmitter(info.terrain, terrainScale, position, normal, push, atmosphere);
-            info.lastIntensity = terrainScale;
+            sources.TryResolve(out Vector3 position, out Vector3 normal, out Vector3 push);
+            DriveLaunchDustEmitter(e, fxScale, position, normal, push, atmosphere);
         }
 
         internal const string LaunchDustSkipNoEngine = "no lit engine with a surface effect";
@@ -154,13 +173,17 @@ namespace Parsek
                     c != null && c.CompareTag(GhostPlaybackLogic.WheelPistonColliderTag),
                     ocean, engineAltitude, Vector3.Dot(fwd, -up), src.maxDistance, out float distance);
                 if (kind == LaunchDustSurface.None) continue;
+                float scaled = GhostPlaybackLogic.ComputeSurfaceFxScaled(thrust, distance, src.maxDistance, src.falloff);
                 if (kind == LaunchDustSurface.Launchpad)
                 {
+                    // Stock: no dust, the pad's own smoke instead (LaunchPadFX.AddFX, summed and
+                    // consumed by the pad every frame).
                     padHits++;
+                    LaunchPadFX pad = c != null ? c.GetComponent<LaunchPadFX>() : null;
+                    if (pad != null && scaled > 0f) pad.AddFX(scaled);
                     continue;
                 }
 
-                float scaled = GhostPlaybackLogic.ComputeSurfaceFxScaled(thrust, distance, src.maxDistance, src.falloff);
                 Vector3 point = kind == LaunchDustSurface.Water ? pos + fwd * distance : rh.point;
                 Vector3 normal = kind == LaunchDustSurface.Water ? up : rh.normal;
                 Vector3 flow = GhostPlaybackLogic.ComputeSurfaceFxFlow(point, pos, normal, thrust);
@@ -256,7 +279,7 @@ namespace Parsek
                       $"terrain={terrainScale.ToString("F3", ic)} water={waterScale.ToString("F3", ic)} " +
                       $"padHits={padHits.ToString(ic)} collider={colliderId.ToString(ic)}" +
                       (surfaceBits == 0 ? " (no surface within reach)"
-                          : (surfaceBits & 1) == 0 ? " (no dust: stock's rule)" : ""),
+                          : (surfaceBits & 3) == 0 ? " (the pad's own smoke, no dust: stock's rule)" : ""),
                 0.5);
         }
 
