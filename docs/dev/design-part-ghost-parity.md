@@ -137,10 +137,10 @@ or the B9 module whose `moduleID` is the proof's by reflection), `snapshot` (wha
 PART's persistentId; the builder's `LogPartVariantResolution` line is rate-limited per part name and
 fires only for GAMEOBJECTS rules, so it cannot serve). `AddPartVisuals` records, for every part with
 a `ModulePartVariants` whose visuals it built, the `variantName` and `variantResolutionPath` it
-resolved (`snapshot` / `runtime` / `base` / `first-fallback` / `snapshot-unknown-base` /
-`snapshot-unknown-first` / `base-implicit`; a snapshot name the install does not know resolves on a
-part with a `baseVariant` key the way stock's flight load does, the base VARIANT for a PART-level
-name and VARIANT[0] for an unknown module `selectedVariant`, todo GHOST-SHROUD-KEPT-AFTER-STAGING),
+resolved (`snapshot` / `runtime` / `base` / `first-fallback` / `snapshot-unknown-first` /
+`base-implicit`; a snapshot name the install does not know resolves on a part with a `baseVariant`
+key the way stock's flight load does, to VARIANT[0], whether the name was PART-level or a module
+`selectedVariant`, todo GHOST-SHROUD-KEPT-AFTER-STAGING),
 a read-only record
 nothing in the build or playback reads (IL proof: insertions only, 12.P3 row). From 2026-11-26
 (todo GHOST-B9-SUBTYPE-TRANSFORMS) the builder also applies each B9 module's shown subtype

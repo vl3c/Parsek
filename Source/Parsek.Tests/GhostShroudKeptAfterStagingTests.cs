@@ -261,19 +261,14 @@ namespace Parsek.Tests
 
         // ---------- variant fallback ----------------------------------------
 
-        // Stock liquidEngine2-2_v2 (Poodle): baseVariant DoubleBell, two GAMEOBJECTS variants.
+        // Stock liquidEngine2-2_v2 (Poodle): baseVariant DoubleBell, two GAMEOBJECTS variants, DoubleBell
+        // first (stock-made saves carry DoubleBell with no module selectedVariant, which OnSave omits
+        // only at index 0).
         private static ConfigNode StockPoodleVariants(bool withBaseKey = true, string baseName = "DoubleBell")
         {
             var module = new ConfigNode("MODULE");
             module.AddValue("name", "ModulePartVariants");
             if (withBaseKey) module.AddValue("baseVariant", baseName);
-            var single = module.AddNode("VARIANT");
-            single.AddValue("name", "SingleBell");
-            var sgo = single.AddNode("GAMEOBJECTS");
-            sgo.AddValue("EngineFixed", "false");
-            sgo.AddValue("Shroud", "true");
-            sgo.AddValue("Shroud1", "false");
-            sgo.AddValue("Shroud2", "true");
             var dbl = module.AddNode("VARIANT");
             dbl.AddValue("name", "DoubleBell");
             var dgo = dbl.AddNode("GAMEOBJECTS");
@@ -281,18 +276,25 @@ namespace Parsek.Tests
             dgo.AddValue("Shroud", "false");
             dgo.AddValue("Shroud1", "true");
             dgo.AddValue("Shroud2", "false");
+            var single = module.AddNode("VARIANT");
+            single.AddValue("name", "SingleBell");
+            var sgo = single.AddNode("GAMEOBJECTS");
+            sgo.AddValue("EngineFixed", "false");
+            sgo.AddValue("Shroud", "true");
+            sgo.AddValue("Shroud1", "false");
+            sgo.AddValue("Shroud2", "true");
             return module;
         }
 
         [Fact]
-        public void Variant_UnknownPartLevelName_LoadsTheBaseVariant()
+        public void Variant_UnknownPartLevelName_LoadsIndexZero()
         {
             bool ok = GhostVisualBuilder.MatchVariantNode(StockPoodleVariants(), "TwoBell",
                 variantFromSnapshot: true, snapshotNameFromModule: false,
                 out ConfigNode node, out string name, out string path);
             Assert.True(ok);
             Assert.Equal("DoubleBell", name);
-            Assert.Equal("snapshot-unknown-base", path);
+            Assert.Equal("snapshot-unknown-first", path);
             Assert.Equal("false", node.GetNode("GAMEOBJECTS").GetValue("Shroud2"));
         }
 
@@ -305,7 +307,20 @@ namespace Parsek.Tests
                 variantFromSnapshot: true, snapshotNameFromModule: true,
                 out ConfigNode _, out string name, out string path);
             Assert.True(ok);
-            Assert.Equal("SingleBell", name);
+            Assert.Equal("DoubleBell", name);
+            Assert.Equal("snapshot-unknown-first", path);
+        }
+
+        [Fact]
+        public void Variant_UnknownName_BaseKeyNotFirst_StillLoadsIndexZero()
+        {
+            // variantIndex is a private unserialized field: a flight part starts at index 0,
+            // whatever the baseVariant key names.
+            bool ok = GhostVisualBuilder.MatchVariantNode(StockPoodleVariants(baseName: "SingleBell"), "TwoBell",
+                variantFromSnapshot: true, snapshotNameFromModule: false,
+                out ConfigNode _, out string name, out string path);
+            Assert.True(ok);
+            Assert.Equal("DoubleBell", name);
             Assert.Equal("snapshot-unknown-first", path);
         }
 
@@ -316,7 +331,7 @@ namespace Parsek.Tests
                 variantFromSnapshot: true, snapshotNameFromModule: false,
                 out ConfigNode _, out string name, out string path);
             Assert.True(ok);
-            Assert.Equal("SingleBell", name);
+            Assert.Equal("DoubleBell", name);
             Assert.Equal("snapshot-unknown-first", path);
         }
 
@@ -420,7 +435,7 @@ namespace Parsek.Tests
             Assert.True(GhostVisualBuilder.MatchVariantNode(StockPoodleVariants(), snapName, true, fromModule,
                 out ConfigNode _, out string variant, out string path));
             Assert.Equal("DoubleBell", variant);
-            Assert.Equal("snapshot-unknown-base", path);
+            Assert.Equal("snapshot-unknown-first", path);
 
             // Rule 1: the shroud rides the bottom-node decoupler, which the recording decouples.
             ConfigNode jettison = poodle.GetNodes("MODULE").First(m => m.GetValue("name") == "ModuleJettison");

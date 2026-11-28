@@ -129,31 +129,17 @@ namespace Parsek
             // variant rule application rather than falling through to variantNodes[0].
             // A snapshot name no VARIANT carries (a save from an install whose variant set
             // differs, e.g. ReStock's 'TwoBell' Poodle on stock) loads the way stock loads it
-            // (ModulePartVariants.OnLoad, KSP 1.12.5 decompiled): the flight part starts at the
-            // prefab's variantIndex (the baseVariant key's VARIANT, or index 0), PART-level
-            // moduleVariantName is not read, and an unknown module selectedVariant makes
-            // GetVariantIndex return 0. With a baseVariant key the list holds only the VARIANT
-            // nodes, so index 0 is the first of them; without one, index 0 is the implicit base.
+            // (ModulePartVariants, KSP 1.12.5 decompiled): in flight PART-level
+            // moduleVariantName is not read, an unknown module selectedVariant makes
+            // GetVariantIndex return 0, and variantIndex is a private unserialized field, so a
+            // part instantiated from the prefab starts at index 0 (OnSave also omits
+            // selectedVariant at index 0, which round-trips only if a load defaults to 0).
+            // With a baseVariant key the list holds only the VARIANT nodes, so index 0 is the
+            // first of them; without one, index 0 is the implicit base.
             if (selectedVariantNode == null && variantFromSnapshot && !string.IsNullOrEmpty(baseLower))
             {
-                if (!snapshotNameFromModule)
-                {
-                    for (int i = 0; i < variantNodes.Length; i++)
-                    {
-                        string name = FirstNonEmptyConfigValue(variantNodes[i], "name");
-                        if (!string.IsNullOrEmpty(name) && name.ToLowerInvariant() == baseLower)
-                        {
-                            selectedVariantNode = variantNodes[i];
-                            resolutionPath = "snapshot-unknown-base";
-                            break;
-                        }
-                    }
-                }
-                if (selectedVariantNode == null)
-                {
-                    selectedVariantNode = variantNodes[0];
-                    resolutionPath = "snapshot-unknown-first";
-                }
+                selectedVariantNode = variantNodes[0];
+                resolutionPath = "snapshot-unknown-first";
                 selectedVariantName = FirstNonEmptyConfigValue(selectedVariantNode, "name") ?? "<unnamed>";
                 return true;
             }

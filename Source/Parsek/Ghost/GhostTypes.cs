@@ -1124,7 +1124,7 @@ namespace Parsek
         public string variantName;
 
         /// <summary><c>snapshot</c>, <c>runtime</c>, <c>base</c>, <c>first-fallback</c>,
-        /// <c>snapshot-unknown-base</c>, <c>snapshot-unknown-first</c>,
+        /// <c>snapshot-unknown-first</c>,
         /// <c>base-implicit</c>, or null when no variant was resolved.</summary>
         public string variantResolutionPath;
 
