@@ -4800,6 +4800,27 @@ Y1 replaces the sparks and the shell with stock's own effect, driven by the ghos
      struct to a non-capturing lambda under a cached key (`VerboseRateLimitedComposed<TState>`,
      the per-ghost keys composed once per recording index on the ghost's `ReentryFxInfo`), so a
      suppressed line allocates nothing.
+  - Review follow-up of the fix: the native-reading helper is entered only for a module that
+     holds a transform (`ReadJettisonCarrier` does the null check in managed code; the Windows
+     .NET host throws on entry to a method that names a Unity internalcall, and the
+     characterization stubs hold none), and `PartStateSeeder.SeedJettisons` reads the same rule
+     (`IsShroudGone`), so a recording that starts after the shroud left seeds it at its start
+     rather than emitting it on its first poll (which a switch segment's no-op test would read
+     as activity).
+- After flight 6, final (2026-11-28, `PPS-20c` run `2026-11-28_0404`, PASS, rig 1f26c8647 over
+  60d5cdb04; evidence `docs/dev/research/p9-x0-spike-2026-11-27/y1-after-fairing/` on
+  `p9-y1-flight-after-fairing`, sheet `contact-real-before-after-fairing.png`). The fairing fix
+  holds: `ShroudJettisoned 'HeatShield1'` is recorded at the booster separation (ut about 49.5,
+  `carrier=OtherVessel carrierPart='Decoupler.1'`) and applied on replay; the capture reports
+  list no 'fairing' mesh; the ghost's no-fire rect equals the real one (72 km and Mach 2.5
+  `[524,282,36,87]` / `[524,352,36,17]` both). The V is gone at Mach 6, 3.75 and 3. Against
+  stock: Mach 6 same colour, shell, direction, base width, about the same length and
+  brightness; Mach 3.75 same colour, direction and length, a little wider and brighter; Mach 3
+  faint on both; 72 km, Mach 2.5 and Mach 2 dark on both. Cost, uncapped (`deltaMs` with the
+  sheath on): about +0.3 ms for 1 burning ghost, +0.75 to +0.9 ms for 4, +1.1 to +1.25 ms for 8;
+  no cost when nothing burns. Y1's look is done. Left open, each its own todo: perf tuning
+  (owner ruling "look correct first, perf later"), recordings made before the fix keeping the
+  fairing, and the decoupler's debris ghost lacking the fairing it carried away.
 
 X4 as built (2026-11-27, no flight; C# only, compiled and unit-tested, never run in KSP). The live
 driver is `Source/Parsek/TestCommands/PartParityBurstDriver.cs` (the burst wave) and

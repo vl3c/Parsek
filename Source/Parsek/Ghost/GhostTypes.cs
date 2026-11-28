@@ -929,7 +929,7 @@ namespace Parsek
         // renderer holds no reference that would keep a destroyed ghost's info alive).
         public bool sheathMaterialsLogged;
         // Per-ghost rate-limit keys of the two per-frame log lines, composed once per recording
-        // index (GhostAeroFx.CachedLogKey), so a suppressed line builds no string.
+        // index (GhostAeroFxLogKeys.CachedLogKey), so a suppressed line builds no string.
         public string sheathLogKey;
         public int sheathLogKeyIdx = -1;
         public string intensityLogKey;

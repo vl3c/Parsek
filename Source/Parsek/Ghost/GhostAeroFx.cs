@@ -120,11 +120,6 @@ namespace Parsek
     }
 
     /// <summary>
-    /// The conditions one ghost's reentry scalar was computed from on its last drive, kept so
-    /// the shot frames of the parity rig can log them beside stock's own (the rig's real marks
-    /// log stock's <c>FxScalar</c>, state, Mach and <c>airDensity</c>).
-    /// </summary>
-    /// <summary>
     /// A per-ghost rate-limit key, composed (<see cref="ParsekLog.ComposeKey"/>) only when the
     /// recording index differs from the one the cached key was built for.
     /// </summary>
@@ -143,6 +138,11 @@ namespace Parsek
         }
     }
 
+    /// <summary>
+    /// The conditions one ghost's reentry scalar was computed from on its last drive, kept so
+    /// the shot frames of the parity rig can log them beside stock's own (the rig's real marks
+    /// log stock's <c>FxScalar</c>, state, Mach and <c>airDensity</c>).
+    /// </summary>
     internal struct AeroFxInputs
     {
         /// <summary>The speed the scalar used (m/s).</summary>

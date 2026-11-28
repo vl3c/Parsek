@@ -27,6 +27,24 @@ namespace Parsek.Tests
             Assert.Equal(expected, PartStatePoller.IsJettisonCarriedOff(parsed));
         }
 
+        // The poll and the start-of-recording seed share this rule, so a recording that starts
+        // after the shroud left seeds it at its start instead of emitting it on its first poll.
+        [InlineData(true, "NoReference", true)]
+        [InlineData(true, "OwnPart", true)]
+        [InlineData(false, "NoReference", false)]
+        [InlineData(false, "OwnPart", false)]
+        [InlineData(false, "OtherPartSameVessel", false)]
+        [InlineData(false, "OtherVessel", true)]
+        [InlineData(false, "NoCarrier", true)]
+        [InlineData(false, "Destroyed", true)]
+        [Theory]
+        public void IsShroudGone_StockFlagOrCarriedOff(bool isJettisoned, string state, bool expected)
+        {
+            var parsed = (PartStatePoller.JettisonCarrierState)System.Enum.Parse(
+                typeof(PartStatePoller.JettisonCarrierState), state);
+            Assert.Equal(expected, PartStatePoller.IsShroudGone(isJettisoned, parsed));
+        }
+
         [Fact]
         public void IsJettisonCarriedOff_EveryStateHasARow()
         {

@@ -190,8 +190,8 @@ namespace Parsek
                     // "Checked bottom node and found an attached part"). The 1.25 m heat
                     // shield's fairing is the stock case. The module's own transform reference
                     // is read, so variant parts are covered too.
-                    JettisonCarrierState carrier = ClassifyJettisonCarrierNotInlined(
-                        p, v, jettison.jettisonTransform, out string carrierName);
+                    JettisonCarrierState carrier = ReadJettisonCarrier(
+                        p, v, jettison, out string carrierName);
                     if (IsJettisonCarriedOff(carrier))
                     {
                         isJettisoned = true;
@@ -268,6 +268,34 @@ namespace Parsek
                 || state == JettisonCarrierState.Destroyed;
         }
 
+        /// <summary>
+        /// True when a jettison module's shroud is no longer drawn on its vessel: stock's own
+        /// flag, or the shroud carried off (<see cref="IsJettisonCarriedOff"/>). The poll and
+        /// the start-of-recording seed (<c>PartStateSeeder.SeedJettisons</c>) both read it, so a
+        /// fresh recording on a vessel whose shroud already left seeds it at its start instead
+        /// of emitting it on its first poll.
+        /// </summary>
+        internal static bool IsShroudGone(bool isJettisoned, JettisonCarrierState carrier)
+        {
+            return isJettisoned || IsJettisonCarriedOff(carrier);
+        }
+
+        /// <summary>
+        /// Where <paramref name="jettison"/>'s shroud sits. The null check is managed code here,
+        /// in the caller of the native-reading helper, so a module with no transform (every
+        /// headless test stub) never enters that helper: the Windows .NET host throws on entry
+        /// to a method that names a Unity internalcall.
+        /// </summary>
+        internal static JettisonCarrierState ReadJettisonCarrier(
+            Part p, Vessel v, ModuleJettison jettison, out string carrierName)
+        {
+            carrierName = null;
+            Transform jt = jettison.jettisonTransform;
+            if (ReferenceEquals(jt, null))
+                return JettisonCarrierState.NoReference;
+            return ClassifyJettisonCarrierNotInlined(p, v, jt, out carrierName);
+        }
+
         internal static string FormatJettisonCarriedOff(
             string partName, uint partPid, JettisonCarrierState state, string carrierName)
         {
@@ -284,8 +312,6 @@ namespace Parsek
             Part p, Vessel v, Transform jt, out string carrierName)
         {
             carrierName = null;
-            if (ReferenceEquals(jt, null))
-                return JettisonCarrierState.NoReference;
             if (jt == null)
                 return JettisonCarrierState.Destroyed;
             if (jt.IsChildOf(p.transform))
