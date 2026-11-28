@@ -2071,11 +2071,12 @@ namespace Parsek
                     {
                         bool hasGhost = recIndex >= 0 && flight.HasActiveGhost(recIndex);
                         bool sameBody = recIndex >= 0 && flight.IsGhostOnSameBody(recIndex);
-                        bool inRange = recIndex >= 0 && flight.IsGhostWithinVisualRange(recIndex);
+                        string farRefusal = null;
+                        bool inRange = recIndex >= 0 && flight.IsGhostWatchableAtRange(recIndex, out farRefusal);
                         bool bodyReadingCurrent = recIndex < 0 || flight.IsGhostBodyReadingCurrent(recIndex);
                         bool isWatching = recIndex >= 0 && flight.WatchedRecordingIndex == recIndex;
                         TimelineWatchButtonDescriptor watchButton = BuildWatchButtonDescriptor(
-                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent);
+                            isWatching, hasGhost, sameBody, inRange, rec.IsDebris, bodyReadingCurrent, farRefusal);
 
                         if (RecordingsTableUI.UpdateWatchButtonTransitionCache(
                             lastCanWatchByRecId, rec.RecordingId, watchButton.CanWatch))
@@ -2562,14 +2563,14 @@ namespace Parsek
         /// <inheritdoc cref="RecordingsTableUI.GetWatchButtonReason"/>
         internal static TimelineWatchButtonDescriptor BuildWatchButtonDescriptor(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
-            bool bodyReadingCurrent = true)
+            bool bodyReadingCurrent = true, string rangeRefusal = null)
         {
             bool canWatch = RecordingsTableUI.IsWatchButtonEnabled(
                 hasGhost, sameBody, inRange, isDebris);
             return new TimelineWatchButtonDescriptor(
                 isWatching ? "W*" : "W",
                 RecordingsTableUI.GetWatchButtonTooltip(
-                    isWatching, hasGhost, sameBody, inRange, isDebris, bodyReadingCurrent),
+                    isWatching, hasGhost, sameBody, inRange, isDebris, bodyReadingCurrent, rangeRefusal),
                 RecordingsTableUI.ShouldEnableWatchButton(canWatch, isWatching),
                 canWatch,
                 GetWatchButtonAction(isWatching));

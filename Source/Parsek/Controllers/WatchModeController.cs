@@ -1100,7 +1100,17 @@ namespace Parsek
                     distText = (dist / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " km";
             }
 
-            float boxW = 300f, boxH = 50f;
+            // The far-watch clause (design-far-watch.md 8.4, ruled): the return time and why warp
+            // is held below the requested rate, on a line of its own under the hint.
+            string farClause = host.BuildFarWatchOverlayClause();
+            string modeLabel = currentCameraMode == WatchCameraMode.HorizonLocked
+                ? " [Horizon]" : " [Free]";
+            const float boxW = 300f;
+            GUIStyle titleStyle = watchOverlayStyle;
+            string[] titleLines = BuildWatchOverlayTitleLines(vesselName, distText, modeLabel,
+                text => titleStyle.CalcSize(new GUIContent(text)).x, boxW - WatchOverlayTitlePadding);
+            float titleH = 22f * titleLines.Length;
+            float boxH = titleH + 28f + (string.IsNullOrEmpty(farClause) ? 0f : 18f);
             float x = (ParsekUiScale.ScaledScreenWidth * 0.5f - boxW) / 2f; // centered in the left half of the screen (scaled-root units)
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
@@ -1109,14 +1119,38 @@ namespace Parsek
             GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            string modeLabel = currentCameraMode == WatchCameraMode.HorizonLocked
-                ? " [Horizon]" : " [Free]";
-            string title = string.IsNullOrEmpty(distText)
-                ? "Watching: " + vesselName + modeLabel
-                : "Watching: " + vesselName + "  (" + distText + ")" + modeLabel;
-            GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
+            for (int i = 0; i < titleLines.Length; i++)
+                GUI.Label(new Rect(x, y + 5 + 22f * i, boxW, 22f), titleLines[i], watchOverlayStyle);
+            float hintY = y + 5 + titleH;
+            GUI.Label(new Rect(x, hintY, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
+            if (!string.IsNullOrEmpty(farClause))
+                GUI.Label(new Rect(x, hintY + 18f, boxW, 18f), farClause, watchOverlayHintStyle);
         }
+
+        /// <summary>Horizontal room the overlay title leaves at the box edges, in scaled-root pixels.</summary>
+        internal const float WatchOverlayTitlePadding = 12f;
+
+        /// <summary>
+        /// The overlay title as one line when it fits <paramref name="availableWidth"/>, else two:
+        /// the vessel name on the first and the distance with the camera mode on the second, so
+        /// a long name never clips the distance. <paramref name="measure"/> is the label style's
+        /// width of a string (GUIStyle.CalcSize at draw time; a fake in tests).
+        /// </summary>
+        internal static string[] BuildWatchOverlayTitleLines(string vesselName, string distText,
+            string modeLabel, Func<string, float> measure, float availableWidth)
+        {
+            string head = "Watching: " + (vesselName ?? "");
+            string tail = string.IsNullOrEmpty(distText)
+                ? (modeLabel ?? "").TrimStart()
+                : "(" + distText + ")" + (modeLabel ?? "");
+            string oneLine = string.IsNullOrEmpty(distText)
+                ? head + (modeLabel ?? "")
+                : head + "  " + tail;
+            if (measure == null || measure(oneLine) <= availableWidth || string.IsNullOrEmpty(tail))
+                return new[] { oneLine };
+            return new[] { head, tail };
+        }
+
 
         /// <summary>
         /// Captures the current FlightCamera orbit and target basis so watch-mode
@@ -1576,6 +1610,29 @@ namespace Parsek
         /// If already watching the same recording, toggles off (exits watch mode).
         /// If watching a different recording, switches to the new one (preserves camera state).
         /// </summary>
+        // Set only for the duration of EnterWatchModeForFarWatch: the far watch moves the drone
+        // (the active vessel) to the ghost, so the 300 km entry guard does not apply.
+        private bool farWatchEntryBypass;
+
+        /// <summary>
+        /// Watch entry for the far watch (design-far-watch.md 12.2): today's entry with the 300 km
+        /// distance guard skipped. Every other check (same body, ghost state) still applies.
+        /// </summary>
+        internal void EnterWatchModeForFarWatch(int index)
+        {
+            ParsekLog.Info("CameraFollow", "EnterWatchMode for the far watch: distance guard skipped for ghost #"
+                + index.ToString(CultureInfo.InvariantCulture));
+            farWatchEntryBypass = true;
+            try
+            {
+                EnterWatchMode(index);
+            }
+            finally
+            {
+                farWatchEntryBypass = false;
+            }
+        }
+
         internal void EnterWatchMode(int index)
         {
             var committed = RecordingStore.CommittedRecordings;
@@ -1839,7 +1896,7 @@ namespace Parsek
             // Distance guard: KSP rendering breaks when camera is far from the active vessel
             // (FloatingOrigin, terrain, atmosphere, skybox are all anchored to active vessel).
             // Refuse new watch entry if the ghost is at or beyond the entry cutoff.
-            if (FlightGlobals.ActiveVessel != null)
+            if (!farWatchEntryBypass && FlightGlobals.ActiveVessel != null)
             {
                 double distMeters = gs.lastDistance;
                 if (distMeters <= 0 && gs.ghost != null)
@@ -3749,7 +3806,7 @@ namespace Parsek
             ParsekLog.Info("CameraFollow", $"{prefix}: {BuildWatchFocusSummary(state)}");
         }
 
-        private double ResolveWatchPlaybackUT(
+        internal double ResolveWatchPlaybackUT(
             Recording rec, GhostPlaybackState currentState, double fallbackUT, int recordingIndex)
         {
             // Mission loop-unit members do NOT carry a per-recording LoopPlayback flag, so the

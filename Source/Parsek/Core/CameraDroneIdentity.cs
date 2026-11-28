@@ -19,6 +19,13 @@ namespace Parsek
     /// </summary>
     internal static class CameraDroneIdentity
     {
+        /// <summary>
+        /// The hover and refusal line of a Parsek control greyed while the camera drone exists
+        /// (design-far-watch.md 12.2, ruled): Real Spawn Control, Warp to, Rewind, Fast-forward,
+        /// Re-Fly.
+        /// </summary>
+        internal const string NotWhileWatchingFarText = "Not available while watching far away";
+
         internal const string DroneVesselName = "Parsek Camera Drone";
 
         internal static uint DronePid { get; private set; }

@@ -1,0 +1,132 @@
+schema = 1
+id = "FW-4-far-watch-forced-return"
+# =====================================================================================
+# FAR WATCH STEP 3: A FAR WATCH ON A SHIP WHOSE PATH FALLS INTO THE ATMOSPHERE STARTS
+# WITH A RETURN POINT, ENDS THERE UNDER WARP, AND GIVES THE SHIP BACK ALIVE.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
+# 8.2 / 8.4 / 8.5 / 17.4). FLOWN GREEN 2026-11-28 (tag `flown`):
+# `2026-11-28_1036` PASS (7fff61662).
+#
+# HOST: `kerbin-splashdown-pod-suborbital`, derived from W1's `kerbin-splashdown-recorded`
+# by harness/tools/build_far_watch_pod_fixtures.py (its docstring is the authority): the
+# B4 capsule (Jebediah) on an equatorial prograde arc, periapsis 60 km, apoapsis 106.4 km,
+# `sit = SUB_ORBITAL`, timed so it falls through h_safe (70 km + 1000 m) at UT 22490, and
+# the save clock moved to UT 21560, 24 s before the looped mission's anchor
+# 21583.965183089826. The Kerbal X tree c05c834cd2754892b4588e7ce9220c3f is the source's
+# byte for byte.
+#
+# THE TIMELINE (computed from the committed elements; harness/lib/
+# test_far_watch_pod_fixtures.py re-derives every number):
+#   21560      load; `MissionConfig` first, so the loop anchor stays 21583.965 (FW-3's
+#              header says why; a late enable reads the next day, forbidden below).
+#   -> 21770   WarpToUT (rails, the capsule above 97 km). The coast member (index 1,
+#              loopUT [212.20, 853.72] = UT [21761.6, 22403.1]) is live from 21761.6.
+#   21770      `FarWatch op=start index=1 mode=follow`: the capsule falls through 71 km
+#              in 720 s (over the 600 s refusal), so the verdict is AllowedWithReturn,
+#              danger 22490, return 22190 (danger - 300 s, FarWatchShipSafety). The
+#              coast ghost is about 1,380 km away, on the far side of Kerbin, for the
+#              whole watch (never near the 250 km hand-back).
+#   -> 22230   WarpToUT during the watch (H7), under the limit read at the ghost (the
+#              coast member at 72 - 84 km). At 22190 the return point comes: the watch
+#              stops the warp, hands the ship back (Idle, reason ReturnPoint) and posts
+#              the forced-return message; the leg then runs on as a normal warp. The
+#              capsule is at 90 km at 22230, 260 s above the air.
+#
+# WHAT IT PROVES:
+#   1. The admission computes a return point on a falling path: `verdict=AllowedWithReturn
+#      ... returnCause=Danger` and `return point set returnUT=` near 22190.
+#   2. The return point ends the watch under warp: `return point reached`, Idle with
+#      reason ReturnPoint, the forced-return screen message.
+#   3. The ship is alive: no ShipLost, and the post-watch RecordingState reads run with
+#      the capsule focused. (saveParse has no vessel facet for a sandbox save; the log
+#      carries this claim.)
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: W1's host and tree, derived by a builder; no flight of its own.
+#   2 no idle waits: two explicit-UT WarpToUT legs, each inside the 540 s cap (S8).
+#   3 minimal dwells: two RecordingState reads after the watch.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none"; a refused start answers at once.
+#   7 tight windows: the recordings count is W1's window until the first flight.
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight; both legs are rails warps.
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 3 on kerbin-splashdown-pod-suborbital (W1's host with the B4 capsule on a 60 x 106 km arc and the clock moved next to the loop anchor): FarWatch start mode=follow on the coast ghost 1,380 km away is admitted with a return point 300 s before the 71 km crossing, WarpToUT runs during the watch, and the return point hands the ship back alive with the forced-return message. Flown green 2026-11-28 (tag flown)."
+instanceProfile = "stock-minimal"
+tags = ["FW-4", "far-watch", "loop-playback", "warp", "watch-mode", "kerbin", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-pod-suborbital"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # First, so the loop is enabled before the anchor (see the header).
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The coast member is live from UT 21761.6.
+  { cmd = "WarpToUT", args = { ut = "21770" },                               expect = "OK", budget = 540 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "ExitMapView",                                                     expect = "OK" },
+  { cmd = "FarWatch", args = { op = "start", index = "1", mode = "follow" }, expect = "OK", budget = 120 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  # The return point (about 22190) comes inside this leg.
+  { cmd = "WarpToUT", args = { ut = "22230" },                               expect = "OK", budget = 540 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "MissionLoopUnit: mission='Kerbal X' tree=c05c834cd2754892b4588e7ce9220c3f members=3 .*phaseAnchor=21583\\.96518",
+  "exitmapview ok mapOpen=false",
+  "farwatch start index=1 mode=follow tree=",
+  "\\[FarWatchSafety\\] verdict=AllowedWithReturn reason=None path=\\S+ segments=[0-9]+ dangerUT=22(4[89]|50)[0-9]\\.[0-9] returnUT=22(1[89]|20)[0-9]\\.[0-9] returnCause=Danger ",
+  "\\[FarWatch\\] return point set returnUT=22(1[89]|20)[0-9]\\.[0-9] cause=Danger dangerUT=",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Following ",
+  "farwatch start complete ",
+  "\\[FarWatchWarp\\] warp limit source=ghost rule=stock:",
+  "\\[FarWatch\\] return point reached ut=[0-9.]+ returnUT=[0-9.]+ cause=Danger",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Idle reason=ReturnPoint ",
+  "\\[FarWatch\\] forced-return screen message: Back to .+: its path reaches air or ground soon",
+]
+forbidden = [
+  "phaseAnchor=43133",
+  "reason=ShipLost",
+  "reason=GhostNearShip",
+  "far-watch-active",
+  "warp-limit patch threw",
+  "warp-mode patch threw",
+  "follow watch lost its watch-mode target",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

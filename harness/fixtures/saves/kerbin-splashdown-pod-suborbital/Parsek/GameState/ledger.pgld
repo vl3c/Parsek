@@ -1,0 +1,150 @@
+version = 0
+recordingSchemaGeneration = 4
+GAME_ACTION
+{
+	ut = 37.840000000000316
+	type = 4
+	actionId = act_9749ed0220314fe1897da6aa7cc78a04
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 1
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 19200
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 39.860000000000632
+	type = 4
+	actionId = act_f5586a250a6f465190e7a1f417fc89bc
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 2
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 44.480000000001354
+	type = 4
+	actionId = act_4c1eac25b4044fcd805af818ce625b90
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 3
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 56.440000000003224
+	type = 4
+	actionId = act_b7ef1646591f4f57a5a1083add85d596
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 4
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 24000
+	milestoneRepAwarded = 3
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 76.860000000001847
+	type = 4
+	actionId = act_10a72228dc0240f08ddda91ed32899d2
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 5
+	milestoneId = Kerbin/Landing
+	milestoneFundsAwarded = 800
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 176.91988891600812
+	type = 4
+	actionId = act_4f91e47a6a6e421db8833a413c71a485
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 6
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 9600
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 212.15988891600111
+	type = 4
+	actionId = act_2236bb9c9f684df3a22e452562ce80dd
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 7
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 212.1998889160011
+	type = 4
+	actionId = act_0cc5c2497ffe4d6c8e596568e359912c
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 8
+	milestoneId = ReachedSpace
+	milestoneFundsAwarded = 8000
+	milestoneRepAwarded = 1
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 292.61376647946111
+	type = 4
+	actionId = act_c5d1b58cc884495ea8724f9a1d8fb985
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 9
+	milestoneId = Orbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 1273.9235614006259
+	type = 4
+	actionId = act_6e02ce73f6eb4944a64b182f7b384980
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 10
+	milestoneId = Kerbin/ReturnFromOrbit
+	milestoneFundsAwarded = 12000
+	milestoneRepAwarded = 2
+	milestoneSciAwarded = 1
+}
+GAME_ACTION
+{
+	ut = 34.5399999999998
+	type = 11
+	actionId = act_62287b4466e148888fa58aaa7f718bdc
+	recordingId = 28b6e543d67c4d1c9e4763b451c01df5
+	seq = 1
+	kerbalName = Jebediah Kerman
+	kerbalRole = Pilot
+	startUT = 34.54
+	endUT = 1276.42358
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 21
+	actionId = act_5b5de6b9168d4c14b04029f570879c12
+	initialScience = 0
+}
+GAME_ACTION
+{
+	ut = 0
+	type = 22
+	actionId = act_7cd2713c36e74ef6881fc68972724a9f
+	initialReputation = 0
+}

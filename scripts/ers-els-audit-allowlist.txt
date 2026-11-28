@@ -545,3 +545,4 @@ Source/Parsek/Missions/VesselNameStore.cs
 # in the committed list, the same index space WatchModeController and the playback engine
 # key on; the ERS would de-align it (file-level [ERS-exempt] header).
 Source/Parsek/Controllers/FarWatchController.cs
+Source/Parsek/Controllers/FarWatchController.Warp.cs

@@ -142,13 +142,13 @@ namespace Parsek
             // (which shifts after a Re-Fly supersede). Same rationale as TimelineWindowUI.
             var committed = RecordingStore.CommittedRecordings;
             int watchTarget = ResolveMissionWatchTarget(mission, view, committed, flight,
-                out bool isWatchingThisMission);
+                out bool isWatchingThisMission, out string farRefusal);
 
             bool canWatch = watchTarget >= 0 || isWatchingThisMission;
             GUI.enabled = canWatch;
             string label = isWatchingThisMission ? "W*" : "Watch";
             bool missionWatchClicked = GUILayout.Button(label, style, GUILayout.Width(width));
-            DisabledHoverEcho.CarryLastControl(canWatch, MissionWatchDisabledReason(true, canWatch));
+            DisabledHoverEcho.CarryLastControl(canWatch, MissionWatchDisabledReason(true, canWatch, farRefusal));
             if (missionWatchClicked)
             {
                 if (isWatchingThisMission)
@@ -171,11 +171,15 @@ namespace Parsek
         /// ghost, so it needs a flight scene AND a ghost of this mission actually flying
         /// at the current moment. Pure for unit testing.
         /// </summary>
-        internal static string MissionWatchDisabledReason(bool inFlightScene, bool canWatch)
+        internal static string MissionWatchDisabledReason(bool inFlightScene, bool canWatch, string farRefusal = null)
         {
             if (!inFlightScene)
                 return "Watching only works while you are flying";
-            return canWatch ? string.Empty : "Nothing from this mission is flying right now";
+            if (canWatch)
+                return string.Empty;
+            // A member is flying on the ship's body but past the near-watch range, and the far
+            // watch refuses it (design-far-watch.md 12.2): its own reason, as on the W buttons.
+            return string.IsNullOrEmpty(farRefusal) ? "Nothing from this mission is flying right now" : farRefusal;
         }
 
         /// <summary>
@@ -353,9 +357,11 @@ namespace Parsek
         // legs. Also reports whether the currently-watched recording is one of this mission's
         // members (for the "W*" toggle / exit). Returns -1 when nothing is watchable.
         private int ResolveMissionWatchTarget(Mission mission, MissionThroughLineView view,
-            IReadOnlyList<Recording> committed, ParsekFlight flight, out bool isWatchingThisMission)
+            IReadOnlyList<Recording> committed, ParsekFlight flight, out bool isWatchingThisMission,
+            out string farRefusal)
         {
             isWatchingThisMission = false;
+            farRefusal = null;
             if (committed == null || view == null || flight == null)
                 return -1;
             RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
@@ -378,9 +384,14 @@ namespace Parsek
                     continue;
                 if (i == watchedIdx)
                     isWatchingThisMission = true;
-                if (target < 0 && flight.HasActiveGhost(i) && flight.IsGhostOnSameBody(i)
-                    && flight.IsGhostWithinVisualRange(i))
-                    target = i;
+                if (target < 0 && flight.HasActiveGhost(i) && flight.IsGhostOnSameBody(i))
+                {
+                    string memberRefusal;
+                    if (flight.IsGhostWatchableAtRange(i, out memberRefusal))
+                        target = i;
+                    else if (farRefusal == null && !string.IsNullOrEmpty(memberRefusal))
+                        farRefusal = memberRefusal;
+                }
             }
             return target;
         }

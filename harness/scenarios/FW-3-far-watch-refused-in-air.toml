@@ -1,0 +1,122 @@
+schema = 1
+id = "FW-3-far-watch-refused-in-air"
+# =====================================================================================
+# FAR WATCH STEP 3: A FAR WATCH ASKED FOR WHILE THE SHIP FLIES INSIDE THE ATMOSPHERE IS
+# REFUSED WITH STOCK'S OWN REASON, AND NO DRONE IS BUILT.
+#
+# AUTHORED 2026-11-28 (branch `far-watch-step3`, design `docs/dev/design-far-watch.md`
+# 8.2 rule 2 / 12.2 / 17.4). FLOWN GREEN 2026-11-28 (tag `flown`):
+# `2026-11-28_1035` PASS (7fff61662).
+#
+# HOST: `kerbin-splashdown-pod-in-air`, derived from W1's `kerbin-splashdown-recorded` by
+# harness/tools/build_far_watch_pod_fixtures.py (its docstring is the authority): the B4
+# capsule (Jebediah, parachute CUT) lifted to 25 km straight above where it landed, 161
+# deg of arc east of KSC, at rest relative to the air, `sit = FLYING`, and the save clock
+# moved to UT 21560, 24 s before the looped mission's anchor 21583.965183089826 (the
+# recording's start plus one Kerbin day, W1 section 2A). The Kerbal X tree
+# c05c834cd2754892b4588e7ce9220c3f is the source's byte for byte.
+#
+# WHY NO StartLoopPlayback. The loop anchor is the next faithful launch at or after the
+# UT the loop is enabled at (`MissionStore` stamps `LoopAnchorUT`), so `MissionConfig`
+# goes right after the load, while the clock is still under 21583.965, and the ascent
+# member (index 0, loopUT [34.54, 212.20]) then plays from UT 21583.965 with no jump. A
+# flying capsule would not live through W1's 20,300 s jump.
+#
+# WHAT IT PROVES:
+#   1. The anchor held: the unit line reads `phaseAnchor=21583.965...` (a late
+#      MissionConfig would read the next day, 43133.39, which is forbidden).
+#   2. `FarWatch op=start index=0 mode=follow` on the ascent ghost near KSC, about
+#      1,200 km from the capsule in a straight line, is refused
+#      `unsafe:NOT_IN_ATMOSPHERE`: the entry checks pass (flight, a ship, a resolvable
+#      ghost on the ship's body), the ship-safety verdict is `Refused` with stock's
+#      reason (`FlightGlobals.ClearToSave(false)` reads a FLYING ship as
+#      NOT_IN_ATMOSPHERE), and the seam answers REJECTED.
+#   3. Nothing starts: no Spawning transition, no drone, no start-complete line.
+#
+# GUESSED (the first flight confirms): that Parsek's path walk returns a path for a
+# capsule falling in the air (an Impact ending); a Failed walk would read PathUnknown
+# one rule earlier, which is forbidden below so the run says which.
+#
+# NOT COVERED: the design row's snap-back line and screen message (a near watch taken
+# over at 300 km while the ship flies). The ascent ghost is never within 300 km of the
+# capsule here, so the seam's direct start is the only road to the safety check.
+#
+# FAST-LANE CHECKLIST (harness/README.md -> "Authoring a fast lane"):
+#   1 reuse: W1's host and tree, derived by a builder; no flight of its own.
+#   2 no idle waits: one explicit-UT `WarpToUT maxRate=1` to UT 21593, 9 s past the
+#     anchor (1x: no warp is allowed in the air).
+#   3 minimal dwells: one RecordingState after the wait.
+#   4/5 not applicable (no burn, no coast mission).
+#   6 fail fast: retry "none"; the refusal answers at once.
+#   7 tight windows: the recordings count is W1's window until the first flight.
+#   8 tier: operator until measured.
+#   9 flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Far watch step 3 on kerbin-splashdown-pod-in-air (W1's host with the B4 capsule lifted to 25 km and the clock moved next to the loop anchor): MissionConfig before the anchor keeps it at 21583.965, and FarWatch start mode=follow on the ascent ghost far from the flying capsule is refused unsafe:NOT_IN_ATMOSPHERE with no drone built. Flown green 2026-11-28 (tag flown)."
+instanceProfile = "stock-minimal"
+tags = ["FW-3", "far-watch", "loop-playback", "watch-mode", "kerbin", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-pod-in-air"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # First, so the loop is enabled before the anchor (see the header).
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "c05c834cd2754892b4588e7ce9220c3f", loop = "true" }, expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The ascent member is live from the anchor (UT 21583.965); 1x in the air.
+  { cmd = "WarpToUT", args = { ut = "21593", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "ExitMapView",                                                     expect = "OK" },
+  { cmd = "FarWatch", args = { op = "start", index = "0", mode = "follow" }, expect = "REJECTED", budget = 120 },
+  { cmd = "FarWatch", args = { op = "status" },                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 12 }
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "MissionLoopUnit: mission='Kerbal X' tree=c05c834cd2754892b4588e7ce9220c3f members=3 .*phaseAnchor=21583\\.96518",
+  "Chain-loop unit owner=0 first evaluation: camera-live member #0 at loopUT=",
+  "exitmapview ok mapOpen=false",
+  "farwatch start index=0 mode=follow tree=",
+  "\\[FarWatchSafety\\] verdict=Refused reason=NOT_IN_ATMOSPHERE ",
+  "\\[FarWatch\\] start refused reason=unsafe:NOT_IN_ATMOSPHERE rec=#0",
+  "farwatch rejected reason=unsafe:NOT_IN_ATMOSPHERE",
+]
+forbidden = [
+  "phaseAnchor=43133",
+  "farwatch start complete ",
+  "\\[FarWatch\\] FarWatch transition from=\\S+ to=Spawning ",
+  "verdict=Refused reason=PathUnknown ",
+  "farwatch rejected reason=ghost-not-resolvable",
+  "far-watch-active",
+  "\\[Parsek\\]\\[WARN\\]\\[FarWatchFence\\]",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

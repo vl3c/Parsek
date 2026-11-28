@@ -1875,6 +1875,16 @@ namespace Parsek
         }
 
         internal void RequestWatchMapFocusForFarWatch() => watchMode.RequestMapFocusRestoreForFarWatch();
+        // The far watch reads the ghost at the same playback UT the watch camera and the engine
+        // use: a mission loop-unit member runs on the unit's span clock, an overlap loop on its
+        // cycle, a plain loop on its own schedule, anything else on the game UT.
+        internal double ResolveGhostPlaybackUTForFarWatch(int index, Recording rec, double currentUT)
+        {
+            GhostPlaybackState state = null;
+            if (engine != null && engine.ghostStates != null)
+                engine.ghostStates.TryGetValue(index, out state);
+            return watchMode.ResolveWatchPlaybackUT(rec, state, currentUT, index);
+        }
 
         internal bool TryGetWatchSavedCameraForFarWatch(
             out Vessel vessel, out float distance, out float pitchDegrees, out float headingDegrees)
@@ -2476,9 +2486,16 @@ namespace Parsek
                 return;
             }
 
+            // [ or ] during a far watch (design-far-watch.md 12.2): the watch ends and the camera
+            // returns to the ship, in a follow watch and a hold watch alike (stock's own vessel
+            // cycling is input-locked while the drone holds focus).
+            if (farWatch != null && farWatch.IsRunning && (leftBracket || rightBracket))
+            {
+                farWatch.OnCycleKey(leftBracket);
+            }
             // [ or ] — Exit watch mode (return to vessel)
             // Avoids Backspace which is KSP's Abort action group key
-            if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
+            else if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
             {
                 watchMode.ExitWatchMode();
             }
@@ -2653,10 +2670,144 @@ namespace Parsek
         // Forwarding methods for external callers (RecordingsTableUI, GhostVesselLoadPatch, etc.)
         internal bool HasActiveGhost(int index) => watchMode.HasActiveGhost(index);
         internal bool IsGhostWithinVisualRange(int index) => watchMode.IsGhostWithinVisualRange(index);
+
+        /// <summary>
+        /// A Watch button's range term (design-far-watch.md 12.2): inside today's 300 km watch
+        /// range, or past it where a far watch can start. While a far watch runs it is the W
+        /// decision alone (the active vessel is the drone, so today's range reads the wrong
+        /// vessel). <paramref name="farRefusal"/> is the hover reason when the far watch refuses.
+        /// </summary>
+        internal bool IsGhostWatchableAtRange(int index, out string farRefusal)
+        {
+            farRefusal = null;
+            if ((farWatch == null || !farWatch.IsRunning) && watchMode.IsGhostWithinVisualRange(index))
+                return true;
+            return CanFarWatch(index, out farRefusal);
+        }
         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
-        internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
+        /// <summary>
+        /// The W / Watch entry every button calls (design-far-watch.md 12.2): the one W decision
+        /// the button's enabled state reads (D1). A far ghost on the ship's body starts the far
+        /// watch directly, a near ghost during a far watch hands back first, a far ghost during a
+        /// settled follow moves the drone to it; a refusal during a far watch does nothing, and
+        /// everything else is today's near watch.
+        /// </summary>
+        internal void EnterWatchMode(int index)
+        {
+            if (farWatch == null)
+            {
+                watchMode.EnterWatchMode(index);
+                return;
+            }
+            string hover;
+            string recordingId;
+            FarWatchState stateBefore = farWatch.State;
+            FarWatchWatchRequest d = DecideFarWatchRequest(index, forButton: false, out hover, out recordingId);
+            ParsekLog.Info("FarWatch", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "watch request rec=#{0} decision={1} state={2}", index, d, stateBefore));
+            if (farWatch.ActOnWatchRequest(d, index, recordingId))
+                return;
+            if (d == FarWatchWatchRequest.FollowInFarWatch)
+            {
+                // A follow switch during a far watch: the drone moves to the new ghost, so the
+                // distance from the drone is not the entry distance (12.2 FollowInFarWatch).
+                EnterWatchModeForFarWatch(index);
+                return;
+            }
+            if (FarWatchDecisions.RoutesToTodaysEntry(d, stateBefore))
+            {
+                watchMode.EnterWatchMode(index);
+                return;
+            }
+            ParsekLog.Info("FarWatch", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "watch request refused rec=#{0} decision={1} state={2} reason={3}",
+                index, d, stateBefore, hover ?? "(none)"));
+        }
+
+        /// <summary>
+        /// The W decision for ghost <paramref name="index"/>, the same for the button
+        /// (<paramref name="forButton"/>: the one-second cached safety verdict) and the click.
+        /// </summary>
+        private FarWatchWatchRequest DecideFarWatchRequest(int index, bool forButton, out string hover, out string recordingId)
+        {
+            hover = null;
+            recordingId = null;
+            var committed = RecordingStore.CommittedRecordings;
+            bool inList = index >= 0 && index < committed.Count && committed[index] != null;
+            if (inList)
+                recordingId = committed[index].RecordingId;
+            bool resolvable = inList && engine != null && engine.ghostStates.ContainsKey(index);
+            bool watched = inList && watchMode.WatchedRecordingIndex == index;
+            bool sameBody = resolvable && watchMode.IsGhostOnSameBody(index);
+            double dist = resolvable ? GhostDistanceToShipForFarWatch(index) : double.NaN;
+            return farWatch.DecideWatchRequest(index, resolvable, watched, sameBody, dist,
+                forButton ? "watch-button" : "watch-request", forButton, out hover);
+        }
+
+        /// <summary>
+        /// The ghost's distance from the player ship: the engine's distance from the active
+        /// vessel while no far watch runs (the ship is active), the packed ship's position while
+        /// one runs. NaN when the ghost has no position.
+        /// </summary>
+        internal double GhostDistanceToShipForFarWatch(int index)
+        {
+            GhostPlaybackState gs;
+            if (engine == null || !engine.ghostStates.TryGetValue(index, out gs) || gs == null)
+                return double.NaN;
+            if (farWatch == null || !farWatch.IsRunning || farWatch.Ship == null)
+                return gs.lastDistance > 0 ? gs.lastDistance : double.NaN;
+            if (gs.ghost == null)
+                return double.NaN;
+            return ReadGhostShipDistanceCore(gs.ghost.transform, farWatch.Ship);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadGhostShipDistanceCore(Transform ghost, Vessel ship)
+        {
+            return ((Vector3d)ghost.position - ship.GetWorldPos3D()).magnitude;
+        }
+
+        /// <summary>Watch entry with the 300 km entry guard skipped (the drone is moved to the ghost).</summary>
+        internal void EnterWatchModeForFarWatch(int index) => watchMode.EnterWatchModeForFarWatch(index);
+
+        /// <summary>
+        /// Today's near-watch entry with no far-watch routing: the hand-back's resume (8.4) and
+        /// the seam's EnterWatchMode verb (which has the FarWatch verb beside it).
+        /// </summary>
+        internal void EnterNearWatch(int index) => watchMode.EnterWatchMode(index);
+
+        /// <summary>
+        /// Whether W on a ghost the near watch cannot take acts through the far watch, for the
+        /// Watch buttons (12.2): a far start while no far watch runs, any acting decision while
+        /// one runs. The same decision as the click (<see cref="EnterWatchMode"/>, D1);
+        /// <paramref name="reason"/> is the refusal's hover reason, or null for today's.
+        /// </summary>
+        internal bool CanFarWatch(int index, out string reason)
+        {
+            reason = null;
+            if (farWatch == null || HighLogic.LoadedScene != GameScenes.FLIGHT)
+                return false;
+            bool running = farWatch.IsRunning;
+            FarWatchWatchRequest d = DecideFarWatchRequest(index, forButton: true, out reason, out _);
+            return running ? FarWatchDecisions.IsActionable(d) : d == FarWatchWatchRequest.FarWatchDirect;
+        }
+
         internal FarWatchController FarWatch => farWatch;
+
+        /// <summary>
+        /// The far-watch clause of the watch overlay (design-far-watch.md 8.4): the return time
+        /// and why warp is held, or null when no far watch runs.
+        /// </summary>
+        internal string BuildFarWatchOverlayClause()
+        {
+            if (farWatch == null || !farWatch.IsRunning)
+                return null;
+            Vessel ship = farWatch.Ship;
+            string body = ship != null && ship.mainBody != null ? ship.mainBody.bodyName : null;
+            return FarWatchDecisions.BuildOverlayClause(Planetarium.GetUniversalTime(), farWatch.ReturnUT,
+                farWatch.WarpLimitCause, body);
+        }
 
         /// <summary>
         /// Watch mode exited while the camera drone exists: the far watch ends through its one

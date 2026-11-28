@@ -119,8 +119,11 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"farwatch start index={index.ToString(CultureInfo.InvariantCulture)} "
                 + $"mode={(args.Follow ? "follow" : "hold")} tree={treeId ?? string.Empty}");
+            // A follow start on a ghost past the near-watch range starts the far watch directly
+            // (design-far-watch.md 12.2): watch mode is entered once the drone has focus.
+            bool direct = args.Follow && !flight.IsGhostWithinVisualRange(index);
             string refusal;
-            if (!fw.TryStart(index, args.Follow, out refusal))
+            if (!fw.TryStart(index, args.Follow, direct, out refusal))
             {
                 RejectFarWatch(refusal ?? "start-refused", "index=" + index.ToString(CultureInfo.InvariantCulture));
                 return;
@@ -177,9 +180,12 @@ namespace Parsek.TestCommands
         private static List<KeyValuePair<string, string>> BuildFarWatchPayload(FarWatchController fw)
         {
             if (fw == null)
-                return TestCommandFarWatch.BuildPayload(FarWatchState.Idle, 0, 0, -1, true, FarWatchEndReason.None);
+                return TestCommandFarWatch.BuildPayload(FarWatchState.Idle, 0, 0, -1, true, FarWatchEndReason.None,
+                    double.NaN, FarWatchReturnCause.None, "none");
             return TestCommandFarWatch.BuildPayload(fw.State, CameraDroneIdentity.DronePid, CameraDroneIdentity.ShipPid,
-                fw.IsRunning ? fw.GhostIndex : -1, fw.IsFollowingGhost, fw.LastEndReason);
+                fw.IsRunning ? fw.GhostIndex : -1, fw.IsFollowingGhost, fw.LastEndReason,
+                fw.IsRunning ? fw.ReturnUT : double.NaN, fw.IsRunning ? fw.ReturnCause : FarWatchReturnCause.None,
+                fw.IsRunning ? fw.WarpLimitCause : "none");
         }
 
         private void RejectFarWatch(string reason, string detail)

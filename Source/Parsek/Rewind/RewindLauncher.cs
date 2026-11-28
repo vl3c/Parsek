@@ -265,6 +265,12 @@ namespace Parsek
 
         internal static bool CanRewindPreFileCheck(string resolvedSave, out string reason, bool isRecording)
         {
+            if (CameraDroneIdentity.Exists)
+            {
+                reason = CameraDroneIdentity.NotWhileWatchingFarText;
+                return false;
+            }
+
             if (RewindContext.IsRewinding)
             {
                 reason = "Rewind already in progress";
@@ -332,6 +338,12 @@ namespace Parsek
 
         internal static bool CanFastForwardPreRuntime(Recording rec, out string reason, bool isRecording)
         {
+            if (CameraDroneIdentity.Exists)
+            {
+                reason = CameraDroneIdentity.NotWhileWatchingFarText;
+                return false;
+            }
+
             if (RewindContext.IsRewinding)
             {
                 reason = "Rewind already in progress";

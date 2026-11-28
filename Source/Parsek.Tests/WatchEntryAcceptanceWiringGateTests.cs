@@ -161,7 +161,7 @@ namespace Parsek.Tests
             // every committed row. WatchEntryAcceptanceTests
             // .LoopScheduleIsKeyedByTheRowsOwnIndex_NotTheWatchedOne sizes the divergence; this
             // pins the wiring, which no headless cell can reach.
-            string body = MethodBody(ControllerPath, "private double ResolveWatchPlaybackUT(");
+            string body = MethodBody(ControllerPath, "internal double ResolveWatchPlaybackUT(");
 
             Assert.False(body.Contains("watchedRecordingIndex"),
                 "watch-entry-acceptance gate: ResolveWatchPlaybackUT must key its loop helpers "

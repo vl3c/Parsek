@@ -26,11 +26,15 @@ namespace Parsek.TestCommands
     /// <c>FarWatch op=start (index=&lt;n&gt; | tree=&lt;id|handle&gt;) [mode=follow|hold]</c>,
     /// <c>FarWatch op=stop</c>, <c>FarWatch op=status</c>. FLIGHT, TWO-PHASE for start and
     /// stop (120 s): start answers OK once the watch reaches Following, stop once it is back
-    /// to Idle; status answers at once. Follow moves the drone with the ghost (ship's body
-    /// only in step 2); hold keeps it beside the ship and needs no ghost camera.
+    /// to Idle; status answers at once (with the return point and the warp limit). Follow moves
+    /// the drone with the ghost (ship's body only in step 3), starting the far watch directly on
+    /// a ghost past the near-watch range; hold keeps it beside the ship and needs no ghost
+    /// camera. Every start passes the ship-safety check (design 8.2): an unsafe ship refuses
+    /// with <c>unsafe:&lt;reason&gt;</c>.
     ///
     /// While a far watch runs, the dispatcher refuses every verb that could change a vessel,
-    /// the scene or a save other than a named residual save, with <c>far-watch-active</c>
+    /// the scene or a save other than a named residual save (WarpToUT, the player's own rails
+    /// warp, passes), with <c>far-watch-active</c>
     /// (<see cref="IsAllowedDuringFarWatch"/>).
     /// </summary>
     internal static class TestCommandFarWatch
@@ -143,7 +147,9 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Pure H7 rule: while a far watch runs, only the FarWatch verb itself, the
-        /// non-mutating verbs and a SaveGame to a residual name pass.
+        /// non-mutating verbs, a SaveGame to a residual name and WarpToUT pass. WarpToUT is a
+        /// real rails warp through <c>TimeWarp.SetRate</c>, the player's own warp, so stock's
+        /// limit (read at the watched ghost, 8.4) and the return-point ceiling bound it.
         /// </summary>
         internal static bool IsAllowedDuringFarWatch(string verb, string saveName)
         {
@@ -155,6 +161,8 @@ namespace Parsek.TestCommands
                 return true;
             if (verb == "SaveGame")
                 return IsResidualSaveName(saveName);
+            if (verb == "WarpToUT")
+                return true;
             return false;
         }
 
@@ -192,8 +200,15 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The OK payload: invariant key=value pairs the harness reads.</summary>
+        /// <remarks>
+        /// <c>returnUT</c> is the far watch's return point (<c>none</c> without one, design 8.5),
+        /// <c>returnCause</c> what it is for, and <c>warpLimit</c> what holds warp below the
+        /// requested rate (<c>none</c>, <c>stock</c> at the ghost, <c>floor</c> or <c>return</c>,
+        /// the Parsek ceiling of 8.4).
+        /// </remarks>
         internal static List<KeyValuePair<string, string>> BuildPayload(FarWatchState state, uint dronePid,
-            uint shipPid, int ghostIndex, bool follow, FarWatchEndReason lastEnd)
+            uint shipPid, int ghostIndex, bool follow, FarWatchEndReason lastEnd,
+            double returnUT, FarWatchReturnCause returnCause, string warpLimit)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -204,6 +219,10 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("ghostIndex", ghostIndex.ToString(ic)),
                 new KeyValuePair<string, string>("mode", follow ? "follow" : "hold"),
                 new KeyValuePair<string, string>("lastEnd", lastEnd.ToString()),
+                new KeyValuePair<string, string>("returnUT",
+                    double.IsNaN(returnUT) || double.IsInfinity(returnUT) ? "none" : returnUT.ToString("F1", ic)),
+                new KeyValuePair<string, string>("returnCause", returnCause.ToString()),
+                new KeyValuePair<string, string>("warpLimit", string.IsNullOrEmpty(warpLimit) ? "none" : warpLimit),
             };
         }
 

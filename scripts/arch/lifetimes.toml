@@ -779,6 +779,18 @@ default = "scene"
 reason = "the far-watch award stamp, read only in the frame it was taken, so a stale one is inert; the far-watch teardown and abort and the test runner's between-run reset clear it"
 
 [[type]]
+name = "Parsek.FarWatchController"
+reason = "the far-watch state machine is an instance per flight scene; only the static below is tagged"
+[type.fields]
+setModeMethod = "process: reflection cache of stock's private TimeWarp.setMode"
+
+[[type]]
+name = "Parsek.FarWatchWarpLimitPatch"
+reason = "the warp-limit patch; only the static below is tagged"
+[type.fields]
+minPeAllowedRef = "process: field-ref cache of stock's private TimeWarp.minPeAllowed"
+
+[[type]]
 name = "Parsek.Patches.FarWatchFencePolicy"
 default = "process"
 reason = "how many career fence targets resolved when Harmony applied the patches, once per process"

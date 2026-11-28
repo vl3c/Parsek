@@ -178,7 +178,9 @@ namespace Parsek.TestCommands
                 "enterwatchmode initiated: index={0} recId={1} tree={2} auto={3}",
                 index, recId, treeArg ?? string.Empty, Bool(requestedIndex < 0)));
 
-            flight.EnterWatchMode(index);
+            // Today's near-watch entry, never the far-watch routing of the W buttons: the seam
+            // has its own FarWatch verb, and this verb's lanes (W1) pin the 300 km guard.
+            flight.EnterNearWatch(index);
 
             watchTargetIndex = index;
             watchTargetRecordingId = recId;

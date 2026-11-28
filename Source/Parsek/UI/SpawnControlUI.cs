@@ -424,12 +424,14 @@ namespace Parsek
                 // Actions: one Warp button. Live, its hover says where it jumps; greyed,
                 // DisabledHoverEcho carries the Status reason (a disabled button's own
                 // tooltip is not proven to publish).
-                GUI.enabled = row.WarpButtonEnabled;
+                bool farWatchBlock = CameraDroneIdentity.Exists;
+                bool rowWarpEnabled = row.WarpButtonEnabled && !farWatchBlock;
+                GUI.enabled = rowWarpEnabled;
                 bool warpClicked = GUILayout.Button(
                     new GUIContent(row.WarpButtonLabel, row.WarpButtonHover),
                     GUILayout.Width(SpawnColW_Actions));
-                DisabledHoverEcho.CarryLastControl(
-                    row.WarpButtonEnabled, row.WarpButtonDisabledReason);
+                DisabledHoverEcho.CarryLastControl(rowWarpEnabled,
+                    farWatchBlock ? CameraDroneIdentity.NotWhileWatchingFarText : row.WarpButtonDisabledReason);
                 if (warpClicked)
                     ExecuteRowWarp(cand, row, flight);
                 GUI.enabled = true;
@@ -613,8 +615,9 @@ namespace Parsek
             tooltipEcho.Draw(bottomBarEcho);
 
             GUILayout.BeginHorizontal();
-            GUI.enabled = next != null;
-            if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip),
+            GUI.enabled = next != null && !CameraDroneIdentity.Exists;
+            if (GUILayout.Button(new GUIContent("Warp to Next Spawn",
+                    CameraDroneIdentity.Exists ? CameraDroneIdentity.NotWhileWatchingFarText : tooltip),
                 GUILayout.ExpandWidth(true)))
             {
                 ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");

@@ -81,6 +81,23 @@ namespace Parsek
                     includeRenderDistance: orbitTailPlayback);
                 bool cachedCutoffTripped =
                     WatchModeController.ShouldExitWatchForDistance(watchCutoffDistance);
+                if (farWatch != null && FarWatchDecisions.SuppressNearWatchCutoff(farWatch.State))
+                {
+                    // A far watch owns this ghost (design-far-watch.md 8.4): the distance read here
+                    // is the drone's or the parked ship's, not a near-watch distance.
+                    if (cachedCutoffTripped)
+                        ParsekLog.VerboseRateLimited("Zone", "watch-cutoff-far-watch",
+                            $"Ghost #{recIdx} cutoff suppressed: far watch state={farWatch.State}", 5.0);
+                    cachedCutoffTripped = false;
+                }
+                else if (farWatch != null
+                    && activeVesselDistance >= FarWatchDecisions.TakeoverDistanceMeters)
+                {
+                    farWatch.CheckTakeover(recIdx, rec.RecordingId, activeVesselDistance,
+                        watchMode.IsGhostOnSameBody(recIdx));
+                    if (FarWatchDecisions.SuppressNearWatchCutoff(farWatch.State))
+                        cachedCutoffTripped = false;
+                }
                 cutoffTriggered = watchMode.RegisterWatchCutoffSampleAndShouldExit(cachedCutoffTripped);
                 if (cachedCutoffTripped && !cutoffTriggered)
                 {
@@ -134,6 +151,7 @@ namespace Parsek
                         $"render={renderDistance.ToString("F0", CultureInfo.InvariantCulture)}m) " +
                         $"after {WatchModeController.WatchExitCutoffDebounceFrames}-frame debounce — exiting watch mode" +
                         (string.IsNullOrEmpty(cutoffContext) ? string.Empty : " | " + cutoffContext));
+                    farWatch?.OnNearWatchSnapBack(rec.RecordingId);
                     ExitWatchModePreservingLineage();
                     // Don't return — let zone rendering continue (ghost will be hidden if Beyond)
                 }

@@ -771,6 +771,10 @@ the harness has no verb for an ascent there. Built and drift-gated by
 `harness/lib/test_gs1_armed_chute_drop.py`; no `AddOns/` and no `Ships/VAB` overlay (the
 lane launches nothing). Host of `ASR-8-armed-chute-stage-falls-drag-free`.
 
+## kerbin-splashdown-pod-in-air / kerbin-splashdown-pod-suborbital (GAME Mode = SANDBOX, derived from kerbin-splashdown-recorded)
+
+`kerbin-splashdown-recorded` byte for byte (every recording sidecar, the ParsekScenario node with the looped Kerbal X tree, `AddOns/`), except the save clock and the B4 capsule (`#autoLOC_501232`, mk1-3pod with Jebediah, parachute CUT). The clock (FLIGHTSTATE `UT`, the loadmeta `UT`, the capsule's `lastUT` and ORBIT `EPH`) moves to UT 21560, 24 s before the looped mission's anchor 21583.965183089826, so a `MissionConfig loop=true` sent first keeps that anchor and the chain members play with no `StartLoopPlayback` jump. `-pod-in-air`: the capsule lifted to 25 km straight above its landing spot at rest relative to the air (`sit = FLYING`; LAN turned with Kerbin so the apoapsis stays over the spot). `-pod-suborbital`: the capsule on an equatorial prograde arc, periapsis 60 km, apoapsis 106.4 km, through 71 km (h_safe) at UT 22490, its periapsis on the far side of Kerbin from the coast ghost (`sit = SUB_ORBITAL`, `lat` / `lon` / `alt` its place at UT 21560). Built and drift-gated by `harness/tools/build_far_watch_pod_fixtures.py` (`--check`) and `harness/lib/test_far_watch_pod_fixtures.py`, which re-derives the timeline and the ghost separation from the committed elements and the recording's points. Hosts of `FW-3-far-watch-refused-in-air` and `FW-4-far-watch-forced-return`.
+
 ## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
 
 `logi-cargo-pad`'s save plus a clone of `rover-route-recorded`'s `rover fuel 0` (a real

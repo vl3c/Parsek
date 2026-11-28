@@ -333,6 +333,7 @@ namespace Parsek.Tests
         [InlineData("SaveGame", null, false)]
         [InlineData("LoadGame", "fw1-probe", false)]
         [InlineData("TimeJump", null, false)]
+        [InlineData("WarpToUT", null, true)]
         [InlineData("EnterWatchMode", null, false)]
         [InlineData(null, null, false)]
         public void AllowedDuringFarWatch(string verb, string save, bool allowed)
@@ -366,8 +367,9 @@ namespace Parsek.Tests
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
                 var p = TestCommandFarWatch.BuildPayload(FarWatchState.Following, 4242u, 77u, 5, false,
-                    FarWatchEndReason.None);
-                Assert.Equal("state=Following dronePid=4242 shipPid=77 ghostIndex=5 mode=hold lastEnd=None",
+                    FarWatchEndReason.None, 1234.56, FarWatchReturnCause.Danger, "return");
+                Assert.Equal("state=Following dronePid=4242 shipPid=77 ghostIndex=5 mode=hold lastEnd=None"
+                    + " returnUT=1234.6 returnCause=Danger warpLimit=return",
                     TestCommandFarWatch.FormatPayload(p));
                 Assert.Equal("far-watch-ended:ShipLost", TestCommandFarWatch.EndedReason(FarWatchEndReason.ShipLost));
             }
