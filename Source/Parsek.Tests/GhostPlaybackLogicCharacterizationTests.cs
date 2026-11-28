@@ -231,26 +231,32 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "empty" }, 10.0));
         }
 
-        // ---------- SumEnginePower ----------------------------------------------
+        // ---------- HasLaunchDustDemand -----------------------------------------
 
         [Fact]
-        public void SumEnginePower_SumsOnlyPositivePower()
+        public void HasLaunchDustDemand_CountsOnlyLitEnginesWithASurfaceEffect()
         {
-            Assert.Equal(0f, GhostPlaybackLogic.SumEnginePower(null));
-            Assert.Equal(0f, GhostPlaybackLogic.SumEnginePower(new GhostPlaybackState()));
+            Assert.False(GhostPlaybackLogic.HasLaunchDustDemand(null, out float none));
+            Assert.Equal(0f, none);
+            Assert.False(GhostPlaybackLogic.HasLaunchDustDemand(new GhostPlaybackState(), out _));
 
             var state = new GhostPlaybackState
             {
                 engineInfos = new Dictionary<ulong, EngineGhostInfo>
                 {
                     [1] = new EngineGhostInfo { currentPower = 0.5f },
-                    [2] = new EngineGhostInfo { currentPower = 0f },
-                    [3] = new EngineGhostInfo { currentPower = -2f },
+                    [2] = new EngineGhostInfo { currentPower = 0f, surfaceFx = new GhostSurfaceFxSource { maxDistance = 90f } },
+                    [3] = new EngineGhostInfo { currentPower = -2f, surfaceFx = new GhostSurfaceFxSource { maxDistance = 80f } },
                     [4] = null,
-                    [5] = new EngineGhostInfo { currentPower = 0.25f },
                 }
             };
-            Assert.Equal(0.75f, GhostPlaybackLogic.SumEnginePower(state));
+            Assert.False(GhostPlaybackLogic.HasLaunchDustDemand(state, out float reach));
+            Assert.Equal(0f, reach);
+
+            state.engineInfos[5] = new EngineGhostInfo { currentPower = 0.25f, surfaceFx = new GhostSurfaceFxSource { maxDistance = 30f } };
+            state.engineInfos[6] = new EngineGhostInfo { currentPower = 1f, surfaceFx = new GhostSurfaceFxSource { maxDistance = 45f } };
+            Assert.True(GhostPlaybackLogic.HasLaunchDustDemand(state, out reach));
+            Assert.Equal(45f, reach);
         }
 
         // ---------- NormalizeOneShotDurationSeconds -----------------------------

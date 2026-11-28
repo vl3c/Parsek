@@ -226,8 +226,9 @@ CONTROL_IDS_MOTION_AIR: Tuple[str, ...] = (
 # OptionalControlIds: no subject on the install records ``n/a`` (ControlsNotApplicable),
 # never ``bad``.
 OPTIONAL_CONTROL_IDS: Tuple[str, ...] = ("ctl-plate-light-off-point",)
-# KnownDifferenceControlIds: ``n/a`` while a known ghost difference stands (G.4, G.8 item 3).
-KNOWN_DIFFERENCE_CONTROL_IDS: Tuple[str, ...] = ("ctl-dust-above-reach",)
+# KnownDifferenceControlIds: ``n/a`` while a known ghost difference stands (G.4). Empty since
+# fix Y3 judges ctl-dust-above-reach (G.8 item 3).
+KNOWN_DIFFERENCE_CONTROL_IDS: Tuple[str, ...] = ()
 ALL_CONTROL_IDS: Tuple[str, ...] = (
     CONTROL_IDS_ORBIT_STATE + (CONTROL_STATE_EVENTS_DROPPED_AIR,)
     + CONTROL_IDS_FX_ORBIT[2:] + CONTROL_IDS_FX_AIR[2:]
@@ -743,7 +744,7 @@ BUILT_EXCLUSION_REASONS: Tuple[str, ...] = (
 # The controls (G.4).
 BURST_CONTROL_PARTS: Tuple[str, ...] = ("fuelTank", "fuelTankSmallFlat")
 DUST_CONTROL_PARTS: Tuple[str, ...] = ("liquidEngine2.v2",)
-DUST_ABOVE_REACH_GHOST_JUDGED = False
+DUST_ABOVE_REACH_GHOST_JUDGED = True
 BURST_LATE_CONTROL_S = 0.5
 BURST_SHIFT_CONTROL_M = 3.0
 BURST_POWER_CONTROL_INDEX_STEP = 1

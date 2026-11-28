@@ -436,9 +436,10 @@ namespace Parsek.TestCommands
         internal static readonly string[] OptionalControlIds = { ControlPlateLightOffPoint };
 
         /// <summary>The controls that record <c>n/a</c> while a known ghost difference stands
-        /// (design G.4): <c>ctl-dust-above-reach</c> until fix Y3 (G.8 item 3,
-        /// <see cref="PartParityFxRules.DustAboveReachGhostJudged"/>).</summary>
-        internal static readonly string[] KnownDifferenceControlIds = { ControlDustAboveReach };
+        /// (design G.4). Empty: <c>ctl-dust-above-reach</c> was one until fix Y3 (G.8 item 3)
+        /// gave the ghost stock's reach, and is judged now
+        /// (<see cref="PartParityFxRules.DustAboveReachGhostJudged"/>).</summary>
+        internal static readonly string[] KnownDifferenceControlIds = { };
 
         /// <summary>Every control id any run may plan.</summary>
         internal static readonly string[] AllControlIds =

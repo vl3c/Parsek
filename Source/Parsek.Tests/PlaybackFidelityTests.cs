@@ -512,138 +512,290 @@ namespace Parsek.Tests
 
         // --------------------------------------------------------------- S3: launch dust
 
-        private static List<TrajectoryPoint> Points(params (double alt, double clearance)[] rows)
+        [Fact]
+        public void DustSurface_StockTagsDecideThePadAndTheWheelPiston()
         {
-            var list = new List<TrajectoryPoint>();
-            foreach (var row in rows)
+            // Decompiled ModuleSurfaceFX.Update: LaunchpadFX wins over everything, a wheel piston
+            // is nothing, any other collider is terrain.
+            Assert.Equal(LaunchDustSurface.Launchpad, GhostPlaybackLogic.ClassifyLaunchDustHit(true, false));
+            Assert.Equal(LaunchDustSurface.Launchpad, GhostPlaybackLogic.ClassifyLaunchDustHit(true, true));
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifyLaunchDustHit(false, true));
+            Assert.Equal(LaunchDustSurface.Terrain, GhostPlaybackLogic.ClassifyLaunchDustHit(false, false));
+            Assert.Equal("LaunchpadFX", GhostPlaybackLogic.LaunchpadFxTag);
+            Assert.Equal("Wheel_Piston_Collider", GhostPlaybackLogic.WheelPistonColliderTag);
+        }
+
+        [Fact]
+        public void DustSurface_OnlyTerrainAndWaterRaiseDust()
+        {
+            Assert.True(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Terrain));
+            Assert.True(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Water));
+            Assert.False(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.Launchpad));
+            Assert.False(GhostPlaybackLogic.LaunchDustSurfaceRaisesDust(LaunchDustSurface.None));
+        }
+
+        [Fact]
+        public void DustSurfaceFx_DefaultsAndMaskAreStocks()
+        {
+            // Decompiled ModuleSurfaceFX constructor and Update's raycast.
+            Assert.Equal(1f, GhostPlaybackLogic.SurfaceFxDefaultFxMax);
+            Assert.Equal(50f, GhostPlaybackLogic.SurfaceFxDefaultMaxDistance);
+            Assert.Equal(2f, GhostPlaybackLogic.SurfaceFxDefaultFalloff);
+            Assert.Equal(0x40008000, GhostPlaybackLogic.LaunchDustSurfaceLayerMask);
+            var src = new GhostSurfaceFxSource();
+            Assert.Equal(GhostPlaybackLogic.SurfaceFxDefaultFxMax, src.fxMax);
+            Assert.Equal(GhostPlaybackLogic.SurfaceFxDefaultMaxDistance, src.maxDistance);
+            Assert.Equal(GhostPlaybackLogic.SurfaceFxDefaultFalloff, src.falloff);
+        }
+
+        [Fact]
+        public void DustThrustScale_IsThrottleTimesThrustShareTimesFxMax()
+        {
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(1f, false, 0.3f, 1f), 5);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(0.5f, false, 1f, 1f), 5);
+            // The thrust share in the ghost's air counts only when the engine tracks one.
+            AssertClose(0.39f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(0.5f, true, 0.78f, 1f), 5);
+            AssertClose(0.8f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(1f, false, 1f, 0.8f), 5);
+            // Out of range inputs clamp; nothing lit or a non-positive fxMax is nothing.
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(3f, true, 2f, 1f), 5);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(0f, false, 1f, 1f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(-1f, false, 1f, 1f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(float.NaN, false, 1f, 1f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(1f, false, 1f, 0f));
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxThrustScale(1f, true, float.NaN, 1f), 5);
+        }
+
+        [Fact]
+        public void DustRay_AHitAboveTheDatumIsClassifiedByItsTagsAtItsOwnDistance()
+        {
+            Assert.Equal(LaunchDustSurface.Terrain, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                true, 70.0, 12f, false, false, true, 85.0, 1f, 30f, out float d));
+            Assert.Equal(12f, d);
+            // From the pad stock's ray meets the PadFXReceiver box first: the pad, no dust.
+            Assert.Equal(LaunchDustSurface.Launchpad, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                true, 70.0, 3f, true, false, true, 75.0, 1f, 30f, out d));
+            Assert.Equal(3f, d);
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                true, 70.0, 3f, false, true, true, 75.0, 1f, 30f, out _));
+            // No ocean: no hit is nothing.
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                false, double.NaN, float.NaN, false, false, false, 10.0, 1f, 30f, out d));
+            Assert.True(float.IsNaN(d));
+        }
+
+        [Fact]
+        public void DustRay_OverTheSea_TheWaterPointIsAltitudeOverCosAlongTheAxis()
+        {
+            // Engine 15 m over the sea, axis 60 deg off straight down: 30 m to the surface.
+            Assert.Equal(LaunchDustSurface.Water, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                false, double.NaN, float.NaN, false, false, true, 15.0, 0.5f, 50f, out float d));
+            AssertClose(30f, d, 4);
+            // A hit below the datum (the sea bed) also falls to the water branch.
+            Assert.Equal(LaunchDustSurface.Water, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                true, -40.0, 20f, false, false, true, 15.0, 1f, 50f, out d));
+            AssertClose(15f, d, 4);
+            // Pointing up, higher than the reach, or at / under the surface: nothing.
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                false, double.NaN, float.NaN, false, false, true, 15.0, -0.5f, 50f, out _));
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                false, double.NaN, float.NaN, false, false, true, 60.0, 1f, 50f, out _));
+            Assert.Equal(LaunchDustSurface.None, GhostPlaybackLogic.ClassifySurfaceFxRay(
+                true, 1.0, 1f, false, false, true, 0.0, 1f, 50f, out _));
+        }
+
+        [Fact]
+        public void DustScaled_IsStocksFalloffAndNothingPastTheReach()
+        {
+            // LV-T45: maxDistance 30, falloff 1.7.
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, 0f, 30f, 1.7f), 5);
+            AssertClose(Math.Pow(0.5, 1.7), GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, 15f, 30f, 1.7f), 5);
+            AssertClose(0.5 * Math.Pow(0.9, 2.0), GhostPlaybackLogic.ComputeSurfaceFxScaled(0.5f, 5f, 50f, 2f), 5);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, 30f, 30f, 1.7f));
+            // Stock's water branch can pass a slant distance past the reach; no dust there.
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, 45f, 30f, 2f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxScaled(0f, 1f, 30f, 2f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, float.NaN, 30f, 2f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, 1f, 0f, 2f));
+            // Closer is stronger, monotonically.
+            float last = 2f;
+            for (int i = 0; i < 30; i++)
             {
-                list.Add(new TrajectoryPoint
-                {
-                    altitude = row.alt,
-                    recordedGroundClearance = row.clearance
-                });
+                float v = GhostPlaybackLogic.ComputeSurfaceFxScaled(1f, i, 30f, 1.7f);
+                Assert.True(v < last, $"d={i}: {v} !< {last}");
+                last = v;
             }
-            return list;
         }
 
         [Fact]
-        public void DustGroundLatch_TakesTheFirstPointCarryingAFiniteClearance()
+        public void DustFlow_IsTheEngineToHitLineOnTheSurfaceTimesTheThrustShare()
         {
-            Assert.True(GhostPlaybackLogic.TryLatchLaunchDustGroundReference(
-                Points((100.0, double.NaN), (105.0, 5.0), (400.0, double.NaN)),
-                out double groundRef));
-            AssertClose(100.0, groundRef, 4);
+            // Straight down onto flat ground: no sideways push.
+            Assert.Equal(Vector3.zero, GhostPlaybackLogic.ComputeSurfaceFxFlow(
+                Vector3.zero, new Vector3(0f, 10f, 0f), Vector3.up, 1f));
+            // Slanted: the horizontal part of the line, unit length, times the share.
+            Vector3 f = GhostPlaybackLogic.ComputeSurfaceFxFlow(
+                new Vector3(4f, 0f, 0f), new Vector3(0f, 10f, 0f), Vector3.up, 0.5f);
+            Assert.True(Vector3.Distance(new Vector3(0.5f, 0f, 0f), f) < 1e-5f, $"got {f}");
+            Assert.Equal(Vector3.zero, GhostPlaybackLogic.ComputeSurfaceFxFlow(
+                new Vector3(4f, 0f, 0f), Vector3.zero, Vector3.zero, 1f));
         }
 
         [Fact]
-        public void DustGroundLatch_NoClearanceAnywhereMeansNoDustEver()
+        public void DustProbe_OnlyBelowTheHighestTerrainPlusTheReach()
         {
-            // The honest degradation: an orbital recording carries no recordedGroundClearance, and
-            // inventing a reference would put a dust cloud around a ghost in space.
-            Assert.False(GhostPlaybackLogic.TryLatchLaunchDustGroundReference(
-                Points((80000.0, double.NaN), (81000.0, double.NaN)), out double groundRef));
-            Assert.True(double.IsNaN(groundRef));
+            Assert.True(GhostPlaybackLogic.ShouldProbeLaunchDust(70.0, 30f));
+            Assert.True(GhostPlaybackLogic.ShouldProbeLaunchDust(GhostPlaybackLogic.LaunchDustProbeCeilingMeters + 30.0, 30f));
+            Assert.False(GhostPlaybackLogic.ShouldProbeLaunchDust(GhostPlaybackLogic.LaunchDustProbeCeilingMeters + 31.0, 30f));
+            Assert.False(GhostPlaybackLogic.ShouldProbeLaunchDust(80000.0, 50f));
+            Assert.False(GhostPlaybackLogic.ShouldProbeLaunchDust(double.NaN, 50f));
+            Assert.True(GhostPlaybackLogic.ShouldProbeLaunchDust(-20.0, float.NaN));
         }
 
         [Fact]
-        public void DustGroundLatch_EmptyOrNullInputDeclines()
+        public void DustEngineOrdinal_CountsOnlyEngineModulesBeforeTheIndex()
         {
-            Assert.False(GhostPlaybackLogic.TryLatchLaunchDustGroundReference(null, out _));
-            Assert.False(GhostPlaybackLogic.TryLatchLaunchDustGroundReference(
-                new List<TrajectoryPoint>(), out _));
+            // Modules: [0] decoupler, [1] engine, [2] gimbal, [3] engine, [4] surface fx.
+            var isEngine = new[] { false, true, false, true, false };
+            Assert.Equal(0, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(1, isEngine));
+            Assert.Equal(1, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(3, isEngine));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(2, isEngine));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(-1, isEngine));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(5, isEngine));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveSurfaceFxEngineOrdinal(0, null));
         }
 
         [Fact]
-        public void DustIntensity_NoEnginePowerIsTheFirstGate()
+        public void DustAggregate_OneSourceIsThatSourceAndSeveralTheirWeightedMean()
         {
-            Assert.False(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                0f, 100.0, 100.0, out float intensity));
-            Assert.Equal(0f, intensity);
+            var none = new LaunchDustAggregate();
+            Assert.False(none.TryResolve(out _, out _, out _));
+            Assert.Equal(0f, none.FxScale);
+
+            var one = new LaunchDustAggregate();
+            one.Add(new Vector3(1f, 2f, 3f), Vector3.up, new Vector3(0.2f, 0f, 0f), 0.4f);
+            Assert.True(one.TryResolve(out Vector3 p, out Vector3 n, out Vector3 push));
+            Assert.Equal(new Vector3(1f, 2f, 3f), p);
+            Assert.Equal(Vector3.up, n);
+            // One source: stock uses its push as it is (no pushScale).
+            Assert.Equal(new Vector3(0.2f, 0f, 0f), push);
+            AssertClose(0.4f, one.FxScale, 5);
+
+            var two = new LaunchDustAggregate();
+            two.Add(new Vector3(0f, 0f, 0f), Vector3.up, new Vector3(1f, 0f, 0f), 0.75f);
+            two.Add(new Vector3(4f, 0f, 0f), Vector3.up, new Vector3(-1f, 0f, 0f), 0.25f);
+            Assert.True(two.TryResolve(out p, out n, out push));
+            Assert.True(Vector3.Distance(new Vector3(1f, 0f, 0f), p) < 1e-5f, $"got {p}");
+            Assert.True(Vector3.Distance(Vector3.up, n) < 1e-5f, $"got {n}");
+            Assert.True(Vector3.Distance(new Vector3(0.5f * LaunchDustAggregate.PushScale, 0f, 0f), push) < 1e-5f,
+                $"got {push}");
+            AssertClose(1f, two.FxScale, 5);
+            Assert.Equal(5f, LaunchDustAggregate.PushScale);
+
+            // The strength clamps at 1, as stock's Clamp01 of the sum.
+            two.Add(Vector3.zero, Vector3.up, Vector3.zero, 0.9f);
+            Assert.Equal(1f, two.FxScale);
         }
 
         [Fact]
-        public void DustIntensity_UnlatchedGroundReferenceIsTheSecondGate()
+        public void DustAggregate_AllZeroWeightsKeepTheLeadsPlace()
         {
-            Assert.False(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, 100.0, double.NaN, out _));
+            var agg = new LaunchDustAggregate();
+            agg.Add(new Vector3(7f, 0f, 0f), Vector3.up, Vector3.one, 0f);
+            agg.Add(new Vector3(9f, 0f, 0f), Vector3.up, Vector3.one, float.NaN);
+            Assert.True(agg.TryResolve(out Vector3 p, out _, out Vector3 push));
+            Assert.Equal(new Vector3(7f, 0f, 0f), p);
+            Assert.Equal(Vector3.zero, push);
+            Assert.Equal(0f, agg.FxScale);
         }
 
         [Fact]
-        public void DustIntensity_FadesOutWithHeightAboveGroundAndStopsAtTheCeiling()
+        public void DustAlpha_IsStocksLerpToHalfAndTheEmissionIsLeftAlone()
         {
-            const double ground = 70.0;
-            Assert.True(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground, ground, out float onDeck));
-            Assert.True(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground + GhostPlaybackLogic.LaunchDustMaxAglMeters / 2.0, ground, out float halfway));
-
-            AssertClose(1f, onDeck, 3);
-            AssertClose(0.5f, halfway, 3);
-            Assert.True(halfway < onDeck);
-
-            Assert.False(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground + GhostPlaybackLogic.LaunchDustMaxAglMeters, ground, out _));
-            Assert.False(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground + 5000.0, ground, out _));
+            // SurfaceFX.LateUpdate: startColor alpha = Lerp(0, 0.5, fxScale), nothing else scales.
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(0f));
+            AssertClose(0.25f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(0.5f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(1f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(4f), 6);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(-1f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxAlpha(float.NaN));
+            Assert.Equal(0.5f, GhostPlaybackLogic.SurfaceFxAlphaMax);
         }
 
         [Fact]
-        public void DustIntensity_ScalesWithThrottleAtTheSameHeight()
+        public void DustPushWeight_IsTheSquareRootOfTheLifeLeft()
         {
-            const double ground = 70.0;
-            GhostPlaybackLogic.TryComputeLaunchDustIntensity(0.25f, ground, ground, out float quarter);
-            GhostPlaybackLogic.TryComputeLaunchDustIntensity(1f, ground, ground, out float full);
-            Assert.True(quarter < full, $"expected {quarter} < {full}");
+            // SurfaceFX.UpdateParticle: Pow(remaining / startLifetime, pushThreshold 0.5).
+            Assert.Equal(0.5f, GhostPlaybackLogic.SurfaceFxPushThreshold);
+            AssertClose(1f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(4f, 4f), 6);
+            AssertClose(0.5f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, 4f), 6);
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(0f, 4f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, 0f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(float.NaN, 4f));
+            Assert.Equal(0f, GhostPlaybackLogic.ComputeSurfaceFxPushWeight(1f, float.NaN));
         }
 
         [Fact]
-        public void DustIntensity_TolerantOfSmallNegativeAglButNotOfAWrongReference()
+        public void DustForward_LooksAlongThePushOnTheSurfaceAndElseAnySurfaceAxis()
         {
-            const double ground = 70.0;
-            // Terrain-model disagreement between record and playback, not a ghost underground.
-            Assert.True(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground - 5.0, ground, out float slightlyBelow));
-            AssertClose(1f, slightlyBelow, 3);
-
-            // A reference belonging to somewhere else entirely.
-            Assert.False(GhostPlaybackLogic.TryComputeLaunchDustIntensity(
-                1f, ground - 900.0, ground, out _));
-        }
-
-        [Fact]
-        public void DustGroundPoint_SitsOnTheGroundStraightBelowTheGhost()
-        {
-            // A ghost 12 m above its launch ground, on a body whose up here is not world up.
-            var ghost = new Vector3(100f, 200f, 300f);
             var up = new Vector3(0f, 0.6f, 0.8f);
-            Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, up, 82.0, 70.0);
-            Vector3 expected = ghost - up * (12f - GhostPlaybackLogic.LaunchDustGroundLiftMeters);
-            Assert.True(Vector3.Distance(expected, p) < 1e-3f, $"got {p}, expected {expected}");
-            // Only along the normal: no sideways drift off the spot under the ghost.
-            Vector3 d = p - ghost;
-            Assert.True(Vector3.Cross(d, up).magnitude < 1e-3f, $"offset {d} is not along {up}");
-        }
-
-        [Fact]
-        public void DustGroundPoint_OnTheGroundOrBadInput_StaysAtTheGhostLifted()
-        {
-            var ghost = new Vector3(5f, 6f, 7f);
-            Vector3 up = Vector3.up;
-            Vector3 lifted = ghost + up * GhostPlaybackLogic.LaunchDustGroundLiftMeters;
-            foreach (double alt in new[] { 70.0, 65.0, double.NaN, double.PositiveInfinity })
+            Vector3 f = GhostPlaybackLogic.ResolveSurfaceFxForward(new Vector3(2f, 0f, 0f), up);
+            Assert.True(Vector3.Distance(Vector3.right, f) < 1e-5f, $"got {f}");
+            // A push with a part along the normal: only its surface part counts.
+            f = GhostPlaybackLogic.ResolveSurfaceFxForward(new Vector3(1f, 0f, 0f) + up * 3f, up);
+            Assert.True(Vector3.Distance(Vector3.right, f) < 1e-5f, $"got {f}");
+            // No push (a nozzle straight over flat ground) or one along the normal: some unit axis
+            // on the surface, never zero, so LookRotation always has a forward.
+            foreach (Vector3 push in new[] { Vector3.zero, up * 2f })
             {
-                Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, up, alt, 70.0);
-                Assert.True(Vector3.Distance(lifted, p) < 1e-4f, $"alt={alt}: got {p}");
+                foreach (Vector3 n in new[] { up, Vector3.up, Vector3.right, Vector3.zero })
+                {
+                    Vector3 g = GhostPlaybackLogic.ResolveSurfaceFxForward(push, n);
+                    Vector3 nn = n.sqrMagnitude > 0f ? n.normalized : Vector3.up;
+                    AssertClose(1f, g.magnitude, 4);
+                    Assert.True(Math.Abs(Vector3.Dot(g, nn)) < 1e-4f, $"push={push} n={n}: {g}");
+                }
             }
         }
 
         [Fact]
-        public void DustGroundPoint_NeverReachesBelowTheDustCeiling()
+        public void DustLogSignature_ChangesOnSurfaceColliderOrTenthOnly()
         {
-            var ghost = Vector3.zero;
-            Vector3 p = GhostPlaybackLogic.ComputeLaunchDustGroundPoint(ghost, Vector3.up, 5000.0, 70.0);
-            AssertClose(GhostPlaybackLogic.LaunchDustGroundLiftMeters - GhostPlaybackLogic.LaunchDustMaxAglMeters,
-                p.y, 3);
+            int a = GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 42, 0.51f, 0f);
+            Assert.Equal(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 42, 0.59f, 0f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 42, 0.61f, 0f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(5, 42, 0.51f, 0f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 43, 0.51f, 0f));
+            Assert.NotEqual(a, GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 42, 0.51f, 0.3f));
+            // Out-of-range strengths clamp into the end tenths instead of inventing new keys.
+            Assert.Equal(GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 1, 1f, 0f),
+                GhostPlaybackLogic.ComputeLaunchDustLogSignature(1, 1, 7f, 0f));
+            Assert.NotEqual(int.MinValue, GhostPlaybackLogic.ComputeLaunchDustLogSignature(0, 0, 0f, 0f));
+        }
+
+        [Fact]
+        public void DustLogKind_IgnoresStrengthAndColliderButNotSurfacePadOrSkip()
+        {
+            int terrain = GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 0, null);
+            Assert.Equal(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 0, null));
+            Assert.NotEqual(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(2, 0, null));
+            Assert.NotEqual(terrain, GhostPlaybackLogic.ComputeLaunchDustLogKind(1, 3, null));
+            // Two pad hits read as one kind: the count is strength, not kind.
+            Assert.Equal(GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 1, null),
+                GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 2, null));
+            int none = GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, null);
+            Assert.NotEqual(none, GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "above every surface"));
+            Assert.NotEqual(GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "no lit engine"),
+                GhostPlaybackLogic.ComputeLaunchDustLogKind(0, 0, "above every surface"));
+        }
+
+        [Fact]
+        public void WaterSpray_OnlyWhereTheGroundUnderThePointIsSea()
+        {
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(0.0));
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(-12.0));
+            Assert.True(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(double.NaN));
+            Assert.False(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(0.5));
+            Assert.False(GhostPlaybackLogic.IsSeaUnderWaterSprayPoint(70.0));
         }
 
         // ------------------------------------------------ S3: warp-gap decay of a smoothed rate
